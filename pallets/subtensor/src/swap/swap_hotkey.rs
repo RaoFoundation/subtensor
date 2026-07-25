@@ -1,3 +1,16 @@
+//! Hotkey identity swap: rename a hotkey SS58 on one subnet or across all subnets.
+//!
+//! Entry points:
+//! - [`Pallet::do_swap_hotkey`] — signed path (fee, cooldown, ownership checks)
+//! - [`Pallet::perform_hotkey_swap_on_all_subnets`] / [`Pallet::perform_hotkey_swap_on_one_subnet`]
+//!   — mutation cores used by the signed path and by tests/migrations
+//!
+//! `keep_stake=true` leaves alpha on the old hotkey and only moves UID/membership
+//! metadata (blocked when miner collateral is standing). Stake-moving paths scan
+//! V1/V2 alpha once into [`HotkeySwapStakeSnapshot`] before mutating storage.
+//!
+//! Not the AMM pallet (`pallets/swap`); see the parent [`crate::swap`] module docs.
+
 use super::*;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
@@ -6,15 +19,22 @@ use sp_core::Get;
 use sp_std::collections::btree_map::BTreeMap;
 use subtensor_runtime_common::{MechId, NetUid, Token};
 
-struct PreparedHotkeyStake<AccountId> {
+/// Preflight snapshot of one hotkey's alpha positions, grouped by netuid.
+///
+/// Built once before stake-moving swaps so per-subnet mutation reuses the scan
+/// instead of re-iterating V1/V2 prefixes. V2 wins when both rows exist for the
+/// same (coldkey, netuid).
+struct HotkeySwapStakeSnapshot<AccountId> {
     positions: Vec<(AccountId, NetUid, SafeFloat)>,
     coldkeys_by_netuid: BTreeMap<NetUid, Vec<AccountId>>,
 }
 
 impl<T: Config> Pallet<T> {
-    /// Use the generated all-subnet stake-moving benchmark for every v2 path
-    /// that scans and moves stake. Preserve the previous lightweight weight for
-    /// the single-subnet `keep_stake` path, which does not scan stake prefixes.
+    /// Pre-dispatch weight for `swap_hotkey` / `swap_hotkey_v2`.
+    ///
+    /// Stake-moving and all-subnet paths use the generated `swap_hotkey` benchmark.
+    /// The single-subnet `keep_stake` path keeps a lighter fixed weight (no stake
+    /// prefix scan) with lineage DB ops accounted in.
     pub fn swap_hotkey_v2_dispatch_weight(netuid: &Option<NetUid>, keep_stake: bool) -> Weight {
         if netuid.is_none() || !keep_stake {
             <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey()
@@ -27,9 +47,12 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
-    /// existing precedence over a duplicate legacy row.
-    fn prepare_hotkey_stake(old_hotkey: &T::AccountId) -> PreparedHotkeyStake<T::AccountId> {
+    /// Scan V1/V2 alpha for `old_hotkey` once into a [`HotkeySwapStakeSnapshot`].
+    ///
+    /// V2 keeps precedence over a duplicate legacy V1 row for the same position.
+    fn prepare_hotkey_swap_stake_snapshot(
+        old_hotkey: &T::AccountId,
+    ) -> HotkeySwapStakeSnapshot<T::AccountId> {
         let positions: Vec<(T::AccountId, NetUid, SafeFloat)> =
             Self::alpha_iter_single_prefix(old_hotkey).collect();
         let mut coldkeys_by_netuid: BTreeMap<NetUid, Vec<T::AccountId>> = BTreeMap::new();
@@ -41,34 +64,23 @@ impl<T: Config> Pallet<T> {
                 .push(coldkey.clone());
         }
 
-        PreparedHotkeyStake {
+        HotkeySwapStakeSnapshot {
             positions,
             coldkeys_by_netuid,
         }
     }
 
-    /// Swaps the hotkey of a coldkey account.
+    /// Signed hotkey rename: fee, cooldown, ownership, then storage mutation.
     ///
-    /// # Arguments
+    /// - `netuid = Some(n)`: rename on subnet `n` only ([`Self::swap_hotkey_on_single_subnet`]).
+    /// - `netuid = None`: rename across every subnet the hotkey participates in.
+    /// - `keep_stake = true`: leave alpha on `old_hotkey`; move UID/membership only
+    ///   (rejected when miner collateral is standing on the scoped netuids).
     ///
-    /// * `origin`: The origin of the transaction, and also the coldkey account.
-    /// * `old_hotkey`: The old hotkey to be swapped.
-    /// * `new_hotkey`: The new hotkey to replace the old one.
-    /// * `netuid`: The hotkey swap in a subnet or all subnets.
-    /// * `keep_stake`: If `true`, stake remains on the old hotkey and the rest metadata
-    ///
-    /// # Returns
-    ///
-    /// * `DispatchResultWithPostInfo`: The result of the dispatch.
-    ///
-    /// # Errors
-    ///
-    /// * `NonAssociatedColdKey`: If the coldkey does not own the old hotkey.
-    /// * `NewHotKeyIsSameWithOld`: If the new hotkey is the same as the old hotkey.
-    /// * `HotKeyAlreadyRegisteredInSubNet`: If the new hotkey is already registered in the subnet.
-    /// * `NewHotKeyNotCleanForRootSwap`: If the swap touches root and the new hotkey
-    ///   has outstanding `RootClaimable` entries or non-zero root stake.
-    /// * `NotEnoughBalanceToPaySwapHotKey`: If there is not enough balance to pay for the swap.
+    /// Errors include [`Error::NonAssociatedColdKey`], [`Error::NewHotKeyIsSameWithOld`],
+    /// [`Error::HotKeyAlreadyRegisteredInSubNet`], [`Error::NewHotKeyNotCleanForRootSwap`],
+    /// [`Error::KeepStakeBlockedByCollateral`], [`Error::NotEnoughBalanceToPaySwapHotKey`],
+    /// and [`Error::HotKeySwapOnSubnetIntervalNotPassed`].
     pub fn do_swap_hotkey(
         origin: OriginFor<T>,
         old_hotkey: &T::AccountId,
@@ -167,7 +179,7 @@ impl<T: Config> Pallet<T> {
         let prepared_stake = if keep_stake {
             None
         } else {
-            Some(Self::prepare_hotkey_stake(old_hotkey))
+            Some(Self::prepare_hotkey_swap_stake_snapshot(old_hotkey))
         };
 
         // Preflight collateral-index capacity before charging or writing so a
@@ -200,7 +212,7 @@ impl<T: Config> Pallet<T> {
 
                 // Per-subnet path after common checks.
                 if let Some(netuid) = netuid {
-                    return Self::swap_hotkey_on_subnet(
+                    return Self::swap_hotkey_on_single_subnet(
                         &coldkey,
                         old_hotkey,
                         new_hotkey,
@@ -274,7 +286,7 @@ impl<T: Config> Pallet<T> {
                 Self::recycle_tao(&coldkey, swap_cost.into())?;
                 weight.saturating_accrue(T::DbWeight::get().reads_writes(0, 2));
 
-                Self::perform_hotkey_swap_on_all_subnets_prepared(
+                Self::perform_prepared_hotkey_swap_on_all_subnets(
                     old_hotkey,
                     new_hotkey,
                     &coldkey,
@@ -320,39 +332,12 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Performs the hotkey swap operation, transferring all associated data and state from the old hotkey to the new hotkey.
+    /// Mutate all-subnet hotkey identity from `old_hotkey` to `new_hotkey`.
     ///
-    /// This function executes a series of steps to ensure a complete transfer of all relevant information:
-    /// 1. Swaps the owner of the hotkey.
-    /// 2. Updates the list of owned hotkeys for the coldkey.
-    /// 3. Transfers the total hotkey stake.
-    /// 4. Moves all stake-related data for the interval.
-    /// 5. Updates the last transaction block for the new hotkey.
-    /// 6. Transfers the delegate take information.
-    /// 7. Updates delegate information.
-    /// 8. For each subnet:
-    ///    - Updates network membership status.
-    ///    - Transfers UID and key information.
-    ///    - Moves Prometheus data.
-    ///    - Updates axon information.
-    ///    - Transfers weight commits.
-    ///    - Updates loaded emission data.
-    /// 9. Transfers all stake information, including updating staking hotkeys for each coldkey.
-    ///
-    /// Throughout the process, the function accumulates the computational weight of operations performed.
-    ///
-    /// # Arguments
-    /// * `old_hotkey`: The AccountId of the current hotkey to be replaced.
-    /// * `new_hotkey`: The AccountId of the new hotkey to replace the old one.
-    /// * `coldkey`: The AccountId of the coldkey that owns both hotkeys.
-    /// * `weight`: A mutable reference to the Weight, updated as operations are performed.
-    ///
-    /// # Returns
-    /// * `DispatchResult`: Ok(()) if the swap was successful, or an error if any operation failed.
-    ///
-    /// # Note
-    /// This function performs extensive storage reads and writes, which can be computationally expensive.
-    /// The accumulated weight should be carefully considered in the context of block limits.
+    /// Builds a stake snapshot when `keep_stake` is false, then delegates to
+    /// [`Self::perform_prepared_hotkey_swap_on_all_subnets`]. Accrues DB weight into
+    /// `weight`. Does not charge the swap fee or enforce per-subnet cooldown — callers
+    /// ([`Self::do_swap_hotkey`]) handle those.
     pub fn perform_hotkey_swap_on_all_subnets(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
@@ -363,10 +348,10 @@ impl<T: Config> Pallet<T> {
         let prepared_stake = if keep_stake {
             None
         } else {
-            Some(Self::prepare_hotkey_stake(old_hotkey))
+            Some(Self::prepare_hotkey_swap_stake_snapshot(old_hotkey))
         };
 
-        Self::perform_hotkey_swap_on_all_subnets_prepared(
+        Self::perform_prepared_hotkey_swap_on_all_subnets(
             old_hotkey,
             new_hotkey,
             coldkey,
@@ -376,13 +361,18 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    fn perform_hotkey_swap_on_all_subnets_prepared(
+    /// Core all-subnet mutation using a preflight [`HotkeySwapStakeSnapshot`].
+    ///
+    /// Moves locks, ownership, per-subnet membership/UID/metadata (via
+    /// [`Self::perform_prepared_hotkey_swap_on_one_subnet`]), last-tx markers,
+    /// delegate take, and (when not `keep_stake`) staking-hotkey indexes.
+    fn perform_prepared_hotkey_swap_on_all_subnets(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         weight: &mut Weight,
         keep_stake: bool,
-        prepared_stake: Option<&PreparedHotkeyStake<T::AccountId>>,
+        prepared_stake: Option<&HotkeySwapStakeSnapshot<T::AccountId>>,
     ) -> DispatchResult {
         // 2. Swap the stake locks
         let (reads, writes) = Self::swap_hotkey_locks(old_hotkey, new_hotkey);
@@ -415,7 +405,7 @@ impl<T: Config> Pallet<T> {
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
 
-            Self::perform_hotkey_swap_on_one_subnet_prepared(
+            Self::perform_prepared_hotkey_swap_on_one_subnet(
                 old_hotkey,
                 new_hotkey,
                 weight,
@@ -474,15 +464,18 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    #[allow(unused)]
-    fn swap_hotkey_on_subnet(
+    /// Single-subnet signed path: cooldown, fee, ownership seed, then one-subnet mutation.
+    ///
+    /// Records [`LastHotkeySwapOnNetuid`] + lineage via [`Self::record_hotkey_swap_on_netuid`]
+    /// and emits [`Event::HotkeySwappedOnSubnet`].
+    fn swap_hotkey_on_single_subnet(
         coldkey: &T::AccountId,
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
         netuid: NetUid,
         init_weight: Weight,
         keep_stake: bool,
-        prepared_stake: Option<&PreparedHotkeyStake<T::AccountId>>,
+        prepared_stake: Option<&HotkeySwapStakeSnapshot<T::AccountId>>,
     ) -> DispatchResultWithPostInfo {
         // 1. Ensure coldkey not swap hotkey too frequently
         let mut weight: Weight = init_weight;
@@ -550,7 +543,7 @@ impl<T: Config> Pallet<T> {
             .and_then(|prepared| prepared.coldkeys_by_netuid.get(&netuid))
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        Self::perform_hotkey_swap_on_one_subnet_prepared(
+        Self::perform_prepared_hotkey_swap_on_one_subnet(
             old_hotkey,
             new_hotkey,
             &mut weight,
@@ -584,7 +577,10 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    // do hotkey swap public part for both swap all subnets and just swap one subnet
+    /// Mutate hotkey identity on a single `netuid` (tests / migrations / all-subnet loop).
+    ///
+    /// Builds a stake snapshot when `keep_stake` is false, then delegates to
+    /// [`Self::perform_prepared_hotkey_swap_on_one_subnet`].
     pub fn perform_hotkey_swap_on_one_subnet(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
@@ -595,7 +591,7 @@ impl<T: Config> Pallet<T> {
         let prepared_stake = if keep_stake {
             None
         } else {
-            Some(Self::prepare_hotkey_stake(old_hotkey))
+            Some(Self::prepare_hotkey_swap_stake_snapshot(old_hotkey))
         };
         let stake_coldkeys = prepared_stake
             .as_ref()
@@ -603,7 +599,7 @@ impl<T: Config> Pallet<T> {
             .map(Vec::as_slice)
             .unwrap_or(&[]);
 
-        Self::perform_hotkey_swap_on_one_subnet_prepared(
+        Self::perform_prepared_hotkey_swap_on_one_subnet(
             old_hotkey,
             new_hotkey,
             weight,
@@ -613,7 +609,12 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    fn perform_hotkey_swap_on_one_subnet_prepared(
+    /// Core per-subnet mutation: membership, UID, serve data, collateral, children, stake.
+    ///
+    /// `stake_coldkeys` are the coldkeys with alpha under `old_hotkey` on this `netuid`
+    /// from the preflight snapshot (empty when `keep_stake`). Does not stamp swap
+    /// cooldown or lineage — callers do that after success.
+    fn perform_prepared_hotkey_swap_on_one_subnet(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
         weight: &mut Weight,

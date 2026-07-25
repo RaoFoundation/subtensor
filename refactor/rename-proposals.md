@@ -145,3 +145,54 @@ precompiles/src/lib.rs
 ```
 - proposed by: w2-src-utils
 - status: pending
+
+## do_swap_coldkey -> perform_coldkey_swap
+- reason: `do_` prefix is opaque next to the `swap_coldkey` extrinsic; name should say it performs the coldkey identity migration body (not a dispatchable).
+- hits:
+```
+pallets/subtensor/src/swap/swap_coldkey.rs
+pallets/subtensor/src/swap/mod.rs
+pallets/subtensor/src/macros/dispatches.rs
+pallets/subtensor/src/tests/swap_coldkey.rs
+pallets/subtensor/src/tests/coldkey_lineage.rs
+pallets/subtensor/src/tests/claim_root.rs
+pallets/subtensor/src/tests/locks.rs
+```
+- proposed by: w2-src-swap
+- status: pending
+
+## do_swap_hotkey -> perform_hotkey_swap
+- reason: same as coldkey — extrinsic body helper; `do_swap_hotkey` collides with extrinsic search and does not say "identity rename".
+- hits:
+```
+pallets/subtensor/src/swap/swap_hotkey.rs
+pallets/subtensor/src/swap/mod.rs
+pallets/subtensor/src/macros/dispatches.rs
+pallets/subtensor/src/staking/claim_root.rs
+pallets/subtensor/src/tests/swap_hotkey.rs
+pallets/subtensor/src/tests/swap_hotkey_with_subnet.rs
+pallets/subtensor/src/tests/hotkey_lineage.rs
+pallets/subtensor/src/tests/locks.rs
+```
+- proposed by: w2-src-swap
+- status: pending
+
+## charge_swap_cost -> charge_coldkey_swap_cost
+- reason: helper only recycles the coldkey-swap fee; name should include `coldkey` so it does not read as a generic/hotkey fee charger.
+- hits:
+```
+pallets/subtensor/src/swap/swap_coldkey.rs
+pallets/subtensor/src/macros/dispatches.rs
+```
+- proposed by: w2-src-swap
+- status: pending
+
+## swap_hotkey_v2_dispatch_weight -> hotkey_swap_dispatch_weight
+- reason: `v2` is a call-site version tag, not what the helper computes; name should lead with `hotkey_swap` and say it returns pre-dispatch `Weight`.
+- hits:
+```
+pallets/subtensor/src/swap/swap_hotkey.rs
+pallets/subtensor/src/macros/dispatches.rs
+```
+- proposed by: w2-src-swap
+- status: pending

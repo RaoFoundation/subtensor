@@ -1,9 +1,9 @@
-//! Per-subnet hotkey swap lineage.
+//! Per-subnet hotkey swap lineage (`HotkeyRoot` / `HotkeySuccessor`).
 //!
-//! After a successful hotkey swap, identity continuity is recorded so
-//! validators and indexers can ban/score a stable root without replaying
-//! archives. Maps are keyed by netuid because a swap may move a UID on one
-//! subnet while the old hotkey remains registered on others.
+//! After a successful [`crate::swap::swap_hotkey`] rename, identity continuity
+//! is recorded so validators and indexers can ban/score a stable root without
+//! replaying archives. Maps are keyed by netuid because a swap may move a UID
+//! on one subnet while the old hotkey remains registered on others.
 //!
 //! On-chain helpers use [`HotkeySuccessor`] (tip walk) and [`HotkeyRoot`]
 //! (O(1) identity compare). Reverse edges are reconstructible off-chain from
@@ -13,6 +13,9 @@
 //! [`Self::hotkey_lineage_tip`] is best-effort: successor edges are cleared when
 //! a hotkey becomes live again and when it is written as a swap destination,
 //! but consumers should still treat tip walks as advisory.
+//!
+//! [`Self::record_hotkey_swap_on_netuid`] also stamps [`LastHotkeySwapOnNetuid`]
+//! for the per-coldkey subnet swap cooldown.
 
 use frame_support::weights::Weight;
 

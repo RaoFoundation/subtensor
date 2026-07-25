@@ -1,10 +1,26 @@
+//! Coldkey identity swap: migrate economic ownership from one coldkey SS58 to another.
+//!
+//! Entry point: [`Pallet::do_swap_coldkey`]. Runs inside a storage transaction so a
+//! late failure (e.g. collateral index) rolls back stake, ownership, locks, and
+//! identity writes together. After success, [`Pallet::record_coldkey_swap_lineage`]
+//! records global root/successor continuity.
+//!
+//! Deliberately does **not** move stake into a destination that already has
+//! [`StakingHotkeys`] entries or that is itself a registered hotkey.
+
 use frame_support::storage::{TransactionOutcome, with_transaction};
 
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    /// Transfer all assets, stakes, subnet ownerships, and hotkey associations from `old_coldkey` to
-    /// to `new_coldkey`.
+    /// Migrate all coldkey-keyed state from `old_coldkey` to `new_coldkey`.
+    ///
+    /// Transfers subnet ownership, auto-stake destinations, per-subnet alpha stake,
+    /// miner collateral bonds, staking-hotkey indexes, owned-hotkey associations,
+    /// stake locks, and remaining free TAO. Records coldkey lineage and emits
+    /// [`Event::ColdkeySwapped`] on success.
+    ///
+    /// Rejects when `new_coldkey` already has staking associations or is a hotkey.
     pub fn do_swap_coldkey(
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
@@ -32,14 +48,14 @@ impl<T: Config> Pallet<T> {
                 Self::set_accept_locked_alpha(new_coldkey, true);
 
                 for netuid in Self::get_all_subnet_netuids() {
-                    Self::transfer_subnet_ownership(netuid, old_coldkey, new_coldkey);
-                    Self::transfer_auto_stake_destination(netuid, old_coldkey, new_coldkey);
-                    Self::transfer_coldkey_stake(netuid, old_coldkey, new_coldkey);
+                    Self::transfer_coldkey_subnet_ownership(netuid, old_coldkey, new_coldkey);
+                    Self::transfer_coldkey_auto_stake_destination(netuid, old_coldkey, new_coldkey);
+                    Self::transfer_coldkey_subnet_stake(netuid, old_coldkey, new_coldkey);
                     // Stake has moved; migrate the bond so unstake guards stay attached.
                     Self::transfer_coldkey_miner_collateral(netuid, old_coldkey, new_coldkey)?;
                 }
-                Self::transfer_staking_hotkeys(old_coldkey, new_coldkey);
-                Self::transfer_hotkeys_ownership(old_coldkey, new_coldkey)?;
+                Self::transfer_coldkey_staking_hotkeys(old_coldkey, new_coldkey);
+                Self::transfer_coldkey_owned_hotkeys(old_coldkey, new_coldkey)?;
 
                 // Transfer stake locks
                 Self::swap_coldkey_locks(old_coldkey, new_coldkey)?;
@@ -64,15 +80,17 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Charges the swap cost from the coldkey's account and recycles the tokens.
+    /// Recycle `swap_cost` TAO from `coldkey` as the coldkey-swap fee.
+    ///
+    /// Maps insufficient free balance to [`Error::NotEnoughBalanceToPaySwapColdKey`].
     pub fn charge_swap_cost(coldkey: &T::AccountId, swap_cost: TaoBalance) -> DispatchResult {
         Self::recycle_tao(coldkey, swap_cost)
             .map_err(|_| Error::<T>::NotEnoughBalanceToPaySwapColdKey)?;
         Ok(())
     }
 
-    /// Transfer the ownership of the subnet to the new coldkey if it is owned by the old coldkey.
-    fn transfer_subnet_ownership(
+    /// If `old_coldkey` owns `netuid`, rewrite [`SubnetOwner`] to `new_coldkey`.
+    fn transfer_coldkey_subnet_ownership(
         netuid: NetUid,
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
@@ -83,8 +101,8 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Transfer the auto stake destination from the old coldkey to the new coldkey if it is set.
-    fn transfer_auto_stake_destination(
+    /// Move [`AutoStakeDestination`] / reverse index from `old_coldkey` to `new_coldkey` on `netuid`.
+    fn transfer_coldkey_auto_stake_destination(
         netuid: NetUid,
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
@@ -100,8 +118,10 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Transfer the stake of all staking hotkeys linked to the old coldkey to the new coldkey.
-    fn transfer_coldkey_stake(
+    /// Move every (hotkey, coldkey, netuid) alpha position for `old_coldkey` onto `new_coldkey`.
+    ///
+    /// Also migrates root-claimed rows and maintains the root auto-claim coldkey index.
+    fn transfer_coldkey_subnet_stake(
         netuid: NetUid,
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
@@ -150,8 +170,8 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Transfer staking hotkeys from the old coldkey to the new coldkey.
-    fn transfer_staking_hotkeys(old_coldkey: &T::AccountId, new_coldkey: &T::AccountId) {
+    /// Merge [`StakingHotkeys`] from `old_coldkey` into `new_coldkey`, then clear the old list.
+    fn transfer_coldkey_staking_hotkeys(old_coldkey: &T::AccountId, new_coldkey: &T::AccountId) {
         let old_staking_hotkeys: Vec<T::AccountId> = StakingHotkeys::<T>::get(old_coldkey);
         let mut new_staking_hotkeys: Vec<T::AccountId> = StakingHotkeys::<T>::get(new_coldkey);
         for hotkey in old_staking_hotkeys {
@@ -165,8 +185,8 @@ impl<T: Config> Pallet<T> {
         StakingHotkeys::<T>::insert(new_coldkey, new_staking_hotkeys);
     }
 
-    /// Transfer the ownership of the hotkeys owned by the old coldkey to the new coldkey.
-    fn transfer_hotkeys_ownership(
+    /// Reassign [`Owner`] / [`OwnedHotkeys`] so every hotkey owned by `old_coldkey` is owned by `new_coldkey`.
+    fn transfer_coldkey_owned_hotkeys(
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
@@ -177,7 +197,7 @@ impl<T: Config> Pallet<T> {
             Owner::<T>::remove(owned_hotkey);
             // Add the hotkey to the new coldkey.
             Self::set_hotkey_owner(new_coldkey, owned_hotkey)?;
-            // Addd the owned hotkey to the new set of owned hotkeys.
+            // Add the owned hotkey to the new set of owned hotkeys.
             if !new_owned_hotkeys.contains(owned_hotkey) {
                 new_owned_hotkeys.push(owned_hotkey.clone());
             }
