@@ -1,17 +1,22 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+//! Root and subnet-owner admin extrinsics for Bittensor hyperparameters, EVM precompiles,
+//! and consensus authority updates.
+//!
+//! Most dispatchables authorize the origin (root and/or subnet owner, often behind the
+//! admin freeze window and owner hyperparam rate limits) then write into `pallet-subtensor`
+//! storage. This pallet also owns [`PrecompileEnable`] and the Aura/GRANDPA admin bridges
+//! in [`consensus_authority_interfaces`].
 
 // extern crate alloc;
 
-use frame_system::pallet_prelude::BlockNumberFor;
 pub use pallet::*;
-// - we could replace it with Vec<(AuthorityId, u64)>, but we would need
-//   `sp_consensus_grandpa` for `AuthorityId` anyway
-// - we could use a type parameter for `AuthorityId`, but there is
-//   no sense for this as GRANDPA's `AuthorityId` is not a parameter -- it's always the same
+// GRANDPA's AuthorityId is not a Config parameter — always the same concrete type.
 use sp_consensus_grandpa::AuthorityList;
-use sp_runtime::{DispatchResult, RuntimeAppPublic, Vec, traits::Member};
+use sp_runtime::{RuntimeAppPublic, Vec, traits::Member};
 
 mod benchmarking;
+mod consensus_authority_interfaces;
+pub use consensus_authority_interfaces::{AuraInterface, GrandpaInterface};
 pub mod weights;
 pub use weights::WeightInfo;
 
@@ -37,38 +42,38 @@ pub mod pallet {
     use substrate_fixed::types::{I64F64, I96F32, U64F64};
     use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 
-    /// The main data structure of the module.
+    /// Admin-utils pallet entry point: sudo/owner hyperparam setters and consensus bridges.
     #[pallet::pallet]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
-    /// Configure the pallet by specifying the parameters and types on which it depends.
+    /// Runtime dependencies for admin-utils (subtensor storage, EVM chain id, Aura/GRANDPA hooks).
     #[pallet::config]
     pub trait Config:
         frame_system::Config
         + pallet_subtensor::pallet::Config
         + pallet_evm_chain_id::pallet::Config
     {
-        /// Implementation of the AuraInterface
+        /// Aura authority-set bridge used by [`Pallet::swap_authorities`].
         type Aura: crate::AuraInterface<<Self as Config>::AuthorityId, Self::MaxAuthorities>;
 
-        /// Implementation of [`GrandpaInterface`]
+        /// GRANDPA authority-change bridge used by [`Pallet::schedule_grandpa_change`].
         type Grandpa: crate::GrandpaInterface<Self>;
 
-        /// The identifier type for an authority.
+        /// Authority public-key type shared with the Aura bridge.
         type AuthorityId: Member
             + Parameter
             + RuntimeAppPublic
             + MaybeSerializeDeserialize
             + MaxEncodedLen;
 
-        /// The maximum number of authorities that the pallet can hold.
+        /// Max length of the Aura authority list accepted by [`Pallet::swap_authorities`].
         type MaxAuthorities: Get<u32>;
 
-        /// Unit of assets
+        /// Balance type used by admin paths that touch account balances.
         type Balance: Balance;
 
-        /// Weight information for extrinsics in this pallet.
+        /// Extrinsic weight functions for this pallet's calls.
         type WeightInfo: WeightInfo;
     }
 
@@ -206,13 +211,16 @@ pub mod pallet {
     }
 
     #[pallet::type_value]
-    /// Default value for precompile enable
+    /// Default for [`PrecompileEnable`]: each precompile starts enabled.
     pub fn DefaultPrecompileEnabled<T: Config>() -> bool {
         true
     }
 
     #[pallet::storage]
-    /// Map PrecompileEnum --> enabled
+    /// Per-[`PrecompileEnum`] enable flag consulted by EVM precompile dispatch.
+    ///
+    /// Toggled by [`Pallet::sudo_toggle_evm_precompile`]; missing keys query as
+    /// [`DefaultPrecompileEnabled`] (`true`).
     pub type PrecompileEnable<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
@@ -222,7 +230,7 @@ pub mod pallet {
         DefaultPrecompileEnabled<T>,
     >;
 
-    /// Dispatchable functions allows users to interact with the pallet and invoke state changes.
+    /// Root/owner dispatchables that set subtensor hyperparameters and admin toggles.
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #![deny(clippy::expect_used)]
@@ -2374,39 +2382,4 @@ pub mod pallet {
 
 impl<T: Config> sp_runtime::BoundToRuntimeAppPublic for Pallet<T> {
     type Public = <T as Config>::AuthorityId;
-}
-
-// Interfaces to interact with other pallets
-use sp_runtime::BoundedVec;
-
-pub trait AuraInterface<AuthorityId, MaxAuthorities> {
-    fn change_authorities(new: BoundedVec<AuthorityId, MaxAuthorities>);
-}
-
-impl<A, M> AuraInterface<A, M> for () {
-    fn change_authorities(_: BoundedVec<A, M>) {}
-}
-
-pub trait GrandpaInterface<Runtime>
-where
-    Runtime: frame_system::Config,
-{
-    fn schedule_change(
-        next_authorities: AuthorityList,
-        in_blocks: BlockNumberFor<Runtime>,
-        forced: Option<BlockNumberFor<Runtime>>,
-    ) -> DispatchResult;
-}
-
-impl<R> GrandpaInterface<R> for ()
-where
-    R: frame_system::Config,
-{
-    fn schedule_change(
-        _next_authorities: AuthorityList,
-        _in_blocks: BlockNumberFor<R>,
-        _forced: Option<BlockNumberFor<R>>,
-    ) -> DispatchResult {
-        Ok(())
-    }
 }
