@@ -5,6 +5,7 @@ import type {Metadata} from 'next';
 import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 import {EmissionGateExplorer} from './EmissionGateExplorer';
+import {GateCurveDiagram, QMassBarDiagram, SlotCostDiagram} from './diagrams';
 
 export const metadata: Metadata = {
   title: 'The V440 Upgrade — The Emission Gate',
@@ -68,6 +69,11 @@ const page = () => {
             competition bar. Over time, new and creative teams can earn emission by attracting
             substantial demand from TAO holders.
           </p>
+          <SlotCostDiagram />
+          <p className={styles.graph_caption}>
+            Idle yield props the market price of a slot under flat emission. With the gate, idle
+            carry collapses and entry should fall toward the registration transaction.
+          </p>
         </section>
 
         <section className={styles.section}>
@@ -77,6 +83,12 @@ const page = () => {
             above you carry a fraction <code>q</code> of all prices — the price at that point is
             the &apos;bar&apos;. Each subnet&apos;s emission weight is then thresholded around this
             point.
+          </p>
+          <QMassBarDiagram />
+          <p className={styles.graph_caption}>
+            The q-mass bar: accumulate sorted demand until the running total crosses q; the share
+            at the crossing is θ. Defaults put that crossing near rank 32 on today&apos;s Finney
+            distribution.
           </p>
           <Code
             language='rust'
@@ -97,6 +109,11 @@ let weights: Vec<U64F64> = shares
             We use a smooth function for the threshold (a sigmoid). At the threshold it cuts
             exactly half of a subnet&apos;s emission; two ranks above, nothing is cut; deep below
             that rank, a subnet gets almost nothing.
+          </p>
+          <GateCurveDiagram />
+          <p className={styles.graph_caption}>
+            Hill gate at h = 3. At s = θ the gate passes exactly ½; well above the bar it is ~1;
+            deep in the tail it is ~0.
           </p>
           <p>
             Notably, if the tail grows real demand, θ rises and the standard gets harder for
