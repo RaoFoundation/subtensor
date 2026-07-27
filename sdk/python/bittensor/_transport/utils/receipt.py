@@ -210,16 +210,18 @@ def build_system_error_message(dispatch_error: dict) -> Optional[dict]:
         name = str(variant)
     elif "Arithmetic" in dispatch_error:
         variant = dispatch_error["Arithmetic"]
-        if isinstance(variant, dict) and variant:
-            name = str(next(iter(variant)))
-        else:
-            name = "Arithmetic"
+        name = (
+            str(next(iter(variant)))
+            if isinstance(variant, dict) and variant
+            else "Arithmetic"
+        )
     elif "Transactional" in dispatch_error:
         variant = dispatch_error["Transactional"]
-        if isinstance(variant, dict) and variant:
-            name = str(next(iter(variant)))
-        else:
-            name = "Transactional"
+        name = (
+            str(next(iter(variant)))
+            if isinstance(variant, dict) and variant
+            else "Transactional"
+        )
     elif "Exhausted" in dispatch_error:
         name = "Exhausted"
     elif "Corruption" in dispatch_error:

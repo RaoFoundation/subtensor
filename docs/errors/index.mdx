@@ -11,19 +11,19 @@ A failed `execute` returns an `ExtrinsicResult` whose `error` has a semantic `co
 | --- | --- | --- |
 | [`insufficient_balance`](/docs/errors/insufficient-balance) | 25 | Fund the signing account or reduce the amount; check with `btcli wallet balance` |
 | [`insufficient_liquidity`](/docs/errors/insufficient-liquidity) | 8 | The pool cannot absorb this trade; reduce the amount or split it into smaller steps |
-| [`rate_limited`](/docs/errors/rate-limited) | 17 | Wait for the rate-limit window to pass, then retry |
+| [`rate_limited`](/docs/errors/rate-limited) | 16 | Wait for the rate-limit window to pass, then retry |
 | [`not_registered`](/docs/errors/not-registered) | 4 | Register the hotkey on this subnet first with `btcli subnets register` |
-| [`not_authorized`](/docs/errors/not-authorized) | 22 | Sign with the key or origin that owns the target object, then retry |
-| [`already_exists`](/docs/errors/already-exists) | 27 | The object or state already exists; treat the goal as met or pick a different target |
+| [`not_authorized`](/docs/errors/not-authorized) | 21 | Sign with the key or origin that owns the target object, then retry |
+| [`already_exists`](/docs/errors/already-exists) | 26 | The object or state already exists; treat the goal as met or pick a different target |
 | [`not_found`](/docs/errors/not-found) | 20 | The referenced object is not on-chain; check the identifier |
 | [`subnet_not_exists`](/docs/errors/subnet-not-exists) | 4 | Use an existing netuid; `btcli subnets list` shows valid ones |
 | [`subtoken_disabled`](/docs/errors/subtoken-disabled) | 1 | The subnet is not active yet; wait for start_call |
-| [`disabled`](/docs/errors/disabled) | 17 | This call or feature is switched off on this network |
+| [`disabled`](/docs/errors/disabled) | 19 | This call or feature is switched off on this network |
 | [`too_early`](/docs/errors/too-early) | 18 | The required window has not opened yet; wait some blocks and retry |
 | [`expired`](/docs/errors/expired) | 5 | The window has closed; restart the flow with fresh state |
-| [`limit_exceeded`](/docs/errors/limit-exceeded) | 35 | A chain-side capacity limit was hit; reduce the size or count of the request |
+| [`limit_exceeded`](/docs/errors/limit-exceeded) | 37 | A chain-side capacity limit was hit; reduce the size or count of the request |
 | [`unit_mismatch`](/docs/errors/unit-mismatch) | — | Match the Balance netuid to the operation's currency |
-| [`invalid_argument`](/docs/errors/invalid-argument) | 137 | Check the argument values against the operation schema |
-| [`policy_violation`](/docs/errors/policy-violation) | 1 | The action exceeds a configured safety policy |
+| [`invalid_argument`](/docs/errors/invalid-argument) | 135 | Check the argument values against the operation schema |
+| [`policy_violation`](/docs/errors/policy-violation) | 2 | The action exceeds a configured safety policy |
 | [`internal`](/docs/errors/internal) | 19 | A chain-side invariant failed; nothing to fix client-side — report it if it persists |
 | [`unknown`](/docs/errors/unknown) | — | Inspect the message for details |

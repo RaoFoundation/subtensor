@@ -631,11 +631,9 @@ def chain_error_from_dispatch(err: Any) -> ChainError:
             if wrapper not in err:
                 continue
             variant = err[wrapper]
-            if wrapper == "Token" and isinstance(variant, dict) and variant:
-                name = next(iter(variant))
-            elif wrapper == "Arithmetic" and isinstance(variant, dict) and variant:
-                name = next(iter(variant))
-            elif wrapper == "Transactional" and isinstance(variant, dict) and variant:
+            if wrapper in ("Token", "Arithmetic", "Transactional") and isinstance(
+                variant, dict
+            ) and variant:
                 name = next(iter(variant))
             elif wrapper in ("BadOrigin", "CannotLookup", "Other"):
                 name = wrapper

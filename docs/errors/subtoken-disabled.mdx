@@ -7,7 +7,7 @@ description: "The subnet is not active yet; wait for start_call"
 
 The subnet exists but its token operations are not enabled yet.
 
-A newly registered subnet starts inactive: staking, unstaking, and other alpha operations are rejected until the subnet owner activates it with start_call. there is nothing to fix on your side; wait for the subnet to become active.
+A newly registered subnet starts inactive: staking, unstaking, and other alpha operations are rejected until the subnet owner activates it with `btcli sudo start`. there is nothing to fix on your side; wait for the subnet to become active (`btcli sudo check-start`).
 
 ## Remediation
 
@@ -19,6 +19,6 @@ The exact chain error names (from the extrinsic receipt) that classify to `subto
 
 | Chain error | Description |
 | --- | --- |
-| [`SubtokenDisabled`](/docs/errors/chain/SubtokenDisabled) | The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked; `SubtokenEnabled` is false until the owner makes the `start_call` after registration. Check `SubtokenEnabled` for the netuid involved. |
+| [`SubtokenDisabled`](/docs/errors/chain/SubtokenDisabled) | The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli sudo start` after registration. Check readiness with `btcli sudo check-start`. |
 
 The same explanation is available in the terminal: `btcli explain subtoken_disabled` (or `btcli explain <ChainErrorName>` for one exact chain error).
