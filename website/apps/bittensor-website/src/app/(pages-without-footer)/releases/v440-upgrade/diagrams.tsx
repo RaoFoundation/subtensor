@@ -139,15 +139,18 @@ export const GateCurveDiagram = () => {
   const h = 200;
   const baseline = y0 + h;
 
-  // Relative share s/θ from ~0.2 to ~3.0; gate = 1 / (1 + (θ/s)^h) with h=3
+  // Relative share s/θ from high (left) to low (right), matching rank-order
+  // charts where the head sits on the left. gate = 1 / (1 + (θ/s)^h), h=3.
+  const tMin = 0.15;
+  const tMax = 3.0;
   const samples: Array<{t: number; g: number}> = [];
   for (let i = 0; i <= 48; i++) {
-    const t = 0.15 + (i / 48) * 2.85; // s/θ
+    const t = tMin + (i / 48) * (tMax - tMin);
     const ratio = 1 / t;
     const g = 1 / (1 + Math.pow(ratio, 3));
     samples.push({t, g});
   }
-  const xFor = (t: number) => x0 + ((t - 0.15) / 2.85) * w;
+  const xFor = (t: number) => x0 + ((tMax - t) / (tMax - tMin)) * w;
   const yFor = (g: number) => baseline - g * h;
   const path = samples
     .map((s, i) => `${i === 0 ? 'M' : 'L'} ${xFor(s.t).toFixed(1)} ${yFor(s.g).toFixed(1)}`)
@@ -204,15 +207,18 @@ export const GateCurveDiagram = () => {
         s = θ
       </text>
 
-      <text {...GRAPH_TEXT} x={xFor(0.35)} y={yFor(0.12) - 8} textAnchor='middle' fill={MUTED}>
-        DEEP TAIL ≈ 0
-      </text>
       <text {...GRAPH_TEXT} x={xFor(2.2)} y={yFor(0.92) - 8} textAnchor='middle' fill={MUTED}>
         ABOVE BAR ≈ 1
       </text>
+      <text {...GRAPH_TEXT} x={xFor(0.35)} y={yFor(0.12) - 8} textAnchor='middle' fill={MUTED}>
+        DEEP TAIL ≈ 0
+      </text>
 
+      <text {...GRAPH_TEXT} x={x0} y={baseline + 28}>
+        HEAD
+      </text>
       <text {...GRAPH_TEXT} x={x0 + w} y={baseline + 28} textAnchor='end'>
-        SHARE RELATIVE TO θ →
+        TAIL →
       </text>
       <text {...GRAPH_TEXT} x={x0 - 36} y={y0 + 12} textAnchor='middle'>
         GATE
