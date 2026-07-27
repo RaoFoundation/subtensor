@@ -40,7 +40,7 @@ pipeline (full detail: [Release process](/docs/internals/release-process)):
 push to main
   └─ build wasm once (deterministic srtool build)
        └─ deploy devnet ── smoke-check devnet
-            └─ deploy testnet ── smoke-check testnet ── publish SDK rc
+            └─ deploy testnet ── smoke-check testnet ── publish SDK rc when needed
                  └─ propose mainnet upgrade (environment gate + triumvirate multisig)
 ```
 

@@ -15,7 +15,7 @@ executes.
 push to main
   └─ srtool build (once per train)
        └─ deploy devnet ───── smoke-check devnet
-            └─ deploy testnet ── smoke-check testnet ── publish SDK rc to PyPI
+            └─ deploy testnet ── smoke-check testnet ── publish SDK rc when needed
                  └─ propose mainnet upgrade (multisig)
 ```
 
@@ -48,7 +48,7 @@ Human approval lives in GitHub **environment settings**, not workflow code:
 | Stage | Environment | Gate |
 |-------|-------------|------|
 | devnet | `devnet` | none — deploys automatically, then runs the devnet smoke suite |
-| testnet | `testnet` | environment reviewers (one-click approval), then smoke suite + SDK release candidate to PyPI |
+| testnet | `testnet` | environment reviewers (one-click approval), then smoke suite + SDK release candidate when the stable package bases are unpublished |
 | mainnet | `mainnet` | environment reviewers **plus** the multisig ceremony below |
 
 Deploys to devnet and testnet are direct `setCode` transactions via the CI
@@ -101,8 +101,10 @@ partial upload is retried on the next watcher run even if the GitHub release
 already exists or the release-train artifact has expired. Retries require the
 release target, immutable tag, protected `mainnet` mirror, and finalized
 runtime bytes to agree. The SDK's committed `X.Y.Z.dev0` version is stamped to
-`X.Y.Z` for this build. The release train rejects a base SDK or core version
-that already exists on PyPI before publishing release candidates. Releases
+`X.Y.Z` for this build. The release train publishes release candidates only
+when both stable package bases are unpublished. If both are already on PyPI,
+the train treats the change as runtime-only and skips the SDK RC channel; a
+mixed state fails because the package versions must move together. Releases
 through v432 predate automated stable Python publication and are handled as
 historical state.
 

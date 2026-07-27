@@ -6,7 +6,7 @@ name: Release Train
 #   push to main
 #     └─ build wasm once (srtool)
 #          └─ deploy devnet ── smoke-check devnet
-#               └─ deploy testnet ── smoke-check testnet ── publish SDK rc
+#               └─ deploy testnet ── smoke-check testnet ── publish SDK rc when needed
 #                    └─ propose mainnet upgrade (env gate + triumvirate multisig)
 #
 # Branch mirrors: after each successful deploy the `devnet`/`testnet` branch
@@ -297,8 +297,8 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm moonwall test smoke_testnet
 
-  # SDK rc channel rides the train: publish after testnet is green
-  # (replaces the publish-sdk-rc job in deploy-testnet.yml).
+  # SDK rc channel rides the train after testnet is green. Runtime-only trains
+  # whose stable SDK and core bases are already published skip this channel.
   #
   # Both packages get the same rcN suffix, computed once here so the wheel
   # matrix and the publish job stamp identical versions. The rc SDK pins
@@ -310,11 +310,12 @@ jobs:
     needs: check-testnet
     runs-on: [self-hosted, fireactions-turbo-8]
     outputs:
+      publish: ${{ steps.versions.outputs.publish }}
       sdk: ${{ steps.versions.outputs.sdk }}
       core: ${{ steps.versions.outputs.core }}
     steps:
       - uses: actions/checkout@v4
-      - name: Parse base versions and append rc suffix
+      - name: Decide whether to publish rc versions
         id: versions
         run: |
           base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/python/pyproject.toml | head -n 1)
@@ -322,9 +323,8 @@ jobs:
           core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
           : ${core_base:?could not parse base version from sdk/bittensor-core-py/pyproject.toml}
 
-          # PyPI versions are immutable. Reject an already-published stable
-          # base before producing more release candidates that can never be
-          # promoted to a final release.
+          published=0
+          missing=0
           for package_version in "bittensor:${base}" "bittensor-core:${core_base}"; do
             package=${package_version%%:*}
             version=${package_version#*:}
@@ -332,11 +332,8 @@ jobs:
               -o /dev/null -w '%{http_code}' \
               "https://pypi.org/pypi/${package}/${version}/json")
             case "$status" in
-              404) ;;
-              200)
-                echo "${package} ${version} is already published; bump the base version."
-                exit 1
-                ;;
+              200) published=$((published + 1)) ;;
+              404) missing=$((missing + 1)) ;;
               *)
                 echo "PyPI availability check for ${package} ${version} returned HTTP ${status}."
                 exit 1
@@ -344,12 +341,24 @@ jobs:
             esac
           done
 
-          echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
-          echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+          if [ "$missing" -eq 2 ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          elif [ "$published" -eq 2 ]; then
+            echo "Stable bittensor ${base} and bittensor-core ${core_base} are already published; skipping SDK rc publication."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Python base versions are inconsistent: one is published and the other is available."
+            echo "Bump the published package base before publishing another rc."
+            exit 1
+          fi
+
 
   build-core-rc:
     name: Build bittensor-core rc wheels
     needs: rc-versions
+    if: needs.rc-versions.outputs.publish == 'true'
     uses: ./.github/workflows/build-core-wheels.yml
     with:
       version: ${{ needs.rc-versions.outputs.core }}
@@ -357,6 +366,7 @@ jobs:
   publish-sdk-rc:
     name: Publish SDK rc to PyPI
     needs: [rc-versions, build-core-rc]
+    if: needs.rc-versions.outputs.publish == 'true'
     runs-on: [self-hosted, fireactions-turbo-8]
     environment: testnet
     permissions:

@@ -13,8 +13,7 @@ name: Watch Mainnet Release
 #      docker-localnet.yml (a release created with the default GITHUB_TOKEN
 #      does not emit `release: published`, so their `on: release` triggers
 #      never fire for releases cut by this workflow)
-#   3. Python SDK + bittensor-core wheels to PyPI when the tagged versions
-#      are not already published completely
+#   3. Python SDK + bittensor-core wheels to PyPI
 #   4. Publishable Rust crates to crates.io
 #   5. Production website/docs deployment on Vercel
 #   6. Before finalizing the GitHub release, the `mainnet` branch is
@@ -194,13 +193,12 @@ jobs:
               "$chain_spec" "$release_sha" "$chain_code_hash")
             : ${artifact_id:?no artifact matches the immutable tag and finalized runtime}
             echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
-          fi
-
-          if python3 .github/scripts/check-python-release.py \
+            python_needed=true
+          elif python3 .github/scripts/check-python-release.py \
               --sdk-version "$sdk_version" \
               --core-version "$core_version" \
               --repository "$GITHUB_REPOSITORY"; then
-            echo "Stable Python packages are complete on PyPI; skipping Python publication."
+            echo "Stable Python packages are complete on PyPI."
             python_needed=false
           else
             python_status=$?
