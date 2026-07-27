@@ -133,7 +133,10 @@ fn test_claim_root_with_drain_emissions() {
 
         assert_abs_diff_eq!(
             new_stake,
-            (I96F32::from(root_stake) * claimable).saturating_to_num::<u64>(),
+            I96F32::from(root_stake)
+                .checked_mul(claimable)
+                .unwrap()
+                .to_num::<u64>(),
             epsilon = 10u64,
         );
 
@@ -1990,7 +1993,7 @@ fn test_claim_root_with_keep_subnets() {
             .expect("claimable must exist at this point");
 
         // Claim root alpha
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::set_root_claim_type(
                 RuntimeOrigin::signed(coldkey),
                 RootClaimTypeEnum::KeepSubnets {
@@ -2020,7 +2023,10 @@ fn test_claim_root_with_keep_subnets() {
 
         assert_abs_diff_eq!(
             new_stake,
-            (I96F32::from(root_stake) * claimable).saturating_to_num::<u64>(),
+            I96F32::from(root_stake)
+                .checked_mul(claimable)
+                .unwrap()
+                .to_num::<u64>(),
             epsilon = 10u64,
         );
     });

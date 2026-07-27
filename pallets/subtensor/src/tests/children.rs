@@ -62,13 +62,15 @@ fn set_children_declares_and_reports_benchmarked_component_weight() {
         });
         let declared_weight = call.get_dispatch_info().call_weight;
 
-        let post_info = SubtensorModule::set_children(
+        let post_info = match SubtensorModule::set_children(
             RuntimeOrigin::signed(coldkey),
             hotkey,
             netuid,
             vec![(u64::MAX, child)],
-        )
-        .expect("set_children succeeds");
+        ) {
+            Ok(post_info) => post_info,
+            Err(error) => panic!("set_children must succeed: {error:?}"),
+        };
         assert_eq!(
             post_info.actual_weight,
             Some(<Test as Config>::WeightInfo::set_children(1))
@@ -2788,7 +2790,7 @@ fn test_childkey_set_weights_single_parent() {
         );
 
         // Check the child cannot set weights
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::set_weights(
                 RuntimeOrigin::signed(child),
                 netuid,
@@ -2883,7 +2885,7 @@ fn test_set_weights_no_parent() {
         );
 
         // Check the hotkey cannot set weights
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::set_weights(
                 RuntimeOrigin::signed(hotkey),
                 netuid,

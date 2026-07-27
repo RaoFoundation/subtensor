@@ -1130,7 +1130,7 @@ fn test_set_mechanism_weights_above_mechanism_count_fails() {
         // Call extrinsic
         let dests = vec![uid2];
         let weights = vec![88u16];
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::set_mechanism_weights(
                 RawOrigin::Signed(hk1).into(),
                 netuid,
@@ -1292,7 +1292,7 @@ fn test_commit_reveal_above_mechanism_count_fails() {
         ));
 
         // Commit in epoch 0
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::commit_mechanism_weights(
                 RuntimeOrigin::signed(hk1),
                 netuid,
@@ -1304,7 +1304,7 @@ fn test_commit_reveal_above_mechanism_count_fails() {
 
         // Advance one epoch, then attempt to reveal
         step_epochs(1, netuid);
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::reveal_mechanism_weights(
                 RuntimeOrigin::signed(hk1),
                 netuid,
@@ -1488,7 +1488,7 @@ fn test_crv3_above_mechanism_count_fails() {
         ct.serialize_compressed(&mut commit_bytes).expect("serialize");
 
         // Commit (sub variant)
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::commit_timelocked_mechanism_weights(
                 RuntimeOrigin::signed(hotkey1),
                 netuid,
@@ -1545,7 +1545,7 @@ fn test_do_commit_crv3_mechanism_weights_committing_too_fast() {
         ));
 
         // immediate second commit on SAME mecid blocked
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::commit_timelocked_mechanism_weights(
                 RuntimeOrigin::signed(hotkey),
                 netuid,
@@ -1572,7 +1572,7 @@ fn test_do_commit_crv3_mechanism_weights_committing_too_fast() {
 
         // still too fast on original mecid after 2 blocks
         step_block(2);
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::commit_timelocked_mechanism_weights(
                 RuntimeOrigin::signed(hotkey),
                 netuid,

@@ -2010,7 +2010,7 @@ mod pallet_benchmarks {
             .collect::<BTreeSet<_>>();
 
         for index in 0..h {
-            let hotkey: T::AccountId = account("claim_root_hotkey", index as u32, 1);
+            let hotkey: T::AccountId = account("claim_root_hotkey", index, 1);
             Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
                 &hotkey,
                 &coldkey,

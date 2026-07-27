@@ -4,8 +4,8 @@ use ark_serialize::CanonicalDeserialize;
 use ark_serialize::CanonicalSerialize;
 use codec::Compact;
 use frame_support::{
-    assert_err, assert_ok,
-    dispatch::{DispatchClass, DispatchResult, GetDispatchInfo, Pays},
+    assert_ok,
+    dispatch::{DispatchClass, DispatchResult, DispatchResultWithPostInfo, GetDispatchInfo, Pays},
 };
 use pallet_drand::types::Pulse;
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
@@ -31,6 +31,25 @@ use w3f_bls::EngineBLS;
 use super::mock::*;
 use crate::coinbase::reveal_commits::{LegacyWeightsTlockPayload, WeightsTlockPayload};
 use crate::*;
+
+// Variable-weight dispatches attach their measured weight on both success and
+// failure. Compare the dispatch error while deliberately leaving post info out
+// of legacy error assertions.
+macro_rules! assert_err {
+    ($call:expr, $error:expr $(,)?) => {
+        assert_dispatch_err!($call, $error)
+    };
+}
+
+fn assert_weighted_dispatch_error(result: DispatchResultWithPostInfo, expected: Error<Test>) {
+    let error = result.expect_err("dispatch should fail");
+    assert_eq!(error.error, expected.into());
+    assert!(
+        error.post_info.actual_weight.is_some(),
+        "variable-weight failures must report actual weight"
+    );
+}
+
 /***************************
   pub fn set_weights() tests
 *****************************/
@@ -154,7 +173,7 @@ fn test_weights_err_no_validator_permit() {
             weight_values,
             0,
         );
-        assert_eq!(result, Err(Error::<Test>::NeuronNoValidatorPermit.into()));
+        assert_weighted_dispatch_error(result, Error::<Test>::NeuronNoValidatorPermit);
 
         let weights_keys: Vec<u16> = vec![1, 2];
         let weight_values: Vec<u16> = vec![1, 2];
@@ -209,7 +228,7 @@ fn test_set_stake_threshold_failed() {
 
         // Check that it fails at the pallet level.
         SubtensorModule::set_stake_threshold(100_000_000_000_000);
-        assert_eq!(
+        assert_weighted_dispatch_error(
             SubtensorModule::set_weights(
                 RuntimeOrigin::signed(hotkey),
                 netuid,
@@ -217,7 +236,7 @@ fn test_set_stake_threshold_failed() {
                 weights.clone(),
                 version_key,
             ),
-            Err(Error::<Test>::NotEnoughStakeToSetWeights.into())
+            Error::<Test>::NotEnoughStakeToSetWeights,
         );
         // Now passes
         assert_ok!(SubtensorModule::do_add_stake(
@@ -301,15 +320,15 @@ fn test_weights_version_key() {
 
         // Setting fails with incorrect keys.
         // validator:12312 < network:20313 (rejected: validator not updated)
-        assert_eq!(
+        assert_weighted_dispatch_error(
             SubtensorModule::set_weights(
                 RuntimeOrigin::signed(hotkey),
                 netuid1,
                 weights_keys.clone(),
                 weight_values.clone(),
-                key0
+                key0,
             ),
-            Err(Error::<Test>::IncorrectWeightVersionKey.into())
+            Error::<Test>::IncorrectWeightVersionKey,
         );
     });
 }
@@ -369,7 +388,7 @@ fn test_weights_err_setting_weights_too_fast() {
             if i % 10 == 1 {
                 assert_ok!(result);
             } else {
-                assert_eq!(result, Err(Error::<Test>::SettingWeightsTooFast.into()));
+                assert_weighted_dispatch_error(result, Error::<Test>::SettingWeightsTooFast);
             }
             run_to_block(i + 1);
         }
@@ -589,7 +608,7 @@ fn test_set_weight_not_enough_values() {
             weight_values,
             0,
         );
-        assert_eq!(result, Err(Error::<Test>::WeightVecLengthIsLow.into()));
+        assert_weighted_dispatch_error(result, Error::<Test>::WeightVecLengthIsLow);
 
         // Shouldnt fail because we setting a single value but it is the self weight.
         let weight_keys: Vec<u16> = vec![0]; // self weight.
@@ -643,10 +662,7 @@ fn test_set_weight_too_many_uids() {
             weight_values,
             0,
         );
-        assert_eq!(
-            result,
-            Err(Error::<Test>::UidsLengthExceedUidsInSubNet.into())
-        );
+        assert_weighted_dispatch_error(result, Error::<Test>::UidsLengthExceedUidsInSubNet);
 
         // Shouldnt fail because we are setting less weights than there are neurons.
         let weight_keys: Vec<u16> = vec![0, 1]; // Only on neurons that exist.
@@ -3641,9 +3657,10 @@ fn test_highly_concurrent_commits_and_reveals_with_multiple_hotkeys() {
                             commits.remove(0);
                         }
                         Err(e) => {
-                            if e == Error::<Test>::RevealTooEarly.into()
-                                || e == Error::<Test>::ExpiredWeightCommit.into()
-                                || e == Error::<Test>::InvalidRevealCommitHashNotMatch.into()
+                            if e.error == Error::<Test>::RevealTooEarly.into()
+                                || e.error == Error::<Test>::ExpiredWeightCommit.into()
+                                || e.error
+                                    == Error::<Test>::InvalidRevealCommitHashNotMatch.into()
                             {
                                 log::info!("Expected error during reveal after epoch advancement: {e:?}");
                             } else {
@@ -3686,9 +3703,10 @@ fn test_highly_concurrent_commits_and_reveals_with_multiple_hotkeys() {
                         }
                         Err(e) => {
                             // Check if the error is due to reveal being too early or commit expired
-                            if e == Error::<Test>::RevealTooEarly.into()
-                                || e == Error::<Test>::ExpiredWeightCommit.into()
-                                || e == Error::<Test>::InvalidRevealCommitHashNotMatch.into()
+                            if e.error == Error::<Test>::RevealTooEarly.into()
+                                || e.error == Error::<Test>::ExpiredWeightCommit.into()
+                                || e.error
+                                    == Error::<Test>::InvalidRevealCommitHashNotMatch.into()
                             {
                                 log::info!("Expected error during reveal after epoch advancement: {e:?}");
                                 break;
@@ -3715,20 +3733,19 @@ fn test_highly_concurrent_commits_and_reveals_with_multiple_hotkeys() {
             for (_commit_hash, salt, uids, values, version_key) in commits.iter() {
                 let reveal_result = SubtensorModule::reveal_weights(
                     RuntimeOrigin::signed(*hotkey),
-            netuid,
+                    netuid,
                     uids.clone(),
                     values.clone(),
                     salt.clone(),
                     *version_key,
                 );
 
-                assert_eq!(
+                assert_dispatch_err!(
                     reveal_result,
-                    Err(Error::<Test>::ExpiredWeightCommit.into()),
-                    "Expected ExpiredWeightCommit error, got {reveal_result:?}"
+                    Error::<Test>::ExpiredWeightCommit
                 );
             }
-}
+        }
 
         for hotkey in &hotkeys {
             commit_info_map.insert(*hotkey, Vec::new());
@@ -6118,7 +6135,7 @@ fn test_subnet_owner_can_validate_without_stake_or_manual_permit() {
             &[owner_uid],
             &[1u16],
         ));
-        assert_eq!(
+        assert_weighted_dispatch_error(
             SubtensorModule::set_weights(
                 RuntimeOrigin::signed(other_hotkey),
                 netuid,
@@ -6126,7 +6143,7 @@ fn test_subnet_owner_can_validate_without_stake_or_manual_permit() {
                 vec![1u16],
                 0,
             ),
-            Err(Error::<Test>::NeuronNoValidatorPermit.into())
+            Error::<Test>::NeuronNoValidatorPermit,
         );
 
         // The subnet owner bypasses both the stake gate and the validator-permit gate.

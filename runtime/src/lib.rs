@@ -1497,7 +1497,11 @@ impl Get<Weight> for MaxSubtensorTransactionExtensionWeight {
             new_hotkey: AccountId::new([0; 32]),
             netuid: None,
         });
-        let extension_weight = |era| {
+        let call_subtensor_extension_weight =
+            pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new().weight(&call);
+        let maximum_subtensor_extension_weight =
+            pallet_subtensor::SubtensorTransactionExtension::<Runtime>::maximum_weight();
+        let non_subtensor_extension_weight = |era| {
             let extensions: TxExtension = (
                 (
                     frame_system::CheckNonZeroSender::<Runtime>::new(),
@@ -1517,22 +1521,24 @@ impl Get<Weight> for MaxSubtensorTransactionExtensionWeight {
                 ),
                 frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
             );
-            extensions.weight(&call)
+            extensions
+                .weight(&call)
+                .saturating_sub(call_subtensor_extension_weight)
         };
-        let mortal = extension_weight(generic::Era::mortal(64, 0));
-        let immortal = extension_weight(generic::Era::Immortal);
-        let transaction_extension_weight = Weight::from_parts(
+        let mortal = non_subtensor_extension_weight(generic::Era::mortal(64, 0));
+        let immortal = non_subtensor_extension_weight(generic::Era::Immortal);
+        let non_subtensor_extension_weight = Weight::from_parts(
             mortal.ref_time().max(immortal.ref_time()),
             mortal.proof_size().max(immortal.proof_size()),
         );
+
         // FRAME's pallet dispatch extensions are accrued to the call weight by
         // `GetDispatchInfo`. SubtensorTransactionExtension mirrors that same
-        // guard set in the signed transaction extension tuple, so reserve it
-        // once more here for the call-weight side of the accounting.
-        let dispatch_extension_weight =
-            pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new().weight(&call);
-
-        transaction_extension_weight.saturating_add(dispatch_extension_weight)
+        // guard set in the signed transaction extension tuple. Reserve the
+        // call-independent maximum once for each layer.
+        non_subtensor_extension_weight
+            .saturating_add(maximum_subtensor_extension_weight)
+            .saturating_add(maximum_subtensor_extension_weight)
     }
 }
 

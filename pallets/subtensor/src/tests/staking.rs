@@ -4510,7 +4510,7 @@ fn test_unstake_all_alpha_hits_liquidity_min() {
 
         // Try to unstake, but we reduce liquidity too far
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(coldkey), hotkey),
             Error::<Test>::AmountTooLow
         );

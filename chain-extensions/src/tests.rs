@@ -30,9 +30,12 @@ fn unstake_all_weight(alpha_only: bool) -> Weight {
         )
     };
 
-    benchmark_weight
+    match benchmark_weight
         .checked_add(&<mock::Test as frame_system::Config>::DbWeight::get().reads(1))
-        .expect("unstake benchmark and metering-read weights must not overflow")
+    {
+        Some(weight) => weight,
+        None => panic!("unstake benchmark and metering-read weights must not overflow"),
+    }
 }
 
 fn maximum_subtensor_call_weight() -> Weight {
@@ -1281,13 +1284,18 @@ impl SubtensorExtensionEnv<mock::Test> for MockEnv {
     }
 
     fn adjust_weight(&mut self, charged: Self::ChargedAmount, actual_weight: Weight) {
-        let cumulative = self
+        let remaining = match self
             .charged_weight
             .unwrap_or_default()
             .checked_sub(&charged)
-            .expect("adjusted weight cannot exceed the weight already charged")
-            .checked_add(&actual_weight)
-            .expect("adjusted actual weight must not overflow");
+        {
+            Some(remaining) => remaining,
+            None => panic!("adjusted weight cannot exceed the weight already charged"),
+        };
+        let cumulative = match remaining.checked_add(&actual_weight) {
+            Some(cumulative) => cumulative,
+            None => panic!("adjusted actual weight must not overflow"),
+        };
         self.charged_weight = Some(cumulative);
     }
 

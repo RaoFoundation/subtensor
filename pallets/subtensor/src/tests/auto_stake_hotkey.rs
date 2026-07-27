@@ -101,7 +101,7 @@ fn test_set_coldkey_auto_stake_hotkey_same_hotkey_again() {
         ));
 
         // Second call with same hotkey should fail
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::set_coldkey_auto_stake_hotkey(
                 RuntimeOrigin::signed(coldkey),
                 netuid,
@@ -201,12 +201,14 @@ fn auto_stake_refund_uses_real_reverse_index_lengths() {
             hotkey: new_hotkey,
         });
         let declared_weight = call.get_dispatch_info().call_weight;
-        let post_info = SubtensorModule::set_coldkey_auto_stake_hotkey(
+        let post_info = match SubtensorModule::set_coldkey_auto_stake_hotkey(
             RuntimeOrigin::signed(coldkey),
             netuid,
             new_hotkey,
-        )
-        .expect("auto-stake destination changes");
+        ) {
+            Ok(post_info) => post_info,
+            Err(error) => panic!("auto-stake destination must change: {error:?}"),
+        };
         let actual_weight = <Test as Config>::WeightInfo::set_coldkey_auto_stake_hotkey(3, 2);
 
         assert_eq!(post_info.actual_weight, Some(actual_weight));

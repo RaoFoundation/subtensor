@@ -1,6 +1,7 @@
 use crate::{
     Call, CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
     CheckServingEndpoints, CheckWeights, Config, Error, guards::applicable_call,
+    weights::WeightInfo,
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
@@ -73,6 +74,21 @@ impl<T: Config + Send + Sync + TypeInfo> sp_std::fmt::Debug for SubtensorTransac
 impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
     pub fn new() -> Self {
         Self(Default::default())
+    }
+
+    /// Return a call-independent upper bound for the validation work performed
+    /// by this extension.
+    ///
+    /// Individual calls enable different guard combinations, and some calls
+    /// enable more than one guard. Summing every guard is deliberately
+    /// conservative.
+    pub fn maximum_weight() -> Weight {
+        <T as Config>::WeightInfo::check_coldkey_swap_extension()
+            .saturating_add(<T as Config>::WeightInfo::check_weights_extension())
+            .saturating_add(<T as Config>::WeightInfo::check_rate_limits_extension())
+            .saturating_add(<T as Config>::WeightInfo::check_delegate_take_extension())
+            .saturating_add(<T as Config>::WeightInfo::check_serving_endpoints_extension())
+            .saturating_add(<T as Config>::WeightInfo::check_evm_key_association_extension())
     }
 
     fn check(origin: &OriginOf<T>, call: &CallOf<T>) -> Result<(), Error<T>>
