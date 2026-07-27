@@ -1,0 +1,26 @@
+---
+title: Voting power
+description: Reference for the deployed VotingPowerPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `VotingPowerPrecompile` |
+| Solidity interface | `IVotingPower` |
+| Address | `0x000000000000000000000000000000000000080d` |
+| Status | Deployed |
+
+All functions are `view`.
+
+## Functions
+
+```text
+getVotingPower(uint16,bytes32)
+isVotingPowerTrackingEnabled(uint16)
+getVotingPowerDisableAtBlock(uint16)
+getVotingPowerEmaAlpha(uint16)
+getTotalVotingPower(uint16)
+```
+
+Source: [`votingPower.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/votingPower.sol)
+

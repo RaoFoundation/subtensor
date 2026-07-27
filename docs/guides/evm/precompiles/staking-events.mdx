@@ -1,0 +1,56 @@
+---
+title: Staking events
+description: Proposed subscription precompile for typed Subtensor staking, delegation, Alpha-flow, lock, and collateral callbacks.
+---
+
+| Property | Value |
+|---|---|
+| Proposed implementation | `StakingEventsPrecompile` |
+| Proposed Solidity interface | `IStakingEvents` |
+| Callback receiver interface | `IStakingEventsReceiver` |
+| Address | Dedicated address not assigned |
+| Status | Proposed |
+
+This precompile reports the economic and staking events emitted by
+`SubtensorModule`. A contract subscribes itself through the common
+[subscription interface](/docs/guides/evm/precompile-design#subscription-control)
+and implements only the callbacks selected by its event mask.
+
+## Proposed callbacks
+
+| Receiver function | Subtensor source event |
+|---|---|
+| `onStakeAdded(...)` | `StakeAdded` |
+| `onStakeRemoved(...)` | `StakeRemoved` |
+| `onStakeMoved(...)` | `StakeMoved` |
+| `onStakeTransferred(...)` | `StakeTransferred` |
+| `onStakeAndHotkeyTransferred(...)` | `StakeAndHotkeyTransferred` |
+| `onStakeSwapped(...)` | `StakeSwapped` |
+| `onAlphaRecycled(...)` | `AlphaRecycled` |
+| `onAlphaBurned(...)` | `AlphaBurned` |
+| `onStakeBurned(...)` | `AddStakeBurn` |
+| `onAutoStakeAdded(...)` | `AutoStakeAdded` |
+| `onAutoStakeDestinationChanged(...)` | `AutoStakeDestinationSet` |
+| `onStakeLocked(...)` | `StakeLocked` |
+| `onLockMoved(...)` | `LockMoved` |
+| `onCollateralLocked(...)` | `CollateralLocked` |
+| `onMinimumCollateralChanged(...)` | `MinCollateralSet` |
+| `onDelegateTakeIncreased(...)` | `TakeIncreased` |
+| `onDelegateTakeDecreased(...)` | `TakeDecreased` |
+| `onChildKeyTakeChanged(...)` | `ChildKeyTakeSet` |
+| `onAutoParentDelegationChanged(...)` | `AutoParentDelegationEnabledSet` |
+| `onRootClaimed(...)` | `RootClaimed` |
+| `onRootClaimTypeChanged(...)` | `RootClaimTypeSet` |
+| `onPerpetualLockChanged(...)` | `PerpetualLockUpdated` |
+| `onLockedAlphaAcceptanceChanged(...)` | `RejectLockedAlphaUpdated` |
+| `onFaucetFunded(...)` | `Faucet` |
+
+`onAutoStakeAdded` covers the current staking event emitted from a runtime hook.
+The remaining callbacks also make transaction- and scheduled-operation events
+available through the same receiver model.
+
+Each callback begins with `uint64 sequence` and `uint64 sourceBlock`, followed
+by typed fields corresponding to the source event. Account IDs use `bytes32`;
+TAO and Alpha amounts use 18-decimal `uint256` values.
+
+The names and signatures are provisional and do not reserve selectors.

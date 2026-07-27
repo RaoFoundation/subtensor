@@ -1,0 +1,31 @@
+{
+  "title": "Precompiles",
+  "pages": [
+    "index",
+    "balance-transfer",
+    "staking-v1",
+    "metagraph",
+    "subnet",
+    "neuron",
+    "staking-v2",
+    "uid-lookup",
+    "storage-query",
+    "alpha",
+    "crowdloan",
+    "leasing",
+    "proxy",
+    "address-mapping",
+    "voting-power",
+    "account-balance",
+    "---Proposed---",
+    "scheduler",
+    "drand",
+    "timestamp",
+    "staking-events",
+    "neuron-events",
+    "weights-events",
+    "subnet-events",
+    "configuration-events",
+    "registry"
+  ]
+}

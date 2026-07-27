@@ -1,0 +1,23 @@
+---
+title: Balance transfer
+description: Reference for the deployed BalanceTransferPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `BalanceTransferPrecompile` |
+| Solidity interface | `ISubtensorBalanceTransfer` |
+| Address | `0x0000000000000000000000000000000000000800` |
+| Status | Deployed |
+
+Transfers the EVM call value to the Substrate account supplied as a 32-byte
+public key.
+
+## Functions
+
+| Function | Mutability |
+|---|---|
+| `transfer(bytes32)` | `payable` |
+
+Source: [`balanceTransfer.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/balanceTransfer.sol)
+

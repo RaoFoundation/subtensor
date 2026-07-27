@@ -1,0 +1,93 @@
+---
+title: Subnet
+description: Reference for the deployed SubnetPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `SubnetPrecompile` |
+| Solidity interface | `ISubnet` |
+| Address | `0x0000000000000000000000000000000000000803` |
+| Status | Deployed |
+
+Registers subnets and exposes selected subnet configuration. State-changing
+functions are `payable`.
+
+## Registration
+
+`registerNetwork` has three overloads:
+
+```text
+registerNetwork(bytes32)
+registerNetwork(bytes32,string,string,string,string,string,string,string)
+registerNetwork(bytes32,string,string,string,string,string,string,string,string)
+```
+
+## Views
+
+```text
+getActivityCutoff(uint16)
+getActivityCutoffFactor(uint16)
+getAdjustmentAlpha(uint16)
+getAlphaSigmoidSteepness(uint16)
+getAlphaValues(uint16)
+getBondsMovingAverage(uint16)
+getBondsResetEnabled(uint16)
+getCommitRevealWeightsEnabled(uint16)
+getCommitRevealWeightsInterval(uint16)
+getDifficulty(uint16)
+getImmunityPeriod(uint16)
+getKappa(uint16)
+getLiquidAlphaEnabled(uint16)
+getMaxBurn(uint16)
+getMaxDifficulty(uint16)
+getMaxWeightLimit(uint16)
+getMinAllowedWeights(uint16)
+getMinBurn(uint16)
+getMinDifficulty(uint16)
+getNetworkPowRegistrationAllowed(uint16)
+getNetworkRegistrationAllowed(uint16)
+getNetworkRegistrationBlock(uint16)
+getOwnerCutAutoLockEnabled(uint16)
+getRho(uint16)
+getServingRateLimit(uint16)
+getWeightsSetRateLimit(uint16)
+getWeightsVersionKey(uint16)
+getYuma3Enabled(uint16)
+isSubnetDissolving(uint16)
+```
+
+## Configuration
+
+```text
+setActivityCutoff(uint16,uint16)
+setActivityCutoffFactor(uint16,uint32)
+setAdjustmentAlpha(uint16,uint64)
+setAlphaSigmoidSteepness(uint16,uint16)
+setAlphaValues(uint16,uint16,uint16)
+setBondsMovingAverage(uint16,uint64)
+setBondsResetEnabled(uint16,bool)
+setCommitRevealWeightsEnabled(uint16,bool)
+setCommitRevealWeightsInterval(uint16,uint64)
+setDifficulty(uint16,uint64)
+setImmunityPeriod(uint16,uint16)
+setKappa(uint16,uint16)
+setLiquidAlphaEnabled(uint16,bool)
+setMaxBurn(uint16,uint64)
+setMaxDifficulty(uint16,uint64)
+setMinAllowedWeights(uint16,uint16)
+setMinBurn(uint16,uint64)
+setMinDifficulty(uint16,uint64)
+setNetworkPowRegistrationAllowed(uint16,bool)
+setNetworkRegistrationAllowed(uint16,bool)
+setOwnerCutAutoLockEnabled(uint16,bool)
+setRho(uint16,uint16)
+setServingRateLimit(uint16,uint64)
+setWeightsSetRateLimit(uint16,uint64)
+setWeightsVersionKey(uint16,uint64)
+setYuma3Enabled(uint16,bool)
+toggleTransfers(uint16,bool)
+```
+
+Source: [`subnet.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/subnet.sol)
+

@@ -1,0 +1,49 @@
+---
+title: Scheduler
+description: Proposed typed EVM interface for the Scheduler pallet.
+---
+
+| Property | Value |
+|---|---|
+| Proposed implementation | `SchedulerPrecompile` |
+| Proposed Solidity interface | `IScheduler` |
+| Address | Not assigned |
+| Status | Proposed |
+
+This precompile would replace raw reads of Scheduler storage and expose the
+Scheduler extrinsics through a stable EVM interface.
+
+## Planned views
+
+| Function | Replaces |
+|---|---|
+| `getIncompleteSince()` | `Scheduler.IncompleteSince` |
+| `getScheduledCall(uint64 when,uint32 index)` | One entry of `Scheduler.Agenda` |
+| `getScheduledCallCount(uint64 when)` | The bounded agenda length for a block |
+| `getRetry(uint64 when,uint32 index)` | `Scheduler.Retries` |
+| `getTaskAddress(bytes32 taskId)` | `Scheduler.Lookup` |
+
+Returning one agenda entry at a time keeps execution bounded and avoids an
+unbounded array result.
+
+## Planned operations
+
+```text
+schedule
+cancel
+scheduleNamed
+cancelNamed
+scheduleAfter
+scheduleNamedAfter
+setRetry
+setRetryNamed
+cancelRetry
+cancelRetryNamed
+```
+
+Scheduled payloads must use a versioned, stable EVM call description. They must
+not expose SCALE-encoded `RuntimeCall`, whose encoding can change after a
+runtime upgrade.
+
+Names and signatures on this page are provisional and do not reserve selectors.
+

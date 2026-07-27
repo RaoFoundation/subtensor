@@ -1,0 +1,80 @@
+---
+title: Subnet events
+description: Proposed subscription precompile for typed Subtensor subnet lifecycle, lease, epoch, emission, and voting-power callbacks.
+---
+
+| Property | Value |
+|---|---|
+| Proposed implementation | `SubnetEventsPrecompile` |
+| Proposed Solidity interface | `ISubnetEvents` |
+| Callback receiver interface | `ISubnetEventsReceiver` |
+| Address | Dedicated address not assigned |
+| Status | Proposed |
+
+This precompile reports subnet creation and dissolution, ownership and identity
+changes, leases, epoch execution, emissions, and voting-power tracking emitted
+by `SubtensorModule`.
+
+## Proposed callbacks
+
+| Receiver function | Subtensor source |
+|---|---|
+| `onNetworkRegistrationQueued(...)` | `NetworkRegistrationQueued` |
+| `onNetworkAdded(...)` | `NetworkAdded` |
+| `onNetworkDissolutionScheduled(...)` | `DissolveNetworkScheduled` |
+| `onNetworkRemoved(...)` | `NetworkRemoved` |
+| `onNetworkDissolutionCleanupCompleted(...)` | `NetworkDissolveCleanupCompleted` |
+| `onSubnetIdentitySet(...)` | `SubnetIdentitySet` |
+| `onSubnetIdentityRemoved(...)` | `SubnetIdentityRemoved` |
+| `onSubnetSymbolChanged(...)` | `SymbolUpdated` |
+| `onSubnetOwnerHotkeyChanged(...)` | `SubnetOwnerHotkeySet` |
+| `onSubnetOwnerChanged(...)` | `SubnetOwnerChanged` |
+| `onFirstEmissionBlockSet(...)` | `FirstEmissionBlockNumberSet` |
+| `onSubnetLeaseCreated(...)` | `SubnetLeaseCreated` |
+| `onSubnetLeaseTerminated(...)` | `SubnetLeaseTerminated` |
+| `onSubnetLeaseDividendDistributed(...)` | `SubnetLeaseDividendsDistributed` |
+| `onEpochTriggered(...)` | `EpochTriggered` |
+| `onEpochDeferred(...)` | `EpochDeferred` |
+| `onEpochSkipped(...)` | `EpochSkipped` |
+| `onUidEmissionCalculated(...)` | One callback per UID emission entry from `IncentiveAlphaEmittedToMiners` |
+| `onVotingPowerTrackingEnabled(...)` | `VotingPowerTrackingEnabled` |
+| `onVotingPowerTrackingDisableScheduled(...)` | `VotingPowerTrackingDisableScheduled` |
+| `onVotingPowerTrackingDisabled(...)` | `VotingPowerTrackingDisabled` |
+| `onVotingPowerEmaAlphaChanged(...)` | `VotingPowerEmaAlphaSet` |
+
+The current hook-origin callbacks are `onNetworkDissolutionCleanupCompleted`,
+`onSubnetLeaseDividendDistributed`, `onEpochDeferred`, `onEpochSkipped`,
+`onUidEmissionCalculated`, and `onVotingPowerTrackingDisabled`.
+
+### Per-UID emission calculation
+
+`IncentiveAlphaEmittedToMiners` contains an `emissions` array whose index is the
+miner UID: `emissions[0]` is the Alpha emission for UID 0, `emissions[1]` is for
+UID 1, and so on. The precompile does not pass this variable-length array to a
+subscriber. It delivers one bounded callback for each `(uid, alpha)` entry:
+
+```solidity
+function onUidEmissionCalculated(
+    uint64 sequence,
+    uint64 sourceBlock,
+    uint16 netuid,
+    uint16 uid,
+    uint16 uidCount,
+    uint256 alpha
+) external;
+```
+
+For example, a source array of `[10, 20, 30]` produces callbacks for
+`(uid=0, alpha=10)`, `(uid=1, alpha=20)`, and `(uid=2, alpha=30)`. All callbacks
+from that source event share the same sequence and `uidCount`, allowing the
+receiver to identify the complete set without accepting an unbounded argument.
+
+Subnet identity and symbol values must use bounded Solidity representations
+chosen before the ABI is released.
+
+Every callback also carries the source block. Account IDs use `bytes32`,
+netuids use `uint16`, and balances use 18-decimal `uint256` values.
+
+Subscription behavior is defined in
+[Subscription-based event reporting](/docs/guides/evm/precompile-design#subscription-based-event-reporting).
+The names and signatures are provisional and do not reserve selectors.

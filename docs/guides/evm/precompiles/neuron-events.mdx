@@ -1,0 +1,50 @@
+---
+title: Neuron and key events
+description: Proposed subscription precompile for typed Subtensor neuron, identity, relationship, and key-rotation callbacks.
+---
+
+| Property | Value |
+|---|---|
+| Proposed implementation | `NeuronEventsPrecompile` |
+| Proposed Solidity interface | `INeuronEvents` |
+| Callback receiver interface | `INeuronEventsReceiver` |
+| Address | Dedicated address not assigned |
+| Status | Proposed |
+
+This precompile reports neuron registration and serving changes, hotkey and
+coldkey rotations, identities, EVM-key associations, and child relationships
+emitted by `SubtensorModule`.
+
+## Proposed callbacks
+
+| Receiver function | Subtensor source event |
+|---|---|
+| `onNeuronRegistered(...)` | `NeuronRegistered` |
+| `onAxonServed(...)` | `AxonServed` |
+| `onPrometheusServed(...)` | `PrometheusServed` |
+| `onHotkeySwapped(...)` | `HotkeySwapped` |
+| `onHotkeySwappedOnSubnet(...)` | `HotkeySwappedOnSubnet` |
+| `onColdkeySwapAnnounced(...)` | `ColdkeySwapAnnounced` |
+| `onColdkeySwapReset(...)` | `ColdkeySwapReset` |
+| `onColdkeySwapped(...)` | `ColdkeySwapped` |
+| `onColdkeySwapDisputed(...)` | `ColdkeySwapDisputed` |
+| `onColdkeySwapCleared(...)` | `ColdkeySwapCleared` |
+| `onChildrenScheduled(...)` | `SetChildrenScheduled` |
+| `onChildScheduled(...)` | One item from `SetChildrenScheduled` |
+| `onChildrenSet(...)` | `SetChildren` |
+| `onChildSet(...)` | One item from `SetChildren` |
+| `onChainIdentitySet(...)` | `ChainIdentitySet` |
+| `onEvmKeyAssociated(...)` | `EvmKeyAssociated` |
+
+The schedule and children summary callbacks carry the hotkey, netuid, and item
+count. Their item callbacks carry one child and proportion at a time, using a
+shared source sequence, item index, and item count; no callback contains an
+unbounded array.
+
+All callbacks also carry the source block. Account IDs and hashes use
+`bytes32`, and the associated EVM key uses `address`.
+
+Subscription behavior is defined in
+[Subscription-based event reporting](/docs/guides/evm/precompile-design#subscription-based-event-reporting).
+The names and signatures are provisional and do not reserve selectors.
+

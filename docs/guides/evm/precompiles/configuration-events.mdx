@@ -1,0 +1,98 @@
+---
+title: Configuration events
+description: Proposed subscription precompile for typed Subtensor and AdminUtils configuration callbacks.
+---
+
+| Property | Value |
+|---|---|
+| Proposed implementation | `ConfigurationEventsPrecompile` |
+| Proposed Solidity interface | `IConfigurationEvents` |
+| Callback receiver interface | `IConfigurationEventsReceiver` |
+| Address | Dedicated address not assigned |
+| Status | Proposed |
+
+This precompile reports runtime and subnet configuration changes emitted by
+`SubtensorModule` and `AdminUtils`. It normalizes the two pallets into
+meaningful typed callbacks while retaining the source pallet in callback
+metadata when both pallets can describe the same setting.
+
+## Proposed Subtensor callbacks
+
+| Receiver function | Subtensor source event |
+|---|---|
+| `onActivityCutoffChanged(...)` | `ActivityCutoffSet` |
+| `onActivityCutoffFactorChanged(...)` | `ActivityCutoffFactorMilliSet` |
+| `onAdjustmentAlphaChanged(...)` | `AdjustmentAlphaSet` |
+| `onAdjustmentIntervalChanged(...)` | `AdjustmentIntervalSet` |
+| `onAdminFreezeWindowChanged(...)` | `AdminFreezeWindowSet` |
+| `onBondsMovingAverageChanged(...)` | `BondsMovingAverageSet` |
+| `onBondsPenaltyChanged(...)` | `BondsPenaltySet` |
+| `onBondsResetOnSetChanged(...)` | `BondsResetOnSet` |
+| `onColdkeySwapAnnouncementDelayChanged(...)` | `ColdkeySwapAnnouncementDelaySet` |
+| `onColdkeySwapReannouncementDelayChanged(...)` | `ColdkeySwapReannouncementDelaySet` |
+| `onDifficultyChanged(...)` | `DifficultySet` |
+| `onDissolutionScheduleDurationChanged(...)` | `DissolveNetworkScheduleDurationSet` |
+| `onImmunityPeriodChanged(...)` | `ImmunityPeriodSet` |
+| `onKappaChanged(...)` | `KappaSet` |
+| `onMaxAllowedUidsChanged(...)` | `MaxAllowedUidsSet` |
+| `onMaxAllowedValidatorsChanged(...)` | `MaxAllowedValidatorsSet` |
+| `onMaxBurnChanged(...)` | `MaxBurnSet` |
+| `onMaxChildKeyTakeChanged(...)` | `MaxChildKeyTakeSet` |
+| `onMaxDelegateTakeChanged(...)` | `MaxDelegateTakeSet` |
+| `onMaxDifficultyChanged(...)` | `MaxDifficultySet` |
+| `onMaxEpochsPerBlockChanged(...)` | `MaxEpochsPerBlockSet` |
+| `onMaxRegistrationsPerBlockChanged(...)` | `MaxRegistrationsPerBlockSet` |
+| `onMinAllowedUidsChanged(...)` | `MinAllowedUidsSet` |
+| `onMinAllowedWeightChanged(...)` | `MinAllowedWeightSet` |
+| `onMinBurnChanged(...)` | `MinBurnSet` |
+| `onMinChildKeyTakeChanged(...)` | `MinChildKeyTakeSet` |
+| `onMinChildKeyTakeForSubnetChanged(...)` | `MinChildKeyTakePerSubnetSet` |
+| `onMinDelegateTakeChanged(...)` | `MinDelegateTakeSet` |
+| `onMinDifficultyChanged(...)` | `MinDifficultySet` |
+| `onMinNonImmuneUidsChanged(...)` | `MinNonImmuneUidsSet` |
+| `onNetworkImmunityPeriodChanged(...)` | `NetworkImmunityPeriodSet` |
+| `onNetworkLockCostReductionIntervalChanged(...)` | `NetworkLockCostReductionIntervalSet` |
+| `onNetworkMinimumLockCostChanged(...)` | `NetworkMinLockCostSet` |
+| `onNetworkRateLimitChanged(...)` | `NetworkRateLimitSet` |
+| `onOwnerHyperparameterRateLimitChanged(...)` | `OwnerHyperparamRateLimitSet` |
+| `onPowRegistrationAllowedChanged(...)` | `PowRegistrationAllowed` |
+| `onRaoRecycledForRegistrationChanged(...)` | `RAORecycledForRegistrationSet` |
+| `onRegistrationAllowedChanged(...)` | `RegistrationAllowed` |
+| `onRegistrationsPerIntervalChanged(...)` | `RegistrationPerIntervalSet` |
+| `onScalingLawPowerChanged(...)` | `ScalingLawPowerSet` |
+| `onServingRateLimitChanged(...)` | `ServingRateLimitSet` |
+| `onStakeThresholdChanged(...)` | `StakeThresholdSet` |
+| `onStartCallDelayChanged(...)` | `StartCallDelaySet` |
+| `onSubnetLimitChanged(...)` | `SubnetLimitSet` |
+| `onSubnetOwnerCutChanged(...)` | `SubnetOwnerCutSet` |
+| `onTempoChanged(...)` | `TempoSet` |
+| `onTransferEnabledChanged(...)` | `TransferToggle` |
+| `onChildKeyTakeRateLimitChanged(...)` | `TxChildKeyTakeRateLimitSet` |
+| `onDelegateTakeRateLimitChanged(...)` | `TxDelegateTakeRateLimitSet` |
+| `onTransactionRateLimitChanged(...)` | `TxRateLimitSet` |
+| `onValidatorPruneLengthChanged(...)` | `ValidatorPruneLenSet` |
+| `onWeightsRateLimitChanged(...)` | `WeightsSetRateLimitSet` |
+| `onWeightsVersionKeyChanged(...)` | `WeightsVersionKeySet` |
+
+## Proposed AdminUtils callbacks
+
+| Receiver function | AdminUtils source event |
+|---|---|
+| `onPrecompileAvailabilityChanged(...)` | `PrecompileUpdated` |
+| `onYuma3EnabledChanged(...)` | `Yuma3EnableToggled` |
+| `onBondsResetEnabledChanged(...)` | `BondsResetToggled` |
+| `onBurnHalfLifeChanged(...)` | `BurnHalfLifeSet` |
+| `onBurnIncreaseMultiplierChanged(...)` | `BurnIncreaseMultSet` |
+| `onSubnetEmissionEnabledChanged(...)` | `SubnetEmissionEnabledSet` |
+| `onCollateralLockShareChanged(...)` | `CollateralLockShareSet` |
+| `onCollateralDrainRatioChanged(...)` | `CollateralDrainRatioSet` |
+
+Every callback begins with `uint64 sequence`, `uint64 sourceBlock`, and a typed
+source-pallet value, followed by the setting's typed fields. Account IDs use
+`bytes32`, netuids use `uint16`, and fixed-point values use a documented stable
+EVM representation.
+
+Subscription behavior is defined in
+[Subscription-based event reporting](/docs/guides/evm/precompile-design#subscription-based-event-reporting).
+The names and signatures are provisional and do not reserve selectors.
+

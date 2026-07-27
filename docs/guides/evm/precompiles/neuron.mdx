@@ -1,0 +1,30 @@
+---
+title: Neuron
+description: Reference for the deployed NeuronPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `NeuronPrecompile` |
+| Solidity interface | `INeuron` |
+| Address | `0x0000000000000000000000000000000000000804` |
+| Status | Deployed |
+
+Registers neurons, publishes serving endpoints, and submits weights. Every
+function is `payable`.
+
+## Functions
+
+```text
+burnedRegister(uint16,bytes32)
+registerLimit(uint16,bytes32,uint64)
+serveAxon(uint16,uint32,uint128,uint16,uint8,uint8,uint8,uint8)
+serveAxonTls(uint16,uint32,uint128,uint16,uint8,uint8,uint8,uint8,bytes)
+servePrometheus(uint16,uint32,uint128,uint16,uint8)
+setWeights(uint16,uint16[],uint16[],uint64)
+commitWeights(uint16,bytes32)
+revealWeights(uint16,uint16[],uint16[],uint16[],uint64)
+```
+
+Source: [`neuron.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/neuron.sol)
+

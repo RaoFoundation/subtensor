@@ -1,0 +1,79 @@
+---
+title: Staking V2
+description: Reference for the deployed StakingPrecompileV2.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `StakingPrecompileV2` |
+| Solidity interface | `IStaking` V2 |
+| Address | `0x0000000000000000000000000000000000000805` |
+| Status | Deployed |
+
+This is the current staking interface. The V1 address remains available for
+backward compatibility.
+
+## Stake operations
+
+```text
+addStake(bytes32,uint256,uint256)
+addStakeLimit(bytes32,uint256,uint256,bool,uint256)
+removeStake(bytes32,uint256,uint256)
+removeStakeLimit(bytes32,uint256,uint256,bool,uint256)
+removeStakeFull(bytes32,uint256)
+removeStakeFullLimit(bytes32,uint256,uint256)
+moveStake(bytes32,bytes32,uint256,uint256,uint256)
+transferStake(bytes32,bytes32,uint256,uint256,uint256)
+burnAlpha(bytes32,uint256,uint256)
+```
+
+These functions are `payable`.
+
+## Stake views
+
+```text
+getStake(bytes32,bytes32,uint256)
+getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])
+getTotalColdkeyStake(bytes32)
+getTotalColdkeyStakeOnSubnet(bytes32,uint256)
+getTotalHotkeyStake(bytes32)
+getAlphaStakedValidators(bytes32,uint256)
+getTotalAlphaStaked(bytes32,uint256)
+getNominatorMinRequiredStake()
+getDefaultMinStake()
+```
+
+These functions are `view`.
+
+## Locks and account policy
+
+```text
+lockStake(bytes32,uint256,uint256)
+moveLock(bytes32,uint256)
+setPerpetualLock(uint256,bool)
+setRejectLockedAlpha(bool)
+getColdkeyLock(bytes32,uint256)
+getHotkeyLock(bytes32,uint256)
+getHotkeyConvictions(uint256,bytes32[])
+getLockRates()
+getRejectLockedAlpha(bytes32)
+```
+
+The `get` functions are `view`; the other functions are `payable`.
+
+## Proxies and stake allowances
+
+```text
+addProxy(bytes32)
+removeProxy(bytes32)
+approve(address,uint256,uint256)
+allowance(address,address,uint256)
+increaseAllowance(address,uint256,uint256)
+decreaseAllowance(address,uint256,uint256)
+transferStakeFrom(address,address,bytes32,uint256,uint256,uint256)
+```
+
+`allowance` is `view`. Refer to the published ABI for the mutability and return
+encoding of the allowance mutations.
+
+Source: [`stakingV2.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/stakingV2.sol)

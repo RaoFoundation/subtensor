@@ -1,0 +1,40 @@
+---
+title: Alpha
+description: Reference for the deployed AlphaPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `AlphaPrecompile` |
+| Solidity interface | `IAlpha` |
+| Address | `0x0000000000000000000000000000000000000808` |
+| Status | Deployed |
+
+Provides typed views of subnet pools, prices, issuance, emissions, and simulated
+swaps. All functions are `view`.
+
+## Functions
+
+```text
+getAlphaPrice(uint16)
+getMovingAlphaPrice(uint16)
+getTaoInPool(uint16)
+getAlphaInPool(uint16)
+getAlphaOutPool(uint16)
+getAlphaIssuance(uint16)
+getTaoWeight()
+simSwapTaoForAlpha(uint16,uint64)
+simSwapAlphaForTao(uint16,uint64)
+getSubnetMechanism(uint16)
+getRootNetuid()
+getEMAPriceHalvingBlocks(uint16)
+getSubnetVolume(uint16)
+getTaoInEmission(uint16)
+getAlphaInEmission(uint16)
+getAlphaOutEmission(uint16)
+getSumAlphaPrice()
+getCKBurn()
+```
+
+Source: [`alpha.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/alpha.sol)
+

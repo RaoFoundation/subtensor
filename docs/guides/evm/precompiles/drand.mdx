@@ -1,0 +1,35 @@
+---
+title: Drand
+description: Proposed typed EVM interface for the Drand pallet.
+---
+
+| Property | Value |
+|---|---|
+| Proposed implementation | `DrandPrecompile` |
+| Proposed Solidity interface | `IDrand` |
+| Address | Not assigned |
+| Status | Proposed |
+
+This precompile would expose typed beacon configuration and pulse data instead
+of requiring callers to construct Drand storage keys and decode SCALE values.
+
+## Planned views
+
+| Function | Replaces |
+|---|---|
+| `getBeaconConfig()` | `Drand.BeaconConfig` |
+| `getPulse(uint64 round)` | `Drand.Pulses` |
+| `getStoredRoundRange()` | `Drand.OldestStoredRound` and `Drand.LastStoredRound` |
+| `getNextUnsignedAt()` | `Drand.NextUnsignedAt` |
+| `hasMigrationRun(bytes key)` | `Drand.HasMigrationRun` |
+
+## Planned operations
+
+```text
+writePulse
+setBeaconConfig
+setOldestStoredRound
+```
+
+The runtime's existing signed, unsigned, and Root origin checks remain in force.
+Names and signatures on this page are provisional and do not reserve selectors.
