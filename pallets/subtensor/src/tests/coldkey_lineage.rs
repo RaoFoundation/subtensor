@@ -1,3 +1,7 @@
+//! Tests for coldkey-swap lineage recording ([`crate::swap::coldkey_lineage`]).
+//!
+//! Verifies tip/chain updates, reverse-swap non-cycles, and rollback on failed swap.
+
 #![allow(clippy::unwrap_used)]
 
 use frame_support::{assert_noop, assert_ok};
@@ -33,7 +37,7 @@ fn test_coldkey_swap_records_lineage() {
         )
         .unwrap();
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&c0, &c1));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&c0, &c1));
 
         assert_eq!(ColdkeySuccessor::<Test>::get(c0), Some(c1));
         assert_eq!(SubtensorModule::coldkey_root(&c1), c0);
@@ -67,8 +71,8 @@ fn test_coldkey_swap_lineage_chain_and_tip() {
         )
         .unwrap();
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&c0, &c1));
-        assert_ok!(SubtensorModule::do_swap_coldkey(&c1, &c2));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&c0, &c1));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&c1, &c2));
 
         assert_eq!(ColdkeySuccessor::<Test>::get(c0), Some(c1));
         assert_eq!(ColdkeySuccessor::<Test>::get(c1), Some(c2));
@@ -102,12 +106,12 @@ fn test_coldkey_lineage_reverse_swap_does_not_cycle() {
         )
         .unwrap();
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&c0, &c1));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&c0, &c1));
         assert_eq!(ColdkeySuccessor::<Test>::get(c0), Some(c1));
 
         // c0 was killed; fund it again as a fresh destination for the reverse swap.
         add_balance_to_coldkey_account(&c0, ExistentialDeposit::get());
-        assert_ok!(SubtensorModule::do_swap_coldkey(&c1, &c0));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&c1, &c0));
 
         assert!(ColdkeySuccessor::<Test>::get(c0).is_none());
         assert_eq!(ColdkeySuccessor::<Test>::get(c1), Some(c0));
@@ -154,7 +158,7 @@ fn test_coldkey_lineage_rolls_back_with_failed_swap() {
         );
 
         assert_noop!(
-            SubtensorModule::do_swap_coldkey(&c0, &c1),
+            SubtensorModule::perform_coldkey_swap(&c0, &c1),
             Error::<Test>::ActiveLockExists
         );
         assert!(ColdkeySuccessor::<Test>::get(c0).is_none());

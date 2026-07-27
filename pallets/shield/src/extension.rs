@@ -1,3 +1,5 @@
+//! Signed-extension that rejects malformed `submit_encrypted` ciphertexts before they enter the pool.
+
 use crate::{Call, Config, ShieldedTransaction};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::pallet_prelude::*;
@@ -12,11 +14,13 @@ use sp_runtime::transaction_validity::TransactionSource;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::CustomTransactionError;
 
+// Doc lives on the module: adding `///` here would change the freeze_struct hash.
 #[freeze_struct("dabd89c6963de25d")]
 #[derive(Default, Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 pub struct CheckShieldedTxValidity<T: Config + Send + Sync + TypeInfo>(PhantomData<T>);
 
 impl<T: Config + Send + Sync + TypeInfo> CheckShieldedTxValidity<T> {
+    /// Construct the zero-sized extension marker.
     pub fn new() -> Self {
         Self(Default::default())
     }

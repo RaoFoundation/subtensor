@@ -1,19 +1,11 @@
-//! This file defines abstraction for subnet leasing.
+//! Crowdloan-backed subnet leasing.
 //!
-//! It is used to register a new leased network through a crowdloan using the `register_leased_network` extrinsic
-//! as a call parameter to the crowdloan pallet `create` extrinsic. A new subnet will be registered
-//! paying the lock cost using the crowdloan funds and a proxy will be created for the beneficiary
-//! to operate the subnet.
-//!
-//! The crowdloan's contributions are used to compute the share of the emissions that the contributors
-//! will receive as dividends. The leftover cap is refunded to the contributors and the beneficiary.
-//!
-//! The lease can have a defined end block, after which the lease will be terminated and the subnet
-//! will be transferred to the beneficiary. In case the lease is perpetual, the lease will never be
-//! terminated and emissions will continue to be distributed to the contributors.
-//!
-//! The lease can be terminated by the beneficiary after the end block has passed (if any) and the subnet
-//! ownership will be transferred to the beneficiary.
+//! `register_leased_network` is invoked as the crowdloan finalize call: raised
+//! funds pay the network lock, a deterministic lease coldkey/hotkey pair owns
+//! the subnet, and the beneficiary receives a proxy. Contributor shares in
+//! [`SubnetLeaseShares`] receive emission dividends until the lease ends (or
+//! forever if perpetual). [`do_terminate_lease`] transfers ownership to the
+//! beneficiary after `end_block`.
 
 use super::*;
 use crate::weights::WeightInfo;
@@ -76,7 +68,7 @@ impl<T: Config> Pallet<T> {
         let now = frame_system::Pallet::<T>::block_number();
 
         // Ensure the origin is the creator of the crowdloan
-        let (crowdloan_id, crowdloan) = Self::get_crowdloan_being_finalized()?;
+        let (crowdloan_id, crowdloan) = Self::crowdloan_being_finalized()?;
         ensure!(
             who == crowdloan.creator,
             Error::<T>::InvalidLeaseBeneficiary
@@ -87,9 +79,9 @@ impl<T: Config> Pallet<T> {
         }
 
         // Initialize the lease id, coldkey and hotkey and keep track of them
-        let lease_id = Self::get_next_lease_id()?;
-        let lease_coldkey = Self::lease_coldkey(lease_id)?;
-        let lease_hotkey = Self::lease_hotkey(lease_id)?;
+        let lease_id = Self::allocate_next_lease_id()?;
+        let lease_coldkey = Self::derive_lease_coldkey(lease_id)?;
+        let lease_hotkey = Self::derive_lease_hotkey(lease_id)?;
         frame_system::Pallet::<T>::inc_providers(&lease_coldkey);
         frame_system::Pallet::<T>::inc_providers(&lease_hotkey);
 
@@ -102,8 +94,8 @@ impl<T: Config> Pallet<T> {
             None,
         )?;
 
-        let netuid =
-            Self::find_lease_netuid(&lease_coldkey).ok_or(Error::<T>::LeaseNetuidNotFound)?;
+        let netuid = Self::find_netuid_for_lease_coldkey(&lease_coldkey)
+            .ok_or(Error::<T>::LeaseNetuidNotFound)?;
 
         // Enable the beneficiary to operate the subnet through a proxy
         T::ProxyInterface::add_lease_beneficiary_proxy(&lease_coldkey, &who)?;
@@ -336,19 +328,22 @@ impl<T: Config> Pallet<T> {
         };
     }
 
-    fn lease_coldkey(lease_id: LeaseId) -> Result<T::AccountId, DispatchError> {
+    /// Deterministic coldkey account derived from `("leasing/coldkey", lease_id)`.
+    fn derive_lease_coldkey(lease_id: LeaseId) -> Result<T::AccountId, DispatchError> {
         let entropy = ("leasing/coldkey", lease_id).using_encoded(blake2_256);
         T::AccountId::decode(&mut TrailingZeroInput::new(entropy.as_ref()))
             .map_err(|_| Error::<T>::InvalidValue.into())
     }
 
-    fn lease_hotkey(lease_id: LeaseId) -> Result<T::AccountId, DispatchError> {
+    /// Deterministic hotkey account derived from `("leasing/hotkey", lease_id)`.
+    fn derive_lease_hotkey(lease_id: LeaseId) -> Result<T::AccountId, DispatchError> {
         let entropy = ("leasing/hotkey", lease_id).using_encoded(blake2_256);
         T::AccountId::decode(&mut TrailingZeroInput::new(entropy.as_ref()))
             .map_err(|_| Error::<T>::InvalidValue.into())
     }
 
-    fn get_next_lease_id() -> Result<LeaseId, Error<T>> {
+    /// Take the next [`NextSubnetLeaseId`] value and advance the counter.
+    fn allocate_next_lease_id() -> Result<LeaseId, Error<T>> {
         let lease_id = NextSubnetLeaseId::<T>::get();
 
         // Increment the lease id
@@ -358,7 +353,8 @@ impl<T: Config> Pallet<T> {
         Ok(lease_id)
     }
 
-    fn find_lease_netuid(lease_coldkey: &T::AccountId) -> Option<NetUid> {
+    /// Find the subnet whose [`SubnetOwner`] is the derived lease coldkey.
+    fn find_netuid_for_lease_coldkey(lease_coldkey: &T::AccountId) -> Option<NetUid> {
         SubnetOwner::<T>::iter()
             .find(|(_, coldkey)| coldkey == lease_coldkey)
             .map(|(netuid, _)| netuid)
@@ -366,7 +362,8 @@ impl<T: Config> Pallet<T> {
 
     // Get the crowdloan being finalized from the crowdloan pallet when the call is executed,
     // and the current crowdloan ID is exposed to us.
-    fn get_crowdloan_being_finalized() -> Result<
+    /// Crowdloan currently being finalized (`CurrentCrowdloanId` in pallet-crowdloan).
+    fn crowdloan_being_finalized() -> Result<
         (
             pallet_crowdloan::CrowdloanId,
             pallet_crowdloan::CrowdloanInfoOf<T>,

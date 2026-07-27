@@ -1,7 +1,11 @@
+//! One-shot migration: trim [`Pulses`](crate::Pulses) to [`MAX_KEPT_PULSES`](crate::MAX_KEPT_PULSES)
+//! and set [`OldestStoredRound`](crate::OldestStoredRound) / [`LastStoredRound`](crate::LastStoredRound).
+
 use crate::*;
 use frame_support::{traits::Get, weights::Weight};
 use log;
 
+/// Prune excess historical pulses and refresh round watermarks; idempotent via [`HasMigrationRun`].
 pub fn migrate_prune_old_pulses<T: Config>() -> Weight {
     let migration_name = BoundedVec::truncate_from(b"migrate_prune_old_pulses".to_vec());
 

@@ -1,3 +1,8 @@
+//! Chain-spec builders and crypto helpers for Subtensor networks.
+//!
+//! Submodules produce `ChainSpec`s for localnet, devnet, Finney mainnet, and
+//! testnet. Shared helpers derive Aura/Grandpa authority keys from seeds or SS58.
+
 // Allowed since it's actually better to panic during chain setup when there is an error
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
@@ -58,6 +63,7 @@ pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
     (get_from_seed::<AuraId>(s), get_from_seed::<GrandpaId>(s))
 }
 
+/// Parse Aura and Grandpa authority public keys from SS58 addresses.
 pub fn authority_keys_from_ss58(s_aura: &str, s_grandpa: &str) -> (AuraId, GrandpaId) {
     (
         get_aura_from_ss58_addr(s_aura),
@@ -65,10 +71,12 @@ pub fn authority_keys_from_ss58(s_aura: &str, s_grandpa: &str) -> (AuraId, Grand
     )
 }
 
+/// Decode an Aura authority id from an SS58 string (panics on invalid input).
 pub fn get_aura_from_ss58_addr(s: &str) -> AuraId {
     Ss58Codec::from_ss58check(s).unwrap()
 }
 
+/// Decode a Grandpa authority id from an SS58 string (panics on invalid input).
 pub fn get_grandpa_from_ss58_addr(s: &str) -> GrandpaId {
     Ss58Codec::from_ss58check(s).unwrap()
 }
@@ -78,7 +86,7 @@ use serde::{Deserialize, Serialize};
 use serde_json as json;
 use std::{fs::File, path::PathBuf};
 
-// Configure storage from nakamoto data
+/// Snapshot JSON shape used when bootstrapping Finney / testnet genesis from nakamoto data.
 #[derive(Deserialize, Debug)]
 struct ColdkeyHotkeys {
     stakes: std::collections::HashMap<String, std::collections::HashMap<String, (u64, u16)>>,

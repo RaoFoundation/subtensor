@@ -4,6 +4,10 @@ use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_io::{KillStorageResult, hashing::twox_128, storage::clear_prefix};
 
+/// Removes obsolete commit-reveal v1 storage prefixes `WeightCommitRevealInterval` and `WeightCommits`
+/// under `SubtensorModule` ahead of the CRV2/CRV3 layouts.
+///
+/// Idempotency key (frozen): `migrate_commit_reveal_2_v2`.
 pub fn migrate_commit_reveal_2<T: Config>() -> Weight {
     let migration_name = b"migrate_commit_reveal_2_v2".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

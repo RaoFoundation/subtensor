@@ -1,3 +1,7 @@
+//! Mock runtime and helpers for `pallet-admin-utils` unit tests and benchmarks.
+//!
+//! Builds a minimal `Test` runtime with Subtensor, Swap, EVM chain id, and GRANDPA so admin
+//! extrinsics can be exercised without the full node runtime.
 #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 
 use core::num::NonZeroU64;
@@ -246,7 +250,7 @@ impl pallet_subtensor::Config for Test {
     type LeaseDividendsDistributionInterval = LeaseDividendsDistributionInterval;
     type GetCommitments = ();
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
-    type CommitmentsInterface = CommitmentsI;
+    type CommitmentsInterface = CommitmentsPurgeBridge;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
     type SubtensorPalletId = SubtensorPalletId;
@@ -381,8 +385,8 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
     }
 }
 
-pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+pub struct CommitmentsPurgeBridge;
+impl pallet_subtensor::CommitmentsInterface for CommitmentsPurgeBridge {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
@@ -391,8 +395,8 @@ impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
     }
 }
 
-pub struct GrandpaInterfaceImpl;
-impl crate::GrandpaInterface<Test> for GrandpaInterfaceImpl {
+pub struct GrandpaAuthorityInterface;
+impl crate::GrandpaInterface<Test> for GrandpaAuthorityInterface {
     fn schedule_change(
         next_authorities: GrandpaAuthorityList,
         in_blocks: BlockNumber,
@@ -406,7 +410,7 @@ impl crate::Config for Test {
     type AuthorityId = AuraId;
     type MaxAuthorities = ConstU32<32>;
     type Aura = ();
-    type Grandpa = GrandpaInterfaceImpl;
+    type Grandpa = GrandpaAuthorityInterface;
     type Balance = Balance;
     type WeightInfo = ();
 }
@@ -495,7 +499,7 @@ where
     }
 }
 
-// Build genesis storage according to the mock runtime.
+/// Build externalities with block 1 and a one-block admin freeze window.
 pub fn new_test_ext() -> sp_io::TestExternalities {
     sp_tracing::try_init_simple();
     let t = frame_system::GenesisConfig::<Test>::default()
@@ -509,6 +513,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     ext
 }
 
+/// Advance the mock chain to absolute block `n`, running system/subtensor hooks each step.
 #[allow(dead_code)]
 pub(crate) fn run_to_block(n: u64) {
     while System::block_number() < n {
@@ -521,6 +526,7 @@ pub(crate) fn run_to_block(n: u64) {
     }
 }
 
+/// Burn-register a neuron after funding the coldkey and seeding subnet AMM reserves.
 #[allow(dead_code)]
 pub fn register_ok_neuron(
     netuid: NetUid,
@@ -552,6 +558,7 @@ pub fn register_ok_neuron(
     );
 }
 
+/// Create a subnet with registration allowed, emission started, and burn params set for easy tests.
 #[allow(dead_code)]
 pub fn add_network(netuid: NetUid, tempo: u16) {
     SubtensorModule::init_new_network(netuid, tempo);
@@ -566,23 +573,27 @@ pub fn add_network(netuid: NetUid, tempo: u16) {
 }
 
 use subtensor_runtime_common::AlphaBalance;
+
+/// Seed subnet TAO/alpha-in reserves used by registration and swap paths.
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
     pallet_subtensor::SubnetTAO::<Test>::set(netuid, tao);
     pallet_subtensor::SubnetAlphaIn::<Test>::set(netuid, alpha);
 }
 
-/// Convenience wrapper for tests that need to advance blocks incrementally.
+/// Advance `n` blocks from the current block number.
 pub fn step_block(n: u64) {
     let current: u64 = frame_system::Pallet::<Test>::block_number().into();
     run_to_block(current + n);
 }
 
+/// Credit `tao` free balance to a coldkey via mint/spend.
 #[allow(dead_code)]
 pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
     let credit = SubtensorModule::mint_tao(tao);
     let _ = SubtensorModule::spend_tao(coldkey, credit, tao).unwrap();
 }
 
+/// Burn `tao` from a coldkey's free balance.
 #[allow(dead_code)]
 pub fn remove_balance_from_coldkey_account(coldkey: &U256, tao: TaoBalance) {
     let _ = SubtensorModule::burn_tao(coldkey, tao);

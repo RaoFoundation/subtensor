@@ -1,3 +1,7 @@
+//! Tests for root alpha claims ([`crate::staking::claim_root`]).
+//!
+//! Covers claim thresholds, pending dividends, dissolve interaction, and claim types.
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use super::mock::run_block_idle;
@@ -1311,7 +1315,7 @@ fn test_claim_root_with_swap_coldkey() {
         );
 
         // Swap coldkey
-        assert_ok!(SubtensorModule::do_swap_coldkey(&coldkey, &new_coldkey,));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&coldkey, &new_coldkey,));
 
         // Check swapped keys claimed values
 
@@ -2535,7 +2539,7 @@ fn ghsa_2026_012_staking_coldkey_index_never_decremented() {
         );
 
         // Swap the coldkey via the real extrinsic helper.
-        assert_ok!(SubtensorModule::do_swap_coldkey(&coldkey, &new_coldkey));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&coldkey, &new_coldkey));
 
         // FIXED (GHSA-2026-012): the swap prunes the now-zero-stake old coldkey from the
         // index and decrements the counter. The index is empty again.

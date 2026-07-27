@@ -1,3 +1,4 @@
+//! Root-subnet claimable dividends: accrue, claim, and auto-claim indexing.
 use super::*;
 use frame_support::dispatch::DispatchResult;
 use frame_support::storage::{TransactionOutcome, with_transaction};
@@ -11,6 +12,10 @@ use subtensor_runtime_common::clear_prefix_with_meter;
 use subtensor_swap_interface::SwapHandler;
 
 impl<T: Config> Pallet<T> {
+    /// Derive up to `k` distinct coldkey-index samples in `0..n` from `block_hash`.
+    ///
+    /// Used by auto-claim to pick which indexed coldkeys receive root dividends
+    /// this block without scanning the full index.
     pub fn block_hash_to_indices(block_hash: T::Hash, k: u64, n: u64) -> Vec<u64> {
         let block_hash_bytes = block_hash.as_ref();
         let mut indices: BTreeSet<u64> = BTreeSet::new();
@@ -476,7 +481,7 @@ impl<T: Config> Pallet<T> {
             //
             // GHSA-2026-010 (a *stale residual* watermark on new_hotkey inflating this sum
             // in the hotkey-swap path) is prevented upstream by the root-swap cleanliness
-            // gate in `do_swap_hotkey`, which now also requires RootClaimed to be empty on
+            // gate in `perform_hotkey_swap`, which now also requires RootClaimed to be empty on
             // new_hotkey (see `test_do_swap_hotkey_err_new_hotkey_not_clean_for_root`). With
             // that gate the destination is always clean (new == 0) in the swap path, so the
             // sum cannot be inflated there.
@@ -516,7 +521,8 @@ impl<T: Config> Pallet<T> {
             None => RootClaimable::<T>::iter(),
         };
 
-        fn filter_claimable(
+        /// Drop claimable entries for `netuid` from a hotkey's root-claimable map.
+        fn filter_root_claimable_for_netuid(
             claimable: &BTreeMap<NetUid, I96F32>,
             netuid: NetUid,
         ) -> BTreeMap<NetUid, I96F32> {
@@ -533,7 +539,10 @@ impl<T: Config> Pallet<T> {
             |(_, _)| true,
             |(hotkey, claimable)| (hotkey.clone(), claimable.clone()),
             |(hotkey, claimable)| {
-                RootClaimable::<T>::insert(hotkey, filter_claimable(claimable, netuid))
+                RootClaimable::<T>::insert(
+                    hotkey,
+                    filter_root_claimable_for_netuid(claimable, netuid),
+                )
             },
             1,
         );

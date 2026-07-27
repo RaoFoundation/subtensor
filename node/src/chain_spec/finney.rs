@@ -1,9 +1,15 @@
+//! Finney mainnet chain-spec (`--chain finney`).
+//!
+//! Genesis state is loaded from `./snapshot.json` (mmap + serde) and patched
+//! into a live-network `ChainSpec`.
+
 // Allowed since it's actually better to panic during chain setup when there is an error
 #![allow(clippy::unwrap_used)]
 
 use super::*;
 use hex::FromHex;
 
+/// Build the Finney mainnet `ChainSpec` from the local nakamoto snapshot file.
 pub fn finney_mainnet_config() -> Result<ChainSpec, String> {
     let path: PathBuf = std::path::PathBuf::from("./snapshot.json");
     let wasm_binary = WASM_BINARY.ok_or("Development wasm not available".to_string())?;

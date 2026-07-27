@@ -22,22 +22,9 @@ pub mod deprecated_loaded_emission_format {
         StorageMap<Pallet<T>, Identity, u16, Vec<(AccountIdOf<T>, u64)>, OptionQuery>;
 }
 
-/// Migrates subnet ownership to the foundation and updates related storage
+/// Transfers subnet ownership (`SubnetOwner`) to the foundation coldkey and updates related registration timestamps.
 ///
-/// # Arguments
-///
-/// * `coldkey` - 32-byte array representing the foundation's coldkey
-///
-/// # Returns
-///
-/// * `Weight` - The computational weight of this operation
-///
-/// # Example
-///
-/// ```ignore
-/// let foundation_coldkey = [0u8; 32]; // Replace with actual foundation coldkey
-/// let weight = migrate_transfer_ownership_to_foundation::<T>(foundation_coldkey);
-/// ```
+/// Does not use [`HasMigrationRun`]; caller supplies the 32-byte foundation coldkey.
 pub fn migrate_transfer_ownership_to_foundation<T: Config>(coldkey: [u8; 32]) -> Weight {
     let new_storage_version = 3;
 

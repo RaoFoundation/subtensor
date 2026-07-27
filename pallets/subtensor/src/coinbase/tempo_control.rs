@@ -1,3 +1,8 @@
+//! Owner/root dispatch helpers for tempo, activity cutoff, and manual epoch trigger.
+//!
+//! These implement the bodies behind admin-utils / owner extrinsics (`do_set_tempo`,
+//! `do_set_activity_cutoff_factor`, `do_trigger_epoch`).
+
 use super::*;
 use crate::Error;
 use frame_support::pallet_prelude::DispatchResult;
@@ -16,7 +21,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
         let maybe_who = Self::ensure_subnet_owner_or_root(origin, netuid)?;
 
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         if maybe_who.is_some() {
             ensure!(

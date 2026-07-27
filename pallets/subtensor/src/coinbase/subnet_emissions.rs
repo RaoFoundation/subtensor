@@ -1,3 +1,10 @@
+//! Subnet emission eligibility and TAO share allocation across emit-eligible subnets.
+//!
+//! [`Pallet::get_subnets_to_emit_to`] filters candidates; [`Pallet::subnet_emission_shares`] (price EMA,
+//! miner-burn weighted) feeds [`Pallet::get_subnet_block_emissions`]. Flow-based shares
+//! ([`Pallet::emission_shares_from_tao_flow`]) remain available but unused while net-flow
+//! emission is off the hot path.
+
 use super::*;
 use alloc::collections::BTreeMap;
 use safe_math::FixedExt;
@@ -15,9 +22,8 @@ impl<T: Config> Pallet<T> {
     /// started emissions, have subtokens enabled, and currently allow network
     /// registration.
     ///
-    /// AI-readable: This output is passed to `get_shares_flow`, so changing these
-    /// eligibility rules also changes which subnet user TAO flow EMAs and protocol
-    /// flow EMAs are advanced during emission sharing.
+    /// Also gates which subnets advance TAO-flow / protocol-flow EMAs when flow-based
+    /// shares ([`Pallet::emission_shares_from_tao_flow`]) are used.
     pub fn get_subnets_to_emit_to(subnets: &[NetUid]) -> Vec<NetUid> {
         // Filter out root subnet.
         // Filter out subnets with no first emission block number.
@@ -31,13 +37,17 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
+    /// Map each emit-eligible subnet to its TAO share of `block_emission`.
+    ///
+    /// Emit-disabled subnets stay in the map at zero TAO (alpha_out path still runs);
+    /// their share is redistributed across enabled subnets.
     pub fn get_subnet_block_emissions(
         subnets_to_emit_to: &[NetUid],
         block_emission: U96F32,
     ) -> BTreeMap<NetUid, U96F32> {
         // Disabled subnets get zero TAO-side emission, redistributed to enabled subnets.
         // They stay in the map so the normal alpha_out path still runs.
-        let shares = Self::get_shares(subnets_to_emit_to);
+        let shares = Self::subnet_emission_shares(subnets_to_emit_to);
         log::debug!("Subnet emission shares = {shares:?}");
 
         let zero = U64F64::saturating_from_num(0.0);
@@ -74,38 +84,45 @@ impl<T: Config> Pallet<T> {
             })
             .collect::<BTreeMap<NetUid, U96F32>>()
     }
+    /// Add user TAO inflow to this block's [`SubnetTaoFlow`] accumulator.
     pub fn record_tao_inflow(netuid: NetUid, tao: TaoBalance) {
         SubnetTaoFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_add(u64::from(tao) as i64);
         });
     }
 
+    /// Subtract user TAO outflow from this block's [`SubnetTaoFlow`] accumulator.
     pub fn record_tao_outflow(netuid: NetUid, tao: TaoBalance) {
         SubnetTaoFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_sub(u64::from(tao) as i64)
         });
     }
 
+    /// Clear [`SubnetTaoFlow`] after an EMA update consumes the block accumulator.
     pub fn reset_tao_outflow(netuid: NetUid) {
         SubnetTaoFlow::<T>::remove(netuid);
     }
 
+    /// Add protocol-side TAO inflow to [`SubnetProtocolFlow`] (liquidity injection / buys).
     pub fn record_protocol_inflow(netuid: NetUid, tao: TaoBalance) {
         SubnetProtocolFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_add(u64::from(tao) as i64);
         });
     }
 
+    /// Subtract protocol-side TAO outflow from [`SubnetProtocolFlow`].
     pub fn record_protocol_outflow(netuid: NetUid, tao: TaoBalance) {
         SubnetProtocolFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_sub(u64::from(tao) as i64);
         });
     }
 
+    /// Clear [`SubnetProtocolFlow`] after a protocol EMA update.
     pub fn reset_protocol_flow(netuid: NetUid) {
         SubnetProtocolFlow::<T>::remove(netuid);
     }
 
+    /// Advance [`SubnetEmaProtocolFlow`] once per block from [`SubnetProtocolFlow`], then reset.
     fn update_ema_protocol_flow(netuid: NetUid) -> I64F64 {
         let current_block: u64 = Self::get_current_block_as_u64();
 
@@ -129,10 +146,9 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    // Update SubnetEmaTaoFlow if needed and return its value for
-    // the current block
+    /// Advance [`SubnetEmaTaoFlow`] once per block from [`SubnetTaoFlow`], then reset the accumulator.
     #[allow(dead_code)]
-    fn get_ema_flow(netuid: NetUid) -> I64F64 {
+    fn update_ema_tao_flow(netuid: NetUid) -> I64F64 {
         let current_block: u64 = Self::get_current_block_as_u64();
 
         // Calculate net ema flow for the next block
@@ -158,11 +174,9 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    // Either the minimal EMA flow L = min{Si}, or an artificial
-    // cut off at some higher value A (TaoFlowCutoff)
-    // L = max {A, min{min{S[i], 0}}}
+    /// Lower clip for flow shares: `max(TaoFlowCutoff, min(min(S_i, 0)))`.
     #[allow(dead_code)]
-    fn get_lower_limit(ema_flows: &BTreeMap<NetUid, I64F64>) -> I64F64 {
+    fn tao_flow_ema_lower_limit(ema_flows: &BTreeMap<NetUid, I64F64>) -> I64F64 {
         let zero = I64F64::saturating_from_num(0);
         let min_flow = ema_flows
             .values()
@@ -173,12 +187,13 @@ impl<T: Config> Pallet<T> {
         flow_cutoff.max(*min_flow)
     }
 
-    // Estimate the upper value of pow with hardcoded p = 2
-    fn pow_estimate(val: U64F64) -> U64F64 {
+    /// Cheap `val²` upper-bound used when sizing the `safe_pow` scale factor.
+    fn square_u64f64_estimate(val: U64F64) -> U64F64 {
         val.saturating_mul(val)
     }
 
-    fn safe_pow(val: U64F64, p: U64F64) -> U64F64 {
+    /// `val.pow(p)` via `exp(p * ln(val))` in I32F32, returning 0 when `ln` underflows.
+    fn safe_pow_u64f64(val: U64F64, p: U64F64) -> U64F64 {
         // If val is too low so that ln(val) doesn't fit I32F32::MIN,
         // return 0 from the function
         let zero = U64F64::saturating_from_num(0);
@@ -193,7 +208,8 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    fn inplace_scale(offset_flows: &mut BTreeMap<NetUid, U64F64>) {
+    /// Scale flow values in place so the maximum becomes `1.0`.
+    fn inplace_scale_flows_max_to_one(offset_flows: &mut BTreeMap<NetUid, U64F64>) {
         let zero = U64F64::saturating_from_num(0);
         let flow_max = offset_flows.values().copied().max().unwrap_or(zero);
 
@@ -206,6 +222,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Scale then `pow(p)`-normalize flow weights in place (avoids I32F32 overflow).
     pub(crate) fn inplace_pow_normalize(offset_flows: &mut BTreeMap<NetUid, U64F64>, p: U64F64) {
         // Scale offset flows so that that are no overflows and underflows when we use safe_pow:
         //  flow_factor * subnet_count * (flow_max ^ p) <= I32F32::MAX
@@ -213,12 +230,12 @@ impl<T: Config> Pallet<T> {
         let subnet_count = offset_flows.len();
 
         // Pre-scale to max 1.0
-        Self::inplace_scale(offset_flows);
+        Self::inplace_scale_flows_max_to_one(offset_flows);
 
         // Scale to maximize precision
         let flow_max = offset_flows.values().copied().max().unwrap_or(zero);
         log::debug!("Offset flow max: {flow_max:?}");
-        let flow_max_pow_est = Self::pow_estimate(flow_max);
+        let flow_max_pow_est = Self::square_u64f64_estimate(flow_max);
         log::debug!("flow_max_pow_est: {flow_max_pow_est:?}");
 
         let max_times_count =
@@ -240,27 +257,28 @@ impl<T: Config> Pallet<T> {
                 .clone()
                 .into_values()
                 .map(|flow| flow_factor.saturating_mul(flow))
-                .map(|scaled_flow| Self::safe_pow(scaled_flow, p))
+                .map(|scaled_flow| Self::safe_pow_u64f64(scaled_flow, p))
                 .sum();
             log::debug!("Scaled offset flow sum: {sum:?}");
 
             // Normalize in-place
             for flow in offset_flows.values_mut() {
                 let scaled_flow = flow_factor.saturating_mul(*flow);
-                *flow = Self::safe_pow(scaled_flow, p).safe_div(sum);
+                *flow = Self::safe_pow_u64f64(scaled_flow, p).safe_div(sum);
             }
         }
     }
 
-    // Implementation of shares that uses TAO flow
+    /// Emission shares from user/protocol TAO-flow EMAs (net-flow mode). Currently unused
+    /// on the hot path while price-EMA shares are selected in [`Pallet::subnet_emission_shares`].
     #[allow(dead_code)]
-    fn get_shares_flow(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
+    fn emission_shares_from_tao_flow(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
         let net_flow_enabled = NetTaoFlowEnabled::<T>::get();
         let zero = I64F64::saturating_from_num(0);
 
         // Always update both EMAs (keeps protocol EMA warm for when toggled on).
         // Note:
-        // User TAO EMAs are updated every time this method runs because get_ema_flow()
+        // User TAO EMAs are updated every time this method runs because update_ema_tao_flow()
         // is called before the NetTaoFlowEnabled branch. Protocol EMAs are different:
         // update_ema_protocol_flow() is only called while NetTaoFlowEnabled is true.
         // If net flow is disabled, protocol flow keeps accumulating in SubnetProtocolFlow
@@ -269,7 +287,7 @@ impl<T: Config> Pallet<T> {
         let subnet_emas: Vec<(NetUid, I64F64, I64F64)> = subnets_to_emit_to
             .iter()
             .map(|netuid| {
-                let user_ema = Self::get_ema_flow(*netuid);
+                let user_ema = Self::update_ema_tao_flow(*netuid);
                 let protocol_ema = Self::update_ema_protocol_flow(*netuid);
                 (*netuid, user_ema, protocol_ema)
             })
@@ -325,7 +343,7 @@ impl<T: Config> Pallet<T> {
 
         // Clip the EMA flow with lower limit L
         // z[i] = max{S[i] − L, 0}
-        let lower_limit = Self::get_lower_limit(&ema_flows);
+        let lower_limit = Self::tao_flow_ema_lower_limit(&ema_flows);
         log::debug!("Lower flow limit: {lower_limit:?}");
         let mut offset_flows = ema_flows
             .iter()
@@ -347,12 +365,11 @@ impl<T: Config> Pallet<T> {
         offset_flows
     }
 
-    // Price-based emission shares: each subnet's share is its EMA price normalized
-    // by the sum of EMA prices. Emit-disabled subnets are zeroed and their share
-    // redistributed to enabled subnets in `get_subnet_block_emissions`, so the
-    // effective emission is e_i = p_i / sum(p_j) over emit-enabled subnets.
-    pub(crate) fn get_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
-        let price_shares = Self::get_shares_price_ema(subnets_to_emit_to);
+    /// Price-EMA emission shares, reweighted by `(1 - MinerBurned)` and renormalized.
+    ///
+    /// Emit-disabled subnets are zeroed later in [`Pallet::get_subnet_block_emissions`].
+    pub(crate) fn subnet_emission_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
+        let price_shares = Self::emission_shares_from_price_ema(subnets_to_emit_to);
 
         // Weight each subnet's price share by (1 - miner_burned), then
         // renormalize. The effective emission is proportional to
@@ -388,9 +405,8 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    // Implementation of shares that uses subnet EMA prices (SubnetMovingPrice),
-    // not the active/spot alpha price.
-    fn get_shares_price_ema(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
+    /// Normalize each subnet's [`SubnetMovingPrice`] by the sum of EMA prices (not spot).
+    fn emission_shares_from_price_ema(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
         // Get sum of alpha moving prices
         let total_moving_prices = subnets_to_emit_to
             .iter()

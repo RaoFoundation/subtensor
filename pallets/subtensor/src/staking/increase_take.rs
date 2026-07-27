@@ -1,3 +1,4 @@
+//! Extrinsic body for increasing a delegate hotkey's take (rate-limited).
 use sp_runtime::PerU16;
 
 use super::*;

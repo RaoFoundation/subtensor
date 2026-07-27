@@ -1,3 +1,9 @@
+//! Mock runtime and helpers for transaction-fee pallet tests.
+//!
+//! Builds a minimal `Test` runtime with Subtensor + Swap + TransactionPayment wired through
+//! [`crate::SubtensorTxFeeHandler`]. Prefer [`setup_fee_test_subnets`] / [`fund_and_add_stake`]
+//! over ad-hoc registration when exercising alpha fee paths.
+
 #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 
 use core::num::NonZeroU64;
@@ -138,8 +144,10 @@ impl pallet_transaction_payment::Config for Test {
     type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Test>;
 }
 
+/// Authorship provider used by fee sinks; always returns [`MOCK_BLOCK_BUILDER`].
 pub struct MockAuthorshipProvider;
 
+/// Fixed block-author account id for asserting fee credits in tests.
 pub const MOCK_BLOCK_BUILDER: u64 = 12345u64;
 
 impl AuthorshipInfo<U256> for MockAuthorshipProvider {
@@ -316,7 +324,7 @@ impl pallet_subtensor::Config for Test {
     type LeaseDividendsDistributionInterval = LeaseDividendsDistributionInterval;
     type GetCommitments = ();
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
-    type CommitmentsInterface = CommitmentsI;
+    type CommitmentsInterface = CommitmentsPurgeBridge;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
     type SubtensorPalletId = SubtensorPalletId;
@@ -451,8 +459,8 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
     }
 }
 
-pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+pub struct CommitmentsPurgeBridge;
+impl pallet_subtensor::CommitmentsInterface for CommitmentsPurgeBridge {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
@@ -545,7 +553,7 @@ where
     }
 }
 
-// Build genesis storage according to the mock runtime.
+/// Genesis externalities with block number set to 1.
 pub fn new_test_ext() -> sp_io::TestExternalities {
     sp_tracing::try_init_simple();
     let t = frame_system::GenesisConfig::<Test>::default()
@@ -665,11 +673,13 @@ pub fn add_dynamic_network(hotkey: &U256, coldkey: &U256) -> NetUid {
     netuid
 }
 
+/// Sets subnet AMM reserves (`SubnetTAO` / `SubnetAlphaIn`) used by fee quotes and swaps.
 pub(crate) fn setup_reserves(netuid: NetUid, tao: TaoBalance, alpha: AlphaBalance) {
     SubnetTAO::<Test>::set(netuid, tao);
     SubnetAlphaIn::<Test>::set(netuid, alpha);
 }
 
+/// Swaps `alpha` for TAO on `netuid` (optionally dropping pool fees); panics on zero payout.
 pub(crate) fn swap_alpha_to_tao_ext(
     netuid: NetUid,
     alpha: AlphaBalance,
@@ -698,10 +708,12 @@ pub(crate) fn swap_alpha_to_tao_ext(
     (result.amount_paid_out.to_u64(), result.fee_paid.to_u64())
 }
 
+/// Swaps `alpha`→TAO with pool fees enabled.
 pub(crate) fn swap_alpha_to_tao(netuid: NetUid, alpha: AlphaBalance) -> (u64, u64) {
     swap_alpha_to_tao_ext(netuid, alpha, false)
 }
 
+/// Swaps `tao` for alpha on `netuid` (optionally dropping pool fees); panics on zero payout.
 pub(crate) fn swap_tao_to_alpha_ext(
     netuid: NetUid,
     tao: TaoBalance,
@@ -730,16 +742,19 @@ pub(crate) fn swap_tao_to_alpha_ext(
     (result.amount_paid_out.to_u64(), result.fee_paid.to_u64())
 }
 
+/// Swaps `tao`→alpha with pool fees enabled.
 pub(crate) fn swap_tao_to_alpha(netuid: NetUid, tao: TaoBalance) -> (u64, u64) {
     swap_tao_to_alpha_ext(netuid, tao, false)
 }
 
+/// Initializes `netuid` and allows registration (used for root / ad-hoc subnet setup).
 #[allow(dead_code)]
 pub fn add_network(netuid: NetUid, tempo: u16) {
     SubtensorModule::init_new_network(netuid, tempo);
     SubtensorModule::set_network_registration_allowed(netuid, true);
 }
 
+/// One dynamic subnet created for fee tests (owner coldkey/hotkey + netuid).
 #[allow(dead_code)]
 pub struct TestSubnet {
     pub netuid: NetUid,
@@ -747,6 +762,7 @@ pub struct TestSubnet {
     pub hk_owner: U256,
 }
 
+/// Bundle of dynamic subnets plus a shared coldkey and neuron hotkeys for fee scenarios.
 #[allow(dead_code)]
 pub struct TestSetup {
     pub subnets: Vec<TestSubnet>,
@@ -754,8 +770,9 @@ pub struct TestSetup {
     pub hotkeys: Vec<U256>,
 }
 
+/// Registers `sncount` dynamic subnets with `neurons` each, seeds AMM reserves, enables subtoken.
 #[allow(dead_code)]
-pub fn setup_subnets(sncount: u16, neurons: u16) -> TestSetup {
+pub fn setup_fee_test_subnets(sncount: u16, neurons: u16) -> TestSetup {
     let mut subnets: Vec<TestSubnet> = Vec::new();
     let owner_ck_start_id = 100;
     let owner_hk_start_id = 200;
@@ -807,8 +824,9 @@ pub fn setup_subnets(sncount: u16, neurons: u16) -> TestSetup {
     }
 }
 
+/// Funds `coldkey` (stake + ED) and calls `add_stake` on `(hotkey, netuid)`.
 #[allow(dead_code)]
-pub fn setup_stake(
+pub fn fund_and_add_stake(
     netuid: subtensor_runtime_common::NetUid,
     coldkey: &U256,
     hotkey: &U256,
@@ -828,6 +846,7 @@ pub fn setup_stake(
     ));
 }
 
+/// Dry-runs alpha fee unstake then quotes the remaining `alpha`→TAO swap (rolled back).
 pub(crate) fn quote_remove_stake_after_alpha_fee(
     coldkey: &U256,
     hotkey: &U256,

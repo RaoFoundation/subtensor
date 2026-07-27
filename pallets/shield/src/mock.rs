@@ -1,3 +1,5 @@
+//! Test runtime and helpers for `pallet-shield` unit tests and benchmarks.
+
 use crate as pallet_shield;
 use stp_shield::MLKEM768_ENC_KEY_LEN;
 
@@ -13,7 +15,9 @@ use stp_shield::ShieldEncKey;
 
 pub type Block = frame_system::mocking::MockBlock<Test>;
 
+/// Extrinsic type that can carry real signatures for `try_decode_shielded_tx` tests.
 pub type DecodableExtrinsic = generic::UncheckedExtrinsic<u64, RuntimeCall, TestSignature, ()>;
+/// Block type paired with [`DecodableExtrinsic`].
 pub type DecodableBlock =
     generic::Block<generic::Header<u64, sp_runtime::traits::BlakeTwo256>, DecodableExtrinsic>;
 
@@ -65,6 +69,7 @@ thread_local! {
     static MOCK_NEXT_NEXT: RefCell<Option<Option<AuraId>>> = const { RefCell::new(None) };
 }
 
+/// [`FindAuthors`] backed by thread-local overrides, with Aura slot fallback for benchmarks.
 pub struct MockFindAuthors;
 
 impl pallet_shield::FindAuthors<Test> for MockFindAuthors {
@@ -87,7 +92,7 @@ impl pallet_shield::FindAuthors<Test> for MockFindAuthors {
     }
 }
 
-/// Mock decryptor that just decodes the bytes without decryption.
+/// Test decryptor: SCALE-decodes call bytes with no crypto (plaintext queue tests).
 pub struct MockDecryptor;
 
 impl pallet_shield::ExtrinsicDecryptor<RuntimeCall> for MockDecryptor {
@@ -104,6 +109,7 @@ impl pallet_shield::Config for Test {
     type WeightInfo = ();
 }
 
+/// Empty genesis plus a memory keystore extension.
 pub fn new_test_ext() -> sp_io::TestExternalities {
     let mut ext: sp_io::TestExternalities = RuntimeGenesisConfig::default()
         .build_storage()
@@ -115,30 +121,35 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     ext
 }
 
-pub fn valid_pk() -> ShieldEncKey {
+/// Fixed-length ML-KEM-768 encapsulation key filled with `0x42`.
+pub fn valid_shield_enc_key() -> ShieldEncKey {
     BoundedVec::truncate_from(vec![0x42; MLKEM768_ENC_KEY_LEN])
 }
 
-pub fn valid_pk_b() -> ShieldEncKey {
+/// Alternate fixed-length encapsulation key filled with `0x99`.
+pub fn valid_shield_enc_key_b() -> ShieldEncKey {
     BoundedVec::truncate_from(vec![0x99; MLKEM768_ENC_KEY_LEN])
 }
 
-/// Create a deterministic `AuraId` from a simple index for tests.
+/// Deterministic `AuraId` from a single-byte index (repeats the byte across the public key).
 pub fn author(n: u8) -> AuraId {
     AuraId::from(sr25519::Public::from_raw([n; 32]))
 }
 
-pub fn set_authors(current: Option<AuraId>, next_next: Option<AuraId>) {
+/// Override [`MockFindAuthors`] current and N+2 author for the calling thread.
+pub fn set_mock_authors(current: Option<AuraId>, next_next: Option<AuraId>) {
     MOCK_CURRENT.with(|c| *c.borrow_mut() = current);
     MOCK_NEXT_NEXT.with(|n| *n.borrow_mut() = Some(next_next));
 }
 
+/// Wrap `call` in `depth` layers of `utility.batch` for extrinsic-depth tests.
 pub fn nest_call(call: RuntimeCall, depth: usize) -> RuntimeCall {
     (0..depth).fold(call, |inner, _| {
         RuntimeCall::Utility(pallet_subtensor_utility::Call::batch { calls: vec![inner] })
     })
 }
 
+/// Build shield wire ciphertext: `key_hash || kem_len_le || kem_ct || nonce || aead_ct`.
 pub fn build_wire_ciphertext(
     key_hash: &[u8; 16],
     kem_ct: &[u8],

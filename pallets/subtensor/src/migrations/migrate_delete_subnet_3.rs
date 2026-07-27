@@ -20,26 +20,9 @@ pub mod deprecated_loaded_emission_format {
         StorageMap<Pallet<T>, Identity, u16, Vec<(AccountIdOf<T>, u64)>, OptionQuery>;
 }
 
-/// Migrates the storage to delete subnet 3
+/// One-shot cleanup that removes all subnet-scoped storage for netuid 3 (historical subnet deletion).
 ///
-/// This function performs the following steps:
-/// 1. Checks if the migration is necessary
-/// 2. Removes all storage related to subnet 3
-/// 3. Updates the storage version
-///
-/// # Arguments
-///
-/// * `T` - The Config trait of the pallet
-///
-/// # Returns
-///
-/// * `Weight` - The computational weight of this operation
-///
-/// # Example
-///
-/// ```ignore
-/// let weight = migrate_delete_subnet_3::<T>();
-/// ```
+/// Does not use [`HasMigrationRun`]; safe to re-run because deletes are idempotent on missing keys.
 pub fn migrate_delete_subnet_3<T: Config>() -> Weight {
     let new_storage_version = 5;
 
@@ -50,7 +33,7 @@ pub fn migrate_delete_subnet_3<T: Config>() -> Weight {
     let onchain_version = Pallet::<T>::on_chain_storage_version();
 
     // Only proceed if current version is less than the new version and subnet 3 exists
-    if onchain_version < new_storage_version && Pallet::<T>::if_subnet_exist(3.into()) {
+    if onchain_version < new_storage_version && Pallet::<T>::subnet_exists(3.into()) {
         info!(
             target: LOG_TARGET,
             "Removing subnet 3. Current version: {onchain_version:?}"

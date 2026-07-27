@@ -86,12 +86,12 @@ pub fn swap_coldkey_announced(
     let now = <frame_system::Pallet<T>>::block_number();
     ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
 
-    Self::do_swap_coldkey(&who, &new_coldkey)?;
+    Self::perform_coldkey_swap(&who, &new_coldkey)?;
 
     Ok(())
 }
 ```
 
-Delegates to [`do_swap_coldkey`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L8).
+Delegates to [`perform_coldkey_swap`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L8).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

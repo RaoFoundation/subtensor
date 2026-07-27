@@ -1,3 +1,8 @@
+//! Per-subnet uid allocation: append, replace, trim, and hotkey lookups.
+//!
+//! [`Uids`] / [`Keys`] are the bidirectional hotkey↔uid maps; emission and
+//! consensus vectors are kept aligned with [`SubnetworkN`].
+
 use super::*;
 use frame_support::storage::IterableStorageDoubleMap;
 use sp_runtime::{PerU16, Percent};
@@ -12,7 +17,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Sets value for the element at the given position if it exists.
-    pub fn set_element_at<N>(vec: &mut [N], position: usize, value: N) {
+    pub fn set_vec_element_at<N>(vec: &mut [N], position: usize, value: N) {
         if let Some(element) = vec.get_mut(position) {
             *element = value;
         }
@@ -22,14 +27,14 @@ impl<T: Config> Pallet<T> {
     /// the neuron to default
     pub fn clear_neuron(netuid: NetUid, neuron_uid: u16) {
         let neuron_index: usize = neuron_uid.into();
-        Emission::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0.into()));
+        Emission::<T>::mutate(netuid, |v| Self::set_vec_element_at(v, neuron_index, 0.into()));
         Consensus::<T>::mutate(netuid, |v| {
-            Self::set_element_at(v, neuron_index, PerU16::zero())
+            Self::set_vec_element_at(v, neuron_index, PerU16::zero())
         });
         for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
             let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
             Incentive::<T>::mutate(netuid_index, |v| {
-                Self::set_element_at(v, neuron_index, PerU16::zero())
+                Self::set_vec_element_at(v, neuron_index, PerU16::zero())
             });
             Bonds::<T>::remove(netuid_index, neuron_uid); // Remove bonds for Validator.
 
@@ -49,13 +54,13 @@ impl<T: Config> Pallet<T> {
             }
         }
         Dividends::<T>::mutate(netuid, |v| {
-            Self::set_element_at(v, neuron_index, PerU16::zero())
+            Self::set_vec_element_at(v, neuron_index, PerU16::zero())
         });
-        StakeWeight::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
+        StakeWeight::<T>::mutate(netuid, |v| Self::set_vec_element_at(v, neuron_index, 0));
         ValidatorTrust::<T>::mutate(netuid, |v| {
-            Self::set_element_at(v, neuron_index, PerU16::zero())
+            Self::set_vec_element_at(v, neuron_index, PerU16::zero())
         });
-        ValidatorPermit::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, false));
+        ValidatorPermit::<T>::mutate(netuid, |v| Self::set_vec_element_at(v, neuron_index, false));
     }
 
     /// Replace the neuron under this uid.
@@ -148,9 +153,10 @@ impl<T: Config> Pallet<T> {
         Self::clear_stale_hotkey_successor(netuid, new_hotkey);
     }
 
+    /// Prune lowest-emission non-immune neurons until `SubnetworkN` fits `max_n`.
     pub fn trim_to_max_allowed_uids(netuid: NetUid, max_n: u16) -> DispatchResult {
         // Reasonable limits
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         ensure!(
             max_n >= MinAllowedUids::<T>::get(netuid),
             Error::<T>::InvalidValue
@@ -384,7 +390,7 @@ impl<T: Config> Pallet<T> {
 
     /// Returns true if the uid is set on the network.
     ///
-    pub fn is_uid_exist_on_network(netuid: NetUid, uid: u16) -> bool {
+    pub fn uid_exists_on_network(netuid: NetUid, uid: u16) -> bool {
         Keys::<T>::contains_key(netuid, uid)
     }
 

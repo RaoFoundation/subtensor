@@ -1,34 +1,21 @@
-// The goal of staking precompile is to allow interaction between EVM users and smart contracts and
-// subtensor staking functionality, namely add_stake, and remove_stake extrinsicsk, as well as the
-// staking state.
-//
-// Additional requirement is to preserve compatibility with Ethereum indexers, which requires
-// no balance transfers from EVM accounts without a corresponding transaction that can be
-// parsed by an indexer.
-//
-// Implementation of add_stake:
-//   - User transfers balance that will be staked to the precompile address with a payable
-//     method addStake. This method also takes hotkey public key (bytes32) of the hotkey
-//     that the stake should be assigned to.
-//   - Precompile transfers the balance back to the signing address, and then invokes
-//     do_add_stake from subtensor pallet with signing origin that mmatches to HashedAddressMapping
-//     of the message sender, which will effectively withdraw and stake balance from the message
-//     sender.
-//   - Precompile checks the result of do_add_stake and, in case of a failure, reverts the transaction,
-//     and leaves the balance on the message sender account.
-//
-// Implementation of remove_stake:
-//   - User involkes removeStake method and specifies hotkey public key (bytes32) of the hotkey
-//     to remove stake from, and the amount to unstake.
-//   - Precompile calls do_remove_stake method of the subtensor pallet with the signing origin of message
-//     sender, which effectively unstakes the specified amount and credits it to the message sender
-//   - Precompile checks the result of do_remove_stake and, in case of a failure, reverts the transaction.
-//
-// Without an approve/allowance system, when an EOA transfers stake to a contract it is impossible for the
-// contract to know who sent funds and how much. For that reason, the precompile provides an `approve`
-// function for the sender to approve a spender (the contract) to call `transferStakeFrom`.
-// The allowance is specific to a pair of `(spender, netuid)`, but doesn't specify the `hotkey` which is instead
-// provided only in `transferStakeFrom`.
+//! EVM staking precompiles for add/remove/move/transfer stake and stake-state reads.
+//!
+//! ## Indexer-safe value flow (legacy V1)
+//! Ethereum indexers require every balance movement to correspond to a parseable EVM
+//! transaction. Legacy [`StakingPrecompile`] therefore:
+//! 1. Accepts TAO via a payable `addStake` call (value lands on the precompile account).
+//! 2. Refunds that value to the caller, then dispatches `pallet_subtensor::add_stake`
+//!    with the caller's mapped Substrate origin so the stake is withdrawn from the caller.
+//! 3. Reverts the whole EVM call if the runtime dispatch fails, leaving the refunded balance.
+//!
+//! [`StakingPrecompileV2`] takes stake amounts as ABI arguments (RAO / alpha units) and
+//! is the surface for all new methods. V1 remains only for backward compatibility.
+//!
+//! ## Allowances
+//! Without approve/allowance, a contract cannot tell which EOA funded it. Callers
+//! `approve` a spender for a `(spender, netuid)` pair (keyed with a registration
+//! counter so dissolved/re-registered netuids invalidate old allowances); the spender
+//! then calls `transferStakeFrom` with the hotkey.
 
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
@@ -53,6 +40,30 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, Token};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
+/// Twox storage-instance prefix for [`AllowancesStorage`] under pallet `EvmPrecompileStaking`.
+pub struct StakingAllowancesPrefix;
+impl StorageInstance for StakingAllowancesPrefix {
+    const STORAGE_PREFIX: &'static str = "Allowances";
+
+    fn pallet_prefix() -> &'static str {
+        "EvmPrecompileStaking"
+    }
+}
+
+pub type AllowancesStorage = StorageDoubleMap<
+    StakingAllowancesPrefix,
+    // For each approver (EVM address as only EVM-natives need the precompile)
+    Blake2_128Concat,
+    H160,
+    // For each (spender, netuid, counter) triple — the counter tag invalidates
+    // entries written under a previous registration of the same netuid.
+    Blake2_128Concat,
+    (H160, u16, u64),
+    // Allowed amount
+    U256,
+    ValueQuery,
+>;
+
 // `get_stake_for_hotkey_and_coldkey_on_subnet` reads the transitional V1/V2
 // share storage. In the V2 fallback case it performs two reads for the initial
 // share lookup, then five more for the value, share, and denominator.
@@ -66,35 +77,9 @@ const COLDKEY_LOCK_READS: u64 = 6;
 // Aggregate state reads the owner hotkey, global rates, current block, and up to four buckets.
 const HOTKEY_LOCK_READS: u64 = 8;
 
-/// Prefix for the Allowances map in Substrate storage.
-pub struct AllowancesPrefix;
-impl StorageInstance for AllowancesPrefix {
-    const STORAGE_PREFIX: &'static str = "Allowances";
-
-    fn pallet_prefix() -> &'static str {
-        "EvmPrecompileStaking"
-    }
-}
-
-pub type AllowancesStorage = StorageDoubleMap<
-    AllowancesPrefix,
-    // For each approver (EVM address as only EVM-natives need the precompile)
-    Blake2_128Concat,
-    H160,
-    // For each (spender, netuid, counter) triple — the counter tag invalidates
-    // entries written under a previous registration of the same netuid.
-    Blake2_128Concat,
-    (H160, u16, u64),
-    // Allowed amount
-    U256,
-    ValueQuery,
->;
-
-// Old StakingPrecompile had ETH-precision in values, which was not alligned with Substrate API. So
-// it's kinda deprecated, but exists for backward compatibility. Eventually, we should remove it
-// to stop supporting both precompiles.
-//
-// All the future extensions should happen in StakingPrecompileV2.
+/// Current staking precompile (INDEX 2053): RAO/alpha ABI amounts, locks, allowances, proxies.
+///
+/// Prefer this over legacy [`StakingPrecompile`]. New Solidity methods belong here only.
 pub struct StakingPrecompileV2<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for StakingPrecompileV2<R>
@@ -151,6 +136,7 @@ where
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
+    /// Stake `amount_rao` TAO to `address` (hotkey) on `netuid` (amounts in Substrate units).
     #[precompile::public("addStake(bytes32,uint256,uint256)")]
     #[precompile::payable]
     fn add_stake(
@@ -162,7 +148,7 @@ where
         let account_id = handle.caller_account_id::<R>();
         let amount_staked: u64 = amount_rao.unique_saturated_into();
         let hotkey = R::AccountId::from(address.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let call = pallet_subtensor::Call::<R>::add_stake {
             hotkey,
             netuid: netuid.into(),
@@ -182,7 +168,7 @@ where
     ) -> EvmResult<()> {
         let account_id = handle.caller_account_id::<R>();
         let hotkey = R::AccountId::from(address.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let amount_unstaked: u64 = amount_alpha.unique_saturated_into();
         let call = pallet_subtensor::Call::<R>::remove_stake {
             hotkey,
@@ -193,7 +179,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
-    fn call_remove_stake_full_limit(
+    fn dispatch_remove_stake_full_limit(
         handle: &mut impl PrecompileHandle,
         hotkey: H256,
         netuid: U256,
@@ -201,7 +187,7 @@ where
     ) -> EvmResult<()> {
         let account_id = handle.caller_account_id::<R>();
         let hotkey = R::AccountId::from(hotkey.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let call = pallet_subtensor::Call::<R>::remove_stake_full_limit {
             hotkey,
             netuid: netuid.into(),
@@ -218,7 +204,7 @@ where
         hotkey: H256,
         netuid: U256,
     ) -> EvmResult<()> {
-        Self::call_remove_stake_full_limit(handle, hotkey, netuid, None)
+        Self::dispatch_remove_stake_full_limit(handle, hotkey, netuid, None)
     }
 
     #[precompile::public("removeStakeFullLimit(bytes32,uint256,uint256)")]
@@ -229,8 +215,8 @@ where
         netuid: U256,
         limit_price: U256,
     ) -> EvmResult<()> {
-        let limit_price = try_u64_from_u256(limit_price)?;
-        Self::call_remove_stake_full_limit(handle, hotkey, netuid, Some(limit_price))
+        let limit_price = u64_from_evm_u256(limit_price)?;
+        Self::dispatch_remove_stake_full_limit(handle, hotkey, netuid, Some(limit_price))
     }
 
     #[precompile::public("moveStake(bytes32,bytes32,uint256,uint256,uint256)")]
@@ -246,8 +232,8 @@ where
         let account_id = handle.caller_account_id::<R>();
         let origin_hotkey = R::AccountId::from(origin_hotkey.0);
         let destination_hotkey = R::AccountId::from(destination_hotkey.0);
-        let origin_netuid = try_u16_from_u256(origin_netuid)?;
-        let destination_netuid = try_u16_from_u256(destination_netuid)?;
+        let origin_netuid = u16_from_evm_u256(origin_netuid)?;
+        let destination_netuid = u16_from_evm_u256(destination_netuid)?;
         let alpha_amount: u64 = amount_alpha.unique_saturated_into();
         let call = pallet_subtensor::Call::<R>::move_stake {
             origin_hotkey,
@@ -273,8 +259,8 @@ where
         let account_id = handle.caller_account_id::<R>();
         let destination_coldkey = R::AccountId::from(destination_coldkey.0);
         let hotkey = R::AccountId::from(hotkey.0);
-        let origin_netuid = try_u16_from_u256(origin_netuid)?;
-        let destination_netuid = try_u16_from_u256(destination_netuid)?;
+        let origin_netuid = u16_from_evm_u256(origin_netuid)?;
+        let destination_netuid = u16_from_evm_u256(destination_netuid)?;
         let alpha_amount: u64 = amount_alpha.unique_saturated_into();
         let call = pallet_subtensor::Call::<R>::transfer_stake {
             destination_coldkey,
@@ -297,7 +283,7 @@ where
     ) -> EvmResult<()> {
         let account_id = handle.caller_account_id::<R>();
         let hotkey = R::AccountId::from(hotkey.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let amount: u64 = amount.unique_saturated_into();
         let call = pallet_subtensor::Call::<R>::burn_alpha {
             hotkey,
@@ -345,7 +331,7 @@ where
         handle.record_db_reads::<R>(STAKE_INFO_READS_PER_HOTKEY)?;
         let hotkey = R::AccountId::from(hotkey.0);
         let coldkey = R::AccountId::from(coldkey.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let stake = pallet_subtensor::Pallet::<R>::get_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &coldkey,
@@ -368,7 +354,7 @@ where
         let hotkeys: Vec<H256> = hotkeys.into();
 
         let coldkey = R::AccountId::from(coldkey.0);
-        let netuid = NetUid::from(try_u16_from_u256(netuid)?);
+        let netuid = NetUid::from(u16_from_evm_u256(netuid)?);
 
         let mut seen = BTreeSet::new();
         for hotkey in &hotkeys {
@@ -410,7 +396,7 @@ where
     ) -> EvmResult<Vec<H256>> {
         let hotkey = R::AccountId::from(hotkey.0);
         let mut coldkeys: Vec<H256> = vec![];
-        let netuid = NetUid::from(try_u16_from_u256(netuid)?);
+        let netuid = NetUid::from(u16_from_evm_u256(netuid)?);
         for (coldkey, netuid_in_alpha, _) in
             pallet_subtensor::Pallet::<R>::alpha_iter_single_prefix(&hotkey)
         {
@@ -433,7 +419,7 @@ where
     ) -> EvmResult<U256> {
         handle.record_db_reads::<R>(2)?;
         let hotkey = R::AccountId::from(hotkey.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let stake =
             pallet_subtensor::Pallet::<R>::get_stake_for_hotkey_on_subnet(&hotkey, netuid.into());
 
@@ -470,8 +456,8 @@ where
     ) -> EvmResult<()> {
         let call = pallet_subtensor::Call::<R>::lock_stake {
             hotkey: R::AccountId::from(hotkey.0),
-            netuid: NetUid::from(try_u16_from_u256(netuid)?),
-            amount: try_u64_from_u256(amount_alpha)?.into(),
+            netuid: NetUid::from(u16_from_evm_u256(netuid)?),
+            amount: u64_from_evm_u256(amount_alpha)?.into(),
         };
 
         handle.try_dispatch_runtime_call::<R, _>(
@@ -490,7 +476,7 @@ where
     ) -> EvmResult<()> {
         let call = pallet_subtensor::Call::<R>::move_lock {
             destination_hotkey: R::AccountId::from(destination_hotkey.0),
-            netuid: NetUid::from(try_u16_from_u256(netuid)?),
+            netuid: NetUid::from(u16_from_evm_u256(netuid)?),
         };
 
         handle.try_dispatch_runtime_call::<R, _>(
@@ -508,7 +494,7 @@ where
         enabled: bool,
     ) -> EvmResult<()> {
         let call = pallet_subtensor::Call::<R>::set_perpetual_lock {
-            netuid: NetUid::from(try_u16_from_u256(netuid)?),
+            netuid: NetUid::from(u16_from_evm_u256(netuid)?),
             enabled,
         };
 
@@ -544,7 +530,7 @@ where
     ) -> EvmResult<(bool, H256, U256, u128, bool)> {
         handle.record_db_reads::<R>(COLDKEY_LOCK_READS)?;
         let coldkey = R::AccountId::from(coldkey.0);
-        let netuid = NetUid::from(try_u16_from_u256(netuid)?);
+        let netuid = NetUid::from(u16_from_evm_u256(netuid)?);
         let perpetual = pallet_subtensor::DecayingLock::<R>::get(&coldkey, netuid) == Some(false);
 
         let Some((hotkey, lock)) =
@@ -588,7 +574,7 @@ where
     ) -> EvmResult<(bool, U256, u128)> {
         handle.record_db_reads::<R>(HOTKEY_LOCK_READS)?;
         let hotkey = R::AccountId::from(hotkey.0);
-        let netuid = NetUid::from(try_u16_from_u256(netuid)?);
+        let netuid = NetUid::from(u16_from_evm_u256(netuid)?);
         let now = pallet_subtensor::Pallet::<R>::get_current_block_as_u64();
         let unlock_rate = pallet_subtensor::UnlockRate::<R>::get();
         let maturity_rate = pallet_subtensor::MaturityRate::<R>::get();
@@ -650,7 +636,7 @@ where
         let hotkey_count: u64 = hotkeys.len().unique_saturated_into();
         handle.record_cost(hotkey_count.saturating_mul(STAKE_INFO_INPUT_GAS_PER_HOTKEY))?;
         let hotkeys: Vec<H256> = hotkeys.into();
-        let netuid = NetUid::from(try_u16_from_u256(netuid)?);
+        let netuid = NetUid::from(u16_from_evm_u256(netuid)?);
 
         let mut seen = BTreeSet::new();
         for hotkey in &hotkeys {
@@ -739,7 +725,7 @@ where
         let amount_staked: u64 = amount_rao.unique_saturated_into();
         let limit_price: u64 = limit_price_rao.unique_saturated_into();
         let hotkey = R::AccountId::from(address.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let call = pallet_subtensor::Call::<R>::add_stake_limit {
             hotkey,
             netuid: netuid.into(),
@@ -763,7 +749,7 @@ where
     ) -> EvmResult<()> {
         let account_id = handle.caller_account_id::<R>();
         let hotkey = R::AccountId::from(address.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let amount_unstaked: u64 = amount_alpha.unique_saturated_into();
         let limit_price: u64 = limit_price_rao.unique_saturated_into();
         let call = pallet_subtensor::Call::<R>::remove_stake_limit {
@@ -787,7 +773,7 @@ where
         // StakingHotkeys + per-hotkey stake reads
         handle.record_db_reads::<R>(2)?;
         let coldkey = R::AccountId::from(coldkey.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let stake = pallet_subtensor::Pallet::<R>::get_total_stake_for_coldkey_on_subnet(
             &coldkey,
             netuid.into(),
@@ -799,10 +785,11 @@ where
     /// Current registration counter for `netuid`, used as part of the
     /// `AllowancesStorage` secondary key to invalidate approvals granted
     /// for a previous registration of the same netuid.
-    fn current_subnet_counter(netuid: u16) -> u64 {
+    fn netuid_registration_counter(netuid: u16) -> u64 {
         pallet_subtensor::Pallet::<R>::get_registered_subnet_counter(netuid.into())
     }
 
+    /// Set alpha allowance for `spender` on `origin_netuid` (zero clears the entry).
     #[precompile::public("approve(address,uint256,uint256)")]
     fn approve(
         handle: &mut impl PrecompileHandle,
@@ -816,8 +803,8 @@ where
 
         let approver = handle.context().caller;
         let spender = spender_address.0;
-        let netuid = try_u16_from_u256(origin_netuid)?;
-        let counter = Self::current_subnet_counter(netuid);
+        let netuid = u16_from_evm_u256(origin_netuid)?;
+        let counter = Self::netuid_registration_counter(netuid);
 
         if amount_alpha.is_zero() {
             AllowancesStorage::remove(approver, (spender, netuid, counter));
@@ -840,8 +827,8 @@ where
         handle.record_db_reads::<R>(2)?;
 
         let spender = spender_address.0;
-        let netuid = try_u16_from_u256(origin_netuid)?;
-        let counter = Self::current_subnet_counter(netuid);
+        let netuid = u16_from_evm_u256(origin_netuid)?;
+        let counter = Self::netuid_registration_counter(netuid);
 
         Ok(AllowancesStorage::get(
             source_address.0,
@@ -866,8 +853,8 @@ where
 
         let approver = handle.context().caller;
         let spender = spender_address.0;
-        let netuid = try_u16_from_u256(origin_netuid)?;
-        let counter = Self::current_subnet_counter(netuid);
+        let netuid = u16_from_evm_u256(origin_netuid)?;
+        let counter = Self::netuid_registration_counter(netuid);
 
         let approval_key = (spender, netuid, counter);
 
@@ -896,8 +883,8 @@ where
 
         let approver = handle.context().caller;
         let spender = spender_address.0;
-        let netuid = try_u16_from_u256(origin_netuid)?;
-        let counter = Self::current_subnet_counter(netuid);
+        let netuid = u16_from_evm_u256(origin_netuid)?;
+        let counter = Self::netuid_registration_counter(netuid);
 
         let approval_key = (spender, netuid, counter);
 
@@ -913,7 +900,7 @@ where
         Ok(())
     }
 
-    fn try_consume_allowance(
+    fn consume_stake_allowance(
         handle: &mut impl PrecompileHandle,
         approver: H160,
         spender: H160,
@@ -928,7 +915,7 @@ where
         handle.record_db_reads::<R>(2)?;
         handle.record_db_writes::<R>(1)?;
 
-        let counter = Self::current_subnet_counter(netuid);
+        let counter = Self::netuid_registration_counter(netuid);
         let approval_key = (spender, netuid, counter);
 
         let current_amount = AllowancesStorage::get(approver, approval_key);
@@ -945,6 +932,7 @@ where
         Ok(())
     }
 
+    /// Spender moves stake from `source` to `destination` after consuming allowance.
     #[precompile::public("transferStakeFrom(address,address,bytes32,uint256,uint256,uint256)")]
     fn transfer_stake_from(
         handle: &mut impl PrecompileHandle,
@@ -960,11 +948,17 @@ where
         let destination_coldkey =
             <R as pallet_evm::Config>::AddressMapping::into_account_id(destination_address.0);
         let hotkey = R::AccountId::from(hotkey.0);
-        let origin_netuid = try_u16_from_u256(origin_netuid)?;
-        let destination_netuid = try_u16_from_u256(destination_netuid)?;
+        let origin_netuid = u16_from_evm_u256(origin_netuid)?;
+        let destination_netuid = u16_from_evm_u256(destination_netuid)?;
         let alpha_amount: u64 = amount_alpha.unique_saturated_into();
 
-        Self::try_consume_allowance(handle, source_address, spender, origin_netuid, amount_alpha)?;
+        Self::consume_stake_allowance(
+            handle,
+            source_address,
+            spender,
+            origin_netuid,
+            amount_alpha,
+        )?;
 
         let call = pallet_subtensor::Call::<R>::transfer_stake {
             destination_coldkey,
@@ -979,7 +973,9 @@ where
     }
 }
 
-// Deprecated, exists for backward compatibility.
+/// Legacy staking precompile (INDEX 2049): ETH-decimal amounts via payable `addStake`.
+///
+/// Kept for indexer-compatible callers; do not add new methods — extend [`StakingPrecompileV2`].
 pub struct StakingPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for StakingPrecompile<R>
@@ -1047,12 +1043,12 @@ where
         let amount = handle.context().apparent_value;
 
         if !amount.is_zero() {
-            Self::transfer_back_to_caller(&account_id, amount)?;
+            Self::refund_evm_value_to_caller(&account_id, amount)?;
         }
 
         let amount_sub = handle.try_convert_apparent_value::<R>()?;
         let hotkey = R::AccountId::from(address.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let amount_staked: u64 = amount_sub.unique_saturated_into();
         let call = pallet_subtensor::Call::<R>::add_stake {
             hotkey,
@@ -1073,7 +1069,7 @@ where
     ) -> EvmResult<()> {
         let account_id = handle.caller_account_id::<R>();
         let hotkey = R::AccountId::from(address.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let amount = EvmBalance::new(amount);
         let amount_unstaked =
             <R as pallet_evm::Config>::BalanceConverter::into_substrate_balance(amount)
@@ -1141,7 +1137,7 @@ where
         handle.record_db_reads::<R>(STAKE_INFO_READS_PER_HOTKEY)?;
         let hotkey = R::AccountId::from(hotkey.0);
         let coldkey = R::AccountId::from(coldkey.0);
-        let netuid = try_u16_from_u256(netuid)?;
+        let netuid = u16_from_evm_u256(netuid)?;
         let stake = pallet_subtensor::Pallet::<R>::get_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &coldkey,
@@ -1185,7 +1181,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
-    fn transfer_back_to_caller(
+    fn refund_evm_value_to_caller(
         account_id: &<R as frame_system::Config>::AccountId,
         amount: U256,
     ) -> Result<(), PrecompileFailure> {
@@ -1220,13 +1216,15 @@ where
     }
 }
 
-fn try_u16_from_u256(value: U256) -> Result<u16, PrecompileFailure> {
+/// Narrow an ABI `uint256` to `u16` or revert with an out-of-bounds error.
+fn u16_from_evm_u256(value: U256) -> Result<u16, PrecompileFailure> {
     value.try_into().map_err(|_| PrecompileFailure::Error {
         exit_status: ExitError::Other("the value is outside of u16 bounds".into()),
     })
 }
 
-fn try_u64_from_u256(value: U256) -> Result<u64, PrecompileFailure> {
+/// Narrow an ABI `uint256` to `u64` or revert with an out-of-bounds error.
+fn u64_from_evm_u256(value: U256) -> Result<u64, PrecompileFailure> {
     value.try_into().map_err(|_| PrecompileFailure::Error {
         exit_status: ExitError::Other("the value is outside of u64 bounds".into()),
     })
@@ -1248,6 +1246,7 @@ mod tests {
         execute_precompile, fund_account, mapped_account, new_test_ext, precompiles, selector_u32,
         substrate_to_evm,
     };
+    use frame_support::traits::Get;
     use precompile_utils::prelude::RuntimeHelper;
     use precompile_utils::solidity::{encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;
@@ -1533,60 +1532,6 @@ mod tests {
             .expect("staking V2 call routes to the precompile");
 
             assert!(result.is_err());
-        });
-    }
-
-    #[test]
-    fn staking_precompile_v2_only_reads_caller_supplied_hotkeys() {
-        new_test_ext().execute_with(|| {
-            let netuid = setup_staking_subnet();
-            let caller = addr_from_index(0x1105);
-            let coldkey = mapped_account(caller);
-            let historical_hotkeys: Vec<AccountId> = (0..=MAX_STAKE_INFO_HOTKEYS)
-                .map(|index| {
-                    let mut account = [0u8; 32];
-                    let index = u64::try_from(index).expect("test index fits in u64");
-                    account[..8].copy_from_slice(&index.to_le_bytes());
-                    AccountId::from(account)
-                })
-                .collect();
-            let active_hotkey = historical_hotkeys
-                .last()
-                .expect("historical hotkeys is non-empty")
-                .clone();
-
-            pallet_subtensor::StakingHotkeys::<Runtime>::insert(
-                &coldkey,
-                historical_hotkeys.clone(),
-            );
-            pallet_subtensor::Pallet::<Runtime>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &active_hotkey,
-                &coldkey,
-                netuid,
-                AlphaBalance::from(INITIAL_STAKE_RAO),
-            );
-            let active_stake = stake_for(&active_hotkey, &coldkey, netuid);
-            assert!(active_stake > 0);
-
-            precompiles::<StakingPrecompileV2<Runtime>>()
-                .prepare_test(
-                    caller,
-                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
-                    encode_with_selector(
-                        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
-                        (
-                            H256::from_slice(coldkey.as_ref()),
-                            U256::from(TEST_NETUID_U16),
-                            vec![H256::from_slice(active_hotkey.as_ref())],
-                        ),
-                    ),
-                )
-                .with_static_call(true)
-                .expect_cost(stake_info_cost(1))
-                .execute_returns_raw(encode_return_value(vec![(
-                    H256::from_slice(active_hotkey.as_ref()),
-                    U256::from(active_stake),
-                )]));
         });
     }
 
@@ -2170,6 +2115,60 @@ mod tests {
                 .with_static_call(true)
                 .expect_cost(0)
                 .execute_reverts(|output| output == b"hotkeys: Value is too large for length");
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_only_reads_caller_supplied_hotkeys() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x1105);
+            let coldkey = mapped_account(caller);
+            let historical_hotkeys: Vec<AccountId> = (0..=MAX_STAKE_INFO_HOTKEYS)
+                .map(|index| {
+                    let mut account = [0u8; 32];
+                    let index = u64::try_from(index).expect("test index fits in u64");
+                    account[..8].copy_from_slice(&index.to_le_bytes());
+                    AccountId::from(account)
+                })
+                .collect();
+            let active_hotkey = historical_hotkeys
+                .last()
+                .expect("historical hotkeys is non-empty")
+                .clone();
+
+            pallet_subtensor::StakingHotkeys::<Runtime>::insert(
+                &coldkey,
+                historical_hotkeys.clone(),
+            );
+            pallet_subtensor::Pallet::<Runtime>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &active_hotkey,
+                &coldkey,
+                netuid,
+                AlphaBalance::from(INITIAL_STAKE_RAO),
+            );
+            let active_stake = stake_for(&active_hotkey, &coldkey, netuid);
+            assert!(active_stake > 0);
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])"),
+                        (
+                            H256::from_slice(coldkey.as_ref()),
+                            U256::from(TEST_NETUID_U16),
+                            vec![H256::from_slice(active_hotkey.as_ref())],
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(stake_info_cost(1))
+                .execute_returns_raw(encode_return_value(vec![(
+                    H256::from_slice(active_hotkey.as_ref()),
+                    U256::from(active_stake),
+                )]));
         });
     }
 
@@ -2999,6 +2998,7 @@ mod tests {
     }
 
     // cargo test --package subtensor-precompiles --lib -- staking::tests::staking_precompile_v2_burn_alpha_caps_to_available_stake --exact --nocapture
+
     #[test]
     fn staking_precompile_v2_burn_alpha_caps_to_available_stake() {
         new_test_ext().execute_with(|| {

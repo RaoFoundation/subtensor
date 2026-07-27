@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Benchmarks for Utility Pallet
+//! Runtime benchmarks for `pallet-subtensor-utility` dispatchables.
 
 #![cfg(feature = "runtime-benchmarks")]
 
@@ -27,15 +27,14 @@ use crate::*;
 
 const SEED: u32 = 0;
 
-fn assert_last_event<T: frame_system::pallet::Config>(
+fn assert_last_utility_event<T: frame_system::pallet::Config>(
     generic_event: <T as frame_system::pallet::Config>::RuntimeEvent,
 ) {
     frame_system::Pallet::<T>::assert_last_event(generic_event.into());
 }
 
-fn benchmark_batch_calls<T>(
-    count: u32,
-) -> alloc::vec::Vec<<T as crate::pallet::Config>::RuntimeCall>
+/// Build `count` empty `system.remark` calls for batch-style extrinsic benchmarks.
+fn remark_batch_calls<T>(count: u32) -> alloc::vec::Vec<<T as crate::pallet::Config>::RuntimeCall>
 where
     T: crate::pallet::Config,
     <T as crate::pallet::Config>::RuntimeCall: From<frame_system::Call<T>>,
@@ -58,13 +57,13 @@ mod benchmark {
 
     #[benchmark]
     fn batch(c: Linear<0, 1000>) {
-        let calls = benchmark_batch_calls::<T>(c);
+        let calls = remark_batch_calls::<T>(c);
         let caller = whitelisted_caller();
 
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), calls);
 
-        assert_last_event::<T>(Event::BatchCompleted.into());
+        assert_last_utility_event::<T>(Event::BatchCompleted.into());
     }
 
     #[benchmark]
@@ -80,7 +79,7 @@ mod benchmark {
     }
     #[benchmark]
     fn batch_all(c: Linear<0, 1000>) {
-        let calls = benchmark_batch_calls::<T>(c);
+        let calls = remark_batch_calls::<T>(c);
         let caller = whitelisted_caller();
 
         frame_system::Pallet::<T>::reset_events();
@@ -88,7 +87,7 @@ mod benchmark {
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), calls);
 
-        assert_last_event::<T>(Event::BatchCompleted.into());
+        assert_last_utility_event::<T>(Event::BatchCompleted.into());
     }
 
     #[benchmark]
@@ -105,13 +104,13 @@ mod benchmark {
 
     #[benchmark]
     fn force_batch(c: Linear<0, 1000>) {
-        let calls = benchmark_batch_calls::<T>(c);
+        let calls = remark_batch_calls::<T>(c);
         let caller = whitelisted_caller();
 
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), calls);
 
-        assert_last_event::<T>(Event::BatchCompleted.into());
+        assert_last_utility_event::<T>(Event::BatchCompleted.into());
     }
 
     #[benchmark]

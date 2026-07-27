@@ -1,3 +1,5 @@
+//! Subnet hyperparameter and identity RPC views (`SubnetInfo`, `SubnetHyperparams*`).
+
 use super::*;
 use frame_support::pallet_prelude::{Decode, Encode};
 use frame_support::storage::IterableStorageMap;
@@ -6,7 +8,10 @@ use codec::Compact;
 use substrate_fixed::types::{I32F32, U64F64};
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
-#[freeze_struct("f691073111c39620")]
+/// Legacy subnet summary RPC DTO (v1).
+///
+/// `network_connect`, `network_modality`, and `emission_values` are deprecated placeholders.
+#[freeze_struct("5f8e9855861b246b")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SubnetInfo<AccountId: TypeInfo + Encode + Decode> {
     netuid: Compact<NetUid>,
@@ -29,7 +34,10 @@ pub struct SubnetInfo<AccountId: TypeInfo + Encode + Decode> {
     owner: AccountId,
 }
 
-#[freeze_struct("e8e028bf4fbc6741")]
+/// Subnet summary RPC DTO with optional [`SubnetIdentityV3`].
+///
+/// Wire name stays `SubnetInfov2` (clients decode by metadata type name).
+#[freeze_struct("55639426c896e495")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SubnetInfov2<AccountId: TypeInfo + Encode + Decode> {
     netuid: Compact<NetUid>,
@@ -53,7 +61,8 @@ pub struct SubnetInfov2<AccountId: TypeInfo + Encode + Decode> {
     identity: Option<SubnetIdentityV3>,
 }
 
-#[freeze_struct("5a0830a4518a7325")]
+/// Fixed-shape subnet hyperparameters (v1 RPC). Prefer [`SubnetHyperparamsV2`] / V3 for new clients.
+#[freeze_struct("72176dc3987ea812")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SubnetHyperparams {
     rho: Compact<u16>,
@@ -85,7 +94,11 @@ pub struct SubnetHyperparams {
     liquid_alpha_enabled: bool,
 }
 
-#[freeze_struct("336a6658e70b5554")]
+/// Fixed-shape subnet hyperparameters including Yuma/transfer/bonds toggles.
+///
+/// `user_liquidity_enabled` is currently always `false` in the getter. New params should
+/// prefer [`SubnetHyperparamsV3`] so the wire shape stays additive.
+#[freeze_struct("f7bae491246ac4d9")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SubnetHyperparamsV2 {
     rho: Compact<u16>,
@@ -173,8 +186,9 @@ impl From<(&str, HyperparamValue)> for HyperparamEntry {
 pub type SubnetHyperparamsV3 = Vec<HyperparamEntry>;
 
 impl<T: Config> Pallet<T> {
+    /// Legacy [`SubnetInfo`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_info(netuid: NetUid) -> Option<SubnetInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -219,6 +233,7 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// Dense `0..=max_netuid` list of optional [`SubnetInfo`] (gaps are omitted, not `None`).
     pub fn get_subnets_info() -> Vec<Option<SubnetInfo<T::AccountId>>> {
         let mut subnet_netuids = Vec::<NetUid>::new();
         let mut max_netuid: u16 = 0;
@@ -241,8 +256,9 @@ impl<T: Config> Pallet<T> {
         subnets_info
     }
 
+    /// [`SubnetInfov2`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_info_v2(netuid: NetUid) -> Option<SubnetInfov2<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -290,6 +306,7 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// Dense list of optional [`SubnetInfov2`] for every added subnet (same packing as v1).
     pub fn get_subnets_info_v2() -> Vec<Option<SubnetInfov2<T::AccountId>>> {
         let mut subnet_netuids = Vec::<NetUid>::new();
         let mut max_netuid: u16 = 0;
@@ -312,8 +329,9 @@ impl<T: Config> Pallet<T> {
         subnets_info
     }
 
+    /// [`SubnetHyperparams`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_hyperparams(netuid: NetUid) -> Option<SubnetHyperparams> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -375,8 +393,9 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// [`SubnetHyperparamsV2`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_subnet_hyperparams_v2(netuid: NetUid) -> Option<SubnetHyperparamsV2> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 
@@ -452,6 +471,7 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// Auto-stake destination hotkey for `coldkey` on `netuid`, if configured.
     pub fn get_coldkey_auto_stake_hotkey(
         coldkey: T::AccountId,
         netuid: NetUid,
@@ -466,7 +486,7 @@ impl<T: Config> Pallet<T> {
     /// below — no struct edit and no V4 required, provided the value's type
     /// already has a [`HyperparamValue`] variant.
     pub fn get_subnet_hyperparams_v3(netuid: NetUid) -> Option<SubnetHyperparamsV3> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
 

@@ -1,4 +1,4 @@
-use super::{CallOf, DispatchableOriginOf};
+use super::{GuardsRuntimeCallOf, RuntimeCallOriginOf};
 use crate::weights::WeightInfo;
 use crate::{Call, ColdkeySwapAnnouncements, ColdkeySwapDisputes, Config, Error};
 use frame_support::{
@@ -20,7 +20,7 @@ use sp_std::marker::PhantomData;
 /// Non-signed origins pass through.
 ///
 /// Because this is a `DispatchExtension` (not a `TransactionExtension`), it fires at every
-/// `call.dispatch(origin)` site — including inside the proxy pallet's `do_proxy()`.
+/// `call.dispatch(origin)` site — including inside the proxy pallet's `dispatch_filtered_proxy_call()`.
 /// This means nested proxies of any depth are handled automatically with the real
 /// resolved origin.
 pub struct CheckColdkeySwap<T: Config>(PhantomData<T>);
@@ -28,9 +28,10 @@ pub struct CheckColdkeySwap<T: Config>(PhantomData<T>);
 impl<T> CheckColdkeySwap<T>
 where
     T: Config + pallet_shield::Config,
-    CallOf<T>: IsSubType<Call<T>> + IsSubType<pallet_shield::Call<T>>,
+    GuardsRuntimeCallOf<T>: IsSubType<Call<T>> + IsSubType<pallet_shield::Call<T>>,
 {
-    pub fn check(who: &T::AccountId, call: &CallOf<T>) -> Result<(), Error<T>> {
+    /// Reject `who`'s call while a coldkey swap is announced or disputed for that account.
+    pub fn check(who: &T::AccountId, call: &GuardsRuntimeCallOf<T>) -> Result<(), Error<T>> {
         if !ColdkeySwapAnnouncements::<T>::contains_key(who) {
             return Ok(());
         }
@@ -39,14 +40,15 @@ where
             return Err(Error::<T>::ColdkeySwapDisputed);
         }
 
-        if Self::is_allowed_during_swap(call) {
+        if Self::is_call_allowed_during_coldkey_swap(call) {
             Ok(())
         } else {
             Err(Error::<T>::ColdkeySwapAnnounced)
         }
     }
 
-    fn is_allowed_during_swap(call: &CallOf<T>) -> bool {
+    /// Swap lifecycle calls plus shield `submit_encrypted` (MEV-protected path).
+    fn is_call_allowed_during_coldkey_swap(call: &GuardsRuntimeCallOf<T>) -> bool {
         matches!(
             call.is_sub_type(),
             Some(
@@ -68,17 +70,18 @@ where
     <T as frame_system::Config>::RuntimeCall: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<Call<T>>
         + IsSubType<pallet_shield::Call<T>>,
-    DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    RuntimeCallOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
 
-    fn weight(_call: &CallOf<T>) -> Weight {
+    fn weight(_call: &GuardsRuntimeCallOf<T>) -> Weight {
+        // Always charged: any signed call may be blocked by swap state.
         <T as Config>::WeightInfo::check_coldkey_swap_extension()
     }
 
     fn pre_dispatch(
-        origin: &DispatchableOriginOf<T>,
-        call: &CallOf<T>,
+        origin: &RuntimeCallOriginOf<T>,
+        call: &GuardsRuntimeCallOf<T>,
     ) -> Result<Self::Pre, DispatchErrorWithPostInfo> {
         // Only care about signed origins.
         // Root is already bypassed by the extension before we get here.

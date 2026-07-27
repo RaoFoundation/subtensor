@@ -26,6 +26,9 @@ fn remove_prefix<T: Config>(old_map: &str) -> Weight {
     T::DbWeight::get().writes(removed_entries_count)
 }
 
+/// Clears obsolete dividend maps `TaoDividendsPerSubnet`, `PendingAlphaSwapped`, and `PendingRootDivs`.
+///
+/// Idempotency key (frozen): `migrate_remove_tao_dividends`.
 pub fn migrate_remove_tao_dividends<T: Config>() -> Weight {
     let migration_name = b"migrate_remove_tao_dividends".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

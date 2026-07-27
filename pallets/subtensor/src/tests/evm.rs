@@ -1,3 +1,7 @@
+//! Tests for [`crate::Pallet::associate_evm_key`].
+//!
+//! Covers ownership/registration guards, hash verification, rate limits, and address index caps.
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,

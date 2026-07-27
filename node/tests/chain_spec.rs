@@ -1,3 +1,5 @@
+//! Integration tests for `chain_spec` seed / authority-key helpers.
+
 use sp_core::sr25519;
 // use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 // use sp_consensus_grandpa::AuthorityId as GrandpaId;
@@ -5,7 +7,7 @@ use sp_core::sr25519;
 use node_subtensor::chain_spec::*;
 
 #[test]
-fn test_get_from_seed() {
+fn get_from_seed_returns_expected_ss58() {
     let seed = "WoOt";
     let pare = get_from_seed::<sr25519::Public>(seed);
     let expected = "5Gj3QEiZaFJPFK1yN4Lkj6FLM4V7GEBCewVBVniuvZ75S2Fd";
@@ -14,13 +16,13 @@ fn test_get_from_seed() {
 
 #[test]
 #[should_panic(expected = "static values are valid; qed: InvalidFormat")]
-fn test_get_from_seed_panics() {
+fn get_from_seed_panics_on_empty_seed() {
     let bad_seed = "";
     get_from_seed::<sr25519::Public>(bad_seed);
 }
 
 #[test]
-fn test_get_account_id_from_seed() {
+fn get_account_id_from_seed_returns_expected_ss58() {
     let seed = "WoOt";
     let account_id = get_account_id_from_seed::<sr25519::Public>(seed);
     let expected = "5Gj3QEiZaFJPFK1yN4Lkj6FLM4V7GEBCewVBVniuvZ75S2Fd";
@@ -29,13 +31,13 @@ fn test_get_account_id_from_seed() {
 
 #[test]
 #[should_panic(expected = "static values are valid; qed: InvalidFormat")]
-fn test_get_account_id_from_seed_panics() {
+fn get_account_id_from_seed_panics_on_empty_seed() {
     let bad_seed = "";
     get_account_id_from_seed::<sr25519::Public>(bad_seed);
 }
 
 #[test]
-fn test_authority_keys_from_seed() {
+fn authority_keys_from_seed_returns_aura_and_grandpa() {
     let seed = "WoOt";
     let (aura_id, grandpa_id) = authority_keys_from_seed(seed);
 
@@ -48,7 +50,7 @@ fn test_authority_keys_from_seed() {
 
 #[test]
 #[should_panic(expected = "static values are valid; qed: InvalidFormat")]
-fn test_authority_keys_from_seed_panics() {
+fn authority_keys_from_seed_panics_on_empty_seed() {
     let bad_seed = "";
     authority_keys_from_seed(bad_seed);
 }

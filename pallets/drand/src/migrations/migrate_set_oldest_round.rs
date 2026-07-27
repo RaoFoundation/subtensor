@@ -1,8 +1,12 @@
+//! One-shot migration: set [`OldestStoredRound`](crate::OldestStoredRound) to the minimum
+//! key present in [`Pulses`](crate::Pulses) (or `0` if empty).
+
 use crate::*;
 use frame_support::weights::Weight;
 use log;
 
-/// Migration to set `OldestStoredRound` to the oldest round in storage.
+/// Scan `Pulses` keys once and write the minimum as `OldestStoredRound`; idempotent via
+/// [`HasMigrationRun`](crate::HasMigrationRun). Does not modify `LastStoredRound` or pulse data.
 pub fn migrate_set_oldest_round<T: Config>() -> Weight {
     use frame_support::traits::Get;
 

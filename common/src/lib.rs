@@ -1,3 +1,7 @@
+//! Shared runtime types for Subtensor: subnet IDs, balances, proxy filters, and cross-pallet traits.
+//!
+//! Crate name is `subtensor-runtime-common`. Prefer this module for `NetUid`, `TaoBalance`,
+//! `AlphaBalance`, and proxy metadata rather than raw `u16`/`u64` at API boundaries.
 #![cfg_attr(not(feature = "std"), no_std)]
 use core::fmt::{self, Display, Formatter};
 
@@ -28,7 +32,7 @@ mod evm_context;
 mod proxy;
 mod transaction_error;
 
-/// Balance of an account.
+/// Account free-balance type; alias of [`TaoBalance`] (RAO / 1e9 TAO units).
 pub type Balance = TaoBalance;
 
 /// An index to a block.
@@ -47,13 +51,19 @@ pub type Index = u32;
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
 
+/// Account extrinsic nonce (same width as [`Index`]).
 pub type Nonce = u32;
 
-/// Transfers below SMALL_TRANSFER_LIMIT are considered small transfers
+/// Max TAO amount (inclusive bound exclusive of limit) treated as a "small" proxy transfer: 0.5 TAO.
 pub const SMALL_TRANSFER_LIMIT: Balance = TaoBalance::new(500_000_000); // 0.5 TAO
+/// Max alpha amount treated as a "small" proxy stake transfer: 0.5 alpha (same RAO scale as TAO).
 pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_000); // 0.5 Alpha
 
-#[freeze_struct("4184c565055c66a7")]
+/// Subnet identifier (`netuid`): opaque `u16` newtype used as the canonical subnet key.
+///
+/// `0` is the root network ([`NetUid::ROOT`]). SCALE-identical to `u16`; metadata keeps the path
+/// so SDKs emit a distinct type rather than a bare integer.
+#[freeze_struct("a4e7d2e5110c5c67")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -77,20 +87,25 @@ pub const SMALL_ALPHA_TRANSFER_LIMIT: AlphaBalance = AlphaBalance::new(500_000_0
 pub struct NetUid(u16);
 
 impl NetUid {
+    /// Root network (`netuid == 0`); emission/weight parent of non-root subnets.
     pub const ROOT: NetUid = Self(0);
 
+    /// Returns `true` when this is the root network.
     pub fn is_root(&self) -> bool {
         *self == Self::ROOT
     }
 
+    /// Next netuid (`saturating_add(1)`); used when allocating sequential subnet IDs.
     pub fn next(&self) -> NetUid {
         Self(self.0.saturating_add(1))
     }
 
+    /// Previous netuid (`saturating_sub(1)`).
     pub fn prev(&self) -> NetUid {
         Self(self.0.saturating_sub(1))
     }
 
+    /// Inner `u16` for storage math that still takes raw integers.
     pub fn inner(&self) -> u16 {
         self.0
     }
@@ -132,31 +147,49 @@ impl From<u16> for NetUid {
     }
 }
 
+/// Read-only subnet metadata used by swap, leases, and other pallets that must not depend on
+/// the full subtensor pallet.
 pub trait SubnetInfo<AccountId> {
+    /// Whether a subnet with this netuid exists.
     fn exists(netuid: NetUid) -> bool;
+    /// Subnet mechanism / consensus mode code for `netuid`.
     fn mechanism(netuid: NetUid) -> u16;
+    /// Whether `account_id` is the subnet owner coldkey.
     fn is_owner(account_id: &AccountId, netuid: NetUid) -> bool;
+    /// Whether the subnet's alpha (subtoken) is enabled for trading/staking.
     fn is_subtoken_enabled(netuid: NetUid) -> bool;
+    /// Per-uid validator trust vector for the subnet.
     fn get_validator_trust(netuid: NetUid) -> Vec<u16>;
+    /// Per-uid validator permit flags for the subnet.
     fn get_validator_permit(netuid: NetUid) -> Vec<bool>;
+    /// Hotkey registered at `uid` on `netuid`, if any.
     fn hotkey_of_uid(netuid: NetUid, uid: u16) -> Option<AccountId>;
 }
 
+/// AMM / pool reserve accessors for a subnet's TAO or alpha side (`C: Token`).
 pub trait TokenReserve<C: Token> {
+    /// Current reserve amount for `netuid`.
     fn reserve(netuid: NetUid) -> C;
+    /// Credit supply provided into the reserve (liquidity in).
     fn increase_provided(netuid: NetUid, amount: C);
+    /// Debit supply provided from the reserve (liquidity out).
     fn decrease_provided(netuid: NetUid, amount: C);
 }
 
+/// Cross-pallet stake and free-balance operations used by swap and limit-order flows.
 pub trait BalanceOps<AccountId> {
+    /// Free TAO balance of `account_id`.
     fn tao_balance(account_id: &AccountId) -> TaoBalance;
+    /// Alpha stake of (`coldkey`, `hotkey`) on `netuid`.
     fn alpha_balance(netuid: NetUid, coldkey: &AccountId, hotkey: &AccountId) -> AlphaBalance;
+    /// Increase alpha stake for (`coldkey`, `hotkey`) on `netuid`.
     fn increase_stake(
         coldkey: &AccountId,
         hotkey: &AccountId,
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<(), DispatchError>;
+    /// Decrease alpha stake for (`coldkey`, `hotkey`) on `netuid`.
     fn decrease_stake(
         coldkey: &AccountId,
         hotkey: &AccountId,
@@ -171,6 +204,7 @@ pub trait AuthorshipInfo<AccountId> {
     fn author() -> Option<AccountId>;
 }
 
+/// Block-time constants shared by the runtime (slot duration, minutes/hours/days in blocks).
 pub mod time {
     use super::*;
 
@@ -192,7 +226,11 @@ pub mod time {
     pub const DAYS: BlockNumber = HOURS * 24;
 }
 
-#[freeze_struct("2477c9af9b0c5c26")]
+/// Sub-subnet / mechanism identifier within a parent [`NetUid`].
+///
+/// `0` ([`MechId::MAIN`]) is the primary mechanism. Combined with netuid into
+/// [`NetUidStorageIndex`] for per-mechanism epoch maps (`index = netuid + mecid * 4096`).
+#[freeze_struct("56b975909205713f")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -216,6 +254,7 @@ pub mod time {
 pub struct MechId(u8);
 
 impl MechId {
+    /// Primary mechanism for a subnet (`mecid == 0`).
     pub const MAIN: MechId = Self(0);
 }
 
@@ -267,7 +306,12 @@ impl From<Compact<MechId>> for MechId {
     }
 }
 
-#[freeze_struct("c6bf75ee25c00b9")]
+/// Storage key for per-mechanism epoch maps (weights, bonds, incentives, …).
+///
+/// Encoding: `netuid + mecid * GLOBAL_MAX_SUBNET_COUNT` (4096). For `mecid == 0` this equals
+/// [`NetUid`], preserving pre-mechanism storage layout. Prefer
+/// `Pallet::get_mechanism_storage_index` over hand-rolled arithmetic.
+#[freeze_struct("ca534527653f6010")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -291,6 +335,7 @@ impl From<Compact<MechId>> for MechId {
 pub struct NetUidStorageIndex(u16);
 
 impl NetUidStorageIndex {
+    /// Root-network storage index (`0`), same as [`NetUid::ROOT`].
     pub const ROOT: NetUidStorageIndex = Self(0);
 }
 
@@ -412,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_prefix_with_meter_respects_budget() {
+    fn clear_prefix_with_meter_respects_budget() {
         let netuid = NetUid::from(42);
         let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
         let mut ext = sp_io::TestExternalities::default();
@@ -442,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_prefix_with_meter_zero_budget_is_noop() {
+    fn clear_prefix_with_meter_zero_budget_is_noop() {
         let netuid = NetUid::from(43);
         let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
         let mut ext = sp_io::TestExternalities::default();
@@ -463,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_prefix_with_meter_completes_with_enough_budget() {
+    fn clear_prefix_with_meter_completes_with_enough_budget() {
         let netuid = NetUid::from(44);
         let entry_weight = Weight::from_parts(REF_TIME_WEIGHT, PROOF_SIZE_WEIGHT);
         let mut ext = sp_io::TestExternalities::default();

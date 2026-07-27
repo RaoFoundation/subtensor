@@ -20,26 +20,9 @@ pub mod deprecated_loaded_emission_format {
         StorageMap<Pallet<T>, Identity, u16, Vec<(AccountIdOf<T>, u64)>, OptionQuery>;
 }
 
-/// Migrates the storage to delete subnet 21
+/// One-shot cleanup that removes all subnet-scoped storage for netuid 21 (historical subnet deletion).
 ///
-/// This function performs the following steps:
-/// 1. Checks if the migration is necessary
-/// 2. Removes all storage related to subnet 21
-/// 3. Updates the storage version
-///
-/// # Arguments
-///
-/// * `T` - The Config trait of the pallet
-///
-/// # Returns
-///
-/// * `Weight` - The computational weight of this operation
-///
-/// # Example
-///
-/// ```ignore
-/// let weight = migrate_delete_subnet_21::<T>();
-/// ```
+/// Does not use [`HasMigrationRun`]; safe to re-run because deletes are idempotent on missing keys.
 pub fn migrate_delete_subnet_21<T: Config>() -> Weight {
     let new_storage_version = 4;
 
@@ -50,7 +33,7 @@ pub fn migrate_delete_subnet_21<T: Config>() -> Weight {
     let onchain_version = Pallet::<T>::on_chain_storage_version();
 
     // Only runs if we haven't already updated version past above new_storage_version and subnet 21 exists.
-    if onchain_version < new_storage_version && Pallet::<T>::if_subnet_exist(NetUid::from(21)) {
+    if onchain_version < new_storage_version && Pallet::<T>::subnet_exists(NetUid::from(21)) {
         info!(target: LOG_TARGET, ">>> Removing subnet 21 {onchain_version:?}");
 
         let netuid = NetUid::from(21);

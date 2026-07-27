@@ -1,8 +1,9 @@
+//! Unit tests for mint / burn / recycle ledger updates and imbalance merge rules.
+
 #![allow(clippy::unwrap_used)]
 
 use frame_support::traits::{Imbalance, tokens::imbalance::TryMerge};
-use subtensor_runtime_common::Token;
-use subtensor_runtime_common::{AlphaBalance, NetUid};
+use subtensor_runtime_common::{AlphaBalance, NetUid, Token};
 
 use crate::{
     AlphaAssetsInterface, AlphaBurned, AlphaRecycled, PositiveAlphaImbalance, TotalAlphaIssuance,

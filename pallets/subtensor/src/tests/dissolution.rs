@@ -1,3 +1,8 @@
+//! End-to-end subnet dissolution / cleanup netuid reuse tests.
+//!
+//! Production path: [`crate::subnets::dissolution`].
+//! Guards against reusing a netuid while cleanup is still in progress.
+
 #![allow(
     clippy::unwrap_used,
     clippy::indexing_slicing,
@@ -121,7 +126,7 @@ fn in_progress_cleanup_netuid_must_not_be_reused() {
         let _n1 = add_dynamic_network(&U256::from(101), &U256::from(1));
         let n2 = add_dynamic_network(&U256::from(102), &U256::from(2));
         let _n3 = add_dynamic_network(&U256::from(103), &U256::from(3));
-        assert!(SubtensorModule::if_subnet_exist(n2));
+        assert!(SubtensorModule::subnet_exists(n2));
 
         // Governance dissolves the middle subnet -> queued for cleanup.
         assert_ok!(SubtensorModule::do_dissolve_network(n2));
@@ -169,7 +174,7 @@ fn e2e_registration_reuses_in_progress_cleanup_netuid() {
         CurrentDissolveCleanupStatus::<Test>::set(Some(
             crate::subnets::dissolution::DissolveCleanupStatus::new(n2),
         ));
-        assert!(!SubtensorModule::if_subnet_exist(n2));
+        assert!(!SubtensorModule::subnet_exists(n2));
 
         // Fresh coldkey/hotkey -> passes the per-coldkey registration rate limit.
         let new_cold = U256::from(909);
@@ -187,7 +192,7 @@ fn e2e_registration_reuses_in_progress_cleanup_netuid() {
 
         // The collision happened: n2 is live again...
         assert!(
-            !SubtensorModule::if_subnet_exist(n2),
+            !SubtensorModule::subnet_exists(n2),
             "registration did not reuse n2 (good - bug may be fixed)"
         );
         // ...while its cleanup is still pending and will keep deleting the new subnet's storage.

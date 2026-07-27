@@ -15,26 +15,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! # Utility Pallet
-//! A stateless pallet with helpers for dispatch management which does no re-authentication.
+//! # Utility Pallet (`pallet-subtensor-utility`)
+//!
+//! Stateless helpers for **batch dispatch**, **derivative (pseudonym) dispatch**, and
+//! **origin-switched dispatch**. This pallet does **not** re-authenticate; it reuses the caller's
+//! origin filters (except where root bypasses them).
+//!
+//! Subtensor fork notes (search: `with_weight`, `Normal`):
+//! - [`Call::with_weight`] always reports [`frame_support::dispatch::DispatchClass::Normal`]
+//!   (upstream FRAME may use Operational for the same extrinsic).
+//! - Derivative account IDs are derived via blake2 of `("modlpy/utilisuba", who, index)` — see
+//!   [`Pallet::derivative_account_id`].
 //!
 //! - [`Config`]
 //! - [`Call`]
+//! - [`Event`]
+//! - [`Error`]
 //!
 //! ## Overview
 //!
-//! This pallet contains two basic pieces of functionality:
-//! - Batch dispatch: A stateless operation, allowing any origin to execute multiple calls in a
-//!   single dispatch. This can be useful to amalgamate proposals, combining `set_code` with
-//!   corresponding `set_storage`s, for efficient multiple payouts with just a single signature
-//!   verify, or in combination with one of the other two dispatch functionality.
-//! - Pseudonymal dispatch: A stateless operation, allowing a signed origin to execute a call from
-//!   an alternative signed origin. Each account has 2 * 2**16 possible "pseudonyms" (alternative
-//!   account IDs) and these can be stacked. This can be useful as a key management tool, where you
-//!   need multiple distinct accounts (e.g. as controllers for many staking accounts), but where
-//!   it's perfectly fine to have each of them controlled by the same underlying keypair. Derivative
-//!   accounts are, for the purposes of proxy filtering considered exactly the same as the origin
-//!   and are thus hampered with the origin's filters.
+//! - **Batch dispatch** (`batch`, `batch_all`, `force_batch`): run many calls under one signature.
+//!   - `batch`: stop on first error (`BatchInterrupted`), prior calls stay applied.
+//!   - `batch_all`: atomic — any error rolls the whole extrinsic back; nested `batch_all` is filtered.
+//!   - `force_batch`: never interrupt; emits `ItemFailed` / `BatchCompletedWithErrors` as needed.
+//! - **Pseudonymal dispatch** (`as_derivative`): signed origin executes as a derived account ID.
+//!   Proxy filters treat the derivative as the original origin.
+//! - **Origin switch** (`dispatch_as`, `dispatch_as_fallible`, `with_weight`, `if_else`): root (or
+//!   filtered signed for `if_else`) helpers for privileged or fallback dispatch.
 //!
 //! Since proxy filters are respected in all dispatches of this pallet, it should never need to be
 //! filtered by any proxy.
@@ -43,11 +50,16 @@
 //!
 //! ### Dispatchable Functions
 //!
-//! #### For batch dispatch
-//! * `batch` - Dispatch multiple calls from the sender's origin.
-//!
-//! #### For pseudonymal dispatch
-//! * `as_derivative` - Dispatch a call from a derivative signed origin.
+//! | Call | Role |
+//! |------|------|
+//! | `batch` | Fail-fast multi-call |
+//! | `batch_all` | Atomic multi-call |
+//! | `force_batch` | Continue-on-error multi-call |
+//! | `as_derivative` | Dispatch as indexed derivative account |
+//! | `dispatch_as` | Root: dispatch as `PalletsOrigin` (errors become events) |
+//! | `dispatch_as_fallible` | Root: same, but forwards inner error |
+//! | `with_weight` | Root: dispatch with caller-supplied weight witness |
+//! | `if_else` | Main call, else fallback |)
 
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -86,10 +98,10 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
-    /// Configuration trait.
+    /// Configuration trait for the utility pallet (batch / derivative / dispatch-as helpers).
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        /// The overarching call type.
+        /// Runtime call type that utility may nest and dispatch (must include this pallet's `Call`).
         type RuntimeCall: Parameter
             + Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
             + GetDispatchInfo
@@ -98,7 +110,7 @@ pub mod pallet {
             + IsSubType<Call<Self>>
             + IsType<<Self as frame_system::Config>::RuntimeCall>;
 
-        /// The caller origin, overarching type of all pallets origins.
+        /// Outer origin caller type used by [`Call::dispatch_as`] / [`Call::dispatch_as_fallible`].
         type PalletsOrigin: Parameter +
 			Into<<Self as frame_system::Config>::RuntimeOrigin> +
 			IsType<<<Self as frame_system::Config>::RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin>;
@@ -107,25 +119,27 @@ pub mod pallet {
         type WeightInfo: WeightInfo;
     }
 
+    /// Events emitted by batch, dispatch-as, and if-else helpers.
+    ///
+    /// Variant **order is frozen** (SCALE / metadata); do not reorder.
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event {
-        /// Batch of dispatches did not complete fully. Index of first failing dispatch given, as
-        /// well as the error.
+        /// `batch` stopped early: `index` is the first failing call; prior calls remain applied.
         BatchInterrupted { index: u32, error: DispatchError },
-        /// Batch of dispatches completed fully with no error.
+        /// All items in a `batch` / `batch_all` / `force_batch` succeeded.
         BatchCompleted,
-        /// Batch of dispatches completed but has errors.
+        /// `force_batch` finished with at least one `ItemFailed`.
         BatchCompletedWithErrors,
-        /// A single item within a Batch of dispatches has completed with no error.
+        /// One nested call inside a batch succeeded.
         ItemCompleted,
-        /// A single item within a Batch of dispatches has completed with error.
+        /// One nested call inside `force_batch` failed; batch continued.
         ItemFailed { error: DispatchError },
-        /// A call was dispatched.
+        /// Result of [`Call::dispatch_as`] / successful [`Call::dispatch_as_fallible`].
         DispatchedAs { result: DispatchResult },
-        /// Main call was dispatched.
+        /// [`Call::if_else`] main path succeeded; fallback was not run.
         IfElseMainSuccess,
-        /// The fallback call was dispatched.
+        /// [`Call::if_else`] main failed and fallback was dispatched (`main_error` preserved).
         IfElseFallbackCalled { main_error: DispatchError },
     }
 
@@ -137,7 +151,7 @@ pub mod pallet {
 
     #[pallet::extra_constants]
     impl<T: Config> Pallet<T> {
-        /// The limit on the number of batched calls.
+        /// Max nested calls allowed in `batch` / `batch_all` / `force_batch` (allocation-safe).
         fn batched_calls_limit() -> u32 {
             let allocator_limit = sp_core::MAX_POSSIBLE_ALLOCATION;
             let call_size = (core::mem::size_of::<<T as Config>::RuntimeCall>() as u32)
@@ -163,11 +177,14 @@ pub mod pallet {
         }
     }
 
+    /// Dispatch errors for the utility pallet.
+    ///
+    /// Variant **order is frozen** (SCALE / metadata); do not reorder.
     #[pallet::error]
     pub enum Error<T> {
-        /// Too many calls batched.
+        /// `calls.len()` exceeded [`Pallet::batched_calls_limit`].
         TooManyCalls,
-        /// Bad input data for derived account ID
+        /// [`Pallet::derivative_account_id`] could not decode the blake2 entropy into `AccountId`.
         InvalidDerivedAccount,
     }
 
@@ -175,27 +192,18 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         #![deny(clippy::expect_used)]
 
-        /// Send a batch of dispatch calls.
+        /// Fail-fast batch: dispatch `calls` from the same origin; stop on first error.
         ///
-        /// May be called from any origin except `None`.
+        /// May be called from any origin except `None`. Root bypasses origin / base call filters.
         ///
-        /// - `calls`: The calls to be dispatched from the same origin. The number of call must not
-        ///   exceed the constant: `batched_calls_limit` (available in constant metadata).
+        /// Always returns `Ok`; inspect events for outcome:
+        /// - [`Event::BatchCompleted`] — all items succeeded
+        /// - [`Event::BatchInterrupted`] — first failure at `index` (prior items stay applied)
         ///
-        /// If origin is root then the calls are dispatched without checking origin filter. (This
-        /// includes bypassing `frame_system::Config::BaseCallFilter`).
-        ///
-        /// ## Complexity
-        /// - O(C) where C is the number of calls to be batched.
-        ///
-        /// This will return `Ok` in all circumstances. To determine the success of the batch, an
-        /// event is deposited. If a call failed and the batch was interrupted, then the
-        /// `BatchInterrupted` event is deposited, along with the number of successful calls made
-        /// and the error of the failed call. If all were successful, then the `BatchCompleted`
-        /// event is deposited.
+        /// Caps at `batched_calls_limit`. Weight is base + sum of actual inner weights.
         #[pallet::call_index(0)]
         #[pallet::weight({
-			let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+			let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
 			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::batch(calls.len() as u32));
 			(dispatch_weight, DispatchClass::Normal, pays)
 		})]
@@ -244,19 +252,13 @@ pub mod pallet {
             Ok(Some(base_weight.saturating_add(weight)).into())
         }
 
-        /// Send a call through an indexed pseudonym of the sender.
+        /// Dispatch `call` as the signed origin's derivative account at `index`.
         ///
-        /// Filter from origin are passed along. The call will be dispatched with an origin which
-        /// use the same filter as the origin of this call.
+        /// Origin must be **Signed**. Origin filters are preserved on the derivative caller
+        /// (proxy filtering treats derivative ≡ original). See [`Pallet::derivative_account_id`].
         ///
-        /// NOTE: If you need to ensure that any account-based filtering is not honored (i.e.
-        /// because you expect `proxy` to have been used prior in the call stack and you do not want
-        /// the call restrictions to apply to any sub-accounts), then use `as_multi_threshold_1`
-        /// in the Multisig pallet instead.
-        ///
-        /// NOTE: Prior to version *12, this was called `as_limited_sub`.
-        ///
-        /// The dispatch origin for this call must be _Signed_.
+        /// NOTE: To bypass account-based filtering after `proxy`, prefer Multisig
+        /// `as_multi_threshold_1` instead. Historically named `as_limited_sub` (pre v12).
         #[pallet::call_index(1)]
         #[pallet::weight({
 			let dispatch_info = call.get_dispatch_info();
@@ -292,22 +294,14 @@ pub mod pallet {
                 .map(|_| Some(weight).into())
         }
 
-        /// Send a batch of dispatch calls and atomically execute them.
-        /// The whole transaction will rollback and fail if any of the calls failed.
+        /// Atomic batch: dispatch all `calls` or roll the extrinsic back on any failure.
         ///
-        /// May be called from any origin except `None`.
-        ///
-        /// - `calls`: The calls to be dispatched from the same origin. The number of call must not
-        ///   exceed the constant: `batched_calls_limit` (available in constant metadata).
-        ///
-        /// If origin is root then the calls are dispatched without checking origin filter. (This
-        /// includes bypassing `frame_system::Config::BaseCallFilter`).
-        ///
-        /// ## Complexity
-        /// - O(C) where C is the number of calls to be batched.
+        /// May be called from any origin except `None`. Root bypasses filters. Nested
+        /// [`Call::batch_all`] is rejected via an added origin filter (anti-reentrancy).
+        /// Caps at `batched_calls_limit`.
         #[pallet::call_index(2)]
         #[pallet::weight({
-			let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+			let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
 			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::batch_all(calls.len() as u32));
 			(dispatch_weight, DispatchClass::Normal, pays)
 		})]
@@ -361,12 +355,10 @@ pub mod pallet {
             Ok(Some(base_weight.saturating_add(weight)).into())
         }
 
-        /// Dispatches a function call with a provided origin.
+        /// Root-only: dispatch `call` under `as_origin`, recording the result in [`Event::DispatchedAs`].
         ///
-        /// The dispatch origin for this call must be _Root_.
-        ///
-        /// ## Complexity
-        /// - O(1).
+        /// Does **not** return the inner call's error (use [`Call::dispatch_as_fallible`] for that).
+        /// Bypasses origin filters via `dispatch_bypass_filter`.
         #[pallet::call_index(3)]
         #[pallet::weight({
 			let dispatch_info = call.get_dispatch_info();
@@ -391,22 +383,14 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Send a batch of dispatch calls.
-        /// Unlike `batch`, it allows errors and won't interrupt.
+        /// Continue-on-error batch: run every call; never abort the outer extrinsic on item failure.
         ///
-        /// May be called from any origin except `None`.
-        ///
-        /// - `calls`: The calls to be dispatched from the same origin. The number of call must not
-        ///   exceed the constant: `batched_calls_limit` (available in constant metadata).
-        ///
-        /// If origin is root then the calls are dispatch without checking origin filter. (This
-        /// includes bypassing `frame_system::Config::BaseCallFilter`).
-        ///
-        /// ## Complexity
-        /// - O(C) where C is the number of calls to be batched.
+        /// May be called from any origin except `None`. Root bypasses filters.
+        /// Emits [`Event::ItemFailed`] / [`Event::ItemCompleted`] per item, then
+        /// [`Event::BatchCompleted`] or [`Event::BatchCompletedWithErrors`].
         #[pallet::call_index(4)]
         #[pallet::weight({
-			let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+			let (dispatch_weight, pays) = Pallet::<T>::batch_calls_weight_and_pays(calls);
 			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::force_batch(calls.len() as u32));
 			(dispatch_weight, DispatchClass::Normal, pays)
 		})]
@@ -456,12 +440,10 @@ pub mod pallet {
             Ok(Some(base_weight.saturating_add(weight)).into())
         }
 
-        /// Dispatch a function call with a specified weight.
+        /// Root-only: dispatch `call` as root using the supplied `weight` witness (not re-checked).
         ///
-        /// This function does not check the weight of the call, and instead allows the
-        /// Root origin to specify the weight of the call.
-        ///
-        /// The dispatch origin for this call must be _Root_.
+        /// Subtensor: outer dispatch class is always **Normal** (see module docs). Inner call still
+        /// runs with root via `dispatch_bypass_filter`.
         #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(5)]
         #[pallet::weight((*weight, DispatchClass::Normal))]
@@ -477,29 +459,12 @@ pub mod pallet {
             res.map(|_| ()).map_err(|e| e.error)
         }
 
-        /// Dispatch a fallback call in the event the main call fails to execute.
-        /// May be called from any origin except `None`.
+        /// Try `main`; on failure dispatch `fallback` (weights of both attempts accumulate).
         ///
-        /// This function first attempts to dispatch the `main` call.
-        /// If the `main` call fails, the `fallback` is attemted.
-        /// if the fallback is successfully dispatched, the weights of both calls
-        /// are accumulated and an event containing the main call error is deposited.
-        ///
-        /// In the event of a fallback failure the whole call fails
-        /// with the weights returned.
-        ///
-        /// - `main`: The main call to be dispatched. This is the primary action to execute.
-        /// - `fallback`: The fallback call to be dispatched in case the `main` call fails.
-        ///
-        /// ## Dispatch Logic
-        /// - If the origin is `root`, both the main and fallback calls are executed without
-        ///   applying any origin filters.
-        /// - If the origin is not `root`, the origin filter is applied to both the `main` and
-        ///   `fallback` calls.
-        ///
-        /// ## Use Case
-        /// - Some use cases might involve submitting a `batch` type call in either main, fallback
-        ///   or both.
+        /// May be called from any origin except `None`. Root bypasses filters for both legs.
+        /// - Main success → [`Event::IfElseMainSuccess`], fallback skipped.
+        /// - Fallback success after main error → [`Event::IfElseFallbackCalled`].
+        /// - Fallback failure → extrinsic errors with fallback's error and combined weight.
         #[pallet::call_index(6)]
         #[pallet::weight({
 			let main = main.get_dispatch_info();
@@ -571,11 +536,9 @@ pub mod pallet {
             })
         }
 
-        /// Dispatches a function call with a provided origin.
+        /// Root-only: like [`Call::dispatch_as`], but forwards the inner call's error to the caller.
         ///
-        /// Almost the same as [`Pallet::dispatch_as`] but forwards any error of the inner call.
-        ///
-        /// The dispatch origin for this call must be _Root_.
+        /// On success still deposits [`Event::DispatchedAs`] with `Ok(())`.
         #[pallet::call_index(7)]
         #[pallet::weight({
 			let dispatch_info = call.get_dispatch_info();
@@ -602,9 +565,10 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        /// Get the accumulated `weight` and `pays` for the given `calls`.
-        /// The outer dispatch class is intentionally always `Normal`.
-        fn weight_and_dispatch_class(calls: &[<T as Config>::RuntimeCall]) -> (Weight, Pays) {
+        /// Sum inner `call_weight`s and OR their `Pays` flags for batch weight annotations.
+        ///
+        /// Outer dispatch class is chosen separately (always `Normal` for this pallet's batches).
+        fn batch_calls_weight_and_pays(calls: &[<T as Config>::RuntimeCall]) -> (Weight, Pays) {
             let mut total_weight = Weight::zero();
             let mut pays = Pays::No;
 
@@ -620,9 +584,12 @@ pub mod pallet {
     }
 }
 
-/// A pallet identifier. These are per pallet and should be stored in a registry somewhere.
+/// Legacy `TypeId` wrapper (`b"suba"`); not used by [`Pallet::derivative_account_id`].
+///
+/// Derivative IDs use the blake2 entropic path with prefix `modlpy/utilisuba` instead. Kept so the
+/// frozen layout / TYPE_ID remain searchable if a migration ever reintroduces pallet-id encoding.
 #[allow(unused)]
-#[freeze_struct("8b0fb6b91f673972")]
+#[freeze_struct("17a7798f791a1a47")]
 #[derive(Clone, Copy, Eq, PartialEq, Encode, Decode)]
 struct IndexedUtilityPalletId(u16);
 
@@ -631,7 +598,10 @@ impl TypeId for IndexedUtilityPalletId {
 }
 
 impl<T: Config> Pallet<T> {
-    /// Derive a derivative account ID from the owner account and the sub-account index.
+    /// Derive the signed pseudonym account for `(who, index)` used by [`Call::as_derivative`].
+    ///
+    /// Entropy: `blake2_256(encode("modlpy/utilisuba", who, index))`, then decode as `AccountId`
+    /// via [`TrailingZeroInput`]. Returns [`Error::InvalidDerivedAccount`] if decode fails.
     pub fn derivative_account_id(
         who: T::AccountId,
         index: u16,

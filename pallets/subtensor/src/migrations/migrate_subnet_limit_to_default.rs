@@ -3,6 +3,9 @@ use frame_support::{traits::Get, weights::Weight};
 use log;
 use scale_info::prelude::string::String;
 
+/// Resets global `SubnetLimit` to the pallet default value.
+///
+/// Idempotency key (frozen): `subnet_limit_to_default`.
 pub fn migrate_subnet_limit_to_default<T: Config>() -> Weight {
     let mig_name: Vec<u8> = b"subnet_limit_to_default".to_vec();
 

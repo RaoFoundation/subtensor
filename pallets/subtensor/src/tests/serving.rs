@@ -1,4 +1,9 @@
+//! Tests for axon / prometheus serving and identity ([`crate::guards::check_serving_endpoints`]).
+//!
+//! Covers IP validation, rate limits, TLS metadata, and coldkey/subnet identity.
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use super::mock::*;
 
 use crate::Error;

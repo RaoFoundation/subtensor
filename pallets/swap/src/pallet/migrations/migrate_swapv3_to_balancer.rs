@@ -1,9 +1,14 @@
+//! One-shot migration: Uniswap-v3 tick/position maps → weighted [`Balancer`] pools.
+//!
+//! Idempotent via [`HasMigrationRun`] key `"migrate_swapv3_to_balancer"` (do not rename).
+
 use super::*;
 use crate::HasMigrationRun;
 use frame_support::{storage_alias, traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use substrate_fixed::types::U64F64;
 
+/// Storage aliases for maps removed by this migration (read-before-delete only).
 pub mod deprecated_swap_maps {
     use super::*;
 
@@ -22,6 +27,7 @@ pub mod deprecated_swap_maps {
         StorageMap<Pallet<T>, Twox64Concat, NetUid, AlphaBalance, ValueQuery>;
 }
 
+/// Initialize balancers from V3 sqrt prices, then clear obsolete V3 storage prefixes.
 pub fn migrate_swapv3_to_balancer<T: Config>() -> Weight {
     let migration_name = BoundedVec::truncate_from(b"migrate_swapv3_to_balancer".to_vec());
     let mut weight = T::DbWeight::get().reads(1);
@@ -60,20 +66,20 @@ pub fn migrate_swapv3_to_balancer<T: Config>() -> Weight {
     // ------------------------------
     // Step 2: Clear Map entries
     // ------------------------------
-    remove_prefix::<T>("Swap", "AlphaSqrtPrice", &mut weight);
-    remove_prefix::<T>("Swap", "CurrentTick", &mut weight);
-    remove_prefix::<T>("Swap", "EnabledUserLiquidity", &mut weight);
-    remove_prefix::<T>("Swap", "FeeGlobalTao", &mut weight);
-    remove_prefix::<T>("Swap", "FeeGlobalAlpha", &mut weight);
-    remove_prefix::<T>("Swap", "LastPositionId", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "AlphaSqrtPrice", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "CurrentTick", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "EnabledUserLiquidity", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "FeeGlobalTao", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "FeeGlobalAlpha", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "LastPositionId", &mut weight);
     // Scrap reservoirs can be just cleaned because they are already included in reserves
-    remove_prefix::<T>("Swap", "ScrapReservoirTao", &mut weight);
-    remove_prefix::<T>("Swap", "ScrapReservoirAlpha", &mut weight);
-    remove_prefix::<T>("Swap", "Ticks", &mut weight);
-    remove_prefix::<T>("Swap", "TickIndexBitmapWords", &mut weight);
-    remove_prefix::<T>("Swap", "SwapV3Initialized", &mut weight);
-    remove_prefix::<T>("Swap", "CurrentLiquidity", &mut weight);
-    remove_prefix::<T>("Swap", "Positions", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "ScrapReservoirTao", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "ScrapReservoirAlpha", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "Ticks", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "TickIndexBitmapWords", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "SwapV3Initialized", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "CurrentLiquidity", &mut weight);
+    clear_twox_map_prefix::<T>("Swap", "Positions", &mut weight);
 
     // ------------------------------
     // Step 3: Mark Migration as Completed

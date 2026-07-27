@@ -1,3 +1,4 @@
+//! Move, transfer, and swap stake across hotkeys and/or subnets.
 use super::*;
 use safe_math::*;
 use sp_core::Get;
@@ -39,7 +40,7 @@ impl<T: Config> Pallet<T> {
         let coldkey = ensure_signed(origin)?;
 
         // Validate input and move stake
-        let tao_moved = Self::transition_stake_internal(
+        let tao_moved = Self::transition_stake_across_positions(
             &coldkey,
             &coldkey,
             &origin_hotkey,
@@ -129,7 +130,7 @@ impl<T: Config> Pallet<T> {
         let coldkey = ensure_signed(origin)?;
 
         // Validate input and move stake
-        let tao_moved = Self::transition_stake_internal(
+        let tao_moved = Self::transition_stake_across_positions(
             &coldkey,
             &destination_coldkey,
             &hotkey,
@@ -203,7 +204,7 @@ impl<T: Config> Pallet<T> {
         let coldkey = ensure_signed(origin)?;
 
         // Validate input and move stake
-        let tao_moved = Self::transition_stake_internal(
+        let tao_moved = Self::transition_stake_across_positions(
             &coldkey,
             &destination_coldkey,
             &origin_hotkey,
@@ -268,7 +269,7 @@ impl<T: Config> Pallet<T> {
         let coldkey = ensure_signed(origin)?;
 
         // Validate input and move stake
-        let tao_moved = Self::transition_stake_internal(
+        let tao_moved = Self::transition_stake_across_positions(
             &coldkey,
             &coldkey,
             &hotkey,
@@ -335,7 +336,7 @@ impl<T: Config> Pallet<T> {
         let coldkey = ensure_signed(origin)?;
 
         // Validate input and move stake
-        let tao_moved = Self::transition_stake_internal(
+        let tao_moved = Self::transition_stake_across_positions(
             &coldkey,
             &coldkey,
             &hotkey,
@@ -366,7 +367,12 @@ impl<T: Config> Pallet<T> {
 
     // If limit_price is None, this is a regular operation, otherwise, it is slippage-protected
     // by setting limit price between origin_netuid and destination_netuid token
-    fn transition_stake_internal(
+    /// Unstake `alpha_amount` from the origin position and restake into the destination.
+    ///
+    /// Shared core for move / transfer / swap stake extrinsics. When origin and
+    /// destination netuids differ, alpha is sold to TAO then bought on the destination
+    /// subnet (subject to lock and transfer toggles).
+    fn transition_stake_across_positions(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
         origin_hotkey: &T::AccountId,

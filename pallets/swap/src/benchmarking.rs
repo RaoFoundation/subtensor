@@ -1,4 +1,4 @@
-//! Benchmarking setup for pallet-subtensor-swap
+//! Extrinsic benchmarks for `pallet-subtensor-swap` (active + deprecated LP stubs).
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::multiple_bound_locations)]
 #![allow(deprecated)]

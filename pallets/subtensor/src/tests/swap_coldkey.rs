@@ -1,3 +1,7 @@
+//! Tests for full coldkey swap ([`crate::swap::swap_coldkey`]).
+//!
+//! Covers ownership transfer, scheduled execution, stake/locks, and fee paths.
+
 #![allow(
     unused,
     clippy::expect_used,
@@ -755,7 +759,7 @@ fn test_do_swap_coldkey_preserves_new_coldkey_identity() {
         };
         IdentitiesV2::<Test>::insert(new_coldkey, new_identity.clone());
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&who, &new_coldkey,));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&who, &new_coldkey,));
 
         // Identity is preserved
         assert_eq!(IdentitiesV2::<Test>::get(who), Some(old_identity));
@@ -792,7 +796,7 @@ fn test_do_swap_coldkey_with_no_stake() {
         let old_coldkey = U256::from(1);
         let new_coldkey = U256::from(2);
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey));
 
         assert_eq!(
             SubtensorModule::get_total_stake_for_coldkey(&old_coldkey),
@@ -863,8 +867,8 @@ fn test_do_swap_coldkey_with_max_values() {
             netuid2,
         );
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey,));
-        assert_ok!(SubtensorModule::do_swap_coldkey(
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey,));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(
             &old_coldkey2,
             &new_coldkey2,
         ));
@@ -924,7 +928,7 @@ fn test_do_swap_coldkey_effect_on_delegated_stake() {
         let coldkey_stake_before = SubtensorModule::get_total_stake_for_coldkey(&old_coldkey);
         let delegator_stake_before = SubtensorModule::get_total_stake_for_coldkey(&delegator);
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey,));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey,));
 
         assert_abs_diff_eq!(
             SubtensorModule::get_total_stake_for_coldkey(&new_coldkey),
@@ -1017,7 +1021,7 @@ fn test_swap_delegated_stake_for_coldkey() {
         let total_hotkey2_stake = SubtensorModule::get_total_stake_for_hotkey(&hotkey2);
 
         // Perform the swap
-        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey,));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey,));
 
         // Verify stake transfer
         assert_eq!(
@@ -1344,7 +1348,7 @@ fn test_coldkey_swap_total() {
             SubtensorModule::get_total_stake_for_coldkey(&coldkey),
             ck_stake
         );
-        assert_ok!(SubtensorModule::do_swap_coldkey(&coldkey, &new_coldkey,));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&coldkey, &new_coldkey,));
         assert_eq!(
             SubtensorModule::get_total_stake_for_coldkey(&new_coldkey),
             ck_stake
@@ -1479,7 +1483,7 @@ fn test_do_swap_coldkey_effect_on_delegations() {
         ));
 
         // Perform the swap
-        assert_ok!(SubtensorModule::do_swap_coldkey(&coldkey, &new_coldkey,));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&coldkey, &new_coldkey,));
 
         // Verify stake was moved for the delegate
         let approx_total_stake = stake * 2.into() - (fee * 2).into();
@@ -2072,7 +2076,7 @@ fn test_do_swap_coldkey_migrates_miner_collateral() {
             },
         );
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey));
 
         assert!(
             MinerCollateral::<Test>::get((netuid, hotkey, old_coldkey)).is_none(),
@@ -2160,7 +2164,7 @@ fn test_do_swap_coldkey_migrates_zero_locked_min_collateral_floor() {
             "zero-locked floor must remain indexed"
         );
 
-        assert_ok!(SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey));
+        assert_ok!(SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey));
 
         assert!(
             MinerCollateral::<Test>::get((netuid, hotkey, old_coldkey)).is_none(),
@@ -2184,7 +2188,7 @@ fn test_do_swap_coldkey_migrates_zero_locked_min_collateral_floor() {
     });
 }
 
-// Regression: a late failure inside do_swap_coldkey must roll back collateral
+// Regression: a late failure inside perform_coldkey_swap must roll back collateral
 // migration together with the stake move (storage transaction).
 #[test]
 fn test_do_swap_coldkey_rolls_back_collateral_on_failure() {
@@ -2243,7 +2247,7 @@ fn test_do_swap_coldkey_rolls_back_collateral_on_failure() {
         );
 
         assert_noop!(
-            SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey),
+            SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey),
             Error::<Test>::ActiveLockExists
         );
 
@@ -2307,7 +2311,7 @@ fn test_do_swap_coldkey_fails_closed_on_orphaned_miner_collateral() {
         assert!(ColdkeyCollateralHotkeys::<Test>::get(netuid, old_coldkey).is_empty());
 
         assert_noop!(
-            SubtensorModule::do_swap_coldkey(&old_coldkey, &new_coldkey),
+            SubtensorModule::perform_coldkey_swap(&old_coldkey, &new_coldkey),
             Error::<Test>::ColdkeyCollateralIncomplete
         );
 

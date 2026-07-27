@@ -1,7 +1,13 @@
+//! Commit-reveal v3 weight reveal using drand timelock encryption (TLE).
+//!
+//! On each block (via [`Pallet::reveal_crv3_commits`]), matured commits for epoch
+//! `current_epoch - reveal_period` are decrypted with the drand pulse and applied through
+//! [`Pallet::do_set_mechanism_weights`]. Missing pulses are re-queued until the pulse lands.
+
 use super::*;
 use ark_serialize::CanonicalDeserialize;
 use codec::Decode;
-use frame_support::{dispatch, traits::OriginTrait};
+use frame_support::dispatch;
 use scale_info::prelude::collections::VecDeque;
 use subtensor_runtime_common::{MechId, NetUid};
 use tle::{
@@ -11,11 +17,11 @@ use tle::{
 };
 use w3f_bls::EngineBLS;
 
-/// Contains all necessary information to set weights.
+/// Decrypted CRv3 weight payload: hotkey plus uids/values/version_key.
 ///
-/// In the context of commit-reveal v3, this is the payload which should be
-/// encrypted, compressed, serialized, and submitted to the `commit_crv3_weights`
-/// extrinsic.
+/// In commit-reveal v3 this is the payload clients encrypt, compress, serialize,
+/// and submit to the `commit_crv3_weights` extrinsic before the reveal epoch.
+/// Reveal applies it via `do_set_mechanism_weights` after drand TLE decryption.
 #[derive(Encode, Decode)]
 #[freeze_struct("b6833b5029be4127")]
 pub struct WeightsTlockPayload {
@@ -25,7 +31,7 @@ pub struct WeightsTlockPayload {
     pub version_key: u64,
 }
 
-/// For the old structure
+/// Pre-hotkey CRv3 payload (uids/values/version_key only); still accepted on reveal.
 #[derive(Encode, Decode)]
 #[freeze_struct("304e55f41267caa")]
 pub struct LegacyWeightsTlockPayload {
@@ -35,7 +41,9 @@ pub struct LegacyWeightsTlockPayload {
 }
 
 impl<T: Config> Pallet<T> {
-    /// The `reveal_crv3_commits` function is run at the very beginning of epoch `n`,
+    /// Decrypt and apply CRv3 weight commits whose reveal epoch is `current - reveal_period`.
+    ///
+    /// Commits whose drand round is missing stay queued for retry within the reveal epoch.
     pub fn reveal_crv3_commits_for_subnet(netuid: NetUid) -> dispatch::DispatchResult {
         let reveal_period = Self::get_reveal_period(netuid);
         // If the subnet is deferred past this block the

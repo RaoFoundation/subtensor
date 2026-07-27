@@ -5,33 +5,10 @@ use scale_info::prelude::string::String;
 use sp_core::H256;
 use sp_std::collections::vec_deque::VecDeque;
 
-/// One-shot migration for the dynamic-tempo / owner-triggered-epochs feature.
+/// One-shot migration for dynamic-tempo / owner-triggered epochs: initializes `SubnetEpochIndex`,
+/// `LastEpochBlock`, `ActivityCutoffFactorMilli`, and rewrites legacy `WeightCommits` layout as needed.
 ///
-/// 1. Back-fills `LastEpochBlock[netuid]` for every existing subnet so the first
-///    post-upgrade epoch lands on the same block as the legacy modulo formula
-///    `(block + netuid + 1) % (tempo + 1) == 0`. The new scheduler period is
-///    `tempo` (next firing at `LastEpochBlock + tempo`).
-///    Existing `Tempo[netuid]` values are preserved as-is regardless of whether
-///    they fall inside `[MIN_TEMPO, MAX_TEMPO]`. Owner-side `set_tempo` enforces
-///    the bounds for new updates; root-side `sudo_set_tempo` can still write any
-///    `u16`. Subnets with `Tempo == 0` are left as-is — the legacy short-circuit
-///    keeps them dormant and matches their pre-upgrade behaviour.
-/// 2. Converts each subnet's existing `ActivityCutoff[netuid]` (absolute block count)
-///    into `ActivityCutoffFactorMilli[netuid]` (per-mille of `tempo`) so that
-///    `factor * tempo / 1000 ≈ old_cutoff` post-upgrade. Production defaults
-///    (`tempo=360`, `cutoff=5000`) round-trip to 5000 blocks exactly via ceiling
-///    division. Out-of-range factors are clamped to
-///    `[MIN_ACTIVITY_CUTOFF_FACTOR_MILLI, MAX_ACTIVITY_CUTOFF_FACTOR_MILLI]` —
-///    extreme historical cutoffs may shift to the nearest representable factor.
-/// 3. Seeds `SubnetEpochIndex[netuid]` (the new stateful epoch counter) with the
-///    legacy modulo epoch index `(block + netuid + 1) / (tempo + 1)` so that
-///    existing commit-reveal commit keys — `TimelockedWeightCommits` (CR-v4) keyed
-///    by epoch, and `WeightCommits` (CR-v2) tagged with `commit_epoch` — stay
-///    valid and continuous across the upgrade.
-/// 4. Rewrites every CR-v2 `WeightCommits` entry to `(hash, commit_epoch,
-///    commit_block, _)`: field 1 (previously the absolute `commit_block`) becomes
-///    `commit_epoch` under the legacy modulo formula; field 2 keeps the absolute
-///    `commit_block` (used by the epoch's commit-reveal weight column-mask).
+/// Idempotency key (frozen): `dynamic_tempo_v1`.
 pub fn migrate_dynamic_tempo<T: Config>() -> Weight {
     let mig_name: Vec<u8> = b"dynamic_tempo_v1".to_vec();
     let mig_name_str = String::from_utf8_lossy(&mig_name);

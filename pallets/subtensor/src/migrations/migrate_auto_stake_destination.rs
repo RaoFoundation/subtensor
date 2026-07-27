@@ -18,7 +18,10 @@ pub mod deprecated_auto_stake_destination_format {
         StorageMap<Pallet<T>, Blake2_128Concat, AccountIdOf<T>, AccountIdOf<T>, OptionQuery>;
 }
 
-/// Migrate the AutoStakeDestination map from single map to double map format
+/// Rewrites `AutoStakeDestination` from a single map (coldkey → hotkey) into a double map keyed by (coldkey, netuid),
+/// and backfills the inverse `AutoStakeDestinationColdkeys` index. Skips root (`NetUid::ROOT`).
+///
+/// Idempotency key (frozen): `migrate_auto_stake_destination`.
 pub fn migrate_auto_stake_destination<T: Config>() -> Weight {
     use deprecated_auto_stake_destination_format as old;
 

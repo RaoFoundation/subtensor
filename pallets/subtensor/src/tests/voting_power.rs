@@ -1,3 +1,7 @@
+//! Tests for voting-power EMA tracking ([`crate::utils::voting_power`]).
+//!
+//! Covers enable/disable grace, threshold dips, hotkey-swap transfer, and deregister clear.
+
 #![allow(unused, clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 use alloc::collections::BTreeMap;
@@ -22,7 +26,7 @@ use crate::*;
 const DEFAULT_STAKE_AMOUNT: u64 = 1_000_000_000_000; // 1 million RAO
 
 /// Build epoch output from current state for testing voting power updates.
-fn build_mock_epoch_output(netuid: NetUid) -> BTreeMap<U256, EpochTerms> {
+fn build_voting_power_epoch_output(netuid: NetUid) -> BTreeMap<U256, EpochTerms> {
     let n = SubtensorModule::get_subnetwork_n(netuid);
     let validator_permits = ValidatorPermit::<Test>::get(netuid);
 
@@ -106,7 +110,7 @@ impl VotingPowerTestFixture {
     /// Run voting power update for N epochs
     fn run_epochs(&self, n: u32) {
         for _ in 0..n {
-            let epoch_output = build_mock_epoch_output(self.netuid);
+            let epoch_output = build_voting_power_epoch_output(self.netuid);
             SubtensorModule::update_voting_power_for_subnet(self.netuid, &epoch_output);
         }
     }
@@ -430,7 +434,7 @@ fn test_only_validators_get_voting_power() {
         ValidatorPermit::<Test>::insert(netuid, vec![true, false]);
 
         // Run epoch
-        let epoch_output = build_mock_epoch_output(netuid);
+        let epoch_output = build_voting_power_epoch_output(netuid);
         SubtensorModule::update_voting_power_for_subnet(netuid, &epoch_output);
 
         // Only validator should have voting power
@@ -581,7 +585,7 @@ fn test_voting_power_not_removed_with_small_dip_below_threshold() {
         VotingPower::<Test>::insert(f.netuid, f.hotkey, above_threshold);
 
         // Build epoch output with stake that will produce EMA around 95% of threshold
-        let mut epoch_output = build_mock_epoch_output(f.netuid);
+        let mut epoch_output = build_voting_power_epoch_output(f.netuid);
         if let Some(terms) = epoch_output.get_mut(&f.hotkey) {
             terms.stake = small_dip.into(); // Stake drops but stays in buffer zone
         }

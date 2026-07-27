@@ -1,6 +1,17 @@
+//! Weight-metered deletion of storage entries keyed by `netuid`.
+//!
+//! Used by subnet dissolution and stake-cleanup paths that must stop when the
+//! remaining weight budget cannot cover another read or write.
+
 use super::*;
 
 impl<T: Config> Pallet<T> {
+    /// Scan `iter`, collect keys for items matching `netuid`, then delete them.
+    ///
+    /// Removals are deferred until after the scan so mutating storage while
+    /// iterating the same prefix is safe. Returns `(read_all, last_item)` where
+    /// `read_all` is `false` if the weight meter ran out mid-scan (caller should
+    /// resume later from `last_item`).
     pub fn remove_storage_entries_for_netuid<I, K>(
         weight_meter: &mut WeightMeter,
         iter: I,
@@ -13,32 +24,32 @@ impl<T: Config> Pallet<T> {
         I: Iterator,
         I::Item: Clone,
     {
-        let r = T::DbWeight::get().reads(1);
-        let w = T::DbWeight::get().writes(writes_per_match);
+        let read_weight = T::DbWeight::get().reads(1);
+        let write_weight = T::DbWeight::get().writes(writes_per_match);
         let mut read_all = true;
 
-        let mut to_rm: sp_std::vec::Vec<K> = sp_std::vec::Vec::new();
+        let mut keys_to_remove: sp_std::vec::Vec<K> = sp_std::vec::Vec::new();
         let mut last_item = None;
         for item in iter {
-            if !weight_meter.can_consume(r) {
+            if !weight_meter.can_consume(read_weight) {
                 read_all = false;
                 break;
             }
-            weight_meter.consume(r);
+            weight_meter.consume(read_weight);
             if matches_netuid(&item) {
-                if !weight_meter.can_consume(w) {
+                if !weight_meter.can_consume(write_weight) {
                     read_all = false;
                     break;
                 }
-                weight_meter.consume(w);
+                weight_meter.consume(write_weight);
 
-                to_rm.push(key_from_item(item.clone()));
+                keys_to_remove.push(key_from_item(item.clone()));
             }
             last_item = Some(item);
         }
 
-        for hot in to_rm {
-            ops_based_on_key(&hot);
+        for key in keys_to_remove {
+            ops_based_on_key(&key);
         }
 
         (read_all, last_item)

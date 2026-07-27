@@ -4,14 +4,10 @@ use frame_support::{
     weights::Weight,
 };
 
-/// Performs migration to mint SubnetTAO and subnet locked funds into subnet accounts.
+/// Mints `SubnetTAO` and subnet-locked funds into each subnet account so on-chain balances match
+/// reserve accounting, then adjusts `TotalIssuance` accordingly.
 ///
-/// # Arguments
-///
-/// # Returns
-///
-/// * `Weight` - The computational weight of this operation.
-///
+/// Idempotency key (frozen): `migrate_subnet_balances`.
 pub fn migrate_subnet_balances<T: Config>() -> Weight {
     let migration_name = b"migrate_subnet_balances".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

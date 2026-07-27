@@ -106,7 +106,7 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
             })
             .map_err(|_| Error::<T>::Unannounced)?;
 
-            Self::do_proxy(def, real, *call);
+            Self::dispatch_filtered_proxy_call(def, real, *call);
 
             Ok(())
         }

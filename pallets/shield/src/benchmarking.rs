@@ -1,3 +1,5 @@
+//! Runtime benchmarks for MevShield extrinsics (key announce, encrypt submit, queue admin).
+
 use super::*;
 
 use frame_benchmarking::v2::*;

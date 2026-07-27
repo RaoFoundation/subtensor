@@ -1,8 +1,10 @@
 #![allow(clippy::crate_in_macro_def)]
 use frame_support::pallet_macros::pallet_section;
 
-/// A [`pallet_section`] that defines the errors for a pallet.
-/// This can later be imported into the pallet using [`import_section`].
+/// A [`pallet_section`] that defines SubtensorModule dispatchables (extrinsics).
+///
+/// Imported into the pallet via [`import_section`]. Call names and `call_index`
+/// values are frozen for client/SDK compatibility — edit definition-site docs only.
 #[pallet_section]
 mod dispatches {
     use frame_support::pallet_prelude::DispatchResultWithPostInfo;
@@ -17,20 +19,19 @@ mod dispatches {
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
     use crate::MAX_SUBNET_CLAIMS;
 
-    /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
-    /// These functions materialize as "extrinsics", which are often compared to transactions.
-    /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
+    /// SubtensorModule extrinsics: staking, weights, registration, identity, admin, and related state changes.
+    ///
+    /// Each call is weight-annotated and returns `DispatchResult` / `DispatchResultWithPostInfo`.
+    /// Prefer the opening doc sentence for origin, units, and invariants agents cannot infer from the signature.
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #![deny(clippy::expect_used)]
 
-        /// Sets the caller weights for the incentive mechanism. The call can be
-        /// made from the hotkey account so is potentially insecure, however, the damage
-        /// of changing weights is minimal if caught early. This function includes all the
-        /// checks that the passed weights meet the requirements. Stored weights are u16s
-        /// max-upscaled by the pallet, so the largest non-zero supplied weight is stored
-        /// as `u16::MAX`. The weights determine how inflation propagates outward
-        /// from this peer.
+        /// Sets validator weights on a subnet (hotkey origin); rejected when commit-reveal is enabled for `netuid`.
+        ///
+        /// Stored weights are u16s max-upscaled so the largest non-zero input becomes `u16::MAX`.
+        /// Inputs are relative and need not sum to a fixed total. Hotkey-signed, so treat as
+        /// low-trust until observed on-chain.
         ///
         /// # Note
         /// Input weights are relative. They do not need to sum to a particular
@@ -82,13 +83,9 @@ mod dispatches {
             }
         }
 
-        /// Sets the caller weights for the incentive mechanism for mechanisms. The call
-        /// can be made from the hotkey account so is potentially insecure, however, the damage
-        /// of changing weights is minimal if caught early. This function includes all the
-        /// checks that the passed weights meet the requirements. Stored weights are u16s
-        /// max-upscaled by the pallet, so the largest non-zero supplied weight is stored
-        /// as `u16::MAX`. The weights determine how inflation propagates outward
-        /// from this peer.
+        /// Sets validator weights for mechanism `mecid` on `netuid` (hotkey origin); rejected when commit-reveal is enabled.
+        ///
+        /// Same storage/upscaling rules as `set_weights`, scoped to a single mechanism id.
         ///
         /// # Note
         /// Input weights are relative. They do not need to sum to a particular
@@ -143,7 +140,7 @@ mod dispatches {
             }
         }
 
-        /// Allows a hotkey to set weights for multiple netuids as a batch.
+        /// Batch `set_weights` across many netuids in one extrinsic; per-item failures emit batch error events without reverting the whole call.
         ///
         /// # Arguments
         /// * `origin`: The caller, a hotkey who wishes to set their weights.
@@ -171,7 +168,7 @@ mod dispatches {
             Self::do_batch_set_weights(origin, netuids, weights, version_keys)
         }
 
-        /// Used to commit a hash of your weight values to later be revealed.
+        /// Commits a Blake2 hash of upcoming weights for later `reveal_weights` (hotkey origin; commit-reveal must be enabled).
         ///
         /// # Arguments
         /// * `origin`: The signature of the committing hotkey.
@@ -195,7 +192,7 @@ mod dispatches {
             Self::do_commit_weights(origin, netuid, commit_hash)
         }
 
-        /// Used to commit a hash of your weight values to later be revealed for mechanisms.
+        /// Commits a weight hash for mechanism `mecid` on `netuid` for later `reveal_mechanism_weights`.
         ///
         /// # Arguments
         /// * `origin`: The signature of the committing hotkey.
@@ -222,7 +219,7 @@ mod dispatches {
             Self::do_commit_mechanism_weights(origin, netuid, mecid, commit_hash)
         }
 
-        /// Allows a hotkey to commit weight hashes for multiple netuids as a batch.
+        /// Batch `commit_weights` across many netuids; individual commit failures are reported via batch events.
         ///
         /// # Arguments
         /// * `origin`: The caller, a hotkey who wishes to set their weights.
@@ -247,7 +244,7 @@ mod dispatches {
             Self::do_batch_commit_weights(origin, netuids, commit_hashes)
         }
 
-        /// Used to reveal the weights for a previously committed hash.
+        /// Reveals previously `commit_weights`-hashed weights (hotkey origin); hash must match `uids`/`values`/`salt`/`version_key`.
         ///
         /// # Arguments
         /// * `origin`: The signature of the revealing hotkey.
@@ -286,7 +283,7 @@ mod dispatches {
             Self::do_reveal_weights(origin, netuid, uids, values, salt, version_key)
         }
 
-        /// Used to reveal the weights for a previously committed hash for mechanisms.
+        /// Reveals mechanism-scoped weights committed via `commit_mechanism_weights` (hotkey origin).
         ///
         /// # Arguments
         /// * `origin`: The signature of the revealing hotkey.
@@ -372,7 +369,7 @@ mod dispatches {
         //     Self::do_commit_timelocked_weights(origin, netuid, commit, reveal_round, 4)
         // }
 
-        /// Used to commit encrypted commit-reveal v3 weight values to later be revealed for mechanisms.
+        /// Commits CRV3 timelock-encrypted weights for mechanism `mecid` (hotkey origin; payload size capped by `MAX_CRV3_COMMIT_SIZE_BYTES`).
         ///
         /// # Arguments
         /// * `origin`: The committing hotkey.
@@ -416,7 +413,7 @@ mod dispatches {
             )
         }
 
-        /// The implementation for batch revealing committed weights.
+        /// Batch `reveal_weights` across many commits; per-item failures emit batch events without reverting successes.
         ///
         /// # Arguments
         /// * `origin`: The signature of the revealing hotkey.
@@ -463,7 +460,7 @@ mod dispatches {
             )
         }
 
-        /// Allows delegates to decrease its take value.
+        /// Decreases a delegate's take (hotkey origin); not rate-limited unlike `increase_take`.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -498,7 +495,7 @@ mod dispatches {
             Self::do_decrease_take(origin, hotkey, take)
         }
 
-        /// Allows delegates to increase its take value. This call is rate-limited.
+        /// Increases a delegate's take (hotkey origin); rate-limited and bounded by max take.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -531,8 +528,9 @@ mod dispatches {
             Self::do_increase_take(origin, hotkey, take)
         }
 
-        /// Adds stake to a hotkey. The call is made from a coldkey account.
-        /// This delegates stake to the hotkey.
+        /// Stakes TAO from the signing coldkey onto `hotkey` for `netuid` (buys alpha via the subnet AMM).
+        ///
+        /// `amount_staked` is TAO (Rao). Coldkey may own the hotkey (self-stake) or delegate to another.
         ///
         /// # Note
         /// The coldkey account may own the hotkey, in which case they are
@@ -568,9 +566,9 @@ mod dispatches {
             Self::do_add_stake(origin, hotkey, netuid, amount_staked).map(|_| ())
         }
 
-        /// Remove stake from the staking account. The call must be made
-        /// from the coldkey account attached to the neuron metadata. Only this key
-        /// has permission to make staking and unstaking requests.
+        /// Unstakes alpha from `(coldkey, hotkey, netuid)` back to TAO on the signing coldkey (AMM sell).
+        ///
+        /// Only the coldkey associated with the hotkey may withdraw; `amount_unstaked` is alpha.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -602,8 +600,7 @@ mod dispatches {
             Self::do_remove_stake(origin, hotkey, netuid, amount_unstaked)
         }
 
-        /// Serves or updates axon /prometheus information for the neuron associated with the caller. If the caller is
-        /// already registered the metadata is updated. If the caller is not registered this call throws NotRegistered.
+        /// Serves or updates axon endpoint metadata for a registered neuron (hotkey origin); errors with `NotRegistered` if absent.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller.
@@ -665,9 +662,7 @@ mod dispatches {
             )
         }
 
-        /// Same as `serve_axon` but takes a certificate as an extra optional argument.
-        /// Serves or updates axon /prometheus information for the neuron associated with the caller. If the caller is
-        /// already registered the metadata is updated. If the caller is not registered this call throws NotRegistered.
+        /// Like `serve_axon`, but also accepts an optional TLS certificate for inter-neuron communication (hotkey origin).
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller.
@@ -732,20 +727,15 @@ mod dispatches {
             )
         }
 
-        /// Set prometheus information for the neuron.
+        /// Publishes Prometheus scrape endpoint metadata for a registered neuron (hotkey origin).
+        ///
         /// # Arguments
-        /// * `origin`: The signature of the calling hotkey.
-        ///
-        /// * `netuid`: The u16 network identifier.
-        ///
-        /// * `version`: The bittensor version identifier.
-        ///
-        /// * `ip`: The prometheus ip information as a u128 encoded integer.
-        ///
-        /// * `port`: The prometheus port information as a u16 encoded integer.
-        ///
-        /// * `ip_type`: The ip type v4 or v6.
-        ///
+        /// * `origin`: Hotkey of the neuron.
+        /// * `netuid`: Subnet of the neuron.
+        /// * `version`: Protocol/version identifier.
+        /// * `ip`: Endpoint IP as a `u128`.
+        /// * `port`: Scrape port.
+        /// * `ip_type`: `4` or `6`.
         #[pallet::call_index(5)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_prometheus(), DispatchClass::Normal, Pays::No))]
         pub fn serve_prometheus(
@@ -759,7 +749,7 @@ mod dispatches {
             Self::do_serve_prometheus(origin, netuid, version, ip, port, ip_type)
         }
 
-        /// Registers a new neuron to the subnetwork.
+        /// Legacy registration entrypoint; PoW args (`_block_number`/`_nonce`/`_work`/`_coldkey`) are unused and ignored.
         ///
         /// # Arguments
         /// * `origin`: The signature of the calling hotkey.
@@ -806,14 +796,14 @@ mod dispatches {
             Self::do_register(origin, netuid, hotkey)
         }
 
-        /// Register the hotkey to root network
+        /// Registers `hotkey` on the root subnet; origin must be the owning coldkey.
         #[pallet::call_index(62)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
         pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_root_register(origin, hotkey)
         }
 
-        /// User register a new subnetwork via burning token
+        /// Registers `hotkey` on an existing subnet by paying the current burn (not PoW); coldkey origin.
         #[pallet::call_index(7)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::burned_register())]
         pub fn burned_register(
@@ -824,13 +814,15 @@ mod dispatches {
             Self::do_register(origin, netuid, hotkey)
         }
 
-        /// The extrinsic for user to change its hotkey in subnet or all subnets.
+        /// Deprecated: swaps `hotkey` → `new_hotkey` on one subnet or all (`netuid = None`); coldkey origin, `keep_stake = false`.
+        ///
+        /// Prefer `swap_hotkey_v2`. Retained for call-index / client compatibility until removed after June 2026.
         ///
         /// # Arguments
-        /// * `origin`: The origin of the transaction (must be signed by the coldkey).
-        /// * `hotkey`: The old hotkey to be swapped.
-        /// * `new_hotkey`: The new hotkey to replace the old one.
-        /// * `netuid`: Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.
+        /// * `origin`: Coldkey that owns `hotkey`.
+        /// * `hotkey`: Existing hotkey to replace.
+        /// * `new_hotkey`: Replacement hotkey.
+        /// * `netuid`: `Some` for one subnet; `None` for all subnets.
         #[deprecated(
             note = "Please use swap_hotkey_v2 instead. This extrinsic will be removed some time after June 2026."
         )]
@@ -846,24 +838,24 @@ mod dispatches {
             new_hotkey: T::AccountId,
             netuid: Option<NetUid>,
         ) -> DispatchResultWithPostInfo {
-            Self::do_swap_hotkey(origin, &hotkey, &new_hotkey, netuid, false)
+            Self::perform_hotkey_swap(origin, &hotkey, &new_hotkey, netuid, false)
         }
 
-        /// The extrinsic for user to change its hotkey in subnet or all subnets. This extrinsic is
-        /// similar to swap_hotkey, but with keep_stake parameter bo be able to keep the stake when swapping
-        /// a root key to a child key
+        /// Swaps `hotkey` → `new_hotkey` on one subnet or all; coldkey origin.
+        ///
+        /// When `keep_stake` is true, stake stays on the old hotkey while other metadata moves
+        /// (used when promoting a root key to a child key). Prefer this over deprecated `swap_hotkey`.
         ///
         /// # Arguments
-        /// * `origin`: The origin of the transaction (must be signed by the coldkey).
-        /// * `hotkey`: The old hotkey to be swapped.
-        /// * `new_hotkey`: The new hotkey to replace the old one.
-        /// * `netuid`: Optional subnet ID. If `Some`, swap only on that subnet; if `None`, swap on all subnets.
-        /// * `keep_stake`: If `true`, stake remains on the old hotkey and the rest metadata
-        ///   is transferred to the new hotkey.
+        /// * `origin`: Coldkey that owns `hotkey`.
+        /// * `hotkey`: Existing hotkey to replace.
+        /// * `new_hotkey`: Replacement hotkey.
+        /// * `netuid`: `Some` for one subnet; `None` for all subnets.
+        /// * `keep_stake`: If true, leave stake on `hotkey` and transfer remaining metadata only.
         #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(72)]
         #[pallet::weight((
-            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake),
+            crate::Pallet::<T>::hotkey_swap_dispatch_weight(netuid, *keep_stake),
             DispatchClass::Normal,
             Pays::Yes
         ))]
@@ -874,12 +866,12 @@ mod dispatches {
             netuid: Option<NetUid>,
             keep_stake: bool,
         ) -> DispatchResultWithPostInfo {
-            Self::do_swap_hotkey(origin, &hotkey, &new_hotkey, netuid, keep_stake)
+            Self::perform_hotkey_swap(origin, &hotkey, &new_hotkey, netuid, keep_stake)
         }
 
-        /// Performs an arbitrary coldkey swap for any coldkey.
+        /// Root-only immediate coldkey swap (`old_coldkey` → `new_coldkey`) without announcement; optionally charges `swap_cost` TAO.
         ///
-        /// Only callable by root as it doesn't require an announcement and can be used to swap any coldkey.
+        /// Also clears any pending coldkey-swap announcement/dispute for `old_coldkey`.
         #[pallet::call_index(71)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_coldkey())]
         pub fn swap_coldkey(
@@ -891,9 +883,9 @@ mod dispatches {
             ensure_root(origin)?;
 
             if !swap_cost.is_zero() {
-                Self::charge_swap_cost(&old_coldkey, swap_cost)?;
+                Self::charge_coldkey_swap_cost(&old_coldkey, swap_cost)?;
             }
-            Self::do_swap_coldkey(&old_coldkey, &new_coldkey)?;
+            Self::perform_coldkey_swap(&old_coldkey, &new_coldkey)?;
 
             // We also clear any announcement or dispute for security reasons
             ColdkeySwapAnnouncements::<T>::remove(&old_coldkey);
@@ -902,7 +894,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Sets the childkey take for a given hotkey.
+        /// Sets per-subnet childkey take for `hotkey` (`PerU16`, 65535 = 100%); coldkey origin, rate-limited.
         ///
         /// This function allows a coldkey to set the childkey take for a given hotkey.
         /// The childkey take determines the proportion of stake that the hotkey keeps for itself
@@ -940,7 +932,7 @@ mod dispatches {
 
         // ---- SUDO ONLY FUNCTIONS ------------------------------------------------------------
 
-        /// Sets the transaction rate limit for changing childkey take.
+        /// Root-only: sets blocks between childkey-take updates (`tx_rate_limit`).
         ///
         /// This function can only be called by the root origin.
         ///
@@ -962,7 +954,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Sets the minimum allowed childkey take.
+        /// Root-only: sets the global minimum childkey take (`PerU16`).
         ///
         /// This function can only be called by the root origin.
         ///
@@ -981,7 +973,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Sets the maximum allowed childkey take.
+        /// Root-only: sets the global maximum childkey take (`PerU16`).
         ///
         /// This function can only be called by the root origin.
         ///
@@ -1000,16 +992,14 @@ mod dispatches {
             Ok(())
         }
 
-        /// User register a new subnetwork
+        /// Creates a new subnet; signing coldkey becomes owner and pays the network lock cost, associating `hotkey`.
         #[pallet::call_index(59)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network())]
         pub fn register_network(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_register_network(origin, &hotkey, 1, None)
         }
 
-        /// Facility extrinsic for user to get taken from faucet
-        /// It is only available when pow-faucet feature enabled
-        /// Just deployed in testnet and devnet for testing purpose
+        /// Test-only PoW faucet mint (`pow-faucet` feature); unavailable / errors with `FaucetDisabled` in production builds.
         #[pallet::call_index(60)]
         #[pallet::weight((Weight::from_parts(91_000_000, 0)
         .saturating_add(T::DbWeight::get().reads(27))
@@ -1028,8 +1018,7 @@ mod dispatches {
             Err(Error::<T>::FaucetDisabled.into())
         }
 
-        /// Remove a user's subnetwork
-        /// The caller must be the owner of the network
+        /// Root-only dissolve of subnet `netuid`. The `_coldkey` argument is unused (kept for call-signature stability).
         #[pallet::call_index(61)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::dissolve_network())]
         pub fn dissolve_network(
@@ -1041,7 +1030,7 @@ mod dispatches {
             Self::do_dissolve_network(netuid)
         }
 
-        /// Set a single child for a given hotkey on a specified network.
+        /// Sets the childkey proportion map for `hotkey` on `netuid` (coldkey origin); root subnet disallowed.
         ///
         /// This function allows a coldkey to set a single child for a given hotkey on a specified network.
         /// The proportion of the hotkey's stake to be allocated to the child is also specified.
@@ -1088,11 +1077,7 @@ mod dispatches {
             Ok(().into())
         }
 
-        /// Schedules a coldkey swap operation to be executed at a future block.
-        ///
-        /// # Note
-        /// This function is deprecated; please migrate to
-        /// `announce_coldkey_swap` / `coldkey_swap`.
+        /// Deprecated: always returns `Error::Deprecated`. Use `announce_coldkey_swap` / `swap_coldkey_announced`.
         #[pallet::call_index(73)]
         #[pallet::weight(<T as Config>::WeightInfo::schedule_swap_coldkey())]
         #[deprecated(note = "Deprecated, please migrate to `announce_coldkey_swap`/`coldkey_swap`")]
@@ -1103,20 +1088,13 @@ mod dispatches {
             Err(Error::<T>::Deprecated.into())
         }
 
-        /// Set prometheus information for the neuron.
+        /// Sets coldkey chain-identity fields (name, url, github, image, discord, description, additional).
+        ///
+        /// Signed by the coldkey; distinct from axon/prometheus serving and from `set_subnet_identity`.
+        ///
         /// # Arguments
-        /// * `origin`: The signature of the calling hotkey.
-        ///
-        /// * `netuid`: The u16 network identifier.
-        ///
-        /// * `version`: The bittensor version identifier.
-        ///
-        /// * `ip`: The prometheus ip information as a u128 encoded integer.
-        ///
-        /// * `port`: The prometheus port information as a u16 encoded integer.
-        ///
-        /// * `ip_type`: The ip type v4 or v6.
-        ///
+        /// * `origin`: Coldkey whose identity is updated.
+        /// * `name` / `url` / `github_repo` / `image` / `discord` / `description` / `additional`: UTF-8 byte fields.
         #[pallet::call_index(68)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_identity())]
         pub fn set_identity(
@@ -1141,7 +1119,7 @@ mod dispatches {
             )
         }
 
-        /// Set the identity information for a subnet.
+        /// Sets subnet-owner identity metadata for `netuid` (name, contacts, urls); coldkey must own the subnet.
         /// # Arguments
         /// * `origin`: The signature of the calling coldkey, which must be the owner of the subnet.
         ///
@@ -1180,7 +1158,7 @@ mod dispatches {
             )
         }
 
-        /// User register a new subnetwork
+        /// Creates a new subnet like `register_network`, optionally attaching `SubnetIdentityOfV3` at registration.
         #[pallet::call_index(79)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network_with_identity())]
         pub fn register_network_with_identity(
@@ -1191,55 +1169,41 @@ mod dispatches {
             Self::do_register_network(origin, &hotkey, 1, identity)
         }
 
-        /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
+        /// Unstakes all positions for `hotkey` across every subnet onto the signing coldkey (TAO proceeds).
         ///
         /// # Arguments
-        /// * `origin`: The signature of the caller's coldkey.
-        ///
-        /// * `hotkey`: The associated hotkey account.
+        /// * `origin`: Coldkey that owns `hotkey`.
+        /// * `hotkey`: Hotkey whose stake is fully withdrawn.
         ///
         /// # Events
-        /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
+        /// * `StakeRemoved`: On successfully removing stake from the hotkey account.
         ///
         /// # Errors
-        /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
-        ///
-        /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
-        ///
-        /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
-        ///
-        /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
+        /// * `NotRegistered` / `NonAssociatedColdKey` / `NotEnoughStakeToWithdraw` / `TxRateLimitExceeded`.
         #[pallet::call_index(83)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all())]
         pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_unstake_all(origin, hotkey)
         }
 
-        /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
+        /// Unstakes all non-root alpha for `hotkey` across subnets onto the signing coldkey; root stake is left untouched.
         ///
         /// # Arguments
-        /// * `origin`: The signature of the caller's coldkey.
-        ///
-        /// * `hotkey`: The associated hotkey account.
+        /// * `origin`: Coldkey that owns `hotkey`.
+        /// * `hotkey`: Hotkey whose alpha stake is fully withdrawn.
         ///
         /// # Events
-        /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
+        /// * `StakeRemoved`: On successfully removing stake from the hotkey account.
         ///
         /// # Errors
-        /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
-        ///
-        /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
-        ///
-        /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
-        ///
-        /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
+        /// * `NotRegistered` / `NonAssociatedColdKey` / `NotEnoughStakeToWithdraw` / `TxRateLimitExceeded`.
         #[pallet::call_index(84)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all_alpha())]
         pub fn unstake_all_alpha(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_unstake_all_alpha(origin, hotkey)
         }
 
-        /// The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.
+        /// Moves alpha stake between hotkeys and/or subnets while keeping the same coldkey ownership.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -1274,8 +1238,7 @@ mod dispatches {
             )
         }
 
-        /// Transfers a specified amount of stake from one coldkey to another, optionally across subnets,
-        /// while keeping the same hotkey.
+        /// Transfers alpha stake to another coldkey on the same hotkey, optionally across subnets.
         ///
         /// # Arguments
         /// * `origin`: The origin of the transaction, which must be signed by the `origin_coldkey`.
@@ -1318,25 +1281,17 @@ mod dispatches {
             )
         }
 
-        /// Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.
+        /// Swaps alpha stake from `origin_netuid` to `destination_netuid` for the same coldkey/hotkey (AMM path).
         ///
         /// # Arguments
-        /// * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
-        /// * `hotkey`: The hotkey whose stake is being swapped.
-        /// * `origin_netuid`: The network/subnet ID from which stake is removed.
-        /// * `destination_netuid`: The network/subnet ID to which stake is added.
-        /// * `alpha_amount`: The amount of stake to swap.
+        /// * `origin`: Coldkey that owns `hotkey`.
+        /// * `hotkey`: Hotkey whose stake is swapped.
+        /// * `origin_netuid` / `destination_netuid`: Distinct subnets.
+        /// * `alpha_amount`: Alpha to sell on origin and rebuy on destination.
         ///
         /// # Errors
-        /// * `BadOrigin`: The transaction is not signed.
-        /// * `SameNetuid`: `origin_netuid` and `destination_netuid` are the same.
-        /// * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist.
-        /// * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet.
-        /// * `HotKeyAccountNotExists`: The `hotkey` account does not exist.
-        /// * `NotEnoughStakeToWithdraw`: The `(coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`.
-        /// * `InsufficientLiquidity`: The swap simulation on the origin subnet fails.
-        /// * `AmountTooLow`: The TAO-equivalent of the swap is below the minimum stake requirement.
-        /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
+        /// * `BadOrigin` / `SameNetuid` / `SubnetNotExists` / `SubtokenDisabled` / `HotKeyAccountNotExists` /
+        ///   `NotEnoughStakeToWithdraw` / `InsufficientLiquidity` / `AmountTooLow` / `StakeUnavailable`.
         ///
         /// # Events
         /// May emit a `StakeSwapped` event on success.
@@ -1358,9 +1313,7 @@ mod dispatches {
             )
         }
 
-        /// Adds stake to a hotkey on a subnet with a price limit.
-        /// This extrinsic allows to specify the limit price for alpha token
-        /// at which or better (lower) the staking should execute.
+        /// Like `add_stake`, but with alpha price limit (`limit_price` RAO/alpha) and optional partial fill.
         ///
         /// In case if slippage occurs and the price shall move beyond the limit
         /// price, the staking order may execute only partially or not execute
@@ -1411,9 +1364,7 @@ mod dispatches {
             .map(|_| ())
         }
 
-        /// Removes stake from a hotkey on a subnet with a price limit.
-        /// This extrinsic allows to specify the limit price for alpha token
-        /// at which or better (higher) the staking should execute.
+        /// Like `remove_stake`, but with alpha price floor (`limit_price` RAO/alpha) and optional partial fill.
         ///
         /// In case if slippage occurs and the price shall move beyond the limit
         /// price, the staking order may execute only partially or not execute
@@ -1463,28 +1414,20 @@ mod dispatches {
             )
         }
 
-        /// Swaps a specified amount of stake from one subnet to another, while keeping the same coldkey and hotkey.
+        /// Like `swap_stake`, with `limit_price` (RAO/alpha) and optional partial fill on the AMM legs.
         ///
         /// # Arguments
-        /// * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
-        /// * `hotkey`: The hotkey whose stake is being swapped.
-        /// * `origin_netuid`: The network/subnet ID from which stake is removed.
-        /// * `destination_netuid`: The network/subnet ID to which stake is added.
-        /// * `alpha_amount`: The amount of stake to swap.
-        /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
-        /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes fill or kill type of order.
+        /// * `origin`: Coldkey that owns `hotkey`.
+        /// * `hotkey`: Hotkey whose stake is swapped.
+        /// * `origin_netuid` / `destination_netuid`: Distinct subnets.
+        /// * `alpha_amount`: Alpha to sell on origin and rebuy on destination.
+        /// * `limit_price`: Limit price in RAO per alpha.
+        /// * `allow_partial`: If false, fill-or-kill when the limit would be crossed.
         ///
         /// # Errors
-        /// * `BadOrigin`: The transaction is not signed.
-        /// * `SameNetuid`: `origin_netuid` and `destination_netuid` are the same.
-        /// * `SubnetNotExists`: Either `origin_netuid` or `destination_netuid` does not exist.
-        /// * `SubtokenDisabled`: The subtoken is disabled on the origin or destination subnet.
-        /// * `HotKeyAccountNotExists`: The `hotkey` account does not exist.
-        /// * `NotEnoughStakeToWithdraw`: The `(coldkey, hotkey, origin_netuid)` position has less stake than `alpha_amount`.
-        /// * `InsufficientLiquidity`: The swap simulation on the origin subnet fails.
-        /// * `AmountTooLow`: The TAO-equivalent of the swap is below the minimum stake requirement.
-        /// * `SlippageTooHigh`: `allow_partial` is false and the amount would cross the limit price.
-        /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
+        /// * `BadOrigin` / `SameNetuid` / `SubnetNotExists` / `SubtokenDisabled` / `HotKeyAccountNotExists` /
+        ///   `NotEnoughStakeToWithdraw` / `InsufficientLiquidity` / `AmountTooLow` / `SlippageTooHigh` /
+        ///   `StakeUnavailable`.
         ///
         /// # Events
         /// May emit a `StakeSwapped` event on success.
@@ -1510,7 +1453,7 @@ mod dispatches {
             )
         }
 
-        /// Attempts to associate a hotkey with a coldkey.
+        /// Associates `hotkey` with the signing coldkey if unbound; no-op / errors if already owned elsewhere.
         ///
         /// # Arguments
         /// * `origin`: The origin of the transaction, which must be signed by the coldkey that owns the `hotkey`.
@@ -1528,7 +1471,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Initiates a call on a subnet.
+        /// Subnet-owner starts emissions for `netuid` (sets first emission block); owner-signed.
         ///
         /// # Arguments
         /// * `origin`: The origin of the call, which must be signed by the subnet owner.
@@ -1543,7 +1486,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Attempts to associate a hotkey with an EVM key.
+        /// Associates an EVM address with a registered hotkey after ECDSA recovery of the expected signed payload.
         ///
         /// The signature will be checked to see if the recovered public key matches the `evm_key` provided.
         ///
@@ -1588,7 +1531,7 @@ mod dispatches {
             Self::do_associate_evm_key(origin, netuid, evm_key, block_number, signature)
         }
 
-        /// Recycles alpha from a cold/hot key pair, reducing AlphaOut on a subnet
+        /// Recycles alpha from `(coldkey, hotkey)` on `netuid`, decreasing `AlphaOut` (coldkey origin).
         ///
         /// # Arguments
         /// * `origin`: The origin of the call (must be signed by the coldkey)
@@ -1609,7 +1552,7 @@ mod dispatches {
             Self::do_recycle_alpha(origin, hotkey, amount, netuid).map(|_| ())
         }
 
-        /// Burns alpha from a cold/hot key pair without reducing `AlphaOut`
+        /// Burns alpha from `(coldkey, hotkey)` on `netuid` without decreasing `AlphaOut` (coldkey origin).
         ///
         /// # Arguments
         /// * `origin`: The origin of the call (must be signed by the coldkey)
@@ -1630,7 +1573,7 @@ mod dispatches {
             Self::do_burn_alpha(origin, hotkey, amount, netuid).map(|_| ())
         }
 
-        /// Sets the pending childkey cooldown (in blocks). Root only.
+        /// Root-only: sets `PendingChildKeyCooldown` (blocks) before a pending childkey assignment takes effect.
         #[pallet::call_index(109)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_pending_childkey_cooldown())]
         pub fn set_pending_childkey_cooldown(
@@ -1642,10 +1585,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Removes all stake from a hotkey on a subnet with a price limit.
-        /// This extrinsic allows to specify the limit price for alpha token
-        /// at which or better (higher) the staking should execute.
-        /// Without limit_price it remove all the stake similar to `remove_stake` extrinsic
+        /// Removes the full `(coldkey, hotkey, netuid)` position, optionally with a sell price floor; `None` limit matches full `remove_stake`.
         #[pallet::call_index(103)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake_full_limit())]
         pub fn remove_stake_full_limit(
@@ -1657,7 +1597,7 @@ mod dispatches {
             Self::do_remove_stake_full_limit(origin, hotkey, netuid, limit_price)
         }
 
-        /// Register a new leased network.
+        /// Registers a leased subnet; origin pays lease terms and designates beneficiary/hotkey per lease config.
         ///
         /// The crowdloan's contributions are used to compute the share of the emissions that the contributors
         /// will receive as dividends.
@@ -1680,7 +1620,7 @@ mod dispatches {
             Self::do_register_leased_network(origin, emissions_share, end_block)
         }
 
-        /// Terminate a lease.
+        /// Terminates an active subnet lease early when caller permissions and lease terms allow.
         ///
         /// The beneficiary can terminate the lease after the end block has passed and get the subnet ownership.
         /// The subnet is transferred to the beneficiary and the lease is removed from storage.
@@ -1703,7 +1643,7 @@ mod dispatches {
             Self::do_terminate_lease(origin, lease_id, hotkey)
         }
 
-        /// Updates the symbol for a subnet.
+        /// Sets `TokenSymbol` for `netuid` (sudo or subnet owner); symbol must exist and be unused.
         ///
         /// # Arguments
         /// * `origin`: The origin of the call, which must be the subnet owner or root.
@@ -1726,7 +1666,7 @@ mod dispatches {
             symbol: Vec<u8>,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
             Self::ensure_symbol_exists(&symbol)?;
             Self::ensure_symbol_available(&symbol)?;
@@ -1737,7 +1677,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Used to commit timelock encrypted commit-reveal weight values to later be revealed.
+        /// Commits CRV3 timelock-encrypted weights for later reveal (hotkey origin; size capped by `MAX_CRV3_COMMIT_SIZE_BYTES`).
         ///
         /// # Arguments
         /// * `origin`: The committing hotkey.
@@ -1774,7 +1714,7 @@ mod dispatches {
             )
         }
 
-        /// Set the autostake destination hotkey for a coldkey.
+        /// Sets which `hotkey` receives auto-staked emissions for the signing coldkey on `netuid`.
         ///
         /// The caller selects a hotkey where all future rewards
         /// will be automatically staked.
@@ -1791,7 +1731,7 @@ mod dispatches {
             hotkey: T::AccountId,
         ) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
             ensure!(
                 Uids::<T>::contains_key(netuid, &hotkey),
                 Error::<T>::HotKeyNotRegisteredInSubNet
@@ -1827,8 +1767,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Used to commit timelock encrypted commit-reveal weight values to later be revealed for
-        /// a mechanism.
+        /// Commits CRV3 timelock-encrypted weights for mechanism `mecid` (hotkey origin; size capped by `MAX_CRV3_COMMIT_SIZE_BYTES`).
         ///
         /// # Arguments
         /// * `origin`: The committing hotkey.
@@ -1869,8 +1808,7 @@ mod dispatches {
             )
         }
 
-        /// Remove a subnetwork
-        /// The caller must be root
+        /// Root-only dissolve of subnet `netuid` (same effect as `dissolve_network`, without unused coldkey arg).
         #[pallet::call_index(120)]
         #[pallet::weight(<T as Config>::WeightInfo::root_dissolve_network())]
         pub fn root_dissolve_network(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
@@ -1878,7 +1816,7 @@ mod dispatches {
             Self::do_dissolve_network(netuid)
         }
 
-        /// Claims the root emissions for a coldkey.
+        /// Claims root emissions for the signing coldkey on the given subnet set (non-empty, <= `MAX_SUBNET_CLAIMS`).
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
         ///
@@ -1923,7 +1861,7 @@ mod dispatches {
             Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// Sets the root claim type for the coldkey.
+        /// Sets how the signing coldkey claims root emissions (`RootClaimTypeEnum`, including keep-subnet filters).
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
         ///
@@ -1948,7 +1886,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Sets root claim number (sudo extrinsic). Zero disables auto-claim.
+        /// Root-only: sets how many coldkeys auto-claim root emissions per block; `0` disables (max `MAX_NUM_ROOT_CLAIMS`).
         #[pallet::call_index(123)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_num_root_claims())]
         pub fn sudo_set_num_root_claims(origin: OriginFor<T>, new_value: u64) -> DispatchResult {
@@ -1964,7 +1902,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Sets root claim threshold for subnet (sudo or owner origin).
+        /// Sets per-subnet `RootClaimableThreshold` (sudo or subnet owner); claims only above this threshold.
         #[pallet::call_index(124)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_root_claim_threshold())]
         pub fn sudo_set_root_claim_threshold(
@@ -1973,7 +1911,7 @@ mod dispatches {
             new_value: u64,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
             ensure!(
                 new_value <= I96F32::from(MAX_ROOT_CLAIM_THRESHOLD),
@@ -1985,7 +1923,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Announces a coldkey swap using BlakeTwo256 hash of the new coldkey.
+        /// Announces a pending coldkey swap by committing `BlakeTwo256` of the new coldkey; starts the dispute window.
         ///
         /// This is required before the coldkey swap can be performed
         /// after the delay period.
@@ -2015,7 +1953,7 @@ mod dispatches {
             } else {
                 // Only charge the swap cost on the first announcement
                 let swap_cost = Self::get_key_swap_cost();
-                Self::charge_swap_cost(&who, swap_cost)?;
+                Self::charge_coldkey_swap_cost(&who, swap_cost)?;
             }
 
             let delay = ColdkeySwapAnnouncementDelay::<T>::get();
@@ -2029,7 +1967,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Performs a coldkey swap if an announcement has been made.
+        /// Completes an announced coldkey swap after the delay if undisputed; reveals the new coldkey matching the hash.
         ///
         /// The dispatch origin of this call must be the original coldkey that made the announcement.
         ///
@@ -2056,12 +1994,12 @@ mod dispatches {
             let now = <frame_system::Pallet<T>>::block_number();
             ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
 
-            Self::do_swap_coldkey(&who, &new_coldkey)?;
+            Self::perform_coldkey_swap(&who, &new_coldkey)?;
 
             Ok(())
         }
 
-        /// Dispute a coldkey swap.
+        /// Disputes a pending coldkey-swap announcement for the signing coldkey, blocking completion until reset.
         ///
         /// This will prevent any further actions on the coldkey swap
         /// until triumvirate step in to resolve the issue.
@@ -2089,7 +2027,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Reset a coldkey swap by clearing the announcement and dispute status.
+        /// Clears announcement and dispute state for the signing coldkey so a new swap can be announced.
         ///
         /// The dispatch origin of this call must be root.
         ///
@@ -2107,7 +2045,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Enables voting power tracking for a subnet.
+        /// Enables voting-power tracking on `netuid` (sudo or owner); required before EMA voting-power features apply.
         ///
         /// This function can be called by the subnet owner or root.
         /// When enabled, voting power EMA is updated every epoch for all validators.
@@ -2130,7 +2068,7 @@ mod dispatches {
             Self::do_enable_voting_power_tracking(netuid)
         }
 
-        /// Schedules disabling of voting power tracking for a subnet.
+        /// Schedules disable of voting-power tracking on `netuid` (sudo or owner); not an instantaneous clear.
         ///
         /// This function can be called by the subnet owner or root.
         /// Voting power tracking will continue for 14 days (grace period) after this call,
@@ -2154,7 +2092,7 @@ mod dispatches {
             Self::do_disable_voting_power_tracking(netuid)
         }
 
-        /// Sets the EMA alpha value for voting power calculation on a subnet.
+        /// Root-only: sets voting-power EMA alpha for `netuid` (`u64` with 1e18 = 1.0; must be <= 1e18).
         ///
         /// This function can only be called by root (sudo).
         /// Higher alpha = faster response to stake changes.
@@ -2180,8 +2118,7 @@ mod dispatches {
             Self::do_set_voting_power_ema_alpha(netuid, alpha)
         }
 
-        /// The extrinsic is a combination of add_stake(add_stake_limit) and burn_alpha. We buy
-        /// alpha token first and immediately burn the acquired amount of alpha (aka Subnet buyback).
+        /// Subnet buyback: buy alpha with TAO (optional price `limit`) then immediately `burn_alpha` the acquired amount.
         #[pallet::call_index(132)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_stake_burn())]
         pub fn add_stake_burn(
@@ -2217,10 +2154,9 @@ mod dispatches {
             Ok(())
         }
 
-        /// User register a new subnetwork via burning token, but only if the
-        /// on-chain burn price for this block is <= `limit_price`.
+        /// Registers `hotkey` via burn only when this block's burn price is <= `limit_price` (same units as `Burn`).
         ///
-        /// `limit_price` is expressed in the same TaoCurrency/u64 units as `Burn`.
+        /// Fill-or-kill relative to burn; coldkey origin. Distinct from creating a subnet.
         #[pallet::call_index(134)]
         #[pallet::weight((<T as Config>::WeightInfo::register_limit(), DispatchClass::Normal, Pays::Yes))]
         pub fn register_limit(
@@ -2232,8 +2168,7 @@ mod dispatches {
             Self::do_register_limit(origin, netuid, hotkey, limit_price)
         }
 
-        /// Allows a root validator to toggle auto parent delegation
-        /// for new subnets owner hotkey
+        /// Coldkey owning a root-registered `hotkey` toggles auto parent-delegation to new subnet owner hotkeys.
         #[pallet::call_index(135)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_auto_parent_delegation_enabled(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_auto_parent_delegation_enabled(
@@ -2353,8 +2288,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Owner-side `trigger_epoch`. Schedules an epoch to fire after `AdminFreezeWindow`
-        /// blocks. Rate-limited via the existing `OwnerHyperparamUpdate` pattern.
+        /// Subnet-owner schedules an epoch after `AdminFreezeWindow` blocks; rate-limited like other owner hyperparam updates.
         #[pallet::call_index(141)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::trigger_epoch())]
         pub fn trigger_epoch(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
@@ -2375,8 +2309,7 @@ mod dispatches {
             Ok(())
         }
 
-        /// Transfers a specified amount of stake from one coldkey to another, landing it
-        /// on a different hotkey, optionally across subnets.
+        /// Transfers alpha stake to another coldkey and hotkey in one call, optionally across subnets.
         ///
         /// This is `transfer_stake` generalized to a destination hotkey: it transfers
         /// ownership of the position and re-delegates it in one atomic call. Use

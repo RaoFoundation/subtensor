@@ -1,3 +1,4 @@
+//! Extrinsic bodies for `add_stake` and price-limited `add_stake_limit`.
 use subtensor_runtime_common::{NetUid, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 

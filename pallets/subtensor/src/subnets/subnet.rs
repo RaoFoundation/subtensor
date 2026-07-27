@@ -1,3 +1,9 @@
+//! Subnet creation, initialization, and owner/account helpers.
+//!
+//! [`do_register_network`] locks the network cost and either creates the subnet
+//! immediately or enqueues [`NetworkRegistrationInfo`] when dissolve cleanup
+//! must free a slot first.
+
 use super::*;
 use frame_support::PalletId;
 use safe_math::FixedExt;
@@ -6,37 +12,34 @@ use sp_runtime::{SaturatedConversion, traits::AccountIdConversion};
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
-/// Data structure for a pending network registration in the execution queue.
+/// Queued network registration waiting for a free subnet slot after dissolve.
 #[crate::freeze_struct("c47fe93995c89025")]
 #[derive(Encode, Decode, Default, TypeInfo, Clone, PartialEq, Eq, Debug)]
 pub struct NetworkRegistrationInfo<AccountId> {
-    /// The account that registered the network.
+    /// Coldkey that paid / locked the network registration cost.
     pub coldkey: AccountId,
-    /// The account that registered the network.
+    /// First neuron hotkey for the new subnet.
     pub hotkey: AccountId,
-    /// The mechanism that registered the network.
+    /// Mechanism id requested at registration (currently must be dynamic=`1`).
     pub mechid: u16,
-    /// The identity that registered the network.
+    /// Optional subnet identity to set once the network is created.
     pub identity: Option<SubnetIdentityOfV3>,
-    /// The lock amount that registered the network.
+    /// TAO locked for the network registration (released or consumed on finalize).
     pub lock_amount: TaoBalance,
-    /// The median subnet alpha price that registered the network.
+    /// Median subnet alpha price snapshot taken when the registration was queued.
     pub median_subnet_alpha_price: U64F64,
-    /// The block at which the network was registered.
+    /// Block at which the registration was queued.
     pub registration_block: u64,
-    /// The lock id that registered the network.
+    /// [`NetworkRegistrationLockId`] used to lock `lock_amount` for this entry.
     pub lock_id: u32,
 }
 
 impl<T: Config> Pallet<T> {
-    /// Returns true if the subnetwork exists.
+    /// Whether `netuid` is currently in [`NetworksAdded`] (live subnet).
     ///
-    /// This function checks if a subnetwork with the given UID exists.
-    ///
-    /// # Returns
-    /// * `bool`: Whether the subnet exists.
-    ///
-    pub fn if_subnet_exist(netuid: NetUid) -> bool {
+    /// Mid-dissolve subnets are removed from this map immediately by
+    /// [`Self::do_dissolve_network`] even while cleanup is still queued.
+    pub fn subnet_exists(netuid: NetUid) -> bool {
         NetworksAdded::<T>::get(netuid)
     }
 
@@ -98,19 +101,11 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::NetworkRateLimitSet(limit));
     }
 
-    /// Checks if registrations are allowed for a given subnet.
+    /// Registration-allowed flag via [`Self::get_subnet_hyperparams`].
     ///
-    /// This function retrieves the subnet hyperparameters for the specified subnet and checks the
-    /// `registration_allowed` flag. If the subnet doesn't exist or doesn't have hyperparameters
-    /// defined, it returns `false`.
-    ///
-    /// # Arguments
-    ///
-    /// * `netuid`: The unique identifier of the subnet.
-    ///
-    /// # Returns
-    ///
-    /// * `bool`: `true` if registrations are allowed for the subnet, `false` otherwise.
+    /// Prefer [`Self::get_network_registration_allowed`] at call sites; this helper
+    /// reads the same flag through the hyperparams bundle and defaults to `false`
+    /// when hyperparams are missing.
     pub fn is_registration_allowed(netuid: NetUid) -> bool {
         Self::get_subnet_hyperparams(netuid)
             .map(|params| params.registration_allowed)
@@ -156,7 +151,7 @@ impl<T: Config> Pallet<T> {
 
         // Ensure that hotkey is not a special account
         ensure!(
-            Self::is_subnet_account_id(hotkey).is_none(),
+            Self::netuid_for_subnet_account(hotkey).is_none(),
             Error::<T>::CannotUseSystemAccount
         );
 
@@ -267,6 +262,7 @@ impl<T: Config> Pallet<T> {
         .map_err(|e| e.error)
     }
 
+    /// Finish network registration: allocate netuid, lock cost, init hyperparams, emit events.
     pub fn set_new_network_state(
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
@@ -529,7 +525,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// * `DispatchResult`: A result indicating the success or failure of the operation.
     pub fn do_start_call(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         Self::ensure_subnet_owner(origin, netuid)?;
         ensure!(
             FirstEmissionBlockNumber::<T>::get(netuid).is_none(),
@@ -594,7 +590,7 @@ impl<T: Config> Pallet<T> {
         Self::ensure_subnet_owner_or_root(origin, netuid)?;
 
         // Ensure that the subnet exists.
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Rate limit: 1 call per week
         ensure!(
@@ -620,10 +616,12 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Whether the subnet has started emission (`FirstEmissionBlockNumber` is set).
     pub fn is_valid_subnet_for_emission(netuid: NetUid) -> bool {
         FirstEmissionBlockNumber::<T>::get(netuid).is_some()
     }
 
+    /// Pallet sub-account for `netuid` when the subnet exists or is mid-dissolve.
     pub fn get_subnet_account_id(netuid: NetUid) -> Option<T::AccountId> {
         if NetworksAdded::<T>::contains_key(netuid)
             || netuid == NetUid::ROOT
@@ -635,7 +633,8 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn is_subnet_account_id(account: &T::AccountId) -> Option<NetUid> {
+    /// Inverse of [`Self::get_subnet_account_id`]: decode netuid from a pallet sub-account.
+    pub fn netuid_for_subnet_account(account: &T::AccountId) -> Option<NetUid> {
         let pallet_id = T::SubtensorPalletId::get();
 
         match PalletId::try_from_sub_account::<NetUid>(account) {

@@ -1,4 +1,4 @@
-use super::{CallOf, DispatchableOriginOf, applicable_call};
+use super::{GuardsRuntimeCallOf, RuntimeCallOriginOf, subtensor_call_if};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet};
 use frame_support::{
@@ -11,11 +11,12 @@ use sp_std::marker::PhantomData;
 
 /// Dispatch extension for delegate-take bounds and ownership preconditions.
 ///
-/// Signed increase/decrease take calls are checked before dispatch; unrelated
-/// calls and non-signed origins pass through.
+/// Signed `increase_take` / `decrease_take` calls are checked before dispatch;
+/// unrelated calls and non-signed origins pass through.
 pub struct CheckDelegateTake<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckDelegateTake<T> {
+    /// Whether this guard should charge weight / run for `call`.
     pub(crate) fn applies_to(call: &Call<T>) -> bool {
         matches!(
             call,
@@ -23,6 +24,7 @@ impl<T: Config> CheckDelegateTake<T> {
         )
     }
 
+    /// Ensure take is within `[min, max]` and `who` owns the target hotkey.
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::increase_take { hotkey, take } | Call::decrease_take { hotkey, take } => {
@@ -39,29 +41,29 @@ impl<T: Config> CheckDelegateTake<T> {
     }
 }
 
-impl<T> DispatchExtension<CallOf<T>> for CheckDelegateTake<T>
+impl<T> DispatchExtension<GuardsRuntimeCallOf<T>> for CheckDelegateTake<T>
 where
     T: Config,
-    CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
-    DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    GuardsRuntimeCallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
+    RuntimeCallOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
 
-    fn weight(call: &CallOf<T>) -> Weight {
-        applicable_call(call, Self::applies_to)
+    fn weight(call: &GuardsRuntimeCallOf<T>) -> Weight {
+        subtensor_call_if(call, Self::applies_to)
             .map(|_| <T as Config>::WeightInfo::check_delegate_take_extension())
             .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
-        origin: &DispatchableOriginOf<T>,
-        call: &CallOf<T>,
+        origin: &RuntimeCallOriginOf<T>,
+        call: &GuardsRuntimeCallOf<T>,
     ) -> Result<Self::Pre, DispatchErrorWithPostInfo> {
         let Some(who) = origin.as_signer() else {
             return Ok(());
         };
 
-        let Some(call) = applicable_call(call, Self::applies_to) else {
+        let Some(call) = subtensor_call_if(call, Self::applies_to) else {
             return Ok(());
         };
 

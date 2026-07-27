@@ -1,3 +1,8 @@
+//! Coldkey ([`IdentitiesV2`]) and subnet ([`SubnetIdentitiesV3`]) identity writes.
+//!
+//! Extrinsic bodies live in `lib.rs`; these `do_*` helpers perform ownership checks,
+//! field-length validation, and storage + event emission.
+
 use super::*;
 use frame_support::ensure;
 use frame_system::ensure_signed;
@@ -5,25 +10,10 @@ use sp_std::vec::Vec;
 use subtensor_runtime_common::NetUid;
 
 impl<T: Config> Pallet<T> {
-    /// Sets the identity for a coldkey.
+    /// Set or replace the caller's coldkey identity in [`IdentitiesV2`].
     ///
-    /// This function allows a user to set or update their identity information associated with their coldkey.
-    /// It checks if the caller has at least one registered hotkey, validates the provided identity information,
-    /// and then stores it in the blockchain state.
-    ///
-    /// # Arguments
-    ///
-    /// * `origin`: The origin of the call, which should be a signed extrinsic.
-    /// * `name`: The name to be associated with the identity.
-    /// * `url`: A URL associated with the identity.
-    /// * `image`: An image URL or identifier for the identity.
-    /// * `discord`: Discord information for the identity.
-    /// * `description`: A description of the identity.
-    /// * `additional`: Any additional information for the identity.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the identity is successfully set, otherwise returns an error.
+    /// Requires at least one owned hotkey registered on any subnet. Field bytes are
+    /// validated by [`Self::is_valid_identity`] before insert; emits [`Event::ChainIdentitySet`].
     pub fn do_set_identity(
         origin: OriginFor<T>,
         name: Vec<u8>,
@@ -78,23 +68,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Sets the identity for a subnet.
+    /// Set or replace a subnet's identity in [`SubnetIdentitiesV3`].
     ///
-    /// This function allows the owner of a subnet to set or update the identity information associated with the subnet.
-    /// It verifies that the caller is the owner of the specified subnet, validates the provided identity information,
-    /// and then stores it in the blockchain state.
-    ///
-    /// # Arguments
-    ///
-    /// * `origin`: The origin of the call, which should be a signed extrinsic.
-    /// * `netuid`: The unique identifier for the subnet.
-    /// * `subnet_name`: The name of the subnet to be associated with the identity.
-    /// * `github_repo`: The GitHub repository URL associated with the subnet identity.
-    /// * `subnet_contact`: Contact information for the subnet.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the subnet identity is successfully set, otherwise returns an error.
+    /// Caller must be [`SubnetOwner`] for `netuid`. Validated by
+    /// [`Self::is_valid_subnet_identity`]; emits [`Event::SubnetIdentitySet`].
     pub fn do_set_subnet_identity(
         origin: OriginFor<T>,
         netuid: NetUid,
@@ -109,7 +86,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Ensure the call is signed and get the signer's (coldkey) account
         let coldkey = ensure_signed(origin)?;
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Ensure that the coldkey owns the subnet
         ensure!(
@@ -148,19 +125,11 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Validates the given ChainIdentityOf struct.
+    /// Per-field and aggregate byte limits for [`ChainIdentityOfV2`].
     ///
-    /// This function checks if the total length of all fields in the ChainIdentityOf struct
-    /// is less than or equal to 512 bytes, and if each individual field is also
-    /// less than or equal to 512 bytes.
-    ///
-    /// # Arguments
-    ///
-    /// * `identity`: A reference to the ChainIdentityOf struct to be validated.
-    ///
-    /// # Returns
-    ///
-    /// * `bool`: Returns true if the Identity is valid, false otherwise.
+    /// Individual caps: name/url/github_repo/discord ≤ 256; image/description/additional ≤ 1024.
+    /// The aggregate check sums name+url+image+discord+description+additional against 4096 and
+    /// deliberately omits `github_repo` from that sum (still enforced by its per-field cap).
     pub fn is_valid_identity(identity: &ChainIdentityOfV2) -> bool {
         let total_length = identity
             .name
@@ -189,19 +158,11 @@ impl<T: Config> Pallet<T> {
             && identity.additional.len() <= 1024
     }
 
-    /// Validates the given SubnetIdentityOfV3 struct.
+    /// Per-field and aggregate byte limits for [`SubnetIdentityOfV3`].
     ///
-    /// This function checks if the total length of all fields in the SubnetIdentityOfV3 struct
-    /// is less than or equal to 2304 bytes, and if each individual field is also
-    /// within its respective maximum byte limit.
-    ///
-    /// # Arguments
-    ///
-    /// * `identity`: A reference to the SubnetIdentityOfV3 struct to be validated.
-    ///
-    /// # Returns
-    ///
-    /// * `bool`: Returns true if the SubnetIdentityV3 is valid, false otherwise.
+    /// Individual caps: subnet_name/discord ≤ 256; remaining string fields ≤ 1024.
+    /// Aggregate check sums only subnet_name+github_repo+subnet_contact against 5632;
+    /// other fields are enforced solely by their per-field caps.
     pub fn is_valid_subnet_identity(identity: &SubnetIdentityOfV3) -> bool {
         let total_length = identity
             .subnet_name

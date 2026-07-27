@@ -1,6 +1,16 @@
+//! [`SubtensorTransactionExtension`]: signed-tx wiring for Subtensor dispatch guards.
+//!
+//! At `validate`, runs the same `check` / `applies_to` helpers as
+//! [`crate::guards`]' `DispatchExtension` types so mempool rejection matches
+//! pre-dispatch failure. Weight is the sum of those guards' extension weights.
+//!
+//! Deliberately does **not** re-run these checks in `prepare` (see
+//! `impl_tx_ext_default!(…; prepare)`): dispatch-time guards remain authoritative
+//! for nested / proxy paths.
+
 use crate::{
     Call, CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
-    CheckServingEndpoints, CheckWeights, Config, Error, guards::applicable_call,
+    CheckServingEndpoints, CheckWeights, Config, Error, guards::subtensor_call_if,
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
@@ -20,9 +30,15 @@ use sp_std::marker::PhantomData;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::CustomTransactionError;
 
-type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-type OriginOf<T> = <T as frame_system::Config>::RuntimeOrigin;
+/// Runtime-wide call type used by the signed transaction extension.
+type RuntimeCallOf<T> = <T as frame_system::Config>::RuntimeCall;
+/// Origin type carried by [`RuntimeCallOf`] (`Signed` / `Root` / `None`).
+type RuntimeOriginOf<T> = <T as frame_system::Config>::RuntimeOrigin;
 
+/// Maps select pallet [`Error`]s to mempool [`CustomTransactionError`] codes.
+///
+/// Unlisted variants become [`CustomTransactionError::BadRequest`]. Prefer adding
+/// a dedicated code here when clients must distinguish a rejection reason in the pool.
 #[allow(deprecated)]
 impl<T: Config> From<Error<T>> for CustomTransactionError {
     fn from(error: Error<T>) -> Self {
@@ -60,7 +76,12 @@ impl<T: Config> From<Error<T>> for CustomTransactionError {
     }
 }
 
-#[freeze_struct("2e02eb32e5cb25d3")]
+/// Signed `TransactionExtension` that runs Subtensor [`crate::guards`] at validate time.
+///
+/// Zero-sized (`PhantomData` only). The on-wire `IDENTIFIER` string
+/// `"SubtensorTransactionExtension"` is part of the extrinsic format — do not rename
+/// without a coordinated client/runtime migration.
+#[freeze_struct("58df59e2e22b4ca0")]
 #[derive(Default, Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 pub struct SubtensorTransactionExtension<T: Config + Send + Sync + TypeInfo>(pub PhantomData<T>);
 
@@ -75,13 +96,19 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         Self(Default::default())
     }
 
-    fn check(origin: &OriginOf<T>, call: &CallOf<T>) -> Result<(), Error<T>>
+    /// Run coldkey-swap plus applicable weight/rate/delegate/serve/EVM guard checks.
+    ///
+    /// Unsigned / non-signer origins skip all checks (same as the individual guards).
+    fn run_dispatch_extension_checks(
+        origin: &RuntimeOriginOf<T>,
+        call: &RuntimeCallOf<T>,
+    ) -> Result<(), Error<T>>
     where
         T: pallet_shield::Config,
-        CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>>
+        RuntimeCallOf<T>: Dispatchable<RuntimeOrigin = RuntimeOriginOf<T>>
             + IsSubType<Call<T>>
             + IsSubType<pallet_shield::Call<T>>,
-        OriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+        RuntimeOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
     {
         let Some(who) = origin.as_signer() else {
             return Ok(());
@@ -89,19 +116,19 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
         CheckColdkeySwap::<T>::check(who, call)?;
 
-        if let Some(call) = applicable_call(call, CheckWeights::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckWeights::<T>::applies_to) {
             CheckWeights::<T>::check(who, call)?;
         }
-        if let Some(call) = applicable_call(call, CheckRateLimits::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckRateLimits::<T>::applies_to) {
             CheckRateLimits::<T>::check(who, call)?;
         }
-        if let Some(call) = applicable_call(call, CheckDelegateTake::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckDelegateTake::<T>::applies_to) {
             CheckDelegateTake::<T>::check(who, call)?;
         }
-        if let Some(call) = applicable_call(call, CheckServingEndpoints::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckServingEndpoints::<T>::applies_to) {
             CheckServingEndpoints::<T>::check(who, call)?;
         }
-        if let Some(call) = applicable_call(call, CheckEvmKeyAssociation::<T>::applies_to) {
+        if let Some(call) = subtensor_call_if(call, CheckEvmKeyAssociation::<T>::applies_to) {
             CheckEvmKeyAssociation::<T>::check(who, call)?;
         }
 
@@ -109,13 +136,16 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
     }
 }
 
-impl<T> TransactionExtension<CallOf<T>> for SubtensorTransactionExtension<T>
+impl<T> TransactionExtension<RuntimeCallOf<T>> for SubtensorTransactionExtension<T>
 where
     T: Config + pallet_shield::Config + Send + Sync + TypeInfo,
-    CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>, Info = DispatchInfo, PostInfo = PostDispatchInfo>
-        + IsSubType<Call<T>>
+    RuntimeCallOf<T>: Dispatchable<
+            RuntimeOrigin = RuntimeOriginOf<T>,
+            Info = DispatchInfo,
+            PostInfo = PostDispatchInfo,
+        > + IsSubType<Call<T>>
         + IsSubType<pallet_shield::Call<T>>,
-    OriginOf<T>: Clone + OriginTrait<AccountId = T::AccountId>,
+    RuntimeOriginOf<T>: Clone + OriginTrait<AccountId = T::AccountId>,
 {
     const IDENTIFIER: &'static str = "SubtensorTransactionExtension";
 
@@ -123,32 +153,36 @@ where
     type Val = ();
     type Pre = ();
 
-    fn weight(&self, call: &CallOf<T>) -> Weight {
+    fn weight(&self, call: &RuntimeCallOf<T>) -> Weight {
         use DispatchExtension as DE;
-        <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
-            .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
+        <CheckColdkeySwap<T> as DE<RuntimeCallOf<T>>>::weight(call)
+            .saturating_add(<CheckWeights<T> as DE<RuntimeCallOf<T>>>::weight(call))
+            .saturating_add(<CheckRateLimits<T> as DE<RuntimeCallOf<T>>>::weight(call))
+            .saturating_add(<CheckDelegateTake<T> as DE<RuntimeCallOf<T>>>::weight(call))
+            .saturating_add(<CheckServingEndpoints<T> as DE<RuntimeCallOf<T>>>::weight(
+                call,
+            ))
+            .saturating_add(<CheckEvmKeyAssociation<T> as DE<RuntimeCallOf<T>>>::weight(
+                call,
+            ))
     }
 
     fn validate(
         &self,
-        origin: OriginOf<T>,
-        call: &CallOf<T>,
-        _info: &DispatchInfoOf<CallOf<T>>,
+        origin: RuntimeOriginOf<T>,
+        call: &RuntimeCallOf<T>,
+        _info: &DispatchInfoOf<RuntimeCallOf<T>>,
         _len: usize,
         _self_implicit: Self::Implicit,
         _inherited_implication: &impl Implication,
         _source: TransactionSource,
-    ) -> ValidateResult<Self::Val, CallOf<T>> {
-        Self::check(&origin, call)
+    ) -> ValidateResult<Self::Val, RuntimeCallOf<T>> {
+        Self::run_dispatch_extension_checks(&origin, call)
             .map(|()| (Default::default(), (), origin))
             .map_err(|error| TransactionValidityError::from(CustomTransactionError::from(error)))
     }
 
-    impl_tx_ext_default!(CallOf<T>; prepare);
+    impl_tx_ext_default!(RuntimeCallOf<T>; prepare);
 }
 
 #[cfg(test)]
@@ -177,7 +211,7 @@ mod tests {
         DispatchInfoOf::<<Test as frame_system::Config>::RuntimeCall>::default()
     }
 
-    fn validate_signed(
+    fn validate_signed_transaction_extension(
         signer: U256,
         call: &RuntimeCall,
     ) -> Result<ValidTransaction, TransactionValidityError> {
@@ -213,7 +247,7 @@ mod tests {
         new_test_ext(1).execute_with(|| {
             let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
 
-            assert_ok!(validate_signed(U256::from(1), &call));
+            assert_ok!(validate_signed_transaction_extension(U256::from(1), &call));
         });
     }
 
@@ -230,11 +264,11 @@ mod tests {
                 coldkey,
                 (System::block_number(), new_coldkey_hash),
             );
-            let err = validate_signed(coldkey, &call).unwrap_err();
+            let err = validate_signed_transaction_extension(coldkey, &call).unwrap_err();
             assert_eq!(err, CustomTransactionError::ColdkeyInSwapSchedule.into());
 
             ColdkeySwapDisputes::<Test>::insert(coldkey, System::block_number());
-            let err = validate_signed(coldkey, &call).unwrap_err();
+            let err = validate_signed_transaction_extension(coldkey, &call).unwrap_err();
             assert_eq!(err, CustomTransactionError::ColdkeySwapDisputed.into());
         });
     }
@@ -273,7 +307,7 @@ mod tests {
             });
 
             assert_eq!(call.get_dispatch_info().pays_fee, Pays::No);
-            let err = validate_signed(hotkey, &call).unwrap_err();
+            let err = validate_signed_transaction_extension(hotkey, &call).unwrap_err();
             assert_eq!(err, CustomTransactionError::RateLimitExceeded.into());
         });
     }

@@ -4,7 +4,9 @@ use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_runtime::traits::SaturatedConversion;
 
-/// Captures the runtime-upgrade block used as the TAO-in refund behavior cutover.
+/// Records the runtime-upgrade block used as the TAO-in refund behavior cutover in `TaoInRefundDeploymentBlock`.
+///
+/// Idempotency key (frozen): `migrate_tao_in_refund_deployment_block`.
 pub fn migrate_tao_in_refund_deployment_block<T: Config>() -> Weight {
     let migration_name = b"migrate_tao_in_refund_deployment_block".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

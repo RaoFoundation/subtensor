@@ -1,3 +1,8 @@
+//! EVM ↔ Substrate address mapping precompile (`INDEX` 2060).
+//!
+//! Exposes `addressMapping(address)` so contracts can resolve an `H160` to the
+//! runtime `AccountId` used by pallet storage (via `Config::AddressMapping`).
+
 extern crate alloc;
 use core::marker::PhantomData;
 use pallet_evm::AddressMapping;
@@ -13,6 +18,7 @@ use precompile_utils::EvmResult;
 use precompile_utils::prelude::Address;
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
 
+/// Precompile that maps an EVM address to a 32-byte Substrate account id.
 pub struct AddressMappingPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for AddressMappingPrecompile<R>
@@ -65,6 +71,7 @@ where
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
+    /// Returns the Substrate `AccountId` bytes for `target_address` (runtime address mapping).
     #[precompile::public("addressMapping(address)")]
     #[precompile::view]
     fn address_mapping(

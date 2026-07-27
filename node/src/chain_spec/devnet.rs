@@ -1,8 +1,13 @@
+//! Public development-network chain-spec (`--chain devnet`).
+//!
+//! Authorities are fixed SS58 keys for the shared debug validator set.
+
 // Allowed since it's actually better to panic during chain setup when there is an error
 #![allow(clippy::unwrap_used)]
 
 use super::*;
 
+/// Build the shared public-devnet `ChainSpec`.
 pub fn devnet_config() -> Result<ChainSpec, String> {
     let wasm_binary = WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?;
 

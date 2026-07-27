@@ -5,6 +5,9 @@ use crate::{Config, HasMigrationRun, Lock, Pallet as Subtensor};
 
 const MIGRATION_NAME: &[u8] = b"migrate_populate_locking_coldkeys";
 
+/// Backfills `LockingColdkeys` from existing conviction `Lock` rows so coldkeys can be looked up from lock state.
+///
+/// Idempotency key (frozen): `migrate_populate_locking_coldkeys`.
 pub fn migrate_populate_locking_coldkeys<T: Config>() -> Weight {
     let mut weight = T::DbWeight::get().reads(1);
 

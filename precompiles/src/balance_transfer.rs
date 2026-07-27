@@ -1,3 +1,9 @@
+//! Payable TAO transfer precompile (`INDEX` 2048).
+//!
+//! `transfer(bytes32)` moves `msg.value` from the precompile's own Substrate account
+//! (`PrecompileExt::account_id`) to the destination coldkey via
+//! `balances.transfer_allow_death`. Zero value is a no-op success.
+
 use core::marker::PhantomData;
 
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
@@ -10,6 +16,7 @@ use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, Uniqu
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
+/// Precompile that forwards attached EVM value as a Substrate balance transfer.
 pub struct BalanceTransferPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for BalanceTransferPrecompile<R>
@@ -66,6 +73,7 @@ where
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
     <R as pallet_balances::Config>::Balance: TryFrom<U256>,
 {
+    /// Transfers `msg.value` (converted to TAO) to `address` from this precompile's account.
     #[precompile::public("transfer(bytes32)")]
     #[precompile::payable]
     fn transfer(handle: &mut impl PrecompileHandle, address: H256) -> EvmResult<()> {

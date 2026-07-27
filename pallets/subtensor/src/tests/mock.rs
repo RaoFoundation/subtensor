@@ -1,3 +1,16 @@
+//! Default test runtime and fixtures for `pallet-subtensor` unit tests.
+//!
+//! ## Search anchors
+//!
+//! | Helper | Owns |
+//! |--------|------|
+//! | [`new_test_ext`] / [`test_ext_with_balances`] | Externalities bootstrap |
+//! | [`add_network`] / [`add_dynamic_network`] | Subnet setup |
+//! | [`register_ok_neuron`] / [`setup_neuron_with_stake`] | Neuron + stake fixtures |
+//! | [`step_block`] / [`run_to_block`] / [`step_epochs`] | Block / tempo advancement |
+//! | [`setup_reserves`] / [`swap_tao_to_alpha`] | AMM reserve / swap helpers |
+//! | [`mock_set_children`] | Parent/child key fixtures |
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,
@@ -382,7 +395,7 @@ impl crate::Config for Test {
     type LeaseDividendsDistributionInterval = LeaseDividendsDistributionInterval;
     type GetCommitments = ();
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
-    type CommitmentsInterface = CommitmentsI;
+    type CommitmentsInterface = CommitmentsPurgeBridge;
     type AlphaAssets = AlphaAssets;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
@@ -423,7 +436,7 @@ impl pallet_commitments::Config for Test {
     type MaxFields = TestMaxFields;
     type InitialDeposit = ConstTao<0>;
     type FieldDeposit = ConstTao<0>;
-    type TempoInterface = MockTempoInterface;
+    type SubtensorTempoBridge = MockTempoInterface;
 }
 
 pub struct OriginPrivilegeCmp;
@@ -434,8 +447,8 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
     }
 }
 
-pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+pub struct CommitmentsPurgeBridge;
+impl CommitmentsInterface for CommitmentsPurgeBridge {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,

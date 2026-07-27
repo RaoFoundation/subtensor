@@ -1,4 +1,11 @@
-// pallets/mev-shield/src/lib.rs
+//! # MevShield pallet
+//!
+//! Encrypts user extrinsics to the block author's ML-KEM-768 key so mempool
+//! observers cannot frontrun plaintext calls. Clients encrypt to [`NextKey`]
+//! (N+2 author); the inherent [`Call::announce_next_key`] rotates
+//! `CurrentKey` ← `PendingKey` ← `NextKey` each block. Separately,
+//! [`Call::store_encrypted`] queues ciphertext for deferred
+//! [`Pallet::process_pending_extrinsics`] dispatch in `on_initialize`.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -57,17 +64,20 @@ const MAX_EXTRINSIC_DEPTH: u32 = 8;
 /// to discourage abuse of the encrypted extrinsic queue.
 const STORE_ENCRYPTED_WEIGHT: u64 = 20_000_000_000;
 
+/// Fixed dispatch weight for [`Call::store_encrypted`] (not the benchmark figure).
 pub fn store_encrypted_weight() -> Weight {
     Weight::from_parts(STORE_ENCRYPTED_WEIGHT, 0)
 }
 
-/// Trait for decrypting stored extrinsics before dispatch.
+/// Runtime hook that turns queued `store_encrypted` bytes into a `RuntimeCall`.
+///
+/// Production may decrypt ciphertext; tests often SCALE-decode plaintext call bytes only.
 pub trait ExtrinsicDecryptor<RuntimeCall> {
-    /// Decrypt the stored bytes and return the decoded RuntimeCall.
+    /// Decrypt (or decode) stored bytes into a dispatchable `RuntimeCall`.
     fn decrypt(data: &[u8]) -> Result<RuntimeCall, DispatchError>;
 }
 
-/// Default implementation that always returns an error.
+/// Placeholder decryptor: always fails so misconfigured runtimes cannot silently dispatch.
 impl<RuntimeCall> ExtrinsicDecryptor<RuntimeCall> for () {
     fn decrypt(_data: &[u8]) -> Result<RuntimeCall, DispatchError> {
         Err(DispatchError::Other("ExtrinsicDecryptor not implemented"))
@@ -79,164 +89,160 @@ pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo;
 
+    /// MevShield configuration: Aura authority ids, author lookup, and decryptor for the queue.
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        /// The identifier type for an authority.
+        /// Aura (or equivalent) authority id used as [`AuthorKeys`] map key.
         type AuthorityId: Member + Parameter + MaybeSerializeDeserialize + MaxEncodedLen;
 
-        /// A way to find the current and next block author.
+        /// Resolves current and N+2 authors for key rotation in [`Call::announce_next_key`].
         type FindAuthors: FindAuthors<Self>;
 
-        /// The overarching call type for dispatching stored extrinsics.
+        /// Call type decoded/dispatched from [`PendingExtrinsics`] in `on_initialize`.
         type RuntimeCall: Parameter
             + Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
             + GetDispatchInfo;
 
-        /// Decryptor for stored extrinsics.
+        /// Turns queued ciphertext/encoded bytes into [`Self::RuntimeCall`].
         type ExtrinsicDecryptor: ExtrinsicDecryptor<<Self as pallet::Config>::RuntimeCall>;
 
-        /// Weight information for extrinsics in this pallet.
+        /// Extrinsic weights for this pallet (see generated `weights` module).
         type WeightInfo: WeightInfo;
     }
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
-    /// Current block author's ML-KEM-768 encapsulation key (internal, not for encryption).
+    /// Current author's ML-KEM-768 encapsulation key after rotation (proposer-internal; not client encrypt target).
     #[pallet::storage]
     pub type CurrentKey<T> = StorageValue<_, ShieldEncKey, OptionQuery>;
 
-    /// Next block author's key, staged here before promoting to `CurrentKey`.
+    /// N+1 author's key; becomes [`CurrentKey`] next block. Hash of this key validates in-flight shielded txs.
     #[pallet::storage]
     pub type PendingKey<T> = StorageValue<_, ShieldEncKey, OptionQuery>;
 
-    /// Key users should encrypt with (N+2 author's key).
+    /// N+2 author's ML-KEM-768 encapsulation key — the client encrypt target for new shielded txs.
     #[pallet::storage]
     pub type NextKey<T> = StorageValue<_, ShieldEncKey, OptionQuery>;
 
-    /// Per-author ML-KEM-768 encapsulation key, updated each time the author produces a block.
+    /// Last announced ML-KEM-768 encapsulation key per authority id (source for staging [`NextKey`]).
     #[pallet::storage]
     pub type AuthorKeys<T: Config> =
         StorageMap<_, Twox64Concat, T::AuthorityId, ShieldEncKey, OptionQuery>;
 
-    /// Block number at which `PendingKey` is no longer valid (exclusive upper bound).
-    /// Updated every block during rotation.
+    /// Exclusive upper block bound for trusting [`PendingKey`] (set to `now + 2` when present).
     #[pallet::storage]
     pub type PendingKeyExpiresAt<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
 
-    /// Block number at which `NextKey` is no longer valid (exclusive upper bound).
-    /// Updated every block during rotation.
+    /// Exclusive upper block bound for trusting [`NextKey`] (set to `now + 3` when present).
     #[pallet::storage]
     pub type NextKeyExpiresAt<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
 
-    /// Stores whether some migration has been run.
+    /// Idempotency flags for runtime migrations keyed by migration name bytes.
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> =
         StorageMap<_, Identity, BoundedVec<u8, MigrationKeyMaxLen>, bool, ValueQuery>;
 
-    /// Maximum size of a single encoded call.
+    /// Max SCALE/ciphertext bytes accepted by [`Call::store_encrypted`] (8192).
     pub type MaxEncryptedCallSize = ConstU32<8192>;
 
-    /// Default maximum number of pending extrinsics.
+    /// Default for [`MaxPendingExtrinsicsLimit`] when unset (100).
     pub type DefaultMaxPendingExtrinsics = ConstU32<100>;
 
-    /// Configurable maximum number of pending extrinsics.
-    /// Defaults to 100 if not explicitly set via `set_max_pending_extrinsics`.
+    /// Cap on [`PendingExtrinsics`] count; `store_encrypted` fails with [`Error::TooManyPendingExtrinsics`] when full.
     #[pallet::storage]
     pub type MaxPendingExtrinsicsLimit<T: Config> =
         StorageValue<_, u32, ValueQuery, DefaultMaxPendingExtrinsics>;
 
-    /// Default extrinsic lifetime in blocks.
+    /// Default for [`ExtrinsicLifetime`] when unset (10 blocks).
     pub const DEFAULT_EXTRINSIC_LIFETIME: u32 = 10;
 
-    /// Configurable extrinsic lifetime (max block difference between submission and execution).
-    /// Defaults to 10 blocks if not explicitly set.
+    /// Max age (`current - submitted_at`) before a queued extrinsic is dropped as expired.
     #[pallet::storage]
     pub type ExtrinsicLifetime<T: Config> =
         StorageValue<_, u32, ValueQuery, ConstU32<DEFAULT_EXTRINSIC_LIFETIME>>;
 
-    /// Default maximum weight allowed for on_initialize processing.
+    /// Default ref_time budget for processing the pending queue in `on_initialize`.
     pub const DEFAULT_ON_INITIALIZE_WEIGHT: u64 = 500_000_000_000;
 
-    /// Absolute maximum weight for on_initialize: half the total block weight (2s of 4s).
+    /// Hard ceiling for [`OnInitializeWeight`] / [`MaxExtrinsicWeight`] admin sets (half of 4s block).
     pub const MAX_ON_INITIALIZE_WEIGHT: u64 = 2_000_000_000_000;
 
-    /// Configurable maximum weight for on_initialize processing.
-    /// Defaults to 500_000_000_000 ref_time if not explicitly set.
+    /// Aggregate ref_time budget for [`Pallet::process_pending_extrinsics`]; excess items emit [`Event::ExtrinsicPostponed`].
     #[pallet::storage]
     pub type OnInitializeWeight<T: Config> =
         StorageValue<_, u64, ValueQuery, ConstU64<DEFAULT_ON_INITIALIZE_WEIGHT>>;
 
-    /// Default maximum weight for a single extrinsic.
+    /// Default per-call ref_time cap during queue processing.
     pub const DEFAULT_MAX_EXTRINSIC_WEIGHT: u64 = 50_000_000_000;
 
-    /// Configurable maximum weight for a single extrinsic dispatched during on_initialize.
-    /// Extrinsics exceeding this limit are removed from the queue.
+    /// Per-call ref_time cap; overweight queued calls are removed with [`Event::ExtrinsicWeightExceeded`].
     #[pallet::storage]
     pub type MaxExtrinsicWeight<T: Config> =
         StorageValue<_, u64, ValueQuery, ConstU64<DEFAULT_MAX_EXTRINSIC_WEIGHT>>;
 
-    /// A pending extrinsic stored for later execution.
+    /// One queued item: submitter, opaque call bytes, and submission block for lifetime checks.
     #[freeze_struct("f13d2a9d7bd4767d")]
     #[derive(Clone, Encode, Decode, TypeInfo, MaxEncodedLen, PartialEq, Debug)]
     #[scale_info(skip_type_params(T))]
     pub struct PendingExtrinsic<T: Config> {
-        /// The account that submitted the extrinsic.
+        /// Signed origin that will be used when the call is later dispatched.
         pub who: T::AccountId,
-        /// The encoded call data.
+        /// Opaque bytes passed to [`ExtrinsicDecryptor::decrypt`] (often SCALE-encoded call in tests).
         pub encrypted_call: BoundedVec<u8, MaxEncryptedCallSize>,
-        /// The block number when the extrinsic was submitted.
+        /// Block number at insert time; compared against [`ExtrinsicLifetime`] during processing.
         pub submitted_at: BlockNumberFor<T>,
     }
 
-    /// Storage map for encrypted extrinsics to be executed in on_initialize.
-    /// Uses u32 index for O(1) insertion and removal. Count is maintained automatically.
+    /// Counted queue of deferred calls, keyed by monotonic u32 index (gaps allowed; count is authoritative).
     #[pallet::storage]
     pub type PendingExtrinsics<T: Config> =
         CountedStorageMap<_, Identity, u32, PendingExtrinsic<T>, OptionQuery>;
 
-    /// Next index to use when inserting a pending extrinsic (unique auto-increment).
+    /// Next free index for [`PendingExtrinsics`] inserts; never decremented (unique auto-increment).
     #[pallet::storage]
     pub type NextPendingExtrinsicIndex<T: Config> = StorageValue<_, u32, ValueQuery>;
 
+    /// MevShield events: shielded submit, queue lifecycle, and admin limit updates.
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// Encrypted wrapper accepted.
+        /// `submit_encrypted` accepted; `id` is `hash(who, ciphertext)`.
         EncryptedSubmitted { id: T::Hash, who: T::AccountId },
-        /// Encrypted extrinsic was stored for later execution.
+        /// Call bytes enqueued under `index` for later `on_initialize` dispatch.
         ExtrinsicStored { index: u32, who: T::AccountId },
-        /// Extrinsic decode failed during on_initialize.
+        /// [`ExtrinsicDecryptor`] failed; item removed from the queue.
         ExtrinsicDecodeFailed { index: u32 },
-        /// Extrinsic dispatch failed during on_initialize.
+        /// Decrypted call dispatched but returned an error; item already removed.
         ExtrinsicDispatchFailed { index: u32, error: DispatchError },
-        /// Extrinsic was successfully dispatched during on_initialize.
+        /// Queued call dispatched successfully under the original signed origin.
         ExtrinsicDispatched { index: u32 },
-        /// Extrinsic expired (exceeded max block lifetime).
+        /// Item age exceeded [`ExtrinsicLifetime`]; removed without dispatch.
         ExtrinsicExpired { index: u32 },
-        /// Extrinsic postponed due to weight limit.
+        /// Remaining [`OnInitializeWeight`] budget insufficient; left in queue for a later block.
         ExtrinsicPostponed { index: u32 },
-        /// Maximum pending extrinsics limit was updated.
+        /// Root updated [`MaxPendingExtrinsicsLimit`].
         MaxPendingExtrinsicsNumberSet { value: u32 },
-        /// Maximum on_initialize weight was updated.
+        /// Root updated [`OnInitializeWeight`].
         OnInitializeWeightSet { value: u64 },
-        /// Extrinsic lifetime was updated.
+        /// Root updated [`ExtrinsicLifetime`].
         ExtrinsicLifetimeSet { value: u32 },
-        /// Maximum per-extrinsic weight was updated.
+        /// Root updated [`MaxExtrinsicWeight`].
         MaxExtrinsicWeightSet { value: u64 },
-        /// Extrinsic exceeded the per-extrinsic weight limit and was removed.
+        /// Call weight exceeded [`MaxExtrinsicWeight`]; removed without dispatch.
         ExtrinsicWeightExceeded { index: u32 },
     }
 
+    /// MevShield dispatch errors for key announce and queue admin/store paths.
     #[pallet::error]
     pub enum Error<T> {
-        /// The announced ML‑KEM encapsulation key length is invalid.
+        /// Announced key length ≠ [`MLKEM768_ENC_KEY_LEN`].
         BadEncKeyLen,
-        /// Unreachable.
+        /// Inherent ran without a resolvable current author (`FindAuthors` returned `None`).
         Unreachable,
-        /// Too many pending extrinsics in storage.
+        /// [`PendingExtrinsics`] count already at [`MaxPendingExtrinsicsLimit`].
         TooManyPendingExtrinsics,
-        /// Weight exceeds the absolute maximum (half of total block weight).
+        /// Admin weight argument exceeded [`MAX_ON_INITIALIZE_WEIGHT`].
         WeightExceedsAbsoluteMax,
     }
 
@@ -362,7 +368,10 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Store an encrypted extrinsic for later execution in on_initialize.
+        /// Enqueue opaque call bytes for deferred dispatch in `on_initialize`.
+        ///
+        /// Fails with [`Error::TooManyPendingExtrinsics`] when the counted queue is full.
+        /// Weight is the fixed [`store_encrypted_weight`] (above the benchmark) to deter spam.
         #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(2)]
         #[pallet::weight(store_encrypted_weight())]
@@ -480,8 +489,9 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-    /// Process pending encrypted extrinsics up to the weight limit.
-    /// Returns the total weight consumed.
+    /// Drain [`PendingExtrinsics`] from oldest index until empty, expired, overweight, or budget exhausted.
+    ///
+    /// Returns total weight consumed (DB + successful/failed dispatch weights). Postponed items stay queued.
     pub fn process_pending_extrinsics() -> Weight {
         let next_index = NextPendingExtrinsicIndex::<T>::get();
         let count = PendingExtrinsics::<T>::count();
@@ -578,6 +588,9 @@ impl<T: Config> Pallet<T> {
         weight
     }
 
+    /// If `uxt` is a checked `submit_encrypted` call, parse its wire ciphertext into [`ShieldedTransaction`].
+    ///
+    /// Returns `None` for non-shield calls, bad signatures, malformed ciphertext, or extrinsic depth > [`MAX_EXTRINSIC_DEPTH`].
     pub fn try_decode_shielded_tx<Block: BlockT, Context: Default>(
         uxt: ExtrinsicOf<Block>,
     ) -> Option<ShieldedTransaction>
@@ -613,20 +626,23 @@ impl<T: Config> Pallet<T> {
         ShieldedTransaction::parse(ciphertext)
     }
 
+    /// True when `key_hash` equals `twox_128(PendingKey)` — the key clients encrypted toward one block ago.
     pub fn is_shielded_using_current_key(key_hash: &[u8; 16]) -> bool {
         let pending = PendingKey::<T>::get();
         let pending_hash = pending.as_ref().map(|k| twox_128(&k[..]));
         pending_hash.as_ref() == Some(key_hash)
     }
 
+    /// Decrypt `shielded_tx` with raw ML-KEM-768 decapsulation key bytes and SCALE-decode the inner extrinsic.
     pub fn try_unshield_tx<Block: BlockT>(
         dec_key_bytes: alloc::vec::Vec<u8>,
         shielded_tx: ShieldedTransaction,
     ) -> Option<<Block as BlockT>::Extrinsic> {
-        let plaintext = unshield(&dec_key_bytes, &shielded_tx).or_else(|| {
-            log::debug!(target: LOG_TARGET, "Failed to unshield transaction");
-            None
-        })?;
+        let plaintext =
+            decrypt_shielded_ciphertext(&dec_key_bytes, &shielded_tx).or_else(|| {
+                log::debug!(target: LOG_TARGET, "Failed to unshield transaction");
+                None
+            })?;
 
         if plaintext.is_empty() {
             return None;
@@ -638,8 +654,11 @@ impl<T: Config> Pallet<T> {
     }
 }
 
+/// Looks up the current block author and the author two slots ahead for key rotation.
 pub trait FindAuthors<T: Config> {
+    /// Authority producing the block in which `announce_next_key` runs.
     fn find_current_author() -> Option<T::AuthorityId>;
+    /// Authority two slots ahead whose [`AuthorKeys`] entry stages into [`NextKey`].
     fn find_next_next_author() -> Option<T::AuthorityId>;
 }
 
@@ -652,11 +671,8 @@ impl<T: Config> FindAuthors<T> for () {
     }
 }
 
-/// Decrypt a shielded transaction using the raw decapsulation key bytes.
-///
-/// Performs ML-KEM-768 decapsulation followed by XChaCha20-Poly1305 AEAD decryption.
-/// Runs entirely in WASM — no host functions needed.
-fn unshield(
+/// ML-KEM-768 decapsulate + XChaCha20-Poly1305 decrypt; WASM-only (no host crypto).
+fn decrypt_shielded_ciphertext(
     dec_key_bytes: &[u8],
     shielded_tx: &ShieldedTransaction,
 ) -> Option<alloc::vec::Vec<u8>> {

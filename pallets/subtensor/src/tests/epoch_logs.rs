@@ -1,3 +1,7 @@
+//! Epoch behavior asserted via captured tracing logs ([`crate::epoch`]).
+//!
+//! Covers inactive/permit masks, Yuma bonds pipelines, and multi-mechanism weights.
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::indexing_slicing,

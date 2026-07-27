@@ -1,6 +1,9 @@
+//! Ban `saturating_*` arithmetic so overflowing tests panic instead of silently clamping.
+
 use super::*;
 use syn::{Expr, ExprCall, ExprMethodCall, ExprPath, File, Path, spanned::Spanned, visit::Visit};
 
+/// Lint: reject `saturating_*` methods and UFCS calls (production code should use checked/overflowing ops or accept panics in tests).
 pub struct ForbidSaturatingMath;
 
 impl Lint for ForbidSaturatingMath {

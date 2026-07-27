@@ -1,3 +1,5 @@
+//! Single-step swap execution against the weighted balancer (buy/sell specializations).
+
 use core::marker::PhantomData;
 
 use frame_support::ensure;
@@ -7,9 +9,10 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token, TokenRes
 
 use super::pallet::*;
 
+/// Cap on post-fee swap input as a multiple of the input-side reserve (anti-drain).
 pub(crate) const MAX_SWAP_INPUT_RESERVE_MULTIPLIER: u64 = 1_000;
 
-/// A struct representing a single swap step with all its parameters and state
+/// One atomic swap step: fee, limit-price clamp, and reserve delta conversion.
 pub(crate) struct BasicSwapStep<T, PaidIn, PaidOut>
 where
     T: Config,
@@ -224,6 +227,7 @@ impl<T: Config> SwapStep<T, AlphaBalance, TaoBalance>
     }
 }
 
+/// Direction-specific swap math (TAO→alpha vs alpha→TAO) used by [`BasicSwapStep`].
 pub(crate) trait SwapStep<T, PaidIn, PaidOut>
 where
     T: Config,
@@ -248,6 +252,7 @@ where
     fn convert_deltas(netuid: NetUid, delta_in: PaidIn) -> PaidOut;
 }
 
+/// Result of one [`BasicSwapStep::execute`]: fees and in/out deltas.
 #[derive(Debug, PartialEq)]
 pub(crate) struct SwapStepResult<PaidIn, PaidOut>
 where

@@ -1,3 +1,8 @@
+//! Expand `call_filter_group!(Name, [RuntimeCall::Pallet(pallet::Call::method), …])`.
+//!
+//! Emits `Contains<RuntimeCall>` for proxy/filter execution and `CallFilterMetadata` for the
+//! runtime API that lists allowed calls (and optional param/nested-call constraints).
+
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{
@@ -6,7 +11,7 @@ use syn::{
     punctuated::Punctuated,
 };
 
-/// Parsed input for one call filter group.
+/// Parsed input for one call filter group (`GroupName` + allowlisted `RuntimeCall` paths).
 pub struct CallFilterGroupInput {
     group: Ident,
     rules: Punctuated<CallRule, Token![,]>,

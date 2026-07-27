@@ -1,3 +1,9 @@
+//! Proxy precompile: create/kill pure proxies, add/remove proxies, and proxy-call from EVM.
+//!
+//! Dispatches into `pallet_subtensor_proxy` as the EVM caller mapped Substrate account.
+//! `proxyCall` SCALE-decodes the inner runtime call with a bounded depth.
+//! INDEX and Solidity selectors are frozen.
+
 use core::marker::PhantomData;
 
 use crate::{PrecompileExt, PrecompileHandleExt};
@@ -20,8 +26,11 @@ use sp_std::convert::{TryFrom, TryInto};
 use sp_std::vec;
 use sp_std::vec::Vec;
 use subtensor_runtime_common::ProxyType;
+/// EVM surface for Substrate proxy lifecycle and filtered proxy dispatch (INDEX 2059).
 pub struct ProxyPrecompile<R>(PhantomData<R>);
-const MAX_DECODE_DEPTH: u32 = 8;
+
+/// Max SCALE decode nesting for `proxyCall` inner runtime-call payloads.
+const PROXY_CALL_MAX_DECODE_DEPTH: u32 = 8;
 
 impl<R> PrecompileExt<R::AccountId> for ProxyPrecompile<R>
 where
@@ -78,6 +87,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
+    /// Create a pure proxy account and return its Substrate account id as `bytes32`.
     #[precompile::public("createPureProxy(uint8,uint32,uint16)")]
     pub fn create_pure_proxy(
         handle: &mut impl PrecompileHandle,
@@ -123,6 +133,7 @@ where
         })
     }
 
+    /// Kill a pure proxy previously spawned by `spawner` (must match create params).
     #[precompile::public("killPureProxy(bytes32,uint8,uint16,uint32,uint32)")]
     pub fn kill_pure_proxy(
         handle: &mut impl PrecompileHandle,
@@ -150,6 +161,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Dispatch a SCALE-encoded runtime call as `real`, optionally forcing a proxy type.
     #[precompile::public("proxyCall(bytes32,uint8[],uint8[])")]
     pub fn proxy_call(
         handle: &mut impl PrecompileHandle,
@@ -160,7 +172,7 @@ where
         let account_id = handle.caller_account_id::<R>();
 
         let call = <R as pallet_proxy::Config>::RuntimeCall::decode_with_depth_limit(
-            MAX_DECODE_DEPTH,
+            PROXY_CALL_MAX_DECODE_DEPTH,
             &mut &call[..],
         )
         .map_err(|_| PrecompileFailure::Error {
@@ -201,6 +213,7 @@ where
         }
     }
 
+    /// Register `delegate` as a proxy of the caller with the given type and delay.
     #[precompile::public("addProxy(bytes32,uint8,uint32)")]
     pub fn add_proxy(
         handle: &mut impl PrecompileHandle,
@@ -224,6 +237,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Remove a previously registered proxy matching type and delay.
     #[precompile::public("removeProxy(bytes32,uint8,uint32)")]
     pub fn remove_proxy(
         handle: &mut impl PrecompileHandle,
@@ -247,6 +261,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Remove all proxies for the caller and unlock the reserved deposit.
     #[precompile::public("removeProxies()")]
     pub fn remove_proxies(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
         let account_id = handle.caller_account_id::<R>();
@@ -256,6 +271,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// Recompute and adjust the caller proxy deposit reservation.
     #[precompile::public("pokeDeposit()")]
     pub fn poke_deposit(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
         let account_id = handle.caller_account_id::<R>();
@@ -265,6 +281,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    /// List proxies for `account_id` as `(delegate, proxy_type, delay)` tuples.
     #[precompile::public("getProxies(bytes32)")]
     #[precompile::view]
     pub fn get_proxies(

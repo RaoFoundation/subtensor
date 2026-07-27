@@ -3,6 +3,9 @@ use frame_support::{traits::Get, weights::Weight};
 use log;
 use scale_info::prelude::string::String;
 
+/// Initializes network lock-cost reduction schedule fields (`NetworkLockReductionInterval`, related rate-limit / start-block values).
+///
+/// Idempotency key (frozen): `migrate_network_lock_reduction_interval`.
 pub fn migrate_network_lock_reduction_interval<T: Config>() -> Weight {
     const FOUR_DAYS: u64 = 28_800;
     const EIGHT_DAYS: u64 = 57_600;

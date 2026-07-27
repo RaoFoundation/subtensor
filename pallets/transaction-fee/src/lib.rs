@@ -1,5 +1,16 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+//! # Transaction fee pallet
+//!
+//! Custom charge handlers for Substrate extrinsics and EVM transactions.
+//!
+//! Prefer TAO free-balance fees; for selected stake-outflow Subtensor calls, fall back to
+//! paying the fee in **alpha** (unstaked via the subnet AMM and credited to the block author).
+//! Multi-subnet alpha fee deduction is deliberately rejected — callers need TAO for those ops.
+//!
+//! Wiring: runtime `OnChargeTransaction` / `OnChargeEVMTransaction` point at
+//! [`SubtensorTxFeeHandler`] / [`SubtensorEvmFeeHandler`]; fee sinks use [`TransactionFeeHandler`].
+
 // FRAME
 use frame_support::{
     pallet_prelude::*,
@@ -46,6 +57,7 @@ mod tests;
 type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
 type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
 
+/// Maps dispatch weight to a TAO fee via a degree-1 polynomial (frac coeff `500_000` / 10^9).
 pub struct LinearWeightToFee;
 impl WeightToFeePolynomial for LinearWeightToFee {
     type Balance = TaoBalance;
@@ -62,26 +74,33 @@ impl WeightToFeePolynomial for LinearWeightToFee {
     }
 }
 
-/// Trait that allows working with Alpha
+/// Alpha-backed fee payment: quote, withdraw, and enumerate staked `(hotkey, netuid)` pairs.
+///
+/// Implementors must only spend free (non-collateral) alpha. Multi-entry `alpha_vec` is
+/// invalid for withdrawal — return false / no-op so the extrinsic is rejected for Payment.
 pub trait AlphaFeeHandler<T: frame_system::Config> {
+    /// Returns true when free alpha on the single `(hotkey, netuid)` can cover `tao_amount`
+    /// at the current AMM quote. True at validation does not guarantee execution-time price.
     fn can_withdraw_in_alpha(
         coldkey: &AccountIdOf<T>,
         alpha_vec: &[(AccountIdOf<T>, NetUid)],
         tao_amount: TaoBalance,
     ) -> bool;
+    /// Unstakes enough free alpha to cover `tao_amount`, pays the block author in TAO.
+    /// Returns `(alpha_taken, tao_received, netuid)` or `InvalidTransaction::Payment`.
     fn withdraw_in_alpha(
         coldkey: &AccountIdOf<T>,
         alpha_vec: &[(AccountIdOf<T>, NetUid)],
         tao_amount: TaoBalance,
     ) -> Result<(AlphaBalance, TaoBalance, NetUid), TransactionValidityError>;
+    /// Subtoken-enabled netuids where `hotkey` holds nonzero stake for `coldkey`.
     fn get_all_netuids_for_coldkey_and_hotkey(
         coldkey: &AccountIdOf<T>,
         hotkey: &AccountIdOf<T>,
     ) -> Vec<NetUid>;
 }
 
-/// Deduct the transaction fee from the Subtensor Pallet TotalIssuance when charging the transaction
-/// fee.
+/// Fee sink: credits TAO fee imbalances to the current block author (drops them if none).
 pub struct TransactionFeeHandler<T>(core::marker::PhantomData<T>);
 impl<T> Default for TransactionFeeHandler<T> {
     fn default() -> Self {
@@ -232,28 +251,31 @@ where
     }
 }
 
-/// Enum that describes either a withdrawn amount of transaction fee in TAO or
-/// the exact charged Alpha amount.
+/// Liquidity withdrawn while charging: either a TAO credit or alpha sold for TAO.
 pub enum WithdrawnFee<T: frame_system::Config, F: Balanced<AccountIdOf<T>>> {
-    // Contains withdrawn TAO amount
+    /// Free-balance TAO credit taken via `F::withdraw` (may be partially refunded later).
     Tao(Credit<AccountIdOf<T>, F>),
-    // Contains withdrawn Alpha amount and resulting swapped TAO
+    /// Alpha unstaked for fees: `(alpha_taken, tao_paid_to_author, netuid)`. Not refunded.
     Alpha((AlphaBalance, TaoBalance, NetUid)),
 }
 
-/// Custom OnChargeTransaction implementation based on standard FungibleAdapter from transaction_payment
-/// FRAME pallet
+/// Substrate extrinsic fee charger: TAO first, then alpha for [`Self::fees_in_alpha`] calls.
 ///
+/// `OU` receives TAO fee imbalances and implements [`AlphaFeeHandler`] for the alpha path.
 pub struct SubtensorTxFeeHandler<F, OU>(PhantomData<(F, OU)>);
 
+/// EVM transaction fee charger in TAO only (no alpha fallback).
+///
+/// Tips go to the EVM block author via `pay_priority_fee`; base fee imbalances go to `OU`.
 pub struct SubtensorEvmFeeHandler<F, OU>(PhantomData<(F, OU)>);
 
 /// This implementation contains the list of calls that require paying transaction
 /// fees in Alpha
 impl<F, OU> SubtensorTxFeeHandler<F, OU> {
-    /// Returns Vec<(hotkey, netuid)> if the given call should pay fees in Alpha instead of TAO.
-    /// The vector represents all subnets where this hotkey has any alpha stake. Fees will be
-    /// distributed evenly between subnets in case of multiple subnets.
+    /// Returns `(hotkey, netuid)` pairs eligible for alpha fee payment for this call.
+    ///
+    /// Empty means TAO-only. Multiple pairs mark the call as multi-subnet (alpha withdraw
+    /// is then rejected). Single-netuid stake-outflow calls populate one entry.
     pub fn fees_in_alpha<T>(who: &AccountIdOf<T>, call: &CallOf<T>) -> Vec<(AccountIdOf<T>, NetUid)>
     where
         T: frame_system::Config + pallet_subtensor::Config + AuthorshipInfo<AccountIdOf<T>>,
@@ -370,6 +392,7 @@ where
     type LiquidityInfo = Option<WithdrawnFee<T, F>>;
     type Balance = <F as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
+    /// Withdraws `fee` in TAO, or sells free alpha when TAO withdraw fails and the call is alpha-eligible.
     fn withdraw_fee(
         who: &AccountIdOf<T>,
         call: &CallOf<T>,
@@ -403,6 +426,7 @@ where
         }
     }
 
+    /// Prefers TAO `can_withdraw`; otherwise requires a single-subnet alpha quote that fits free stake.
     fn can_withdraw_fee(
         who: &AccountIdOf<T>,
         call: &CallOf<T>,
@@ -431,6 +455,7 @@ where
         }
     }
 
+    /// Refunds unused TAO fees to `who` and routes tip/fee to `OU`; emits alpha-paid event (no refund).
     fn correct_and_deposit_fee(
         who: &AccountIdOf<T>,
         _dispatch_info: &DispatchInfoOf<CallOf<T>>,
@@ -502,6 +527,7 @@ where
 {
     type LiquidityInfo = Option<Credit<T::AccountId, F>>;
 
+    /// Withdraws the EVM fee from the mapped Substrate account in TAO (Preserve / Polite).
     fn withdraw_fee(
         who: &H160,
         fee: EvmBalance,
@@ -526,6 +552,7 @@ where
         Ok(Some(imbalance))
     }
 
+    /// Refunds overpaid gas, pays base fee via `OU`, and returns remaining tip credit (if any).
     fn correct_and_deposit_fee(
         who: &H160,
         corrected_fee: EvmBalance,
@@ -557,6 +584,7 @@ where
         None
     }
 
+    /// Resolves the tip credit to the EVM-mapped block author account.
     fn pay_priority_fee(tip: Self::LiquidityInfo) {
         if let Some(tip) = tip {
             let author = <T::AddressMapping as AddressMapping<T::AccountId>>::into_account_id(

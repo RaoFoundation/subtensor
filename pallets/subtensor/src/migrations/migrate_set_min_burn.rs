@@ -6,6 +6,9 @@ use subtensor_runtime_common::NetUid;
 
 use super::*;
 
+/// Sets each subnet's min-burn hyperparameter to the then-current initial min-burn default.
+///
+/// Idempotency key (frozen): `migrate_set_min_burn_1`.
 pub fn migrate_set_min_burn<T: Config>() -> Weight {
     let migration_name = b"migrate_set_min_burn_1".to_vec();
 

@@ -4,6 +4,9 @@ use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_io::storage::clear;
 
+/// Removes unused maps/values `EmissionValues`, `NetworkMaxStake`, and the old `SubnetLimit` value key.
+///
+/// Idempotency key (frozen): `migrate_remove_unused_maps_and_values`.
 pub fn migrate_remove_unused_maps_and_values<T: Config>() -> Weight {
     let migration_name = b"migrate_remove_unused_maps_and_values".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

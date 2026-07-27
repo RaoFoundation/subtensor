@@ -1,4 +1,9 @@
+//! Tests for subnet lifecycle helpers ([`crate::subnets::subnet`], symbols).
+//!
+//! Covers `do_start_call`, symbol allocation, and emission-start gating.
+
 #![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use super::mock::*;
 use crate::subnets::symbols::{DEFAULT_SYMBOL, SYMBOLS};
 use crate::*;
@@ -887,13 +892,13 @@ fn test_is_subnet_account_id() {
             add_network(netuid, 10, 0);
 
             let account_id = SubtensorModule::get_subnet_account_id(netuid).unwrap();
-            let roudtrip_netuid = SubtensorModule::is_subnet_account_id(&account_id);
+            let roudtrip_netuid = SubtensorModule::netuid_for_subnet_account(&account_id);
             assert_eq!(netuid, roudtrip_netuid.unwrap());
         }
 
         // Not a subnet account
         let not_subnet_account_id = U256::from(1);
-        assert!(SubtensorModule::is_subnet_account_id(&not_subnet_account_id).is_none());
+        assert!(SubtensorModule::netuid_for_subnet_account(&not_subnet_account_id).is_none());
     });
 }
 

@@ -1,5 +1,26 @@
+//! # Subtensor chain extensions (`subtensor-chain-extensions`)
+//!
+//! `pallet-contracts` chain extension that exposes staking, proxy, alpha recycle/burn, and
+//! read-only subnet/stake queries to ink! contracts.
+//!
+//! ## Wire-facing surface (do not renumber)
+//!
+//! - Runtime registers this extension at contracts id **`0x1000`** (see runtime `ChainExtension`).
+//! - [`types::FunctionId`] `u16` discriminants are the ink `#[ink(function = N)]` selectors —
+//!   mirrored in `ink-contract/`. Never reorder or reuse ids.
+//! - [`types::Output`] status codes are returned as `RetVal::Converging(code)` and mapped by
+//!   ink `FromStatusCode`. Variant discriminants are ABI.
+//!
+//! ## Origin modes
+//!
+//! - **Contract-as-signer** (`AddStakeV1`, …): origin is `RawOrigin::Signed(env.caller())`
+//!   (the contract address).
+//! - **Caller-as-signer** (`CallerAddStakeV1`, …): origin is
+//!   `contracts_origin_as_raw(env.origin())` (the extrinsic signer / nested caller).
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
+mod contracts_env;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -7,22 +28,27 @@ mod tests;
 
 pub mod types;
 
+pub(crate) use contracts_env::{
+    ContractsEnvAdapter, SubtensorExtensionEnv, contracts_origin_as_raw,
+};
+
 use crate::types::{ColdkeyLock, FunctionId, Output, StakeAvailability, SubnetRegistrationState};
-use codec::{Decode, Encode, MaxEncodedLen};
+use codec::Encode;
 use frame_support::{DebugNoBound, traits::Get};
 use frame_system::RawOrigin;
 use pallet_contracts::chain_extension::{
-    BufInBufOutState, ChainExtension, Environment, Ext, InitState, RetVal, SysConfig,
+    ChainExtension, Environment, Ext, InitState, RetVal, SysConfig,
 };
 use pallet_subtensor::weights::WeightInfo as SubtensorWeightInfo;
 use pallet_subtensor_proxy as pallet_proxy;
 use pallet_subtensor_proxy::WeightInfo;
-use sp_runtime::{DispatchError, Weight, traits::StaticLookup};
+use sp_runtime::{DispatchError, traits::StaticLookup};
 use sp_std::marker::PhantomData;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
+/// `pallet-contracts` chain extension entry for Subtensor staking / proxy / query helpers.
 #[derive(DebugNoBound)]
 pub struct SubtensorChainExtension<T>(PhantomData<T>);
 
@@ -566,7 +592,8 @@ where
         }
     }
 
-    fn dispatch<Env>(env: &mut Env) -> Result<RetVal, DispatchError>
+    /// Route a chain-extension call by [`FunctionId`], charging weight and mapping errors to [`Output`].
+    pub(crate) fn dispatch<Env>(env: &mut Env) -> Result<RetVal, DispatchError>
     where
         Env: SubtensorExtensionEnv<T>,
         <<T as SysConfig>::Lookup as StaticLookup>::Source: From<<T as SysConfig>::AccountId>,
@@ -602,7 +629,7 @@ where
 
                 let state = SubnetRegistrationState {
                     netuid,
-                    exists: pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                    exists: pallet_subtensor::Pallet::<T>::subnet_exists(netuid),
                     registered_subnet_counter:
                         pallet_subtensor::Pallet::<T>::get_registered_subnet_counter(netuid),
                 };
@@ -656,7 +683,7 @@ where
             }
 
             FunctionId::CallerAddStakeV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_add_stake_v1(env, origin)
             }
 
@@ -665,7 +692,7 @@ where
                 Self::dispatch_remove_stake_v1(env, origin)
             }
             FunctionId::CallerRemoveStakeV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_remove_stake_v1(env, origin)
             }
             FunctionId::UnstakeAllV1 => {
@@ -673,7 +700,7 @@ where
                 Self::dispatch_unstake_all_v1(env, origin)
             }
             FunctionId::CallerUnstakeAllV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_unstake_all_v1(env, origin)
             }
             FunctionId::UnstakeAllAlphaV1 => {
@@ -681,7 +708,7 @@ where
                 Self::dispatch_unstake_all_alpha_v1(env, origin)
             }
             FunctionId::CallerUnstakeAllAlphaV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_unstake_all_alpha_v1(env, origin)
             }
             FunctionId::MoveStakeV1 => {
@@ -689,7 +716,7 @@ where
                 Self::dispatch_move_stake_v1(env, origin)
             }
             FunctionId::CallerMoveStakeV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_move_stake_v1(env, origin)
             }
             FunctionId::TransferStakeV1 => {
@@ -697,7 +724,7 @@ where
                 Self::dispatch_transfer_stake_v1(env, origin)
             }
             FunctionId::CallerTransferStakeV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_transfer_stake_v1(env, origin)
             }
             FunctionId::SwapStakeV1 => {
@@ -705,7 +732,7 @@ where
                 Self::dispatch_swap_stake_v1(env, origin)
             }
             FunctionId::CallerSwapStakeV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_swap_stake_v1(env, origin)
             }
             FunctionId::AddStakeLimitV1 => {
@@ -713,7 +740,7 @@ where
                 Self::dispatch_add_stake_limit_v1(env, origin)
             }
             FunctionId::CallerAddStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_add_stake_limit_v1(env, origin)
             }
             FunctionId::RemoveStakeLimitV1 => {
@@ -721,7 +748,7 @@ where
                 Self::dispatch_remove_stake_limit_v1(env, origin)
             }
             FunctionId::CallerRemoveStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_remove_stake_limit_v1(env, origin)
             }
             FunctionId::SwapStakeLimitV1 => {
@@ -729,7 +756,7 @@ where
                 Self::dispatch_swap_stake_limit_v1(env, origin)
             }
             FunctionId::CallerSwapStakeLimitV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_swap_stake_limit_v1(env, origin)
             }
             FunctionId::RemoveStakeFullLimitV1 => {
@@ -737,7 +764,7 @@ where
                 Self::dispatch_remove_stake_full_limit_v1(env, origin)
             }
             FunctionId::CallerRemoveStakeFullLimitV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_remove_stake_full_limit_v1(env, origin)
             }
             FunctionId::SetColdkeyAutoStakeHotkeyV1 => {
@@ -745,7 +772,7 @@ where
                 Self::dispatch_set_coldkey_auto_stake_hotkey_v1(env, origin)
             }
             FunctionId::CallerSetColdkeyAutoStakeHotkeyV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_set_coldkey_auto_stake_hotkey_v1(env, origin)
             }
             FunctionId::AddProxyV1 => {
@@ -753,7 +780,7 @@ where
                 Self::dispatch_add_proxy_v1(env, origin)
             }
             FunctionId::CallerAddProxyV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_add_proxy_v1(env, origin)
             }
             FunctionId::RemoveProxyV1 => {
@@ -761,7 +788,7 @@ where
                 Self::dispatch_remove_proxy_v1(env, origin)
             }
             FunctionId::CallerRemoveProxyV1 => {
-                let origin = convert_origin(env.origin());
+                let origin = contracts_origin_as_raw(env.origin());
                 Self::dispatch_remove_proxy_v1(env, origin)
             }
             FunctionId::GetAlphaPriceV1 => {
@@ -907,83 +934,5 @@ where
                 }
             }
         }
-    }
-}
-
-// Convert from the contract origin to the raw origin
-fn convert_origin<T>(origin: pallet_contracts::Origin<T>) -> RawOrigin<T::AccountId>
-where
-    T: pallet_contracts::Config,
-{
-    match origin {
-        pallet_contracts::Origin::Signed(caller) => RawOrigin::Signed(caller),
-        pallet_contracts::Origin::Root => RawOrigin::Root,
-    }
-}
-
-trait SubtensorExtensionEnv<T>
-where
-    T: pallet_contracts::Config,
-{
-    fn func_id(&self) -> u16;
-    fn charge_weight(&mut self, weight: Weight) -> Result<(), DispatchError>;
-    fn read_as<U: Decode + MaxEncodedLen>(&mut self) -> Result<U, DispatchError>;
-    fn write_output(&mut self, data: &[u8]) -> Result<(), DispatchError>;
-    fn caller(&mut self) -> T::AccountId;
-    #[allow(dead_code)]
-    fn origin(&mut self) -> pallet_contracts::Origin<T>;
-}
-
-struct ContractsEnvAdapter<'a, 'b, T, E>
-where
-    T: pallet_subtensor::Config + pallet_contracts::Config,
-    E: Ext<T = T>,
-{
-    env: Environment<'a, 'b, E, BufInBufOutState>,
-    _marker: PhantomData<T>,
-}
-
-impl<'a, 'b, T, E> ContractsEnvAdapter<'a, 'b, T, E>
-where
-    T: pallet_subtensor::Config + pallet_contracts::Config,
-    T::AccountId: Clone,
-    E: Ext<T = T>,
-{
-    fn new(env: Environment<'a, 'b, E, InitState>) -> Self {
-        Self {
-            env: env.buf_in_buf_out(),
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<'a, 'b, T, E> SubtensorExtensionEnv<T> for ContractsEnvAdapter<'a, 'b, T, E>
-where
-    T: pallet_subtensor::Config + pallet_contracts::Config,
-    T::AccountId: Clone,
-    E: Ext<T = T>,
-{
-    fn func_id(&self) -> u16 {
-        self.env.func_id()
-    }
-
-    fn charge_weight(&mut self, weight: Weight) -> Result<(), DispatchError> {
-        self.env.charge_weight(weight).map(|_| ())
-    }
-
-    fn read_as<U: Decode + MaxEncodedLen>(&mut self) -> Result<U, DispatchError> {
-        self.env.read_as()
-    }
-
-    fn write_output(&mut self, data: &[u8]) -> Result<(), DispatchError> {
-        self.env.write(data, false, None)
-    }
-
-    fn caller(&mut self) -> T::AccountId {
-        self.env.ext().address().clone()
-    }
-
-    fn origin(&mut self) -> pallet_contracts::Origin<T> {
-        self.env.ext().caller()
     }
 }

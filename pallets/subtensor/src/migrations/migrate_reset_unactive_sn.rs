@@ -23,6 +23,10 @@ pub fn get_unactive_sn_netuids<T: Config>(
     (unactive_netuids, weight)
 }
 
+/// Clears pending emission counters for subnets that have alpha issuance but never received a first emission block
+/// (`PendingServerEmission`, `PendingValidatorEmission`, root/owner pending cuts, and in/out emission tallies).
+///
+/// Idempotency key (frozen): `migrate_reset_unactive_sn`.
 pub fn migrate_reset_unactive_sn<T: Config>() -> Weight {
     let migration_name = b"migrate_reset_unactive_sn".to_vec();
     let mut weight: Weight = T::DbWeight::get().reads(1);

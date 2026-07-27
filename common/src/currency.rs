@@ -1,3 +1,8 @@
+//! Typed TAO and alpha balances (`TaoBalance` / `AlphaBalance`) and the shared [`Token`] trait.
+//!
+//! Both amounts are `u64` RAO-scale newtypes (1e9 = 1 whole unit). SCALE encoding matches `u64`;
+//! `TypeInfo` keeps distinct metadata paths so SDKs do not collapse them to bare integers.
+
 use core::fmt::{self, Display, Formatter};
 use core::ops::{
     Add, AddAssign, BitAnd, BitOr, BitXor, Div, DivAssign, Mul, MulAssign, Not, Rem, RemAssign,
@@ -28,7 +33,11 @@ use sp_arithmetic::traits::{
 #[cfg(feature = "std")]
 use sp_rpc::number::NumberOrHex;
 
-#[freeze_struct("fe2aa2d7fcb480e8")]
+/// Subnet alpha (subtoken) amount in RAO-scale units (`u64` newtype).
+///
+/// Distinct from [`TaoBalance`] at the type level so stake/swap APIs cannot mix TAO and alpha
+/// without an explicit conversion. SCALE-identical to `u64`.
+#[freeze_struct("20f2a04b8529989")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -50,7 +59,11 @@ use sp_rpc::number::NumberOrHex;
 )]
 pub struct AlphaBalance(u64);
 
-#[freeze_struct("a99f2483a97121fc")]
+/// Native TAO amount in RAO-scale units (`u64` newtype; 1e9 RAO = 1 TAO).
+///
+/// Implements the broad numeric surface expected by Substrate `Currency` / `Balance` bounds
+/// (`PrimInt`, checked ops, shifts). Prefer this over raw `u64` at pallet boundaries.
+#[freeze_struct("5a6e308ca46b1e42")]
 #[repr(transparent)]
 #[derive(
     Deserialize,
@@ -72,10 +85,9 @@ pub struct AlphaBalance(u64);
 )]
 pub struct TaoBalance(u64);
 
-// implements traits required by the Currency trait (ToFixed + Into<u64> + From<u64>) and CompactAs
-// and Display. It expects a wrapper structure for u64 (CurrencyT(u64)).
-// TypeInfo is derived on the structs themselves so the type identity (path) is preserved in the
-// runtime metadata, letting SDKs generate distinct TaoBalance/AlphaBalance types instead of bare u64.
+// Implements Currency-facing traits (ToFixed + Into/From<u64>), CompactAs, and Display for a
+// `CurrencyT(u64)` newtype. TypeInfo is derived on the structs themselves so the type identity
+// (path) is preserved in runtime metadata.
 macro_rules! impl_currency_reqs {
     ($currency_type:ident) => {
         impl $currency_type {
@@ -293,6 +305,10 @@ macro_rules! impl_approx {
     };
 }
 
+/// Shared numeric surface for [`TaoBalance`] and [`AlphaBalance`] (AMM reserves, stake math).
+///
+/// Deliberately does not unify the two currency types into one enum: call sites must pick TAO
+/// or alpha explicitly via the concrete type parameter.
 pub trait Token:
     ToFixed
     + Into<u64>
@@ -308,26 +324,33 @@ pub trait Token:
     + Zero
     + One
 {
+    /// Maximum representable amount (`u64::MAX` RAO).
     const MAX: Self;
+    /// Zero amount.
     const ZERO: Self;
 
+    /// Inner RAO amount as `u64`.
     fn to_u64(&self) -> u64 {
         (*self).into()
     }
 
+    /// Saturating addition in RAO units.
     fn saturating_add(&self, rhv: Self) -> Self {
         Into::<u64>::into(*self).saturating_add(rhv.into()).into()
     }
 
+    /// Saturating division in RAO units.
     #[allow(clippy::arithmetic_side_effects)]
     fn saturating_div(&self, rhv: Self) -> Self {
         Into::<u64>::into(*self).saturating_div(rhv.into()).into()
     }
 
+    /// Saturating subtraction in RAO units.
     fn saturating_sub(&self, rhv: Self) -> Self {
         Into::<u64>::into(*self).saturating_sub(rhv.into()).into()
     }
 
+    /// Saturating multiplication in RAO units.
     fn saturating_mul(&self, rhv: Self) -> Self {
         Into::<u64>::into(*self).saturating_mul(rhv.into()).into()
     }
@@ -703,6 +726,7 @@ impl Into<NumberOrHex> for TaoBalance {
     }
 }
 
+/// `Get<TaoBalance>` wrapper for const RAO amounts in runtime configs (`ConstTao::<N>`).
 pub struct ConstTao<const N: u64>;
 
 impl<const N: u64> Get<TaoBalance> for ConstTao<N> {

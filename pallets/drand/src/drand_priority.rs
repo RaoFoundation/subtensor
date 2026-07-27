@@ -1,3 +1,5 @@
+//! Transaction extension that raises mempool priority for unsigned [`Call::write_pulse`].
+
 use crate::{Call, Config};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::dispatch::{DispatchInfo, PostDispatchInfo};
@@ -14,9 +16,13 @@ use sp_runtime::transaction_validity::{
 use sp_std::marker::PhantomData;
 use subtensor_macros::freeze_struct;
 
+/// Runtime call type alias used by [`DrandPriority`].
 pub type RuntimeCallFor<T> = <T as frame_system::Config>::RuntimeCall;
 
-#[freeze_struct("d0d094192bd6390e")]
+/// Signed-extension marker that bumps priority when the call is [`Call::write_pulse`].
+///
+/// Does not alter other calls; weight is currently zero pending a dedicated benchmark.
+#[freeze_struct("fafde7074128b670")]
 #[derive(Default, Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo)]
 pub struct DrandPriority<T: Config + Send + Sync + TypeInfo>(pub PhantomData<T>);
 
@@ -27,11 +33,13 @@ impl<T: Config + Send + Sync + TypeInfo> sp_std::fmt::Debug for DrandPriority<T>
 }
 
 impl<T: Config + Send + Sync + TypeInfo> DrandPriority<T> {
+    /// Construct the extension (stateless; `PhantomData` only).
     pub fn new() -> Self {
         Self(PhantomData)
     }
 
-    fn get_drand_priority() -> TransactionPriority {
+    /// Fixed priority applied to `write_pulse` in `validate`.
+    fn unsigned_write_pulse_priority() -> TransactionPriority {
         10_000u64
     }
 }
@@ -66,7 +74,7 @@ where
         match call.is_sub_type() {
             Some(Call::write_pulse { .. }) => {
                 let validity = ValidTransaction {
-                    priority: Self::get_drand_priority(),
+                    priority: Self::unsigned_write_pulse_priority(),
                     ..Default::default()
                 };
 

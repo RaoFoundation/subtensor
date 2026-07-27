@@ -1,14 +1,13 @@
-//! Compare two weights.rs files and report benchmark-level drift.
+//! Compare two generated `weights.rs` files and report per-benchmark weight/proof drift.
 //!
-//! Parses both files with `syn`, extracts per-function weight data including
-//! base values, proof sizes, and parameterized slopes, then compares the whole
-//! generated weight/proof across the benchmarked component ranges with a
-//! configurable percentage threshold.
+//! Binary name: `weight-compare`. Parses both files with `syn`, extracts per-function
+//! `WeightInfo` data (base ref-time, proof size, storage IO, component slopes/ranges), then
+//! evaluates total weight/proof at component-range corners against a percentage threshold.
 //!
 //! Exit codes:
-//! 0 — all within threshold
-//! 1 — error
-//! 2 — drift exceeds threshold
+//! - 0 — all benchmarks within threshold
+//! - 1 — parse/IO error
+//! - 2 — drift exceeds `--threshold` (default 40%)
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -275,14 +274,17 @@ fn signed_pct(old: u128, new: u128) -> f64 {
     }
 }
 
+/// Worst-case signed ref-time percent drift across component-range corners.
 fn max_ref_time_drift(old: &WeightValues, new: &WeightValues) -> Drift {
     max_benchmark_drift(old, new, DriftMetric::RefTime)
 }
 
+/// Worst-case signed proof-size percent drift across component-range corners.
 fn max_proof_size_drift(old: &WeightValues, new: &WeightValues) -> Drift {
     max_benchmark_drift(old, new, DriftMetric::ProofSize)
 }
 
+/// Max absolute percent drift of `metric` over the union of old/new component ranges.
 fn max_benchmark_drift(old: &WeightValues, new: &WeightValues, metric: DriftMetric) -> Drift {
     let ranges = comparison_ranges(old, new);
     if ranges.is_empty() {

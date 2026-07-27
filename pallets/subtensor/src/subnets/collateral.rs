@@ -271,7 +271,8 @@ impl<T: Config> Pallet<T> {
     ///
     /// Callers that also mutate registration state should wrap this in
     /// `with_transaction` so a later failure rolls the payment back.
-    pub fn pay_registration(
+    /// Burn the non-collateral share and lock/top-up miner collateral for a neuron registration.
+    pub fn pay_neuron_registration(
         netuid: NetUid,
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
@@ -280,7 +281,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let total_charge = burned_share.saturating_add(collateral_topup);
         if total_charge.is_zero() {
-            Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            Self::resnapshot_miner_collateral_after_drain(netuid, hotkey, coldkey);
             return Ok(());
         }
 
@@ -328,7 +329,7 @@ impl<T: Config> Pallet<T> {
         if total_alpha.is_zero() {
             // Dust: payment already settled via the single swap; nothing to
             // stake or remove from AlphaOut.
-            Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            Self::resnapshot_miner_collateral_after_drain(netuid, hotkey, coldkey);
             return Ok(());
         }
 
@@ -356,7 +357,7 @@ impl<T: Config> Pallet<T> {
         }
 
         if lock_alpha.is_zero() {
-            Self::resnapshot_collateral_drain(netuid, hotkey, coldkey);
+            Self::resnapshot_miner_collateral_after_drain(netuid, hotkey, coldkey);
             return Ok(());
         }
 
@@ -454,7 +455,12 @@ impl<T: Config> Pallet<T> {
 
     /// Re-snapshot a standing collateral entry's drain ratio to the subnet's
     /// current `CollateralDrainRatio`. No-op when the position has no entry.
-    fn resnapshot_collateral_drain(netuid: NetUid, hotkey: &T::AccountId, coldkey: &T::AccountId) {
+    /// After alpha drain, rewrite collateral lock state so remaining locked alpha matches stake.
+    fn resnapshot_miner_collateral_after_drain(
+        netuid: NetUid,
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) {
         MinerCollateral::<T>::mutate_exists((netuid, hotkey, coldkey), |maybe_state| {
             if let Some(state) = maybe_state {
                 state.drain_ratio = CollateralDrainRatio::<T>::get(netuid);
@@ -554,7 +560,7 @@ impl<T: Config> Pallet<T> {
             !netuid.is_root(),
             Error::<T>::RegistrationNotPermittedOnRootSubnet
         );
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         Self::ensure_subtoken_enabled(netuid)?;
         ensure!(
             Self::hotkey_account_exists(&hotkey),
@@ -671,7 +677,7 @@ impl<T: Config> Pallet<T> {
             !netuid.is_root(),
             Error::<T>::RegistrationNotPermittedOnRootSubnet
         );
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         ensure!(
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists

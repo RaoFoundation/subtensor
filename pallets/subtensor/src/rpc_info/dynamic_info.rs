@@ -1,3 +1,5 @@
+//! Per-subnet dynamic pool / emission RPC view (`DynamicInfo`).
+
 use super::*;
 extern crate alloc;
 use codec::Compact;
@@ -6,7 +8,11 @@ use substrate_fixed::types::I96F32;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 
-#[freeze_struct("cf677afa654c96a6")]
+/// Live subnet pool and emission snapshot for dynamic (non-root) subnets.
+///
+/// Built for RPC; `emission` is currently always zero (legacy field). Pool balances
+/// come from `SubnetAlphaIn` / `SubnetAlphaOut` / `SubnetTAO` and related emission maps.
+#[freeze_struct("82f520639ff75c3d")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct DynamicInfo<AccountId: TypeInfo + Encode + Decode> {
     netuid: Compact<NetUid>,
@@ -17,6 +23,7 @@ pub struct DynamicInfo<AccountId: TypeInfo + Encode + Decode> {
     tempo: Compact<u16>,
     last_step: Compact<u64>,
     blocks_since_last_step: Compact<u64>,
+    /// Legacy; always encoded as 0.
     emission: Compact<u64>,
     alpha_in: Compact<AlphaBalance>,
     alpha_out: Compact<AlphaBalance>,
@@ -25,6 +32,7 @@ pub struct DynamicInfo<AccountId: TypeInfo + Encode + Decode> {
     alpha_in_emission: Compact<AlphaBalance>,
     tao_in_emission: Compact<TaoBalance>,
     pending_alpha_emission: Compact<AlphaBalance>,
+    /// Root TAO dividends removed; always zero.
     pending_root_emission: Compact<TaoBalance>,
     subnet_volume: Compact<u128>,
     network_registered_at: Compact<u64>,
@@ -33,8 +41,9 @@ pub struct DynamicInfo<AccountId: TypeInfo + Encode + Decode> {
 }
 
 impl<T: Config> Pallet<T> {
+    /// [`DynamicInfo`] for `netuid`, or `None` if the subnet does not exist.
     pub fn get_dynamic_info(netuid: NetUid) -> Option<DynamicInfo<T::AccountId>> {
-        if !Self::if_subnet_exist(netuid) {
+        if !Self::subnet_exists(netuid) {
             return None;
         }
         let last_step: u64 = LastMechansimStepBlock::<T>::get(netuid);
@@ -72,6 +81,8 @@ impl<T: Config> Pallet<T> {
             moving_price: SubnetMovingPrice::<T>::get(netuid),
         })
     }
+
+    /// [`DynamicInfo`] for every subnet netuid, in [`Self::get_all_subnet_netuids`] order.
     pub fn get_all_dynamic_info() -> Vec<Option<DynamicInfo<T::AccountId>>> {
         let netuids = Self::get_all_subnet_netuids();
         let mut dynamic_info = Vec::<Option<DynamicInfo<T::AccountId>>>::new();

@@ -1,4 +1,4 @@
-//! Setup code for [`super::command`] which would otherwise bloat that module.
+//! Extrinsic builders and inherent data for `benchmark overhead` / extrinsic commands.
 //!
 //! Should only be used for benchmarking as it may break in other contexts.
 
@@ -18,15 +18,15 @@ use subtensor_runtime_common::{AccountId, Balance, Signature, TaoBalance};
 
 use std::{sync::Arc, time::Duration};
 
-// Generates extrinsics for the `benchmark overhead` command.
-//
-// Note: Should only be used for benchmarking.
+/// Builds `system.remark` extrinsics for the `benchmark overhead` command.
+///
+/// Note: Should only be used for benchmarking.
 pub struct RemarkBuilder {
     client: Arc<FullClient>,
 }
 
 impl RemarkBuilder {
-    // Creates a new [`Self`] from the given client.
+    /// Creates a new [`Self`] from the given client.
     pub fn new(client: Arc<FullClient>) -> Self {
         Self { client }
     }
@@ -55,9 +55,9 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for RemarkBuilder {
     }
 }
 
-// Generates `Balances::TransferKeepAlive` extrinsics for the benchmarks.
-//
-// Note: Should only be used for benchmarking.
+/// Builds `balances.transfer_keep_alive` extrinsics for extrinsic benchmarks.
+///
+/// Note: Should only be used for benchmarking.
 pub struct TransferKeepAliveBuilder {
     client: Arc<FullClient>,
     dest: AccountId,
@@ -65,7 +65,7 @@ pub struct TransferKeepAliveBuilder {
 }
 
 impl TransferKeepAliveBuilder {
-    // Creates a new [`Self`] from the given client.
+    /// Creates a new [`Self`] from the given client.
     pub fn new(client: Arc<FullClient>, dest: AccountId, value: Balance) -> Self {
         Self {
             client,
@@ -102,9 +102,9 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
     }
 }
 
-// Create a transaction using the given `call`.
-//
-// Note: Should only be used for benchmarking.
+/// Sign a runtime call into an unchecked extrinsic for benchmarking.
+///
+/// Note: Should only be used for benchmarking.
 #[allow(clippy::expect_used)]
 pub fn create_benchmark_extrinsic(
     client: &FullClient,
@@ -172,9 +172,9 @@ pub fn create_benchmark_extrinsic(
     )
 }
 
-// Generates inherent data for the `benchmark overhead` command.
-//
-// Note: Should only be used for benchmarking.
+/// Generate timestamp inherent data for the `benchmark overhead` command.
+///
+/// Note: Should only be used for benchmarking.
 pub fn inherent_benchmark_data() -> Result<InherentData> {
     let mut inherent_data = InherentData::new();
     let d = Duration::from_millis(0);

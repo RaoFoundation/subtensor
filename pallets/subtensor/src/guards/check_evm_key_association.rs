@@ -1,4 +1,4 @@
-use super::{CallOf, DispatchableOriginOf, applicable_call};
+use super::{GuardsRuntimeCallOf, RuntimeCallOriginOf, subtensor_call_if};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet};
 use frame_support::{
@@ -11,15 +11,18 @@ use sp_std::marker::PhantomData;
 
 /// Dispatch extension for EVM-key association preconditions.
 ///
-/// Signed EVM-key association calls are checked for subnet registration and
-/// cooldown before dispatch; unrelated calls and non-signed origins pass through.
+/// Signed `associate_evm_key` calls require the signer hotkey to be registered on
+/// `netuid` and outside the association cooldown; unrelated calls and non-signed
+/// origins pass through. Signature / EIP-191 validation remains in the extrinsic.
 pub struct CheckEvmKeyAssociation<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckEvmKeyAssociation<T> {
+    /// Whether this guard should charge weight / run for `call`.
     pub(crate) fn applies_to(call: &Call<T>) -> bool {
         matches!(call, Call::associate_evm_key { .. })
     }
 
+    /// Ensure `who` is registered on `netuid` and past the EVM-associate rate limit.
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::associate_evm_key { netuid, .. } => {
@@ -34,29 +37,29 @@ impl<T: Config> CheckEvmKeyAssociation<T> {
     }
 }
 
-impl<T> DispatchExtension<CallOf<T>> for CheckEvmKeyAssociation<T>
+impl<T> DispatchExtension<GuardsRuntimeCallOf<T>> for CheckEvmKeyAssociation<T>
 where
     T: Config,
-    CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
-    DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    GuardsRuntimeCallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
+    RuntimeCallOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
 
-    fn weight(call: &CallOf<T>) -> Weight {
-        applicable_call(call, Self::applies_to)
+    fn weight(call: &GuardsRuntimeCallOf<T>) -> Weight {
+        subtensor_call_if(call, Self::applies_to)
             .map(|_| <T as Config>::WeightInfo::check_evm_key_association_extension())
             .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
-        origin: &DispatchableOriginOf<T>,
-        call: &CallOf<T>,
+        origin: &RuntimeCallOriginOf<T>,
+        call: &GuardsRuntimeCallOf<T>,
     ) -> Result<Self::Pre, DispatchErrorWithPostInfo> {
         let Some(who) = origin.as_signer() else {
             return Ok(());
         };
 
-        let Some(call) = applicable_call(call, Self::applies_to) else {
+        let Some(call) = subtensor_call_if(call, Self::applies_to) else {
             return Ok(());
         };
 

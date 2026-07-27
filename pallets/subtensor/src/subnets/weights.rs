@@ -430,7 +430,7 @@ impl<T: Config> Pallet<T> {
         salt: Vec<u16>,
         version_key: u64,
     ) -> DispatchResult {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         // Calculate netuid storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 
@@ -572,7 +572,7 @@ impl<T: Config> Pallet<T> {
         salts_list: Vec<Vec<u16>>,
         version_keys: Vec<u64>,
     ) -> DispatchResult {
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
         // Calculate netuid storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
 
@@ -1027,7 +1027,7 @@ impl<T: Config> Pallet<T> {
     ) -> bool {
         let maybe_netuid_and_subid = Self::get_netuid_and_subid(netuid_index);
         if let Ok((netuid, _)) = maybe_netuid_and_subid
-            && Self::is_uid_exist_on_network(netuid, neuron_uid)
+            && Self::uid_exists_on_network(netuid, neuron_uid)
         {
             // --- 1. Ensure that the diff between current and last_set weights is greater than limit.
             let last_set_weights: u64 = Self::get_last_update_for_uid(netuid_index, neuron_uid);
@@ -1045,7 +1045,7 @@ impl<T: Config> Pallet<T> {
     /// Checks for any invalid uids on this network.
     pub fn contains_invalid_uids(netuid: NetUid, uids: &[u16]) -> bool {
         for uid in uids {
-            if !Self::is_uid_exist_on_network(netuid, *uid) {
+            if !Self::uid_exists_on_network(netuid, *uid) {
                 log::debug!(
                     "contains_invalid_uids( netuid:{netuid:?}, uid:{uids:?} does not exist on network. )"
                 );

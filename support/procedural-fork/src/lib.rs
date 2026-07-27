@@ -1,14 +1,15 @@
-//! This crate is a fork of the `frame-support-procedural` crate from
-//! `substrate/frame/support/procedural` in `polkadot-sdk`. The purpose of this fork is to
-//! re-export all parsing code from the original crate to make it accessible to other crates,
-//! since the original crate is a `proc-macro` crate and therefore cannot have any non-macro
-//! public exports. If Parity ever decides to move the parsing code to a separate crate, this
-//! fork will no longer need to exist, but right now this is the only reliable way to get
-//! access to the core parsing logic of substrate.
+//! Fork of `frame-support-procedural` that re-exports FRAME parse/expand APIs as a normal crate.
 //!
-//! Tags will be created for each major version of `polkadot-sdk` that `subtensor` relies on,
-//! on an as-needed, ad-hoc basis, and versions will matched the corresponding `polkadot-sdk`
-//! version/tag name.
+//! Upstream `frame-support-procedural` is a `proc-macro` crate, so its parsers (e.g.
+//! `construct_runtime::parse::RuntimeDeclaration`) cannot be depended on by Subtensor's
+//! workspace lints such as `RequireExplicitPalletIndex`. This fork mirrors the polkadot-sdk
+//! version Subtensor pins and exposes those internals under `procedural_fork::exports`.
+//!
+//! Prefer searching here for `construct_runtime` / `#[pallet]` expansion behavior when the
+//! lint or runtime tooling needs to understand FRAME macro input. Do not rename Substrate
+//! symbols lightly — they are compared against upstream when rebasing the fork.
+//!
+//! Tags are created ad-hoc per major `polkadot-sdk` bump Subtensor consumes.
 #![recursion_limit = "512"]
 #![allow(warnings)]
 #![allow(clippy::all)]

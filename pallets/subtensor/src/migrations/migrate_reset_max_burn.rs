@@ -3,6 +3,9 @@ use frame_support::{traits::Get, weights::Weight};
 use log;
 use scale_info::prelude::string::String;
 
+/// Resets every subnet's `MaxBurn` to 100 TAO (rao units).
+///
+/// Idempotency key (frozen): `migrate_reset_max_burn`.
 pub fn migrate_reset_max_burn<T: Config>() -> Weight {
     let migration_name = b"migrate_reset_max_burn".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

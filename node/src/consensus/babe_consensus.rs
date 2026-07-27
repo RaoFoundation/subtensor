@@ -1,3 +1,5 @@
+//! Babe [`ConsensusMechanism`] implementation with Babe RPC and Frontier-aware import.
+
 use crate::consensus::ConsensusMechanism;
 use crate::consensus::StartAuthoringParams;
 use crate::{
@@ -35,6 +37,7 @@ use stc_shield::InherentDataProvider as ShieldInherentDataProvider;
 use std::{error::Error, sync::Arc};
 use stp_shield::ShieldKeystorePtr;
 
+/// Babe consensus adapter holding Babe link / worker handles after import-queue setup.
 pub struct BabeConsensus {
     babe_link: Option<BabeLink<Block>>,
     babe_worker_handle: Option<BabeWorkerHandle<Block>>,

@@ -1,19 +1,32 @@
 use frame_support::pallet_macros::pallet_section;
 
-/// A [`pallet_section`] that defines the events for a pallet.
-/// This can later be imported into the pallet using [`import_section`].
+/// `pallet_section` defining [`Event`] for the subtensor pallet (`SubtensorModule` in runtime metadata).
+///
+/// Imported into the pallet via [`import_section`]. Variant **names and order are frozen** for
+/// metadata / client compatibility — docs only may change.
 #[pallet_section]
 mod events {
     use codec::Compact;
 
+    /// On-chain events emitted by `SubtensorModule`.
+    ///
+    /// Prefer searching variant names (e.g. `StakeAdded`, `WeightsSet`) from deposit sites or
+    /// explorers; field order for tuple variants is documented on each variant.
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// a new network is added.
+        /// A subnet was registered and added to the active set.
+        ///
+        /// Fields: `(netuid, mechid)`.
         NetworkAdded(NetUid, u16),
-        /// a network is removed.
+        /// A subnet was dissolved / removed from the active set.
+        ///
+        /// Fields: `(netuid)`.
         NetworkRemoved(NetUid),
-        /// stake has been transferred from the a coldkey account onto the hotkey staking account.
+        /// Stake was added: TAO from a coldkey was swapped into alpha and credited to a hotkey on a subnet.
+        ///
+        /// Fields: `(coldkey, hotkey, tao, alpha, netuid, fee)`.
+        /// `tao` / `alpha` are the amounts involved in the stake add; `fee` is the swap fee paid (rao).
         StakeAdded(
             T::AccountId,
             T::AccountId,
@@ -22,7 +35,9 @@ mod events {
             NetUid,
             u64,
         ),
-        /// stake has been removed from the hotkey staking account onto the coldkey account.
+        /// Stake was removed: alpha on a hotkey/subnet was swapped back to TAO and paid to the coldkey.
+        ///
+        /// Fields: `(coldkey, hotkey, tao, alpha, netuid, fee)`.
         StakeRemoved(
             T::AccountId,
             T::AccountId,
@@ -31,7 +46,9 @@ mod events {
             NetUid,
             u64,
         ),
-        /// stake has been moved from origin (hotkey, subnet ID) to destination (hotkey, subnet ID) of this amount (in TAO).
+        /// Stake was moved between hotkeys and/or subnets for the same coldkey (TAO-equivalent amount).
+        ///
+        /// Fields: `(coldkey, origin_hotkey, origin_netuid, destination_hotkey, destination_netuid, tao)`.
         StakeMoved(
             T::AccountId,
             T::AccountId,
@@ -40,257 +57,389 @@ mod events {
             NetUid,
             TaoBalance,
         ),
-        /// a caller successfully sets their weights on a subnetwork.
+        /// A neuron successfully set weights on a subnet (or mechanism index).
+        ///
+        /// Fields: `(netuid_index, uid)`.
         WeightsSet(NetUidStorageIndex, u16),
-        /// a new neuron account has been registered to the chain.
+        /// A hotkey was registered as a neuron on a subnet and assigned a uid.
+        ///
+        /// Fields: `(netuid, uid, hotkey)`.
         NeuronRegistered(NetUid, u16, T::AccountId),
-        /// multiple uids have been concurrently registered.
+        /// Multiple neurons were registered in one bulk operation.
+        ///
+        /// Fields: `(u16, u16)` — historically subnet / count style args; no active deposit site today.
         BulkNeuronsRegistered(u16, u16),
         // FIXME: Not used yet.
-        /// bulk balances have been set (placeholder: this event is currently unused).
+        /// Placeholder for a bulk-balance-set path; currently unused.
+        ///
+        /// Fields: `(u16, u16)`.
         BulkBalancesSet(u16, u16),
-        /// max allowed uids has been set for a subnetwork.
+        /// Max allowed uids (`MaxAllowedUids`) was set for a subnet.
+        ///
+        /// Fields: `(netuid, max_allowed_uids)`.
         MaxAllowedUidsSet(NetUid, u16),
-        /// max weight limit has been set for a subnet (deprecated: this event is unused).
+        /// Max weight limit was set for a subnet (deprecated: limit is now constant; event unused).
+        ///
+        /// Fields: `(netuid, max_weight_limit)`.
         #[deprecated(note = "Max weight limit is now a constant and this event is unused")]
         MaxWeightLimitSet(NetUid, u16),
-        /// the difficulty has been set for a subnet.
+        /// PoW registration difficulty was set for a subnet.
+        ///
+        /// Fields: `(netuid, difficulty)`.
         DifficultySet(NetUid, u64),
-        /// the adjustment interval is set for a subnet.
+        /// Difficulty adjustment interval (blocks) was set for a subnet.
+        ///
+        /// Fields: `(netuid, adjustment_interval)`.
         AdjustmentIntervalSet(NetUid, u16),
-        /// registration per interval is set for a subnet.
+        /// Target registrations per adjustment interval was set for a subnet.
+        ///
+        /// Fields: `(netuid, target_registrations)`.
         RegistrationPerIntervalSet(NetUid, u16),
-        /// we set max registrations per block.
+        /// Max neuron registrations allowed per block was set for a subnet.
+        ///
+        /// Fields: `(netuid, max_registrations_per_block)`.
         MaxRegistrationsPerBlockSet(NetUid, u16),
-        /// an activity cutoff is set for a subnet.
+        /// Activity cutoff (blocks without update before a neuron is inactive) was set for a subnet.
+        ///
+        /// Fields: `(netuid, activity_cutoff)`.
         ActivityCutoffSet(NetUid, u16),
-        /// Rho value is set.
+        /// Consensus hyperparameter Rho was set for a subnet.
+        ///
+        /// Fields: `(netuid, rho)`.
         RhoSet(NetUid, u16),
-        /// steepness of the sigmoid used to compute alpha values.
+        /// Steepness of the sigmoid used when computing alpha values was set for a subnet.
+        ///
+        /// Fields: `(netuid, steepness)`.
         AlphaSigmoidSteepnessSet(NetUid, i16),
-        /// Kappa is set for a subnet.
+        /// Consensus hyperparameter Kappa was set for a subnet.
+        ///
+        /// Fields: `(netuid, kappa)`.
         KappaSet(NetUid, u16),
-        /// minimum allowed weight is set for a subnet.
+        /// Minimum allowed weight value was set for a subnet.
+        ///
+        /// Fields: `(netuid, min_allowed_weight)`.
         MinAllowedWeightSet(NetUid, u16),
-        /// the validator pruning length has been set.
+        /// Validator pruning length was set for a subnet.
+        ///
+        /// Fields: `(netuid, validator_prune_len)`.
         ValidatorPruneLenSet(NetUid, u64),
-        /// the scaling law power has been set for a subnet.
+        /// Scaling-law power hyperparameter was set for a subnet.
+        ///
+        /// Fields: `(netuid, scaling_law_power)`.
         ScalingLawPowerSet(NetUid, u16),
-        /// weights set rate limit has been set for a subnet.
+        /// Rate limit (blocks) between weight-set extrinsics was set for a subnet.
+        ///
+        /// Fields: `(netuid, rate_limit)`.
         WeightsSetRateLimitSet(NetUid, u64),
-        /// immunity period is set for a subnet.
+        /// Immunity period (blocks) for newly registered neurons was set for a subnet.
+        ///
+        /// Fields: `(netuid, immunity_period)`.
         ImmunityPeriodSet(NetUid, u16),
-        /// bonds moving average is set for a subnet.
+        /// Bonds moving-average hyperparameter was set for a subnet.
+        ///
+        /// Fields: `(netuid, bonds_moving_average)`.
         BondsMovingAverageSet(NetUid, u64),
-        /// bonds penalty is set for a subnet.
+        /// Bonds penalty hyperparameter was set for a subnet.
+        ///
+        /// Fields: `(netuid, bonds_penalty)`.
         BondsPenaltySet(NetUid, u16),
-        /// bonds reset is set for a subnet.
+        /// Whether bonds reset on weight set was configured for a subnet.
+        ///
+        /// Fields: `(netuid, bonds_reset_on)`.
         BondsResetOnSet(NetUid, bool),
-        /// setting the max number of allowed validators on a subnet.
+        /// Max allowed validators on a subnet was set.
+        ///
+        /// Fields: `(netuid, max_allowed_validators)`.
         MaxAllowedValidatorsSet(NetUid, u16),
-        /// the axon server information is added to the network.
+        /// Axon (serve) endpoint metadata was published for a hotkey on a subnet.
+        ///
+        /// Fields: `(netuid, hotkey)`.
         AxonServed(NetUid, T::AccountId),
-        /// the prometheus server information is added to the network.
+        /// Prometheus endpoint metadata was published for a hotkey on a subnet.
+        ///
+        /// Fields: `(netuid, hotkey)`.
         PrometheusServed(NetUid, T::AccountId),
-        /// a hotkey has become a delegate.
+        /// A hotkey became a delegate (nominatable) with the given take.
+        ///
+        /// Fields: `(coldkey, hotkey, take)`.
         DelegateAdded(T::AccountId, T::AccountId, PerU16),
-        /// the default take is set.
+        /// Global default delegate take was set.
+        ///
+        /// Fields: `(default_take)`.
         DefaultTakeSet(PerU16),
-        /// weights version key is set for a network.
+        /// Weights version key required by a subnet was set.
+        ///
+        /// Fields: `(netuid, weights_version_key)`.
         WeightsVersionKeySet(NetUid, u64),
-        /// setting min difficulty on a network.
+        /// Minimum PoW difficulty for a subnet was set.
+        ///
+        /// Fields: `(netuid, min_difficulty)`.
         MinDifficultySet(NetUid, u64),
-        /// setting max difficulty on a network.
+        /// Maximum PoW difficulty for a subnet was set.
+        ///
+        /// Fields: `(netuid, max_difficulty)`.
         MaxDifficultySet(NetUid, u64),
-        /// setting the prometheus serving rate limit.
+        /// Rate limit for axon/prometheus serve updates was set for a subnet.
+        ///
+        /// Fields: `(netuid, serving_rate_limit)`.
         ServingRateLimitSet(NetUid, u64),
-        /// setting burn on a network.
+        /// Current registration burn (TAO) was set for a subnet.
+        ///
+        /// Fields: `(netuid, burn)`.
         BurnSet(NetUid, TaoBalance),
-        /// setting max burn on a network.
+        /// Maximum registration burn (TAO) was set for a subnet.
+        ///
+        /// Fields: `(netuid, max_burn)`.
         MaxBurnSet(NetUid, TaoBalance),
-        /// setting min burn on a network.
+        /// Minimum registration burn (TAO) was set for a subnet.
+        ///
+        /// Fields: `(netuid, min_burn)`.
         MinBurnSet(NetUid, TaoBalance),
-        /// setting the per-block epoch cap (dynamic tempo throttle).
+        /// Per-block cap on how many subnet epochs may run (dynamic tempo throttle) was set.
+        ///
+        /// Fields: `(max_epochs_per_block)`.
         MaxEpochsPerBlockSet(u8),
-        /// setting the transaction rate limit.
+        /// Global transaction rate limit was set.
+        ///
+        /// Fields: `(tx_rate_limit)`.
         TxRateLimitSet(u64),
-        /// setting the delegate take transaction rate limit.
+        /// Rate limit for delegate-take changes was set.
+        ///
+        /// Fields: `(tx_delegate_take_rate_limit)`.
         TxDelegateTakeRateLimitSet(u64),
-        /// setting the childkey take transaction rate limit.
+        /// Rate limit for childkey-take changes was set.
+        ///
+        /// Fields: `(tx_childkey_take_rate_limit)`.
         TxChildKeyTakeRateLimitSet(u64),
-        /// setting the admin freeze window length (last N blocks of tempo)
+        /// Admin freeze window length (last N blocks of a tempo where owner admin calls are frozen) was set.
+        ///
+        /// Fields: `(admin_freeze_window)`.
         AdminFreezeWindowSet(u16),
-        /// setting the owner hyperparameter rate limit in epochs
+        /// Owner hyperparameter rate limit, measured in epochs, was set.
+        ///
+        /// Fields: `(owner_hyperparam_rate_limit_epochs)`.
         OwnerHyperparamRateLimitSet(u16),
-        /// minimum childkey take set
+        /// Global minimum childkey take was set.
+        ///
+        /// Fields: `(min_childkey_take)`.
         MinChildKeyTakeSet(PerU16),
-        /// subnet-specific minimum childkey take set
+        /// Per-subnet minimum childkey take was set.
+        ///
+        /// Fields: `(netuid, min_childkey_take)`.
         MinChildKeyTakePerSubnetSet(NetUid, PerU16),
-        /// maximum childkey take set
+        /// Global maximum childkey take was set.
+        ///
+        /// Fields: `(max_childkey_take)`.
         MaxChildKeyTakeSet(PerU16),
-        /// childkey take set
+        /// Childkey take for a specific hotkey was set.
+        ///
+        /// Fields: `(hotkey, childkey_take)`.
         ChildKeyTakeSet(T::AccountId, PerU16),
-        /// a sudo call is done.
+        /// A privileged sudo call finished with the given dispatch result.
+        ///
+        /// Fields: `(result)`.
         Sudid(DispatchResult),
-        /// registration is allowed/disallowed for a subnet.
+        /// Whether normal (non-PoW) registration is allowed was toggled for a subnet.
+        ///
+        /// Fields: `(netuid, registration_allowed)`.
         RegistrationAllowed(NetUid, bool),
-        /// POW registration is allowed/disallowed for a subnet.
+        /// Whether PoW registration is allowed was toggled for a subnet.
+        ///
+        /// Fields: `(netuid, pow_registration_allowed)`.
         PowRegistrationAllowed(NetUid, bool),
-        /// setting tempo on a network
+        /// Subnet tempo (blocks per epoch) was set.
+        ///
+        /// Fields: `(netuid, tempo)`.
         TempoSet(NetUid, u16),
-        /// setting the RAO recycled for registration.
+        /// RAO recycled into the subnet pool on registration was set.
+        ///
+        /// Fields: `(netuid, rao_recycled)`.
         RAORecycledForRegistrationSet(NetUid, TaoBalance),
-        /// min stake is set for validators to set weights.
+        /// Minimum stake threshold required for validators to set weights was set.
+        ///
+        /// Fields: `(stake_threshold)`.
         StakeThresholdSet(u64),
-        /// setting the adjustment alpha on a subnet.
+        /// Difficulty adjustment alpha was set for a subnet.
+        ///
+        /// Fields: `(netuid, adjustment_alpha)`.
         AdjustmentAlphaSet(NetUid, u64),
-        /// the faucet it called on the test net.
+        /// Testnet faucet credited free balance to an account.
+        ///
+        /// Fields: `(coldkey, balance_added)`.
         Faucet(T::AccountId, u64),
-        /// the subnet owner cut is set.
+        /// Global subnet-owner cut of emissions was set.
+        ///
+        /// Fields: `(subnet_owner_cut)`.
         SubnetOwnerCutSet(u16),
-        /// the network creation rate limit is set.
+        /// Minimum blocks between network registrations was set.
+        ///
+        /// Fields: `(network_rate_limit)`.
         NetworkRateLimitSet(u64),
-        /// the network immunity period is set.
+        /// Network immunity period (blocks a new subnet is immune from deregistration) was set.
+        ///
+        /// Fields: `(network_immunity_period)`.
         NetworkImmunityPeriodSet(u64),
-        /// the start call delay is set.
+        /// Delay before `start_call` may enable emissions on a new subnet was set.
+        ///
+        /// Fields: `(start_call_delay)`.
         StartCallDelaySet(u64),
-        /// the network minimum locking cost is set.
+        /// Minimum TAO lock cost to register a new subnet was set.
+        ///
+        /// Fields: `(network_min_lock_cost)`.
         NetworkMinLockCostSet(TaoBalance),
-        /// the maximum number of subnets is set
+        /// Maximum number of subnets was set.
+        ///
+        /// Fields: `(subnet_limit)`.
         SubnetLimitSet(u16),
-        /// the lock cost reduction is set
+        /// Interval over which network lock cost decays was set.
+        ///
+        /// Fields: `(lock_cost_reduction_interval)`.
         NetworkLockCostReductionIntervalSet(u64),
-        /// the take for a delegate is decreased.
+        /// A delegate decreased its take.
+        ///
+        /// Fields: `(coldkey, hotkey, take)`.
         TakeDecreased(T::AccountId, T::AccountId, PerU16),
-        /// the take for a delegate is increased.
+        /// A delegate increased its take.
+        ///
+        /// Fields: `(coldkey, hotkey, take)`.
         TakeIncreased(T::AccountId, T::AccountId, PerU16),
-        /// the hotkey is swapped
+        /// A coldkey swapped its associated hotkey globally.
         HotkeySwapped {
-            /// the account ID of coldkey
+            /// Coldkey that owns the hotkey association.
             coldkey: T::AccountId,
-            /// the account ID of old hotkey
+            /// Hotkey being replaced.
             old_hotkey: T::AccountId,
-            /// the account ID of new hotkey
+            /// Hotkey that replaces `old_hotkey`.
             new_hotkey: T::AccountId,
         },
-        /// maximum delegate take is set by sudo/admin transaction
+        /// Maximum delegate take was set via sudo/admin.
+        ///
+        /// Fields: `(max_delegate_take)`.
         MaxDelegateTakeSet(PerU16),
-        /// minimum delegate take is set by sudo/admin transaction
+        /// Minimum delegate take was set via sudo/admin.
+        ///
+        /// Fields: `(min_delegate_take)`.
         MinDelegateTakeSet(PerU16),
-        /// A coldkey swap announcement has been made.
+        /// A coldkey announced an intent to swap to a new coldkey (commitment by hash).
         ColdkeySwapAnnounced {
-            /// The account ID of the coldkey that made the announcement.
+            /// Coldkey that made the announcement.
             who: T::AccountId,
-            /// The hash of the new coldkey.
+            /// Hash commitment of the new coldkey.
             new_coldkey_hash: T::Hash,
         },
-        /// A coldkey swap has been reset.
+        /// A pending coldkey swap announcement was reset for an account.
         ColdkeySwapReset {
-            /// The account ID of the coldkey for which the swap has been reset.
+            /// Coldkey whose swap announcement was cleared/reset.
             who: T::AccountId,
         },
-        /// A coldkey has been swapped.
+        /// A coldkey swap completed; ownership moved from `old_coldkey` to `new_coldkey`.
         ColdkeySwapped {
-            /// The account ID of old coldkey.
+            /// Previous coldkey.
             old_coldkey: T::AccountId,
-            /// The account ID of new coldkey.
+            /// New coldkey that now owns the accounts/stake.
             new_coldkey: T::AccountId,
         },
-        /// A coldkey swap has been disputed.
+        /// A coldkey swap was disputed during the arbitration window.
         ColdkeySwapDisputed {
-            /// The account ID of the coldkey that was disputed.
+            /// Coldkey whose swap was disputed.
             coldkey: T::AccountId,
         },
-        /// All balance of a hotkey has been unstaked and transferred to a new coldkey
+        /// All balance of a hotkey was unstaked and transferred to a new coldkey during a swap path.
         AllBalanceUnstakedAndTransferredToNewColdkey {
-            /// The account ID of the current coldkey
+            /// Coldkey that previously owned the funds.
             current_coldkey: T::AccountId,
-            /// The account ID of the new coldkey
+            /// Coldkey that received the unstaked balance.
             new_coldkey: T::AccountId,
-            /// The total balance of the hotkey
+            /// Total free balance transferred.
             total_balance: <<T as Config>::Currency as fungible::Inspect<
                 <T as frame_system::Config>::AccountId,
             >>::Balance,
         },
-        /// The arbitration period has been extended
+        /// The arbitration period for a coldkey swap was extended.
         ArbitrationPeriodExtended {
-            /// The account ID of the coldkey
+            /// Coldkey whose arbitration window was extended.
             coldkey: T::AccountId,
         },
-        /// Setting of children of a hotkey have been scheduled
+        /// Setting children of a parent hotkey was scheduled (cooldown before it takes effect).
+        ///
+        /// Fields: `(hotkey, netuid, cooldown_block, children)` where each child is `(proportion, child_hotkey)`.
         SetChildrenScheduled(T::AccountId, NetUid, u64, Vec<(u64, T::AccountId)>),
-        /// The children of a hotkey have been set
+        /// Children of a parent hotkey were applied on a subnet.
+        ///
+        /// Fields: `(hotkey, netuid, children)` where each child is `(proportion, child_hotkey)`.
         SetChildren(T::AccountId, NetUid, Vec<(u64, T::AccountId)>),
         // /// The hotkey emission tempo has been set
         // HotkeyEmissionTempoSet(u64),
         // /// The network maximum stake has been set
         // NetworkMaxStakeSet(u16, u64),
-        /// The identity of a coldkey has been set
+        /// On-chain identity for a coldkey was set or updated.
+        ///
+        /// Fields: `(coldkey)`.
         ChainIdentitySet(T::AccountId),
-        /// The identity of a subnet has been set
+        /// On-chain identity metadata for a subnet was set or updated.
+        ///
+        /// Fields: `(netuid)`.
         SubnetIdentitySet(NetUid),
-        /// The identity of a subnet has been removed
+        /// On-chain identity metadata for a subnet was removed.
+        ///
+        /// Fields: `(netuid)`.
         SubnetIdentityRemoved(NetUid),
-        /// A dissolve network extrinsic scheduled.
+        /// Dissolving a subnet was scheduled for a future block.
         DissolveNetworkScheduled {
-            /// The account ID schedule the dissolve network extrinsic
+            /// Account that scheduled the dissolve.
             account: T::AccountId,
-            /// network ID will be dissolved
+            /// Subnet that will be dissolved.
             netuid: NetUid,
-            /// extrinsic execution block number
+            /// Block at which the dissolve extrinsic executes.
             execution_block: BlockNumberFor<T>,
         },
-        /// The coldkey swap announcement delay has been set.
+        /// Delay between coldkey-swap announcement and execution was set.
+        ///
+        /// Fields: `(announcement_delay)`.
         ColdkeySwapAnnouncementDelaySet(BlockNumberFor<T>),
-        /// The coldkey swap reannouncement delay has been set.
+        /// Delay required before re-announcing a coldkey swap was set.
+        ///
+        /// Fields: `(reannouncement_delay)`.
         ColdkeySwapReannouncementDelaySet(BlockNumberFor<T>),
-        /// The duration of dissolve network has been set
+        /// Duration used when scheduling network dissolve was set.
+        ///
+        /// Fields: `(schedule_duration)`.
         DissolveNetworkScheduleDurationSet(BlockNumberFor<T>),
-        /// Commit-reveal v3 weights have been successfully committed.
+        /// Commit-reveal v3 weights were committed (hash only; reveal comes later).
         ///
-        /// * **who**: The account ID of the user committing the weights.
-        /// * **netuid**: The network identifier.
-        /// * **commit_hash**: The hash representing the committed weights.
+        /// Fields: `(who, netuid_index, commit_hash)`.
         CRV3WeightsCommitted(T::AccountId, NetUidStorageIndex, H256),
-        /// Weights have been successfully committed.
+        /// Weights were committed under the commit-reveal flow (hash only).
         ///
-        /// * **who**: The account ID of the user committing the weights.
-        /// * **netuid**: The network identifier.
-        /// * **commit_hash**: The hash representing the committed weights.
+        /// Fields: `(who, netuid_index, commit_hash)`.
         WeightsCommitted(T::AccountId, NetUidStorageIndex, H256),
 
-        /// Weights have been successfully revealed.
+        /// Previously committed weights were revealed on-chain.
         ///
-        /// * **who**: The account ID of the user revealing the weights.
-        /// * **netuid**: The network identifier.
-        /// * **commit_hash**: The hash of the revealed weights.
+        /// Fields: `(who, netuid_index, commit_hash)`.
         WeightsRevealed(T::AccountId, NetUidStorageIndex, H256),
 
-        /// Weights have been successfully batch revealed.
+        /// Multiple previously committed weight sets were revealed in one batch.
         ///
-        /// * **who**: The account ID of the user revealing the weights.
-        /// * **netuid**: The network identifier.
-        /// * **revealed_hashes**: A vector of hashes representing each revealed weight set.
+        /// Fields: `(who, netuid, revealed_hashes)`.
         WeightsBatchRevealed(T::AccountId, NetUid, Vec<H256>),
 
-        /// A batch of weights (or commits) have been force-set.
+        /// A batch of weight sets / commits completed successfully for the listed netuids.
         ///
-        /// * **netuids**: The netuids these weights were successfully set/committed for.
-        /// * **who**: The hotkey that set this batch.
+        /// Fields: `(netuids, hotkey)`.
         BatchWeightsCompleted(Vec<Compact<NetUid>>, T::AccountId),
 
-        /// A batch extrinsic completed but with some errors.
+        /// A batch weight extrinsic finished but at least one item failed (see `BatchWeightItemFailed`).
         BatchCompletedWithErrors(),
 
-        /// A weight set among a batch of weights failed.
+        /// One item inside a batch weight set/commit failed.
         ///
-        /// * **netuid**: The netuid of the batch item that failed.
-        /// * **error**: The dispatch error emitted by the failed item.
+        /// Fields: `(netuid, error)`.
         BatchWeightItemFailed(NetUid, sp_runtime::DispatchError),
 
-        /// Stake has been transferred from one coldkey to another on the same subnet.
-        /// Parameters:
-        /// (origin_coldkey, destination_coldkey, hotkey, origin_netuid, destination_netuid, amount)
+        /// Stake was transferred from one coldkey to another (same hotkey; subnets may differ).
+        ///
+        /// Fields: `(origin_coldkey, destination_coldkey, hotkey, origin_netuid, destination_netuid, tao)`.
         StakeTransferred(
             T::AccountId,
             T::AccountId,
@@ -300,348 +449,329 @@ mod events {
             TaoBalance,
         ),
 
-        /// Stake has been swapped from one subnet to another for the same coldkey-hotkey pair.
+        /// Stake was swapped from one subnet to another for the same coldkey–hotkey pair.
         ///
-        /// Parameters:
-        /// (coldkey, hotkey, origin_netuid, destination_netuid, amount)
+        /// Fields: `(coldkey, hotkey, origin_netuid, destination_netuid, tao)`.
         StakeSwapped(T::AccountId, T::AccountId, NetUid, NetUid, TaoBalance),
 
-        /// Event called when transfer is toggled on a subnet.
+        /// Stake transfer to/from a subnet was enabled or disabled.
         ///
-        /// Parameters:
-        /// (netuid, bool)
+        /// Fields: `(netuid, transfers_enabled)`.
         TransferToggle(NetUid, bool),
 
-        /// The owner hotkey for a subnet has been set.
+        /// Owner hotkey for a subnet was set (hotkey authorized for owner actions).
         ///
-        /// Parameters:
-        /// (netuid, new_hotkey)
+        /// Fields: `(netuid, owner_hotkey)`.
         SubnetOwnerHotkeySet(NetUid, T::AccountId),
-        /// FirstEmissionBlockNumber is set via start call extrinsic
+        /// First block at which a subnet may emit was set (typically via `start_call`).
         ///
-        /// Parameters:
-        /// netuid
-        /// block number
+        /// Fields: `(netuid, first_emission_block)`.
         FirstEmissionBlockNumberSet(NetUid, u64),
 
-        /// Alpha has been recycled, reducing AlphaOut on a subnet.
+        /// Alpha was recycled from a stake position, reducing `AlphaOut` on the subnet.
         ///
-        /// Parameters:
-        /// (coldkey, hotkey, amount, subnet_id)
+        /// Fields: `(coldkey, hotkey, alpha, netuid)`.
         AlphaRecycled(T::AccountId, T::AccountId, AlphaBalance, NetUid),
 
-        /// Alpha have been burned without reducing AlphaOut.
+        /// Alpha was burned from a stake position without reducing `AlphaOut`.
         ///
-        /// Parameters:
-        /// (coldkey, hotkey, amount, subnet_id)
+        /// Fields: `(coldkey, hotkey, alpha, netuid)`.
         AlphaBurned(T::AccountId, T::AccountId, AlphaBalance, NetUid),
 
-        /// An EVM key has been associated with a hotkey.
+        /// An EVM address was associated with a hotkey on a subnet.
         EvmKeyAssociated {
-            /// The subnet that the hotkey belongs to.
+            /// Subnet the hotkey belongs to.
             netuid: NetUid,
-            /// The hotkey associated with the EVM key.
+            /// Hotkey associated with the EVM key.
             hotkey: T::AccountId,
-            /// The EVM key being associated with the hotkey.
+            /// EVM address being associated.
             evm_key: H160,
-            /// The block where the association happened.
+            /// Block at which the association was recorded.
             block_associated: u64,
         },
 
-        /// CRV3 Weights have been successfully revealed.
+        /// Commit-reveal v3 weights were revealed for a hotkey on a subnet.
         ///
-        /// * **netuid**: The network identifier.
-        /// * **who**: The account ID of the user revealing the weights.
+        /// Fields: `(netuid, who)`.
         CRV3WeightsRevealed(NetUid, T::AccountId),
 
-        /// Commit-Reveal periods has been successfully set.
+        /// Commit-reveal reveal period (epochs) was set for a subnet.
         ///
-        /// * **netuid**: The network identifier.
-        /// * **periods**: The number of epochs before the reveal.
+        /// Fields: `(netuid, periods)`.
         CommitRevealPeriodsSet(NetUid, u64),
 
-        /// Commit-Reveal has been successfully toggled.
+        /// Commit-reveal weight setting was enabled or disabled for a subnet.
         ///
-        /// * **netuid**: The network identifier.
-        /// * **Enabled**: Is Commit-Reveal enabled.
+        /// Fields: `(netuid, enabled)`.
         CommitRevealEnabled(NetUid, bool),
 
-        /// the hotkey is swapped
+        /// A coldkey swapped its hotkey association on a single subnet only.
         HotkeySwappedOnSubnet {
-            /// the account ID of coldkey
+            /// Coldkey that owns the association.
             coldkey: T::AccountId,
-            /// the account ID of old hotkey
+            /// Hotkey being replaced on this subnet.
             old_hotkey: T::AccountId,
-            /// the account ID of new hotkey
+            /// Replacement hotkey on this subnet.
             new_hotkey: T::AccountId,
-            /// the subnet ID
+            /// Subnet where the hotkey association changed.
             netuid: NetUid,
         },
-        /// A subnet lease has been created.
+        /// A subnet lease was created for a beneficiary.
         SubnetLeaseCreated {
-            /// The beneficiary of the lease.
+            /// Beneficiary of the lease.
             beneficiary: T::AccountId,
-            /// The lease ID
+            /// Lease identifier.
             lease_id: LeaseId,
-            /// The subnet ID
+            /// Leased subnet.
             netuid: NetUid,
-            /// The end block of the lease
+            /// Optional end block; `None` means open-ended until terminated.
             end_block: Option<BlockNumberFor<T>>,
         },
 
-        /// A subnet lease has been terminated.
+        /// A subnet lease was terminated.
         SubnetLeaseTerminated {
-            /// The beneficiary of the lease.
+            /// Former beneficiary of the lease.
             beneficiary: T::AccountId,
-            /// The subnet ID
+            /// Subnet whose lease ended.
             netuid: NetUid,
         },
 
-        /// The symbol for a subnet has been updated.
+        /// Token symbol metadata for a subnet was updated.
         SymbolUpdated {
-            /// The subnet ID
+            /// Subnet whose symbol changed.
             netuid: NetUid,
-            /// The symbol that has been updated.
+            /// New symbol bytes.
             symbol: Vec<u8>,
         },
 
-        /// Commit Reveal Weights version has been updated.
+        /// Required commit-reveal protocol version was set globally.
         ///
-        /// * **version**: The required version.
+        /// Fields: `(version)`.
         CommitRevealVersionSet(u16),
 
-        /// Timelocked weights have been successfully committed.
+        /// Timelocked weights were committed (reveal allowed at `reveal_round`).
         ///
-        /// * **who**: The account ID of the user committing the weights.
-        /// * **netuid**: The network identifier.
-        /// * **commit_hash**: The hash representing the committed weights.
-        /// * **reveal_round**: The round at which weights can be revealed.
+        /// Fields: `(who, netuid_index, commit_hash, reveal_round)`.
         TimelockedWeightsCommitted(T::AccountId, NetUidStorageIndex, H256, u64),
 
-        /// Timelocked Weights have been successfully revealed.
+        /// Timelocked weights were revealed.
         ///
-        /// * **netuid**: The network identifier.
-        /// * **who**: The account ID of the user revealing the weights.
+        /// Fields: `(netuid_index, who)`.
         TimelockedWeightsRevealed(NetUidStorageIndex, T::AccountId),
 
-        /// Auto-staking hotkey received stake
+        /// Auto-staking path credited alpha incentive to a destination hotkey.
         AutoStakeAdded {
-            /// Subnet identifier.
+            /// Subnet of the auto-stake.
             netuid: NetUid,
             /// Destination account that received the auto-staked funds.
             destination: T::AccountId,
-            /// Hotkey account whose stake was auto-staked.
+            /// Hotkey whose stake was auto-staked.
             hotkey: T::AccountId,
-            /// Owner (coldkey) account associated with the hotkey.
+            /// Owner coldkey associated with the hotkey.
             owner: T::AccountId,
-            /// Amount of alpha auto-staked.
+            /// Amount of alpha auto-staked (incentive).
             incentive: AlphaBalance,
         },
 
-        /// End-of-epoch miner incentive alpha by UID
+        /// End-of-epoch miner incentive alpha was emitted, indexed by uid.
         IncentiveAlphaEmittedToMiners {
-            /// Subnet identifier.
+            /// Subnet (mechanism) index for this emission.
             netuid: NetUidStorageIndex,
-            /// UID-indexed array of miner incentive alpha; index equals UID.
+            /// UID-indexed miner incentive alpha; vector index equals uid.
             emissions: Vec<AlphaBalance>,
         },
 
-        /// The minimum allowed UIDs for a subnet have been set.
+        /// Minimum allowed uids for a subnet was set.
+        ///
+        /// Fields: `(netuid, min_allowed_uids)`.
         MinAllowedUidsSet(NetUid, u16),
 
-        /// The auto stake destination has been set.
-        ///
-        /// * **coldkey**: The account ID of the coldkey.
-        /// * **netuid**: The network identifier.
-        /// * **hotkey**: The account ID of the hotkey.
+        /// Auto-stake destination hotkey was set for a coldkey on a subnet.
         AutoStakeDestinationSet {
-            /// The account ID of the coldkey.
+            /// Coldkey configuring the destination.
             coldkey: T::AccountId,
-            /// The network identifier.
+            /// Subnet the destination applies to.
             netuid: NetUid,
-            /// The account ID of the hotkey.
+            /// Hotkey that will receive auto-staked funds.
             hotkey: T::AccountId,
         },
 
-        /// The minimum allowed non-Immune UIDs has been set.
+        /// Minimum number of non-immune uids required on a subnet was set.
+        ///
+        /// Fields: `(netuid, min_non_immune_uids)`.
         MinNonImmuneUidsSet(NetUid, u16),
-        /// Root emissions have been claimed for a coldkey on all subnets and hotkeys.
-        /// Parameters:
-        /// (coldkey)
+        /// Root emissions were claimed for a coldkey across its subnets/hotkeys.
         RootClaimed {
-            /// Claim coldkey
+            /// Coldkey that claimed root emissions.
             coldkey: T::AccountId,
         },
 
-        /// Root claim type for a coldkey has been set.
-        /// Parameters:
-        /// (coldkey, u8)
+        /// Root claim type for a coldkey was configured.
         RootClaimTypeSet {
-            /// Claim coldkey
+            /// Coldkey whose claim type changed.
             coldkey: T::AccountId,
 
-            /// Claim type
+            /// Selected root claim type.
             root_claim_type: RootClaimTypeEnum,
         },
 
-        /// Voting power tracking has been enabled for a subnet.
+        /// Voting-power tracking was enabled for a subnet.
         VotingPowerTrackingEnabled {
-            /// The subnet ID
+            /// Subnet where tracking started.
             netuid: NetUid,
         },
 
-        /// Voting power tracking has been scheduled for disabling.
-        /// Tracking will continue until disable_at_block, then stop and clear entries.
+        /// Voting-power tracking disable was scheduled; tracking continues until `disable_at_block`.
         VotingPowerTrackingDisableScheduled {
-            /// The subnet ID
+            /// Subnet whose tracking will stop.
             netuid: NetUid,
-            /// Block at which tracking will be disabled
+            /// Block at which tracking disables and entries clear.
             disable_at_block: u64,
         },
 
-        /// Voting power tracking has been fully disabled and entries cleared.
+        /// Voting-power tracking was fully disabled and entries cleared for a subnet.
         VotingPowerTrackingDisabled {
-            /// The subnet ID
+            /// Subnet where tracking stopped.
             netuid: NetUid,
         },
 
-        /// Voting power EMA alpha has been set for a subnet.
+        /// Voting-power EMA alpha was set for a subnet (`u64` with 18-decimal fixed-point precision).
         VotingPowerEmaAlphaSet {
-            /// The subnet ID
+            /// Subnet whose EMA alpha changed.
             netuid: NetUid,
-            /// The new alpha value (u64 with 18 decimal precision)
+            /// New alpha value (u64 with 18 decimal precision).
             alpha: u64,
         },
 
-        /// Subnet lease dividends have been distributed.
+        /// Subnet lease dividends (alpha) were distributed to a contributor.
         SubnetLeaseDividendsDistributed {
-            /// The lease ID
+            /// Lease that paid the dividend.
             lease_id: LeaseId,
-            /// The contributor
+            /// Contributor receiving alpha.
             contributor: T::AccountId,
-            /// The amount of alpha distributed
+            /// Alpha amount distributed.
             alpha: AlphaBalance,
         },
 
-        /// "Add stake and burn" event: alpha token was purchased and burned.
+        /// Add-stake-and-burn: TAO was used to buy alpha that was then burned.
         AddStakeBurn {
-            /// The subnet ID
+            /// Subnet where alpha was purchased and burned.
             netuid: NetUid,
-            /// hotky account ID
+            /// Hotkey path used for the stake/burn.
             hotkey: T::AccountId,
-            /// Tao provided
+            /// TAO provided as input.
             amount: TaoBalance,
-            /// Alpha burned
+            /// Alpha that was burned.
             alpha: AlphaBalance,
         },
 
-        /// data for a dissolved network has been cleaned up.
+        /// Deferred cleanup of storage for a dissolved subnet completed.
         NetworkDissolveCleanupCompleted {
-            /// The subnet ID
+            /// Dissolved subnet whose residual maps were cleaned.
             netuid: NetUid,
         },
 
-        /// A coldkey swap announcement has been cleared.
+        /// A coldkey swap announcement was cleared without completing the swap.
         ColdkeySwapCleared {
-            /// The account ID of the coldkey that cleared the announcement.
+            /// Coldkey that cleared its announcement.
             who: T::AccountId,
         },
 
-        /// Transaction fee was paid in Alpha.
+        /// A transaction fee was paid in alpha (in addition to any TAO fee accounting).
         ///
-        /// Emitted in addition to `TransactionFeePaid` when the fee payment path is Alpha.
-        /// `alpha_fee` is the exact Alpha amount deducted.
+        /// Emitted alongside fee payment when the fee path uses alpha; `alpha_fee` is the exact
+        /// alpha deducted and `tao_amount` is the TAO-equivalent from the swap.
         TransactionFeePaidWithAlpha {
-            /// Account that paid the transaction fee.
+            /// Account that paid the fee.
             who: T::AccountId,
-            /// Netuid
+            /// Subnet whose alpha was used to pay the fee.
             netuid: NetUid,
-            /// Exact fee deducted in Alpha units.
+            /// Exact fee deducted in alpha.
             alpha_fee: AlphaBalance,
-            /// Resulting swapped TAO amount
+            /// TAO amount obtained from swapping the alpha fee.
             tao_amount: TaoBalance,
         },
-        /// Burn half-life set for neuron registration.
+        /// Registration burn half-life was set for a subnet.
         BurnHalfLifeSet {
-            /// The subnet identifier.
+            /// Subnet whose burn half-life changed.
             netuid: NetUid,
-            /// The burn half-life value for neuron registration.
+            /// Burn half-life used by the registration burn schedule.
             burn_half_life: u16,
         },
 
-        /// Burn increase multiplier set for neuron registration.
+        /// Registration burn increase multiplier was set for a subnet.
         BurnIncreaseMultSet {
-            /// The subnet identifier.
+            /// Subnet whose burn increase multiplier changed.
             netuid: NetUid,
-            /// The burn increase multiplier value for neuron registration.
+            /// Multiplier applied when increasing registration burn.
             burn_increase_mult: U64F64,
         },
 
-        /// A root validator toggled the "auto parent delegation" flag.
+        /// A root validator toggled auto parent-delegation.
         AutoParentDelegationEnabledSet {
-            /// The validator hotkey.
+            /// Validator hotkey whose flag changed.
             hotkey: T::AccountId,
-            /// Whether delegation is now enabled.
+            /// Whether auto parent-delegation is now enabled.
             enabled: bool,
         },
 
-        /// Stake has been locked to a hotkey on a subnet.
+        /// Stake (alpha) was locked to a hotkey on a subnet.
         StakeLocked {
-            /// The coldkey that locked the stake.
+            /// Coldkey that locked the stake.
             coldkey: T::AccountId,
-            /// The hotkey the stake is locked to.
+            /// Hotkey the stake is locked to.
             hotkey: T::AccountId,
-            /// The subnet the stake is locked on.
+            /// Subnet the stake is locked on.
             netuid: NetUid,
-            /// The alpha amount locked.
+            /// Alpha amount locked.
             amount: AlphaBalance,
         },
 
-        /// Stake has been unlocked from a hotkey on a subnet.
+        /// Previously locked stake (alpha) was unlocked from a hotkey on a subnet.
         StakeUnlocked {
-            /// The coldkey that unlocked the stake.
+            /// Coldkey that unlocked the stake.
             coldkey: T::AccountId,
-            /// The hotkey the stake was locked to.
+            /// Hotkey the stake was locked to.
             hotkey: T::AccountId,
-            /// The subnet the stake was locked on.
+            /// Subnet the stake was locked on.
             netuid: NetUid,
-            /// The alpha amount unlocked.
+            /// Alpha amount unlocked.
             amount: AlphaBalance,
         },
 
-        /// Stake has been unlocked from a hotkey on a subnet.
+        /// A stake lock was moved from one hotkey to another on the same subnet (same coldkey).
         LockMoved {
-            /// The coldkey that moved the lock.
+            /// Coldkey that moved the lock.
             coldkey: T::AccountId,
-            /// The hotkey the lock was moved from.
+            /// Hotkey the lock was moved from.
             origin_hotkey: T::AccountId,
-            /// The hotkey the lock was moved to.
+            /// Hotkey the lock was moved to.
             destination_hotkey: T::AccountId,
-            /// The subnet the lock is on.
+            /// Subnet the lock remains on.
             netuid: NetUid,
         },
 
-        /// Activity-cutoff factor (per-mille) set on a subnet by its owner.
+        /// Activity-cutoff factor (per-mille) was set on a subnet by its owner.
         ActivityCutoffFactorMilliSet {
-            /// The subnet identifier.
+            /// Subnet whose activity-cutoff factor changed.
             netuid: NetUid,
-            /// Factor (per-mille).
+            /// Factor in per-mille.
             factor_milli: u32,
         },
 
-        /// Owner manually triggered an epoch for their subnet.
+        /// Subnet owner manually triggered an epoch; execution is deferred until `fires_at`.
         EpochTriggered {
-            /// The subnet identifier.
+            /// Subnet whose epoch was triggered.
             netuid: NetUid,
-            /// The account that triggered the epoch.
+            /// Account that triggered the epoch.
             by: T::AccountId,
-            /// The earliest block at which the triggered epoch may execute.
+            /// Earliest block at which the triggered epoch may execute.
             fires_at: u64,
         },
 
-        /// An epoch slot was deferred to the next block due to the per-block epoch cap.
+        /// An epoch slot was deferred to a later block due to the per-block epoch cap.
         EpochDeferred {
-            /// The subnet identifier.
+            /// Subnet whose epoch was deferred.
             netuid: NetUid,
             /// Block at which the epoch was originally scheduled.
             from_block: u64,
@@ -649,86 +779,86 @@ mod events {
             to_block: u64,
         },
 
-        /// Epoch execution skipped by `is_epoch_input_state_consistent` returned false or other errors.
+        /// An epoch slot was skipped (e.g. inconsistent input state or other execution error).
         EpochSkipped {
-            /// The subnet identifier.
+            /// Subnet whose epoch was skipped.
             netuid: NetUid,
-            /// The block at which the slot was consumed.
+            /// Block at which the slot was consumed without running the epoch.
             block: u64,
         },
 
-        /// Subnet ownership was reassigned by lock conviction.
+        /// Subnet ownership was reassigned (e.g. via lock conviction).
         SubnetOwnerChanged {
-            /// The subnet whose owner changed.
+            /// Subnet whose owner changed.
             netuid: NetUid,
-            /// The previous owner coldkey.
+            /// Previous owner coldkey.
             old_coldkey: T::AccountId,
-            /// The new owner coldkey.
+            /// New owner coldkey.
             new_coldkey: T::AccountId,
         },
 
-        /// A coldkey's perpetual lock flag was updated.
+        /// A coldkey's perpetual-lock flag was updated for a subnet.
         PerpetualLockUpdated {
-            /// The coldkey whose flag changed.
+            /// Coldkey whose flag changed.
             coldkey: T::AccountId,
-            /// The subnet whose coldkey flag changed.
+            /// Subnet the flag applies to.
             netuid: NetUid,
-            /// Whether this coldkey's locks are now perpetual.
+            /// Whether this coldkey's locks on the subnet are now perpetual.
             enabled: bool,
         },
 
-        /// A network registration cost has been queued.
+        /// A network registration was queued (pending activation / later materialization).
         NetworkRegistrationQueued {
-            /// The network registration information.
+            /// Coldkey that paid / owns the registration.
             coldkey: T::AccountId,
-            /// The hotkey that registered the network.
+            /// Hotkey supplied at registration.
             hotkey: T::AccountId,
-            /// The mechanism that registered the network.
+            /// Mechanism id used for the registration.
             mechid: u16,
-            /// The identity that registered the network.
+            /// Optional subnet identity attached at registration.
             identity: Option<SubnetIdentityOfV3>,
-            /// The lock amount that registered the network.
+            /// TAO locked for the registration.
             lock_amount: TaoBalance,
-            /// The median subnet alpha price that registered the network.
+            /// Median subnet alpha price snapshot used for pricing.
             median_subnet_alpha_price: U64F64,
-            /// The block at which the network was registered.
+            /// Block at which the registration was queued.
             registration_block: u64,
         },
 
-        /// A coldkey's reject locked alpha account flag was updated.
+        /// A coldkey toggled whether it rejects incoming locked alpha.
         RejectLockedAlphaUpdated {
-            /// The coldkey whose flag changed.
+            /// Coldkey whose flag changed.
             coldkey: T::AccountId,
             /// Whether this coldkey rejects incoming locked alpha.
             enabled: bool,
         },
 
-        /// Stake has been transferred from one coldkey to another, landing on a
-        /// different hotkey (and optionally a different subnet).
+        /// Stake was transferred from one coldkey to another, landing on a different hotkey
+        /// (and optionally a different subnet).
         StakeAndHotkeyTransferred {
-            /// The coldkey the stake left.
+            /// Coldkey the stake left.
             origin_coldkey: T::AccountId,
-            /// The coldkey that now owns the stake.
+            /// Coldkey that now owns the stake.
             destination_coldkey: T::AccountId,
-            /// The hotkey the stake left.
+            /// Hotkey the stake left.
             origin_hotkey: T::AccountId,
-            /// The hotkey the stake landed on.
+            /// Hotkey the stake landed on.
             destination_hotkey: T::AccountId,
-            /// The subnet the stake left.
+            /// Subnet the stake left.
             origin_netuid: NetUid,
-            /// The subnet the stake landed on.
+            /// Subnet the stake landed on.
             destination_netuid: NetUid,
-            /// The TAO-equivalent amount moved.
+            /// TAO-equivalent amount moved.
             amount: TaoBalance,
         },
 
-        /// Miner collateral was staked and locked (at registration or via
-        /// `add_collateral`). Appended at the end of the enum to avoid
-        /// shifting existing event indices.
+        /// Miner collateral was staked and locked (at registration or via `add_collateral`).
+        ///
+        /// Appended at the end of the enum so existing event indices stay stable.
         CollateralLocked {
             /// Subnet identifier.
             netuid: NetUid,
-            /// The miner hotkey the collateral is attached to.
+            /// Miner hotkey the collateral is attached to.
             hotkey: T::AccountId,
             /// Alpha locked by this operation.
             locked: AlphaBalance,
@@ -740,9 +870,9 @@ mod events {
         MinCollateralSet {
             /// Subnet identifier.
             netuid: NetUid,
-            /// The miner hotkey the floor applies to.
+            /// Miner hotkey the floor applies to.
             hotkey: T::AccountId,
-            /// The new floor; zero clears it.
+            /// New floor; zero clears it.
             min_locked: AlphaBalance,
         },
     }

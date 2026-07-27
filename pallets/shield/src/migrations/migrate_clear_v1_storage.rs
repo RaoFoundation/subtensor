@@ -1,9 +1,15 @@
-use super::*;
+//! One-shot clear of removed MevShield v1 maps and reset of [`CurrentKey`].
+
+use crate::{Config, CurrentKey, HasMigrationRun};
+use frame_support::pallet_prelude::{BoundedVec, Get, Weight};
 use frame_support::storage::unhashed;
 use scale_info::prelude::string::String;
 use sp_io::hashing::twox_128;
 
 /// Clears removed v1 storage items (`Submissions`, `KeyHashByBlock`) and resets `CurrentKey`.
+///
+/// Idempotent via [`HasMigrationRun`] key `"migrate_clear_v1_storage"`. Does not touch
+/// [`NextKey`] / [`AuthorKeys`]. Storage prefix is the runtime pallet name `MevShield`.
 pub fn migrate_clear_v1_storage<T: Config>() -> Weight {
     let migration_name = b"migrate_clear_v1_storage".to_vec();
     let bounded_name = BoundedVec::truncate_from(migration_name.clone());

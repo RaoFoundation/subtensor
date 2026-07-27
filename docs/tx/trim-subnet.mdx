@@ -83,7 +83,7 @@ pub fn sudo_trim_to_max_allowed_uids(
     netuid: NetUid,
     max_n: u16,
 ) -> DispatchResult {
-    let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+    let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_subnet_owner_or_root_with_limits(
         origin.clone(),
         netuid,
         &[TransactionType::MaxUidsTrimming],
@@ -92,7 +92,7 @@ pub fn sudo_trim_to_max_allowed_uids(
 
     pallet_subtensor::Pallet::<T>::trim_to_max_allowed_uids(netuid, max_n)?;
 
-    pallet_subtensor::Pallet::<T>::record_owner_rl(
+    pallet_subtensor::Pallet::<T>::record_owner_rate_limits(
         maybe_owner,
         netuid,
         &[TransactionType::MaxUidsTrimming],

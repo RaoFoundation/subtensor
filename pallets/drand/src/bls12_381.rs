@@ -14,22 +14,21 @@
  * limitations under the License.
  */
 
+//! Optimized BLS12-381 pairing check used by [`crate::verifier::QuicknetVerifier`].
+
 use ark_ec::pairing::Pairing;
 use ark_std::{Zero, ops::Neg};
 use sp_crypto_ec_utils::bls12_381::{
     Bls12_381 as Bls12_381Opt, G1Affine as G1AffineOpt, G2Affine as G2AffineOpt,
 };
 
-/// An optimized way to verify Drand pulses from quicket
-/// Instead of computing two pairings and comparing them, we instead compute a multi miller loop,
-/// and then take the final exponentiation, saving a lot of computational cost.
+/// Return true iff `$e(signature, q) == e(r, s)$` via one multi-Miller loop + final exp.
 ///
-/// This function is also inlined as a way to optimize performance.
-///
-/// * `signature`:
-/// * `q`:
-/// * `msg_on_curve`: The message signed by Drand, hashed to G1
-/// * `p_pub`: The beacon public key
+/// Cheaper than two separate pairings. Arguments for Quicknet verification:
+/// * `signature` — pulse signature in G1
+/// * `q` — G2 generator
+/// * `r` — hash-to-curve of the round message in G1
+/// * `s` — beacon public key in G2
 #[inline]
 pub fn fast_pairing_opt(
     signature: G1AffineOpt,

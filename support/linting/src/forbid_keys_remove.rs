@@ -1,9 +1,14 @@
+//! Ban `Keys::<T>::remove(netuid, uid)` — it can break the dense neuron uid sequence.
+//!
+//! Prefer `SubtensorModule::replace_neuron()` when swapping neurons. Opt out with `#[allow(unknown_lints)]`.
+
 use super::*;
 use syn::{
     Expr, ExprCall, ExprPath, File, Path, punctuated::Punctuated, spanned::Spanned, token::Comma,
     visit::Visit,
 };
 
+/// Lint: reject `Keys::<T>::remove(netuid, uid)` calls that can corrupt neuron ordering.
 pub struct ForbidKeysRemoveCall;
 
 impl Lint for ForbidKeysRemoveCall {

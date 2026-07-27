@@ -15,7 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Implementation of `construct_runtime`.
+//! Implementation of `construct_runtime!` (parse + expand).
+//!
+//! Subtensor's `RequireExplicitPalletIndex` lint parses the same input via
+//! `exports::construct_runtime::parse::RuntimeDeclaration` so pallet indices stay explicit.
 //!
 //! `construct_runtime` implementation is recursive and can generate code which will call itself in
 //! order to get all the pallet parts for each pallet.

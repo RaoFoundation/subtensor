@@ -3,6 +3,9 @@ use crate::HasMigrationRun;
 use frame_support::{traits::Get, weights::Weight};
 use scale_info::prelude::string::String;
 
+/// Writes `FirstEmissionBlockNumber` to the current block for every non-root subnet missing that marker.
+///
+/// Idempotency key (frozen): `migrate_set_first_emission_block_number`.
 pub fn migrate_set_first_emission_block_number<T: Config>() -> Weight {
     let migration_name = b"migrate_set_first_emission_block_number".to_vec();
 

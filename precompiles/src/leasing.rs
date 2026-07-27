@@ -1,3 +1,9 @@
+//! Subnet leasing precompile (`INDEX` 2058).
+//!
+//! Reads lease/share state and creates lease crowdloans that embed
+//! `register_leased_network` as the crowdloan `call`. `terminateLease` transfers
+//! subnet ownership after the lease ends.
+
 use alloc::{boxed::Box, string::String};
 use core::marker::PhantomData;
 
@@ -17,6 +23,7 @@ use subtensor_runtime_common::NetUid;
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
+/// EVM surface for subnet leases and lease-crowdloan creation.
 pub struct LeasingPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for LeasingPrecompile<R>
@@ -71,16 +78,17 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
+    /// Lease record for `lease_id`, or error if missing.
     #[precompile::public("getLease(uint32)")]
     #[precompile::view]
-    fn get_lease(handle: &mut impl PrecompileHandle, lease_id: u32) -> EvmResult<LeaseInfo> {
+    fn get_lease(handle: &mut impl PrecompileHandle, lease_id: u32) -> EvmResult<EvmLeaseInfo> {
         handle.record_db_reads::<R>(1)?;
         let lease =
             pallet_subtensor::SubnetLeases::<R>::get(lease_id).ok_or(PrecompileFailure::Error {
                 exit_status: ExitError::Other("Lease not found".into()),
             })?;
 
-        Ok(LeaseInfo {
+        Ok(EvmLeaseInfo {
             beneficiary: H256::from_slice(lease.beneficiary.as_slice()),
             coldkey: H256::from_slice(lease.coldkey.as_slice()),
             hotkey: H256::from_slice(lease.hotkey.as_slice()),
@@ -95,6 +103,7 @@ where
         })
     }
 
+    /// Contributor share bits `(int, frac)` for `(lease_id, contributor)`.
     #[precompile::public("getContributorShare(uint32,bytes32)")]
     #[precompile::view]
     fn get_contributor_share(
@@ -109,6 +118,7 @@ where
         Ok((share.int().to_bits(), share.frac().to_bits()))
     }
 
+    /// Lease id owning `netuid`, or error if the subnet is not leased.
     #[precompile::public("getLeaseIdForSubnet(uint16)")]
     #[precompile::view]
     fn get_lease_id_for_subnet(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u32> {
@@ -122,6 +132,7 @@ where
         Ok(lease_id.into())
     }
 
+    /// Creates a crowdloan whose success call is `register_leased_network`.
     #[precompile::public("createLeaseCrowdloan(uint64,uint64,uint64,uint32,uint8,bool,uint32)")]
     #[precompile::payable]
     #[allow(clippy::too_many_arguments)]
@@ -164,6 +175,7 @@ where
         handle.try_dispatch_runtime_call::<R, _>(crowdloan_call, RawOrigin::Signed(who))
     }
 
+    /// Terminates an ended lease and transfers subnet ownership along the beneficiary path.
     #[precompile::public("terminateLease(uint32,bytes32)")]
     #[precompile::payable]
     fn terminate_lease(
@@ -179,8 +191,9 @@ where
     }
 }
 
+/// Solidity-encoded lease snapshot for `getLease` (ABI field order frozen).
 #[derive(Codec)]
-struct LeaseInfo {
+struct EvmLeaseInfo {
     beneficiary: H256,
     coldkey: H256,
     hotkey: H256,
@@ -216,11 +229,11 @@ mod tests {
     const LEASING_END_BLOCK: u32 = 80;
     const ACCOUNT_BALANCE: u64 = 1_000;
 
-    fn expected_lease_info(lease_id: u32) -> LeaseInfo {
+    fn expected_lease_info(lease_id: u32) -> EvmLeaseInfo {
         let lease =
             pallet_subtensor::SubnetLeases::<Runtime>::get(lease_id).expect("lease should exist");
 
-        LeaseInfo {
+        EvmLeaseInfo {
             beneficiary: H256::from_slice(lease.beneficiary.as_slice()),
             coldkey: H256::from_slice(lease.coldkey.as_slice()),
             hotkey: H256::from_slice(lease.hotkey.as_slice()),
@@ -232,7 +245,7 @@ mod tests {
         }
     }
 
-    fn get_lease(caller: H160, lease_id: u32, expected: LeaseInfo) {
+    fn get_lease(caller: H160, lease_id: u32, expected: EvmLeaseInfo) {
         let precompile_addr = addr_from_index(LeasingPrecompile::<Runtime>::INDEX);
 
         precompiles::<LeasingPrecompile<Runtime>>()

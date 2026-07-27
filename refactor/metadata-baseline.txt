@@ -1,0 +1,1259 @@
+sha256:ee98fab009eb2df9483086ea63196d0d426521c1859673d75b8b4b004b481d7f
+
+# subtensor frozen-surface fingerprint (docs stripped)
+# tiers: storage, call, event, error, runtime, precompile, rpc, runtime_api
+storage	pallets/admin-utils/src/lib.rs	PrecompileEnable
+storage	pallets/crowdloan/src/lib.rs	Contributions
+storage	pallets/crowdloan/src/lib.rs	Crowdloans
+storage	pallets/crowdloan/src/lib.rs	CurrentCrowdloanId
+storage	pallets/crowdloan/src/lib.rs	HasMigrationRun
+storage	pallets/crowdloan/src/lib.rs	MaxContributions
+storage	pallets/crowdloan/src/lib.rs	NextCrowdloanId
+storage	pallets/drand/src/lib.rs	BeaconConfig
+storage	pallets/drand/src/lib.rs	HasMigrationRun
+storage	pallets/drand/src/lib.rs	LastStoredRound
+storage	pallets/drand/src/lib.rs	NextUnsignedAt
+storage	pallets/drand/src/lib.rs	OldestStoredRound
+storage	pallets/drand/src/lib.rs	Pulses
+storage	pallets/limit-orders/src/lib.rs	HasMigrationRun
+storage	pallets/limit-orders/src/lib.rs	LimitOrdersEnabled
+storage	pallets/limit-orders/src/lib.rs	Orders
+storage	pallets/proxy/src/lib.rs	Announcements
+storage	pallets/proxy/src/lib.rs	LastCallResult
+storage	pallets/proxy/src/lib.rs	Proxies
+storage	pallets/proxy/src/lib.rs	RealPaysFee
+storage	pallets/shield/src/lib.rs	AuthorKeys
+storage	pallets/shield/src/lib.rs	CurrentKey
+storage	pallets/shield/src/lib.rs	ExtrinsicLifetime
+storage	pallets/shield/src/lib.rs	HasMigrationRun
+storage	pallets/shield/src/lib.rs	MaxExtrinsicWeight
+storage	pallets/shield/src/lib.rs	MaxPendingExtrinsicsLimit
+storage	pallets/shield/src/lib.rs	NextKey
+storage	pallets/shield/src/lib.rs	NextKeyExpiresAt
+storage	pallets/shield/src/lib.rs	NextPendingExtrinsicIndex
+storage	pallets/shield/src/lib.rs	OnInitializeWeight
+storage	pallets/shield/src/lib.rs	PendingExtrinsics
+storage	pallets/shield/src/lib.rs	PendingKey
+storage	pallets/shield/src/lib.rs	PendingKeyExpiresAt
+storage	pallets/subtensor/src/lib.rs	AccountFlags
+storage	pallets/subtensor/src/lib.rs	AccumulatedLeaseDividends
+storage	pallets/subtensor/src/lib.rs	Active
+storage	pallets/subtensor/src/lib.rs	ActivityCutoff
+storage	pallets/subtensor/src/lib.rs	ActivityCutoffFactorMilli
+storage	pallets/subtensor/src/lib.rs	AdjustmentAlpha
+storage	pallets/subtensor/src/lib.rs	AdjustmentInterval
+storage	pallets/subtensor/src/lib.rs	AdminFreezeWindow
+storage	pallets/subtensor/src/lib.rs	Alpha
+storage	pallets/subtensor/src/lib.rs	AlphaDividendsPerSubnet
+storage	pallets/subtensor/src/lib.rs	AlphaMapLastKey
+storage	pallets/subtensor/src/lib.rs	AlphaSigmoidSteepness
+storage	pallets/subtensor/src/lib.rs	AlphaV2
+storage	pallets/subtensor/src/lib.rs	AlphaV2MapLastKey
+storage	pallets/subtensor/src/lib.rs	AlphaValues
+storage	pallets/subtensor/src/lib.rs	AssociatedEvmAddress
+storage	pallets/subtensor/src/lib.rs	AssociatedUidsByEvmAddress
+storage	pallets/subtensor/src/lib.rs	AutoParentDelegationEnabled
+storage	pallets/subtensor/src/lib.rs	AutoStakeDestination
+storage	pallets/subtensor/src/lib.rs	AutoStakeDestinationColdkeys
+storage	pallets/subtensor/src/lib.rs	Axons
+storage	pallets/subtensor/src/lib.rs	BlockAtRegistration
+storage	pallets/subtensor/src/lib.rs	BlockEmission
+storage	pallets/subtensor/src/lib.rs	BlocksSinceLastStep
+storage	pallets/subtensor/src/lib.rs	Bonds
+storage	pallets/subtensor/src/lib.rs	BondsMovingAverage
+storage	pallets/subtensor/src/lib.rs	BondsPenalty
+storage	pallets/subtensor/src/lib.rs	BondsResetOn
+storage	pallets/subtensor/src/lib.rs	Burn
+storage	pallets/subtensor/src/lib.rs	BurnHalfLife
+storage	pallets/subtensor/src/lib.rs	BurnIncreaseMult
+storage	pallets/subtensor/src/lib.rs	BurnRegistrationsThisInterval
+storage	pallets/subtensor/src/lib.rs	CKBurn
+storage	pallets/subtensor/src/lib.rs	CRV3WeightCommits
+storage	pallets/subtensor/src/lib.rs	CRV3WeightCommitsV2
+storage	pallets/subtensor/src/lib.rs	ChildKeys
+storage	pallets/subtensor/src/lib.rs	ChildkeyTake
+storage	pallets/subtensor/src/lib.rs	ColdkeyCollateralHotkeys
+storage	pallets/subtensor/src/lib.rs	ColdkeyMinerCollateral
+storage	pallets/subtensor/src/lib.rs	ColdkeyRoot
+storage	pallets/subtensor/src/lib.rs	ColdkeySuccessor
+storage	pallets/subtensor/src/lib.rs	ColdkeySwapAnnouncementDelay
+storage	pallets/subtensor/src/lib.rs	ColdkeySwapAnnouncements
+storage	pallets/subtensor/src/lib.rs	ColdkeySwapDisputes
+storage	pallets/subtensor/src/lib.rs	ColdkeySwapReannouncementDelay
+storage	pallets/subtensor/src/lib.rs	CollateralDrainRatio
+storage	pallets/subtensor/src/lib.rs	CollateralLockShare
+storage	pallets/subtensor/src/lib.rs	CommitRevealWeightsEnabled
+storage	pallets/subtensor/src/lib.rs	CommitRevealWeightsVersion
+storage	pallets/subtensor/src/lib.rs	Consensus
+storage	pallets/subtensor/src/lib.rs	CurrentDissolveCleanupStatus
+storage	pallets/subtensor/src/lib.rs	DecayingHotkeyLock
+storage	pallets/subtensor/src/lib.rs	DecayingLock
+storage	pallets/subtensor/src/lib.rs	DecayingOwnerLock
+storage	pallets/subtensor/src/lib.rs	Delegates
+storage	pallets/subtensor/src/lib.rs	Difficulty
+storage	pallets/subtensor/src/lib.rs	DissolveCleanupQueue
+storage	pallets/subtensor/src/lib.rs	DissolveNetworkScheduleDuration
+storage	pallets/subtensor/src/lib.rs	Dividends
+storage	pallets/subtensor/src/lib.rs	EMAPriceHalvingBlocks
+storage	pallets/subtensor/src/lib.rs	Emission
+storage	pallets/subtensor/src/lib.rs	FirstEmissionBlockNumber
+storage	pallets/subtensor/src/lib.rs	FlowEmaSmoothingFactor
+storage	pallets/subtensor/src/lib.rs	FlowNormExponent
+storage	pallets/subtensor/src/lib.rs	HasMigrationRun
+storage	pallets/subtensor/src/lib.rs	HotkeyLock
+storage	pallets/subtensor/src/lib.rs	HotkeyRoot
+storage	pallets/subtensor/src/lib.rs	HotkeySuccessor
+storage	pallets/subtensor/src/lib.rs	IdentitiesV2
+storage	pallets/subtensor/src/lib.rs	ImmuneOwnerUidsLimit
+storage	pallets/subtensor/src/lib.rs	ImmunityPeriod
+storage	pallets/subtensor/src/lib.rs	Incentive
+storage	pallets/subtensor/src/lib.rs	IsNetworkMember
+storage	pallets/subtensor/src/lib.rs	Kappa
+storage	pallets/subtensor/src/lib.rs	Keys
+storage	pallets/subtensor/src/lib.rs	LargestLocked
+storage	pallets/subtensor/src/lib.rs	LastAdjustmentBlock
+storage	pallets/subtensor/src/lib.rs	LastColdkeyHotkeyStakeBlock
+storage	pallets/subtensor/src/lib.rs	LastEpochBlock
+storage	pallets/subtensor/src/lib.rs	LastHotkeyEmissionOnNetuid
+storage	pallets/subtensor/src/lib.rs	LastHotkeySwapOnNetuid
+storage	pallets/subtensor/src/lib.rs	LastMechansimStepBlock
+storage	pallets/subtensor/src/lib.rs	LastRateLimitedBlock
+storage	pallets/subtensor/src/lib.rs	LastTxBlock
+storage	pallets/subtensor/src/lib.rs	LastTxBlockChildKeyTake
+storage	pallets/subtensor/src/lib.rs	LastTxBlockDelegateTake
+storage	pallets/subtensor/src/lib.rs	LastUpdate
+storage	pallets/subtensor/src/lib.rs	LiquidAlphaOn
+storage	pallets/subtensor/src/lib.rs	LoadedEmission
+storage	pallets/subtensor/src/lib.rs	Lock
+storage	pallets/subtensor/src/lib.rs	LockingColdkeys
+storage	pallets/subtensor/src/lib.rs	MaturityRate
+storage	pallets/subtensor/src/lib.rs	MaxAllowedUids
+storage	pallets/subtensor/src/lib.rs	MaxAllowedValidators
+storage	pallets/subtensor/src/lib.rs	MaxBurn
+storage	pallets/subtensor/src/lib.rs	MaxChildkeyTake
+storage	pallets/subtensor/src/lib.rs	MaxDelegateTake
+storage	pallets/subtensor/src/lib.rs	MaxDifficulty
+storage	pallets/subtensor/src/lib.rs	MaxEpochsPerBlock
+storage	pallets/subtensor/src/lib.rs	MaxMechanismCount
+storage	pallets/subtensor/src/lib.rs	MaxRegistrationsPerBlock
+storage	pallets/subtensor/src/lib.rs	MaxWeightsLimit
+storage	pallets/subtensor/src/lib.rs	MechanismCountCurrent
+storage	pallets/subtensor/src/lib.rs	MechanismEmissionSplit
+storage	pallets/subtensor/src/lib.rs	MinActivityCutoff
+storage	pallets/subtensor/src/lib.rs	MinAllowedUids
+storage	pallets/subtensor/src/lib.rs	MinAllowedWeights
+storage	pallets/subtensor/src/lib.rs	MinBurn
+storage	pallets/subtensor/src/lib.rs	MinChildkeyTake
+storage	pallets/subtensor/src/lib.rs	MinChildkeyTakePerSubnet
+storage	pallets/subtensor/src/lib.rs	MinDelegateTake
+storage	pallets/subtensor/src/lib.rs	MinDifficulty
+storage	pallets/subtensor/src/lib.rs	MinNonImmuneUids
+storage	pallets/subtensor/src/lib.rs	MinerBurned
+storage	pallets/subtensor/src/lib.rs	MinerCollateral
+storage	pallets/subtensor/src/lib.rs	NetTaoFlowEnabled
+storage	pallets/subtensor/src/lib.rs	NetworkImmunityPeriod
+storage	pallets/subtensor/src/lib.rs	NetworkLastLockCost
+storage	pallets/subtensor/src/lib.rs	NetworkLockReductionInterval
+storage	pallets/subtensor/src/lib.rs	NetworkMinLockCost
+storage	pallets/subtensor/src/lib.rs	NetworkPowRegistrationAllowed
+storage	pallets/subtensor/src/lib.rs	NetworkRateLimit
+storage	pallets/subtensor/src/lib.rs	NetworkRegisteredAt
+storage	pallets/subtensor/src/lib.rs	NetworkRegistrationAllowed
+storage	pallets/subtensor/src/lib.rs	NetworkRegistrationLockId
+storage	pallets/subtensor/src/lib.rs	NetworkRegistrationQueue
+storage	pallets/subtensor/src/lib.rs	NetworkRegistrationStartBlock
+storage	pallets/subtensor/src/lib.rs	NetworksAdded
+storage	pallets/subtensor/src/lib.rs	NeuronCertificates
+storage	pallets/subtensor/src/lib.rs	NextStakeJobId
+storage	pallets/subtensor/src/lib.rs	NextSubnetLeaseId
+storage	pallets/subtensor/src/lib.rs	NominatorMinRequiredStake
+storage	pallets/subtensor/src/lib.rs	NumRootClaim
+storage	pallets/subtensor/src/lib.rs	NumStakingColdkeys
+storage	pallets/subtensor/src/lib.rs	OwnedHotkeys
+storage	pallets/subtensor/src/lib.rs	Owner
+storage	pallets/subtensor/src/lib.rs	OwnerCutAutoLockEnabled
+storage	pallets/subtensor/src/lib.rs	OwnerCutEnabled
+storage	pallets/subtensor/src/lib.rs	OwnerHyperparamRateLimit
+storage	pallets/subtensor/src/lib.rs	OwnerLock
+storage	pallets/subtensor/src/lib.rs	POWRegistrationsThisInterval
+storage	pallets/subtensor/src/lib.rs	ParentKeys
+storage	pallets/subtensor/src/lib.rs	PendingChildKeyCooldown
+storage	pallets/subtensor/src/lib.rs	PendingChildKeys
+storage	pallets/subtensor/src/lib.rs	PendingEpochAt
+storage	pallets/subtensor/src/lib.rs	PendingOwnerCut
+storage	pallets/subtensor/src/lib.rs	PendingRootAlphaDivs
+storage	pallets/subtensor/src/lib.rs	PendingServerEmission
+storage	pallets/subtensor/src/lib.rs	PendingValidatorEmission
+storage	pallets/subtensor/src/lib.rs	Prometheus
+storage	pallets/subtensor/src/lib.rs	RAORecycledForRegistration
+storage	pallets/subtensor/src/lib.rs	RecycleOrBurn
+storage	pallets/subtensor/src/lib.rs	RegisteredSubnetCounter
+storage	pallets/subtensor/src/lib.rs	RegistrationsThisBlock
+storage	pallets/subtensor/src/lib.rs	RegistrationsThisInterval
+storage	pallets/subtensor/src/lib.rs	RevealPeriodEpochs
+storage	pallets/subtensor/src/lib.rs	Rho
+storage	pallets/subtensor/src/lib.rs	RootAlphaDividendsPerSubnet
+storage	pallets/subtensor/src/lib.rs	RootClaimType
+storage	pallets/subtensor/src/lib.rs	RootClaimable
+storage	pallets/subtensor/src/lib.rs	RootClaimableThreshold
+storage	pallets/subtensor/src/lib.rs	RootClaimed
+storage	pallets/subtensor/src/lib.rs	RootProp
+storage	pallets/subtensor/src/lib.rs	ScalingLawPower
+storage	pallets/subtensor/src/lib.rs	ServingRateLimit
+storage	pallets/subtensor/src/lib.rs	StakeThreshold
+storage	pallets/subtensor/src/lib.rs	StakeWeight
+storage	pallets/subtensor/src/lib.rs	StakingColdkeys
+storage	pallets/subtensor/src/lib.rs	StakingColdkeysByIndex
+storage	pallets/subtensor/src/lib.rs	StakingHotkeys
+storage	pallets/subtensor/src/lib.rs	StartCallDelay
+storage	pallets/subtensor/src/lib.rs	SubnetAlphaIn
+storage	pallets/subtensor/src/lib.rs	SubnetAlphaInEmission
+storage	pallets/subtensor/src/lib.rs	SubnetAlphaOut
+storage	pallets/subtensor/src/lib.rs	SubnetAlphaOutEmission
+storage	pallets/subtensor/src/lib.rs	SubnetEmaProtocolFlow
+storage	pallets/subtensor/src/lib.rs	SubnetEmaTaoFlow
+storage	pallets/subtensor/src/lib.rs	SubnetEmissionEnabled
+storage	pallets/subtensor/src/lib.rs	SubnetEpochIndex
+storage	pallets/subtensor/src/lib.rs	SubnetExcessTao
+storage	pallets/subtensor/src/lib.rs	SubnetIdentitiesV3
+storage	pallets/subtensor/src/lib.rs	SubnetLeaseShares
+storage	pallets/subtensor/src/lib.rs	SubnetLeases
+storage	pallets/subtensor/src/lib.rs	SubnetLimit
+storage	pallets/subtensor/src/lib.rs	SubnetLocked
+storage	pallets/subtensor/src/lib.rs	SubnetMechanism
+storage	pallets/subtensor/src/lib.rs	SubnetMovingAlpha
+storage	pallets/subtensor/src/lib.rs	SubnetMovingPrice
+storage	pallets/subtensor/src/lib.rs	SubnetOwner
+storage	pallets/subtensor/src/lib.rs	SubnetOwnerCut
+storage	pallets/subtensor/src/lib.rs	SubnetOwnerHotkey
+storage	pallets/subtensor/src/lib.rs	SubnetProtocolAlpha
+storage	pallets/subtensor/src/lib.rs	SubnetProtocolFlow
+storage	pallets/subtensor/src/lib.rs	SubnetRootSellTao
+storage	pallets/subtensor/src/lib.rs	SubnetTAO
+storage	pallets/subtensor/src/lib.rs	SubnetTaoFlow
+storage	pallets/subtensor/src/lib.rs	SubnetTaoInEmission
+storage	pallets/subtensor/src/lib.rs	SubnetUidToLeaseId
+storage	pallets/subtensor/src/lib.rs	SubnetVolume
+storage	pallets/subtensor/src/lib.rs	SubnetworkN
+storage	pallets/subtensor/src/lib.rs	SubtokenEnabled
+storage	pallets/subtensor/src/lib.rs	TaoFlowCutoff
+storage	pallets/subtensor/src/lib.rs	TaoInRefundDeploymentBlock
+storage	pallets/subtensor/src/lib.rs	TaoWeight
+storage	pallets/subtensor/src/lib.rs	TargetRegistrationsPerInterval
+storage	pallets/subtensor/src/lib.rs	Tempo
+storage	pallets/subtensor/src/lib.rs	TimelockedWeightCommits
+storage	pallets/subtensor/src/lib.rs	TokenSymbol
+storage	pallets/subtensor/src/lib.rs	TotalHotkeyAlpha
+storage	pallets/subtensor/src/lib.rs	TotalHotkeyAlphaLastEpoch
+storage	pallets/subtensor/src/lib.rs	TotalHotkeyShares
+storage	pallets/subtensor/src/lib.rs	TotalHotkeySharesV2
+storage	pallets/subtensor/src/lib.rs	TotalIssuance
+storage	pallets/subtensor/src/lib.rs	TotalNetworks
+storage	pallets/subtensor/src/lib.rs	TotalStake
+storage	pallets/subtensor/src/lib.rs	TransactionKeyLastBlock
+storage	pallets/subtensor/src/lib.rs	TransferToggle
+storage	pallets/subtensor/src/lib.rs	TxChildkeyTakeRateLimit
+storage	pallets/subtensor/src/lib.rs	TxDelegateTakeRateLimit
+storage	pallets/subtensor/src/lib.rs	TxRateLimit
+storage	pallets/subtensor/src/lib.rs	Uids
+storage	pallets/subtensor/src/lib.rs	UnlockRate
+storage	pallets/subtensor/src/lib.rs	UsedWork
+storage	pallets/subtensor/src/lib.rs	ValidatorPermit
+storage	pallets/subtensor/src/lib.rs	ValidatorPruneLen
+storage	pallets/subtensor/src/lib.rs	ValidatorTrust
+storage	pallets/subtensor/src/lib.rs	VotingPower
+storage	pallets/subtensor/src/lib.rs	VotingPowerDisableAtBlock
+storage	pallets/subtensor/src/lib.rs	VotingPowerEmaAlpha
+storage	pallets/subtensor/src/lib.rs	VotingPowerTrackingEnabled
+storage	pallets/subtensor/src/lib.rs	WeightCommits
+storage	pallets/subtensor/src/lib.rs	Weights
+storage	pallets/subtensor/src/lib.rs	WeightsSetRateLimit
+storage	pallets/subtensor/src/lib.rs	WeightsVersionKey
+storage	pallets/subtensor/src/lib.rs	WeightsVersionKeyRateLimit
+storage	pallets/subtensor/src/lib.rs	Yuma3On
+storage	pallets/swap/src/pallet/mod.rs	BalancerAlphaReservoir
+storage	pallets/swap/src/pallet/mod.rs	BalancerTaoReservoir
+storage	pallets/swap/src/pallet/mod.rs	FeeRate
+storage	pallets/swap/src/pallet/mod.rs	HasMigrationRun
+storage	pallets/swap/src/pallet/mod.rs	PalSwapInitialized
+storage	pallets/swap/src/pallet/mod.rs	ScrapReservoirAlpha
+storage	pallets/swap/src/pallet/mod.rs	SwapBalancer
+call	pallets/admin-utils/src/lib.rs	0	swap_authorities
+call	pallets/admin-utils/src/lib.rs	1	sudo_set_default_take
+call	pallets/admin-utils/src/lib.rs	13	sudo_set_immunity_period
+call	pallets/admin-utils/src/lib.rs	14	sudo_set_min_allowed_weights
+call	pallets/admin-utils/src/lib.rs	15	sudo_set_max_allowed_uids
+call	pallets/admin-utils/src/lib.rs	16	sudo_set_kappa
+call	pallets/admin-utils/src/lib.rs	17	sudo_set_rho
+call	pallets/admin-utils/src/lib.rs	18	sudo_set_activity_cutoff
+call	pallets/admin-utils/src/lib.rs	19	sudo_set_network_registration_allowed
+call	pallets/admin-utils/src/lib.rs	2	sudo_set_tx_rate_limit
+call	pallets/admin-utils/src/lib.rs	20	sudo_set_network_pow_registration_allowed
+call	pallets/admin-utils/src/lib.rs	21	sudo_set_target_registrations_per_interval
+call	pallets/admin-utils/src/lib.rs	22	sudo_set_min_burn
+call	pallets/admin-utils/src/lib.rs	23	sudo_set_max_burn
+call	pallets/admin-utils/src/lib.rs	24	sudo_set_difficulty
+call	pallets/admin-utils/src/lib.rs	25	sudo_set_max_allowed_validators
+call	pallets/admin-utils/src/lib.rs	26	sudo_set_bonds_moving_average
+call	pallets/admin-utils/src/lib.rs	27	sudo_set_max_registrations_per_block
+call	pallets/admin-utils/src/lib.rs	28	sudo_set_subnet_owner_cut
+call	pallets/admin-utils/src/lib.rs	29	sudo_set_network_rate_limit
+call	pallets/admin-utils/src/lib.rs	3	sudo_set_serving_rate_limit
+call	pallets/admin-utils/src/lib.rs	30	sudo_set_tempo
+call	pallets/admin-utils/src/lib.rs	33	sudo_set_total_issuance
+call	pallets/admin-utils/src/lib.rs	35	sudo_set_network_immunity_period
+call	pallets/admin-utils/src/lib.rs	36	sudo_set_network_min_lock_cost
+call	pallets/admin-utils/src/lib.rs	37	sudo_set_subnet_limit
+call	pallets/admin-utils/src/lib.rs	38	sudo_set_lock_reduction_interval
+call	pallets/admin-utils/src/lib.rs	39	sudo_set_rao_recycled
+call	pallets/admin-utils/src/lib.rs	4	sudo_set_min_difficulty
+call	pallets/admin-utils/src/lib.rs	42	sudo_set_stake_threshold
+call	pallets/admin-utils/src/lib.rs	43	sudo_set_nominator_min_required_stake
+call	pallets/admin-utils/src/lib.rs	45	sudo_set_tx_delegate_take_rate_limit
+call	pallets/admin-utils/src/lib.rs	46	sudo_set_min_delegate_take
+call	pallets/admin-utils/src/lib.rs	49	sudo_set_commit_reveal_weights_enabled
+call	pallets/admin-utils/src/lib.rs	5	sudo_set_max_difficulty
+call	pallets/admin-utils/src/lib.rs	50	sudo_set_liquid_alpha_enabled
+call	pallets/admin-utils/src/lib.rs	51	sudo_set_alpha_values
+call	pallets/admin-utils/src/lib.rs	55	sudo_set_dissolve_network_schedule_duration
+call	pallets/admin-utils/src/lib.rs	57	sudo_set_commit_reveal_weights_interval
+call	pallets/admin-utils/src/lib.rs	58	sudo_set_evm_chain_id
+call	pallets/admin-utils/src/lib.rs	59	schedule_grandpa_change
+call	pallets/admin-utils/src/lib.rs	6	sudo_set_weights_version_key
+call	pallets/admin-utils/src/lib.rs	60	sudo_set_bonds_penalty
+call	pallets/admin-utils/src/lib.rs	61	sudo_set_toggle_transfer
+call	pallets/admin-utils/src/lib.rs	62	sudo_toggle_evm_precompile
+call	pallets/admin-utils/src/lib.rs	63	sudo_set_subnet_moving_alpha
+call	pallets/admin-utils/src/lib.rs	65	sudo_set_ema_price_halving_period
+call	pallets/admin-utils/src/lib.rs	66	sudo_set_subtoken_enabled
+call	pallets/admin-utils/src/lib.rs	67	sudo_set_sn_owner_hotkey
+call	pallets/admin-utils/src/lib.rs	68	sudo_set_alpha_sigmoid_steepness
+call	pallets/admin-utils/src/lib.rs	69	sudo_set_yuma3_enabled
+call	pallets/admin-utils/src/lib.rs	7	sudo_set_weights_set_rate_limit
+call	pallets/admin-utils/src/lib.rs	70	sudo_set_bonds_reset_enabled
+call	pallets/admin-utils/src/lib.rs	71	sudo_set_commit_reveal_version
+call	pallets/admin-utils/src/lib.rs	72	sudo_set_owner_immune_neuron_limit
+call	pallets/admin-utils/src/lib.rs	73	sudo_set_ck_burn
+call	pallets/admin-utils/src/lib.rs	74	sudo_set_admin_freeze_window
+call	pallets/admin-utils/src/lib.rs	75	sudo_set_owner_hparam_rate_limit
+call	pallets/admin-utils/src/lib.rs	76	sudo_set_mechanism_count
+call	pallets/admin-utils/src/lib.rs	77	sudo_set_mechanism_emission_split
+call	pallets/admin-utils/src/lib.rs	78	sudo_trim_to_max_allowed_uids
+call	pallets/admin-utils/src/lib.rs	79	sudo_set_min_allowed_uids
+call	pallets/admin-utils/src/lib.rs	8	sudo_set_adjustment_interval
+call	pallets/admin-utils/src/lib.rs	80	sudo_set_recycle_or_burn
+call	pallets/admin-utils/src/lib.rs	81	sudo_set_tao_flow_cutoff
+call	pallets/admin-utils/src/lib.rs	82	sudo_set_tao_flow_normalization_exponent
+call	pallets/admin-utils/src/lib.rs	83	sudo_set_tao_flow_smoothing_factor
+call	pallets/admin-utils/src/lib.rs	84	sudo_set_min_non_immune_uids
+call	pallets/admin-utils/src/lib.rs	85	sudo_set_start_call_delay
+call	pallets/admin-utils/src/lib.rs	86	sudo_set_coldkey_swap_announcement_delay
+call	pallets/admin-utils/src/lib.rs	87	sudo_set_coldkey_swap_reannouncement_delay
+call	pallets/admin-utils/src/lib.rs	88	sudo_set_max_mechanism_count
+call	pallets/admin-utils/src/lib.rs	89	sudo_set_burn_half_life
+call	pallets/admin-utils/src/lib.rs	9	sudo_set_adjustment_alpha
+call	pallets/admin-utils/src/lib.rs	90	sudo_set_burn_increase_mult
+call	pallets/admin-utils/src/lib.rs	91	sudo_set_net_tao_flow_enabled
+call	pallets/admin-utils/src/lib.rs	92	sudo_set_owner_cut_enabled
+call	pallets/admin-utils/src/lib.rs	93	sudo_set_min_childkey_take_per_subnet
+call	pallets/admin-utils/src/lib.rs	94	sudo_set_subnet_emission_enabled
+call	pallets/admin-utils/src/lib.rs	95	sudo_set_owner_cut_auto_lock_enabled
+call	pallets/admin-utils/src/lib.rs	96	sudo_set_max_epochs_per_block
+call	pallets/admin-utils/src/lib.rs	97	sudo_set_activity_cutoff_factor
+call	pallets/admin-utils/src/lib.rs	98	sudo_set_collateral_lock_share
+call	pallets/admin-utils/src/lib.rs	99	sudo_set_collateral_drain_ratio
+call	pallets/commitments/src/lib.rs	0	set_commitment
+call	pallets/commitments/src/lib.rs	2	set_max_space
+call	pallets/crowdloan/src/lib.rs	0	create
+call	pallets/crowdloan/src/lib.rs	1	contribute
+call	pallets/crowdloan/src/lib.rs	2	withdraw
+call	pallets/crowdloan/src/lib.rs	3	finalize
+call	pallets/crowdloan/src/lib.rs	4	refund
+call	pallets/crowdloan/src/lib.rs	5	dissolve
+call	pallets/crowdloan/src/lib.rs	6	update_min_contribution
+call	pallets/crowdloan/src/lib.rs	7	update_end
+call	pallets/crowdloan/src/lib.rs	8	update_cap
+call	pallets/crowdloan/src/lib.rs	9	set_max_contribution
+call	pallets/drand/src/lib.rs	0	write_pulse
+call	pallets/drand/src/lib.rs	1	set_beacon_config
+call	pallets/drand/src/lib.rs	2	set_oldest_stored_round
+call	pallets/limit-orders/src/lib.rs	0	execute_orders
+call	pallets/limit-orders/src/lib.rs	1	execute_batched_orders
+call	pallets/limit-orders/src/lib.rs	2	cancel_order
+call	pallets/limit-orders/src/lib.rs	3	set_pallet_status
+call	pallets/proxy/src/lib.rs	0	proxy
+call	pallets/proxy/src/lib.rs	1	add_proxy
+call	pallets/proxy/src/lib.rs	10	poke_deposit
+call	pallets/proxy/src/lib.rs	11	set_real_pays_fee
+call	pallets/proxy/src/lib.rs	2	remove_proxy
+call	pallets/proxy/src/lib.rs	3	remove_proxies
+call	pallets/proxy/src/lib.rs	4	create_pure
+call	pallets/proxy/src/lib.rs	5	kill_pure
+call	pallets/proxy/src/lib.rs	6	announce
+call	pallets/proxy/src/lib.rs	7	remove_announcement
+call	pallets/proxy/src/lib.rs	8	reject_announcement
+call	pallets/proxy/src/lib.rs	9	proxy_announced
+call	pallets/shield/src/lib.rs	0	announce_next_key
+call	pallets/shield/src/lib.rs	1	submit_encrypted
+call	pallets/shield/src/lib.rs	2	store_encrypted
+call	pallets/shield/src/lib.rs	3	set_max_pending_extrinsics_number
+call	pallets/shield/src/lib.rs	4	set_on_initialize_weight
+call	pallets/shield/src/lib.rs	5	set_stored_extrinsic_lifetime
+call	pallets/shield/src/lib.rs	6	set_max_extrinsic_weight
+call	pallets/subtensor/src/macros/dispatches.rs	0	set_weights
+call	pallets/subtensor/src/macros/dispatches.rs	100	batch_commit_weights
+call	pallets/subtensor/src/macros/dispatches.rs	101	recycle_alpha
+call	pallets/subtensor/src/macros/dispatches.rs	102	burn_alpha
+call	pallets/subtensor/src/macros/dispatches.rs	103	remove_stake_full_limit
+call	pallets/subtensor/src/macros/dispatches.rs	109	set_pending_childkey_cooldown
+call	pallets/subtensor/src/macros/dispatches.rs	110	register_leased_network
+call	pallets/subtensor/src/macros/dispatches.rs	111	terminate_lease
+call	pallets/subtensor/src/macros/dispatches.rs	112	update_symbol
+call	pallets/subtensor/src/macros/dispatches.rs	113	commit_timelocked_weights
+call	pallets/subtensor/src/macros/dispatches.rs	114	set_coldkey_auto_stake_hotkey
+call	pallets/subtensor/src/macros/dispatches.rs	115	commit_mechanism_weights
+call	pallets/subtensor/src/macros/dispatches.rs	116	reveal_mechanism_weights
+call	pallets/subtensor/src/macros/dispatches.rs	117	commit_crv3_mechanism_weights
+call	pallets/subtensor/src/macros/dispatches.rs	118	commit_timelocked_mechanism_weights
+call	pallets/subtensor/src/macros/dispatches.rs	119	set_mechanism_weights
+call	pallets/subtensor/src/macros/dispatches.rs	120	root_dissolve_network
+call	pallets/subtensor/src/macros/dispatches.rs	121	claim_root
+call	pallets/subtensor/src/macros/dispatches.rs	122	set_root_claim_type
+call	pallets/subtensor/src/macros/dispatches.rs	123	sudo_set_num_root_claims
+call	pallets/subtensor/src/macros/dispatches.rs	124	sudo_set_root_claim_threshold
+call	pallets/subtensor/src/macros/dispatches.rs	125	announce_coldkey_swap
+call	pallets/subtensor/src/macros/dispatches.rs	126	swap_coldkey_announced
+call	pallets/subtensor/src/macros/dispatches.rs	127	dispute_coldkey_swap
+call	pallets/subtensor/src/macros/dispatches.rs	128	reset_coldkey_swap
+call	pallets/subtensor/src/macros/dispatches.rs	129	enable_voting_power_tracking
+call	pallets/subtensor/src/macros/dispatches.rs	130	disable_voting_power_tracking
+call	pallets/subtensor/src/macros/dispatches.rs	131	sudo_set_voting_power_ema_alpha
+call	pallets/subtensor/src/macros/dispatches.rs	132	add_stake_burn
+call	pallets/subtensor/src/macros/dispatches.rs	133	clear_coldkey_swap_announcement
+call	pallets/subtensor/src/macros/dispatches.rs	134	register_limit
+call	pallets/subtensor/src/macros/dispatches.rs	135	set_auto_parent_delegation_enabled
+call	pallets/subtensor/src/macros/dispatches.rs	136	lock_stake
+call	pallets/subtensor/src/macros/dispatches.rs	137	move_lock
+call	pallets/subtensor/src/macros/dispatches.rs	138	set_perpetual_lock
+call	pallets/subtensor/src/macros/dispatches.rs	139	set_tempo
+call	pallets/subtensor/src/macros/dispatches.rs	140	set_activity_cutoff_factor
+call	pallets/subtensor/src/macros/dispatches.rs	141	trigger_epoch
+call	pallets/subtensor/src/macros/dispatches.rs	142	set_reject_locked_alpha
+call	pallets/subtensor/src/macros/dispatches.rs	143	transfer_stake_and_hotkey
+call	pallets/subtensor/src/macros/dispatches.rs	144	add_collateral
+call	pallets/subtensor/src/macros/dispatches.rs	145	set_min_collateral
+call	pallets/subtensor/src/macros/dispatches.rs	2	add_stake
+call	pallets/subtensor/src/macros/dispatches.rs	3	remove_stake
+call	pallets/subtensor/src/macros/dispatches.rs	4	serve_axon
+call	pallets/subtensor/src/macros/dispatches.rs	40	serve_axon_tls
+call	pallets/subtensor/src/macros/dispatches.rs	5	serve_prometheus
+call	pallets/subtensor/src/macros/dispatches.rs	59	register_network
+call	pallets/subtensor/src/macros/dispatches.rs	6	register
+call	pallets/subtensor/src/macros/dispatches.rs	60	faucet
+call	pallets/subtensor/src/macros/dispatches.rs	61	dissolve_network
+call	pallets/subtensor/src/macros/dispatches.rs	62	root_register
+call	pallets/subtensor/src/macros/dispatches.rs	65	decrease_take
+call	pallets/subtensor/src/macros/dispatches.rs	66	increase_take
+call	pallets/subtensor/src/macros/dispatches.rs	67	set_children
+call	pallets/subtensor/src/macros/dispatches.rs	68	set_identity
+call	pallets/subtensor/src/macros/dispatches.rs	69	sudo_set_tx_childkey_take_rate_limit
+call	pallets/subtensor/src/macros/dispatches.rs	7	burned_register
+call	pallets/subtensor/src/macros/dispatches.rs	70	swap_hotkey
+call	pallets/subtensor/src/macros/dispatches.rs	71	swap_coldkey
+call	pallets/subtensor/src/macros/dispatches.rs	72	swap_hotkey_v2
+call	pallets/subtensor/src/macros/dispatches.rs	73	schedule_swap_coldkey
+call	pallets/subtensor/src/macros/dispatches.rs	75	set_childkey_take
+call	pallets/subtensor/src/macros/dispatches.rs	76	sudo_set_min_childkey_take
+call	pallets/subtensor/src/macros/dispatches.rs	77	sudo_set_max_childkey_take
+call	pallets/subtensor/src/macros/dispatches.rs	78	set_subnet_identity
+call	pallets/subtensor/src/macros/dispatches.rs	79	register_network_with_identity
+call	pallets/subtensor/src/macros/dispatches.rs	80	batch_set_weights
+call	pallets/subtensor/src/macros/dispatches.rs	83	unstake_all
+call	pallets/subtensor/src/macros/dispatches.rs	84	unstake_all_alpha
+call	pallets/subtensor/src/macros/dispatches.rs	85	move_stake
+call	pallets/subtensor/src/macros/dispatches.rs	86	transfer_stake
+call	pallets/subtensor/src/macros/dispatches.rs	87	swap_stake
+call	pallets/subtensor/src/macros/dispatches.rs	88	add_stake_limit
+call	pallets/subtensor/src/macros/dispatches.rs	89	remove_stake_limit
+call	pallets/subtensor/src/macros/dispatches.rs	90	swap_stake_limit
+call	pallets/subtensor/src/macros/dispatches.rs	91	try_associate_hotkey
+call	pallets/subtensor/src/macros/dispatches.rs	92	start_call
+call	pallets/subtensor/src/macros/dispatches.rs	93	associate_evm_key
+call	pallets/subtensor/src/macros/dispatches.rs	96	commit_weights
+call	pallets/subtensor/src/macros/dispatches.rs	97	reveal_weights
+call	pallets/subtensor/src/macros/dispatches.rs	98	batch_reveal_weights
+call	pallets/swap/src/pallet/mod.rs	0	set_fee_rate
+call	pallets/swap/src/pallet/mod.rs	1	add_liquidity
+call	pallets/swap/src/pallet/mod.rs	2	remove_liquidity
+call	pallets/swap/src/pallet/mod.rs	3	modify_position
+call	pallets/swap/src/pallet/mod.rs	4	toggle_user_liquidity
+call	pallets/swap/src/pallet/mod.rs	5	disable_lp
+call	pallets/utility/src/lib.rs	0	batch
+call	pallets/utility/src/lib.rs	1	as_derivative
+call	pallets/utility/src/lib.rs	2	batch_all
+call	pallets/utility/src/lib.rs	3	dispatch_as
+call	pallets/utility/src/lib.rs	4	force_batch
+call	pallets/utility/src/lib.rs	5	with_weight
+call	pallets/utility/src/lib.rs	6	if_else
+call	pallets/utility/src/lib.rs	7	dispatch_as_fallible
+call	pallets/utility/src/tests.rs	0	noop
+call	pallets/utility/src/tests.rs	1	foobar
+call	pallets/utility/src/tests.rs	2	big_variant
+event	pallets/admin-utils/src/lib.rs	0	PrecompileUpdated
+event	pallets/admin-utils/src/lib.rs	1	Yuma3EnableToggled
+event	pallets/admin-utils/src/lib.rs	2	BondsResetToggled
+event	pallets/admin-utils/src/lib.rs	3	BurnHalfLifeSet
+event	pallets/admin-utils/src/lib.rs	4	BurnIncreaseMultSet
+event	pallets/admin-utils/src/lib.rs	5	SubnetEmissionEnabledSet
+event	pallets/admin-utils/src/lib.rs	6	CollateralLockShareSet
+event	pallets/admin-utils/src/lib.rs	7	CollateralDrainRatioSet
+error	pallets/admin-utils/src/lib.rs	0	SubnetDoesNotExist
+error	pallets/admin-utils/src/lib.rs	1	MaxValidatorsLargerThanMaxUIds
+error	pallets/admin-utils/src/lib.rs	2	MaxAllowedUIdsLessThanCurrentUIds
+error	pallets/admin-utils/src/lib.rs	3	BondsMovingAverageMaxReached
+error	pallets/admin-utils/src/lib.rs	4	NegativeSigmoidSteepness
+error	pallets/admin-utils/src/lib.rs	5	ValueNotInBounds
+error	pallets/admin-utils/src/lib.rs	6	MinAllowedUidsGreaterThanCurrentUids
+error	pallets/admin-utils/src/lib.rs	7	MinAllowedUidsGreaterThanMaxAllowedUids
+error	pallets/admin-utils/src/lib.rs	8	MaxAllowedUidsLessThanMinAllowedUids
+error	pallets/admin-utils/src/lib.rs	9	MaxAllowedUidsGreaterThanDefaultMaxAllowedUids
+error	pallets/admin-utils/src/lib.rs	10	InvalidValue
+error	pallets/admin-utils/src/lib.rs	11	NotPermittedOnRootSubnet
+error	pallets/admin-utils/src/lib.rs	12	POWRegistrationDisabled
+error	pallets/admin-utils/src/lib.rs	13	Deprecated
+error	pallets/admin-utils/src/lib.rs	14	CollateralLockShareTooHigh
+error	pallets/admin-utils/src/lib.rs	15	CollateralDrainRatioOutOfBounds
+event	pallets/commitments/src/lib.rs	0	Commitment
+event	pallets/commitments/src/lib.rs	1	TimelockCommitment
+event	pallets/commitments/src/lib.rs	2	CommitmentRevealed
+error	pallets/commitments/src/lib.rs	0	TooManyFieldsInCommitmentInfo
+error	pallets/commitments/src/lib.rs	1	AccountNotAllowedCommit
+error	pallets/commitments/src/lib.rs	2	SpaceLimitExceeded
+error	pallets/commitments/src/lib.rs	3	UnexpectedUnreserveLeftover
+event	pallets/crowdloan/src/lib.rs	0	Created
+event	pallets/crowdloan/src/lib.rs	1	Contributed
+event	pallets/crowdloan/src/lib.rs	2	Withdrew
+event	pallets/crowdloan/src/lib.rs	3	PartiallyRefunded
+event	pallets/crowdloan/src/lib.rs	4	AllRefunded
+event	pallets/crowdloan/src/lib.rs	5	Finalized
+event	pallets/crowdloan/src/lib.rs	6	Dissolved
+event	pallets/crowdloan/src/lib.rs	7	MinContributionUpdated
+event	pallets/crowdloan/src/lib.rs	8	EndUpdated
+event	pallets/crowdloan/src/lib.rs	9	CapUpdated
+event	pallets/crowdloan/src/lib.rs	10	MaxContributionUpdated
+error	pallets/crowdloan/src/lib.rs	0	DepositTooLow
+error	pallets/crowdloan/src/lib.rs	1	CapTooLow
+error	pallets/crowdloan/src/lib.rs	2	MinimumContributionTooLow
+error	pallets/crowdloan/src/lib.rs	3	CannotEndInPast
+error	pallets/crowdloan/src/lib.rs	4	BlockDurationTooShort
+error	pallets/crowdloan/src/lib.rs	5	BlockDurationTooLong
+error	pallets/crowdloan/src/lib.rs	6	InsufficientBalance
+error	pallets/crowdloan/src/lib.rs	7	Overflow
+error	pallets/crowdloan/src/lib.rs	8	InvalidCrowdloanId
+error	pallets/crowdloan/src/lib.rs	9	CapRaised
+error	pallets/crowdloan/src/lib.rs	10	ContributionPeriodEnded
+error	pallets/crowdloan/src/lib.rs	11	ContributionTooLow
+error	pallets/crowdloan/src/lib.rs	12	InvalidOrigin
+error	pallets/crowdloan/src/lib.rs	13	AlreadyFinalized
+error	pallets/crowdloan/src/lib.rs	14	AlreadyFinalizing
+error	pallets/crowdloan/src/lib.rs	15	ContributionPeriodNotEnded
+error	pallets/crowdloan/src/lib.rs	16	NoContribution
+error	pallets/crowdloan/src/lib.rs	17	CapNotRaised
+error	pallets/crowdloan/src/lib.rs	18	Underflow
+error	pallets/crowdloan/src/lib.rs	19	CallUnavailable
+error	pallets/crowdloan/src/lib.rs	20	NotReadyToDissolve
+error	pallets/crowdloan/src/lib.rs	21	DepositCannotBeWithdrawn
+error	pallets/crowdloan/src/lib.rs	22	MaxContributorsReached
+error	pallets/crowdloan/src/lib.rs	23	InvalidFinalizationConfig
+error	pallets/crowdloan/src/lib.rs	24	MaxContributionReached
+error	pallets/crowdloan/src/lib.rs	25	MaximumContributionTooLow
+error	pallets/crowdloan/src/lib.rs	26	MinimumContributionTooHigh
+event	pallets/drand/src/lib.rs	0	BeaconConfigChanged
+event	pallets/drand/src/lib.rs	1	NewPulse
+event	pallets/drand/src/lib.rs	2	SetOldestStoredRound
+error	pallets/drand/src/lib.rs	0	NoneValue
+error	pallets/drand/src/lib.rs	1	StorageOverflow
+error	pallets/drand/src/lib.rs	2	DrandConnectionFailure
+error	pallets/drand/src/lib.rs	3	UnverifiedPulse
+error	pallets/drand/src/lib.rs	4	InvalidRoundNumber
+error	pallets/drand/src/lib.rs	5	PulseVerificationError
+event	pallets/limit-orders/src/lib.rs	0	OrderExecuted
+event	pallets/limit-orders/src/lib.rs	1	OrderSkipped
+event	pallets/limit-orders/src/lib.rs	2	OrderCancelled
+event	pallets/limit-orders/src/lib.rs	3	GroupExecutionSummary
+event	pallets/limit-orders/src/lib.rs	4	LimitOrdersPalletStatusChanged
+error	pallets/limit-orders/src/lib.rs	0	InvalidSignature
+error	pallets/limit-orders/src/lib.rs	1	OrderAlreadyProcessed
+error	pallets/limit-orders/src/lib.rs	2	OrderCancelled
+error	pallets/limit-orders/src/lib.rs	3	OrderExpired
+error	pallets/limit-orders/src/lib.rs	4	PriceConditionNotMet
+error	pallets/limit-orders/src/lib.rs	5	Unauthorized
+error	pallets/limit-orders/src/lib.rs	6	SwapReturnedZero
+error	pallets/limit-orders/src/lib.rs	7	RootNetUidNotAllowed
+error	pallets/limit-orders/src/lib.rs	8	OrderNetUidMismatch
+error	pallets/limit-orders/src/lib.rs	9	LimitOrdersDisabled
+error	pallets/limit-orders/src/lib.rs	10	RelayerMissMatch
+error	pallets/limit-orders/src/lib.rs	11	PartialFillsNotEnabled
+error	pallets/limit-orders/src/lib.rs	12	IncorrectPartialFillAmount
+error	pallets/limit-orders/src/lib.rs	13	RelayerRequiredForPartialFill
+error	pallets/limit-orders/src/lib.rs	14	ChainIdMismatch
+error	pallets/limit-orders/src/lib.rs	15	PalletHotkeyNotRegistered
+error	pallets/limit-orders/src/lib.rs	16	ArithmeticOverflow
+error	pallets/limit-orders/src/lib.rs	17	DuplicateOrderInBatch
+error	pallets/limit-orders/src/lib.rs	18	ZeroShareInBatch
+event	pallets/proxy/src/lib.rs	0	ProxyExecuted
+event	pallets/proxy/src/lib.rs	1	PureCreated
+event	pallets/proxy/src/lib.rs	2	PureKilled
+event	pallets/proxy/src/lib.rs	3	Announced
+event	pallets/proxy/src/lib.rs	4	ProxyAdded
+event	pallets/proxy/src/lib.rs	5	ProxyRemoved
+event	pallets/proxy/src/lib.rs	6	DepositPoked
+event	pallets/proxy/src/lib.rs	7	RealPaysFeeSet
+error	pallets/proxy/src/lib.rs	0	TooMany
+error	pallets/proxy/src/lib.rs	1	NotFound
+error	pallets/proxy/src/lib.rs	2	NotProxy
+error	pallets/proxy/src/lib.rs	3	Unproxyable
+error	pallets/proxy/src/lib.rs	4	Duplicate
+error	pallets/proxy/src/lib.rs	5	NoPermission
+error	pallets/proxy/src/lib.rs	6	Unannounced
+error	pallets/proxy/src/lib.rs	7	NoSelfProxy
+error	pallets/proxy/src/lib.rs	8	AnnouncementDepositInvariantViolated
+error	pallets/proxy/src/lib.rs	9	InvalidDerivedAccountId
+event	pallets/shield/src/lib.rs	0	EncryptedSubmitted
+event	pallets/shield/src/lib.rs	1	ExtrinsicStored
+event	pallets/shield/src/lib.rs	2	ExtrinsicDecodeFailed
+event	pallets/shield/src/lib.rs	3	ExtrinsicDispatchFailed
+event	pallets/shield/src/lib.rs	4	ExtrinsicDispatched
+event	pallets/shield/src/lib.rs	5	ExtrinsicExpired
+event	pallets/shield/src/lib.rs	6	ExtrinsicPostponed
+event	pallets/shield/src/lib.rs	7	MaxPendingExtrinsicsNumberSet
+event	pallets/shield/src/lib.rs	8	OnInitializeWeightSet
+event	pallets/shield/src/lib.rs	9	ExtrinsicLifetimeSet
+event	pallets/shield/src/lib.rs	10	MaxExtrinsicWeightSet
+event	pallets/shield/src/lib.rs	11	ExtrinsicWeightExceeded
+error	pallets/shield/src/lib.rs	0	BadEncKeyLen
+error	pallets/shield/src/lib.rs	1	Unreachable
+error	pallets/shield/src/lib.rs	2	TooManyPendingExtrinsics
+error	pallets/shield/src/lib.rs	3	WeightExceedsAbsoluteMax
+error	pallets/subtensor/src/macros/errors.rs	0	RootNetworkDoesNotExist
+error	pallets/subtensor/src/macros/errors.rs	1	InvalidIpType
+error	pallets/subtensor/src/macros/errors.rs	2	InvalidIpAddress
+error	pallets/subtensor/src/macros/errors.rs	3	InvalidPort
+error	pallets/subtensor/src/macros/errors.rs	4	HotKeyNotRegisteredInSubNet
+error	pallets/subtensor/src/macros/errors.rs	5	HotKeyAccountNotExists
+error	pallets/subtensor/src/macros/errors.rs	6	HotKeyNotRegisteredInNetwork
+error	pallets/subtensor/src/macros/errors.rs	7	NonAssociatedColdKey
+error	pallets/subtensor/src/macros/errors.rs	8	NotEnoughStake
+error	pallets/subtensor/src/macros/errors.rs	9	NotEnoughStakeToWithdraw
+error	pallets/subtensor/src/macros/errors.rs	10	NotEnoughStakeToSetWeights
+error	pallets/subtensor/src/macros/errors.rs	11	NotEnoughStakeToSetChildkeys
+error	pallets/subtensor/src/macros/errors.rs	12	NotEnoughBalanceToStake
+error	pallets/subtensor/src/macros/errors.rs	13	BalanceWithdrawalError
+error	pallets/subtensor/src/macros/errors.rs	14	ZeroBalanceAfterWithdrawn
+error	pallets/subtensor/src/macros/errors.rs	15	NeuronNoValidatorPermit
+error	pallets/subtensor/src/macros/errors.rs	16	WeightVecNotEqualSize
+error	pallets/subtensor/src/macros/errors.rs	17	DuplicateUids
+error	pallets/subtensor/src/macros/errors.rs	18	UidVecContainInvalidOne
+error	pallets/subtensor/src/macros/errors.rs	19	WeightVecLengthIsLow
+error	pallets/subtensor/src/macros/errors.rs	20	TooManyRegistrationsThisBlock
+error	pallets/subtensor/src/macros/errors.rs	21	HotKeyAlreadyRegisteredInSubNet
+error	pallets/subtensor/src/macros/errors.rs	22	NewHotKeyIsSameWithOld
+error	pallets/subtensor/src/macros/errors.rs	23	NewHotKeyNotCleanForRootSwap
+error	pallets/subtensor/src/macros/errors.rs	24	InvalidWorkBlock
+error	pallets/subtensor/src/macros/errors.rs	25	InvalidDifficulty
+error	pallets/subtensor/src/macros/errors.rs	26	InvalidSeal
+error	pallets/subtensor/src/macros/errors.rs	27	MaxWeightExceeded
+error	pallets/subtensor/src/macros/errors.rs	28	HotKeyAlreadyDelegate
+error	pallets/subtensor/src/macros/errors.rs	29	SettingWeightsTooFast
+error	pallets/subtensor/src/macros/errors.rs	30	IncorrectWeightVersionKey
+error	pallets/subtensor/src/macros/errors.rs	31	ServingRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	32	UidsLengthExceedUidsInSubNet
+error	pallets/subtensor/src/macros/errors.rs	33	NetworkTxRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	34	DelegateTxRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	35	HotKeySetTxRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	36	StakingRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	37	SubNetRegistrationDisabled
+error	pallets/subtensor/src/macros/errors.rs	38	TooManyRegistrationsThisInterval
+error	pallets/subtensor/src/macros/errors.rs	39	TransactorAccountShouldBeHotKey
+error	pallets/subtensor/src/macros/errors.rs	40	FaucetDisabled
+error	pallets/subtensor/src/macros/errors.rs	41	NotSubnetOwner
+error	pallets/subtensor/src/macros/errors.rs	42	RegistrationNotPermittedOnRootSubnet
+error	pallets/subtensor/src/macros/errors.rs	43	StakeTooLowForRoot
+error	pallets/subtensor/src/macros/errors.rs	44	AllNetworksInImmunity
+error	pallets/subtensor/src/macros/errors.rs	45	NotEnoughBalanceToPaySwapHotKey
+error	pallets/subtensor/src/macros/errors.rs	46	NotRootSubnet
+error	pallets/subtensor/src/macros/errors.rs	47	CanNotSetRootNetworkWeights
+error	pallets/subtensor/src/macros/errors.rs	48	NoNeuronIdAvailable
+error	pallets/subtensor/src/macros/errors.rs	49	DelegateTakeTooLow
+error	pallets/subtensor/src/macros/errors.rs	50	DelegateTakeTooHigh
+error	pallets/subtensor/src/macros/errors.rs	51	NoWeightsCommitFound
+error	pallets/subtensor/src/macros/errors.rs	52	InvalidRevealCommitHashNotMatch
+error	pallets/subtensor/src/macros/errors.rs	53	CommitRevealEnabled
+error	pallets/subtensor/src/macros/errors.rs	54	CommitRevealDisabled
+error	pallets/subtensor/src/macros/errors.rs	55	LiquidAlphaDisabled
+error	pallets/subtensor/src/macros/errors.rs	56	AlphaHighTooLow
+error	pallets/subtensor/src/macros/errors.rs	57	AlphaLowOutOfRange
+error	pallets/subtensor/src/macros/errors.rs	58	ColdKeyAlreadyAssociated
+error	pallets/subtensor/src/macros/errors.rs	59	NotEnoughBalanceToPaySwapColdKey
+error	pallets/subtensor/src/macros/errors.rs	60	InvalidChild
+error	pallets/subtensor/src/macros/errors.rs	61	DuplicateChild
+error	pallets/subtensor/src/macros/errors.rs	62	ProportionOverflow
+error	pallets/subtensor/src/macros/errors.rs	63	TooManyChildren
+error	pallets/subtensor/src/macros/errors.rs	64	TxRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	65	ColdkeySwapAnnouncementNotFound
+error	pallets/subtensor/src/macros/errors.rs	66	ColdkeySwapTooEarly
+error	pallets/subtensor/src/macros/errors.rs	67	ColdkeySwapReannouncedTooEarly
+error	pallets/subtensor/src/macros/errors.rs	68	AnnouncedColdkeyHashDoesNotMatch
+error	pallets/subtensor/src/macros/errors.rs	69	ColdkeySwapAlreadyDisputed
+error	pallets/subtensor/src/macros/errors.rs	70	NewColdKeyIsHotkey
+error	pallets/subtensor/src/macros/errors.rs	71	InvalidChildkeyTake
+error	pallets/subtensor/src/macros/errors.rs	72	TxChildkeyTakeRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	73	InvalidIdentity
+error	pallets/subtensor/src/macros/errors.rs	74	MechanismDoesNotExist
+error	pallets/subtensor/src/macros/errors.rs	75	StakeUnavailable
+error	pallets/subtensor/src/macros/errors.rs	76	SubnetNotExists
+error	pallets/subtensor/src/macros/errors.rs	77	TooManyUnrevealedCommits
+error	pallets/subtensor/src/macros/errors.rs	78	ExpiredWeightCommit
+error	pallets/subtensor/src/macros/errors.rs	79	RevealTooEarly
+error	pallets/subtensor/src/macros/errors.rs	80	InputLengthsUnequal
+error	pallets/subtensor/src/macros/errors.rs	81	CommittingWeightsTooFast
+error	pallets/subtensor/src/macros/errors.rs	82	AmountTooLow
+error	pallets/subtensor/src/macros/errors.rs	83	InsufficientLiquidity
+error	pallets/subtensor/src/macros/errors.rs	84	SlippageTooHigh
+error	pallets/subtensor/src/macros/errors.rs	85	TransferDisallowed
+error	pallets/subtensor/src/macros/errors.rs	86	ActivityCutoffTooLow
+error	pallets/subtensor/src/macros/errors.rs	87	CallDisabled
+error	pallets/subtensor/src/macros/errors.rs	88	FirstEmissionBlockNumberAlreadySet
+error	pallets/subtensor/src/macros/errors.rs	89	NeedWaitingMoreBlocksToStarCall
+error	pallets/subtensor/src/macros/errors.rs	90	NotEnoughAlphaOutToRecycle
+error	pallets/subtensor/src/macros/errors.rs	91	CannotBurnOrRecycleOnRootSubnet
+error	pallets/subtensor/src/macros/errors.rs	92	UnableToRecoverPublicKey
+error	pallets/subtensor/src/macros/errors.rs	93	InvalidRecoveredPublicKey
+error	pallets/subtensor/src/macros/errors.rs	94	SubtokenDisabled
+error	pallets/subtensor/src/macros/errors.rs	95	HotKeySwapOnSubnetIntervalNotPassed
+error	pallets/subtensor/src/macros/errors.rs	96	KeepStakeBlockedByCollateral
+error	pallets/subtensor/src/macros/errors.rs	97	SameNetuid
+error	pallets/subtensor/src/macros/errors.rs	98	InsufficientTaoBalance
+error	pallets/subtensor/src/macros/errors.rs	99	InvalidLeaseBeneficiary
+error	pallets/subtensor/src/macros/errors.rs	100	LeaseCannotEndInThePast
+error	pallets/subtensor/src/macros/errors.rs	101	LeaseNetuidNotFound
+error	pallets/subtensor/src/macros/errors.rs	102	LeaseDoesNotExist
+error	pallets/subtensor/src/macros/errors.rs	103	LeaseHasNoEndBlock
+error	pallets/subtensor/src/macros/errors.rs	104	LeaseHasNotEnded
+error	pallets/subtensor/src/macros/errors.rs	105	Overflow
+error	pallets/subtensor/src/macros/errors.rs	106	BeneficiaryDoesNotOwnHotkey
+error	pallets/subtensor/src/macros/errors.rs	107	ExpectedBeneficiaryOrigin
+error	pallets/subtensor/src/macros/errors.rs	108	AdminActionProhibitedDuringWeightsWindow
+error	pallets/subtensor/src/macros/errors.rs	109	SymbolDoesNotExist
+error	pallets/subtensor/src/macros/errors.rs	110	SymbolAlreadyInUse
+error	pallets/subtensor/src/macros/errors.rs	111	IncorrectCommitRevealVersion
+error	pallets/subtensor/src/macros/errors.rs	112	InvalidRevealRound
+error	pallets/subtensor/src/macros/errors.rs	113	RevealPeriodTooLarge
+error	pallets/subtensor/src/macros/errors.rs	114	RevealPeriodTooSmall
+error	pallets/subtensor/src/macros/errors.rs	115	InvalidValue
+error	pallets/subtensor/src/macros/errors.rs	116	SubnetLimitReached
+error	pallets/subtensor/src/macros/errors.rs	117	CannotAffordLockCost
+error	pallets/subtensor/src/macros/errors.rs	118	EvmKeyAssociateRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	119	EvmKeyAssociationLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	120	SameAutoStakeHotkeyAlreadySet
+error	pallets/subtensor/src/macros/errors.rs	121	UidMapCouldNotBeCleared
+error	pallets/subtensor/src/macros/errors.rs	122	TrimmingWouldExceedMaxImmunePercentage
+error	pallets/subtensor/src/macros/errors.rs	123	ChildParentInconsistency
+error	pallets/subtensor/src/macros/errors.rs	124	InvalidNumRootClaim
+error	pallets/subtensor/src/macros/errors.rs	125	InvalidRootClaimThreshold
+error	pallets/subtensor/src/macros/errors.rs	126	InvalidSubnetNumber
+error	pallets/subtensor/src/macros/errors.rs	127	TooManyUIDsPerMechanism
+error	pallets/subtensor/src/macros/errors.rs	128	VotingPowerTrackingNotEnabled
+error	pallets/subtensor/src/macros/errors.rs	129	InvalidVotingPowerEmaAlpha
+error	pallets/subtensor/src/macros/errors.rs	130	Deprecated
+error	pallets/subtensor/src/macros/errors.rs	131	SubnetBuybackRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	132	NetworkDissolveAlreadyQueued
+error	pallets/subtensor/src/macros/errors.rs	133	AddStakeBurnRateLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	134	ColdkeySwapAnnounced
+error	pallets/subtensor/src/macros/errors.rs	135	ColdkeySwapDisputed
+error	pallets/subtensor/src/macros/errors.rs	136	ColdkeySwapClearTooEarly
+error	pallets/subtensor/src/macros/errors.rs	137	DisabledTemporarily
+error	pallets/subtensor/src/macros/errors.rs	138	RegistrationPriceLimitExceeded
+error	pallets/subtensor/src/macros/errors.rs	139	LockHotkeyMismatch
+error	pallets/subtensor/src/macros/errors.rs	140	InsufficientStakeForLock
+error	pallets/subtensor/src/macros/errors.rs	141	NoExistingLock
+error	pallets/subtensor/src/macros/errors.rs	142	ActiveLockExists
+error	pallets/subtensor/src/macros/errors.rs	143	CannotUseSystemAccount
+error	pallets/subtensor/src/macros/errors.rs	144	UnlockAmountTooHigh
+error	pallets/subtensor/src/macros/errors.rs	145	WaitingForDissolvedSubnetCleanup
+error	pallets/subtensor/src/macros/errors.rs	146	TempoOutOfBounds
+error	pallets/subtensor/src/macros/errors.rs	147	ActivityCutoffFactorMilliOutOfBounds
+error	pallets/subtensor/src/macros/errors.rs	148	EpochTriggerAlreadyPending
+error	pallets/subtensor/src/macros/errors.rs	149	AutoEpochAlreadyImminent
+error	pallets/subtensor/src/macros/errors.rs	150	DynamicTempoBlockedByCommitReveal
+error	pallets/subtensor/src/macros/errors.rs	151	AccountRejectsLockedAlpha
+error	pallets/subtensor/src/macros/errors.rs	152	LockIdOverFlow
+error	pallets/subtensor/src/macros/errors.rs	153	StartCallNotReady
+error	pallets/subtensor/src/macros/errors.rs	154	InsufficientAlphaBalance
+error	pallets/subtensor/src/macros/errors.rs	155	ColdkeyCollateralIncomplete
+error	pallets/subtensor/src/macros/errors.rs	156	ColdkeyCollateralPositionsFull
+event	pallets/subtensor/src/macros/events.rs	0	NetworkAdded
+event	pallets/subtensor/src/macros/events.rs	1	NetworkRemoved
+event	pallets/subtensor/src/macros/events.rs	2	StakeAdded
+event	pallets/subtensor/src/macros/events.rs	3	StakeRemoved
+event	pallets/subtensor/src/macros/events.rs	4	StakeMoved
+event	pallets/subtensor/src/macros/events.rs	5	WeightsSet
+event	pallets/subtensor/src/macros/events.rs	6	NeuronRegistered
+event	pallets/subtensor/src/macros/events.rs	7	BulkNeuronsRegistered
+event	pallets/subtensor/src/macros/events.rs	8	BulkBalancesSet
+event	pallets/subtensor/src/macros/events.rs	9	MaxAllowedUidsSet
+event	pallets/subtensor/src/macros/events.rs	10	MaxWeightLimitSet
+event	pallets/subtensor/src/macros/events.rs	11	DifficultySet
+event	pallets/subtensor/src/macros/events.rs	12	AdjustmentIntervalSet
+event	pallets/subtensor/src/macros/events.rs	13	RegistrationPerIntervalSet
+event	pallets/subtensor/src/macros/events.rs	14	MaxRegistrationsPerBlockSet
+event	pallets/subtensor/src/macros/events.rs	15	ActivityCutoffSet
+event	pallets/subtensor/src/macros/events.rs	16	RhoSet
+event	pallets/subtensor/src/macros/events.rs	17	AlphaSigmoidSteepnessSet
+event	pallets/subtensor/src/macros/events.rs	18	KappaSet
+event	pallets/subtensor/src/macros/events.rs	19	MinAllowedWeightSet
+event	pallets/subtensor/src/macros/events.rs	20	ValidatorPruneLenSet
+event	pallets/subtensor/src/macros/events.rs	21	ScalingLawPowerSet
+event	pallets/subtensor/src/macros/events.rs	22	WeightsSetRateLimitSet
+event	pallets/subtensor/src/macros/events.rs	23	ImmunityPeriodSet
+event	pallets/subtensor/src/macros/events.rs	24	BondsMovingAverageSet
+event	pallets/subtensor/src/macros/events.rs	25	BondsPenaltySet
+event	pallets/subtensor/src/macros/events.rs	26	BondsResetOnSet
+event	pallets/subtensor/src/macros/events.rs	27	MaxAllowedValidatorsSet
+event	pallets/subtensor/src/macros/events.rs	28	AxonServed
+event	pallets/subtensor/src/macros/events.rs	29	PrometheusServed
+event	pallets/subtensor/src/macros/events.rs	30	DelegateAdded
+event	pallets/subtensor/src/macros/events.rs	31	DefaultTakeSet
+event	pallets/subtensor/src/macros/events.rs	32	WeightsVersionKeySet
+event	pallets/subtensor/src/macros/events.rs	33	MinDifficultySet
+event	pallets/subtensor/src/macros/events.rs	34	MaxDifficultySet
+event	pallets/subtensor/src/macros/events.rs	35	ServingRateLimitSet
+event	pallets/subtensor/src/macros/events.rs	36	BurnSet
+event	pallets/subtensor/src/macros/events.rs	37	MaxBurnSet
+event	pallets/subtensor/src/macros/events.rs	38	MinBurnSet
+event	pallets/subtensor/src/macros/events.rs	39	MaxEpochsPerBlockSet
+event	pallets/subtensor/src/macros/events.rs	40	TxRateLimitSet
+event	pallets/subtensor/src/macros/events.rs	41	TxDelegateTakeRateLimitSet
+event	pallets/subtensor/src/macros/events.rs	42	TxChildKeyTakeRateLimitSet
+event	pallets/subtensor/src/macros/events.rs	43	AdminFreezeWindowSet
+event	pallets/subtensor/src/macros/events.rs	44	OwnerHyperparamRateLimitSet
+event	pallets/subtensor/src/macros/events.rs	45	MinChildKeyTakeSet
+event	pallets/subtensor/src/macros/events.rs	46	MinChildKeyTakePerSubnetSet
+event	pallets/subtensor/src/macros/events.rs	47	MaxChildKeyTakeSet
+event	pallets/subtensor/src/macros/events.rs	48	ChildKeyTakeSet
+event	pallets/subtensor/src/macros/events.rs	49	Sudid
+event	pallets/subtensor/src/macros/events.rs	50	RegistrationAllowed
+event	pallets/subtensor/src/macros/events.rs	51	PowRegistrationAllowed
+event	pallets/subtensor/src/macros/events.rs	52	TempoSet
+event	pallets/subtensor/src/macros/events.rs	53	RAORecycledForRegistrationSet
+event	pallets/subtensor/src/macros/events.rs	54	StakeThresholdSet
+event	pallets/subtensor/src/macros/events.rs	55	AdjustmentAlphaSet
+event	pallets/subtensor/src/macros/events.rs	56	Faucet
+event	pallets/subtensor/src/macros/events.rs	57	SubnetOwnerCutSet
+event	pallets/subtensor/src/macros/events.rs	58	NetworkRateLimitSet
+event	pallets/subtensor/src/macros/events.rs	59	NetworkImmunityPeriodSet
+event	pallets/subtensor/src/macros/events.rs	60	StartCallDelaySet
+event	pallets/subtensor/src/macros/events.rs	61	NetworkMinLockCostSet
+event	pallets/subtensor/src/macros/events.rs	62	SubnetLimitSet
+event	pallets/subtensor/src/macros/events.rs	63	NetworkLockCostReductionIntervalSet
+event	pallets/subtensor/src/macros/events.rs	64	TakeDecreased
+event	pallets/subtensor/src/macros/events.rs	65	TakeIncreased
+event	pallets/subtensor/src/macros/events.rs	66	HotkeySwapped
+event	pallets/subtensor/src/macros/events.rs	67	MaxDelegateTakeSet
+event	pallets/subtensor/src/macros/events.rs	68	MinDelegateTakeSet
+event	pallets/subtensor/src/macros/events.rs	69	ColdkeySwapAnnounced
+event	pallets/subtensor/src/macros/events.rs	70	ColdkeySwapReset
+event	pallets/subtensor/src/macros/events.rs	71	ColdkeySwapped
+event	pallets/subtensor/src/macros/events.rs	72	ColdkeySwapDisputed
+event	pallets/subtensor/src/macros/events.rs	73	AllBalanceUnstakedAndTransferredToNewColdkey
+event	pallets/subtensor/src/macros/events.rs	74	ArbitrationPeriodExtended
+event	pallets/subtensor/src/macros/events.rs	75	SetChildrenScheduled
+event	pallets/subtensor/src/macros/events.rs	76	SetChildren
+event	pallets/subtensor/src/macros/events.rs	77	ChainIdentitySet
+event	pallets/subtensor/src/macros/events.rs	78	SubnetIdentitySet
+event	pallets/subtensor/src/macros/events.rs	79	SubnetIdentityRemoved
+event	pallets/subtensor/src/macros/events.rs	80	DissolveNetworkScheduled
+event	pallets/subtensor/src/macros/events.rs	81	ColdkeySwapAnnouncementDelaySet
+event	pallets/subtensor/src/macros/events.rs	82	ColdkeySwapReannouncementDelaySet
+event	pallets/subtensor/src/macros/events.rs	83	DissolveNetworkScheduleDurationSet
+event	pallets/subtensor/src/macros/events.rs	84	CRV3WeightsCommitted
+event	pallets/subtensor/src/macros/events.rs	85	WeightsCommitted
+event	pallets/subtensor/src/macros/events.rs	86	WeightsRevealed
+event	pallets/subtensor/src/macros/events.rs	87	WeightsBatchRevealed
+event	pallets/subtensor/src/macros/events.rs	88	BatchWeightsCompleted
+event	pallets/subtensor/src/macros/events.rs	89	BatchCompletedWithErrors
+event	pallets/subtensor/src/macros/events.rs	90	BatchWeightItemFailed
+event	pallets/subtensor/src/macros/events.rs	91	StakeTransferred
+event	pallets/subtensor/src/macros/events.rs	92	StakeSwapped
+event	pallets/subtensor/src/macros/events.rs	93	TransferToggle
+event	pallets/subtensor/src/macros/events.rs	94	SubnetOwnerHotkeySet
+event	pallets/subtensor/src/macros/events.rs	95	FirstEmissionBlockNumberSet
+event	pallets/subtensor/src/macros/events.rs	96	AlphaRecycled
+event	pallets/subtensor/src/macros/events.rs	97	AlphaBurned
+event	pallets/subtensor/src/macros/events.rs	98	EvmKeyAssociated
+event	pallets/subtensor/src/macros/events.rs	99	CRV3WeightsRevealed
+event	pallets/subtensor/src/macros/events.rs	100	CommitRevealPeriodsSet
+event	pallets/subtensor/src/macros/events.rs	101	CommitRevealEnabled
+event	pallets/subtensor/src/macros/events.rs	102	HotkeySwappedOnSubnet
+event	pallets/subtensor/src/macros/events.rs	103	SubnetLeaseCreated
+event	pallets/subtensor/src/macros/events.rs	104	SubnetLeaseTerminated
+event	pallets/subtensor/src/macros/events.rs	105	SymbolUpdated
+event	pallets/subtensor/src/macros/events.rs	106	CommitRevealVersionSet
+event	pallets/subtensor/src/macros/events.rs	107	TimelockedWeightsCommitted
+event	pallets/subtensor/src/macros/events.rs	108	TimelockedWeightsRevealed
+event	pallets/subtensor/src/macros/events.rs	109	AutoStakeAdded
+event	pallets/subtensor/src/macros/events.rs	110	IncentiveAlphaEmittedToMiners
+event	pallets/subtensor/src/macros/events.rs	111	MinAllowedUidsSet
+event	pallets/subtensor/src/macros/events.rs	112	AutoStakeDestinationSet
+event	pallets/subtensor/src/macros/events.rs	113	MinNonImmuneUidsSet
+event	pallets/subtensor/src/macros/events.rs	114	RootClaimed
+event	pallets/subtensor/src/macros/events.rs	115	RootClaimTypeSet
+event	pallets/subtensor/src/macros/events.rs	116	VotingPowerTrackingEnabled
+event	pallets/subtensor/src/macros/events.rs	117	VotingPowerTrackingDisableScheduled
+event	pallets/subtensor/src/macros/events.rs	118	VotingPowerTrackingDisabled
+event	pallets/subtensor/src/macros/events.rs	119	VotingPowerEmaAlphaSet
+event	pallets/subtensor/src/macros/events.rs	120	SubnetLeaseDividendsDistributed
+event	pallets/subtensor/src/macros/events.rs	121	AddStakeBurn
+event	pallets/subtensor/src/macros/events.rs	122	NetworkDissolveCleanupCompleted
+event	pallets/subtensor/src/macros/events.rs	123	ColdkeySwapCleared
+event	pallets/subtensor/src/macros/events.rs	124	TransactionFeePaidWithAlpha
+event	pallets/subtensor/src/macros/events.rs	125	BurnHalfLifeSet
+event	pallets/subtensor/src/macros/events.rs	126	BurnIncreaseMultSet
+event	pallets/subtensor/src/macros/events.rs	127	AutoParentDelegationEnabledSet
+event	pallets/subtensor/src/macros/events.rs	128	StakeLocked
+event	pallets/subtensor/src/macros/events.rs	129	StakeUnlocked
+event	pallets/subtensor/src/macros/events.rs	130	LockMoved
+event	pallets/subtensor/src/macros/events.rs	131	ActivityCutoffFactorMilliSet
+event	pallets/subtensor/src/macros/events.rs	132	EpochTriggered
+event	pallets/subtensor/src/macros/events.rs	133	EpochDeferred
+event	pallets/subtensor/src/macros/events.rs	134	EpochSkipped
+event	pallets/subtensor/src/macros/events.rs	135	SubnetOwnerChanged
+event	pallets/subtensor/src/macros/events.rs	136	PerpetualLockUpdated
+event	pallets/subtensor/src/macros/events.rs	137	NetworkRegistrationQueued
+event	pallets/subtensor/src/macros/events.rs	138	RejectLockedAlphaUpdated
+event	pallets/subtensor/src/macros/events.rs	139	StakeAndHotkeyTransferred
+event	pallets/subtensor/src/macros/events.rs	140	CollateralLocked
+event	pallets/subtensor/src/macros/events.rs	141	MinCollateralSet
+event	pallets/swap/src/pallet/mod.rs	0	FeeRateSet
+error	pallets/swap/src/pallet/mod.rs	0	FeeRateTooHigh
+error	pallets/swap/src/pallet/mod.rs	1	InsufficientInputAmount
+error	pallets/swap/src/pallet/mod.rs	2	InsufficientLiquidity
+error	pallets/swap/src/pallet/mod.rs	3	PriceLimitExceeded
+error	pallets/swap/src/pallet/mod.rs	4	InsufficientBalance
+error	pallets/swap/src/pallet/mod.rs	5	InvalidTickRange
+error	pallets/swap/src/pallet/mod.rs	6	InvalidLiquidityValue
+error	pallets/swap/src/pallet/mod.rs	7	ReservesTooLow
+error	pallets/swap/src/pallet/mod.rs	8	MechanismDoesNotExist
+error	pallets/swap/src/pallet/mod.rs	9	SubtokenDisabled
+error	pallets/swap/src/pallet/mod.rs	10	ReservesOutOfBalance
+error	pallets/swap/src/pallet/mod.rs	11	SwapInputTooLarge
+error	pallets/swap/src/pallet/mod.rs	12	Deprecated
+event	pallets/utility/src/lib.rs	0	BatchInterrupted
+event	pallets/utility/src/lib.rs	1	BatchCompleted
+event	pallets/utility/src/lib.rs	2	BatchCompletedWithErrors
+event	pallets/utility/src/lib.rs	3	ItemCompleted
+event	pallets/utility/src/lib.rs	4	ItemFailed
+event	pallets/utility/src/lib.rs	5	DispatchedAs
+event	pallets/utility/src/lib.rs	6	IfElseMainSuccess
+event	pallets/utility/src/lib.rs	7	IfElseFallbackCalled
+error	pallets/utility/src/lib.rs	0	TooManyCalls
+error	pallets/utility/src/lib.rs	1	InvalidDerivedAccount
+runtime	System	0
+runtime	RandomnessCollectiveFlip	1
+runtime	Timestamp	2
+runtime	Aura	3
+runtime	Grandpa	4
+runtime	Balances	5
+runtime	TransactionPayment	6
+runtime	SubtensorModule	7
+runtime	Utility	11
+runtime	Sudo	12
+runtime	Multisig	13
+runtime	Preimage	14
+runtime	Scheduler	15
+runtime	Proxy	16
+runtime	Commitments	18
+runtime	AdminUtils	19
+runtime	SafeMode	20
+runtime	Ethereum	21
+runtime	EVM	22
+runtime	EVMChainId	23
+runtime	BaseFee	25
+runtime	Drand	26
+runtime	Crowdloan	27
+runtime	Swap	28
+runtime	Contracts	29
+runtime	MevShield	30
+runtime	AlphaAssets	31
+runtime	LimitOrders	32
+precompile_index	1026
+precompile_index	1027
+precompile_index	2048
+precompile_index	2049
+precompile_index	2050
+precompile_index	2051
+precompile_index	2051
+precompile_index	2052
+precompile_index	2053
+precompile_index	2054
+precompile_index	2055
+precompile_index	2056
+precompile_index	2057
+precompile_index	2058
+precompile_index	2059
+precompile_index	2060
+precompile_index	2061
+precompile_index	2062
+precompile_selector	addProxy(bytes32)
+precompile_selector	addProxy(bytes32)
+precompile_selector	addProxy(bytes32,uint8,uint32)
+precompile_selector	addStake(bytes32,uint256)
+precompile_selector	addStake(bytes32,uint256,uint256)
+precompile_selector	addStakeLimit(bytes32,uint256,uint256,bool,uint256)
+precompile_selector	addressMapping(address)
+precompile_selector	allowance(address,address,uint256)
+precompile_selector	approve(address,uint256,uint256)
+precompile_selector	burnAlpha(bytes32,uint256,uint256)
+precompile_selector	burnedRegister(uint16,bytes32)
+precompile_selector	commitWeights(uint16,bytes32)
+precompile_selector	contribute(uint32,uint64)
+precompile_selector	create(uint64,uint64,uint64,uint32,address)
+precompile_selector	createLeaseCrowdloan(uint64,uint64,uint64,uint32,uint8,bool,uint32)
+precompile_selector	createPureProxy(uint8,uint32,uint16)
+precompile_selector	decreaseAllowance(address,uint256,uint256)
+precompile_selector	dissolve(uint32)
+precompile_selector	finalize(uint32)
+precompile_selector	getActivityCutoff(uint16)
+precompile_selector	getActivityCutoffFactor(uint16)
+precompile_selector	getAdjustmentAlpha(uint16)
+precompile_selector	getAlphaInEmission(uint16)
+precompile_selector	getAlphaInPool(uint16)
+precompile_selector	getAlphaIssuance(uint16)
+precompile_selector	getAlphaOutEmission(uint16)
+precompile_selector	getAlphaOutPool(uint16)
+precompile_selector	getAlphaPrice(uint16)
+precompile_selector	getAlphaSigmoidSteepness(uint16)
+precompile_selector	getAlphaStakedValidators(bytes32,uint256)
+precompile_selector	getAlphaValues(uint16)
+precompile_selector	getAxon(uint16,uint16)
+precompile_selector	getBondsMovingAverage(uint16)
+precompile_selector	getBondsResetEnabled(uint16)
+precompile_selector	getCKBurn()
+precompile_selector	getColdkey(uint16,uint16)
+precompile_selector	getColdkeyLock(bytes32,uint256)
+precompile_selector	getCommitRevealWeightsEnabled(uint16)
+precompile_selector	getCommitRevealWeightsInterval(uint16)
+precompile_selector	getConsensus(uint16,uint16)
+precompile_selector	getContribution(uint32,bytes32)
+precompile_selector	getContributorShare(uint32,bytes32)
+precompile_selector	getCrowdloan(uint32)
+precompile_selector	getDefaultMinStake()
+precompile_selector	getDifficulty(uint16)
+precompile_selector	getDividends(uint16,uint16)
+precompile_selector	getEMAPriceHalvingBlocks(uint16)
+precompile_selector	getEmission(uint16,uint16)
+precompile_selector	getFreeBalance(bytes32)
+precompile_selector	getHotkey(uint16,uint16)
+precompile_selector	getHotkeyConvictions(uint256,bytes32[])
+precompile_selector	getHotkeyLock(bytes32,uint256)
+precompile_selector	getImmunityPeriod(uint16)
+precompile_selector	getIncentive(uint16,uint16)
+precompile_selector	getIsActive(uint16,uint16)
+precompile_selector	getKappa(uint16)
+precompile_selector	getLastUpdate(uint16,uint16)
+precompile_selector	getLease(uint32)
+precompile_selector	getLeaseIdForSubnet(uint16)
+precompile_selector	getLiquidAlphaEnabled(uint16)
+precompile_selector	getLockRates()
+precompile_selector	getMaxBurn(uint16)
+precompile_selector	getMaxDifficulty(uint16)
+precompile_selector	getMaxWeightLimit(uint16)
+precompile_selector	getMinAllowedWeights(uint16)
+precompile_selector	getMinBurn(uint16)
+precompile_selector	getMinDifficulty(uint16)
+precompile_selector	getMovingAlphaPrice(uint16)
+precompile_selector	getNetworkPowRegistrationAllowed(uint16)
+precompile_selector	getNetworkRegistrationAllowed(uint16)
+precompile_selector	getNetworkRegistrationBlock(uint16)
+precompile_selector	getNominatorMinRequiredStake()
+precompile_selector	getOwnerCutAutoLockEnabled(uint16)
+precompile_selector	getProxies(bytes32)
+precompile_selector	getRank(uint16,uint16)
+precompile_selector	getRejectLockedAlpha(bytes32)
+precompile_selector	getRho(uint16)
+precompile_selector	getRootNetuid()
+precompile_selector	getServingRateLimit(uint16)
+precompile_selector	getStake(bytes32,bytes32,uint256)
+precompile_selector	getStake(bytes32,bytes32,uint256)
+precompile_selector	getStake(uint16,uint16)
+precompile_selector	getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])
+precompile_selector	getSubnetMechanism(uint16)
+precompile_selector	getSubnetVolume(uint16)
+precompile_selector	getSumAlphaPrice()
+precompile_selector	getTaoInEmission(uint16)
+precompile_selector	getTaoInPool(uint16)
+precompile_selector	getTaoWeight()
+precompile_selector	getTotalAlphaStaked(bytes32,uint256)
+precompile_selector	getTotalColdkeyStake(bytes32)
+precompile_selector	getTotalColdkeyStake(bytes32)
+precompile_selector	getTotalColdkeyStakeOnSubnet(bytes32,uint256)
+precompile_selector	getTotalHotkeyStake(bytes32)
+precompile_selector	getTotalHotkeyStake(bytes32)
+precompile_selector	getTotalVotingPower(uint16)
+precompile_selector	getTrust(uint16,uint16)
+precompile_selector	getUidCount(uint16)
+precompile_selector	getValidatorStatus(uint16,uint16)
+precompile_selector	getVotingPower(uint16,bytes32)
+precompile_selector	getVotingPowerDisableAtBlock(uint16)
+precompile_selector	getVotingPowerEmaAlpha(uint16)
+precompile_selector	getVtrust(uint16,uint16)
+precompile_selector	getWeightsSetRateLimit(uint16)
+precompile_selector	getWeightsVersionKey(uint16)
+precompile_selector	getYuma3Enabled(uint16)
+precompile_selector	increaseAllowance(address,uint256,uint256)
+precompile_selector	isSubnetDissolving(uint16)
+precompile_selector	isVotingPowerTrackingEnabled(uint16)
+precompile_selector	killPureProxy(bytes32,uint8,uint16,uint32,uint32)
+precompile_selector	lockStake(bytes32,uint256,uint256)
+precompile_selector	moveLock(bytes32,uint256)
+precompile_selector	moveStake(bytes32,bytes32,uint256,uint256,uint256)
+precompile_selector	pokeDeposit()
+precompile_selector	proxyCall(bytes32,uint8[],uint8[])
+precompile_selector	refund(uint32)
+precompile_selector	registerLimit(uint16,bytes32,uint64)
+precompile_selector	registerNetwork(bytes32)
+precompile_selector	removeProxies()
+precompile_selector	removeProxy(bytes32)
+precompile_selector	removeProxy(bytes32)
+precompile_selector	removeProxy(bytes32,uint8,uint32)
+precompile_selector	removeStake(bytes32,uint256,uint256)
+precompile_selector	removeStake(bytes32,uint256,uint256)
+precompile_selector	removeStakeFull(bytes32,uint256)
+precompile_selector	removeStakeFullLimit(bytes32,uint256,uint256)
+precompile_selector	removeStakeLimit(bytes32,uint256,uint256,bool,uint256)
+precompile_selector	revealWeights(uint16,uint16[],uint16[],uint16[],uint64)
+precompile_selector	serveAxon(uint16,uint32,uint128,uint16,uint8,uint8,uint8,uint8)
+precompile_selector	servePrometheus(uint16,uint32,uint128,uint16,uint8)
+precompile_selector	setActivityCutoff(uint16,uint16)
+precompile_selector	setActivityCutoffFactor(uint16,uint32)
+precompile_selector	setAdjustmentAlpha(uint16,uint64)
+precompile_selector	setAlphaSigmoidSteepness(uint16,uint16)
+precompile_selector	setAlphaValues(uint16,uint16,uint16)
+precompile_selector	setBondsMovingAverage(uint16,uint64)
+precompile_selector	setBondsResetEnabled(uint16,bool)
+precompile_selector	setCommitRevealWeightsEnabled(uint16,bool)
+precompile_selector	setCommitRevealWeightsInterval(uint16,uint64)
+precompile_selector	setDifficulty(uint16,uint64)
+precompile_selector	setImmunityPeriod(uint16,uint16)
+precompile_selector	setKappa(uint16,uint16)
+precompile_selector	setLiquidAlphaEnabled(uint16,bool)
+precompile_selector	setMaxBurn(uint16,uint64)
+precompile_selector	setMaxDifficulty(uint16,uint64)
+precompile_selector	setMinAllowedWeights(uint16,uint16)
+precompile_selector	setMinBurn(uint16,uint64)
+precompile_selector	setMinDifficulty(uint16,uint64)
+precompile_selector	setNetworkPowRegistrationAllowed(uint16,bool)
+precompile_selector	setNetworkRegistrationAllowed(uint16,bool)
+precompile_selector	setOwnerCutAutoLockEnabled(uint16,bool)
+precompile_selector	setPerpetualLock(uint256,bool)
+precompile_selector	setRejectLockedAlpha(bool)
+precompile_selector	setRho(uint16,uint16)
+precompile_selector	setServingRateLimit(uint16,uint64)
+precompile_selector	setWeights(uint16,uint16[],uint16[],uint64)
+precompile_selector	setWeightsSetRateLimit(uint16,uint64)
+precompile_selector	setWeightsVersionKey(uint16,uint64)
+precompile_selector	setYuma3Enabled(uint16,bool)
+precompile_selector	simSwapAlphaForTao(uint16,uint64)
+precompile_selector	simSwapTaoForAlpha(uint16,uint64)
+precompile_selector	terminateLease(uint32,bytes32)
+precompile_selector	toggleTransfers(uint16,bool)
+precompile_selector	transfer(bytes32)
+precompile_selector	transferStake(bytes32,bytes32,uint256,uint256,uint256)
+precompile_selector	transferStakeFrom(address,address,bytes32,uint256,uint256,uint256)
+precompile_selector	uidLookup(uint16,address,uint16)
+precompile_selector	updateCap(uint32,uint64)
+precompile_selector	updateEnd(uint32,uint32)
+precompile_selector	updateMinContribution(uint32,uint64)
+precompile_selector	withdraw(uint32)
+rpc	pallets/subtensor/rpc/src/lib.rs	delegateInfo_getDelegate
+rpc	pallets/subtensor/rpc/src/lib.rs	delegateInfo_getDelegated
+rpc	pallets/subtensor/rpc/src/lib.rs	delegateInfo_getDelegates
+rpc	pallets/subtensor/rpc/src/lib.rs	neuronInfo_getNeuron
+rpc	pallets/subtensor/rpc/src/lib.rs	neuronInfo_getNeuronLite
+rpc	pallets/subtensor/rpc/src/lib.rs	neuronInfo_getNeurons
+rpc	pallets/subtensor/rpc/src/lib.rs	neuronInfo_getNeuronsLite
+rpc	pallets/subtensor/rpc/src/lib.rs	stakeInfo_getColdkeyLock
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getAllDynamicInfo
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getAllMechagraphs
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getAllMetagraphs
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getBlockEmission
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getColdkeyAutoStakeHotkey
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getDynamicInfo
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getLockCost
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getMechagraph
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getMetagraph
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSelectiveMechagraph
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSelectiveMetagraph
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetAccountId
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetHyperparams
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetHyperparamsV2
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetInfo
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetInfo_v2
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetState
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetToPrune
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetsInfo
+rpc	pallets/subtensor/rpc/src/lib.rs	subnetInfo_getSubnetsInfo_v2
+rpc	pallets/swap/rpc/src/lib.rs	swap_currentAlphaPrice
+rpc	pallets/swap/rpc/src/lib.rs	swap_currentAlphaPriceAll
+rpc	pallets/swap/rpc/src/lib.rs	swap_simSwapAlphaForTao
+rpc	pallets/swap/rpc/src/lib.rs	swap_simSwapTaoForAlpha
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_all_dynamic_info
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_all_mechagraphs
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_all_metagraphs
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_block_emission
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_coldkey_auto_stake_hotkey
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_coldkey_lock
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_delegate
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_delegated
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_delegates
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_dynamic_info
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_hotkey_conviction
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_mechagraph
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_metagraph
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_most_convicted_hotkey_on_subnet
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_network_registration_cost
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_neuron
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_neuron_lite
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_neurons
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_neurons_lite
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_next_epoch_start_block
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_proxy_filters
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_proxy_types
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_selective_mechagraph
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_selective_metagraph
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_stake_availability_for_coldkeys
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_stake_fee
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_stake_info_for_coldkey
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_stake_info_for_coldkeys
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_stake_info_for_hotkey_coldkey_netuid
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnet_account_id
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnet_hyperparams
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnet_hyperparams_v2
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnet_hyperparams_v3
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnet_info
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnet_info_v2
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnet_state
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnet_to_prune
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnets_info
+runtime_api_fn	pallets/subtensor/runtime-api/src/lib.rs	get_subnets_info_v2
+runtime_api_fn	pallets/swap/runtime-api/src/lib.rs	current_alpha_price
+runtime_api_fn	pallets/swap/runtime-api/src/lib.rs	current_alpha_price_all
+runtime_api_fn	pallets/swap/runtime-api/src/lib.rs	sim_swap_alpha_for_tao
+runtime_api_fn	pallets/swap/runtime-api/src/lib.rs	sim_swap_tao_for_alpha
+runtime_api_trait	pallets/subtensor/runtime-api/src/lib.rs	DelegateInfoRuntimeApi
+runtime_api_trait	pallets/subtensor/runtime-api/src/lib.rs	NeuronInfoRuntimeApi
+runtime_api_trait	pallets/subtensor/runtime-api/src/lib.rs	ProxyFilterRuntimeApi
+runtime_api_trait	pallets/subtensor/runtime-api/src/lib.rs	StakeInfoRuntimeApi
+runtime_api_trait	pallets/subtensor/runtime-api/src/lib.rs	SubnetInfoRuntimeApi
+runtime_api_trait	pallets/subtensor/runtime-api/src/lib.rs	SubnetRegistrationRuntimeApi
+runtime_api_trait	pallets/swap/runtime-api/src/lib.rs	SwapRuntimeApi

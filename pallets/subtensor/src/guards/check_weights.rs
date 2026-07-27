@@ -1,4 +1,4 @@
-use super::{CallOf, DispatchableOriginOf, applicable_call};
+use super::{GuardsRuntimeCallOf, RuntimeCallOriginOf, subtensor_call_if};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet, WeightCommits};
 use frame_support::{
@@ -11,15 +11,18 @@ use sp_runtime::traits::Dispatchable;
 use sp_std::{collections::vec_deque::VecDeque, marker::PhantomData, vec::Vec};
 use subtensor_runtime_common::{NetUid, NetUidStorageIndex};
 
-type WeightCommitQueue = VecDeque<(H256, u64, u64, u64)>;
+/// Queued weight commits: `(commit_hash, commit_epoch, _, _)` as stored in [`WeightCommits`].
+type WeightCommitEpochQueue = VecDeque<(H256, u64, u64, u64)>;
 
 /// Dispatch extension for weight-setting preconditions.
 ///
 /// Signed weight calls are checked for batch shape, min stake, and commit/reveal
 /// prerequisites before dispatch; unrelated calls and non-signed origins pass through.
+/// Rate limits for the same calls live in [`super::CheckRateLimits`].
 pub struct CheckWeights<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckWeights<T> {
+    /// Whether this guard should charge weight / run for `call`.
     pub(crate) fn applies_to(call: &Call<T>) -> bool {
         matches!(
             call,
@@ -38,13 +41,15 @@ impl<T: Config> CheckWeights<T> {
         )
     }
 
+    /// Batch lengths, min stake, then commit/reveal / timelock round checks.
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
-        Self::check_input_lengths(call)?;
-        Self::check_min_stake(who, call)?;
-        Self::check_commit_reveal(who, call)
+        Self::ensure_batch_input_lengths(call)?;
+        Self::ensure_weights_min_stake(who, call)?;
+        Self::ensure_commit_reveal_ready(who, call)
     }
 
-    fn check_input_lengths(call: &Call<T>) -> Result<(), Error<T>> {
+    /// Parallel batch vectors must share a common length (`InputLengthsUnequal` otherwise).
+    fn ensure_batch_input_lengths(call: &Call<T>) -> Result<(), Error<T>> {
         let lengths_match = match call {
             Call::batch_commit_weights {
                 netuids,
@@ -76,7 +81,10 @@ impl<T: Config> CheckWeights<T> {
         }
     }
 
-    fn ensure_min_stake(who: &T::AccountId, netuid: NetUid) -> Result<(), Error<T>> {
+    fn ensure_hotkey_meets_weights_stake(
+        who: &T::AccountId,
+        netuid: NetUid,
+    ) -> Result<(), Error<T>> {
         if Pallet::<T>::check_weights_min_stake(who, netuid) {
             Ok(())
         } else {
@@ -84,7 +92,7 @@ impl<T: Config> CheckWeights<T> {
         }
     }
 
-    fn check_min_stake(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
+    fn ensure_weights_min_stake(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::commit_weights { netuid, .. }
             | Call::commit_mechanism_weights { netuid, .. }
@@ -96,12 +104,12 @@ impl<T: Config> CheckWeights<T> {
             | Call::commit_timelocked_weights { netuid, .. }
             | Call::commit_timelocked_mechanism_weights { netuid, .. }
             | Call::commit_crv3_mechanism_weights { netuid, .. } => {
-                Self::ensure_min_stake(who, *netuid)
+                Self::ensure_hotkey_meets_weights_stake(who, *netuid)
             }
             Call::batch_commit_weights { netuids, .. }
             | Call::batch_set_weights { netuids, .. } => {
                 for netuid in netuids.iter() {
-                    Self::ensure_min_stake(who, (*netuid).into())?;
+                    Self::ensure_hotkey_meets_weights_stake(who, (*netuid).into())?;
                 }
                 Ok(())
             }
@@ -109,7 +117,8 @@ impl<T: Config> CheckWeights<T> {
         }
     }
 
-    fn find_commit_epoch(commits: &WeightCommitQueue, hash: H256) -> Option<u64> {
+    /// Look up the epoch recorded for `hash` in a [`WeightCommitEpochQueue`].
+    fn find_weight_commit_epoch(commits: &WeightCommitEpochQueue, hash: H256) -> Option<u64> {
         commits
             .iter()
             .find_map(|(commit_hash, commit_epoch, _, _)| {
@@ -117,7 +126,8 @@ impl<T: Config> CheckWeights<T> {
             })
     }
 
-    fn check_reveal(
+    /// Single reveal: commit must exist and the current block must be in the reveal window.
+    fn ensure_reveal_in_window(
         who: &T::AccountId,
         netuid: NetUid,
         netuid_index: NetUidStorageIndex,
@@ -129,8 +139,8 @@ impl<T: Config> CheckWeights<T> {
         let commits =
             WeightCommits::<T>::get(netuid_index, who).ok_or(Error::<T>::NoWeightsCommitFound)?;
         let hash = Pallet::<T>::get_commit_hash(who, netuid_index, uids, values, salt, version_key);
-        let commit_epoch =
-            Self::find_commit_epoch(&commits, hash).ok_or(Error::<T>::NoWeightsCommitFound)?;
+        let commit_epoch = Self::find_weight_commit_epoch(&commits, hash)
+            .ok_or(Error::<T>::NoWeightsCommitFound)?;
 
         if Pallet::<T>::is_reveal_block_range(netuid, commit_epoch) {
             Ok(())
@@ -139,7 +149,7 @@ impl<T: Config> CheckWeights<T> {
         }
     }
 
-    fn check_batch_reveal(
+    fn ensure_batch_reveal_in_window(
         who: &T::AccountId,
         netuid: NetUid,
         uids_list: &[Vec<u16>],
@@ -166,8 +176,8 @@ impl<T: Config> CheckWeights<T> {
         {
             let hash =
                 Pallet::<T>::get_commit_hash(who, netuid_index, uids, values, salt, *version_key);
-            let commit_epoch =
-                Self::find_commit_epoch(&commits, hash).ok_or(Error::<T>::NoWeightsCommitFound)?;
+            let commit_epoch = Self::find_weight_commit_epoch(&commits, hash)
+                .ok_or(Error::<T>::NoWeightsCommitFound)?;
 
             if !Pallet::<T>::is_reveal_block_range(netuid, commit_epoch) {
                 return Err(Error::<T>::RevealTooEarly);
@@ -177,7 +187,8 @@ impl<T: Config> CheckWeights<T> {
         Ok(())
     }
 
-    fn check_commit_reveal(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
+    /// Reveal-window / commit-exists checks, plus drand reveal-round freshness for timelocked commits.
+    fn ensure_commit_reveal_ready(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::reveal_weights {
                 netuid,
@@ -185,7 +196,7 @@ impl<T: Config> CheckWeights<T> {
                 values,
                 salt,
                 version_key,
-            } => Self::check_reveal(
+            } => Self::ensure_reveal_in_window(
                 who,
                 *netuid,
                 NetUidStorageIndex::from(*netuid),
@@ -201,7 +212,7 @@ impl<T: Config> CheckWeights<T> {
                 values,
                 salt,
                 version_key,
-            } => Self::check_reveal(
+            } => Self::ensure_reveal_in_window(
                 who,
                 *netuid,
                 Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
@@ -216,7 +227,7 @@ impl<T: Config> CheckWeights<T> {
                 values_list,
                 salts_list,
                 version_keys,
-            } => Self::check_batch_reveal(
+            } => Self::ensure_batch_reveal_in_window(
                 who,
                 *netuid,
                 uids_list,
@@ -236,29 +247,29 @@ impl<T: Config> CheckWeights<T> {
     }
 }
 
-impl<T> DispatchExtension<CallOf<T>> for CheckWeights<T>
+impl<T> DispatchExtension<GuardsRuntimeCallOf<T>> for CheckWeights<T>
 where
     T: Config,
-    CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
-    DispatchableOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+    GuardsRuntimeCallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo> + IsSubType<Call<T>>,
+    RuntimeCallOriginOf<T>: OriginTrait<AccountId = T::AccountId>,
 {
     type Pre = ();
 
-    fn weight(call: &CallOf<T>) -> Weight {
-        applicable_call(call, Self::applies_to)
+    fn weight(call: &GuardsRuntimeCallOf<T>) -> Weight {
+        subtensor_call_if(call, Self::applies_to)
             .map(|_| <T as Config>::WeightInfo::check_weights_extension())
             .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
-        origin: &DispatchableOriginOf<T>,
-        call: &CallOf<T>,
+        origin: &RuntimeCallOriginOf<T>,
+        call: &GuardsRuntimeCallOf<T>,
     ) -> Result<Self::Pre, DispatchErrorWithPostInfo> {
         let Some(who) = origin.as_signer() else {
             return Ok(());
         };
 
-        let Some(call) = applicable_call(call, Self::applies_to) else {
+        let Some(call) = subtensor_call_if(call, Self::applies_to) else {
             return Ok(());
         };
 

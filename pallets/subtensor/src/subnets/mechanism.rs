@@ -1,5 +1,7 @@
-//! This file contains all tooling to work with sub-subnets
+//! Sub-subnet (mechanism) indexing, emission splits, and multi-mechanism epoch.
 //!
+//! Mechanisms share a parent `netuid` but store weights/bonds/incentive under a
+//! packed [`NetUidStorageIndex`] = `netuid + mech_id * GLOBAL_MAX_SUBNET_COUNT`.
 
 use super::*;
 use crate::epoch::run_epoch::EpochTerms;
@@ -7,13 +9,6 @@ use alloc::collections::BTreeMap;
 use safe_math::*;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, NetUidStorageIndex};
-
-pub type LeaseId = u32;
-
-pub type CurrencyOf<T> = <T as Config>::Currency;
-
-pub type BalanceOf<T> =
-    <CurrencyOf<T> as fungible::Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
 /// Theoretical maximum of subnets on bittensor. This value is used in indexed
 /// storage of epoch values for sub-subnets as
@@ -32,6 +27,7 @@ pub const GLOBAL_MAX_SUBNET_COUNT: u16 = 4096;
 pub const MAX_MECHANISM_COUNT_PER_SUBNET: u8 = 16;
 
 impl<T: Config> Pallet<T> {
+    /// Pack `(netuid, mechanism_id)` into the storage index used by weights/bonds maps.
     pub fn get_mechanism_storage_index(netuid: NetUid, sub_id: MechId) -> NetUidStorageIndex {
         u16::from(sub_id)
             .saturating_mul(GLOBAL_MAX_SUBNET_COUNT)
@@ -39,7 +35,8 @@ impl<T: Config> Pallet<T> {
             .into()
     }
 
-    pub fn get_netuid(netuid_index: NetUidStorageIndex) -> NetUid {
+    /// Extract parent `netuid` from a mechanism storage index (`index % GLOBAL_MAX_SUBNET_COUNT`).
+    pub fn netuid_from_mechanism_storage_index(netuid_index: NetUidStorageIndex) -> NetUid {
         if let Some(netuid) = u16::from(netuid_index).checked_rem(GLOBAL_MAX_SUBNET_COUNT) {
             NetUid::from(netuid)
         } else {
@@ -48,6 +45,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Decode `(netuid, mech_id)` from a storage index and ensure that mechanism exists.
     pub fn get_netuid_and_subid(
         netuid_index: NetUidStorageIndex,
     ) -> Result<(NetUid, MechId), Error<T>> {
@@ -57,7 +55,7 @@ impl<T: Config> Pallet<T> {
 
             // Make sure the base subnet exists
             ensure!(
-                Self::if_subnet_exist(netuid),
+                Self::subnet_exists(netuid),
                 Error::<T>::MechanismDoesNotExist
             );
 
@@ -76,14 +74,16 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Current mechanism count for `netuid` (defaults via storage to at least one).
     pub fn get_current_mechanism_count(netuid: NetUid) -> MechId {
         MechanismCountCurrent::<T>::get(netuid)
     }
 
+    /// Error if `netuid` is missing or `sub_id` is outside `[0, mechanism_count)`.
     pub fn ensure_mechanism_exists(netuid: NetUid, sub_id: MechId) -> DispatchResult {
         // Make sure the base subnet exists
         ensure!(
-            Self::if_subnet_exist(netuid),
+            Self::subnet_exists(netuid),
             Error::<T>::MechanismDoesNotExist
         );
 
@@ -95,6 +95,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Cap `max_uids * mechanism_count` so multi-mechanism subnets cannot bloat past default max UIDs.
     pub fn ensure_max_uids_over_all_mechanisms(
         max_uids: u16,
         mechanism_count: MechId,
@@ -113,7 +114,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_set_mechanism_count(netuid: NetUid, mechanism_count: MechId) -> DispatchResult {
         // Make sure the subnet exists
         ensure!(
-            Self::if_subnet_exist(netuid),
+            Self::subnet_exists(netuid),
             Error::<T>::MechanismDoesNotExist
         );
 
@@ -197,10 +198,11 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Set or clear the per-mechanism emission split; values must sum to `u16::MAX` when `Some`.
     pub fn do_set_emission_split(netuid: NetUid, maybe_split: Option<Vec<u16>>) -> DispatchResult {
         // Make sure the subnet exists
         ensure!(
-            Self::if_subnet_exist(netuid),
+            Self::subnet_exists(netuid),
             Error::<T>::MechanismDoesNotExist
         );
 
@@ -258,13 +260,15 @@ impl<T: Config> Pallet<T> {
         result
     }
 
-    fn weighted_acc_u16(existing: u16, added: u16, weight: U64F64) -> u16 {
+    /// `existing + added * weight` for consolidating u16 epoch terms across mechanisms.
+    fn weighted_accumulate_u16(existing: u16, added: u16, weight: U64F64) -> u16 {
         U64F64::saturating_from_num(existing)
             .saturating_add(U64F64::saturating_from_num(added).saturating_mul(weight))
             .saturating_to_num::<u16>()
     }
 
-    fn weighted_acc_alpha(
+    /// `existing + added * weight` for consolidating alpha epoch terms across mechanisms.
+    fn weighted_accumulate_alpha(
         existing: AlphaBalance,
         added: AlphaBalance,
         weight: U64F64,
@@ -324,28 +328,28 @@ impl<T: Config> Pallet<T> {
                                 .saturating_add(terms.server_emission);
 
                             // The rest of the terms need to be aggregated as weighted sum
-                            acc_terms.dividend = Self::weighted_acc_u16(
+                            acc_terms.dividend = Self::weighted_accumulate_u16(
                                 acc_terms.dividend,
                                 terms.dividend,
                                 sub_weight,
                             );
-                            acc_terms.stake_weight = Self::weighted_acc_u16(
+                            acc_terms.stake_weight = Self::weighted_accumulate_u16(
                                 acc_terms.stake_weight,
                                 terms.stake_weight,
                                 sub_weight,
                             );
                             acc_terms.active |= terms.active;
-                            acc_terms.emission = Self::weighted_acc_alpha(
+                            acc_terms.emission = Self::weighted_accumulate_alpha(
                                 acc_terms.emission,
                                 terms.emission,
                                 sub_weight,
                             );
-                            acc_terms.consensus = Self::weighted_acc_u16(
+                            acc_terms.consensus = Self::weighted_accumulate_u16(
                                 acc_terms.consensus,
                                 terms.consensus,
                                 sub_weight,
                             );
-                            acc_terms.validator_trust = Self::weighted_acc_u16(
+                            acc_terms.validator_trust = Self::weighted_accumulate_u16(
                                 acc_terms.validator_trust,
                                 terms.validator_trust,
                                 sub_weight,
@@ -357,23 +361,35 @@ impl<T: Config> Pallet<T> {
                             // weighted insert for the first sub-subnet seen for this hotkey
                             EpochTerms {
                                 uid: terms.uid,
-                                dividend: Self::weighted_acc_u16(0, terms.dividend, sub_weight),
-                                incentive: Self::weighted_acc_u16(0, terms.incentive, sub_weight),
+                                dividend: Self::weighted_accumulate_u16(
+                                    0,
+                                    terms.dividend,
+                                    sub_weight,
+                                ),
+                                incentive: Self::weighted_accumulate_u16(
+                                    0,
+                                    terms.incentive,
+                                    sub_weight,
+                                ),
                                 validator_emission: terms.validator_emission,
                                 server_emission: terms.server_emission,
-                                stake_weight: Self::weighted_acc_u16(
+                                stake_weight: Self::weighted_accumulate_u16(
                                     0,
                                     terms.stake_weight,
                                     sub_weight,
                                 ),
                                 active: terms.active, // booleans are ORed across subs
-                                emission: Self::weighted_acc_alpha(
+                                emission: Self::weighted_accumulate_alpha(
                                     0u64.into(),
                                     terms.emission,
                                     sub_weight,
                                 ),
-                                consensus: Self::weighted_acc_u16(0, terms.consensus, sub_weight),
-                                validator_trust: Self::weighted_acc_u16(
+                                consensus: Self::weighted_accumulate_u16(
+                                    0,
+                                    terms.consensus,
+                                    sub_weight,
+                                ),
+                                validator_trust: Self::weighted_accumulate_u16(
                                     0,
                                     terms.validator_trust,
                                     sub_weight,

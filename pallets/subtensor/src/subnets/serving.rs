@@ -1,3 +1,8 @@
+//! Axon and prometheus endpoint serving for registered hotkeys.
+//!
+//! Extrinsic bodies validate IP/port, enforce the serving rate limit, and
+//! persist [`Axons`] / [`Prometheus`] maps keyed by `(netuid, hotkey)`.
+
 use super::*;
 use subtensor_runtime_common::NetUid;
 
@@ -53,7 +58,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // We check the callers (hotkey) signature.
         let hotkey_id = ensure_signed(origin)?;
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Validate user input
         Self::validate_serve_axon(
@@ -142,7 +147,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // We check the callers (hotkey) signature.
         let hotkey_id = ensure_signed(origin)?;
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         let updated_prometheus =
             Self::validate_serve_prometheus(&hotkey_id, netuid, version, ip, port, ip_type)?;
@@ -162,7 +167,8 @@ impl<T: Config> Pallet<T> {
      --==[[  Helper functions   ]]==--
     *********************************/
 
-    pub fn axon_passes_rate_limit(
+    /// Whether enough blocks have elapsed since the last axon serve on this hotkey.
+    pub fn axon_serve_passes_rate_limit(
         netuid: NetUid,
         prev_axon_info: &AxonInfoOf,
         current_block: u64,
@@ -172,7 +178,8 @@ impl<T: Config> Pallet<T> {
         rate_limit == 0 || last_serve == 0 || current_block.saturating_sub(last_serve) >= rate_limit
     }
 
-    pub fn prometheus_passes_rate_limit(
+    /// Whether enough blocks have elapsed since the last prometheus serve on this hotkey.
+    pub fn prometheus_serve_passes_rate_limit(
         netuid: NetUid,
         prev_prometheus_info: &PrometheusInfoOf,
         current_block: u64,
@@ -182,6 +189,7 @@ impl<T: Config> Pallet<T> {
         rate_limit == 0 || last_serve == 0 || current_block.saturating_sub(last_serve) >= rate_limit
     }
 
+    /// Stored axon info, or a zeroed default if the hotkey has never served.
     pub fn get_axon_info(netuid: NetUid, hotkey: &T::AccountId) -> AxonInfoOf {
         if let Some(axons) = Axons::<T>::get(netuid, hotkey) {
             axons
@@ -199,6 +207,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Stored prometheus info, or a zeroed default if the hotkey has never served.
     pub fn get_prometheus_info(netuid: NetUid, hotkey: &T::AccountId) -> PrometheusInfoOf {
         if let Some(prometheus) = Prometheus::<T>::get(netuid, hotkey) {
             prometheus
@@ -213,12 +222,14 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Accept only IPv4 (`4`) or IPv6 (`6`).
     pub fn is_valid_ip_type(ip_type: u8) -> bool {
         let allowed_values = [4, 6];
         allowed_values.contains(&ip_type)
     }
 
     // @todo (Parallax 2-1-2021) : Implement exclusion of private IP ranges
+    /// Basic IP sanity checks; deliberately does not exclude private ranges.
     pub fn is_valid_ip_address(ip_type: u8, addr: u128, allow_zero: bool) -> bool {
         if !allow_zero && addr == 0 {
             return false;
@@ -242,6 +253,7 @@ impl<T: Config> Pallet<T> {
         true
     }
 
+    /// Reject axon payloads with port `0`.
     pub fn validate_axon_data(axon_info: &AxonInfoOf) -> Result<bool, pallet::Error<T>> {
         if axon_info.port.clamp(0, u16::MAX) == 0 {
             return Err(Error::<T>::InvalidPort);
@@ -250,6 +262,7 @@ impl<T: Config> Pallet<T> {
         Ok(true)
     }
 
+    /// Reject prometheus payloads with port `0`.
     pub fn validate_prometheus_data(
         prom_info: &PrometheusInfoOf,
     ) -> Result<bool, pallet::Error<T>> {
@@ -260,6 +273,7 @@ impl<T: Config> Pallet<T> {
         Ok(true)
     }
 
+    /// Full pre-insert checks for `serve_axon` (registration, rate limit, IP/port).
     pub fn validate_serve_axon(
         hotkey_id: &T::AccountId,
         netuid: NetUid,
@@ -289,7 +303,7 @@ impl<T: Config> Pallet<T> {
         let mut prev_axon = Self::get_axon_info(netuid, hotkey_id);
         let current_block: u64 = Self::get_current_block_as_u64();
         ensure!(
-            Self::axon_passes_rate_limit(netuid, &prev_axon, current_block),
+            Self::axon_serve_passes_rate_limit(netuid, &prev_axon, current_block),
             Error::<T>::ServingRateLimitExceeded
         );
 
@@ -313,6 +327,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Same checks as [`Self::do_serve_prometheus`] before storage writes (for transaction extension).
+    /// Full pre-insert checks for `serve_prometheus`.
     pub fn validate_serve_prometheus(
         hotkey_id: &T::AccountId,
         netuid: NetUid,
@@ -335,7 +350,7 @@ impl<T: Config> Pallet<T> {
         let mut prev_prometheus = Self::get_prometheus_info(netuid, hotkey_id);
         let current_block: u64 = Self::get_current_block_as_u64();
         ensure!(
-            Self::prometheus_passes_rate_limit(netuid, &prev_prometheus, current_block),
+            Self::prometheus_serve_passes_rate_limit(netuid, &prev_prometheus, current_block),
             Error::<T>::ServingRateLimitExceeded
         );
 

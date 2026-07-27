@@ -1,3 +1,9 @@
+//! Neuron registration, faucet minting, and prune / POW helpers.
+//!
+//! Burn registration splits cost via collateral (`pay_neuron_registration`);
+//! when the subnet is full, [`get_neuron_to_prune`] picks a replaceable uid
+//! while protecting immune owner UIDs.
+
 use super::*;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use sp_core::{H256, U256};
@@ -10,6 +16,7 @@ use system::pallet_prelude::BlockNumberFor;
 const LOG_TARGET: &str = "runtime::subtensor::registration";
 
 impl<T: Config> Pallet<T> {
+    /// Append a neuron or replace a pruned uid; returns the assigned uid.
     pub fn register_neuron(netuid: NetUid, hotkey: &T::AccountId) -> Result<u16, DispatchError> {
         let block_number: u64 = Self::get_current_block_as_u64();
         let current_subnetwork_n: u16 = Self::get_subnetwork_n(netuid);
@@ -35,6 +42,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Burn/collateral neuron registration path for a signed coldkey.
     pub fn do_register(
         origin: OriginFor<T>,
         netuid: NetUid,
@@ -49,7 +57,7 @@ impl<T: Config> Pallet<T> {
             !netuid.is_root(),
             Error::<T>::RegistrationNotPermittedOnRootSubnet
         );
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // 3) registrations allowed
         ensure!(
@@ -114,7 +122,13 @@ impl<T: Config> Pallet<T> {
         // after the swap must not leave a partial charge.
         with_transaction(|| {
             let result = (|| -> Result<u16, DispatchError> {
-                Self::pay_registration(netuid, &hotkey, &coldkey, burned_share, collateral_topup)?;
+                Self::pay_neuron_registration(
+                    netuid,
+                    &hotkey,
+                    &coldkey,
+                    burned_share,
+                    collateral_topup,
+                )?;
 
                 let neuron_uid = Self::register_neuron(netuid, &hotkey)?;
 
@@ -136,6 +150,7 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// Like [`Self::do_register`] but rejects when the subnet is already at max UIDs (no prune).
     pub fn do_register_limit(
         origin: OriginFor<T>,
         netuid: NetUid,
@@ -152,7 +167,7 @@ impl<T: Config> Pallet<T> {
             !netuid.is_root(),
             Error::<T>::RegistrationNotPermittedOnRootSubnet
         );
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        ensure!(Self::subnet_exists(netuid), Error::<T>::SubnetNotExists);
 
         // Enforce caller limit before entering the shared registration path.
         let registration_cost: TaoBalance = Self::get_burn(netuid);
@@ -167,6 +182,7 @@ impl<T: Config> Pallet<T> {
         Self::do_register(origin, netuid, hotkey)
     }
 
+    /// Testnet-only faucet: mint TAO to the signer after validating POW work.
     pub fn do_faucet(
         origin: OriginFor<T>,
         block_number: u64,
@@ -194,7 +210,7 @@ impl<T: Config> Pallet<T> {
 
         // --- 3. Ensure the supplied work passes the difficulty.
         let difficulty: U256 = U256::from(1_000_000); // Base faucet difficulty.
-        let work_hash: H256 = Self::vec_to_hash(work.clone());
+        let work_hash: H256 = Self::registration_work_bytes_to_h256(work.clone());
         ensure!(
             Self::hash_meets_difficulty(&work_hash, difficulty),
             Error::<T>::InvalidDifficulty
@@ -218,28 +234,35 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn vec_to_hash(vec_hash: Vec<u8>) -> H256 {
+    /// Decode a 32-byte POW work vector as [`H256`].
+    pub fn registration_work_bytes_to_h256(vec_hash: Vec<u8>) -> H256 {
         let de_ref_hash = &vec_hash; // b: &Vec<u8>
         let de_de_ref_hash: &[u8] = de_ref_hash; // c: &[u8]
         let real_hash: H256 = H256::from_slice(de_de_ref_hash);
         real_hash
     }
 
-    fn get_immune_owner_hotkeys(netuid: NetUid, coldkey: &T::AccountId) -> Vec<T::AccountId> {
-        Self::get_immune_owner_tuples(netuid, coldkey)
+    /// Hotkeys of immune owner UIDs for `coldkey` on `netuid` (prune protection set).
+    fn immune_owner_hotkeys(netuid: NetUid, coldkey: &T::AccountId) -> Vec<T::AccountId> {
+        Self::immune_owner_uid_hotkey_pairs(netuid, coldkey)
             .into_iter()
             .map(|(_, hk)| hk)
             .collect()
     }
 
+    /// Uids of immune owner neurons for `coldkey` on `netuid`.
     pub fn get_immune_owner_uids(netuid: NetUid, coldkey: &T::AccountId) -> Vec<u16> {
-        Self::get_immune_owner_tuples(netuid, coldkey)
+        Self::immune_owner_uid_hotkey_pairs(netuid, coldkey)
             .into_iter()
             .map(|(uid, _)| uid)
             .collect()
     }
 
-    fn get_immune_owner_tuples(netuid: NetUid, coldkey: &T::AccountId) -> Vec<(u16, T::AccountId)> {
+    /// `(uid, hotkey)` pairs for owner-immune neurons, newest-first, capped by [`ImmuneOwnerUidsLimit`].
+    fn immune_owner_uid_hotkey_pairs(
+        netuid: NetUid,
+        coldkey: &T::AccountId,
+    ) -> Vec<(u16, T::AccountId)> {
         // Gather (block, uid, hotkey) only for hotkeys that have a UID and a registration block.
         let mut triples: Vec<(u64, u16, T::AccountId)> = OwnedHotkeys::<T>::get(coldkey)
             .into_iter()
@@ -289,7 +312,7 @@ impl<T: Config> Pallet<T> {
         }
 
         let owner_ck = SubnetOwner::<T>::get(netuid);
-        let immortal_hotkeys = Self::get_immune_owner_hotkeys(netuid, &owner_ck);
+        let immortal_hotkeys = Self::immune_owner_hotkeys(netuid, &owner_ck);
         let emissions: Vec<AlphaBalance> = Emission::<T>::get(netuid);
 
         // Single pass:
@@ -364,6 +387,7 @@ impl<T: Config> Pallet<T> {
     /// The test is done by multiplying the two together. If the product
     /// overflows the bounds of U256, then the product (and thus the hash)
     /// was too high.
+    /// Whether `hash` as a big-endian integer is below `difficulty` (POW check).
     pub fn hash_meets_difficulty(hash: &H256, difficulty: U256) -> bool {
         let bytes: &[u8] = hash.as_bytes();
         let num_hash: U256 = U256::from_little_endian(bytes);
@@ -376,6 +400,7 @@ impl<T: Config> Pallet<T> {
         !overflowed
     }
 
+    /// Block hash for `block_number`, or zero hash if the block is unknown.
     pub fn get_block_hash_from_u64(block_number: u64) -> H256 {
         let block_number: BlockNumberFor<T> = TryInto::<BlockNumberFor<T>>::try_into(block_number)
             .ok()
@@ -394,12 +419,14 @@ impl<T: Config> Pallet<T> {
         real_hash
     }
 
+    /// Encode [`H256`] as a 32-byte vector for POW work payloads.
     pub fn hash_to_vec(hash: H256) -> Vec<u8> {
         let hash_as_bytes: &[u8] = hash.as_bytes();
         let hash_as_vec: Vec<u8> = hash_as_bytes.to_vec();
         hash_as_vec
     }
 
+    /// Keccak hash of `block_hash || hotkey` used in POW seal construction.
     pub fn hash_block_and_hotkey(block_hash_bytes: &[u8; 32], hotkey: &T::AccountId) -> H256 {
         let binding = hotkey.encode();
         // Safe because Substrate guarantees that all AccountId types are at least 32 bytes
@@ -413,6 +440,7 @@ impl<T: Config> Pallet<T> {
         H256::from_slice(&keccak_256_seal_hash_vec)
     }
 
+    /// First 8 bytes of the hotkey blake2 hash as `u64` (faucet / POW helper).
     pub fn hash_hotkey_to_u64(hotkey: &T::AccountId) -> u64 {
         let binding = hotkey.encode();
         let (hotkey_bytes, _) = binding.split_at(32);
@@ -428,6 +456,7 @@ impl<T: Config> Pallet<T> {
         hash_u64
     }
 
+    /// POW seal hash for `(block, nonce, hotkey)`.
     pub fn create_seal_hash(block_number_u64: u64, nonce_u64: u64, hotkey: &T::AccountId) -> H256 {
         let nonce = nonce_u64.to_le_bytes();
         let block_hash_at_number: H256 = Self::get_block_hash_from_u64(block_number_u64);
@@ -451,6 +480,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Helper function for creating nonce and work.
+    /// Build the POW work vector for tests / faucet against `block_number`.
     pub fn create_work_for_block_number(
         netuid: NetUid,
         block_number: u64,
@@ -475,6 +505,7 @@ impl<T: Config> Pallet<T> {
     ///   where `f ^ BurnHalfLife = 1/2`.
     /// * Burn is clamped to the configured [`MinBurn`, `MaxBurn`] range.
     ///
+    /// Decay burn prices for every subnet once per block (`on_initialize`).
     pub fn update_registration_prices_for_networks() {
         let current_block: u64 = Self::get_current_block_as_u64();
 

@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Parse `#[frame_support::runtime]` module input (pallet decls, runtime struct, derives).
+
 pub mod helper;
 pub mod pallet;
 pub mod pallet_decl;

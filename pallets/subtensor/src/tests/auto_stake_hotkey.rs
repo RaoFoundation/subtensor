@@ -1,3 +1,7 @@
+//! Tests for [`crate::Pallet::set_coldkey_auto_stake_hotkey`].
+//!
+//! Covers missing-subnet / unregistered-hotkey errors and successful set/change.
+
 use super::mock::*;
 use crate::*;
 use frame_support::{assert_noop, assert_ok};

@@ -1,3 +1,5 @@
+//! Stake position and unstake-availability RPC views.
+
 extern crate alloc;
 
 use codec::Compact;
@@ -8,21 +10,29 @@ use subtensor_swap_interface::SwapHandler;
 
 use super::*;
 
-#[freeze_struct("8cef3fae262a623e")]
+/// One hotkey/coldkey stake position on a subnet for stake-info RPCs.
+///
+/// `locked` and `drain` are legacy placeholders (always 0). `tao_emission` is always zero
+/// (root TAO dividends removed). Prefer [`StakeAvailability`] for lock-aware unstake amounts.
+#[freeze_struct("8dea8cf5d0699319")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct StakeInfo<AccountId: TypeInfo + Encode + Decode> {
     hotkey: AccountId,
     coldkey: AccountId,
     netuid: Compact<NetUid>,
     stake: Compact<AlphaBalance>,
+    /// Legacy; always 0.
     locked: Compact<u64>,
     emission: Compact<AlphaBalance>,
+    /// Root TAO dividends removed; always zero.
     tao_emission: Compact<TaoBalance>,
+    /// Legacy; always 0.
     drain: Compact<u64>,
     is_registered: bool,
 }
 
-#[freeze_struct("2d52e2de04425fb6")]
+/// Per-subnet stake breakdown: total alpha, locked mass, and free-to-unstake alpha.
+#[freeze_struct("b70cfdd87c474405")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct StakeAvailability {
     total: Compact<AlphaBalance>,
@@ -30,7 +40,6 @@ pub struct StakeAvailability {
     available: Compact<AlphaBalance>,
 }
 
-// Per-subnet stake breakdown: total alpha, locked mass, and what is free to unstake.
 impl StakeAvailability {
     pub fn total(&self) -> AlphaBalance {
         self.total.into()
@@ -46,7 +55,8 @@ impl StakeAvailability {
 }
 
 impl<T: Config> Pallet<T> {
-    fn _get_stake_info_for_coldkeys(
+    /// Stake rows for each coldkey across all subnets / associated hotkeys (skips zero alpha).
+    fn stake_info_rows_for_coldkeys(
         coldkeys: Vec<T::AccountId>,
     ) -> Vec<(T::AccountId, Vec<StakeInfo<T::AccountId>>)> {
         if coldkeys.is_empty() {
@@ -89,6 +99,7 @@ impl<T: Config> Pallet<T> {
         stake_info
     }
 
+    /// Batch [`StakeInfo`] rows keyed by coldkey.
     pub fn get_stake_info_for_coldkeys(
         coldkey_accounts: Vec<T::AccountId>,
     ) -> Vec<(T::AccountId, Vec<StakeInfo<T::AccountId>>)> {
@@ -96,13 +107,14 @@ impl<T: Config> Pallet<T> {
             return Vec::new(); // Empty coldkeys
         }
 
-        Self::_get_stake_info_for_coldkeys(coldkey_accounts)
+        Self::stake_info_rows_for_coldkeys(coldkey_accounts)
     }
 
+    /// [`StakeInfo`] rows for a single coldkey.
     pub fn get_stake_info_for_coldkey(
         coldkey_account: T::AccountId,
     ) -> Vec<StakeInfo<T::AccountId>> {
-        let stake_info = Self::_get_stake_info_for_coldkeys(vec![coldkey_account]);
+        let stake_info = Self::stake_info_rows_for_coldkeys(vec![coldkey_account]);
 
         if stake_info.is_empty() {
             Vec::new() // Invalid coldkey
@@ -115,6 +127,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Single stake position for `(hotkey, coldkey, netuid)` (includes zero-stake rows).
     pub fn get_stake_info_for_hotkey_coldkey_netuid(
         hotkey_account: T::AccountId,
         coldkey_account: T::AccountId,
@@ -172,7 +185,7 @@ impl<T: Config> Pallet<T> {
                         .map(|coldkey| (coldkey, BTreeMap::new()))
                         .collect();
                 }
-                requested.retain(|n| Self::if_subnet_exist(*n));
+                requested.retain(|n| Self::subnet_exists(*n));
                 requested
             }
         };
@@ -206,6 +219,10 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
+    /// Approximate swap fee (rao) for moving `amount` between stake endpoints.
+    ///
+    /// Same origin and destination → 0. Otherwise fee is taken from the destination
+    /// subnet when present, else the origin subnet, else root.
     pub fn get_stake_fee(
         origin: Option<(T::AccountId, NetUid)>,
         _origin_coldkey_account: T::AccountId,

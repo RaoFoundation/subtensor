@@ -1,9 +1,9 @@
-//! Global coldkey swap lineage.
+//! Global coldkey swap lineage (`ColdkeyRoot` / `ColdkeySuccessor`).
 //!
-//! After a successful coldkey swap, owner-identity continuity is recorded so
-//! indexers and policies can attribute stake/ownership to a stable root
-//! without replaying archives. Unlike hotkey lineage, maps are global: a
-//! coldkey swap moves economic identity across every subnet at once.
+//! After a successful [`crate::swap::swap_coldkey`] rename, owner-identity
+//! continuity is recorded so indexers and policies can attribute stake/ownership
+//! to a stable root without replaying archives. Unlike hotkey lineage, maps are
+//! global: a coldkey swap moves economic identity across every subnet at once.
 //!
 //! Prefer [`Self::coldkey_root`] / [`Self::same_coldkey_lineage`] for identity
 //! checks. [`Self::coldkey_lineage_tip`] is best-effort: successor edges are

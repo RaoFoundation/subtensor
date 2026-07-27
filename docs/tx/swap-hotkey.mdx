@@ -89,10 +89,10 @@ pub fn swap_hotkey(
     new_hotkey: T::AccountId,
     netuid: Option<NetUid>,
 ) -> DispatchResultWithPostInfo {
-    Self::do_swap_hotkey(origin, &hotkey, &new_hotkey, netuid, false)
+    Self::perform_hotkey_swap(origin, &hotkey, &new_hotkey, netuid, false)
 }
 ```
 
-Delegates to [`do_swap_hotkey`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L72).
+Delegates to [`perform_hotkey_swap`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L72).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -19,26 +19,9 @@ pub mod deprecated_loaded_emission_format {
         StorageMap<Pallet<T>, Identity, u16, Vec<(AccountIdOf<T>, u64)>, OptionQuery>;
 }
 
-/// Migrates the storage to fix TotalStake and TotalColdkeyStake
+/// Resets and recalculates `TotalStake` and `TotalColdkeyStake` from the (then-current) `Stake` map.
 ///
-/// This function performs the following steps:
-/// 1. Resets TotalStake to 0
-/// 2. Resets all TotalColdkeyStake entries to 0
-/// 3. Recalculates TotalStake and TotalColdkeyStake based on the Stake map
-///
-/// # Arguments
-///
-/// * `T` - The Config trait of the pallet
-///
-/// # Returns
-///
-/// * `Weight` - The computational weight of this operation
-///
-/// # Example
-///
-/// ```ignore
-/// let weight = migrate_to_v2_fixed_total_stake::<T>();
-/// ```
+/// Does not use [`HasMigrationRun`]; intended as a storage-version migration.
 pub fn migrate_to_v2_fixed_total_stake<T: Config>() -> Weight {
     let new_storage_version = 2;
 

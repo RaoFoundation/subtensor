@@ -1,3 +1,8 @@
+//! Alternate test runtime with a high existential deposit.
+//!
+//! Used by [`crate::tests::tao`] for TAO issuance / dust / ED-sensitive paths.
+//! Prefer [`crate::tests::mock`] for ordinary pallet tests.
+
 #![allow(
     clippy::arithmetic_side_effects,
     clippy::expect_used,
@@ -304,7 +309,7 @@ impl crate::Config for Test {
     type LeaseDividendsDistributionInterval = LeaseDividendsDistributionInterval;
     type GetCommitments = ();
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
-    type CommitmentsInterface = CommitmentsI;
+    type CommitmentsInterface = CommitmentsPurgeBridge;
     type AlphaAssets = AlphaAssets;
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
@@ -344,8 +349,8 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
     }
 }
 
-pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+pub struct CommitmentsPurgeBridge;
+impl CommitmentsInterface for CommitmentsPurgeBridge {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,

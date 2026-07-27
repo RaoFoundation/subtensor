@@ -15,7 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Home of the parsing and expansion code for the new pallet benchmarking syntax
+//! Parsing and expansion for FRAME pallet benchmarking macros (`#[benchmarks]`, `#[benchmark]`).
+//!
+//! Subtensor's `RequireExtrinsicBenchmarks` lint looks for the same attribute/fn shapes this
+//! expander understands (plus legacy `benchmarks!`).
 
 use derive_syn_parse::Parse;
 use frame_support_procedural_tools::generate_access_from_frame_or_crate;

@@ -1,3 +1,4 @@
+//! Extrinsic body for decreasing a delegate hotkey's take.
 use sp_runtime::PerU16;
 
 use super::*;

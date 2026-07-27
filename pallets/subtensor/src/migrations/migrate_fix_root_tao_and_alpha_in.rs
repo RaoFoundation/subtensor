@@ -2,6 +2,10 @@ use super::migrate_init_total_issuance::migrate_init_total_issuance;
 use super::*;
 use alloc::string::String;
 
+/// Applies hardcoded root-pool corrections for an over-unstake incident: adjusts root
+/// `SubnetTAO`, `SubnetAlphaIn`, `SubnetAlphaOut`, `SubnetVolume`, and `TotalStake` by fixed rao deltas.
+///
+/// Idempotency key (frozen): `migrate_fix_root_tao_and_alpha_in`.
 pub fn migrate_fix_root_tao_and_alpha_in<T: Config>() -> Weight {
     let migration_name = b"migrate_fix_root_tao_and_alpha_in".to_vec();
     let mut weight = T::DbWeight::get().reads(1);

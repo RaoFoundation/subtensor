@@ -1,3 +1,8 @@
+//! FRAME pallet definition for the TAO↔alpha weighted-balancer AMM.
+//!
+//! Storage names, call indices, and event/error variant order are frozen wire surfaces.
+//! Swap execution lives in `impls` / `swap_step`; pool math in `balancer`.
+
 use core::num::NonZeroU64;
 
 use frame_support::{PalletId, pallet_prelude::*, traits::Get};
@@ -18,7 +23,7 @@ mod swap_step;
 #[cfg(test)]
 mod tests;
 
-// Define a maximum length for the migration key
+/// Max length of a `HasMigrationRun` key (`BoundedVec<u8, …>`).
 type MigrationKeyMaxLen = ConstU32<128>;
 
 #[allow(clippy::module_inception)]
@@ -31,43 +36,41 @@ mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
-    /// Configure the pallet by specifying the parameters and types on which it depends.
+    /// Runtime configuration for the swap pallet (reserves, fee bounds, protocol account).
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        /// Implementor of
-        /// [`SubnetInfo`](subtensor_swap_interface::SubnetInfo).
+        /// Subnet existence / mechanism queries (`mechanism == 1` ⇒ dynamic AMM).
         type SubnetInfo: SubnetInfo<Self::AccountId>;
 
-        /// Tao reserves info.
+        /// Price-active TAO reserve provider (`SubnetTAO` in the full runtime).
         type TaoReserve: TokenReserve<TaoBalance>;
 
-        /// Alpha reserves info.
+        /// Price-active alpha reserve provider (`SubnetAlphaIn` in the full runtime).
         type AlphaReserve: TokenReserve<AlphaBalance>;
 
-        /// Implementor of
-        /// [`BalanceOps`](subtensor_swap_interface::BalanceOps).
+        /// Coldkey/hotkey balance ops used by deprecated LP paths and fee sinks.
         type BalanceOps: BalanceOps<Self::AccountId>;
 
-        /// This type is used to derive protocol accoun ID.
+        /// PalletId used to derive the protocol-owned account for this swap pallet.
         #[pallet::constant]
         type ProtocolId: Get<PalletId>;
 
-        /// The maximum fee rate that can be set
+        /// Upper bound for [`FeeRate`] (u16-normalized); root cannot set above this.
         #[pallet::constant]
         type MaxFeeRate: Get<u16>;
 
-        /// Minimum liquidity that is safe for rounding and integer math.
+        /// Minimum liquidity considered safe for rounding / integer math.
         #[pallet::constant]
         type MinimumLiquidity: Get<u64>;
 
-        /// Minimum reserve for tao and alpha
+        /// Floor for TAO and alpha reserves before a swap may execute.
         #[pallet::constant]
         type MinimumReserve: Get<NonZeroU64>;
 
-        /// Weight information for extrinsics in this pallet.
+        /// Extrinsic weight functions (generated / benchmarked).
         type WeightInfo: WeightInfo;
 
-        /// Helper for setting up cross-pallet state needed by benchmarks.
+        /// Cross-pallet subnet/hotkey setup for runtime benchmarks.
         #[cfg(feature = "runtime-benchmarks")]
         type BenchmarkHelper: BenchmarkHelper<Self::AccountId>;
     }
@@ -85,49 +88,49 @@ mod pallet {
         fn register_hotkey(_hotkey: &AccountId, _coldkey: &AccountId) {}
     }
 
-    /// Default fee rate if not set
+    /// Default [`FeeRate`]: `33 / u16::MAX` ≈ 0.05%.
     #[pallet::type_value]
     pub fn DefaultFeeRate() -> u16 {
         33 // ~0.05 %
     }
 
-    /// The fee rate applied to swaps per subnet, normalized value between 0 and u16::MAX
+    /// Per-subnet swap fee rate, u16-normalized (`rate / u16::MAX` of the input).
     #[pallet::storage]
     pub type FeeRate<T> = StorageMap<_, Twox64Concat, NetUid, u16, ValueQuery, DefaultFeeRate>;
 
     ////////////////////////////////////////////////////
     // Balancer (PalSwap) maps and variables
 
-    /// Default reserve weight
+    /// Default [`Balancer`]: equal 0.5 / 0.5 base/quote weights.
     #[pallet::type_value]
     pub fn DefaultBalancer() -> Balancer {
         Balancer::default()
     }
 
-    /// u64-normalized reserve weight
+    /// Per-subnet weighted-balancer state (stores quote weight; base = 1 − quote).
     #[pallet::storage]
     pub type SwapBalancer<T> =
         StorageMap<_, Twox64Concat, NetUid, Balancer, ValueQuery, DefaultBalancer>;
 
-    /// Storage to determine whether balancer swap was initialized for a specific subnet.
+    /// Whether the balancer pool for `netuid` has been initialized (lazy via swaps / init).
     #[pallet::storage]
     pub type PalSwapInitialized<T> = StorageMap<_, Twox64Concat, NetUid, bool, ValueQuery>;
 
-    /// TAO protocol liquidity that could not be injected without exceeding balancer weight bounds.
+    /// Materialized TAO that could not become price-active without violating weight bounds.
     #[pallet::storage]
     pub type BalancerTaoReservoir<T> = StorageMap<_, Twox64Concat, NetUid, TaoBalance, ValueQuery>;
 
-    /// Alpha protocol liquidity that could not be injected without exceeding balancer weight bounds.
+    /// Materialized alpha that could not become price-active without violating weight bounds.
     #[pallet::storage]
     pub type BalancerAlphaReservoir<T> =
         StorageMap<_, Twox64Concat, NetUid, AlphaBalance, ValueQuery>;
 
-    /// --- Storage for migration run status
+    /// Idempotency flags for on-runtime-upgrade migrations (keyed by migration name bytes).
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> =
         StorageMap<_, Identity, BoundedVec<u8, MigrationKeyMaxLen>, bool, ValueQuery>;
 
-    /// Alpha reservoir for scraps of protocol claimed fees.
+    /// Leftover alpha scraps from protocol fee claims (legacy; largely unused post-v3 migration).
     #[pallet::storage]
     pub type ScrapReservoirAlpha<T> = StorageMap<_, Twox64Concat, NetUid, AlphaBalance, ValueQuery>;
 
@@ -185,10 +188,9 @@ mod pallet {
     impl<T: Config> Pallet<T> {
         #![deny(clippy::expect_used)]
 
-        /// Set the fee rate for swaps on a specific subnet (normalized value).
-        /// For example, 0.3% is approximately 196.
+        /// Set the per-subnet swap [`FeeRate`] (u16-normalized; e.g. ~196 ≈ 0.3%).
         ///
-        /// Only callable by the admin origin
+        /// Root-only. Requires the subnet to exist and `rate <= MaxFeeRate`.
         #[pallet::call_index(0)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::set_fee_rate())]
         pub fn set_fee_rate(origin: OriginFor<T>, netuid: NetUid, rate: u16) -> DispatchResult {
@@ -270,7 +272,7 @@ mod pallet {
     }
 }
 
-/// Struct representing a tick index, DEPRECATED
+/// Deprecated Uniswap-v3 tick index retained only for call/SCALE compatibility of LP stubs.
 #[freeze_struct("7c280c2b3bbbb33e")]
 #[derive(
     Debug,
@@ -290,7 +292,7 @@ mod pallet {
 )]
 pub struct TickIndex(i32);
 
-/// Struct representing a liquidity position ID, DEPRECATED
+/// Deprecated Uniswap-v3 LP position id retained only for call/SCALE compatibility of LP stubs.
 #[freeze_struct("e695cd6455c3f0cb")]
 #[derive(
     Clone,

@@ -77,7 +77,7 @@ mod benchmarking;
 
 pub mod weights;
 
-/// the main drand api endpoint
+/// HTTP hosts tried in parallel by the offchain worker when fetching Quicknet pulses.
 const ENDPOINTS: [&str; 5] = [
     "https://api.drand.sh",
     "https://api2.drand.sh",
@@ -86,15 +86,20 @@ const ENDPOINTS: [&str; 5] = [
     "https://api.drand.secureweb3.com:6875",
 ];
 
-/// the drand quicknet chain hash
-/// quicknet uses 'Tiny' BLS381, with small 48-byte sigs in G1 and 96-byte pubkeys in G2
+/// Hex hash of the drand Quicknet chain (path segment in API URLs).
+///
+/// Quicknet uses Tiny BLS381: 48-byte signatures in G1 and 96-byte public keys in G2.
 pub const QUICKNET_CHAIN_HASH: &str =
     "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971";
 
+/// Active chain hash embedded in offchain HTTP paths; always Quicknet today.
 const CHAIN_HASH: &str = QUICKNET_CHAIN_HASH;
 
+/// Max consecutive rounds the offchain worker pulls in one catch-up batch.
 pub const MAX_PULSES_TO_FETCH: u64 = 50;
-pub const MAX_KEPT_PULSES: u64 = 216_000; // 1 week
+/// Max pulses retained on-chain (~1 week of 3s Quicknet rounds).
+pub const MAX_KEPT_PULSES: u64 = 216_000;
+/// Max pulses removed in a single `prune_old_pulses` call (weight bound).
 pub const MAX_REMOVED_PULSES: u64 = 100;
 
 /// Defines application identifier for crypto keys of this module.
@@ -162,29 +167,30 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: CreateBare<Call<Self>> + SigningTypes + frame_system::Config {
-        /// The identifier type for an offchain worker.
+        /// Offchain-worker key type used to sign unsigned pulse / config payloads.
         type AuthorityId: AppCrypto<Self::Public, Self::Signature>;
-        /// something that knows how to verify beacon pulses
+        /// BLS verifier for Quicknet pulses (pairing check against [`BeaconConfig`]).
         type Verifier: Verifier;
-        /// A configuration for base priority of unsigned transactions.
+        /// Base mempool priority for this pallet's unsigned transactions.
         ///
-        /// This is exposed so that it can be tuned for particular runtime, when
-        /// multiple pallets send unsigned transactions.
+        /// Tunable per runtime when several pallets compete for unsigned inclusion.
         #[pallet::constant]
         type UnsignedPriority: Get<TransactionPriority>;
-        /// The maximum number of milliseconds we are willing to wait for the HTTP request to
-        /// complete.
+        /// HTTP deadline for offchain drand fetches, in milliseconds.
         #[pallet::constant]
         type HttpFetchTimeout: Get<u64>;
-        /// Weight information for extrinsics in this pallet.
+        /// Extrinsic weight benchmarks for this pallet.
         type WeightInfo: crate::weights::WeightInfo;
     }
 
-    /// the drand beacon configuration
+    /// Quicknet beacon parameters (public key, period, genesis time, chain hashes).
+    ///
+    /// Defaults to the live Quicknet info; root may overwrite via [`Call::set_beacon_config`].
     #[pallet::storage]
     pub type BeaconConfig<T: Config> =
         StorageValue<_, BeaconConfiguration, ValueQuery, DefaultBeaconConfig<T>>;
 
+    /// Genesis / empty-storage default: canonical Quicknet beacon info.
     #[pallet::type_value]
     pub fn DefaultBeaconConfig<T: Config>() -> BeaconConfiguration {
         BeaconConfiguration {
@@ -216,57 +222,62 @@ pub mod pallet {
         }
     }
 
-    /// Define a maximum length for the migration key
+    /// Max bytes for a migration name key in [`HasMigrationRun`].
     type MigrationKeyMaxLen = ConstU32<128>;
 
-    /// Storage for migration run status
+    /// Idempotency flags for named storage migrations (`migrate_*` string keys).
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> =
         StorageMap<_, Identity, BoundedVec<u8, MigrationKeyMaxLen>, bool, ValueQuery>;
 
-    /// map round number to pulse
+    /// Verified Quicknet pulses keyed by round number.
+    ///
+    /// Pruned from the low end when the window exceeds [`MAX_KEPT_PULSES`].
     #[pallet::storage]
     pub type Pulses<T: Config> = StorageMap<_, Blake2_128Concat, RoundNumber, Pulse, OptionQuery>;
 
+    /// Highest round successfully written to [`Pulses`]; `0` means no pulse yet.
+    ///
+    /// After the first pulse anchors storage, new rounds must be exactly `last + 1`.
     #[pallet::storage]
     pub type LastStoredRound<T: Config> = StorageValue<_, RoundNumber, ValueQuery>;
 
-    /// oldest stored round
+    /// Lowest round still present in [`Pulses`]; advances as old pulses are pruned.
     #[pallet::storage]
     pub type OldestStoredRound<T: Config> = StorageValue<_, RoundNumber, ValueQuery>;
 
-    /// Defines the block when next unsigned transaction will be accepted.
+    /// Earliest block at which another unsigned extrinsic from this pallet is accepted.
     ///
-    /// To prevent spam of unsigned (and unpaid!) transactions on the network,
-    /// we only allow one transaction per block.
-    /// This storage entry defines when new transaction is going to be accepted.
+    /// Spam control for unpaid unsigned txs: after a successful write, further unsigned
+    /// submissions are stale until this block (same-block multi-tx still allowed for
+    /// ascending rounds — see `validate_transaction_parameters`).
     #[pallet::storage]
     pub(super) type NextUnsignedAt<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// Beacon Configuration has changed.
+        /// Root replaced [`BeaconConfig`] via [`Call::set_beacon_config`].
         BeaconConfigChanged,
-        /// Successfully set a new pulse(s).
+        /// One or more pulses were verified and inserted; `rounds` are the new keys in [`Pulses`].
         NewPulse { rounds: Vec<RoundNumber> },
-        /// Oldest Stored Round has been set.
+        /// Root set [`OldestStoredRound`] via [`Call::set_oldest_stored_round`].
         SetOldestStoredRound(u64),
     }
 
     #[pallet::error]
     pub enum Error<T> {
-        /// The value retrieved was `None` as no value was previously set.
+        /// Placeholder: a required storage value was missing (unused by current paths).
         NoneValue,
-        /// There was an attempt to increment the value in storage over `u32::MAX`.
+        /// Placeholder: a counter would overflow `u32::MAX` (unused by current paths).
         StorageOverflow,
-        /// failed to connect to the
+        /// Offchain path could not reach any drand HTTP endpoint.
         DrandConnectionFailure,
-        /// the pulse is invalid
+        /// Pulse failed the configured [`Config::Verifier`] check (legacy alias).
         UnverifiedPulse,
-        /// the round number did not increment
+        /// Round is not the required next value after [`LastStoredRound`] (or `> 0` when empty).
         InvalidRoundNumber,
-        /// the pulse could not be verified
+        /// Verifier returned an error while checking the pulse signature / pairing.
         PulseVerificationError,
     }
 
@@ -274,7 +285,7 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn offchain_worker(block_number: BlockNumberFor<T>) {
             log::debug!("Drand OCW working on block: {block_number:?}");
-            if let Err(e) = Self::fetch_drand_pulse_and_send_unsigned(block_number) {
+            if let Err(e) = Self::fetch_and_submit_pulses(block_number) {
                 log::debug!("Drand: Failed to fetch pulse from drand. {e:?}");
             }
         }
@@ -333,7 +344,11 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Verify and write a pulse from the beacon into the runtime
+        /// Verify each pulse in `pulses_payload` and append consecutive rounds to [`Pulses`].
+        ///
+        /// Unsigned only (`ensure_none`). First successful write anchors both round markers;
+        /// afterward every pulse must be exactly `LastStoredRound + 1` so gaps cannot wedge
+        /// timelock / reveal consumers. Prunes old rounds after the write.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::write_pulse())]
         pub fn write_pulse(
@@ -415,12 +430,9 @@ pub mod pallet {
 
             Ok(())
         }
-        /// allows the root user to set the beacon configuration
-        /// generally this would be called from an offchain worker context.
-        /// there is no verification of configurations, so be careful with this.
+        /// Root-only: replace [`BeaconConfig`] with `config_payload.config` (no BLS check).
         ///
-        /// * `origin`: the root user
-        /// * `config`: the beacon configuration
+        /// Intended for governance / bootstrap; a wrong key makes all later pulses fail verification.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::set_beacon_config())]
         pub fn set_beacon_config(
@@ -439,7 +451,9 @@ pub mod pallet {
             Ok(())
         }
 
-        /// allows the root user to set the oldest stored round
+        /// Root-only: set [`OldestStoredRound`] without pruning [`Pulses`] entries.
+        ///
+        /// Does not delete pulse data; use when repairing the prune watermark after a migration.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::set_oldest_stored_round())]
         pub fn set_oldest_stored_round(origin: OriginFor<T>, oldest_round: u64) -> DispatchResult {
@@ -452,11 +466,9 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-    /// fetch the latest public pulse from the configured drand beacon
-    /// then send a signed transaction to include it on-chain
-    fn fetch_drand_pulse_and_send_unsigned(
-        block_number: BlockNumberFor<T>,
-    ) -> Result<(), &'static str> {
+    /// Offchain: pull missing Quicknet rounds (up to [`MAX_PULSES_TO_FETCH`]) and submit
+    /// one unsigned [`Call::write_pulse`] per round in ascending order.
+    fn fetch_and_submit_pulses(block_number: BlockNumberFor<T>) -> Result<(), &'static str> {
         // Ensure we can send an unsigned transaction
         let next_unsigned_at = NextUnsignedAt::<T>::get();
         if next_unsigned_at > block_number {
@@ -530,20 +542,21 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// GET `/{chain}/public/{round}` from the first healthy [`ENDPOINTS`] host.
     fn fetch_drand_by_round(round: RoundNumber) -> Result<DrandResponseBody, &'static str> {
         let relative_path = format!("/{CHAIN_HASH}/public/{round}");
-        Self::fetch_and_decode_from_any_endpoint(&relative_path)
+        Self::fetch_drand_json_response(&relative_path)
     }
 
+    /// GET `/{chain}/public/latest` from the first healthy [`ENDPOINTS`] host.
     fn fetch_drand_latest() -> Result<DrandResponseBody, &'static str> {
         let relative_path = format!("/{CHAIN_HASH}/public/latest");
-        Self::fetch_and_decode_from_any_endpoint(&relative_path)
+        Self::fetch_drand_json_response(&relative_path)
     }
 
-    /// Try to fetch from multiple endpoints simultaneously and return the first successfully decoded JSON response.
-    fn fetch_and_decode_from_any_endpoint(
-        relative_path: &str,
-    ) -> Result<DrandResponseBody, &'static str> {
+    /// Race HTTP GETs across [`ENDPOINTS`] and return the first JSON body that decodes as
+    /// [`DrandResponseBody`], or an error if every host fails / times out.
+    fn fetch_drand_json_response(relative_path: &str) -> Result<DrandResponseBody, &'static str> {
         let uris: Vec<String> = ENDPOINTS
             .iter()
             .map(|e| format!("{e}{relative_path}"))
@@ -633,8 +646,7 @@ impl<T: Config> Pallet<T> {
         Err("Drand: No valid response from any endpoint")
     }
 
-    /// get the randomness at a specific block height
-    /// returns [0u8;32] if it does not exist
+    /// Return the 32-byte Quicknet randomness for `round`, or `[0u8; 32]` if missing / malformed.
     pub fn random_at(round: RoundNumber) -> [u8; 32] {
         let pulse = Pulses::<T>::get(round).unwrap_or_default();
         let rand = pulse.randomness.clone();
@@ -643,6 +655,7 @@ impl<T: Config> Pallet<T> {
         bounded_rand
     }
 
+    /// Verify the offchain authority signature, then apply unsigned-tx freshness rules.
     fn validate_signature_and_parameters(
         payload: &impl SignedPayload<T>,
         signature: &T::Signature,
@@ -658,6 +671,8 @@ impl<T: Config> Pallet<T> {
         Self::validate_transaction_parameters(block_number, public, rounds)
     }
 
+    /// Mempool rules for unsigned calls: block number freshness, single-round payloads,
+    /// no stale / far-ahead rounds, and priority favoring lower rounds first.
     fn validate_transaction_parameters(
         block_number: &BlockNumberFor<T>,
         public: &T::Public,
@@ -725,6 +740,8 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Delete pulses from [`OldestStoredRound`] upward until the kept window is
+    /// ≤ [`MAX_KEPT_PULSES`], removing at most [`MAX_REMOVED_PULSES`] entries per call.
     fn prune_old_pulses(last_stored_round: RoundNumber) {
         let mut oldest = OldestStoredRound::<T>::get();
         if oldest == 0 {
@@ -744,7 +761,10 @@ impl<T: Config> Pallet<T> {
     }
 }
 
-/// construct a message (e.g. signed by drand)
+/// SHA-256(`prev_sig || round_be_bytes`) — message bytes hashed-to-curve for chained beacons.
+///
+/// Quicknet is unchained and uses an empty `prev_sig`; verification uses
+/// [`verifier::hash_unchained_round_message`] instead.
 pub fn message(current_round: RoundNumber, prev_sig: &[u8]) -> Vec<u8> {
     let mut hasher = Sha256::default();
     hasher.update(prev_sig);
@@ -753,7 +773,7 @@ pub fn message(current_round: RoundNumber, prev_sig: &[u8]) -> Vec<u8> {
 }
 
 impl<T: Config> Randomness<T::Hash, BlockNumberFor<T>> for Pallet<T> {
-    // this function hashes together the subject with the latest known randomness from quicknet
+    /// Mix `subject` with the latest stored Quicknet randomness and `block_number - 1`.
     fn random(subject: &[u8]) -> (T::Hash, BlockNumberFor<T>) {
         let block_number_minus_one =
             <frame_system::Pallet<T>>::block_number().saturating_sub(One::one());

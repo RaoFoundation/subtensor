@@ -1,4 +1,7 @@
-//! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
+//! Full-node service factory: partial components, network, Frontier, consensus authorship.
+//!
+//! Generic over [`ConsensusMechanism`] so Aura and Babe share the same service path.
+//! Also hosts manual-seal authorship and Aura→Babe keystore key duplication.
 
 mod grandpa_warp_sync;
 
@@ -46,10 +49,13 @@ const LOG_TARGET: &str = "node-service";
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
+/// Longest-chain selection used by Grandpa and authorship.
 pub type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
+/// Grandpa block import wired to the full client/backend.
 pub type GrandpaBlockImport =
     sc_consensus_grandpa::GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>;
 type GrandpaLinkHalf = sc_consensus_grandpa::LinkHalf<Block, FullClient, FullSelectChain>;
+/// Closure type that builds the consensus import queue during [`new_partial`].
 #[allow(clippy::upper_case_acronyms)]
 pub type BIQ<'a> = Box<
     dyn FnOnce(
@@ -65,6 +71,7 @@ pub type BIQ<'a> = Box<
         + 'a,
 >;
 
+/// Build partial client/backend/import-queue components shared by full node and chain-ops.
 #[allow(clippy::expect_used)]
 pub fn new_partial(
     config: &Configuration,
@@ -107,7 +114,7 @@ pub fn new_partial(
         )?;
 
     // Prepare keystore for authoring Babe blocks.
-    copy_keys(
+    copy_keystore_keys_by_type(
         &keystore_container.local_keystore(),
         key_types::AURA,
         key_types::BABE,
@@ -256,7 +263,7 @@ pub fn build_manual_seal_import_queue(
     ))
 }
 
-/// Builds a new service for a full client.
+/// Build and start a full client service for network backend `NB` and consensus `CM`.
 #[allow(clippy::expect_used)]
 pub async fn new_full<NB, CM>(
     mut config: Configuration,
@@ -656,6 +663,7 @@ where
     Ok(task_manager)
 }
 
+/// Entry point that picks libp2p vs litep2p and starts a full node for consensus `CM`.
 pub async fn build_full<CM: ConsensusMechanism>(
     config: Configuration,
     eth_config: EthConfiguration,
@@ -687,6 +695,7 @@ pub async fn build_full<CM: ConsensusMechanism>(
     }
 }
 
+/// Lightweight client/import-queue set for CLI chain ops (export, import, revert, etc.).
 pub fn new_chain_ops<CM: ConsensusMechanism>(
     config: &mut Configuration,
     eth_config: &EthConfiguration,
@@ -726,6 +735,7 @@ type SealStream = std::pin::Pin<
     >,
 >;
 
+/// Spawn manual / instant / interval seal authorship for `--sealing` modes.
 #[allow(clippy::too_many_arguments)]
 fn run_manual_seal_authorship(
     sealing: Sealing,
@@ -854,7 +864,7 @@ fn run_manual_seal_authorship(
     Ok(())
 }
 
-/// Copy `from_key_type` keys to also exist as `to_key_type`.
+/// Copy keystore key phrases from `from_key_type` so they also exist as `to_key_type`.
 ///
 /// Used for the Aura to Babe migration, where Aura validators need their keystore to copy their
 /// Aura keys over to Babe. This works because Aura and Babe keys use identical crypto.
@@ -862,7 +872,7 @@ fn run_manual_seal_authorship(
 /// While not required to retain beyond the initial Aura to Babe migration, it is nice to leave it
 /// so the node always retains the ability to perform Aura to Babe migrations in the future, in case
 /// there is a requirement to do something like regenesis testnet.
-fn copy_keys(
+fn copy_keystore_keys_by_type(
     keystore: &LocalKeystore,
     from_key_type: KeyTypeId,
     to_key_type: KeyTypeId,

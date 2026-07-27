@@ -1,4 +1,4 @@
-//! Benchmarking setup
+//! Runtime benchmarks for commitment extrinsics and the timelock reveal hook.
 #![cfg(feature = "runtime-benchmarks")]
 #![allow(clippy::arithmetic_side_effects, clippy::expect_used)]
 use super::*;
@@ -16,6 +16,7 @@ use tle::{ibe::fullident::Identity as TleIdentity, tlock::tle};
 
 use sp_runtime::traits::Bounded;
 
+/// Asserts the most recent system event equals `generic_event`.
 fn assert_last_event<T: frame_system::pallet::Config>(
     generic_event: <T as frame_system::pallet::Config>::RuntimeEvent,
 ) {
@@ -36,9 +37,8 @@ const DRAND_QUICKNET_SIGNATURE_BYTES: [u8; 48] = [
     126, 75, 107, 99, 237, 94, 57,
 ];
 
-// This creates an `IdentityInfo` object with `num_fields` extra fields.
-// All data is pre-populated with some arbitrary bytes.
-fn create_identity_info<T: Config>(_num_fields: u32) -> CommitmentInfo<T::MaxFields> {
+/// Builds an empty [`CommitmentInfo`] for the `set_commitment` extrinsic benchmark.
+fn create_commitment_info<T: Config>(_num_fields: u32) -> CommitmentInfo<T::MaxFields> {
     let _data = Data::Raw(
         vec![0; 32]
             .try_into()
@@ -50,6 +50,7 @@ fn create_identity_info<T: Config>(_num_fields: u32) -> CommitmentInfo<T::MaxFie
     }
 }
 
+/// TLE-encrypts `plaintext` for Drand Quicknet `round` (fixed benchmark keys/RNG).
 fn produce_benchmark_ciphertext(
     plaintext: &[u8],
     round: u64,
@@ -83,6 +84,7 @@ fn produce_benchmark_ciphertext(
         .expect("benchmark timelock ciphertext fits max size")
 }
 
+/// Inserts a Quicknet-compatible [`pallet_drand::Pulses`] entry for reveal benchmarks.
 fn insert_benchmark_pulse<T: Config>(round: u64) {
     let randomness: BoundedVec<u8, ConstU32<32>> = vec![0_u8; 32]
         .try_into()
@@ -102,6 +104,7 @@ fn insert_benchmark_pulse<T: Config>(round: u64) {
     );
 }
 
+/// Commitment whose single field is a real TLE ciphertext for [`BENCHMARK_REVEAL_ROUND`].
 fn timelocked_commitment_info<T: Config>() -> CommitmentInfo<T::MaxFields> {
     let raw = Data::Raw(
         b"timelock benchmark"
@@ -139,7 +142,7 @@ mod benchmarks {
         _(
             RawOrigin::Signed(caller.clone()),
             netuid,
-            Box::new(create_identity_info::<T>(0)),
+            Box::new(create_commitment_info::<T>(0)),
         );
 
         assert_last_event::<T>(
