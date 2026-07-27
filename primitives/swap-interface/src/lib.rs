@@ -3,11 +3,11 @@
 use core::ops::Neg;
 
 use frame_support::pallet_prelude::*;
+use frame_support::weights::WeightMeter;
+pub use order::*;
 use substrate_fixed::types::U64F64;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
-
-pub use order::*;
 
 mod order;
 
@@ -47,7 +47,7 @@ pub trait SwapHandler {
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance);
-    fn clear_protocol_liquidity(netuid: NetUid) -> DispatchResult;
+    fn clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
     fn init_swap(netuid: NetUid, maybe_price: Option<U64F64>);
     fn get_alpha_amount_for_tao(netuid: NetUid, tao_amount: TaoBalance) -> AlphaBalance;
 }

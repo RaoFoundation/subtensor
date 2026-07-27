@@ -1,3 +1,4 @@
+use super::{CallOf, DispatchableOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet};
 use frame_support::{
@@ -8,9 +9,6 @@ use frame_support::{
 use sp_runtime::traits::Dispatchable;
 use sp_std::marker::PhantomData;
 
-type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
-type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
-
 /// Dispatch extension for axon/prometheus endpoint validation.
 ///
 /// Signed serving calls are checked before dispatch; unrelated calls and
@@ -18,6 +16,13 @@ type DispatchableOriginOf<T> = <CallOf<T> as Dispatchable>::RuntimeOrigin;
 pub struct CheckServingEndpoints<T: Config>(PhantomData<T>);
 
 impl<T: Config> CheckServingEndpoints<T> {
+    pub(crate) fn applies_to(call: &Call<T>) -> bool {
+        matches!(
+            call,
+            Call::serve_axon { .. } | Call::serve_axon_tls { .. } | Call::serve_prometheus { .. }
+        )
+    }
+
     pub fn check(who: &T::AccountId, call: &Call<T>) -> Result<(), Error<T>> {
         match call {
             Call::serve_axon {
@@ -74,8 +79,10 @@ where
 {
     type Pre = ();
 
-    fn weight(_call: &CallOf<T>) -> Weight {
-        <T as Config>::WeightInfo::check_serving_endpoints_extension()
+    fn weight(call: &CallOf<T>) -> Weight {
+        applicable_call(call, Self::applies_to)
+            .map(|_| <T as Config>::WeightInfo::check_serving_endpoints_extension())
+            .unwrap_or(Weight::zero())
     }
 
     fn pre_dispatch(
@@ -86,7 +93,7 @@ where
             return Ok(());
         };
 
-        let Some(call) = call.is_sub_type() else {
+        let Some(call) = applicable_call(call, Self::applies_to) else {
             return Ok(());
         };
 
@@ -98,9 +105,12 @@ where
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::CheckServingEndpoints;
-    use crate::{Error, tests::mock::*};
+    use crate::{Error, tests::mock::*, weights::WeightInfo as _};
     use frame_support::{
-        assert_ok, dispatch::DispatchResultWithPostInfo, traits::ExtendedDispatchable,
+        assert_ok,
+        dispatch::{DispatchExtension, DispatchResultWithPostInfo},
+        traits::ExtendedDispatchable,
+        weights::Weight,
     };
     use frame_system::Call as SystemCall;
     use sp_core::U256;
@@ -158,6 +168,41 @@ mod tests {
         add_network(netuid, 1, 0);
         setup_reserves(netuid, DEFAULT_RESERVE.into(), DEFAULT_RESERVE.into());
         register_ok_neuron(netuid, hotkey, coldkey, 0);
+    }
+
+    fn add_stake_call() -> RuntimeCall {
+        RuntimeCall::SubtensorModule(SubtensorCall::add_stake {
+            hotkey: U256::from(1),
+            netuid: 1u16.into(),
+            amount_staked: 1_000u64.into(),
+        })
+    }
+
+    #[test]
+    fn weight_only_charges_serving_endpoint_calls() {
+        let netuid = NetUid::from(1);
+        let expected = <Test as crate::Config>::WeightInfo::check_serving_endpoints_extension();
+
+        for call in [
+            RuntimeCall::System(SystemCall::remark { remark: vec![] }),
+            add_stake_call(),
+        ] {
+            assert_eq!(
+                <CheckServingEndpoints<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                Weight::zero()
+            );
+        }
+
+        for call in [
+            serve_axon_call(netuid),
+            serve_axon_tls_call(netuid),
+            serve_prometheus_call(netuid),
+        ] {
+            assert_eq!(
+                <CheckServingEndpoints<Test> as DispatchExtension<RuntimeCall>>::weight(&call),
+                expected
+            );
+        }
     }
 
     #[test]

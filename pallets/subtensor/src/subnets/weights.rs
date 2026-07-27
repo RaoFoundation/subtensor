@@ -218,43 +218,43 @@ impl<T: Config> Pallet<T> {
     /// ---- Commits a timelocked, encrypted weight payload (Commit-Reveal v3).
     ///
     /// # Args
-    /// * `origin` (`<T as frame_system::Config>::RuntimeOrigin`):  
+    /// * `origin` (`<T as frame_system::Config>::RuntimeOrigin`):
     ///   The signed origin of the committing hotkey.
-    /// * `netuid` (`NetUid` = `u16`):  
+    /// * `netuid` (`NetUid` = `u16`):
     ///   Unique identifier for the subnet on which the commit is made.
-    /// * `commit` (`BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>`):  
-    ///   The encrypted weight payload, produced as follows:  
-    ///   1. Build a [`WeightsPayload`] structure.  
-    ///   2. SCALE-encode it (`parity_scale_codec::Encode`).  
-    ///   3. Encrypt it following the steps  
-    ///      [here](https://github.com/ideal-lab5/tle/blob/f8e6019f0fb02c380ebfa6b30efb61786dede07b/timelock/src/tlock.rs#L283-L336) to  
-    ///      produce a [`TLECiphertext<TinyBLS381>`].  
+    /// * `commit` (`BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>`):
+    ///   The encrypted weight payload, produced as follows:
+    ///   1. Build a [`WeightsPayload`] structure.
+    ///   2. SCALE-encode it (`parity_scale_codec::Encode`).
+    ///   3. Encrypt it following the steps
+    ///      [here](https://github.com/ideal-lab5/tle/blob/f8e6019f0fb02c380ebfa6b30efb61786dede07b/timelock/src/tlock.rs#L283-L336) to
+    ///      produce a [`TLECiphertext<TinyBLS381>`].
     ///   4. Compress & serialise.
-    /// * `reveal_round` (`u64`):  
-    ///   DRAND round whose output becomes known during epoch `n + 1`; the payload  
+    /// * `reveal_round` (`u64`):
+    ///   DRAND round whose output becomes known during epoch `n + 1`; the payload
     ///   must be revealed in that epoch.
-    /// * `commit_reveal_version` (`u16`):  
-    ///   Version tag that **must** match [`get_commit_reveal_weights_version`] for  
+    /// * `commit_reveal_version` (`u16`):
+    ///   Version tag that **must** match [`get_commit_reveal_weights_version`] for
     ///   the call to succeed. Used to gate runtime upgrades.
     ///
     /// # Behaviour
-    /// 1. Verifies the caller’s signature and registration on `netuid`.  
+    /// 1. Verifies the caller’s signature and registration on `netuid`.
     /// 2. Ensures commit-reveal is enabled **and** the supplied
-    ///    `commit_reveal_version` is current.  
-    /// 3. Enforces per-neuron rate-limiting via [`Pallet::check_rate_limit`].  
+    ///    `commit_reveal_version` is current.
+    /// 3. Enforces per-neuron rate-limiting via [`Pallet::check_rate_limit`].
     /// 4. Rejects the call when the hotkey already has ≥ 10 unrevealed commits in
-    ///    the current epoch.  
-    /// 5. Appends `(hotkey, commit_block, commit, reveal_round)` to  
-    ///    `TimelockedWeightCommits[netuid][epoch]`.  
-    /// 6. Emits `TimelockedWeightsCommitted` with the Blake2 hash of `commit`.  
+    ///    the current epoch.
+    /// 5. Appends `(hotkey, commit_block, commit, reveal_round)` to
+    ///    `TimelockedWeightCommits[netuid][epoch]`.
+    /// 6. Emits `TimelockedWeightsCommitted` with the Blake2 hash of `commit`.
     /// 7. Updates `LastUpdateForUid` so subsequent rate-limit checks include this
     ///    commit.
     ///
     /// # Raises
-    /// * `CommitRevealDisabled` – Commit-reveal is disabled on `netuid`.  
-    /// * `IncorrectCommitRevealVersion` – Provided version ≠ runtime version.  
-    /// * `HotKeyNotRegisteredInSubNet` – Caller’s hotkey is not registered.  
-    /// * `CommittingWeightsTooFast` – Caller exceeds commit-rate limit.  
+    /// * `CommitRevealDisabled` – Commit-reveal is disabled on `netuid`.
+    /// * `IncorrectCommitRevealVersion` – Provided version ≠ runtime version.
+    /// * `HotKeyNotRegisteredInSubNet` – Caller’s hotkey is not registered.
+    /// * `CommittingWeightsTooFast` – Caller exceeds commit-rate limit.
     /// * `TooManyUnrevealedCommits` – Caller already has 10 unrevealed commits.
     ///
     /// # Events
@@ -457,6 +457,7 @@ impl<T: Config> Pallet<T> {
         salt: Vec<u16>,
         version_key: u64,
     ) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         // Calculate netuid storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
 
@@ -610,6 +611,7 @@ impl<T: Config> Pallet<T> {
         salts_list: Vec<Vec<u16>>,
         version_keys: Vec<u64>,
     ) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
         // Calculate netuid storage index
         let netuid_index = Self::get_mechanism_storage_index(netuid, MechId::MAIN);
 

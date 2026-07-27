@@ -69,6 +69,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // We check the callers (hotkey) signature.
         let hotkey_id = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
         // Validate user input
         Self::validate_serve_axon(
@@ -169,6 +170,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // We check the callers (hotkey) signature.
         let hotkey_id = ensure_signed(origin)?;
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
         let updated_prometheus =
             Self::validate_serve_prometheus(&hotkey_id, netuid, version, ip, port, ip_type)?;

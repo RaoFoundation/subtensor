@@ -172,6 +172,8 @@ interface ISubnet {
 
     function getLiquidAlphaEnabled(uint16 netuid) external view returns (bool);
 
+    function isSubnetDissolving(uint16 netuid) external view returns (bool);
+
     function setLiquidAlphaEnabled(
         uint16 netuid,
         bool liquidAlphaEnabled

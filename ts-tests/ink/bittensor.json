@@ -1,6 +1,6 @@
 {
   "source": {
-    "hash": "0x69edf9f009ca08b785fad0aacb75a1d8ddad6d231848c8ca12b75f0bfc943b86",
+    "hash": "0xf5ded81165b29a8cdd592d22291ba8275aa9898162d916d6f3afdfe8bd7e5243",
     "language": "ink! 5.1.1",
     "compiler": "rustc 1.89.0",
     "build_info": {
@@ -76,19 +76,19 @@
         "displayName": [
           "BlockNumber"
         ],
-        "type": 23
+        "type": 34
       },
       "chainExtension": {
         "displayName": [
           "ChainExtension"
         ],
-        "type": 24
+        "type": 35
       },
       "hash": {
         "displayName": [
           "Hash"
         ],
-        "type": 22
+        "type": 33
       },
       "maxEventTopics": 4,
       "staticBufferSize": 16384,
@@ -1563,6 +1563,98 @@
           "type": 17
         },
         "selector": "0x59392a8e"
+      },
+      {
+        "args": [
+          {
+            "label": "netuid",
+            "type": {
+              "displayName": [
+                "u16"
+              ],
+              "type": 6
+            }
+          }
+        ],
+        "default": false,
+        "docs": [],
+        "label": "get_subnet_registration_state",
+        "mutates": false,
+        "payable": false,
+        "returnType": {
+          "displayName": [
+            "ink",
+            "MessageResult"
+          ],
+          "type": 22
+        },
+        "selector": "0x2244b542"
+      },
+      {
+        "args": [
+          {
+            "label": "coldkey",
+            "type": {
+              "displayName": [],
+              "type": 4
+            }
+          },
+          {
+            "label": "netuid",
+            "type": {
+              "displayName": [
+                "u16"
+              ],
+              "type": 6
+            }
+          }
+        ],
+        "default": false,
+        "docs": [],
+        "label": "get_coldkey_lock",
+        "mutates": false,
+        "payable": false,
+        "returnType": {
+          "displayName": [
+            "ink",
+            "MessageResult"
+          ],
+          "type": 25
+        },
+        "selector": "0x29513d8d"
+      },
+      {
+        "args": [
+          {
+            "label": "coldkey",
+            "type": {
+              "displayName": [],
+              "type": 4
+            }
+          },
+          {
+            "label": "netuid",
+            "type": {
+              "displayName": [
+                "u16"
+              ],
+              "type": 6
+            }
+          }
+        ],
+        "default": false,
+        "docs": [],
+        "label": "get_stake_availability",
+        "mutates": false,
+        "payable": false,
+        "returnType": {
+          "displayName": [
+            "ink",
+            "MessageResult"
+          ],
+          "type": 30
+        },
+        "selector": "0xdb1d3b2c"
       }
     ]
   },
@@ -2155,6 +2247,394 @@
       "id": 22,
       "type": {
         "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 23
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 3
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 23
+          },
+          {
+            "name": "E",
+            "type": 3
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 23,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 24
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 16
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 24
+          },
+          {
+            "name": "E",
+            "type": 16
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "type": {
+        "def": {
+          "composite": {
+            "fields": [
+              {
+                "name": "netuid",
+                "type": 6,
+                "typeName": "u16"
+              },
+              {
+                "name": "exists",
+                "type": 15,
+                "typeName": "bool"
+              },
+              {
+                "name": "registered_subnet_counter",
+                "type": 14,
+                "typeName": "u64"
+              }
+            ]
+          }
+        },
+        "path": [
+          "bittensor",
+          "SubnetRegistrationState"
+        ]
+      }
+    },
+    {
+      "id": 25,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 26
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 3
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 26
+          },
+          {
+            "name": "E",
+            "type": 3
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 26,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 27
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 16
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 27
+          },
+          {
+            "name": "E",
+            "type": 16
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 27,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
+                "index": 0,
+                "name": "None"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 28
+                  }
+                ],
+                "index": 1,
+                "name": "Some"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 28
+          }
+        ],
+        "path": [
+          "Option"
+        ]
+      }
+    },
+    {
+      "id": 28,
+      "type": {
+        "def": {
+          "composite": {
+            "fields": [
+              {
+                "name": "locked_mass",
+                "type": 14,
+                "typeName": "u64"
+              },
+              {
+                "name": "conviction_bits",
+                "type": 29,
+                "typeName": "u128"
+              },
+              {
+                "name": "last_update",
+                "type": 14,
+                "typeName": "u64"
+              }
+            ]
+          }
+        },
+        "path": [
+          "bittensor",
+          "ColdkeyLock"
+        ]
+      }
+    },
+    {
+      "id": 29,
+      "type": {
+        "def": {
+          "primitive": "u128"
+        }
+      }
+    },
+    {
+      "id": 30,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 31
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 3
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 31
+          },
+          {
+            "name": "E",
+            "type": 3
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 31,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 32
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 16
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 32
+          },
+          {
+            "name": "E",
+            "type": 16
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 32,
+      "type": {
+        "def": {
+          "composite": {
+            "fields": [
+              {
+                "name": "netuid",
+                "type": 6,
+                "typeName": "u16"
+              },
+              {
+                "name": "total",
+                "type": 14,
+                "typeName": "u64"
+              },
+              {
+                "name": "locked",
+                "type": 14,
+                "typeName": "u64"
+              },
+              {
+                "name": "available",
+                "type": 14,
+                "typeName": "u64"
+              }
+            ]
+          }
+        },
+        "path": [
+          "bittensor",
+          "StakeAvailability"
+        ]
+      }
+    },
+    {
+      "id": 33,
+      "type": {
+        "def": {
           "composite": {
             "fields": [
               {
@@ -2172,7 +2652,7 @@
       }
     },
     {
-      "id": 23,
+      "id": 34,
       "type": {
         "def": {
           "primitive": "u32"
@@ -2180,7 +2660,7 @@
       }
     },
     {
-      "id": 24,
+      "id": 35,
       "type": {
         "def": {
           "variant": {}

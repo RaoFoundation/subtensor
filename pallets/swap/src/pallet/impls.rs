@@ -3,10 +3,11 @@ use frame_support::{
     ensure,
     pallet_prelude::{DispatchError, Zero},
     traits::Get,
+    weights::WeightMeter,
 };
 use safe_math::*;
 use sp_arithmetic::Perquintill;
-use sp_runtime::{DispatchResult, traits::AccountIdConversion};
+use sp_runtime::traits::AccountIdConversion;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, SubnetInfo, TaoBalance, Token, TokenReserve};
 use subtensor_swap_interface::{
@@ -14,7 +15,7 @@ use subtensor_swap_interface::{
 };
 
 use super::pallet::*;
-use super::swap_step::{BasicSwapStep, SwapStep};
+use super::swap_step::{BasicSwapStep, MAX_SWAP_INPUT_RESERVE_MULTIPLIER, SwapStep};
 use crate::{pallet::Balancer, pallet::balancer::BalancerError};
 
 impl<T: Config> Pallet<T> {
@@ -154,8 +155,13 @@ impl<T: Config> Pallet<T> {
         transactional::with_transaction(|| {
             let reserve = Order::ReserveOut::reserve(netuid.into());
 
-            let result = Self::swap_inner::<Order>(netuid, order, limit_price, drop_fees)
-                .map_err(Into::into);
+            let result = Self::ensure_swap_input_within_reserve_limit::<Order>(
+                netuid,
+                order.amount(),
+                drop_fees,
+            )
+            .and_then(|_| Self::swap_inner::<Order>(netuid, order, limit_price, drop_fees))
+            .map_err(Into::into);
 
             if simulate || result.is_err() {
                 // Simulation only
@@ -175,6 +181,23 @@ impl<T: Config> Pallet<T> {
                 TransactionOutcome::Commit(result)
             }
         })
+    }
+
+    fn ensure_swap_input_within_reserve_limit<Order>(
+        netuid: NetUid,
+        amount: Order::PaidIn,
+        drop_fees: bool,
+    ) -> Result<(), Error<T>>
+    where
+        Order: OrderT,
+    {
+        let fee = Self::calculate_fee_amount(netuid, amount, drop_fees);
+        let net_amount = amount.saturating_sub(fee);
+        let input_reserve = Order::ReserveIn::reserve(netuid);
+        let max_amount = input_reserve.saturating_mul(MAX_SWAP_INPUT_RESERVE_MULTIPLIER.into());
+
+        ensure!(net_amount <= max_amount, Error::<T>::SwapInputTooLarge);
+        Ok(())
     }
 
     fn swap_inner<Order>(
@@ -264,8 +287,13 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Clear **protocol-owned** liquidity and wipe all swap state for `netuid`.
-    pub fn do_clear_protocol_liquidity(netuid: NetUid) -> DispatchResult {
-        // 1) Force-close protocol liquidity, burning proceeds.
+    pub fn do_clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
+        let clear_weight = T::DbWeight::get().reads_writes(4, 5);
+        if !weight_meter.can_consume(clear_weight) {
+            return false;
+        }
+        weight_meter.consume(clear_weight);
+        // / 1) Force-close protocol liquidity, burning proceeds.
         let burned_tao = T::TaoReserve::reserve(netuid.into());
         let burned_alpha = T::AlphaReserve::reserve(netuid.into());
 
@@ -281,7 +309,7 @@ impl<T: Config> Pallet<T> {
             "clear_protocol_liquidity: netuid={netuid:?}, protocol_burned: τ={burned_tao:?}, α={burned_alpha:?}; state cleared"
         );
 
-        Ok(())
+        true
     }
 }
 
@@ -386,16 +414,15 @@ impl<T: Config> SwapHandler for Pallet<T> {
         Self::max_price_inner()
     }
 
+    fn clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
+        Self::do_clear_protocol_liquidity(netuid, weight_meter)
+    }
     fn adjust_protocol_liquidity(
         netuid: NetUid,
         tao_delta: TaoBalance,
         alpha_delta: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance) {
         Self::adjust_protocol_liquidity(netuid, tao_delta, alpha_delta)
-    }
-
-    fn clear_protocol_liquidity(netuid: NetUid) -> DispatchResult {
-        Self::do_clear_protocol_liquidity(netuid)
     }
 
     fn init_swap(netuid: NetUid, maybe_price: Option<U64F64>) {

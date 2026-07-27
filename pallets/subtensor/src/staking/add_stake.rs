@@ -48,6 +48,8 @@ impl<T: Config> Pallet<T> {
             "do_add_stake( origin:{coldkey:?} hotkey:{hotkey:?}, netuid:{netuid:?}, stake_to_be_added:{stake_to_be_added:?} )"
         );
 
+        Self::ensure_add_stake_input_within_swap_limit(netuid, stake_to_be_added)?;
+
         // 2. Validate user input
         Self::validate_add_stake(
             &coldkey,
@@ -124,6 +126,8 @@ impl<T: Config> Pallet<T> {
             "do_add_stake( origin:{coldkey:?} hotkey:{hotkey:?}, netuid:{netuid:?}, stake_to_be_added:{stake_to_be_added:?} )"
         );
 
+        Self::ensure_add_stake_input_within_swap_limit(netuid, stake_to_be_added)?;
+
         // 2. Calculate the maximum amount that can be executed with price limit
         let max_amount: TaoBalance = Self::get_max_amount_add(netuid, limit_price)?.into();
         let mut possible_stake = stake_to_be_added;
@@ -175,11 +179,27 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // Use reverting swap to estimate max limit amount
-        let order = GetAlphaForTao::<T>::with_amount(u64::MAX);
+        // Use the largest supported input instead of probing the swap path with u64::MAX.
+        let max_supported_input = SubnetTAO::<T>::get(netuid).saturating_mul(1_000.into());
+        let order = GetAlphaForTao::<T>::with_amount(max_supported_input);
         let result = T::SwapInterface::swap(netuid.into(), order, limit_price, false, true)
             .map(|r| r.amount_paid_in.saturating_add(r.fee_paid))?;
 
         Ok(result.into())
+    }
+
+    fn ensure_add_stake_input_within_swap_limit(
+        netuid: NetUid,
+        amount: TaoBalance,
+    ) -> Result<(), Error<T>> {
+        if !netuid.is_root() && SubnetMechanism::<T>::get(netuid) == 1 {
+            let max_supported_input = SubnetTAO::<T>::get(netuid).saturating_mul(1_000.into());
+            ensure!(
+                amount <= max_supported_input,
+                Error::<T>::InsufficientLiquidity
+            );
+        }
+
+        Ok(())
     }
 }

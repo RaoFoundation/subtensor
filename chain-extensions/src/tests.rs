@@ -1297,14 +1297,25 @@ fn add_stake_recycle_rollback_on_recycle_failure() {
 
         let netuid = mock::add_dynamic_network(&owner_hotkey, &owner_coldkey);
 
-        // Set up very low reserves so recycle will fail with InsufficientLiquidity
-        mock::setup_reserves(
+        mock::register_ok_neuron(netuid, hotkey, coldkey, 0);
+        pallet_subtensor::Pallet::<mock::Test>::insert_lock_state(
+            &coldkey,
             netuid,
-            TaoBalance::from(1_000_u64),
-            AlphaBalance::from(1_000_u64),
+            &hotkey,
+            pallet_subtensor::staking::lock::LockState {
+                locked_mass: AlphaBalance::from(u64::MAX / 4),
+                conviction: U64F64::saturating_from_num(0),
+                last_update: pallet_subtensor::Pallet::<mock::Test>::get_current_block_as_u64(),
+            },
         );
 
-        mock::register_ok_neuron(netuid, hotkey, coldkey, 0);
+        // Leave enough input-side liquidity for add_stake to pass the 1000x swap input cap.
+        // The lock above makes the recycle leg fail, exercising atomic rollback.
+        mock::setup_reserves(
+            netuid,
+            TaoBalance::from(tao_amount_raw / 1000 + 1),
+            AlphaBalance::from(1_000_u64),
+        );
 
         add_balance_to_coldkey_account(
             &coldkey,
@@ -1368,14 +1379,25 @@ fn add_stake_burn_rollback_on_burn_failure() {
 
         let netuid = mock::add_dynamic_network(&owner_hotkey, &owner_coldkey);
 
-        // Set up very low reserves so burn will fail with InsufficientLiquidity
-        mock::setup_reserves(
+        mock::register_ok_neuron(netuid, hotkey, coldkey, 0);
+        pallet_subtensor::Pallet::<mock::Test>::insert_lock_state(
+            &coldkey,
             netuid,
-            TaoBalance::from(1_000_u64),
-            AlphaBalance::from(1_000_u64),
+            &hotkey,
+            pallet_subtensor::staking::lock::LockState {
+                locked_mass: AlphaBalance::from(u64::MAX / 4),
+                conviction: U64F64::saturating_from_num(0),
+                last_update: pallet_subtensor::Pallet::<mock::Test>::get_current_block_as_u64(),
+            },
         );
 
-        mock::register_ok_neuron(netuid, hotkey, coldkey, 0);
+        // Leave enough input-side liquidity for add_stake to pass the 1000x swap input cap.
+        // The lock above makes the burn leg fail, exercising atomic rollback.
+        mock::setup_reserves(
+            netuid,
+            TaoBalance::from(tao_amount_raw / 1000 + 1),
+            AlphaBalance::from(1_000_u64),
+        );
 
         add_balance_to_coldkey_account(
             &coldkey,
@@ -1705,6 +1727,11 @@ fn get_subnet_registration_state_detects_reused_netuid_generation() {
         assert_ok!(pallet_subtensor::Pallet::<mock::Test>::do_dissolve_network(
             netuid
         ));
+
+        pallet_subtensor::Pallet::<mock::Test>::remove_data_for_dissolved_networks(
+            Weight::from_parts(u64::MAX, u64::MAX),
+        );
+
         let reused_netuid = mock::add_dynamic_network(&second_hotkey, &second_coldkey);
         assert_eq!(reused_netuid, netuid);
 

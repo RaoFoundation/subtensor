@@ -7,6 +7,8 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token, TokenRes
 
 use super::pallet::*;
 
+pub(crate) const MAX_SWAP_INPUT_RESERVE_MULTIPLIER: u64 = 1_000;
+
 /// A struct representing a single swap step with all its parameters and state
 pub(crate) struct BasicSwapStep<T, PaidIn, PaidOut>
 where

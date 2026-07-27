@@ -44,9 +44,9 @@
 //! ```ignore
 //!  +----------+
 //!  | Implicit |
-//!  +----------+           
-//!      |                  
-//!      v                  
+//!  +----------+
+//!      |
+//!      v
 //!  +----------+
 //!  | Explicit |
 //!  +----------+
@@ -101,7 +101,7 @@
 //!
 //!                             #[runtime::pallet_index(0)]
 //! 		                    pub type System = frame_system;
-//!                             
+//!
 //! 							#[runtime::pallet_index(1)]
 //! 		                    pub type Balances = pallet_balances;
 //!                         }

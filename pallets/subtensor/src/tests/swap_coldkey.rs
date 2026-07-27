@@ -499,6 +499,105 @@ fn test_swap_coldkey_works() {
     });
 }
 
+#[test]
+fn test_swap_coldkey_announced_transfers_locked_alpha() {
+    new_test_ext(1000).execute_with(|| {
+        let old_coldkey = U256::from(1);
+        let new_coldkey = U256::from(2);
+        let new_coldkey_hash = <Test as frame_system::Config>::Hashing::hash_of(&new_coldkey);
+        let hotkey1 = U256::from(1001);
+        let hotkey2 = U256::from(1002);
+        let hotkey3 = U256::from(1003);
+        let ed = ExistentialDeposit::get();
+        let swap_cost = SubtensorModule::get_key_swap_cost();
+        let min_stake = DefaultMinStake::<Test>::get();
+        let stake1 = min_stake * 10.into();
+        let stake2 = min_stake * 20.into();
+        let stake3 = min_stake * 30.into();
+
+        add_balance_to_coldkey_account(&old_coldkey, swap_cost + stake1 + stake2 + stake3 + ed);
+
+        let (
+            netuid1,
+            _netuid2,
+            _hotkeys,
+            hk1_alpha,
+            _hk2_alpha,
+            _hk3_alpha,
+            _total_ck_stake,
+            _identity,
+            _balance_before,
+            _total_stake_before,
+        ) = comprehensive_setup!(
+            old_coldkey,
+            new_coldkey,
+            new_coldkey_hash,
+            stake1,
+            stake2,
+            stake3,
+            hotkey1,
+            hotkey2,
+            hotkey3,
+            swap_cost + ed
+        );
+
+        let lock_amount = hk1_alpha / 2.into();
+        assert!(!lock_amount.is_zero());
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &old_coldkey,
+            netuid1,
+            &hotkey1,
+            lock_amount,
+        ));
+
+        let old_stake_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey1,
+            &old_coldkey,
+            netuid1,
+        );
+        let new_stake_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey1,
+            &new_coldkey,
+            netuid1,
+        );
+        let old_lock_before =
+            Lock::<Test>::get((old_coldkey, netuid1, hotkey1)).expect("lock should exist");
+
+        ColdkeySwapAnnouncements::<Test>::insert(
+            old_coldkey,
+            (System::block_number(), new_coldkey_hash),
+        );
+
+        assert_ok!(SubtensorModule::swap_coldkey_announced(
+            <Test as frame_system::Config>::RuntimeOrigin::signed(old_coldkey),
+            new_coldkey,
+        ));
+
+        assert!(ColdkeySwapAnnouncements::<Test>::get(old_coldkey).is_none());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey1,
+                &old_coldkey,
+                netuid1,
+            ),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey1,
+                &new_coldkey,
+                netuid1,
+            ),
+            old_stake_before + new_stake_before
+        );
+        assert!(Lock::<Test>::get((old_coldkey, netuid1, hotkey1)).is_none());
+        assert_eq!(
+            Lock::<Test>::get((new_coldkey, netuid1, hotkey1)),
+            Some(old_lock_before)
+        );
+    });
+}
+
 // cargo test --package pallet-subtensor --lib -- tests::swap_coldkey::test_swap_coldkey_works_with_zero_cost --exact --nocapture
 #[test]
 fn test_swap_coldkey_works_with_zero_cost() {

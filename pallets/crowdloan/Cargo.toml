@@ -7,7 +7,7 @@ license = "Apache-2.0"
 homepage = "https://bittensor.com"
 description = "FRAME crowdloan pallet"
 publish = false
-repository = "https://github.com/opentensor/subtensor"
+repository = "https://github.com/RaoFoundation/subtensor"
 
 [lints]
 workspace = true
