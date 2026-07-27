@@ -144,11 +144,11 @@ class DocsPreviewWorkflowPolicyTests(unittest.TestCase):
     def test_cli_graph_is_locked_and_installed_without_scripts(self):
         package = json.loads(CLI_PACKAGE.read_text(encoding="utf-8"))
         lock = json.loads(CLI_LOCK.read_text(encoding="utf-8"))
-        self.assertEqual(package["dependencies"], {"vercel": "56.4.1"})
+        self.assertEqual(package["dependencies"], {"vercel": "57.0.0"})
         self.assertEqual(lock["packages"][""]["dependencies"], package["dependencies"])
         self.assertEqual(
             lock["packages"]["node_modules/vercel"]["version"],
-            "56.4.1",
+            "57.0.0",
         )
         self.assertIn("tar", package["overrides"])
         for workflow in (self.deploy, self.request):
