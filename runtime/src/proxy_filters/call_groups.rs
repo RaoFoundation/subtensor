@@ -583,6 +583,8 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_flow_normalization_exponent),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_flow_smoothing_factor),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_net_tao_flow_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_emission_bar_quantile),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_emission_gate_exponent),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_mechanism_count),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_start_call_delay),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_coldkey_swap_announcement_delay),
