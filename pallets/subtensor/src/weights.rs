@@ -88,7 +88,7 @@ pub trait WeightInfo {
 	fn commit_timelocked_weights() -> Weight;
 	fn set_coldkey_auto_stake_hotkey() -> Weight;
 	fn set_root_claim_type() -> Weight;
-	fn claim_root() -> Weight;
+	fn claim_root(h: u32, ) -> Weight;
 	fn sudo_set_num_root_claims() -> Weight;
 	fn sudo_set_root_claim_threshold() -> Weight;
 	fn set_auto_parent_delegation_enabled() -> Weight;
@@ -2740,7 +2740,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::RootClaimed` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimableThreshold` (r:1 w:0)
 	/// Proof: `SubtensorModule::RootClaimableThreshold` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn claim_root() -> Weight {
+	fn claim_root(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1969`
 		//  Estimated: `7909`
@@ -2748,6 +2748,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(70_000_000, 7909)
 			.saturating_add(T::DbWeight::get().reads(17_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_mul(h.into())
 	}
 	/// Storage: `SubtensorModule::NumRootClaim` (r:0 w:1)
 	/// Proof: `SubtensorModule::NumRootClaim` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -6354,7 +6355,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::RootClaimed` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimableThreshold` (r:1 w:0)
 	/// Proof: `SubtensorModule::RootClaimableThreshold` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn claim_root() -> Weight {
+	fn claim_root(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1969`
 		//  Estimated: `7909`
@@ -6362,6 +6363,7 @@ impl WeightInfo for () {
 		Weight::from_parts(70_000_000, 7909)
 			.saturating_add(RocksDbWeight::get().reads(17_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_mul(h.into())
 	}
 	/// Storage: `SubtensorModule::NumRootClaim` (r:0 w:1)
 	/// Proof: `SubtensorModule::NumRootClaim` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)

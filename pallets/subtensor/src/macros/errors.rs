@@ -351,5 +351,9 @@ mod errors {
         /// (measured from the last stake add/remove) and cannot be unstaked yet. Prevents
         /// epoch-boundary just-in-time dividend sniping.
         RootStakeLocked,
+        /// A root claim would inspect more validator hotkeys than its benchmarked bound.
+        TooManyRootClaimHotkeys,
+        /// A root claim would inspect more basket-position rows than its benchmarked bound.
+        TooManyRootClaimHoldings,
     }
 }

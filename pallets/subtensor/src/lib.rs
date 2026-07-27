@@ -65,6 +65,10 @@ pub const ALPHA_MAP_BATCH_SIZE: usize = 30;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
+/// Maximum number of validator hotkeys or raw basket-position rows one `claim_root` call may
+/// inspect.
+pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
     for SubtensorDustRemoval<T>

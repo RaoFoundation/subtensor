@@ -13,6 +13,7 @@ mod dispatches {
 
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
+    use crate::MAX_ROOT_CLAIM_WORK;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
     /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
@@ -1913,16 +1914,20 @@ mod dispatches {
         /// * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.
         ///
         /// # Errors
-        /// * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims.
-        ///
+        /// * `TooManyRootClaimHotkeys`: The coldkey exceeds the benchmarked hotkey bound.
+        /// * `TooManyRootClaimHoldings`: The coldkey exceeds the benchmarked basket-position bound.
         #[pallet::call_index(121)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::claim_root())]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+        )]
         pub fn claim_root(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
 
+            let (hotkeys, work) = Self::bounded_root_claim_work(&coldkey)?;
+            Self::do_root_claim(coldkey.clone(), hotkeys)?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::do_root_claim(coldkey)?;
+            let weight = <T as crate::pallet::Config>::WeightInfo::claim_root(work);
             Ok((Some(weight), Pays::Yes).into())
         }
 

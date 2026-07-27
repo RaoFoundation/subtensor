@@ -3,12 +3,13 @@
 use crate::tests::mock::*;
 use crate::{
     BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
-    Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
-    StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow,
-    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    Keys, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
+    RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
+    SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    Weights,
 };
 use approx::assert_abs_diff_eq;
-use frame_support::dispatch::RawOrigin;
+use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
 use frame_support::pallet_prelude::Weight;
 use frame_support::traits::Get;
 use frame_support::{assert_err, assert_noop, assert_ok};
@@ -163,6 +164,94 @@ fn test_claim_root_threshold() {
                 MAX_ROOT_CLAIM_THRESHOLD + 1
             ),
             Error::<Test>::InvalidRootClaimThreshold,
+        );
+    });
+}
+
+#[test]
+fn test_claim_root_declared_weight_covers_bounded_work() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            1_000_000_u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 1);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+        zero_claim_threshold();
+
+        let call = RuntimeCall::SubtensorModule(crate::Call::claim_root {});
+        let declared_weight = call.get_dispatch_info().call_weight;
+        let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey))
+            .expect("claim succeeds")
+            .actual_weight
+            .expect("claim reports benchmark-derived actual weight");
+
+        assert!(actual_weight.all_lte(declared_weight));
+
+        let max_extrinsic = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .expect("normal extrinsics have a configured maximum");
+        assert!(
+            declared_weight.all_lte(max_extrinsic),
+            "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+    });
+}
+
+#[test]
+fn test_claim_root_rejects_hotkeys_above_bound() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1001);
+        let hotkeys = (0..=MAX_ROOT_CLAIM_WORK)
+            .map(|index| U256::from(u64::from(index) + 10_000))
+            .collect::<Vec<_>>();
+        StakingHotkeys::<Test>::insert(coldkey, hotkeys);
+
+        assert_err!(
+            SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey)),
+            Error::<Test>::TooManyRootClaimHotkeys
+        );
+    });
+}
+
+#[test]
+fn test_claim_root_rejects_holdings_above_bound() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_u64.into(),
+        );
+        for index in 0..=MAX_ROOT_CLAIM_WORK {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                NetUid::from(index as u16),
+                1_u64.into(),
+            );
+        }
+
+        assert_err!(
+            SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey)),
+            Error::<Test>::TooManyRootClaimHoldings
         );
     });
 }

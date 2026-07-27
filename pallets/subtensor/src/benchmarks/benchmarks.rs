@@ -1959,83 +1959,61 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn claim_root() {
+    fn claim_root(h: Linear<1, { crate::MAX_ROOT_CLAIM_WORK }>) {
         let coldkey: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("A", 0, 1);
-
+        let owner_coldkey: T::AccountId = account("claim_owner_cold", 0, 0);
+        let owner_hotkey: T::AccountId = account("claim_owner_hot", 0, 1);
         let netuid = Subtensor::<T>::get_next_netuid();
 
         let lock_cost = Subtensor::<T>::get_network_lock_cost();
-        add_balance_to_coldkey_account::<T>(&coldkey, lock_cost.into());
+        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.into());
 
         assert_ok!(Subtensor::<T>::register_network(
-            RawOrigin::Signed(coldkey.clone()).into(),
-            hotkey.clone()
+            RawOrigin::Signed(owner_coldkey).into(),
+            owner_hotkey
         ));
-
         SubtokenEnabled::<T>::insert(netuid, true);
-
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
-
         NetworkRegistrationAllowed::<T>::insert(netuid, true);
         FirstEmissionBlockNumber::<T>::insert(netuid, 0);
-
         SubnetMechanism::<T>::insert(netuid, 1);
         SubnetworkN::<T>::insert(netuid, 1);
         Subtensor::<T>::set_tao_weight(u64::MAX);
-
-        let root_stake = 100_000_000u64;
-        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            root_stake.into(),
-        );
-
-        let initial_total_hotkey_alpha = 100_000_000u64;
-        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
+        set_reserves::<T>(
             netuid,
-            initial_total_hotkey_alpha.into(),
+            TaoBalance::from(100_000_000_000_000_u64),
+            AlphaBalance::from(100_000_000_000_000_u64),
         );
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(0));
 
-        // Point the validator's basket weight vector at the subnet so the distributed root
-        // dividend is deposited into its fund (instead of being recycled for lack of weights).
-        if let Ok(root_uid) = Uids::<T>::try_get(NetUid::ROOT, &hotkey) {
-            Weights::<T>::insert(
-                NetUidStorageIndex::ROOT,
-                root_uid,
-                vec![(u16::from(netuid), 1u16)],
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+        let holding_alpha = AlphaBalance::from(1_000_000_u64);
+        for i in 0..h {
+            let hotkey: T::AccountId = account("claim_hot", i, 1);
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                AlphaBalance::from(1_u64),
             );
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                netuid,
+                holding_alpha,
+            );
+            BasketShares::<T>::insert(&hotkey, 1_u64);
+            BasketRate::<T>::insert(&hotkey, I96F32::from_num(1));
         }
-
-        let pending_root_alpha = 10_000_000u64;
-        Subtensor::<T>::distribute_emission(
-            netuid,
-            AlphaBalance::ZERO,
-            pending_root_alpha.into(),
-            pending_root_alpha.into(),
-            AlphaBalance::ZERO,
-        );
-
-        let initial_stake = Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-        );
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()));
 
-        let new_stake = Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-        );
-
-        // The claim must actually pay out (strict: a no-op claim is a broken benchmark).
-        assert!(new_stake > initial_stake);
+        // Every work unit must execute the active holding-redemption path.
+        let first_hotkey: T::AccountId = account("claim_hot", 0, 1);
+        let last_hotkey: T::AccountId = account("claim_hot", h.saturating_sub(1), 1);
+        assert_eq!(BasketShares::<T>::get(first_hotkey), 0);
+        assert_eq!(BasketShares::<T>::get(last_hotkey), 0);
     }
 
     #[benchmark]
