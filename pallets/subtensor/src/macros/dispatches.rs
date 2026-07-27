@@ -6,13 +6,14 @@ use frame_support::pallet_macros::pallet_section;
 #[pallet_section]
 mod dispatches {
     use frame_support::pallet_prelude::DispatchResultWithPostInfo;
-    use frame_support::traits::schedule::v3::Anon as ScheduleAnon;
+    use frame_support::traits::{Get, schedule::v3::Anon as ScheduleAnon};
     use frame_system::pallet_prelude::BlockNumberFor;
     use sp_core::ecdsa::Signature;
     use sp_runtime::{Percent, Saturating, traits::Hash};
 
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_NUM_ROOT_CLAIMS;
+    use crate::MAX_ROOT_CLAIM_HOTKEYS;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
     use crate::MAX_SUBNET_CLAIMS;
 
@@ -1886,9 +1887,16 @@ mod dispatches {
         ///
         /// # Errors
         /// * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims.
+        /// * `TooManyRootClaimHotkeys`: The coldkey's hotkey fanout exceeds one claim's bound.
         ///
         #[pallet::call_index(121)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::claim_root())]
+        // The benchmark covers one hotkey and one subnet. Manual claims bound both
+        // dimensions below and refund unused weight after execution.
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::claim_root()
+                .saturating_mul(MAX_ROOT_CLAIM_HOTKEYS as u64)
+                .saturating_mul(MAX_SUBNET_CLAIMS as u64)
+        )]
         pub fn claim_root(
             origin: OriginFor<T>,
             subnets: BTreeSet<NetUid>,
@@ -1901,9 +1909,17 @@ mod dispatches {
                 Error::<T>::InvalidSubnetNumber
             );
 
+            let hotkey_count = StakingHotkeys::<T>::decode_len(&coldkey).unwrap_or_default();
+            ensure!(
+                hotkey_count <= MAX_ROOT_CLAIM_HOTKEYS,
+                Error::<T>::TooManyRootClaimHotkeys
+            );
+
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::do_root_claim(coldkey, Some(subnets))?;
+            let weight = T::DbWeight::get()
+                .reads(1)
+                .saturating_add(Self::do_root_claim(coldkey, Some(subnets))?);
             Ok((Some(weight), Pays::Yes).into())
         }
 

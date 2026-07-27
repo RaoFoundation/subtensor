@@ -5,15 +5,15 @@ use crate::RootAlphaDividendsPerSubnet;
 use crate::tests::mock::*;
 use crate::{
     DefaultMinRootClaimAmount, DissolveCleanupQueue, Error, MAX_NUM_ROOT_CLAIMS,
-    MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumRootClaim, NumStakingColdkeys,
-    PendingRootAlphaDivs, RootClaimable, RootClaimableThreshold, RootClaimed, StakingColdkeys,
-    StakingColdkeysByIndex, SubnetAlphaIn, SubnetAlphaOut, SubnetMechanism, SubnetMovingPrice,
-    SubnetProtocolFlow, SubnetRootSellTao, SubnetTAO, SubnetTaoFlow, SubnetVolume, SubtokenEnabled,
-    Tempo, TotalStake, pallet,
+    MAX_ROOT_CLAIM_HOTKEYS, MAX_ROOT_CLAIM_THRESHOLD, MAX_SUBNET_CLAIMS, NetworksAdded,
+    NumRootClaim, NumStakingColdkeys, PendingRootAlphaDivs, RootClaimable, RootClaimableThreshold,
+    RootClaimed, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetMechanism, SubnetMovingPrice, SubnetProtocolFlow, SubnetRootSellTao,
+    SubnetTAO, SubnetTaoFlow, SubnetVolume, SubtokenEnabled, Tempo, TotalStake, pallet,
 };
 use crate::{RootClaimType, RootClaimTypeEnum};
 use approx::assert_abs_diff_eq;
-use frame_support::dispatch::RawOrigin;
+use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
 use frame_support::pallet_prelude::Weight;
 use frame_support::traits::{Currency, Get};
 use frame_support::{assert_err, assert_noop, assert_ok};
@@ -1665,6 +1665,98 @@ fn test_claim_root_subnet_limits() {
                 BTreeSet::from_iter((0u16..=10u16).into_iter().map(NetUid::from))
             ),
             Error::<Test>::InvalidSubnetNumber
+        );
+    });
+}
+
+#[test]
+fn test_claim_root_declared_weight_covers_stored_hotkey_fanout() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let coldkey = U256::from(1003);
+        let subnets = (0..MAX_SUBNET_CLAIMS)
+            .map(|index| {
+                let netuid =
+                    add_dynamic_network(&U256::from(index.saturating_add(2_000)), &owner_coldkey);
+                remove_owner_registration_stake(netuid);
+                RootClaimableThreshold::<Test>::insert(netuid, I96F32::from(0));
+                netuid
+            })
+            .collect::<BTreeSet<_>>();
+        let hotkeys = (0..MAX_ROOT_CLAIM_HOTKEYS)
+            .map(|index| U256::from(index.saturating_add(10_000)))
+            .collect::<Vec<_>>();
+
+        for hotkey in &hotkeys {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+            );
+            RootClaimable::<Test>::insert(
+                hotkey,
+                subnets
+                    .iter()
+                    .map(|netuid| (*netuid, I96F32::from(1)))
+                    .collect::<BTreeMap<_, _>>(),
+            );
+        }
+        RootClaimType::<Test>::insert(coldkey, RootClaimTypeEnum::Keep);
+
+        let call = RuntimeCall::SubtensorModule(crate::Call::claim_root {
+            subnets: subnets.clone(),
+        });
+        let declared_weight = call.get_dispatch_info().call_weight;
+        let actual_weight =
+            SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets.clone())
+                .expect("claim succeeds")
+                .actual_weight
+                .expect("claim reports actual weight");
+
+        assert!(
+            actual_weight.all_lte(declared_weight),
+            "actual weight {actual_weight:?} exceeds declared weight {declared_weight:?}"
+        );
+
+        let max_extrinsic = BlockWeights::get()
+            .get(DispatchClass::Normal)
+            .max_extrinsic
+            .expect("normal extrinsics have a configured maximum");
+        assert!(
+            declared_weight.all_lte(max_extrinsic),
+            "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+
+        for hotkey in hotkeys {
+            for netuid in &subnets {
+                assert_eq!(
+                    u64::from(SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &hotkey, &coldkey, *netuid,
+                    )),
+                    1_000_000,
+                    "claim must exercise the active-subnet keep path"
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn test_claim_root_rejects_hotkey_fanout_above_bound() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1003);
+        let hotkeys = (0..=MAX_ROOT_CLAIM_HOTKEYS)
+            .map(|index| U256::from(index.saturating_add(10_000)))
+            .collect::<Vec<_>>();
+        StakingHotkeys::<Test>::insert(coldkey, hotkeys);
+
+        assert_err!(
+            SubtensorModule::claim_root(
+                RuntimeOrigin::signed(coldkey),
+                BTreeSet::from([NetUid::from(1)])
+            ),
+            Error::<Test>::TooManyRootClaimHotkeys
         );
     });
 }
