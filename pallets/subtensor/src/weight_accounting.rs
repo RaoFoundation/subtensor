@@ -42,8 +42,25 @@ impl WithBenchmarkWeight for DispatchResult {
 #[cfg(test)]
 mod tests {
     use super::WithBenchmarkWeight;
-    use frame_support::{dispatch::DispatchResult, weights::Weight};
+    use frame_support::{
+        dispatch::{DispatchResult, Pays},
+        weights::Weight,
+    };
     use sp_runtime::DispatchError;
+
+    #[test]
+    fn attaches_actual_weight_to_successful_dispatch() {
+        let actual_weight = Weight::from_parts(123, 456);
+        let result: DispatchResult = Ok(());
+
+        let post_info = match result.with_benchmark_weight(actual_weight) {
+            Ok(post_info) => post_info,
+            Err(_) => panic!("dispatch must remain successful"),
+        };
+
+        assert_eq!(post_info.actual_weight, Some(actual_weight));
+        assert_eq!(post_info.pays_fee, Pays::Yes);
+    }
 
     #[test]
     fn attaches_actual_weight_to_failed_dispatch() {
@@ -56,6 +73,31 @@ mod tests {
         };
 
         assert_eq!(error.post_info.actual_weight, Some(actual_weight));
+        assert_eq!(error.post_info.pays_fee, Pays::Yes);
         assert_eq!(error.error, DispatchError::Other("expected failure"));
+    }
+
+    #[test]
+    fn attaches_zero_actual_weight() {
+        let result: DispatchResult = Ok(());
+
+        let post_info = match result.with_benchmark_weight(Weight::zero()) {
+            Ok(post_info) => post_info,
+            Err(_) => panic!("dispatch must remain successful"),
+        };
+
+        assert_eq!(post_info.actual_weight, Some(Weight::zero()));
+    }
+
+    #[test]
+    fn attaches_max_actual_weight_without_clamping() {
+        let result: DispatchResult = Ok(());
+
+        let post_info = match result.with_benchmark_weight(Weight::MAX) {
+            Ok(post_info) => post_info,
+            Err(_) => panic!("dispatch must remain successful"),
+        };
+
+        assert_eq!(post_info.actual_weight, Some(Weight::MAX));
     }
 }
