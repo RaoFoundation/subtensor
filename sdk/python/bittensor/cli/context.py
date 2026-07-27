@@ -23,7 +23,14 @@ from .._generated import runtime_apis, storage
 from ..client import Client
 from ..extension.client import BridgeError
 from ..ledger import LedgerError, LedgerSigner
-from ..result import BittensorError, ChainError, ErrorCode, ExtrinsicResult, PolicyError
+from ..result import (
+    REMEDIATION,
+    BittensorError,
+    ChainError,
+    ErrorCode,
+    ExtrinsicResult,
+    PolicyError,
+)
 from ..settings import error_docs_url
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
@@ -820,16 +827,21 @@ class AppContext:
             # ExtrinsicResult would (remediation, docs page with source links)
             # — print them instead of the bare message.
             if isinstance(error, ChainError):
-                self.output.error(
-                    str(error),
-                    note=f"the chain rejected the call with `{error.name}`" if error.name else None,
-                    help=error.remediation,
-                    see=error.docs_url,
-                )
+                self.output.chain_error(error)
             elif isinstance(error, PolicyError):
                 self.output.error(
                     str(error),
+                    help=REMEDIATION[ErrorCode.POLICY_VIOLATION],
                     see=error_docs_url(ErrorCode.POLICY_VIOLATION.value),
+                )
+            elif str(error).lower().startswith("wrong password"):
+                self.output.error(
+                    "wrong password",
+                    help=(
+                        "re-save with `btcli wallet keychain save`"
+                        if self.keychain_password
+                        else "re-run and enter the coldkey password used when the key was created"
+                    ),
                 )
             else:
                 self.output.error(str(error))

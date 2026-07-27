@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v440',
+    date: 'July 2026',
+    title: 'The Emission Gate',
+    summary:
+      'Subnet emission now has to beat a market-set demand bar: price-proportional above it, ' +
+      'a smooth collapse below it. Idle slots stop earning, subnet slots double to 256, and ' +
+      'the cost of building on Bittensor falls toward zero.',
+    href: '/releases/v440-upgrade',
+  },
+  {
     tag: 'v439',
     date: 'July 2026',
     title: 'Conviction for Contracts',

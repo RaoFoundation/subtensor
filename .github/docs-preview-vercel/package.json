@@ -1,0 +1,29 @@
+{
+  "name": "subtensor-docs-preview-vercel-cli",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Locked Vercel CLI dependency graph for docs-preview workflows",
+  "dependencies": {
+    "vercel": "56.4.1"
+  },
+  "overrides": {
+    "@vercel/fun": {
+      "path-to-regexp": "6.3.0"
+    },
+    "@vercel/node": {
+      "path-to-regexp": "8.4.2"
+    },
+    "@vercel/python-analysis": {
+      "minimatch": "10.2.5"
+    },
+    "@vercel/remix-builder": {
+      "path-to-regexp": "6.3.0"
+    },
+    "ajv": "8.18.0",
+    "js-yaml": "4.3.0",
+    "path-to-regexp": "8.4.2",
+    "smol-toml": "1.7.0",
+    "tar": "7.5.22",
+    "undici": "6.28.0"
+  }
+}

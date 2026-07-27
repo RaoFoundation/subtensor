@@ -4,12 +4,15 @@ from ...error_map import DISPATCH_ERRORS
 
 # Wrapper pallets that report an *inner* DispatchResult while the outer
 # extrinsic still emits System.ExtrinsicSuccess. Keyed by (module, event) →
-# attribute holding the Result.
+# attribute holding the Result (or a bare DispatchError for Utility batch).
 _NESTED_RESULT_EVENTS: dict[tuple[str, str], str] = {
     ("Sudo", "Sudid"): "sudo_result",
     ("Sudo", "SudoAsDone"): "sudo_result",
     ("Proxy", "ProxyExecuted"): "result",
     ("Multisig", "MultisigExecuted"): "result",
+    # Utility.batch stops on first failure; force_batch emits ItemFailed per item.
+    ("Utility", "BatchInterrupted"): "error",
+    ("Utility", "ItemFailed"): "error",
 }
 
 
@@ -43,6 +46,9 @@ def nested_dispatch_error(events: list) -> Optional[Any]:
         result = attributes.get(field) if isinstance(attributes, dict) else attributes
         if isinstance(result, dict) and "Err" in result:
             return result["Err"]
+        # Utility.BatchInterrupted / ItemFailed carry a bare DispatchError.
+        if module_id == "Utility" and result is not None:
+            return result
     return None
 
 
@@ -202,6 +208,26 @@ def build_system_error_message(dispatch_error: dict) -> Optional[dict]:
         if isinstance(variant, dict) and variant:
             variant = next(iter(variant))
         name = str(variant)
+    elif "Arithmetic" in dispatch_error:
+        variant = dispatch_error["Arithmetic"]
+        if isinstance(variant, dict) and variant:
+            name = str(next(iter(variant)))
+        else:
+            name = "Arithmetic"
+    elif "Transactional" in dispatch_error:
+        variant = dispatch_error["Transactional"]
+        if isinstance(variant, dict) and variant:
+            name = str(next(iter(variant)))
+        else:
+            name = "Transactional"
+    elif "Exhausted" in dispatch_error:
+        name = "Exhausted"
+    elif "Corruption" in dispatch_error:
+        name = "Corruption"
+    elif "Unavailable" in dispatch_error:
+        name = "Unavailable"
+    elif "RootNotAllowed" in dispatch_error:
+        name = "RootNotAllowed"
 
     if name is None:
         return None

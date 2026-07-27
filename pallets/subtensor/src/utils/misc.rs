@@ -988,6 +988,18 @@ impl<T: Config> Pallet<T> {
         FlowNormExponent::<T>::set(exponent);
     }
 
+    /// Sets the emission bar quantile (q)
+    pub fn set_emission_bar_quantile(quantile: U64F64) {
+        EmissionBarQuantile::<T>::set(quantile);
+        // Force a bar recompute with the new quantile on the next block.
+        EmissionGateBar::<T>::kill();
+    }
+
+    /// Sets the emission gate Hill exponent (h)
+    pub fn set_emission_gate_exponent(exponent: U64F64) {
+        EmissionGateExponent::<T>::set(exponent);
+    }
+
     /// Sets TAO flow smoothing factor (alpha)
     pub fn set_tao_flow_smoothing_factor(smoothing_factor: u64) {
         FlowEmaSmoothingFactor::<T>::set(smoothing_factor);

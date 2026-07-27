@@ -8,15 +8,38 @@ a human sentence.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ._generated.errors import ERRORS
 from .error_descriptions import DESCRIPTIONS as _DESCRIPTIONS
+from .error_map import CUSTOM_TRANSACTION_ERRORS as _CUSTOM_TRANSACTION_ERRORS
 from .error_map import DISPATCH_ERRORS as _DISPATCH_ERRORS
+from .error_map import INVALID_TRANSACTION_ERRORS as _INVALID_TRANSACTION_ERRORS
 from .error_map import NAME_TO_CODE as _NAME_TO_CODE
 from .error_map import ErrorCode
 from .settings import chain_error_docs_url, error_docs_url
+
+# Matches classic ``Custom error: N``, newer
+# ``Invalid transaction with custom error: N``, and structured
+# ``{'Custom': N}`` RPC data embeddings.
+_CUSTOM_ERROR_RE = re.compile(
+    r"(?:custom error:\s*|['\"]Custom['\"]\s*:\s*)(\d+)",
+    re.IGNORECASE,
+)
+_WATCH_STATUS_RE = re.compile(
+    r"\bextrinsic\s+(usurped|retracted|finalitytimeout|dropped|invalid)\b",
+    re.IGNORECASE,
+)
+_CATALOG_DOCS_BY_NAME = {info.name: info.docs for info in ERRORS.values() if info.docs}
+_WATCH_STATUS_NAMES = {
+    "usurped": "Usurped",
+    "retracted": "Retracted",
+    "finalitytimeout": "FinalityTimeout",
+    "dropped": "Dropped",
+    "invalid": "Invalid",
+}
 
 
 class BittensorError(Exception):
@@ -69,15 +92,16 @@ REMEDIATION: dict[ErrorCode, str] = {
 # Same style rules as the short messages: lowercase, plain English.
 EXPLANATIONS: dict[ErrorCode, str] = {
     ErrorCode.INSUFFICIENT_BALANCE: (
-        "the signing account cannot cover the requested amount plus the transaction fee.\n"
+        "the signing account cannot cover the requested amount, fee, or stake requirement.\n"
         "\n"
-        "this covers several chain-side variants: the free balance is too low for a "
-        "transfer, the stake being withdrawn is larger than what is actually staked, or "
-        "the transfer would drop the account below the existential deposit and reap it.\n"
+        "this covers several chain-side variants: free TAO too low for a transfer or fee, "
+        "an unstake/move larger than free stake (or locked by conviction/collateral), a "
+        "withdrawal that would drop below the existential deposit, or a hotkey below the "
+        "stake floor needed to set weights / children.\n"
         "\n"
-        "check the account with `btcli wallet balance`, then reduce the amount or fund the "
-        "coldkey. for stake operations, `btcli stake list` shows what is actually "
-        "staked per subnet."
+        "check with `btcli wallet balance` and `btcli stake list`, then reduce the amount, "
+        "fund the coldkey, unlock/wait out locks, or stake more to the hotkey — the exact "
+        "error name in the diagnostic says which."
     ),
     ErrorCode.INSUFFICIENT_LIQUIDITY: (
         "the pool on the other side of the operation cannot absorb it: the swap "
@@ -112,14 +136,15 @@ EXPLANATIONS: dict[ErrorCode, str] = {
         "`btcli query netuids-for-hotkey` / `btcli query uid --netuid N`."
     ),
     ErrorCode.NOT_AUTHORIZED: (
-        "the signing key is not allowed to perform this call: the coldkey is not "
-        "associated with the hotkey, the caller is not the subnet owner, the origin "
-        "is filtered, a proxy lacks permission for this call type, or the call "
-        "requires a root/sudo origin.\n"
+        "the signing key is not allowed to perform this call, or the account is "
+        "blocked from acting: the coldkey is not associated with the hotkey, the "
+        "caller is not the subnet owner, a proxy lacks permission, the call needs "
+        "root/sudo, the hotkey lacks a validator permit, or a disputed coldkey "
+        "swap has frozen the account.\n"
         "\n"
-        "check which key actually owns the target object and sign with it. for "
-        "proxy signing, the proxy type must permit the call; for subnet "
-        "hyperparameters, the signer must be the subnet owner coldkey."
+        "check the exact error name. ownership problems need the owning key; "
+        "validator-permit failures need more stake weight (not a different signer); "
+        "disputed swaps stay frozen until root resolves them."
     ),
     ErrorCode.ALREADY_EXISTS: (
         "the state the call would create already exists: the hotkey is already "
@@ -150,22 +175,23 @@ EXPLANATIONS: dict[ErrorCode, str] = {
         "the subnet exists but its token operations are not enabled yet.\n"
         "\n"
         "a newly registered subnet starts inactive: staking, unstaking, and other alpha "
-        "operations are rejected until the subnet owner activates it with start_call. "
-        "there is nothing to fix on your side; wait for the subnet to become active."
+        "operations are rejected until the subnet owner activates it with "
+        "`btcli sudo start`. there is nothing to fix on your side; wait for the "
+        "subnet to become active (`btcli sudo check-start`)."
     ),
     ErrorCode.DISABLED: (
-        "the call or feature is switched off: registration is closed on the subnet, "
-        "commit-reveal (or the legacy direct path) is not enabled, transfers are "
-        "disallowed by the subnet, the extrinsic is deprecated, or an admin has "
-        "disabled it temporarily.\n"
+        "the call or feature is blocked by a chain/subnet switch or pending state: "
+        "registration is closed, commit-reveal requires the other weights path, "
+        "stake transfers are toggled off on a subnet, a coldkey has a pending swap "
+        "announcement, the extrinsic is deprecated, or an admin disabled it.\n"
         "\n"
-        "this is a deliberate chain- or subnet-level switch, not a problem with "
-        "your arguments. use the supported alternative call if one exists (the "
-        "error name usually points at it), or wait for the feature to be enabled."
+        "this is not a bad argument. use the supported alternative (the error name "
+        "usually points at it), finish or clear a pending coldkey swap "
+        "(`btcli wallet swap-check`), or wait for the feature to be enabled."
     ),
     ErrorCode.TOO_EARLY: (
         "the call arrived before its window opened: a reveal before the reveal "
-        "period, a coldkey swap before its delay elapsed, a start_call before "
+        "period, a coldkey swap before its delay elapsed, `btcli sudo start` before "
         "enough blocks passed, or a finalization before the period ended.\n"
         "\n"
         "unlike rate_limited this is not about calling too often — the flow has a "
@@ -211,12 +237,13 @@ EXPLANATIONS: dict[ErrorCode, str] = {
         "parameters)."
     ),
     ErrorCode.POLICY_VIOLATION: (
-        "the action was blocked locally by a configured safety policy before reaching "
-        "the chain.\n"
+        "the action was blocked by a policy: either a local SDK safety limit "
+        "(spend caps, allowed operations) or an on-chain account/subnet policy "
+        "(e.g. the destination rejects locked alpha).\n"
         "\n"
-        "policies cap what a session is allowed to do (spend limits, allowed operations). "
-        "this is a deliberate guardrail: if the action is intended, raise or remove the "
-        "relevant policy limit in your configuration and rerun."
+        "for local policies, raise or remove the limit in your configuration. for "
+        "on-chain policies, change the recipient/settings or ask the counterparty "
+        "to opt in — the error name says which."
     ),
     ErrorCode.INTERNAL: (
         "the chain hit an internal invariant it could not uphold: an arithmetic "
@@ -242,10 +269,13 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
     # "balance too low", not a bare "too low": pool rejections like
     # "Priority is too low" are not balance problems.
     ("balance too low", ErrorCode.INSUFFICIENT_BALANCE),
+    ("inability to pay some fees", ErrorCode.INSUFFICIENT_BALANCE),
     ("insufficient", ErrorCode.INSUFFICIENT_BALANCE),
     ("not enough", ErrorCode.INSUFFICIENT_BALANCE),
     ("rate limit", ErrorCode.RATE_LIMITED),
     ("too fast", ErrorCode.RATE_LIMITED),
+    ("priority is too low", ErrorCode.RATE_LIMITED),
+    ("already imported", ErrorCode.ALREADY_EXISTS),
     ("bad signature", ErrorCode.INVALID_ARGUMENT),
     ("invalid transaction", ErrorCode.INVALID_ARGUMENT),
 )
@@ -259,14 +289,151 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "(`--rate-tolerance 0.1` / rate_tolerance=0.1), or disable protection "
         "entirely (`--no-slippage-protection` / slippage_protection=False)"
     ),
+    "ColdkeySwapAnnounced": (
+        "this coldkey has a pending swap announcement that blocks transfers "
+        "and most other calls; check with `btcli wallet swap-check`, then "
+        "finish with `btcli wallet swap-coldkey` or clear via "
+        "`btcli tx clear-coldkey-swap-announcement`"
+    ),
+    "ColdkeySwapDisputed": (
+        "this coldkey's pending swap is under dispute, so all calls are frozen "
+        "until root resolves it; check with `btcli wallet swap-check`"
+    ),
+    "ColdkeySwapTooEarly": (
+        "the announcement delay has not elapsed yet; check remaining blocks with "
+        "`btcli wallet swap-check` and retry `btcli wallet swap-coldkey` later"
+    ),
+    "ColdkeySwapAnnouncementNotFound": (
+        "announce first with `btcli wallet announce-coldkey-swap`, then execute "
+        "with `btcli wallet swap-coldkey` after the delay"
+    ),
+    "AnnouncedColdkeyHashDoesNotMatch": (
+        "the new coldkey does not match the hash from `btcli wallet announce-coldkey-swap`; "
+        "use the same new coldkey you announced"
+    ),
+    "Payment": (
+        "fund the signing account so it can cover fees (and tip); check with "
+        "`btcli wallet balance`"
+    ),
+    "Future": (
+        "the nonce is too high; wait for pending extrinsics or resubmit with "
+        "the current on-chain nonce"
+    ),
+    "Stale": "the nonce was already used; rebuild and resign with a fresh nonce",
+    "AncientBirthBlock": "rebuild and resign the extrinsic against a recent block",
+    "BadProof": (
+        "the signature did not match the extrinsic; with `--signer extension`, retry "
+        "the command — if it keeps failing, use a local wallet or file a bug"
+    ),
+    "ZeroMaxAmount": (
+        "relax the price/slippage limit or wait for a better price so max_amount "
+        "is non-zero"
+    ),
+    "AmountTooLow": (
+        "raise the amount above the chain minimum stake (after fees/slippage); "
+        "check with `btcli stake list` / subnet price"
+    ),
+    "StakeAmountTooLow": (
+        "raise the stake amount above the minimum, or stake more to the hotkey if "
+        "this was a weights call (`btcli stake list`)"
+    ),
+    "NotEnoughStakeToSetWeights": (
+        "the hotkey's stake weight is below the weights floor — stake more to it "
+        "(`btcli stake add` / `btcli stake list`); funding free TAO alone will not help"
+    ),
+    "NotEnoughStakeToWithdraw": (
+        "lower the unstake/move amount; check free stake with `btcli stake list` "
+        "(locks and collateral do not count)"
+    ),
+    "NotEnoughBalanceToStake": (
+        "fund the coldkey or reduce the stake/registration amount; check with "
+        "`btcli wallet balance`"
+    ),
+    "StakeUnavailable": (
+        "only free stake can move — wait out conviction locks or drain miner "
+        "collateral, then retry; check with `btcli stake list`"
+    ),
+    "NeuronNoValidatorPermit": (
+        "this hotkey lacks a validator permit on the subnet; increase stake weight "
+        "into the top-K or wait for the next epoch (`btcli subnets metagraph`) — "
+        "resigning with another key will not help"
+    ),
+    "TransferDisallowed": (
+        "stake transfers are disabled for this origin or destination subnet; ask "
+        "the subnet owner to enable the transfer toggle, or use a different path"
+    ),
+    "RateLimitExceeded": (
+        "wait for the rate-limit window (weights commit/set or network tx), then retry"
+    ),
+    "ExistentialDeposit": (
+        "leave enough free TAO for the existential deposit, or use a full-balance "
+        "transfer that allows reaping; check with `btcli wallet balance`"
+    ),
+    "Expendability": (
+        "this move would reap the account below the existential deposit; leave dust "
+        "or explicitly transfer-all"
+    ),
+    "ZeroBalanceAfterWithdrawn": (
+        "the withdrawal would leave a zero/non-viable balance; leave the existential "
+        "deposit or transfer the remainder intentionally"
+    ),
+    "CommitRevealEnabled": (
+        "this subnet requires commit-reveal weights; use the commit/reveal path "
+        "(btcli weights auto-selects it) instead of plain set_weights — check with "
+        "`btcli sudo get --netuid N`"
+    ),
+    "CommitRevealDisabled": (
+        "commit-reveal is off on this subnet; use plain set_weights — check with "
+        "`btcli sudo get --netuid N`"
+    ),
+    "SubNetRegistrationDisabled": (
+        "registration is closed on this subnet; check `network_registration_allowed` "
+        "with `btcli sudo get --netuid N` or ask the owner"
+    ),
+    "SubtokenDisabled": (
+        "the subnet is not started yet; wait for the owner to run `btcli sudo start` "
+        "(`btcli sudo check-start`)"
+    ),
+    "RegistrationNotPermittedOnRootSubnet": (
+        "do not register on netuid 0 with the normal register path; use the root "
+        "register flow instead"
+    ),
+    "AccountRejectsLockedAlpha": (
+        "the destination coldkey rejects locked alpha; they must opt in, or send "
+        "unlocked stake only"
+    ),
+    "BadRequest": (
+        "the node rejected the extrinsic before inclusion (unclassified validity "
+        "failure); retry once, and if it persists inspect the exact call / report it"
+    ),
+    "Dropped": "the extrinsic was dropped from the pool; resign and resubmit",
+    "Usurped": (
+        "another extrinsic with the same nonce replaced this one; check pending "
+        "submissions and resubmit with a fresh nonce if needed"
+    ),
+    "Invalid": (
+        "the pool marked the extrinsic invalid after submission; resign and resubmit "
+        "with current nonce/era"
+    ),
+    "Retracted": "the extrinsic was retracted; resign and resubmit",
+    "FinalityTimeout": (
+        "finality timed out while watching the extrinsic; check whether it landed "
+        "on-chain before resubmitting"
+    ),
+    "ExtrinsicDecodeFailed": (
+        "the shielded extrinsic could not be decoded on inclusion; resubmit with "
+        "`--mev-protection` / a fresh shield encrypt"
+    ),
+    "ExtrinsicExpired": (
+        "the shielded extrinsic expired in the queue; resubmit with MEV protection"
+    ),
+    "DecryptionFailed": (
+        "the block author could not decrypt the shielded extrinsic; resubmit with "
+        "a fresh MEV-protected submission"
+    ),
 }
 
 _HELP_OVERRIDES: tuple[tuple[str, str], ...] = (
-    (
-        "bad signature",
-        "the signature did not match the extrinsic; with `--signer extension`, retry the "
-        "command — if it keeps failing, use a local wallet or file a bug",
-    ),
     (
         "invalid transaction",
         "the node rejected the extrinsic before inclusion; check the detail line above",
@@ -356,9 +523,72 @@ class ChainError(BittensorError):
         return None
 
 
+def _message_for_named_error(name: str) -> str:
+    """Short diagnostic text for a known chain / custom-transaction error name."""
+    if docs := _CATALOG_DOCS_BY_NAME.get(name):
+        return docs
+    if name in _DISPATCH_ERRORS:
+        return _DISPATCH_ERRORS[name][1]
+    return name
+
+
+def _custom_code_from_payload(payload: Any) -> Optional[int]:
+    """Pull ``InvalidTransaction::Custom(N)`` out of a JSON-RPC error payload."""
+    if not isinstance(payload, dict):
+        return None
+    err = payload.get("error")
+    if not isinstance(err, dict):
+        return None
+    data = err.get("data")
+    if isinstance(data, dict) and "Custom" in data:
+        try:
+            return int(data["Custom"])
+        except (TypeError, ValueError):
+            return None
+    if isinstance(data, int):
+        return data
+    if isinstance(data, str):
+        match = _CUSTOM_ERROR_RE.search(data)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _named_pool_rejection(message: str, *, payload: Any = None) -> Optional[str]:
+    """Resolve a pool-rejection RPC string/payload to a known error name, if any."""
+    code = _custom_code_from_payload(payload)
+    if code is None:
+        match = _CUSTOM_ERROR_RE.search(message)
+        if match:
+            code = int(match.group(1))
+    if code is not None:
+        name = _CUSTOM_TRANSACTION_ERRORS.get(code)
+        if name:
+            return name
+    watch = _WATCH_STATUS_RE.search(message)
+    if watch:
+        return _WATCH_STATUS_NAMES[watch.group(1).lower()]
+    haystack = message.lower()
+    for needle, name in _INVALID_TRANSACTION_ERRORS:
+        if needle in haystack:
+            return name
+    return None
+
+
 def chain_error_from_substrate_request(error: Exception) -> ChainError:
-    """Build a ChainError from a transport-layer request failure."""
+    """Build a ChainError from a transport-layer request failure.
+
+    Pool rejections often arrive as ``InvalidTransaction::Custom(N)`` with the
+    opaque text ``Custom error: N`` / ``{'Custom': N}``, a standard
+    ``InvalidTransaction`` Display string, or a watch-status fatal
+    (``dropped`` / ``usurped`` / …). Resolve those against the SDK maps so the
+    CLI can show the real name, description, and remediation.
+    """
     message = str(error)
+    payload = getattr(error, "payload", None)
+    name = _named_pool_rejection(message, payload=payload)
+    if name:
+        return ChainError(_message_for_named_error(name), name)
     return ChainError(message, code=classify_error(message))
 
 
@@ -368,7 +598,8 @@ def chain_error_from_dispatch(err: Any) -> ChainError:
     Used for errors that arrive inside event attributes (e.g. the inner result of
     a ``Sudo.Sudid``, ``Proxy.ProxyExecuted``, or ``Multisig.MultisigExecuted``
     event) rather than as a failed extrinsic. Module errors are resolved to
-    their exact name/docs via the generated catalog.
+    their exact name/docs via the generated catalog; Token/BadOrigin/Arithmetic
+    and friends use :data:`DISPATCH_ERRORS`.
     """
     if isinstance(err, dict) and "Module" in err:
         module = err["Module"] or {}
@@ -384,6 +615,33 @@ def chain_error_from_dispatch(err: Any) -> ChainError:
         if info:
             return ChainError(info.docs or info.name, info.name)
         return ChainError(f"module error {pallet_index}/{error_index}")
+    if isinstance(err, dict):
+        for wrapper in (
+            "BadOrigin",
+            "CannotLookup",
+            "Other",
+            "Token",
+            "Arithmetic",
+            "Transactional",
+            "Exhausted",
+            "Corruption",
+            "Unavailable",
+            "RootNotAllowed",
+        ):
+            if wrapper not in err:
+                continue
+            variant = err[wrapper]
+            if wrapper == "Token" and isinstance(variant, dict) and variant:
+                name = next(iter(variant))
+            elif wrapper == "Arithmetic" and isinstance(variant, dict) and variant:
+                name = next(iter(variant))
+            elif wrapper == "Transactional" and isinstance(variant, dict) and variant:
+                name = next(iter(variant))
+            elif wrapper in ("BadOrigin", "CannotLookup", "Other"):
+                name = wrapper
+            else:
+                name = wrapper
+            return ChainError(_message_for_named_error(str(name)), str(name))
     return ChainError(str(err))
 
 
