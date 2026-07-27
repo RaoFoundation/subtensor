@@ -80,7 +80,7 @@ const page = () => {
           <p className={styles.subtitle}>The bar and the gate</p>
           <p>
             We create the gate as follows: sort subnets by price and walk down until the subnets
-            above you carry a fraction <code>q</code> of all prices — the price at that point is
+            above you carry a fraction <code>q </code> of all prices — the price at that point is
             the &apos;bar&apos;. Each subnet&apos;s emission weight is then thresholded around this
             point.
           </p>
