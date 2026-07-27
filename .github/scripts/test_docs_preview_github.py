@@ -76,7 +76,12 @@ class DocsPreviewGitHubTests(unittest.TestCase):
         self.assertEqual(reconcile_mode("deploy", stale, SHA, REPOSITORY), "noop")
         self.assertEqual(reconcile_mode("deploy", foreign, SHA, REPOSITORY), "noop")
         self.assertEqual(reconcile_mode("deploy", closed, SHA, REPOSITORY), "cleanup")
-        self.assertEqual(reconcile_mode("cleanup", matching, SHA, REPOSITORY), "noop")
+        self.assertEqual(
+            reconcile_mode("cleanup", matching, SHA, REPOSITORY),
+            "cleanup",
+        )
+        self.assertEqual(reconcile_mode("cleanup", stale, SHA, REPOSITORY), "noop")
+        self.assertEqual(reconcile_mode("cleanup", foreign, SHA, REPOSITORY), "noop")
 
     def test_prepare_validates_artifact_and_emits_bounded_outputs(self):
         responses = [

@@ -250,10 +250,8 @@ def reconcile_mode(
         raise ValueError("invalid docs-preview action")
     if pull.state == "closed":
         return "cleanup"
-    if action == "cleanup":
-        return "noop"
     if pull.head_sha == expected_head_sha and pull.head_repository == repository:
-        return "deploy"
+        return action
     return "noop"
 
 

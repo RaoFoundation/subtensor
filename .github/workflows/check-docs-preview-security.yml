@@ -9,6 +9,7 @@ on:
       - ".github/workflows/check-docs-preview-security.yml"
       - ".github/workflows/deploy-docs-preview.yml"
       - ".github/workflows/request-docs-preview.yml"
+      - "website/apps/bittensor-website/vercel.json"
   push:
     branches:
       - main
@@ -20,6 +21,7 @@ on:
       - ".github/workflows/check-docs-preview-security.yml"
       - ".github/workflows/deploy-docs-preview.yml"
       - ".github/workflows/request-docs-preview.yml"
+      - "website/apps/bittensor-website/vercel.json"
 
 permissions:
   contents: read
