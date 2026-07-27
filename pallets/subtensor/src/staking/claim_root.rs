@@ -663,34 +663,59 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    fn root_claim_weight(num_holdings: u64) -> Weight {
-        // Per-holding: escrow stake read/write + swap + protocol-flow bookkeeping.
-        Weight::from_parts(20_000_000, 3000)
-            .saturating_add(T::DbWeight::get().reads(4_u64))
-            .saturating_add(T::DbWeight::get().writes(3_u64))
-            .saturating_mul(num_holdings.max(1))
-            .saturating_add(T::DbWeight::get().reads_writes(4_u64, 3_u64))
+    /// Returns the bounded hotkey set and benchmark work parameter for a root claim.
+    ///
+    /// The benchmark uses one hotkey with one basket position per work unit. Bounding both
+    /// independent dimensions by the same parameter therefore covers callers with many empty
+    /// hotkeys, callers with many holdings on one hotkey, and mixtures of the two.
+    pub(crate) fn bounded_root_claim_work(
+        coldkey: &T::AccountId,
+    ) -> Result<(Vec<T::AccountId>, u32), DispatchError> {
+        let hotkey_count = StakingHotkeys::<T>::decode_len(coldkey).unwrap_or_default();
+        ensure!(
+            hotkey_count <= crate::MAX_ROOT_CLAIM_WORK as usize,
+            Error::<T>::TooManyRootClaimHotkeys
+        );
+        let hotkey_count = hotkey_count as u32;
+
+        let hotkeys = StakingHotkeys::<T>::get(coldkey);
+        let escrow = Self::get_beta_escrow_account_id();
+        let mut holding_rows = 0_u32;
+
+        for hotkey in &hotkeys {
+            for _ in Alpha::<T>::iter_prefix((hotkey, &escrow))
+                .map(|_| ())
+                .chain(AlphaV2::<T>::iter_prefix((hotkey, &escrow)).map(|_| ()))
+            {
+                holding_rows = holding_rows.saturating_add(1);
+                ensure!(
+                    holding_rows <= crate::MAX_ROOT_CLAIM_WORK,
+                    Error::<T>::TooManyRootClaimHoldings
+                );
+            }
+        }
+
+        Ok((hotkeys, hotkey_count.max(holding_rows).max(1)))
     }
 
-    pub fn do_root_claim(coldkey: T::AccountId) -> Result<Weight, DispatchError> {
-        with_transaction(|| match Self::try_do_root_claim(coldkey) {
-            Ok(weight) => TransactionOutcome::Commit(Ok(weight)),
+    pub fn do_root_claim(
+        coldkey: T::AccountId,
+        hotkeys: Vec<T::AccountId>,
+    ) -> Result<(), DispatchError> {
+        with_transaction(|| match Self::try_do_root_claim(coldkey, &hotkeys) {
+            Ok(()) => TransactionOutcome::Commit(Ok(())),
             Err(err) => TransactionOutcome::Rollback(Err(err)),
         })
     }
 
-    fn try_do_root_claim(coldkey: T::AccountId) -> Result<Weight, DispatchError> {
-        let mut weight = Weight::default();
-
-        let hotkeys = StakingHotkeys::<T>::get(&coldkey);
-        weight.saturating_accrue(T::DbWeight::get().reads(1));
-
+    fn try_do_root_claim(
+        coldkey: T::AccountId,
+        hotkeys: &[T::AccountId],
+    ) -> Result<(), DispatchError> {
         let mut total_tao: u64 = 0;
-        for hotkey in hotkeys.iter() {
-            let num_holdings = Self::get_basket_holdings(hotkey).len() as u64;
+        for hotkey in hotkeys {
             let realized = Self::root_claim_for_hotkey(hotkey, &coldkey, false)?;
             total_tao = total_tao.saturating_add(realized);
-            weight.saturating_accrue(Self::root_claim_weight(num_holdings));
         }
 
         Self::deposit_event(Event::RootClaimed {
@@ -698,7 +723,7 @@ impl<T: Config> Pallet<T> {
             tao: total_tao.into(),
         });
 
-        Ok(weight)
+        Ok(())
     }
 
     pub fn maybe_add_coldkey_index(coldkey: &T::AccountId) {
