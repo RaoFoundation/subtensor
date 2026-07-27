@@ -332,7 +332,7 @@ class RpcSubstrate:
                     raise
                 return await op(archive)
         except SubstrateRequestException as error:
-            raise ChainError(str(error)) from error
+            raise chain_error_from_substrate_request(error) from error
 
     async def close(self) -> None:
         if self._substrate is not None:
@@ -467,7 +467,7 @@ class RpcSubstrate:
             async for header in self.raw.subscribe_heads(finalized=finalized):
                 yield {"header": header}
         except SubstrateRequestException as error:
-            raise ChainError(str(error)) from error
+            raise chain_error_from_substrate_request(error) from error
 
     async def events(self, block_hash: Optional[str] = None) -> list[dict]:
         """Decoded ``System.Events`` records for a block."""
@@ -588,7 +588,7 @@ class RpcSubstrate:
                 metadata_hash=metadata_hash,
             )
         except SubstrateRequestException as error:
-            raise ChainError(str(error)) from error
+            raise chain_error_from_substrate_request(error) from error
 
     async def submit_signature(
         self,
@@ -603,7 +603,7 @@ class RpcSubstrate:
         try:
             extrinsic = await self.raw.attach_signature(unsigned, signature)
         except SubstrateRequestException as error:
-            raise ChainError(str(error)) from error
+            raise chain_error_from_substrate_request(error) from error
         return await self._submit_and_report(
             extrinsic,
             signer_address=unsigned.address,
@@ -734,7 +734,7 @@ class RpcSubstrate:
         try:
             extrinsic = await self.raw.create_multisig_extrinsic(call, keypair, multisig_account)
         except SubstrateRequestException as error:
-            raise ChainError(str(error)) from error
+            raise chain_error_from_substrate_request(error) from error
         return await self.submit_signed(
             extrinsic,
             keypair,

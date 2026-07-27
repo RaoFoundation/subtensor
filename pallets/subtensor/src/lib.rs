@@ -1845,6 +1845,36 @@ pub mod pallet {
     /// ITEM --> Flow Normalization Exponent (p)
     pub type FlowNormExponent<T: Config> =
         StorageValue<_, U64F64, ValueQuery, DefaultFlowNormExponent<T>>;
+
+    #[pallet::type_value]
+    /// Default emission bar quantile (q). The bar theta is the demand share at
+    /// which the sorted cumulative share distribution crosses q.
+    pub fn DefaultEmissionBarQuantile<T: Config>() -> U64F64 {
+        // 0.61: on the July 2026 distribution this lands the bar at the
+        // uniform share (1/active_subnets), around rank 32.
+        U64F64::saturating_from_num(0.61)
+    }
+    #[pallet::storage]
+    /// ITEM --> Emission Bar Quantile (q)
+    pub type EmissionBarQuantile<T: Config> =
+        StorageValue<_, U64F64, ValueQuery, DefaultEmissionBarQuantile<T>>;
+
+    #[pallet::type_value]
+    /// Default emission gate Hill exponent (h). Controls cliff sharpness at the bar.
+    pub fn DefaultEmissionGateExponent<T: Config>() -> U64F64 {
+        U64F64::saturating_from_num(3)
+    }
+    #[pallet::storage]
+    /// ITEM --> Emission Gate Exponent (h)
+    pub type EmissionGateExponent<T: Config> =
+        StorageValue<_, U64F64, ValueQuery, DefaultEmissionGateExponent<T>>;
+
+    #[pallet::storage]
+    /// ITEM --> Emission gate bar (theta): the q-mass demand-share threshold the
+    /// Hill gate is centered on. Recomputed on a fixed block cadence from the
+    /// same EMA-price shares that drive emission. Zero means "not yet computed"
+    /// and disables the gate.
+    pub type EmissionGateBar<T: Config> = StorageValue<_, U64F64, ValueQuery>;
     #[pallet::type_value]
     /// Default value for flow EMA smoothing.
     pub fn DefaultFlowEmaSmoothingFactor<T: Config>() -> u64 {

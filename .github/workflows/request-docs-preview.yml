@@ -1,18 +1,14 @@
 name: Request Docs Preview
 
-# Secret-free PR gate for docs previews.
+# Untrusted half of docs previews. This workflow runs pull-request code, so it
+# must remain secret-free. It only builds and uploads a bounded-lifetime
+# artifact for the default-branch workflow to validate.
 #
-# Trust boundary: this workflow runs untrusted PR HEAD and must never receive
-# VERCEL_TOKEN, GoDaddy credentials, or any other deploy secret. Same-repo PRs
-# can edit this file; keeping it credential-free closes that path.
-#
-# Build output is sealed and handed to the default-branch
-# `Deploy Docs Preview` workflow (`workflow_run`), which alone holds secrets
-# and never checks out or executes PR code.
-#
-# Requires repository variables (not secrets — these are public project IDs):
+# Repository variables used when previews are enabled (public identifiers, not
+# credentials). The jobs stay disabled until the dedicated preview ID exists:
 #   VERCEL_ORG_ID
 #   VERCEL_DOCS_PROJECT_ID
+#   VERCEL_DOCS_PREVIEW_PROJECT_ID
 
 on:
   pull_request:
@@ -20,10 +16,17 @@ on:
     paths:
       - "docs/**"
       - "website/**"
+      - ".github/docs-preview-vercel/**"
+      - ".github/scripts/docs_preview_*.py"
       - ".github/workflows/request-docs-preview.yml"
 
 permissions:
   contents: read
+
+# A close or newer commit cancels an in-flight build for the same PR.
+concurrency:
+  group: request-docs-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -31,87 +34,83 @@ jobs:
     if: >
       github.event.action != 'closed' &&
       !github.event.pull_request.head.repo.fork &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, fireactions-turbo-8]
-    concurrency:
-      group: request-docs-preview-build-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''
+    runs-on: ubuntu-24.04
     env:
-      # Public project identifiers only — never a deploy token.
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_DOCS_PROJECT_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_DOCS_PREVIEW_PROJECT_ID }}
+      VERCEL_PRODUCTION_PROJECT_ID: ${{ vars.VERCEL_DOCS_PROJECT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out untrusted PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
-      - name: Require public Vercel project vars
+      - name: Validate the dedicated preview configuration
         run: |
-          set -euo pipefail
-          if [ -z "${VERCEL_ORG_ID}" ] || [ -z "${VERCEL_PROJECT_ID}" ]; then
-            echo "Set repository variables VERCEL_ORG_ID and VERCEL_DOCS_PROJECT_ID" >&2
-            echo "(project/org IDs are not secrets; the deploy token stays on the trusted workflow)." >&2
-            exit 1
-          fi
+          python3 .github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            validate-config \
+            --production-project-id "${VERCEL_PRODUCTION_PROJECT_ID}" \
+            --docs-domain "${DOCS_DOMAIN}"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 24
+          cache: npm
+          cache-dependency-path: .github/docs-preview-vercel/package-lock.json
 
-      - name: Enable corepack (yarn 4)
+      - name: Install locked Vercel CLI (no secrets)
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --prefix .github/docs-preview-vercel
+          npm audit --audit-level=high --omit=dev --prefix .github/docs-preview-vercel
+          test -x .github/docs-preview-vercel/node_modules/.bin/vercel
+
+      - name: Enable corepack (Yarn 4)
         run: corepack enable
 
       - name: Assemble Vercel prebuilt output (no deploy token)
         run: |
           set -euo pipefail
-          mkdir -p .vercel
-          # Full project settings (framework / rootDirectory / node) — same
-          # payload `vercel pull` writes. IDs + settings are not secrets; the
-          # deploy token stays off this workflow.
-          node -e '
-            const fs = require("fs");
-            fs.writeFileSync(".vercel/project.json", JSON.stringify({
-              projectId: process.env.VERCEL_PROJECT_ID,
-              orgId: process.env.VERCEL_ORG_ID,
-              projectName: "subtensor",
-              settings: {
-                framework: "nextjs",
-                devCommand: null,
-                installCommand: null,
-                buildCommand: null,
-                outputDirectory: null,
-                rootDirectory: "website/apps/bittensor-website",
-                directoryListing: false,
-                nodeVersion: "24.x",
-              },
-            }, null, 2));
-          '
-          # Local assemble only — do not pass --token.
-          npx --yes vercel@56.4.1 build
-          test -f .vercel/output/functions/_global-error.func/.vc-config.json
-          test -d website/node_modules
+          python3 .github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            link-project \
+            --directory "${GITHUB_WORKSPACE}" \
+            --include-build-settings
+          .github/docs-preview-vercel/node_modules/.bin/vercel build
+          test -d .vercel/output
 
-      - name: Seal prebuilt output for trusted deploy
+      - name: Seal prebuilt output for trusted validation
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          # Include website/node_modules: Next NFT traces resolve there during
-          # `vercel deploy --prebuilt`. Dereference links so the trusted
-          # extractor never has to honor PR-controlled symlinks/hardlinks.
-          tar --create --gzip --file=docs-preview-sealed.tgz \
-            --hard-dereference --dereference \
-            .vercel/output website/node_modules
-          printf '%s\n' "${{ github.event.pull_request.number }}" > docs-preview-pr-number.txt
+          case "${PR_NUMBER}" in
+            ''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;;
+          esac
+          python3 .github/scripts/docs_preview_bundle.py \
+            seal \
+            "${GITHUB_WORKSPACE}" \
+            "${GITHUB_WORKSPACE}/docs-preview-sealed.tgz"
+          printf '%s\n' "${PR_NUMBER}" > docs-preview-pr-number.txt
           printf '%s\n' "deploy" > docs-preview-action.txt
 
       - name: Upload sealed prebuilt output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: docs-preview-${{ github.event.pull_request.number }}
           path: |
             docs-preview-sealed.tgz
             docs-preview-pr-number.txt
             docs-preview-action.txt
+          if-no-files-found: error
           retention-days: 1
 
   request-cleanup:
@@ -119,19 +118,27 @@ jobs:
     if: >
       github.event.action == 'closed' &&
       !github.event.pull_request.head.repo.fork &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, fireactions-turbo-8]
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''
+    runs-on: ubuntu-24.04
     steps:
-      - name: Upload cleanup marker
+      - name: Create cleanup marker
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          printf '%s\n' "${{ github.event.pull_request.number }}" > docs-preview-pr-number.txt
+          case "${PR_NUMBER}" in
+            ''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;;
+          esac
+          printf '%s\n' "${PR_NUMBER}" > docs-preview-pr-number.txt
           printf '%s\n' "cleanup" > docs-preview-action.txt
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload cleanup marker
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: docs-preview-${{ github.event.pull_request.number }}
           path: |
             docs-preview-pr-number.txt
             docs-preview-action.txt
+          if-no-files-found: error
           retention-days: 1

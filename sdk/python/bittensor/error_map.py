@@ -86,8 +86,8 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "NonAssociatedColdKey": _C.NOT_AUTHORIZED,
     "NotEnoughStake": _C.INSUFFICIENT_BALANCE,
     "NotEnoughStakeToWithdraw": _C.INSUFFICIENT_BALANCE,
-    # Hotkey stake below WeightsMinStake, not a TAO balance problem: stake more
-    # to the hotkey or have stake delegated to it (no insufficient_stake code exists).
+    # Hotkey stake-weight floor for set/commit weights (not free-TAO balance).
+    # Kept under insufficient_balance; remediation is overridden by name.
     "NotEnoughStakeToSetWeights": _C.INSUFFICIENT_BALANCE,
     "NotEnoughStakeToSetChildkeys": _C.INSUFFICIENT_BALANCE,
     "NotEnoughBalanceToStake": _C.INSUFFICIENT_BALANCE,
@@ -166,7 +166,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "RevealTooEarly": _C.TOO_EARLY,
     "InputLengthsUnequal": _C.INVALID_ARGUMENT,
     "CommittingWeightsTooFast": _C.RATE_LIMITED,
-    "AmountTooLow": _C.INVALID_ARGUMENT,
+    "AmountTooLow": _C.LIMIT_EXCEEDED,
     "InsufficientLiquidity": _C.INSUFFICIENT_LIQUIDITY,  # also Swap
     "SlippageTooHigh": _C.INSUFFICIENT_LIQUIDITY,
     "TransferDisallowed": _C.DISABLED,
@@ -226,11 +226,14 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AddStakeBurnRateLimitExceeded": _C.RATE_LIMITED,
     "ColdkeyCollateralIncomplete": _C.INTERNAL,
     "ColdkeyCollateralPositionsFull": _C.LIMIT_EXCEEDED,
-    "ColdkeySwapAnnounced": _C.ALREADY_EXISTS,
+    # Pending announcement blocks nearly all signed calls until the swap is
+    # executed or the announcement is cleared (guards/check_coldkey_swap.rs).
+    # Bucketed as disabled (feature/path blocked), not already_exists.
+    "ColdkeySwapAnnounced": _C.DISABLED,
     # The account is frozen because its pending coldkey swap is disputed; all
     # signed calls are blocked until root resolves it via reset_coldkey_swap
     # (guards/check_coldkey_swap.rs). Waiting does not help, so not too_early.
-    "ColdkeySwapDisputed": _C.NOT_AUTHORIZED,
+    "ColdkeySwapDisputed": _C.DISABLED,
     "ColdkeySwapClearTooEarly": _C.TOO_EARLY,
     "DisabledTemporarily": _C.DISABLED,
     "RegistrationPriceLimitExceeded": _C.LIMIT_EXCEEDED,
@@ -245,7 +248,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "EpochTriggerAlreadyPending": _C.ALREADY_EXISTS,
     "AutoEpochAlreadyImminent": _C.ALREADY_EXISTS,
     "DynamicTempoBlockedByCommitReveal": _C.DISABLED,
-    "AccountRejectsLockedAlpha": _C.INVALID_ARGUMENT,
+    "AccountRejectsLockedAlpha": _C.POLICY_VIOLATION,
     # ── Utility ─────────────────────────────────────────────────────────
     "TooManyCalls": _C.LIMIT_EXCEEDED,
     "InvalidDerivedAccount": _C.INVALID_ARGUMENT,
@@ -292,7 +295,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     # ── Commitments ─────────────────────────────────────────────────────
     "TooManyFieldsInCommitmentInfo": _C.LIMIT_EXCEEDED,
     "AccountNotAllowedCommit": _C.NOT_AUTHORIZED,
-    "SpaceLimitExceeded": _C.RATE_LIMITED,
+    "SpaceLimitExceeded": _C.LIMIT_EXCEEDED,
     "UnexpectedUnreserveLeftover": _C.INTERNAL,
     # ── AdminUtils ──────────────────────────────────────────────────────
     "SubnetDoesNotExist": _C.SUBNET_NOT_EXISTS,
@@ -442,6 +445,71 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ZeroShareInBatch": _C.INVALID_ARGUMENT,
 }
 
+# ── Pool-rejection custom codes ──────────────────────────────────────────
+# ``InvalidTransaction::Custom(u8)`` codes from
+# ``common/src/transaction_error.rs``. Pool rejections arrive as
+# ``"Custom error: N"`` with no module name; map each code to the catalog
+# name that ``From<Error> for CustomTransactionError`` produces when the
+# mapping is 1:1, or to a ``DISPATCH_ERRORS`` name when the custom code is
+# an umbrella / unused-but-reserved variant.
+#
+# Note: Frontier's ethereum pallet uses a *separate* overlapping Custom(u8)
+# space for eth_* extrinsics; this table is for Subtensor/substrate calls.
+CUSTOM_TRANSACTION_ERRORS: dict[int, str] = {
+    0: "ColdkeySwapAnnounced",  # ColdkeyInSwapSchedule
+    1: "StakeAmountTooLow",  # AmountTooLow | NotEnoughStakeToSetWeights
+    2: "NotEnoughBalanceToStake",  # BalanceTooLow
+    3: "SubnetNotExists",
+    4: "HotKeyAccountNotExists",
+    5: "NotEnoughStakeToWithdraw",
+    6: "RateLimitExceeded",  # Committing/SettingWeightsTooFast | NetworkTx…
+    7: "InsufficientLiquidity",
+    8: "SlippageTooHigh",
+    9: "TransferDisallowed",
+    10: "HotKeyNotRegisteredInNetwork",
+    11: "InvalidIpAddress",
+    12: "ServingRateLimitExceeded",
+    13: "InvalidPort",
+    14: "ZeroMaxAmount",
+    15: "InvalidRevealRound",
+    16: "NoWeightsCommitFound",  # CommitNotFound
+    17: "RevealTooEarly",  # CommitBlockNotInRevealRange
+    18: "InputLengthsUnequal",
+    19: "HotKeyNotRegisteredInSubNet",  # UidNotFound
+    20: "EvmKeyAssociateRateLimitExceeded",
+    21: "ColdkeySwapDisputed",
+    22: "InvalidRealAccount",
+    23: "FailedShieldedTxParsing",
+    24: "InvalidShieldedTxPubKeyHash",
+    25: "NonAssociatedColdKey",
+    26: "DelegateTakeTooLow",
+    27: "DelegateTakeTooHigh",
+    255: "BadRequest",
+}
+
+# Standard ``InvalidTransaction`` / ``UnknownTransaction`` variants (non-Custom).
+# Needle → name; needles are matched case-insensitively against the node's
+# Display/RPC text (see ``sp_runtime::transaction_validity``) when there is
+# no ``Custom error: N``.
+INVALID_TRANSACTION_ERRORS: tuple[tuple[str, str], ...] = (
+    ("inability to pay some fees", "Payment"),
+    ("will be valid in the future", "Future"),
+    ("transaction is outdated", "Stale"),
+    ("has a bad signature", "BadProof"),
+    ("call is not expected", "Call"),
+    ("ancient birth block", "AncientBirthBlock"),
+    ("block limit", "ExhaustsResources"),
+    ("labelled as mandatory", "BadMandatory"),
+    ("dispatch is mandatory", "MandatoryValidation"),
+    ("invalid signing address", "BadSigner"),
+    ("implicit data was unable to be calculated", "IndeterminateImplicit"),
+    ("did not authorize any origin", "UnknownOrigin"),
+    ("lookup information required to validate", "CannotLookup"),
+    ("unsigned validator", "NoUnsignedValidator"),
+    ("priority is too low", "PriorityTooLow"),
+    ("already imported", "AlreadyImported"),
+)
+
 # ── Dispatch-level errors ────────────────────────────────────────────────
 # ``DispatchError`` variants other than ``Module``: ``BadOrigin``,
 # ``CannotLookup``, and the ``sp_runtime::TokenError`` variants. These are
@@ -451,6 +519,9 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
 # gate pins that table to the catalog). Keyed by the bare variant name the
 # receipt decoder yields; each entry carries the semantic code and a short
 # description (there is no on-chain docstring to fall back on).
+#
+# Also covers custom-transaction names that have no module-error counterpart
+# (shield/proxy validity checks and the BadRequest catch-all).
 DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
     "BadOrigin": (
         _C.NOT_AUTHORIZED,
@@ -459,7 +530,8 @@ DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
     ),
     "CannotLookup": (
         _C.NOT_FOUND,
-        "An account referenced by the call could not be looked up.",
+        "Required information could not be looked up: an account referenced by "
+        "the call, or data needed to validate the transaction in the pool.",
     ),
     # TokenError variants.
     "FundsUnavailable": (
@@ -486,7 +558,7 @@ DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
         "The asset in question is unknown.",
     ),
     "Frozen": (
-        _C.INSUFFICIENT_BALANCE,
+        _C.DISABLED,
         "The funds exist but are frozen and cannot be spent.",
     ),
     "Unsupported": (
@@ -504,5 +576,188 @@ DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
     "Blocked": (
         _C.NOT_AUTHORIZED,
         "The account cannot receive the funds (it is blocked).",
+    ),
+    "StakeAmountTooLow": (
+        _C.LIMIT_EXCEEDED,
+        "The stake amount is below the chain minimum, or the hotkey's stake weight is "
+        "below the floor required to set/commit weights. Check `btcli stake list`.",
+    ),
+    "RateLimitExceeded": (
+        _C.RATE_LIMITED,
+        "A per-key rate limit blocked this extrinsic before inclusion (weights commit/set "
+        "or network registration). Wait for the rate-limit window, then retry.",
+    ),
+    "ZeroMaxAmount": (
+        _C.INVALID_ARGUMENT,
+        "The computed max stake/unstake amount for this price limit is zero, so the "
+        "extrinsic cannot move any value. Relax the limit or wait for a better price.",
+    ),
+    "InvalidRealAccount": (
+        _C.INVALID_ARGUMENT,
+        "The real account on a proxy/as-multi call is invalid for this extrinsic.",
+    ),
+    "FailedShieldedTxParsing": (
+        _C.INVALID_ARGUMENT,
+        "The shielded (MEV-protected) extrinsic payload could not be parsed.",
+    ),
+    "InvalidShieldedTxPubKeyHash": (
+        _C.INVALID_ARGUMENT,
+        "The shielded extrinsic's public-key hash does not match the expected key.",
+    ),
+    "BadRequest": (
+        _C.INVALID_ARGUMENT,
+        "The node rejected the extrinsic as a bad request (unclassified validity failure).",
+    ),
+    # Standard InvalidTransaction / UnknownTransaction variants.
+    "Payment": (
+        _C.INSUFFICIENT_BALANCE,
+        "The signing account cannot cover the transaction fee (and tip). Fund the "
+        "account or lower the tip; check with `btcli wallet balance`.",
+    ),
+    "Future": (
+        _C.TOO_EARLY,
+        "The extrinsic nonce is ahead of the account's on-chain nonce, so the node "
+        "will only accept it later. Wait for intervening extrinsics to land, or "
+        "resubmit with the current nonce.",
+    ),
+    "Stale": (
+        _C.EXPIRED,
+        "The extrinsic nonce is below the account's on-chain nonce (already used or "
+        "superseded). Rebuild and resign with a fresh nonce.",
+    ),
+    "BadProof": (
+        _C.INVALID_ARGUMENT,
+        "The signature does not match the extrinsic payload. Resign the call; with "
+        "`--signer extension`, retry — if it keeps failing, use a local wallet.",
+    ),
+    "Call": (
+        _C.INVALID_ARGUMENT,
+        "This call is not expected by the runtime's transaction validation (filtered "
+        "or unsupported at the pool).",
+    ),
+    "AncientBirthBlock": (
+        _C.EXPIRED,
+        "The extrinsic's era birth block is too old for the node's BlockHashCount "
+        "window. Rebuild and resign against a recent block.",
+    ),
+    "ExhaustsResources": (
+        _C.LIMIT_EXCEEDED,
+        "Including this extrinsic would exceed the current block's weight/length "
+        "limits. Retry in a later block, or reduce the call's size/weight.",
+    ),
+    "BadMandatory": (
+        _C.INTERNAL,
+        "A mandatory inherent call failed during block production. This is a "
+        "validator/runtime fault, not a user-extrinsic issue.",
+    ),
+    "MandatoryValidation": (
+        _C.INVALID_ARGUMENT,
+        "A mandatory dispatch was submitted for pool validation; only inherent "
+        "extrinsics may be mandatory.",
+    ),
+    "BadSigner": (
+        _C.NOT_AUTHORIZED,
+        "The signing address is disabled or known to be invalid.",
+    ),
+    "IndeterminateImplicit": (
+        _C.INVALID_ARGUMENT,
+        "The transaction extension could not compute its implicit signed data. "
+        "Rebuild and resign the extrinsic.",
+    ),
+    "UnknownOrigin": (
+        _C.NOT_AUTHORIZED,
+        "No transaction extension authorized an origin for this extrinsic.",
+    ),
+    "NoUnsignedValidator": (
+        _C.NOT_AUTHORIZED,
+        "No unsigned-transaction validator accepted this extrinsic.",
+    ),
+    "PriorityTooLow": (
+        _C.RATE_LIMITED,
+        "The extrinsic's priority is too low to replace an existing pool entry with "
+        "the same nonce. Raise the tip or wait for the pending extrinsic to land.",
+    ),
+    "AlreadyImported": (
+        _C.ALREADY_EXISTS,
+        "The extrinsic is already in the pool or on chain. Treat the submission as "
+        "done, or rebuild with a new nonce if you meant a distinct call.",
+    ),
+    # Watch-status fatals from author_submitAndWatchExtrinsic.
+    "Dropped": (
+        _C.UNKNOWN,
+        "The extrinsic was dropped from the transaction pool before inclusion.",
+    ),
+    "Usurped": (
+        _C.ALREADY_EXISTS,
+        "Another extrinsic with the same nonce replaced this one in the pool.",
+    ),
+    "Invalid": (
+        _C.INVALID_ARGUMENT,
+        "The pool marked the extrinsic invalid after submission.",
+    ),
+    "Retracted": (
+        _C.UNKNOWN,
+        "The extrinsic was retracted from the pool/chain watch.",
+    ),
+    "FinalityTimeout": (
+        _C.UNKNOWN,
+        "Watching the extrinsic timed out before finality was observed.",
+    ),
+    # MevShield inclusion-event failures (not module errors).
+    "ExtrinsicDecodeFailed": (
+        _C.INVALID_ARGUMENT,
+        "The shielded extrinsic could not be decoded when the block author tried "
+        "to include it. Resubmit with a fresh MEV-protected encrypt.",
+    ),
+    "ExtrinsicExpired": (
+        _C.EXPIRED,
+        "The shielded extrinsic sat in the MevShield queue past its lifetime and "
+        "expired. Resubmit with MEV protection.",
+    ),
+    "DecryptionFailed": (
+        _C.INVALID_ARGUMENT,
+        "The block author failed to decrypt the shielded extrinsic. Resubmit with "
+        "a fresh MEV-protected submission.",
+    ),
+    # Other DispatchError wrappers beyond Token/BadOrigin.
+    "Overflow": (
+        _C.INTERNAL,
+        "An arithmetic overflow occurred while dispatching the call.",
+    ),
+    "Underflow": (
+        _C.INTERNAL,
+        "An arithmetic underflow occurred while dispatching the call.",
+    ),
+    "DivisionByZero": (
+        _C.INTERNAL,
+        "A division by zero occurred while dispatching the call.",
+    ),
+    "Arithmetic": (
+        _C.INTERNAL,
+        "An arithmetic error occurred while dispatching the call.",
+    ),
+    "Transactional": (
+        _C.INTERNAL,
+        "A transactional-layer error occurred while dispatching the call.",
+    ),
+    "Exhausted": (
+        _C.LIMIT_EXCEEDED,
+        "A runtime resource was exhausted while dispatching the call.",
+    ),
+    "Corruption": (
+        _C.INTERNAL,
+        "The runtime reported state corruption while dispatching the call.",
+    ),
+    "Unavailable": (
+        _C.INTERNAL,
+        "A required runtime resource was unavailable while dispatching the call.",
+    ),
+    "RootNotAllowed": (
+        _C.NOT_AUTHORIZED,
+        "This call cannot be dispatched with a root origin.",
+    ),
+    "Other": (
+        _C.UNKNOWN,
+        "An unspecified dispatch error occurred.",
     ),
 }

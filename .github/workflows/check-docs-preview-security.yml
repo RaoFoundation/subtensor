@@ -1,0 +1,64 @@
+name: Check Docs Preview Security
+
+on:
+  pull_request:
+    paths:
+      - ".github/docs-preview-vercel/**"
+      - ".github/scripts/docs_preview_*.py"
+      - ".github/scripts/test_docs_preview_*.py"
+      - ".github/workflows/check-docs-preview-security.yml"
+      - ".github/workflows/deploy-docs-preview.yml"
+      - ".github/workflows/request-docs-preview.yml"
+  push:
+    branches:
+      - main
+      - "release-v*"
+    paths:
+      - ".github/docs-preview-vercel/**"
+      - ".github/scripts/docs_preview_*.py"
+      - ".github/scripts/test_docs_preview_*.py"
+      - ".github/workflows/check-docs-preview-security.yml"
+      - ".github/workflows/deploy-docs-preview.yml"
+      - ".github/workflows/request-docs-preview.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  security-policy:
+    name: Docs preview trust-boundary tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out policy under test
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Parse workflow YAML
+        run: |
+          ruby -e '
+            require "yaml"
+            ARGV.each { |path| Psych.parse_file(path) }
+          ' \
+            .github/workflows/check-docs-preview-security.yml \
+            .github/workflows/deploy-docs-preview.yml \
+            .github/workflows/request-docs-preview.yml
+
+      - name: Run artifact and policy tests
+        run: |
+          python3 -m unittest discover \
+            --start-directory .github/scripts \
+            --pattern 'test_docs_preview_*.py'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: .github/docs-preview-vercel/package-lock.json
+
+      - name: Verify locked CLI graph
+        run: |
+          npm ci --ignore-scripts --prefix .github/docs-preview-vercel
+          npm audit --audit-level=high --omit=dev --prefix .github/docs-preview-vercel
+          .github/docs-preview-vercel/node_modules/.bin/vercel --version

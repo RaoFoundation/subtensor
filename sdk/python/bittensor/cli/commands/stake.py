@@ -40,6 +40,8 @@ for _alias, _op in (
     ("move", "move_stake"),
     ("transfer", "transfer_stake"),
     ("swap", "swap_stake"),
+    ("unstake-all", "unstake_all"),
+    ("unstake-all-alpha", "unstake_all_alpha"),
 ):
     app.command(_alias, rich_help_panel=PANEL_MOVE)(intent_command(_op))
 

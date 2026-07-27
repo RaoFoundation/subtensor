@@ -336,45 +336,111 @@ def check_coverage() -> int:
     return 0
 
 
+# u8 codes from common/src/transaction_error.rs (CustomTransactionError).
+# Keep in lockstep when Rust adds/removes variants.
+_RUST_CUSTOM_TRANSACTION_CODES = frozenset(range(28)) | {255}
+
+
 def check_names() -> int:
     from bittensor._generated.errors import ERRORS
     from bittensor.error_descriptions import DESCRIPTIONS
-    from bittensor.error_map import NAME_TO_CODE, ErrorCode
-    from bittensor.result import classify_error
+    from bittensor.error_map import (
+        CUSTOM_TRANSACTION_ERRORS,
+        DISPATCH_ERRORS,
+        INVALID_TRANSACTION_ERRORS,
+        NAME_TO_CODE,
+        ErrorCode,
+    )
+    from bittensor.result import EXPLANATIONS, REMEDIATION, classify_error
 
     catalog = {info.name for info in ERRORS.values()}
     stale = sorted(name for name in NAME_TO_CODE if name not in catalog)
     unclassified = sorted(name for name in catalog if classify_error("", name) is ErrorCode.UNKNOWN)
     undescribed = sorted(name for name in NAME_TO_CODE if name not in DESCRIPTIONS)
     orphan_descriptions = sorted(name for name in DESCRIPTIONS if name not in NAME_TO_CODE)
+    empty = sorted(name for name, text in DESCRIPTIONS.items() if not text.strip())
+
+    custom_codes = set(CUSTOM_TRANSACTION_ERRORS)
+    missing_custom = sorted(_RUST_CUSTOM_TRANSACTION_CODES - custom_codes)
+    extra_custom = sorted(custom_codes - _RUST_CUSTOM_TRANSACTION_CODES)
+    custom_unclassified = sorted(
+        name
+        for name in CUSTOM_TRANSACTION_ERRORS.values()
+        if name not in NAME_TO_CODE and name not in DISPATCH_ERRORS
+    )
+    invalid_unclassified = sorted(
+        name
+        for _, name in INVALID_TRANSACTION_ERRORS
+        if name not in NAME_TO_CODE and name not in DISPATCH_ERRORS
+    )
+    empty_dispatch = sorted(
+        name for name, (_code, prose) in DISPATCH_ERRORS.items() if not (prose or "").strip()
+    )
+    missing_explanations = sorted(code for code in ErrorCode if code not in EXPLANATIONS)
+    missing_remediation = sorted(code for code in ErrorCode if code not in REMEDIATION)
+
+    failed = False
     if stale:
         print(f"STALE: error names classified by the SDK but absent from chain: {stale}")
+        failed = True
     if unclassified:
         print(
             "UNCLASSIFIED: chain error names with no semantic code "
             f"(add them to bittensor/error_map.py): {unclassified}"
         )
+        failed = True
     if undescribed:
         print(
             "UNDESCRIBED: classified error names with no description "
             f"(add them under bittensor/error_descriptions/<pallet>.py): {undescribed}"
         )
+        failed = True
     if orphan_descriptions:
         print(
             "ORPHANED: described error names no longer classified "
             f"(remove them from bittensor/error_descriptions/<pallet>.py): {orphan_descriptions}"
         )
-    empty = sorted(name for name, text in DESCRIPTIONS.items() if not text.strip())
+        failed = True
     if empty:
         print(
             "EMPTY: described error names with blank prose "
             f"(fill them in bittensor/error_descriptions/<pallet>.py): {empty}"
         )
-    if stale or unclassified or undescribed or orphan_descriptions or empty:
+        failed = True
+    if missing_custom or extra_custom:
+        print(
+            "CUSTOM_CODES: SDK CUSTOM_TRANSACTION_ERRORS drifted from "
+            f"common/src/transaction_error.rs — missing={missing_custom} extra={extra_custom}"
+        )
+        failed = True
+    if custom_unclassified:
+        print(
+            "CUSTOM_UNCLASSIFIED: custom-transaction names not in NAME_TO_CODE or "
+            f"DISPATCH_ERRORS: {custom_unclassified}"
+        )
+        failed = True
+    if invalid_unclassified:
+        print(
+            "INVALID_UNCLASSIFIED: InvalidTransaction names not in NAME_TO_CODE or "
+            f"DISPATCH_ERRORS: {invalid_unclassified}"
+        )
+        failed = True
+    if empty_dispatch:
+        print(f"EMPTY_DISPATCH: DISPATCH_ERRORS entries with blank prose: {empty_dispatch}")
+        failed = True
+    if missing_explanations:
+        print(f"MISSING_EXPLANATIONS: ErrorCodes without EXPLANATIONS: {missing_explanations}")
+        failed = True
+    if missing_remediation:
+        print(f"MISSING_REMEDIATION: ErrorCodes without REMEDIATION: {missing_remediation}")
+        failed = True
+    if failed:
         return 1
     print(
         f"names ok: all {len(catalog)} chain error names classify to a semantic code, "
-        "every classified name is described (non-empty), and no mapped name is stale"
+        "every classified name is described (non-empty), no mapped name is stale, "
+        f"{len(CUSTOM_TRANSACTION_ERRORS)} custom codes sync with Rust, "
+        f"{len(DISPATCH_ERRORS)} dispatch errors and all ErrorCodes have prose/remediation"
     )
     return 0
 

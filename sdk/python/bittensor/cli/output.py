@@ -27,7 +27,7 @@ from .. import config as cfg
 from ..balance import Balance
 from ..error_map import DISPATCH_ERRORS, NAME_TO_CODE
 from ..intents import Plan
-from ..result import ErrorCode, ExtrinsicResult
+from ..result import ChainError, ErrorCode, ExtrinsicResult
 from ..settings import (
     error_docs_url,
     explorer_account_url,
@@ -1629,26 +1629,31 @@ class Output:
         self._print_fields(fields)
         return True
 
-    def _print_failure(self, result: ExtrinsicResult) -> None:
-        """Rustc diagnostic anatomy: ``error[code]:`` states what went wrong,
-        ``note:`` adds the exact chain error, ``help:`` carries the fix, and the
-        long-form explanation stays behind `btcli explain <code>`."""
-        error = result.error
-        message = error.message if error else result.message
+    def chain_error(
+        self,
+        error: ChainError,
+        *,
+        explorer_url: Optional[str] = None,
+    ) -> None:
+        """Render a :class:`ChainError` with the same rustc diagnostic anatomy
+        used for failed ``ExtrinsicResult``s (code bracket, name, description,
+        help, docs, explain tip)."""
+        message = error.message
+        if self.json_mode:
+            payload = error.to_dict()
+            if explorer_url:
+                payload["explorer_url"] = explorer_url
+            self._err.print_json(_json.dumps(payload))
+            return
         header = Text()
         header.append("error", style=STYLE_ERROR)
-        if error is not None:
-            header.append(f"[{error.code.value}]", style=STYLE_ERROR)
+        header.append(f"[{error.code.value}]", style=STYLE_ERROR)
         header.append(":", style=STYLE_ERROR)
         header.append(" ")
         body = _prose(_diagnostic(self.with_subnets(self.with_names(message))))
         body.style = STYLE_MESSAGE
         header.append_text(body)
         self._err.print(header)
-        if error is None:
-            if result.explorer_url:
-                self._sub_diag("see", result.explorer_url)
-            return
         if error.name:
             self._sub_diag("note", f"the chain rejected the call with `{error.name}`")
         if error.description and error.description != message:
@@ -1656,11 +1661,8 @@ class Output:
         self._sub_diag("help", error.remediation)
         if error.docs_url:
             self._sub_diag("see", error.docs_url)
-        if result.explorer_url:
-            self._sub_diag("see", result.explorer_url)
-        # The exact chain name gives the most specific explanation; the semantic
-        # code is the fallback when the failure never carried a name `btcli
-        # explain` can resolve (a pool rejection, an unclassified name).
+        if explorer_url:
+            self._sub_diag("see", explorer_url)
         if error.name and (error.name in NAME_TO_CODE or error.name in DISPATCH_ERRORS):
             explain_target = error.name
         elif error.code is not ErrorCode.UNKNOWN:
@@ -1673,6 +1675,26 @@ class Output:
             )
             tail.style = STYLE_HINT
             self._err.print(tail)
+
+    def _print_failure(self, result: ExtrinsicResult) -> None:
+        """Rustc diagnostic anatomy: ``error[code]:`` states what went wrong,
+        ``note:`` adds the exact chain error, ``help:`` carries the fix, and the
+        long-form explanation stays behind `btcli explain <code>`."""
+        error = result.error
+        if error is not None:
+            self.chain_error(error, explorer_url=result.explorer_url)
+            return
+        message = result.message
+        header = Text()
+        header.append("error", style=STYLE_ERROR)
+        header.append(":", style=STYLE_ERROR)
+        header.append(" ")
+        body = _prose(_diagnostic(self.with_subnets(self.with_names(message))))
+        body.style = STYLE_MESSAGE
+        header.append_text(body)
+        self._err.print(header)
+        if result.explorer_url:
+            self._sub_diag("see", result.explorer_url)
 
     def explain(self, code: str, explanation: str, help_text: str) -> None:
         """Long-form explanation of one error code (`rustc --explain` convention)."""

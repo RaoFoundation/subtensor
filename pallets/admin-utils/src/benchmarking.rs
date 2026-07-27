@@ -849,6 +849,18 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_emission_bar_quantile() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, U64F64::from_num(0.61));
+    }
+
+    #[benchmark]
+    fn sudo_set_emission_gate_exponent() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, U64F64::from_num(3));
+    }
+
+    #[benchmark]
     fn sudo_set_tao_flow_smoothing_factor() {
         #[extrinsic_call]
         _(RawOrigin::Root, u64::MAX);
