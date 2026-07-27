@@ -266,6 +266,37 @@ fn emission_gate_concentrates_1_to_2_price_split() {
     });
 }
 
+/// Stale theta ≫ equal shares with max h can underflow every gated product to
+/// zero; the gate must restore the ungated distribution instead of stranding
+/// the block's emission.
+#[test]
+fn emission_gate_underflow_restores_ungated_shares() {
+    new_test_ext(1).execute_with(|| {
+        // theta = 1, 256 equal shares (1/256), h = 8 → ratio = 256; safe_pow
+        // saturates near 2^64, gate rounds to the smallest U64F64, and
+        // share * gate underflows every entry to zero.
+        EmissionGateBar::<Test>::put(u64f64(1.0));
+        EmissionGateExponent::<Test>::set(u64f64(8.0));
+
+        let equal = u64f64(1.0 / 256.0);
+        let mut shares: BTreeMap<NetUid, U64F64> = (1u16..=256)
+            .map(|i| (NetUid::from(i), equal))
+            .collect();
+
+        SubtensorModule::apply_emission_gate(&mut shares);
+
+        let sum: f64 = shares.values().map(|v| v.to_num::<f64>()).sum();
+        assert!(
+            sum > 0.0,
+            "gated underflow must not strand emission (sum was {sum})"
+        );
+        assert_abs_diff_eq!(sum, 1.0_f64, epsilon = 1e-9);
+        for v in shares.values() {
+            assert_abs_diff_eq!(v.to_num::<f64>(), 1.0 / 256.0, epsilon = 1e-9);
+        }
+    });
+}
+
 /// Bar is sticky mid-interval and recomputes on the cadence boundary when the
 /// demand distribution has changed.
 #[test]

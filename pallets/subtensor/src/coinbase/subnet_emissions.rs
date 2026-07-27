@@ -444,7 +444,11 @@ impl<T: Config> Pallet<T> {
     /// of s^h itself, which underflows I32F32 precision for deep-tail shares.
     /// The gate passes exactly 1/2 at the bar, ~1 well above it, and ~0 well
     /// below it. A zero bar (never computed) disables the gate.
-    fn apply_emission_gate(shares: &mut BTreeMap<NetUid, U64F64>) {
+    ///
+    /// When every gated share underflows to zero (e.g. a stale `theta` far above
+    /// all shares with a steep `h`), the ungated shares are restored so the
+    /// block's emission cannot be stranded.
+    pub(crate) fn apply_emission_gate(shares: &mut BTreeMap<NetUid, U64F64>) {
         let zero = U64F64::saturating_from_num(0);
         let one = U64F64::saturating_from_num(1);
 
@@ -453,6 +457,8 @@ impl<T: Config> Pallet<T> {
             return;
         }
         let h = EmissionGateExponent::<T>::get();
+
+        let ungated = shares.clone();
 
         for share in shares.values_mut() {
             if *share <= zero {
@@ -474,6 +480,12 @@ impl<T: Config> Pallet<T> {
             for share in shares.values_mut() {
                 *share = share.safe_div(total);
             }
+        } else {
+            // Fixed-point underflow can zero every gated product (stale
+            // theta ≫ share with large h). Restore the pre-gate distribution
+            // rather than emit zero everywhere.
+            *shares = ungated;
+            log::warn!("Emission gate underflowed to zero total; restoring ungated shares");
         }
     }
 
