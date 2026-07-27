@@ -8,6 +8,10 @@ use std::collections::BTreeSet;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
 #[test]
+#[allow(
+    clippy::expect_used,
+    reason = "test asserts the runtime configures a normal extrinsic limit"
+)]
 fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
     let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root {
         subnets: BTreeSet::from([NetUid::from(1)]),
@@ -34,12 +38,10 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
 
     let mut dispatch_info = call.get_dispatch_info();
     dispatch_info.extension_weight = extensions.weight(&call);
-    let Some(max_extrinsic) = BlockWeights::get()
+    let max_extrinsic = BlockWeights::get()
         .get(DispatchClass::Normal)
         .max_extrinsic
-    else {
-        panic!("normal extrinsics have a configured maximum");
-    };
+        .expect("normal extrinsics have a configured maximum");
 
     assert!(
         dispatch_info.total_weight().all_lte(max_extrinsic),
