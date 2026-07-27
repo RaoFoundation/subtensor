@@ -279,9 +279,8 @@ fn emission_gate_underflow_restores_ungated_shares() {
         EmissionGateExponent::<Test>::set(u64f64(8.0));
 
         let equal = u64f64(1.0 / 256.0);
-        let mut shares: BTreeMap<NetUid, U64F64> = (1u16..=256)
-            .map(|i| (NetUid::from(i), equal))
-            .collect();
+        let mut shares: BTreeMap<NetUid, U64F64> =
+            (1u16..=256).map(|i| (NetUid::from(i), equal)).collect();
 
         SubtensorModule::apply_emission_gate(&mut shares);
 
