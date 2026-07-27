@@ -14,7 +14,7 @@ Use `set_take` to land on an absolute value without tracking direction.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.decrease_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L490-L498) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.decrease_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L491-L499) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("decrease_take", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.decrease_take` — [`pallets/subtensor/src/macros/dispatches.rs#L492`](/code/pallets/subtensor/src/macros/dispatches.rs#L490-L498):
+`SubtensorModule.decrease_take` — [`pallets/subtensor/src/macros/dispatches.rs#L493`](/code/pallets/subtensor/src/macros/dispatches.rs#L491-L499):
 
 ```rust
 #[pallet::call_index(65)]

@@ -318,42 +318,10 @@ jobs:
       - name: Decide whether to publish rc versions
         id: versions
         run: |
-          base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/python/pyproject.toml | head -n 1)
-          : ${base:?could not parse base version from sdk/python/pyproject.toml}
-          core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
-          : ${core_base:?could not parse base version from sdk/bittensor-core-py/pyproject.toml}
-
-          published=0
-          missing=0
-          for package_version in "bittensor:${base}" "bittensor-core:${core_base}"; do
-            package=${package_version%%:*}
-            version=${package_version#*:}
-            status=$(curl -sS --connect-timeout 10 --max-time 30 \
-              -o /dev/null -w '%{http_code}' \
-              "https://pypi.org/pypi/${package}/${version}/json")
-            case "$status" in
-              200) published=$((published + 1)) ;;
-              404) missing=$((missing + 1)) ;;
-              *)
-                echo "PyPI availability check for ${package} ${version} returned HTTP ${status}."
-                exit 1
-                ;;
-            esac
-          done
-
-          if [ "$missing" -eq 2 ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-            echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          elif [ "$published" -eq 2 ]; then
-            echo "Stable bittensor ${base} and bittensor-core ${core_base} are already published; skipping SDK rc publication."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Python base versions are inconsistent: one is published and the other is available."
-            echo "Bump the published package base before publishing another rc."
-            exit 1
-          fi
-
+          python3 .github/scripts/python_rc_plan.py \
+            sdk/python/pyproject.toml \
+            sdk/bittensor-core-py/pyproject.toml \
+            --run-number "$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
 
   build-core-rc:
     name: Build bittensor-core rc wheels

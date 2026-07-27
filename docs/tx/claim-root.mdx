@@ -17,7 +17,7 @@ deadline — but each call pays out only the subnets listed.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1890-L1908) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1892-L1924) |
 
 ## Parameters
 
@@ -66,11 +66,17 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1892`](/code/pallets/subtensor/src/macros/dispatches.rs#L1890-L1908):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1900`](/code/pallets/subtensor/src/macros/dispatches.rs#L1892-L1924):
 
 ```rust
 #[pallet::call_index(121)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::claim_root())]
+// The benchmark covers one hotkey and one subnet. Manual claims bound both
+// dimensions below and refund unused weight after execution.
+#[pallet::weight(
+    <T as crate::pallet::Config>::WeightInfo::claim_root()
+        .saturating_mul(MAX_ROOT_CLAIM_HOTKEYS as u64)
+        .saturating_mul(MAX_SUBNET_CLAIMS as u64)
+)]
 pub fn claim_root(
     origin: OriginFor<T>,
     subnets: BTreeSet<NetUid>,
@@ -83,9 +89,17 @@ pub fn claim_root(
         Error::<T>::InvalidSubnetNumber
     );
 
+    let hotkey_count = StakingHotkeys::<T>::decode_len(&coldkey).unwrap_or_default();
+    ensure!(
+        hotkey_count <= MAX_ROOT_CLAIM_HOTKEYS,
+        Error::<T>::TooManyRootClaimHotkeys
+    );
+
     Self::maybe_add_coldkey_index(&coldkey);
 
-    let weight = Self::do_root_claim(coldkey, Some(subnets))?;
+    let weight = T::DbWeight::get()
+        .reads(1)
+        .saturating_add(Self::do_root_claim(coldkey, Some(subnets))?);
     Ok((Some(weight), Pays::Yes).into())
 }
 ```

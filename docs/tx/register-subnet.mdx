@@ -27,7 +27,7 @@ current cost before sending.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1003-L1007) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1004-L1008) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("register_subnet", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.register_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1005`](/code/pallets/subtensor/src/macros/dispatches.rs#L1003-L1007):
+`SubtensorModule.register_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1006`](/code/pallets/subtensor/src/macros/dispatches.rs#L1004-L1008):
 
 ```rust
 #[pallet::call_index(59)]
