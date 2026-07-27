@@ -1,6 +1,7 @@
 use super::mock::*;
+use crate::weights::WeightInfo;
 use crate::*;
-use frame_support::{assert_noop, assert_ok};
+use frame_support::{assert_noop, assert_ok, dispatch::GetDispatchInfo};
 use sp_core::U256;
 use subtensor_runtime_common::NetUid;
 
@@ -169,5 +170,46 @@ fn test_set_coldkey_auto_stake_hotkey_change_hotkey() {
             AutoStakeDestinationColdkeys::<Test>::get(new_hotkey, netuid),
             vec![coldkey]
         );
+    });
+}
+
+#[test]
+fn auto_stake_refund_uses_real_reverse_index_lengths() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1);
+        let owner_hotkey = U256::from(2);
+        let coldkey = U256::from(10);
+        let old_hotkey = U256::from(11);
+        let new_hotkey = U256::from(12);
+        let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        Uids::<Test>::insert(netuid, new_hotkey, 0);
+        AutoStakeDestination::<Test>::insert(coldkey, netuid, old_hotkey);
+        AutoStakeDestinationColdkeys::<Test>::insert(
+            old_hotkey,
+            netuid,
+            vec![U256::from(20), U256::from(21), coldkey],
+        );
+        AutoStakeDestinationColdkeys::<Test>::insert(
+            new_hotkey,
+            netuid,
+            vec![U256::from(30), U256::from(31)],
+        );
+
+        let call = RuntimeCall::SubtensorModule(crate::Call::set_coldkey_auto_stake_hotkey {
+            netuid,
+            hotkey: new_hotkey,
+        });
+        let declared_weight = call.get_dispatch_info().call_weight;
+        let post_info = SubtensorModule::set_coldkey_auto_stake_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            netuid,
+            new_hotkey,
+        )
+        .expect("auto-stake destination changes");
+        let actual_weight = <Test as Config>::WeightInfo::set_coldkey_auto_stake_hotkey(3, 2);
+
+        assert_eq!(post_info.actual_weight, Some(actual_weight));
+        assert!(actual_weight.all_lt(declared_weight));
     });
 }

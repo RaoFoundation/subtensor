@@ -37,24 +37,24 @@ use core::marker::PhantomData;
 /// Weight functions needed for `pallet_subtensor`.
 pub trait WeightInfo {
 	fn register() -> Weight;
-	fn set_weights() -> Weight;
+	fn set_weights(n: u32, ) -> Weight;
 	fn add_stake() -> Weight;
 	fn serve_axon() -> Weight;
 	fn serve_prometheus() -> Weight;
 	fn burned_register() -> Weight;
 	fn root_register() -> Weight;
 	fn register_network() -> Weight;
-	fn commit_weights() -> Weight;
-	fn reveal_weights() -> Weight;
+	fn commit_weights(q: u32, ) -> Weight;
+	fn reveal_weights(n: u32, q: u32, ) -> Weight;
 	fn sudo_set_tx_childkey_take_rate_limit() -> Weight;
 	fn set_childkey_take() -> Weight;
 	fn announce_coldkey_swap() -> Weight;
-	fn swap_coldkey_announced() -> Weight;
-	fn swap_coldkey() -> Weight;
+	fn swap_coldkey_announced(w: u32, ) -> Weight;
+	fn swap_coldkey(w: u32, ) -> Weight;
 	fn dispute_coldkey_swap() -> Weight;
 	fn clear_coldkey_swap_announcement() -> Weight;
 	fn reset_coldkey_swap() -> Weight;
-	fn batch_reveal_weights() -> Weight;
+	fn batch_reveal_weights(b: u32, ) -> Weight;
 	fn recycle_alpha() -> Weight;
 	fn burn_alpha() -> Weight;
 	fn block_step() -> Weight;
@@ -69,26 +69,26 @@ pub trait WeightInfo {
 	fn add_collateral() -> Weight;
 	fn set_min_collateral() -> Weight;
 	fn swap_stake() -> Weight;
-	fn batch_commit_weights() -> Weight;
-	fn batch_set_weights() -> Weight;
+	fn batch_commit_weights(b: u32, ) -> Weight;
+	fn batch_set_weights(b: u32, ) -> Weight;
 	fn decrease_take() -> Weight;
 	fn increase_take() -> Weight;
-	fn register_network_with_identity() -> Weight;
-	fn serve_axon_tls() -> Weight;
-	fn set_identity() -> Weight;
-	fn set_subnet_identity() -> Weight;
+	fn register_network_with_identity(i: u32, ) -> Weight;
+	fn serve_axon_tls(c: u32, ) -> Weight;
+	fn set_identity(i: u32, ) -> Weight;
+	fn set_subnet_identity(i: u32, ) -> Weight;
 	fn swap_hotkey() -> Weight;
 	fn try_associate_hotkey() -> Weight;
-	fn unstake_all() -> Weight;
-	fn unstake_all_alpha() -> Weight;
+	fn unstake_all(n: u32, ) -> Weight;
+	fn unstake_all_alpha(n: u32, ) -> Weight;
 	fn remove_stake_full_limit() -> Weight;
 	fn register_leased_network(k: u32, ) -> Weight;
 	fn terminate_lease(k: u32, ) -> Weight;
 	fn update_symbol() -> Weight;
-	fn commit_timelocked_weights() -> Weight;
-	fn set_coldkey_auto_stake_hotkey() -> Weight;
-	fn set_root_claim_type() -> Weight;
-	fn claim_root() -> Weight;
+	fn commit_timelocked_weights(c: u32, q: u32, ) -> Weight;
+	fn set_coldkey_auto_stake_hotkey(o: u32, n: u32, ) -> Weight;
+	fn set_root_claim_type(s: u32, ) -> Weight;
+	fn claim_root(h: u32, s: u32, ) -> Weight;
 	fn sudo_set_num_root_claims() -> Weight;
 	fn sudo_set_root_claim_threshold() -> Weight;
 	fn set_auto_parent_delegation_enabled() -> Weight;
@@ -105,10 +105,10 @@ pub trait WeightInfo {
 	fn check_serving_endpoints_extension() -> Weight;
 	fn check_evm_key_association_extension() -> Weight;
 	fn set_mechanism_weights(n: u32, ) -> Weight;
-	fn commit_mechanism_weights() -> Weight;
-	fn reveal_mechanism_weights(n: u32, ) -> Weight;
-	fn commit_crv3_mechanism_weights() -> Weight;
-	fn commit_timelocked_mechanism_weights() -> Weight;
+	fn commit_mechanism_weights(q: u32, ) -> Weight;
+	fn reveal_mechanism_weights(n: u32, q: u32, ) -> Weight;
+	fn commit_crv3_mechanism_weights(c: u32, q: u32, ) -> Weight;
+	fn commit_timelocked_mechanism_weights(c: u32, q: u32, ) -> Weight;
 	fn swap_hotkey_v2() -> Weight;
 	fn sudo_set_min_childkey_take() -> Weight;
 	fn sudo_set_max_childkey_take() -> Weight;
@@ -274,7 +274,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::MinAllowedWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_weights() -> Weight {
+	fn set_weights(_n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `188820`
 		//  Estimated: `10327410`
@@ -743,7 +743,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::WeightCommits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_weights() -> Weight {
+	fn commit_weights(_q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1249`
 		//  Estimated: `4714`
@@ -790,7 +790,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::MinAllowedWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn reveal_weights() -> Weight {
+	fn reveal_weights(_n: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1650`
 		//  Estimated: `7590`
@@ -891,7 +891,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::DecayingLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
-	fn swap_coldkey_announced() -> Weight {
+	fn swap_coldkey_announced(_w: u32, ) -> Weight {
 		// Worst case includes migrating MAX_COLDKEY_COLLATERAL_HOTKEYS collateral
 		// positions via ColdkeyCollateralHotkeys plus coldkey lineage writes.
 		// Proof Size summary in bytes:
@@ -946,7 +946,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:0 w:1)
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn swap_coldkey() -> Weight {
+	fn swap_coldkey(_w: u32, ) -> Weight {
 		// Worst case includes migrating MAX_COLDKEY_COLLATERAL_HOTKEYS collateral
 		// positions via ColdkeyCollateralHotkeys plus coldkey lineage writes.
 		// Proof Size summary in bytes:
@@ -1033,7 +1033,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::MinAllowedWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn batch_reveal_weights() -> Weight {
+	fn batch_reveal_weights(_b: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2155`
 		//  Estimated: `8095`
@@ -1954,7 +1954,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::WeightsSetRateLimit` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RevealPeriodEpochs` (r:1 w:0)
 	/// Proof: `SubtensorModule::RevealPeriodEpochs` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn batch_commit_weights() -> Weight {
+	fn batch_commit_weights(_b: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1300`
 		//  Estimated: `4765`
@@ -1995,7 +1995,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::MinAllowedWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn batch_set_weights() -> Weight {
+	fn batch_set_weights(_b: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1455`
 		//  Estimated: `7395`
@@ -2154,7 +2154,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::IsNetworkMember` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::MaxAllowedUids` (r:0 w:1)
 	/// Proof: `SubtensorModule::MaxAllowedUids` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn register_network_with_identity() -> Weight {
+	fn register_network_with_identity(_i: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1468`
 		//  Estimated: `9883`
@@ -2171,7 +2171,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::Axons` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::ServingRateLimit` (r:1 w:0)
 	/// Proof: `SubtensorModule::ServingRateLimit` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn serve_axon_tls() -> Weight {
+	fn serve_axon_tls(_c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `799`
 		//  Estimated: `4264`
@@ -2186,7 +2186,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::IsNetworkMember` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::IdentitiesV2` (r:0 w:1)
 	/// Proof: `SubtensorModule::IdentitiesV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_identity() -> Weight {
+	fn set_identity(_i: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `889`
 		//  Estimated: `6829`
@@ -2201,7 +2201,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetIdentitiesV3` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubnetIdentitiesV3` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_subnet_identity() -> Weight {
+	fn set_subnet_identity(_i: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `738`
 		//  Estimated: `4203`
@@ -2314,7 +2314,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:2 w:0)
 	/// Proof: `SubtensorModule::SubtokenEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn unstake_all() -> Weight {
+	fn unstake_all(_n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `774`
 		//  Estimated: `9189`
@@ -2380,7 +2380,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::StakingColdkeysByIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (r:0 w:1)
 	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn unstake_all_alpha() -> Weight {
+	fn unstake_all_alpha(_n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2235`
 		//  Estimated: `11306`
@@ -2673,7 +2673,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TimelockedWeightCommits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_timelocked_weights() -> Weight {
+	fn commit_timelocked_weights(_c: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1248`
 		//  Estimated: `4713`
@@ -2690,7 +2690,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::AutoStakeDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::AutoStakeDestinationColdkeys` (r:1 w:1)
 	/// Proof: `SubtensorModule::AutoStakeDestinationColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_coldkey_auto_stake_hotkey() -> Weight {
+	fn set_coldkey_auto_stake_hotkey(_o: u32, _n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `809`
 		//  Estimated: `4274`
@@ -2707,7 +2707,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::RootClaimType` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::StakingColdkeysByIndex` (r:0 w:1)
 	/// Proof: `SubtensorModule::StakingColdkeysByIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_root_claim_type() -> Weight {
+	fn set_root_claim_type(_s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `476`
 		//  Estimated: `3941`
@@ -2740,7 +2740,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::RootClaimed` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimableThreshold` (r:1 w:0)
 	/// Proof: `SubtensorModule::RootClaimableThreshold` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn claim_root() -> Weight {
+	fn claim_root(_h: u32, _s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1969`
 		//  Estimated: `7909`
@@ -3174,7 +3174,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::RevealPeriodEpochs` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_mechanism_weights() -> Weight {
+	fn commit_mechanism_weights(_q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `37406`
 		//  Estimated: `40871`
@@ -3224,7 +3224,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 4096]`.
-	fn reveal_mechanism_weights(n: u32, ) -> Weight {
+	fn reveal_mechanism_weights(n: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `4835 + n * (37 ±0)`
 		//  Estimated: `10114 + n * (2512 ±0)`
@@ -3265,7 +3265,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TimelockedWeightCommits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_crv3_mechanism_weights() -> Weight {
+	fn commit_crv3_mechanism_weights(_c: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `36927`
 		//  Estimated: `40392`
@@ -3302,7 +3302,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::TimelockedWeightCommits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_timelocked_mechanism_weights() -> Weight {
+	fn commit_timelocked_mechanism_weights(_c: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `36927`
 		//  Estimated: `40392`
@@ -3888,7 +3888,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::MinAllowedWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_weights() -> Weight {
+	fn set_weights(_n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `188820`
 		//  Estimated: `10327410`
@@ -4357,7 +4357,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::WeightCommits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_weights() -> Weight {
+	fn commit_weights(_q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1249`
 		//  Estimated: `4714`
@@ -4404,7 +4404,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::MinAllowedWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn reveal_weights() -> Weight {
+	fn reveal_weights(_n: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1650`
 		//  Estimated: `7590`
@@ -4505,7 +4505,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::DecayingLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
-	fn swap_coldkey_announced() -> Weight {
+	fn swap_coldkey_announced(_w: u32, ) -> Weight {
 		// Worst case includes migrating MAX_COLDKEY_COLLATERAL_HOTKEYS collateral
 		// positions via ColdkeyCollateralHotkeys plus coldkey lineage writes.
 		// Proof Size summary in bytes:
@@ -4560,7 +4560,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::ColdkeySwapAnnouncements` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::ColdkeySwapDisputes` (r:0 w:1)
 	/// Proof: `SubtensorModule::ColdkeySwapDisputes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn swap_coldkey() -> Weight {
+	fn swap_coldkey(_w: u32, ) -> Weight {
 		// Worst case includes migrating MAX_COLDKEY_COLLATERAL_HOTKEYS collateral
 		// positions via ColdkeyCollateralHotkeys plus coldkey lineage writes.
 		// Proof Size summary in bytes:
@@ -4647,7 +4647,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::MinAllowedWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn batch_reveal_weights() -> Weight {
+	fn batch_reveal_weights(_b: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2155`
 		//  Estimated: `8095`
@@ -5568,7 +5568,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::WeightsSetRateLimit` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RevealPeriodEpochs` (r:1 w:0)
 	/// Proof: `SubtensorModule::RevealPeriodEpochs` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn batch_commit_weights() -> Weight {
+	fn batch_commit_weights(_b: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1300`
 		//  Estimated: `4765`
@@ -5609,7 +5609,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::MinAllowedWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn batch_set_weights() -> Weight {
+	fn batch_set_weights(_b: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1455`
 		//  Estimated: `7395`
@@ -5768,7 +5768,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::IsNetworkMember` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::MaxAllowedUids` (r:0 w:1)
 	/// Proof: `SubtensorModule::MaxAllowedUids` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn register_network_with_identity() -> Weight {
+	fn register_network_with_identity(_i: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1468`
 		//  Estimated: `9883`
@@ -5785,7 +5785,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::Axons` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::ServingRateLimit` (r:1 w:0)
 	/// Proof: `SubtensorModule::ServingRateLimit` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn serve_axon_tls() -> Weight {
+	fn serve_axon_tls(_c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `799`
 		//  Estimated: `4264`
@@ -5800,7 +5800,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::IsNetworkMember` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::IdentitiesV2` (r:0 w:1)
 	/// Proof: `SubtensorModule::IdentitiesV2` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_identity() -> Weight {
+	fn set_identity(_i: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `889`
 		//  Estimated: `6829`
@@ -5815,7 +5815,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetIdentitiesV3` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubnetIdentitiesV3` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_subnet_identity() -> Weight {
+	fn set_subnet_identity(_i: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `738`
 		//  Estimated: `4203`
@@ -5928,7 +5928,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:2 w:0)
 	/// Proof: `SubtensorModule::SubtokenEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn unstake_all() -> Weight {
+	fn unstake_all(_n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `774`
 		//  Estimated: `9189`
@@ -5994,7 +5994,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::StakingColdkeysByIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (r:0 w:1)
 	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn unstake_all_alpha() -> Weight {
+	fn unstake_all_alpha(_n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2235`
 		//  Estimated: `11306`
@@ -6287,7 +6287,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TimelockedWeightCommits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_timelocked_weights() -> Weight {
+	fn commit_timelocked_weights(_c: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1248`
 		//  Estimated: `4713`
@@ -6304,7 +6304,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::AutoStakeDestination` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::AutoStakeDestinationColdkeys` (r:1 w:1)
 	/// Proof: `SubtensorModule::AutoStakeDestinationColdkeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_coldkey_auto_stake_hotkey() -> Weight {
+	fn set_coldkey_auto_stake_hotkey(_o: u32, _n: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `809`
 		//  Estimated: `4274`
@@ -6321,7 +6321,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::RootClaimType` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::StakingColdkeysByIndex` (r:0 w:1)
 	/// Proof: `SubtensorModule::StakingColdkeysByIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_root_claim_type() -> Weight {
+	fn set_root_claim_type(_s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `476`
 		//  Estimated: `3941`
@@ -6354,7 +6354,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::RootClaimed` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimableThreshold` (r:1 w:0)
 	/// Proof: `SubtensorModule::RootClaimableThreshold` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn claim_root() -> Weight {
+	fn claim_root(_h: u32, _s: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1969`
 		//  Estimated: `7909`
@@ -6788,7 +6788,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::RevealPeriodEpochs` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_mechanism_weights() -> Weight {
+	fn commit_mechanism_weights(_q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `37406`
 		//  Estimated: `40871`
@@ -6838,7 +6838,7 @@ impl WeightInfo for () {
 	/// Storage: `SubtensorModule::Weights` (r:0 w:1)
 	/// Proof: `SubtensorModule::Weights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 4096]`.
-	fn reveal_mechanism_weights(n: u32, ) -> Weight {
+	fn reveal_mechanism_weights(n: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `4835 + n * (37 ±0)`
 		//  Estimated: `10114 + n * (2512 ±0)`
@@ -6879,7 +6879,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TimelockedWeightCommits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_crv3_mechanism_weights() -> Weight {
+	fn commit_crv3_mechanism_weights(_c: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `36927`
 		//  Estimated: `40392`
@@ -6916,7 +6916,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::TimelockedWeightCommits` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetworkN` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetworkN` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn commit_timelocked_mechanism_weights() -> Weight {
+	fn commit_timelocked_mechanism_weights(_c: u32, _q: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `36927`
 		//  Estimated: `40392`

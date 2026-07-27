@@ -76,6 +76,13 @@ mod config {
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: crate::weights::WeightInfo;
 
+        /// Maximum combined weight charged by transaction and FRAME dispatch
+        /// extensions around a Subtensor call. This is reserved from the normal
+        /// extrinsic limit so calls with unbounded state fan-out can precharge
+        /// the largest admissible call weight without making the enclosing
+        /// extrinsic overweight.
+        type MaxTransactionExtensionWeight: Get<Weight>;
+
         // Initial Value Constants
 
         /// Initial currency issuance.

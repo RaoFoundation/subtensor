@@ -155,6 +155,8 @@ impl system::Config for Test {
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
     pub const SS58Prefix: u8 = 42;
+    pub MaxTransactionExtensionWeight: Weight =
+        <() as pallet_subtensor::weights::WeightInfo>::check_coldkey_swap_extension();
 }
 
 pub const MOCK_BLOCK_BUILDER: u64 = 12345u64;
@@ -338,6 +340,7 @@ impl pallet_subtensor::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type MaxTransactionExtensionWeight = MaxTransactionExtensionWeight;
     type AlphaAssets = AlphaAssets;
 }
 

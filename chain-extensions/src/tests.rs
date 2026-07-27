@@ -18,6 +18,27 @@ use subtensor_swap_interface::SwapHandler;
 
 type AccountId = <mock::Test as frame_system::Config>::AccountId;
 
+fn unstake_all_weight(alpha_only: bool) -> Weight {
+    let subnet_count = u32::from(pallet_subtensor::TotalNetworks::<mock::Test>::get());
+    let benchmark_weight = if alpha_only {
+        <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all_alpha(
+            subnet_count,
+        )
+    } else {
+        <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all(
+            subnet_count,
+        )
+    };
+
+    benchmark_weight
+        .checked_add(&<mock::Test as frame_system::Config>::DbWeight::get().reads(1))
+        .expect("unstake benchmark and metering-read weights must not overflow")
+}
+
+fn maximum_subtensor_call_weight() -> Weight {
+    pallet_subtensor::Pallet::<mock::Test>::max_normal_dispatch_weight()
+}
+
 #[derive(Clone)]
 struct MockEnv {
     func_id: u16,
@@ -53,14 +74,14 @@ fn set_coldkey_auto_stake_hotkey_success_sets_destination() {
             None
         );
 
-        let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey();
+        let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey(0, 0);
 
         let mut env = MockEnv::new(
             FunctionId::SetColdkeyAutoStakeHotkeyV1,
             coldkey,
             (netuid, hotkey).encode(),
         )
-        .with_expected_weight(expected_weight);
+        .with_expected_weight(maximum_subtensor_call_weight());
 
         let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
         assert_success(ret);
@@ -596,10 +617,10 @@ fn unstake_all_alpha_success_moves_stake_to_root() {
             stake_amount_raw.into(),
         ));
 
-        let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all_alpha();
+        let expected_weight = unstake_all_weight(true);
 
         let mut env = MockEnv::new(FunctionId::UnstakeAllAlphaV1, coldkey, hotkey.encode())
-            .with_expected_weight(expected_weight);
+            .with_expected_weight(maximum_subtensor_call_weight());
 
         let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
         assert_success(ret);
@@ -1235,11 +1256,13 @@ impl MockEnv {
 }
 
 impl SubtensorExtensionEnv<mock::Test> for MockEnv {
+    type ChargedAmount = Weight;
+
     fn func_id(&self) -> u16 {
         self.func_id
     }
 
-    fn charge_weight(&mut self, weight: Weight) -> Result<(), DispatchError> {
+    fn charge_weight(&mut self, weight: Weight) -> Result<Self::ChargedAmount, DispatchError> {
         let prev = self.charged_weight.unwrap_or_default();
         let cumulative = Weight::from_parts(
             prev.ref_time().checked_add(weight.ref_time()).unwrap(),
@@ -1254,7 +1277,18 @@ impl SubtensorExtensionEnv<mock::Test> for MockEnv {
             ));
         }
         self.charged_weight = Some(cumulative);
-        Ok(())
+        Ok(weight)
+    }
+
+    fn adjust_weight(&mut self, charged: Self::ChargedAmount, actual_weight: Weight) {
+        let cumulative = self
+            .charged_weight
+            .unwrap_or_default()
+            .checked_sub(&charged)
+            .expect("adjusted weight cannot exceed the weight already charged")
+            .checked_add(&actual_weight)
+            .expect("adjusted actual weight must not overflow");
+        self.charged_weight = Some(cumulative);
     }
 
     fn read_as<U: codec::Decode + codec::MaxEncodedLen>(&mut self) -> Result<U, DispatchError> {
@@ -1587,12 +1621,12 @@ fn unstake_all_success_unstakes_balance() {
             stake_amount_raw.into(),
         ));
 
-        let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all();
+        let expected_weight = unstake_all_weight(false);
 
         let pre_balance = pallet_subtensor::Pallet::<mock::Test>::get_coldkey_balance(&coldkey);
 
         let mut env = MockEnv::new(FunctionId::UnstakeAllV1, coldkey, hotkey.encode())
-            .with_expected_weight(expected_weight);
+            .with_expected_weight(maximum_subtensor_call_weight());
 
         let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
         assert_success(ret);
@@ -2057,15 +2091,16 @@ mod caller_dispatch_tests {
                 stake_amount_raw.into(),
             ));
 
-            let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all();
+            let expected_weight = unstake_all_weight(false);
 
             let pre_balance = pallet_subtensor::Pallet::<mock::Test>::get_coldkey_balance(&coldkey);
 
             let mut env = MockEnv::new(FunctionId::CallerUnstakeAllV1, coldkey, hotkey.encode())
-                .with_expected_weight(expected_weight);
+                .with_expected_weight(maximum_subtensor_call_weight());
 
             let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
             assert_success(ret);
+            assert_eq!(env.charged_weight(), Some(expected_weight));
 
             let remaining_alpha =
                 pallet_subtensor::Pallet::<mock::Test>::get_stake_for_hotkey_and_coldkey_on_subnet(
@@ -2109,17 +2144,18 @@ mod caller_dispatch_tests {
                 stake_amount_raw.into(),
             ));
 
-            let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all_alpha();
+            let expected_weight = unstake_all_weight(true);
 
             let mut env = MockEnv::new(
                 FunctionId::CallerUnstakeAllAlphaV1,
                 coldkey,
                 hotkey.encode(),
             )
-            .with_expected_weight(expected_weight);
+            .with_expected_weight(maximum_subtensor_call_weight());
 
             let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
             assert_success(ret);
+            assert_eq!(env.charged_weight(), Some(expected_weight));
 
             let subnet_alpha =
                 pallet_subtensor::Pallet::<mock::Test>::get_stake_for_hotkey_and_coldkey_on_subnet(
@@ -2659,14 +2695,14 @@ mod caller_dispatch_tests {
                 None
             );
 
-            let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey();
+            let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey(0, 0);
 
             let mut env = MockEnv::new(
                 FunctionId::CallerSetColdkeyAutoStakeHotkeyV1,
                 coldkey,
                 (netuid, hotkey).encode(),
             )
-            .with_expected_weight(expected_weight);
+            .with_expected_weight(maximum_subtensor_call_weight());
 
             let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
             assert_success(ret);

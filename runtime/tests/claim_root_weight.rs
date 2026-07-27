@@ -1,9 +1,11 @@
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use node_subtensor_runtime::{
-    BlockWeights, Runtime, RuntimeCall, TxExtension, check_mortality, check_nonce, sudo_wrapper,
+    BlockWeights, MaxSubtensorTransactionExtensionWeight, Runtime, RuntimeCall, TxExtension,
+    check_mortality, check_nonce, sudo_wrapper,
     transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
 };
-use sp_runtime::{generic::Era, traits::TransactionExtension};
+use sp_core::Get;
+use sp_runtime::{AccountId32, generic::Era, traits::TransactionExtension};
 use std::collections::BTreeSet;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
@@ -43,5 +45,33 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
         dispatch_info.total_weight().all_lte(max_extrinsic),
         "claim_root total weight {:?} exceeds normal max extrinsic {max_extrinsic:?}",
         dispatch_info.total_weight()
+    );
+}
+
+#[test]
+fn unbounded_hotkey_swap_reserves_maximum_admissible_call_weight() {
+    let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_hotkey {
+        hotkey: AccountId32::new([1; 32]),
+        new_hotkey: AccountId32::new([2; 32]),
+        netuid: None,
+    });
+    let dispatch_info = call.get_dispatch_info();
+    let enclosing_extension_weight = MaxSubtensorTransactionExtensionWeight::get();
+    let dispatch_extension_weight =
+        pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new().weight(&call);
+    let transaction_extension_weight = enclosing_extension_weight
+        .checked_sub(&dispatch_extension_weight)
+        .expect("dispatch-extension weight must fit within the enclosing extension weight");
+    let max_extrinsic = BlockWeights::get()
+        .get(DispatchClass::Normal)
+        .max_extrinsic
+        .expect("normal extrinsics have a configured maximum");
+
+    assert_eq!(
+        dispatch_info
+            .call_weight
+            .checked_add(&transaction_extension_weight)
+            .expect("call and transaction-extension weights must not overflow"),
+        max_extrinsic
     );
 }

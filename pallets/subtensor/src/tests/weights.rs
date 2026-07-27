@@ -476,7 +476,10 @@ fn test_no_signature() {
         let values: Vec<u16> = vec![];
         SubtensorModule::set_commit_reveal_weights_enabled(1.into(), false);
         let result = SubtensorModule::set_weights(RuntimeOrigin::none(), 1.into(), uids, values, 0);
-        assert_eq!(result, Err(DispatchError::BadOrigin));
+        assert_eq!(
+            result.map_err(|error| error.error),
+            Err(DispatchError::BadOrigin)
+        );
     });
 }
 
@@ -2118,7 +2121,8 @@ fn commit_reveal_set_weights(
         version_key,
     ));
 
-    SubtensorModule::commit_weights(RuntimeOrigin::signed(hotkey), netuid, commit_hash)?;
+    SubtensorModule::commit_weights(RuntimeOrigin::signed(hotkey), netuid, commit_hash)
+        .map_err(|error| error.error)?;
 
     step_epochs(1, netuid);
 
@@ -2129,7 +2133,8 @@ fn commit_reveal_set_weights(
         weights,
         salt,
         version_key,
-    )?;
+    )
+    .map_err(|error| error.error)?;
 
     Ok(())
 }

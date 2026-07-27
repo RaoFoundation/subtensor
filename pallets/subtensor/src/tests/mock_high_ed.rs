@@ -130,6 +130,8 @@ impl system::Config for Test {
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
     pub const SS58Prefix: u8 = 42;
+    pub MaxTransactionExtensionWeight: Weight =
+        <() as crate::weights::WeightInfo>::check_coldkey_swap_extension();
 }
 
 pub const MOCK_BLOCK_BUILDER: u64 = 12345u64;
@@ -312,6 +314,7 @@ impl crate::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type MaxTransactionExtensionWeight = MaxTransactionExtensionWeight;
 }
 
 // Swap-related parameter types

@@ -44,6 +44,7 @@ pub mod staking;
 pub mod subnets;
 pub mod swap;
 pub mod utils;
+mod weight_accounting;
 pub mod weights;
 use crate::utils::rate_limiting::{Hyperparameter, TransactionType};
 use macros::{config, dispatches, errors, events, genesis, hooks};
