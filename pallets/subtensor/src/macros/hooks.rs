@@ -125,8 +125,6 @@ mod hooks {
                 .saturating_add(migrations::migrate_network_immunity_period::migrate_network_immunity_period::<T>())
                 // Migrate Subnet Limit
                 .saturating_add(migrations::migrate_subnet_limit_to_default::migrate_subnet_limit_to_default::<T>())
-                // v440: raise subnet limit to 256
-                .saturating_add(migrations::migrate_subnet_limit_256::migrate_subnet_limit_256::<T>())
                 // Migrate Lock Reduction Interval
                 .saturating_add(migrations::migrate_network_lock_reduction_interval::migrate_network_lock_reduction_interval::<T>())
                 // Migrate subnet locked balances

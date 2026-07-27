@@ -28,8 +28,8 @@ const releases: Release[] = [
     title: 'The Emission Gate',
     summary:
       'Subnet emission now has to beat a market-set demand bar: price-proportional above it, ' +
-      'a smooth collapse below it. Idle slots stop earning, subnet slots double to 256, and ' +
-      'the cost of building on Bittensor falls toward zero.',
+      'a smooth collapse below it. Idle slots stop earning, and the cost of building on ' +
+      'Bittensor falls toward the registration transaction.',
     href: '/releases/v440-upgrade',
   },
   {

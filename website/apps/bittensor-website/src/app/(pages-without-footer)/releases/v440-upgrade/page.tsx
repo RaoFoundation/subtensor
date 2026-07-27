@@ -11,8 +11,8 @@ export const metadata: Metadata = {
   title: 'The V440 Upgrade — The Emission Gate',
   description:
     'Subnet emission remains price-based, but prices now pass through a threshold gate ' +
-    'centered around rank 32. Idle slots earn little, SubnetLimit doubles to 256, and the ' +
-    'cost of building on Bittensor falls toward the registration transaction.',
+    'centered around rank 32. Idle slots earn little, and the cost of building on Bittensor ' +
+    'falls toward the registration transaction.',
   alternates: {canonical: '/releases/v440-upgrade'},
 };
 
@@ -46,8 +46,8 @@ const page = () => {
             active one.
           </p>
           <p>
-            Because a slot below the gate earns little, slots no longer need to be scarce, and this
-            release doubles the <code>SubnetLimit</code> from 128 to <strong>256</strong>.
+            Because a slot below the gate earns little, slots no longer need to be scarce — this
+            release clears the path to raise the subnet cap later, without taxing the head today.
           </p>
         </section>
 
@@ -121,8 +121,7 @@ let weights: Vec<U64F64> = shares
             <code>h = 3</code> — the bar lands on today&apos;s distribution at the average demand
             share of an active subnet, around rank 32. A subnet earns its full linear emission only
             if it attracts more than an average slice of demand. Because the bar is a property of
-            the demand distribution, registering new subnets — including the 130 slots this release
-            adds — does not move it.
+            the demand distribution, registering new subnets does not move it.
           </p>
         </section>
 
@@ -173,11 +172,6 @@ let weights: Vec<U64F64> = shares
                 <td>~22</td>
               </tr>
               <tr>
-                <td>Subnet slots</td>
-                <td>128</td>
-                <td>256</td>
-              </tr>
-              <tr>
                 <td>Subnets hard-zeroed</td>
                 <td>0</td>
                 <td>0</td>
@@ -219,17 +213,10 @@ let weights: Vec<U64F64> = shares
                 <td>3</td>
                 <td>Hill exponent h — cliff sharpness at the bar</td>
               </tr>
-              <tr>
-                <td>
-                  <code>SubnetLimit</code>
-                </td>
-                <td>256</td>
-                <td>Maximum registered subnets (was 128)</td>
-              </tr>
             </tbody>
           </table>
           <p>
-            All are root-sudo settable and rate-limited. The bar itself is recomputed once per
+            Both are root-sudo settable and rate-limited. The bar itself is recomputed once per
             tempo from the same de-manipulated moving prices that already drive emission, so a
             single block of wash trading cannot move it. Because a sharper h = 3 gate makes the
             boundary more sensitive, that per-tempo cadence is what keeps emission near the bar
@@ -258,10 +245,10 @@ let weights: Vec<U64F64> = shares
               emission after this upgrade; the head earns more. Reprice accordingly.
             </li>
             <li>
-              <strong>Teams waiting to build:</strong> 130 new slots open with this upgrade, and
-              existing slots lose the passive carry that made them expensive. Expect registration
-              cost to fall toward the transaction fee — a slot buys a starting position, not an
-              income stream.
+              <strong>Teams waiting to build:</strong> existing slots lose the passive carry that
+              made them expensive. Expect registration cost to fall toward the transaction fee — a
+              slot buys a starting position, not an income stream. Raising the subnet slot cap is
+              deferred to a later release.
             </li>
           </ul>
           <p>
