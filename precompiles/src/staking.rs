@@ -308,6 +308,27 @@ where
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
 
+    #[precompile::public("recycleAlpha(bytes32,uint256,uint256)")]
+    #[precompile::payable]
+    fn recycle_alpha(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        amount: U256,
+        netuid: U256,
+    ) -> EvmResult<()> {
+        let account_id = handle.caller_account_id::<R>();
+        let hotkey = R::AccountId::from(hotkey.0);
+        let netuid = try_u16_from_u256(netuid)?;
+        let amount: u64 = amount.unique_saturated_into();
+        let call = pallet_subtensor::Call::<R>::recycle_alpha {
+            hotkey,
+            amount: amount.into(),
+            netuid: netuid.into(),
+        };
+
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
+    }
+
     #[precompile::public("getTotalColdkeyStake(bytes32)")]
     #[precompile::view]
     fn get_total_coldkey_stake(
@@ -3086,6 +3107,151 @@ mod tests {
                     precompile_addr,
                     encode_with_selector(
                         selector_u32("burnAlpha(bytes32,uint256,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::zero(),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            let stake_after = stake_for(&hotkey, &caller_account, netuid);
+            assert_eq!(stake_after, stake_before);
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_recycle_alpha_reduces_stake_and_alpha_out() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x3101);
+            let caller_account = mapped_account(caller);
+            let hotkey = hotkey();
+            let recycle_amount = 20_000_000_000_u64;
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let precompile_addr = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+
+            fund_account(&caller_account, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, 50_000_000_000);
+
+            let stake_before = stake_for(&hotkey, &caller_account, netuid);
+            assert!(stake_before > 0);
+            let alpha_out_before = pallet_subtensor::SubnetAlphaOut::<Runtime>::get(netuid);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("recycleAlpha(bytes32,uint256,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::from(recycle_amount),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            let stake_after = stake_for(&hotkey, &caller_account, netuid);
+            assert_eq!(stake_after, stake_before - recycle_amount);
+
+            let alpha_out_after = pallet_subtensor::SubnetAlphaOut::<Runtime>::get(netuid);
+            assert_eq!(
+                alpha_out_after,
+                alpha_out_before.saturating_sub(recycle_amount.into())
+            );
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_recycle_alpha_caps_to_available_stake() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x3102);
+            let caller_account = mapped_account(caller);
+            let hotkey = hotkey();
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let precompile_addr = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+
+            fund_account(&caller_account, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+
+            let stake_before = stake_for(&hotkey, &caller_account, netuid);
+            assert!(stake_before > 0);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("recycleAlpha(bytes32,uint256,uint256)"),
+                        (
+                            H256::from_slice(hotkey.as_ref()),
+                            U256::from(stake_before + 10_000_000_000_u64),
+                            U256::from(TEST_NETUID_U16),
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            let stake_after = stake_for(&hotkey, &caller_account, netuid);
+            assert_eq!(stake_after, 0);
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_recycle_alpha_rejects_missing_subnet() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x3103);
+            let caller_account = mapped_account(caller);
+            let hotkey = hotkey();
+
+            fund_account(&caller_account, COLDKEY_BALANCE);
+            ensure_hotkey_exists(&hotkey);
+
+            let rejected = execute_precompile(
+                &precompiles::<StakingPrecompileV2<Runtime>>(),
+                addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                caller,
+                encode_with_selector(
+                    selector_u32("recycleAlpha(bytes32,uint256,uint256)"),
+                    (
+                        H256::from_slice(hotkey.as_ref()),
+                        U256::from(10_000_000_000_u64),
+                        U256::from(INVALID_NETUID_U16),
+                    ),
+                ),
+                U256::zero(),
+            )
+            .expect("recycleAlpha should route to the staking v2 precompile");
+
+            assert!(rejected.is_err());
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_recycle_zero_alpha_is_noop() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x3104);
+            let caller_account = mapped_account(caller);
+            let hotkey = hotkey();
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let precompile_addr = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+
+            fund_account(&caller_account, COLDKEY_BALANCE);
+            add_stake_v2(caller, &hotkey, TEST_NETUID_U16, 10_000_000_000);
+
+            let stake_before = stake_for(&hotkey, &caller_account, netuid);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("recycleAlpha(bytes32,uint256,uint256)"),
                         (
                             H256::from_slice(hotkey.as_ref()),
                             U256::zero(),

@@ -459,6 +459,28 @@ interface IStaking {
     ) external payable;
 
     /**
+     * @dev Recycles alpha tokens from the specified hotkey's stake on a subnet.
+     *
+     * Unlike burnAlpha, recycled alpha is returned to the subnet's emission pool
+     * (SubnetAlphaOut is reduced), matching the semantics of recycled registration
+     * costs. The caller's staked alpha on the hotkey is decreased by the amount.
+     *
+     * @param hotkey The hotkey public key (32 bytes).
+     * @param amount The amount of alpha to recycle (uint256).
+     * @param netuid The subnet to recycle from (uint256).
+     *
+     * Requirements:
+     * - `hotkey` must be a valid hotkey registered on the network.
+     * - The caller must have sufficient alpha staked to the specified hotkey on the subnet.
+     * - `amount` must be greater than zero and not exceed the staked amount.
+     */
+    function recycleAlpha(
+        bytes32 hotkey,
+        uint256 amount,
+        uint256 netuid
+    ) external payable;
+
+    /**
      * @dev Set how much the caller approves the spender to use the provided amount of subnet tokens
      * on its behalf in a later call.
      *
