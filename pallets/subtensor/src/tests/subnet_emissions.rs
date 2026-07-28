@@ -20,6 +20,84 @@ fn i96f32(x: f64) -> I96F32 {
 }
 
 #[test]
+fn ranked_emission_tiers_split_equal_scores_75_25_and_cut_off_after_64() {
+    let equal_score = u64f64(1.0 / 65.0);
+    let mut shares = (1u16..=65)
+        .map(|netuid| (NetUid::from(netuid), equal_score))
+        .collect::<BTreeMap<NetUid, U64F64>>();
+
+    SubtensorModule::apply_ranked_emission_tiers(&mut shares);
+
+    let primary_total = (1u16..=32)
+        .map(|netuid| shares[&NetUid::from(netuid)])
+        .fold(u64f64(0.0), |total, share| total.saturating_add(share));
+    let secondary_total = (33u16..=64)
+        .map(|netuid| shares[&NetUid::from(netuid)])
+        .fold(u64f64(0.0), |total, share| total.saturating_add(share));
+
+    assert_abs_diff_eq!(primary_total.to_num::<f64>(), 0.75, epsilon = 1e-9);
+    assert_abs_diff_eq!(secondary_total.to_num::<f64>(), 0.25, epsilon = 1e-9);
+    assert_eq!(shares[&NetUid::from(65)], u64f64(0.0));
+    assert!(
+        shares[&NetUid::from(64)] > u64f64(0.0),
+        "ascending netuid must break an equal-score boundary tie"
+    );
+}
+
+#[test]
+fn ranked_emission_tiers_preserve_score_proportions_within_each_tier() {
+    let mut shares = (1u16..=96)
+        .map(|netuid| {
+            (
+                NetUid::from(netuid),
+                u64f64(f64::from(97u16.saturating_sub(netuid))),
+            )
+        })
+        .collect::<BTreeMap<NetUid, U64F64>>();
+
+    SubtensorModule::apply_ranked_emission_tiers(&mut shares);
+
+    let primary_total = (1u16..=32)
+        .map(|netuid| shares[&NetUid::from(netuid)])
+        .fold(u64f64(0.0), |total, share| total.saturating_add(share));
+    let secondary_total = (33u16..=64)
+        .map(|netuid| shares[&NetUid::from(netuid)])
+        .fold(u64f64(0.0), |total, share| total.saturating_add(share));
+
+    assert_abs_diff_eq!(primary_total.to_num::<f64>(), 0.75, epsilon = 1e-9);
+    assert_abs_diff_eq!(secondary_total.to_num::<f64>(), 0.25, epsilon = 1e-9);
+    assert_abs_diff_eq!(
+        (shares[&NetUid::from(1)] / shares[&NetUid::from(2)]).to_num::<f64>(),
+        96.0 / 95.0,
+        epsilon = 1e-9
+    );
+    assert_abs_diff_eq!(
+        (shares[&NetUid::from(33)] / shares[&NetUid::from(34)]).to_num::<f64>(),
+        64.0 / 63.0,
+        epsilon = 1e-9
+    );
+    for netuid in 65u16..=96 {
+        assert_eq!(shares[&NetUid::from(netuid)], u64f64(0.0));
+    }
+}
+
+#[test]
+fn ranked_emission_tiers_give_full_allocation_to_single_populated_tier() {
+    let mut shares = (1u16..=32)
+        .map(|netuid| (NetUid::from(netuid), u64f64(f64::from(netuid))))
+        .collect::<BTreeMap<NetUid, U64F64>>();
+
+    SubtensorModule::apply_ranked_emission_tiers(&mut shares);
+
+    let total = shares
+        .values()
+        .copied()
+        .fold(u64f64(0.0), |total, share| total.saturating_add(share));
+    assert_abs_diff_eq!(total.to_num::<f64>(), 1.0, epsilon = 1e-9);
+    assert!(shares.values().all(|share| *share > u64f64(0.0)));
+}
+
+#[test]
 fn inplace_pow_normalize_all_zero_inputs_no_panic_and_unchanged() {
     let mut m: BTreeMap<NetUid, U64F64> = BTreeMap::new();
     m.insert(NetUid::from(1), u64f64(0.0));

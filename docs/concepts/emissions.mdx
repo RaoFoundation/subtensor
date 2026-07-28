@@ -89,6 +89,13 @@ proportionally to enabled ones — and with `tao_in` zeroed, `alpha_in`
 (`tao_in / price`) is zero too, so pool injection stops entirely while
 `alpha_out` keeps accruing for participants.
 
+After the emission gate and emission-enabled filter are applied, positive
+subnet scores are ranked from highest to lowest. Ranks 1–32 receive 75% of
+the block's TAO emission in aggregate, ranks 33–64 receive 25%, and ranks
+65+ receive zero. Within each tier, the existing score proportions are
+preserved. Equal scores are ordered by ascending netuid. If 32 or fewer
+subnets have a positive score, they receive the full block emission.
+
 The EMA uses an age-dependent smoothing factor:
 
 ```
@@ -98,8 +105,9 @@ ema_alpha = base_alpha × blocks_since_start / (blocks_since_start + halving_blo
 with `halving_blocks` defaulting to 201,600 (~4 weeks). New subnets start
 near zero — their moving price adapts extremely slowly, which blunts launch
 pumps, coordinated buys, and flash attacks on emission shares. The spot
-price feeding the EMA is capped at 1.0. There is no zero-emission floor: a
-subnet with a low EMA price still receives a small non-zero share.
+price feeding the EMA is capped at 1.0. The scoring formula has no non-zero
+floor: a subnet with a low EMA price can receive a small non-zero score, but
+only the top 64 positive scores receive TAO emission.
 
 <SubnetEmissionShareChart />
 

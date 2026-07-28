@@ -57,23 +57,98 @@ impl<T: Config> Pallet<T> {
             shares_with_emission_enabled.push((netuid, share, emission_enabled));
         }
 
-        shares_with_emission_enabled
+        let mut enabled_shares = shares_with_emission_enabled
             .into_iter()
             .map(|(netuid, share, emission_enabled)| {
-                let share = if has_disabled_subnets {
-                    if emission_enabled && enabled_share_sum > zero {
-                        share.safe_div(enabled_share_sum)
+                (
+                    netuid,
+                    if has_disabled_subnets {
+                        if emission_enabled && enabled_share_sum > zero {
+                            share.safe_div(enabled_share_sum)
+                        } else {
+                            zero
+                        }
                     } else {
-                        zero
-                    }
-                } else {
-                    share
-                };
+                        share
+                    },
+                )
+            })
+            .collect::<BTreeMap<NetUid, U64F64>>();
+
+        Self::apply_ranked_emission_tiers(&mut enabled_shares);
+
+        enabled_shares
+            .into_iter()
+            .map(|(netuid, share)| {
                 let emission = U64F64::saturating_from_num(block_emission).saturating_mul(share);
                 (netuid, U96F32::saturating_from_num(emission))
             })
             .collect::<BTreeMap<NetUid, U96F32>>()
     }
+
+    /// Number of positive-score subnets in each TAO emission tier.
+    pub const EMISSION_TIER_SIZE: usize = 32;
+
+    /// Applies hard rank tiers to the final, emission-enabled subnet scores.
+    ///
+    /// Ranks 1-32 receive 75% of block TAO emission in aggregate, ranks 33-64
+    /// receive 25%, and ranks 65+ receive zero. Existing score proportions are
+    /// preserved within each tier. If there is no second tier, the first tier
+    /// receives 100% so block emission is not stranded.
+    ///
+    /// Only positive scores are ranked. Equal scores are ordered by ascending
+    /// netuid to make the boundary deterministic.
+    pub(crate) fn apply_ranked_emission_tiers(shares: &mut BTreeMap<NetUid, U64F64>) {
+        let zero = U64F64::saturating_from_num(0);
+        let one = U64F64::saturating_from_num(1);
+        let primary_tier_allocation =
+            U64F64::saturating_from_num(3).safe_div(U64F64::saturating_from_num(4));
+        let secondary_tier_allocation = one.saturating_sub(primary_tier_allocation);
+
+        let mut ranked = shares
+            .iter()
+            .filter(|(_, share)| **share > zero)
+            .map(|(netuid, share)| (*netuid, *share))
+            .collect::<Vec<(NetUid, U64F64)>>();
+        ranked.sort_unstable_by(|(netuid_a, share_a), (netuid_b, share_b)| {
+            share_b.cmp(share_a).then_with(|| netuid_a.cmp(netuid_b))
+        });
+
+        let secondary_start = ranked.len().min(Self::EMISSION_TIER_SIZE);
+        let secondary_end = ranked.len().min(Self::EMISSION_TIER_SIZE.saturating_mul(2));
+        let primary_total = ranked[..secondary_start]
+            .iter()
+            .map(|(_, share)| *share)
+            .fold(zero, |total, share| total.saturating_add(share));
+        let secondary_total = ranked[secondary_start..secondary_end]
+            .iter()
+            .map(|(_, share)| *share)
+            .fold(zero, |total, share| total.saturating_add(share));
+        let has_secondary_tier = secondary_total > zero;
+
+        for share in shares.values_mut() {
+            *share = zero;
+        }
+
+        for (rank, (netuid, score)) in ranked.into_iter().enumerate() {
+            let tiered_share = if rank < secondary_start {
+                let allocation = if has_secondary_tier {
+                    primary_tier_allocation
+                } else {
+                    one
+                };
+                score.safe_div(primary_total).saturating_mul(allocation)
+            } else if rank < secondary_end {
+                score
+                    .safe_div(secondary_total)
+                    .saturating_mul(secondary_tier_allocation)
+            } else {
+                zero
+            };
+            shares.insert(netuid, tiered_share);
+        }
+    }
+
     pub fn record_tao_inflow(netuid: NetUid, tao: TaoBalance) {
         SubnetTaoFlow::<T>::mutate(netuid, |flow| {
             *flow = flow.saturating_add(u64::from(tao) as i64);
