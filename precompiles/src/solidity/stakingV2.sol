@@ -143,6 +143,18 @@ interface IStaking {
     ) external view returns (uint256);
 
     /**
+     * @dev Returns the total amount of stake under a coldkey on a given subnet.
+     *
+     * @param coldkey The coldkey public key (32 bytes).
+     * @param netuid The subnet id.
+     * @return The amount of RAO staked by the coldkey on that subnet.
+     */
+    function getTotalColdkeyStakeOnSubnet(
+        bytes32 coldkey,
+        uint256 netuid
+    ) external view returns (uint256);
+
+    /**
      * @dev Returns the total amount of stake under a hotkey (delegative or otherwise)
      *
      * This function allows external accounts and contracts to query the total amount of RAO staked under a hotkey
