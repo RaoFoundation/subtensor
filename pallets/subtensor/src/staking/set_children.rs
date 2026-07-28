@@ -558,9 +558,11 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Calculate the cooldown from this subnet's tempo.
-        let cooldown = u64::from(Self::get_tempo(netuid))
-            .saturating_mul(u64::from(ChildKeyCooldownTempos::<T>::get()));
+        // Keep a relationship pending for at least the commit-reveal window so one
+        // stake position cannot be moved between validator identities inside it.
+        let cooldown_tempos =
+            u64::from(ChildKeyCooldownTempos::<T>::get()).max(Self::get_reveal_period(netuid));
+        let cooldown = u64::from(Self::get_tempo(netuid)).saturating_mul(cooldown_tempos);
         let cooldown_block = Self::get_current_block_as_u64().saturating_add(cooldown);
 
         // Insert or update PendingChildKeys

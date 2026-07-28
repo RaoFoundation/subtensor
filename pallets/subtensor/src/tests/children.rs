@@ -4098,7 +4098,9 @@ fn test_pending_cooldown_as_expected() {
         let proportion1: u64 = 1000;
         let proportion2: u64 = 2000;
         let tempo = 13;
-        let expected_cooldown = u64::from(tempo) * u64::from(ChildKeyCooldownTempos::<Test>::get());
+        let cooldown_tempos = u64::from(ChildKeyCooldownTempos::<Test>::get())
+            .max(SubtensorModule::get_reveal_period(netuid));
+        let expected_cooldown = u64::from(tempo) * cooldown_tempos;
 
         // Add network and register hotkey
         add_network(netuid, tempo, 0);
@@ -4119,6 +4121,45 @@ fn test_pending_cooldown_as_expected() {
             vec![(proportion1, child1), (proportion2, child2)]
         );
         assert_eq!(pending_children.1, curr_block + expected_cooldown);
+    });
+}
+
+#[test]
+fn test_pending_cooldown_respects_commit_reveal_period() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let parent = U256::from(2);
+        let child = U256::from(3);
+        let netuid = NetUid::from(1);
+        let tempo = 5;
+        let childkey_cooldown_tempos = 2;
+        let reveal_period = 3;
+
+        add_network(netuid, tempo, 0);
+        register_ok_neuron(netuid, parent, coldkey, 0);
+        ChildKeyCooldownTempos::<Test>::put(childkey_cooldown_tempos);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, reveal_period));
+
+        let scheduled_at = System::block_number();
+        LastEpochBlock::<Test>::insert(netuid, scheduled_at);
+        BlocksSinceLastStep::<Test>::insert(netuid, 0);
+
+        mock_schedule_children(&coldkey, &parent, netuid, &[(u64::MAX, child)]);
+
+        let deadline = scheduled_at + u64::from(tempo) * reveal_period;
+        assert_eq!(PendingChildKeys::<Test>::get(netuid, parent).1, deadline);
+
+        step_epochs(childkey_cooldown_tempos, netuid);
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert!(ChildKeys::<Test>::get(parent, netuid).is_empty());
+
+        step_epochs(1, netuid);
+        assert_eq!(System::block_number(), deadline);
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            ChildKeys::<Test>::get(parent, netuid),
+            vec![(u64::MAX, child)]
+        );
     });
 }
 
@@ -4162,27 +4203,35 @@ fn test_pending_children_activate_after_exactly_configured_tempos() {
 }
 
 #[test]
-fn test_pending_children_zero_cooldown_activates_at_deadline() {
+fn test_pending_children_zero_cooldown_uses_commit_reveal_floor() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let parent = U256::from(2);
         let child = U256::from(3);
         let netuid = NetUid::from(1);
+        let tempo = 5;
+        let reveal_period = 1;
 
-        add_network(netuid, 5, 0);
+        add_network(netuid, tempo, 0);
         register_ok_neuron(netuid, parent, coldkey, 0);
         ChildKeyCooldownTempos::<Test>::put(0);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, reveal_period));
 
         let scheduled_at = System::block_number();
+        LastEpochBlock::<Test>::insert(netuid, scheduled_at);
+        BlocksSinceLastStep::<Test>::insert(netuid, 0);
         mock_schedule_children(&coldkey, &parent, netuid, &[(u64::MAX, child)]);
 
         assert_eq!(
             PendingChildKeys::<Test>::get(netuid, parent).1,
-            scheduled_at
+            scheduled_at + u64::from(tempo) * reveal_period
         );
 
         SubtensorModule::do_set_pending_children(netuid);
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert!(ChildKeys::<Test>::get(parent, netuid).is_empty());
 
+        step_epochs(1, netuid);
         assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
         assert_eq!(
             ChildKeys::<Test>::get(parent, netuid),
