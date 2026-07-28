@@ -96,11 +96,6 @@ pub mod pallet {
             /// Indicates if the Bonds Reset was enabled or disabled.
             enabled: bool,
         },
-        /// Event emitted when the childkey activation cooldown is set.
-        ChildKeyCooldownTemposSet {
-            /// The new cooldown, measured in subnet tempos.
-            tempos: u16,
-        },
         /// Event emitted when the burn half-life parameter is set for a subnet.
         BurnHalfLifeSet {
             /// The network identifier.
@@ -138,6 +133,12 @@ pub mod pallet {
             netuid: NetUid,
             /// The new drain ratio (alpha released per alpha of emission earned).
             drain_ratio: U64F64,
+        },
+
+        /// Event emitted when the childkey activation cooldown is set.
+        ChildKeyCooldownTemposSet {
+            /// The new cooldown, measured in subnet tempos.
+            tempos: u16,
         },
     }
 
