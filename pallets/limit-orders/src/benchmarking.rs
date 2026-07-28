@@ -27,11 +27,22 @@ fn sign_order<T: crate::Config>(
     order: &crate::VersionedOrder<T::AccountId>,
 ) -> crate::SignedOrder<T::AccountId> {
     // Mirror the on-chain check in `verify_readable`: the signed message is the
-    // `<Bytes>…</Bytes>`-wrapped canonical readable rendering of the order.
+    // `<Bytes>…</Bytes>`-wrapped canonical readable rendering of the order, hashed
+    // when it exceeds Ledger's raw-signing limit (which it always does in practice)
+    // exactly as the device does before signing.
     let msg = crate::pallet::Pallet::<T>::render_order(order);
     let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
-    let sig = sp_io::crypto::sr25519_sign(sp_core::crypto::key_types::ACCOUNT, &public, &payload)
-        .unwrap();
+    let signed_bytes = if payload.len() > crate::LEDGER_MAX_SIGN_SIZE {
+        sp_core::hashing::blake2_256(&payload).to_vec()
+    } else {
+        payload
+    };
+    let sig = sp_io::crypto::sr25519_sign(
+        sp_core::crypto::key_types::ACCOUNT,
+        &public,
+        &signed_bytes,
+    )
+    .unwrap();
     crate::SignedOrder {
         order: order.clone(),
         signature: MultiSignature::Sr25519(sig),

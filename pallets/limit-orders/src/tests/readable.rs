@@ -48,6 +48,19 @@ fn readable_signing_payload(order: &VersionedOrder<AccountId>) -> Vec<u8> {
     [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat()
 }
 
+/// The bytes a signer actually puts through ed25519/sr25519 for the readable form —
+/// i.e. what a Ledger emits. The device blake2_256-hashes a raw-signing payload
+/// longer than `LEDGER_MAX_SIGN_SIZE` before signing it, and `verify_readable`
+/// follows the same rule, so these tests must too.
+fn readable_signed_bytes(order: &VersionedOrder<AccountId>) -> Vec<u8> {
+    let payload = readable_signing_payload(order);
+    if payload.len() > crate::LEDGER_MAX_SIGN_SIZE {
+        sp_core::hashing::blake2_256(&payload).to_vec()
+    } else {
+        payload
+    }
+}
+
 /// A fully-specified LimitBuy order that passes every non-signature guard in
 /// `is_order_valid` under the default mock setup (netuid 1, chain 945, far-future
 /// expiry, no relayer restriction, price condition met at price 1.0).
@@ -76,7 +89,7 @@ fn make_readable_signed_order(
     order: Order<AccountId>,
 ) -> crate::SignedOrder<AccountId> {
     let versioned = VersionedOrder::V1(order);
-    let sig = keyring.pair().sign(&readable_signing_payload(&versioned));
+    let sig = keyring.pair().sign(&readable_signed_bytes(&versioned));
     crate::SignedOrder {
         order: versioned,
         signature: MultiSignature::Sr25519(sig),
@@ -365,7 +378,7 @@ fn is_order_valid_accepts_readable_ed25519_signature() {
             ..base_buy_order()
         };
         let versioned = VersionedOrder::V1(order);
-        let ed_sig = ed_pair.sign(&readable_signing_payload(&versioned));
+        let ed_sig = ed_pair.sign(&readable_signed_bytes(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
             signature: MultiSignature::Ed25519(ed_sig),
@@ -584,7 +597,7 @@ fn readable_ecdsa_signature_rejected() {
         let order = base_buy_order();
         let versioned = VersionedOrder::V1(order);
         let ecdsa_pair = sp_core::ecdsa::Pair::from_legacy_string("//Alice", None);
-        let ecdsa_sig = ecdsa_pair.sign(&readable_signing_payload(&versioned));
+        let ecdsa_sig = ecdsa_pair.sign(&readable_signed_bytes(&versioned));
         let signed = crate::SignedOrder {
             order: versioned,
             signature: MultiSignature::Ecdsa(ecdsa_sig),

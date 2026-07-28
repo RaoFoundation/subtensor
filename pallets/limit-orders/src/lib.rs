@@ -26,6 +26,20 @@ use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::OrderSwapInterface;
 
+/// Ledger's raw-signing size limit — `MAX_SIGN_SIZE` in the Zondax Polkadot app
+/// (`app/src/coin.h`), mirroring the 256-byte rule Substrate applies to extrinsic
+/// signing payloads.
+///
+/// A `signRaw` payload longer than this is **blake2_256-hashed on-device** before
+/// the ed25519 signature is produced (`crypto_sign_ed25519` in `app/src/crypto.c`),
+/// so the signature commits to the hash of the payload rather than to the payload
+/// bytes. The device still displays the full message: the printable-ASCII check and
+/// pagination in `tx_raw_getItem` operate on the received buffer, and the hashing
+/// happens later, in the signing step only. Clear-signing therefore remains
+/// what-you-see-is-what-you-sign — the on-chain verifier just has to accept the
+/// hashed commitment as well (see `verify_readable`).
+pub const LEDGER_MAX_SIGN_SIZE: usize = 256;
+
 // ── Data structures ──────────────────────────────────────────────────────────
 
 /// Internal direction of a net pool trade. Used only for `GroupExecutionSummary`
@@ -725,14 +739,35 @@ partial fills {partial}, signer {signer}",
         /// and sign. The signed payload is the `<Bytes>`-wrapped canonical message built
         /// by [`render_order`] (the `signRaw`/Ledger envelope). Accepts sr25519 and
         /// ed25519; rejects ecdsa.
+        ///
+        /// The bytes actually verified follow the device's own rule: a raw-signing
+        /// payload longer than [`LEDGER_MAX_SIGN_SIZE`] is blake2_256-hashed on-device
+        /// before signing, so for an oversized payload the signature commits to
+        /// `blake2_256(payload)` and that is what is verified; at or below the limit the
+        /// payload bytes are verified directly. In practice the readable message is
+        /// always oversized (three SS58 addresses alone are 144 characters), so the
+        /// hashed branch is the live one — the byte-exact branch exists to keep this
+        /// function correct for any future, shorter rendering.
+        ///
+        /// The sibling forms need no such rule: `verify_wrapped`'s payload is a fixed
+        /// 47 bytes (`<Bytes>` + 32-byte hash + `</Bytes>`), and `verify_order` is not a
+        /// Ledger form at all — it has no `<Bytes>…</Bytes>` envelope, which the device's
+        /// `tx_raw_parse` requires, so a Ledger can never produce it.
         pub(crate) fn verify_readable(signed_order: &SignedOrder<T::AccountId>) -> bool {
             let order = signed_order.order.inner();
             let msg = Self::render_order(&signed_order.order);
             let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
+            let signed_bytes = if payload.len() > LEDGER_MAX_SIGN_SIZE {
+                sp_core::hashing::blake2_256(&payload).to_vec()
+            } else {
+                payload
+            };
             matches!(
                 signed_order.signature,
                 MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
-            ) && signed_order.signature.verify(payload.as_slice(), &order.signer)
+            ) && signed_order
+                .signature
+                .verify(signed_bytes.as_slice(), &order.signer)
         }
 
         /// Validates all execution preconditions for a signed order.

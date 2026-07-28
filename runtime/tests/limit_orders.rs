@@ -2841,6 +2841,24 @@ partial fills {partial}, signer {signer}",
     .into_bytes()
 }
 
+/// The bytes a signer actually signs for the readable form: the `<Bytes>`-wrapped
+/// message, blake2_256-hashed when it exceeds Ledger's raw-signing limit.
+///
+/// A Ledger hashes any `signRaw` payload longer than `MAX_SIGN_SIZE` (256 bytes,
+/// `app/src/coin.h` in the Zondax Polkadot app) before signing it, and the runtime
+/// verifies against the same rule. The readable message is always oversized (three
+/// SS58 addresses alone are 144 characters), so this is the hashed shape in
+/// practice — the `else` arm exists only to mirror the runtime exactly.
+fn readable_signed_bytes(order: &Order<AccountId>) -> Vec<u8> {
+    let msg = render_order_readable(order);
+    let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
+    if payload.len() > pallet_limit_orders::LEDGER_MAX_SIGN_SIZE {
+        sp_core::hashing::blake2_256(&payload).to_vec()
+    } else {
+        payload
+    }
+}
+
 /// End-to-end: a LimitBuy order signed with the human-readable ("clear-signing")
 /// payload — `<Bytes>` ++ render_order ++ `</Bytes>` — executes through
 /// `execute_batched_orders`, is marked Fulfilled, and credits staked alpha to the
@@ -2879,9 +2897,7 @@ fn execute_batched_orders_readable_signature_executes() {
         let order = VersionedOrder::V1(inner.clone());
         let id = order_id(&order);
 
-        let msg = render_order_readable(&inner);
-        let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
-        let sig = alice.pair().sign(&payload);
+        let sig = alice.pair().sign(&readable_signed_bytes(&inner));
         let signed = SignedOrder {
             order,
             signature: MultiSignature::Sr25519(sig),
