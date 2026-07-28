@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   title: 'Root Reborn — The V441 Upgrade',
   description:
     'Nearly half of every TAO ever minted sits on root. Root Reborn turns its dividend ' +
-    'stream into validator-curated beta baskets — live network numbers, how the fund ' +
+    'stream into validator-curated baskets — live network numbers, how the fund ' +
     'works, and what to do.',
   alternates: {canonical: '/releases/v441-upgrade'},
 };
@@ -175,7 +175,7 @@ const BasketFlowDiagram = () => (
     className={styles.graph}
     viewBox='0 0 760 340'
     role='img'
-    aria-label='Each epoch a validator’s root alpha dividend is sold to TAO and split across subnets per its root weights, buying alpha into an escrowed basket; root stakers are minted fund shares at NAV and later redeem them pro-rata as TAO staked back to root.'
+    aria-label='Each epoch a validator’s root alpha dividend is sold to TAO and split across subnets per its root weights, buying alpha into an escrowed basket; root stakers accrue an entitlement at NAV and later redeem it pro-rata as TAO staked back to root.'
   >
     <rect
       x='300'
@@ -312,11 +312,11 @@ const page = () => {
             Nearly half of all TAO in existence, {pct(snapshot.rootShareOfStake, 0)} of all
             staked TAO, concentrated in one place — and until now it was the only capital in
             the network with no intelligence attached. Its yield was sold the moment it
-            arrived, mechanically, every block. Spec <strong>438</strong> switches the giant
+            arrived, mechanically, every block. Spec <strong>441</strong> switches the giant
             on: per-subnet claimable dividends become{' '}
-            <DocLink href='/docs/guides/root-reborn'>beta baskets</DocLink> — every root
+            <DocLink href='/docs/guides/root-reborn'>baskets</DocLink> — every root
             validator runs an escrowed index fund of subnet alpha, curated by its root
-            weights, and stakers redeem fund shares with one parameterless claim.
+            weights, and stakers redeem their entitlement with one parameterless claim.
           </p>
         </section>
 
@@ -519,7 +519,7 @@ const page = () => {
           <p>
             Each root validator now publishes a weight vector — its allocation across subnets,
             on-chain, for everyone to see. Dividends are deployed per that vector; stakers are
-            minted shares of the resulting basket at net asset value, and redeem them with one
+            credited their slice of the resulting basket at net asset value, and redeem it with one
             claim, paid in TAO staked straight back to root. A weight on netuid 0 holds that
             slice as pure TAO, so fully passive validators remain exactly one setting away.
             The scoreboard is the simplest in finance:{' '}
@@ -557,14 +557,14 @@ const page = () => {
             across the subnets it has chosen, in proportion to its root weights — buying each
             destination&apos;s alpha into the basket. Holdings live under a chain-owned escrow
             account as real stake positions, so they keep earning. When a dividend lands,
-            stakers are minted basket shares priced at the fund&apos;s{' '}
+            stakers accrue an entitlement priced at the fund&apos;s{' '}
             <strong>realizable</strong> TAO quote — what selling the holdings would actually
             fetch at current pool depth, never a spot mark.
           </p>
           <BasketFlowDiagram />
           <p className={styles.graph_caption}>
             One validator&apos;s fund with a 30/50/20 vector. Dividends buy holdings; stakers
-            hold shares; a claim redeems a pro-rata slice of every holding as TAO staked back
+            hold an entitlement; a claim redeems a pro-rata slice of every holding as TAO staked back
             to root.
           </p>
         </section>
@@ -572,9 +572,20 @@ const page = () => {
         <section className={styles.section}>
           <p className={styles.subtitle}>For root validators</p>
           <p>
-            Set your distribution vector with your hotkey. A validator with no custom weights
-            still accrues — dividends default to 100% root (TAO in the fund&apos;s root slot).
-            Set the vector when you want to deploy into subnet alpha.
+            Joining root is now <strong>burn-based</strong>: <code>root_register</code>{' '}
+            charges the coldkey the demand-priced root burn (τ0.0005 at rest, bumped
+            ~×1.26 per registration and decaying back to the floor) instead of requiring
+            stake up front. A full network still prunes the lowest-staked member on entry,
+            so subscribe stake to your own hotkey to hold the seat.
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli subnets burn-cost 0                        # current root registration price
+btcli subnets register --netuid 0 -w my_coldkey  # register; no prior stake needed`}
+          </pre>
+          <p>
+            Then set your distribution vector with your hotkey. A validator with no custom
+            weights still accrues — dividends default to 100% root (TAO in the fund&apos;s
+            root slot). Set the vector when you want to deploy into subnet alpha.
           </p>
           <pre className={styles.code_block}>
             {`btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet
@@ -595,30 +606,32 @@ btcli root show --hotkey 5F...         # your fund: weights, holdings, NAV`}
         <section className={styles.section}>
           <p className={styles.subtitle}>For root stakers</p>
           <p>
-            Nothing to configure — stake TAO on root and shares accrue automatically.{' '}
-            <code>btcli</code> shows root positions in beta (β): staked β is principal,
-            accrued β is fund yield. Today&apos;s root stream is a{' '}
+            Nothing to configure — subscribe TAO on root and yield accrues automatically.{' '}
+            <code>btcli</code> shows root positions in TAO: staked τ is principal,
+            accrued τ is fund yield. Today&apos;s root stream is a{' '}
             {pct(snapshot.rootYieldApr)} base yield in TAO; after this release that floor is
             where the story starts — yield compounds inside the basket, and{' '}
             <strong>nothing is realized until you claim</strong>.
           </p>
           <pre className={styles.code_block}>
-            {`btcli root list                    # staked β + accrued β, per validator
-btcli tx claim-root -w my_coldkey  # claim-root: redeem across all validators`}
+            {`btcli root list                            # staked + accrued τ, per validator
+btcli root subscribe --amount 100 --hotkey 5F...  # assets in; shares minted
+btcli root redeem --amount all --hotkey 5F...     # shares burned; assets returned
+btcli tx claim-root -w my_coldkey                 # redeem accrued yield across all validators`}
           </pre>
           <p>
             <DocLink href='/docs/tx/claim-root'>
               <code>claim_root</code>
             </DocLink>{' '}
             takes <strong>no parameters</strong>: it walks every validator you root-stake to,
-            redeems your owed shares pro-rata from each basket, and stakes the TAO proceeds
+            redeems your accrued entitlement pro-rata from each basket, and stakes the TAO proceeds
             back to root. Per-validator payouts below the claim threshold (default 500,000
             rao; read it with{' '}
             <DocLink href='/docs/query/root-claim-threshold'>
               <code>root-claim-threshold</code>
             </DocLink>
             ) are skipped and keep accruing — there is no deadline and nothing expires.
-            Unstaking past your staked β also merges accrued β automatically.
+            Redeeming past your staked τ also claims accrued yield automatically.
           </p>
         </section>
 
@@ -640,14 +653,21 @@ btcli tx claim-root -w my_coldkey  # claim-root: redeem across all validators`}
             <li>
               The <code>RootClaimable</code> / <code>RootClaimed</code> per-subnet state is{' '}
               <strong>migrated into baskets</strong> at upgrade: previously accrued claimable
-              alpha becomes basket holdings and shares on the same validator. Nothing is
+              alpha becomes basket holdings and entitlement on the same validator. Nothing is
               lost, and no user action is needed for past accruals.
             </li>
             <li>
-              Hotkey and coldkey swaps carry basket state (holdings, shares, claim
+              Hotkey and coldkey swaps carry basket state (holdings, entitlements, claim
               watermarks) to the new key; a hotkey with a live basket is not
               &quot;clean&quot; for reuse. Subnet dissolution converts that subnet&apos;s
               basket holdings into the TAO slot of each affected fund.
+            </li>
+            <li>
+              <code>root_register</code> (62) now charges the root burn price and no longer
+              requires the hotkey to out-stake the lowest root member — the{' '}
+              <code>StakeTooLowForRoot</code> error is retired. Tooling that pre-funded root
+              hotkeys with stake before registering can drop that step; coldkeys need free
+              balance for the burn instead.
             </li>
           </ul>
         </section>
@@ -672,7 +692,7 @@ betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
         <section className={styles.section}>
           <p className={styles.subtitle}>What to do</p>
           <p>
-            Operators should wait for the on-chain <code>spec_version</code> to move to 438,
+            Operators should wait for the on-chain <code>spec_version</code> to move to 441,
             then upgrade nodes and clients. SDK users should pull the matching bittensor
             release once the train publishes it.
           </p>
@@ -680,7 +700,7 @@ betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
             <strong>Root validators:</strong> set your root weights with{' '}
             <code>btcli root set-weights</code> to curate subnet exposure (the default is
             100% root / TAO). <strong>Stakers:</strong> claims are now fund-level;{' '}
-            <code>btcli root list</code> shows staked and accrued β and{' '}
+            <code>btcli root list</code> shows staked and accrued τ and{' '}
             <code>btcli tx claim-root</code> redeems it. The retired{' '}
             <code>btcli stake set-claim</code> / <code>process-claim</code> commands are
             replaced by the <code>btcli root</code> suite.

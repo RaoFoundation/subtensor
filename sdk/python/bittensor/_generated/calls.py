@@ -255,7 +255,7 @@ class SubtensorModule:
 
     @staticmethod
     def claim_root() -> Call:
-        "Claims the root emissions for a coldkey.  Redemption is fund-level: for every validator the coldkey stakes to, the staker's owed fund shares are redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). There is no per-subnet selection — the basket is a single fund whose composition is independent of staker entitlements.  # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims."
+        "Claims the root emissions for a coldkey.  Redemption is fund-level: for every validator the coldkey stakes to, the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). There is no per-subnet selection — the basket is a single fund whose composition is independent of staker entitlements.  # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims."
         return Call('SubtensorModule', 'claim_root', {})
 
     @staticmethod
@@ -400,7 +400,7 @@ class SubtensorModule:
 
     @staticmethod
     def root_register(hotkey: 'AccountId32') -> Call:
-        'Register the hotkey to root network'
+        'Register the hotkey to root network.  Admission is burn-based: the coldkey pays the root burn price (demand-priced like subnet registration), recycled out of issuance. No prior stake is required. When the network is full, the lowest-staked member is pruned to make room.'
         return Call('SubtensorModule', 'root_register', {'hotkey': hotkey})
 
     @staticmethod
@@ -480,7 +480,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_root_weights(dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
-        "--- Sets a root validator's beta-basket distribution vector `w` on the root subnet (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the validator's root dividends to deploy into each subnet's alpha basket.  # Args: * `origin`: the root validator hotkey. * `dests` (Vec<u16>): destination subnet netuids. * `weights` (Vec<u16>): per-subnet weights (normalized on use). * `version_key` (u64): the network version key."
+        "--- Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the validator's root dividends to deploy into each subnet's alpha basket.  # Args: * `origin`: the root validator hotkey. * `dests` (Vec<u16>): destination subnet netuids. * `weights` (Vec<u16>): per-subnet weights (normalized on use). * `version_key` (u64): the network version key."
         return Call('SubtensorModule', 'set_root_weights', {'dests': dests, 'weights': weights, 'version_key': version_key})
 
     @staticmethod

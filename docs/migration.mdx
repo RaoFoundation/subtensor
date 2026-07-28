@@ -284,7 +284,7 @@ surface, replacing `query_subtensor`, `query_module`, `query_map`,
 | `get_crowdloans()` / `get_crowdloan_by_id` / `get_crowdloan_contributions` | `client.leasing.crowdloans()` / `crowdloan(...)` / `crowdloan_contributors(...)` |
 | `get_mev_shield_next_key()` | `client.chain.mev_shield_next_key()` |
 | `get_root_claim_type(ss58)` | removed (retired on chain in v441; claims are always TAO to root stake) |
-| other `get_root_claim*` reads | `client.staking.root_basket_owed(coldkey_ss58=...)` and the other [beta basket reads](/docs/guides/root-reborn) |
+| other `get_root_claim*` reads | `client.staking.root_basket_owed(coldkey_ss58=...)` and the other [basket reads](/docs/guides/root-reborn) |
 | `get_liquidity_list(...)` | removed (feature retired on chain) |
 
 ## The metagraph
@@ -364,7 +364,7 @@ a limit price).
 | `set_children(wallet, netuid, hotkey_ss58, children)` | `bt.SetChildren(netuid=..., children=[...])` — **unit change, see below** |
 | `set_subnet_identity(...)` | `bt.SetSubnetIdentity(netuid=..., subnet_name=..., ...)` (flattened fields) |
 | identity via extrinsics | `bt.SetIdentity(name=..., url=..., ...)` |
-| `claim_root(wallet, netuids)` | `bt.ClaimRoot()` — parameterless since v441 (fund-level, [beta baskets](/docs/guides/root-reborn)) |
+| `claim_root(wallet, netuids)` | `bt.ClaimRoot()` — parameterless since v441 (fund-level, [baskets](/docs/guides/root-reborn)) |
 | `set_root_claim_type(wallet, type)` | removed (retired on chain in v441; claims are always TAO to root stake) |
 | `add_proxy` / `remove_proxy` / `remove_proxies` / `create_pure_proxy` / `kill_pure_proxy` | same-name intents (`bt.AddProxy(delegate_ss58=..., proxy_type=..., delay=...)`, ...) |
 | `proxy(wallet, real_ss58, type, call)` | `client.execute(intent, wallet, proxy_for=real_ss58)` |
@@ -682,7 +682,7 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `sudo senate` / `proposals` / `senate-vote` | **removed** — the senate is gone from the runtime ([Governance](/docs/guides/governance)) |
 | `subnets list` / `show` / `create` / `register` / `burn-cost` / `price` | same names (`show`/`burn-cost` take netuid positionally) |
 | `subnets metagraph` | `subnets metagraph NETUID` / `query metagraph --netuid N --json` |
-| `subnets register --netuid 0` | `tx root-register` |
+| `subnets register --netuid 0` | `subnets register --netuid 0` — unchanged; registration is now burn-based (wraps `root_register`) |
 | `subnets start` / `check-start` | `sudo start` / `sudo check-start` |
 | `subnets set-identity` / `get-identity` / `set-symbol` | `sudo set-identity` / `sudo get-identity` / `sudo set-symbol` |
 | `subnets mechanisms ...` | `sudo mechanisms ...` |

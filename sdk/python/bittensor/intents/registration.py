@@ -150,18 +150,23 @@ class RootRegister(Intent):
 
     Joins the hotkey to the root network, the TAO staking pool (netuid 0 has
     no miners and no alpha; validators register here to receive root stake).
-    Placement is stake-based rather than burn-based: root slots are limited, so
-    joining a full root network evicts the member with the least stake, and a
-    hotkey without enough stake behind it will not hold a seat. Root
-    registrations are also capped per block (``max_registrations_per_block``)
-    and per interval (three times ``target_registrations_per_interval``);
-    hitting either cap fails until the window passes. Use
-    ``burned_register`` for ordinary subnets.
+    Admission is burn-based, like subnet registration: the coldkey pays the
+    root burn price (recycled out of issuance, demand-priced — each
+    registration bumps it and it decays back toward the floor). No prior
+    stake is required, but root slots are limited: joining a full root
+    network evicts the member with the least stake, so a seat is only held
+    by keeping stake behind the hotkey. Root registrations are also capped
+    per block (``max_registrations_per_block``) and per interval (three
+    times ``target_registrations_per_interval``); hitting either cap fails
+    until the window passes. Use ``burned_register`` for ordinary subnets.
     """
 
     op = "root_register"
     signer = "coldkey"
     wraps = (("SubtensorModule", "root_register"),)
+    # Docs: the friendly path is the ordinary subnet register command, which
+    # routes netuid 0 here.
+    cli_example = "btcli subnets register --netuid 0"
 
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -184,9 +189,9 @@ class RootRegister(Intent):
 @register
 @dataclass
 class ClaimRoot(Intent):
-    """Redeem your accrued root dividends (beta basket shares) as root stake.
+    """Redeem your accrued root dividends (basket shares) as root stake.
 
-    Root dividends accrue as shares of each validator's beta basket — an
+    Root dividends accrue as shares of each validator's basket — an
     escrowed index fund of subnet alpha the chain builds from the validator's
     root dividends per its root weights (see ``set_root_weights``). This call
     redeems the signing coldkey's owed shares across every validator it
@@ -207,7 +212,7 @@ class ClaimRoot(Intent):
         return await substrate.compose(calls.SubtensorModule.claim_root())
 
     def summary(self) -> str:
-        return "claim root dividends (redeem beta basket shares to root stake)"
+        return "claim root dividends (redeem basket shares to root stake)"
 
 
 @register

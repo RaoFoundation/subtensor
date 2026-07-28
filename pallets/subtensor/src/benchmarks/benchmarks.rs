@@ -280,12 +280,9 @@ mod pallet_benchmarks {
         let hotkey: T::AccountId = account("root_register_hot", 0, 1);
 
         setup_full_root_registration_benchmark::<T>();
-        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            AlphaBalance::from(2_u64),
-        );
+        // Root admission is burn-based: fund the coldkey for the burn charge
+        // so the recycle path (the worst case) is exercised.
+        fund_for_registration::<T>(NetUid::ROOT, &coldkey);
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
@@ -2071,6 +2068,7 @@ mod pallet_benchmarks {
         FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, 1);
         SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
 
+        fund_for_registration::<T>(NetUid::ROOT, &coldkey);
         let _ = Subtensor::<T>::do_root_register(
             RawOrigin::Signed(coldkey.clone()).into(),
             hotkey.clone(),

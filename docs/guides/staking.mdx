@@ -136,25 +136,27 @@ Quick reference:
 
 ## Root stake and dividends
 
-Stake on the root network earns dividends from across subnets through **beta
-baskets**: each root validator runs an escrowed index fund of subnet alpha,
-allocated per its root weights, and root stakers accrue shares of that fund
+Stake on the root network earns dividends from across subnets through
+**baskets**: each root validator runs an escrowed index fund of subnet alpha,
+allocated per its root weights, and root stakers accrue an entitlement to that fund
 in proportion to their root stake.
 
-Unlike subnet staking, root staking and unstaking is not a pool swap: no swap
-fee, no slippage, no MEV exposure — you move TAO in and out at face value.
-See [how money moves](/docs/concepts/money) for the swap mechanics that root
-stake skips.
+Unlike subnet staking, moving TAO in and out of root is not a pool swap: no
+swap fee, no slippage, no MEV exposure — you subscribe and redeem at face
+value. See [how money moves](/docs/concepts/money) for the swap mechanics
+that root positions skip.
 
-`btcli` shows root positions in **beta (β)**: staked β is principal on
-netuid 0, accrued β is fund yield. List your positions, then redeem accrued
-β — one parameterless claim covers every validator you root-stake to,
-paying out in TAO staked back to root (unstaking past your staked β also
-merges accrued β automatically):
+`btcli` shows root positions in TAO: staked τ is principal on netuid 0,
+accrued τ is fund yield. List your positions, then claim accrued yield — one
+parameterless claim covers every validator you root-stake to, paying out in
+TAO staked back to root (redeeming past your staked τ also claims accrued
+yield automatically):
 
 ```bash
-btcli root list                    # staked β + accrued β, per validator
-btcli tx claim-root -w my_coldkey  # redeem via claim-root
+btcli root list                                   # staked + accrued τ, per validator
+btcli root subscribe --amount 100 --hotkey 5F...  # assets in; shares minted
+btcli root redeem --amount all --hotkey 5F...     # shares burned; assets returned
+btcli tx claim-root -w my_coldkey                 # claim accrued yield across all validators
 ```
 
 Per-validator payouts below the claim threshold (default 500,000 rao) are

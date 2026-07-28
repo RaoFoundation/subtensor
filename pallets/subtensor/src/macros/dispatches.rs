@@ -78,7 +78,7 @@ mod dispatches {
             }
         }
 
-        /// --- Sets a root validator's beta-basket distribution vector `w` on the root subnet
+        /// --- Sets a root validator's basket distribution vector `w` on the root subnet
         /// (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the
         /// validator's root dividends to deploy into each subnet's alpha basket.
         ///
@@ -822,7 +822,12 @@ mod dispatches {
             Self::do_register(origin, netuid, hotkey)
         }
 
-        /// Register the hotkey to root network
+        /// Register the hotkey to root network.
+        ///
+        /// Admission is burn-based: the coldkey pays the root burn price
+        /// (demand-priced like subnet registration), recycled out of issuance.
+        /// No prior stake is required. When the network is full, the
+        /// lowest-staked member is pruned to make room.
         #[pallet::call_index(62)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
         pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
@@ -1897,7 +1902,7 @@ mod dispatches {
         /// Claims the root emissions for a coldkey.
         ///
         /// Redemption is fund-level: for every validator the coldkey stakes to, the staker's
-        /// owed fund shares are redeemed as their pro-rata fraction of each basket holding
+        /// accrued entitlement is redeemed as their pro-rata fraction of each basket holding
         /// (sold to TAO and staked on root). There is no per-subnet selection — the basket is a
         /// single fund whose composition is independent of staker entitlements.
         ///
@@ -1921,15 +1926,16 @@ mod dispatches {
             Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// Stakes TAO from the caller's balance directly into a validator's beta basket.
+        /// Stakes TAO from the caller's balance directly into a validator's basket.
         ///
         /// The TAO is deployed across subnets per the validator's root weight vector
-        /// (exactly like a dividend deposit) and fund shares are minted to the caller at
-        /// the fund's pre-buy realizable NAV, priced against the realizable value the
-        /// deposit added — the depositor bears their own entry slippage and swap fees.
-        /// The credited shares are redeemable through [`Pallet::claim_root`] like any
-        /// dividend-accrued entitlement; they do not require or affect root stake, and
-        /// they do not change any staker's dividend accrual.
+        /// (exactly like a dividend deposit) and the caller is credited a fund
+        /// entitlement at the fund's pre-buy realizable NAV, priced against the
+        /// realizable value the deposit added — the depositor bears their own entry
+        /// slippage and swap fees. The credited entitlement is redeemable through
+        /// [`Pallet::claim_root`] like any dividend-accrued entitlement; it does not
+        /// require or affect root stake, and it does not change any staker's dividend
+        /// accrual.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -1938,12 +1944,12 @@ mod dispatches {
         ///
         /// # Events
         /// * `BasketStakedIn`: On success, with the TAO taken, the realizable value added,
-        ///   and the fund shares credited.
+        ///   and the entitlement credited.
         ///
         /// # Errors
         /// * `HotKeyAccountNotExists`: The hotkey is not a registered account.
         /// * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value
-        ///   rounds to zero shares.
+        ///   rounds to zero entitlement.
         /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.
         /// * `BasketHasNoWeights`: The validator's weight vector filters to nothing.
         #[pallet::call_index(147)]

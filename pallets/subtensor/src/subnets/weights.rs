@@ -872,7 +872,7 @@ impl<T: Config> Pallet<T> {
         Self::internal_set_weights(origin, netuid, MechId::MAIN, uids, values, version_key)
     }
 
-    /// Sets a root validator's beta-basket distribution vector `w` on the root subnet (netuid 0).
+    /// Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0).
     ///
     /// Unlike normal subnet weights, the `dests` here are interpreted as *subnet netuids* and the
     /// values as the proportion of the validator's root dividends to deploy into each subnet's

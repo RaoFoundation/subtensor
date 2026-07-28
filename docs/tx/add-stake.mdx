@@ -22,7 +22,7 @@ reserve (`InsufficientLiquidity`).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L576-L585), [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1409-L1428) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L576-L585), [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1414-L1433) |
 
 ## Parameters
 
@@ -96,7 +96,7 @@ pub fn add_stake(
 
 Delegates to [`do_add_stake`](/code/pallets/subtensor/src/staking/add_stake.rs#L30).
 
-`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1411`](/code/pallets/subtensor/src/macros/dispatches.rs#L1409-L1428):
+`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1416`](/code/pallets/subtensor/src/macros/dispatches.rs#L1414-L1433):
 
 ```rust
 #[pallet::call_index(88)]

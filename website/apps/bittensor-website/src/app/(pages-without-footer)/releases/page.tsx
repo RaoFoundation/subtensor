@@ -28,7 +28,7 @@ const releases: Release[] = [
     title: 'Root Reborn',
     summary:
       'Nearly half of all TAO sits on root. This release turns its dividend stream into ' +
-      'validator-curated beta baskets — live network numbers, how the fund works, btcli ' +
+      'validator-curated baskets — live network numbers, how the fund works, btcli ' +
       'commands, breaking changes, and the migration of legacy claimable state.',
     href: '/releases/v441-upgrade',
   },

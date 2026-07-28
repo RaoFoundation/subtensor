@@ -5368,10 +5368,7 @@ fn test_add_root_updates_counters() {
         let hotkey_account_id = U256::from(561337);
         let coldkey_account_id = U256::from(61337);
         add_network(NetUid::ROOT, 10, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(coldkey_account_id).clone(),
-            hotkey_account_id,
-        ));
+        root_register_ok(hotkey_account_id, coldkey_account_id);
         let stake_amount = TaoBalance::from(1_000_000_000_u64);
 
         // Give it some $$$ in his coldkey balance
@@ -5423,10 +5420,7 @@ fn test_remove_root_updates_counters() {
         let hotkey_account_id = U256::from(561337);
         let coldkey_account_id = U256::from(61337);
         add_network(NetUid::ROOT, 10, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(coldkey_account_id).clone(),
-            hotkey_account_id,
-        ));
+        root_register_ok(hotkey_account_id, coldkey_account_id);
         let stake_amount = TaoBalance::from(1_000_000_000);
 
         // Give it some $$$ in his coldkey balance

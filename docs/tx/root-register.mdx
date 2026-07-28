@@ -7,17 +7,19 @@ description: "Register a hotkey on the root network (netuid 0)."
 
 Joins the hotkey to the root network, the TAO staking pool (netuid 0 has
 no miners and no alpha; validators register here to receive root stake).
-Placement is stake-based rather than burn-based: root slots are limited, so
-joining a full root network evicts the member with the least stake, and a
-hotkey without enough stake behind it will not hold a seat. Root
-registrations are also capped per block (`max_registrations_per_block`)
-and per interval (three times `target_registrations_per_interval`);
-hitting either cap fails until the window passes. Use
-`burned_register` for ordinary subnets.
+Admission is burn-based, like subnet registration: the coldkey pays the
+root burn price (recycled out of issuance, demand-priced — each
+registration bumps it and it decays back toward the floor). No prior
+stake is required, but root slots are limited: joining a full root
+network evicts the member with the least stake, so a seat is only held
+by keeping stake behind the hotkey. Root registrations are also capped
+per block (`max_registrations_per_block`) and per interval (three
+times `target_registrations_per_interval`); hitting either cap fails
+until the window passes. Use `burned_register` for ordinary subnets.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L830) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L831-L835) |
 
 ## Parameters
 
@@ -34,8 +36,8 @@ Preview with `--dry-run` (shows fee, effects, and policy result without
 submitting), then submit:
 
 ```bash
-btcli tx root-register --dry-run
-btcli tx root-register -w my_coldkey
+btcli subnets register --netuid 0 --dry-run
+btcli subnets register --netuid 0 -w my_coldkey
 ```
 
 ## Python
@@ -64,7 +66,7 @@ result = sub.execute_tool("root_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L828`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L830):
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L833`](/code/pallets/subtensor/src/macros/dispatches.rs#L831-L835):
 
 ```rust
 #[pallet::call_index(62)]
@@ -74,6 +76,6 @@ pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResu
 }
 ```
 
-Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L77).
+Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L80).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

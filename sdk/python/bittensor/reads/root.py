@@ -1,9 +1,11 @@
-"""Root dividend / beta basket reads.
+"""Root dividend / basket reads.
 
-Root dividends accrue as shares of each validator's beta basket — an escrowed
+Root dividends accrue inside each validator's basket — an escrowed
 per-validator index fund of subnet alpha, built each epoch from the
 validator's root dividends per its root weights (``set_root_weights``) and
-redeemed by stakers with ``claim_root``. These reads wrap the
+redeemed by stakers with ``claim_root``. Every figure these reads return is
+TAO-denominated (or the actual per-subnet alpha holdings); the fund's
+internal share accounting is never exposed. They wrap the
 ``BetaBasketRuntimeApi`` runtime APIs plus the claim-threshold storage entry.
 """
 
@@ -32,10 +34,13 @@ def _i96f32_rao(value: Any) -> int:
 
 
 def _summary_record(view, summary: Any) -> dict:
-    """Shape one decoded chain ``BasketSummary`` into the read's output record."""
+    """Shape one decoded chain ``BasketSummary`` into the read's output record.
+
+    Everything is TAO-denominated (plus the per-subnet alpha holdings); the
+    fund's internal share accounting is never exposed.
+    """
     nav = int(summary.get("nav_tao") or 0)
     spot_nav = int(summary.get("spot_nav_tao") or 0)
-    shares = int(summary.get("shares") or 0)
     deposited = int(summary.get("deposited_tao") or 0)
     redeemed = int(summary.get("redeemed_tao") or 0)
     weights = [(int(netuid), int(weight)) for netuid, weight in summary.get("weights") or []]
@@ -44,9 +49,6 @@ def _summary_record(view, summary: Any) -> dict:
         "hotkey": str(summary.get("hotkey")),
         "nav_tao": view.balance(nav, _ROOT_NETUID),
         "spot_nav_tao": view.balance(spot_nav, _ROOT_NETUID),
-        "shares": shares,
-        # TAO (rao) per fund share; 1.0 at par, grows as the fund compounds.
-        "share_price": nav / shares if shares else 0.0,
         "deposited_tao": view.balance(deposited, _ROOT_NETUID),
         "redeemed_tao": view.balance(redeemed, _ROOT_NETUID),
         # Lifetime multiple on deposits: (current value + everything paid out) / paid in.
@@ -80,7 +82,7 @@ def _summary_record(view, summary: Any) -> dict:
 async def root_basket_owed(view, coldkey_ss58: str) -> Balance:
     """Total TAO a coldkey would realize by claiming its root dividends now.
 
-    Marks the coldkey's owed beta-basket shares across every validator it
+    Marks the coldkey's accrued basket entitlement across every validator it
     root-stakes to at current pool prices (the same slippage-aware valuation
     the chain uses to size redemptions). This is the "pending TAO" figure
     behind `claim_root`; per-validator amounts below the claim threshold are
@@ -99,20 +101,16 @@ async def root_basket_owed(view, coldkey_ss58: str) -> Balance:
 async def root_basket_owed_breakdown(view, coldkey_ss58: str) -> list[dict]:
     """A coldkey's pending root dividends, itemized per validator hotkey.
 
-    For each hotkey the coldkey stakes to: the owed beta-basket fund shares
-    and the TAO they would realize if claimed now. Zero-owed validators are
-    omitted.
+    For each hotkey the coldkey stakes to: the TAO its accrued entitlement
+    would realize if claimed now. Zero-owed validators are omitted.
     """
-    rows = await view.runtime(
-        api.BetaBasketRuntimeApi.get_root_basket_positions, [coldkey_ss58]
-    )
+    rows = await view.runtime(api.BetaBasketRuntimeApi.get_root_basket_positions, [coldkey_ss58])
     records = [
         {
             "hotkey": str(hotkey),
-            "shares": int(shares),
             "owed_tao": view.balance(int(payout), _ROOT_NETUID),
         }
-        for hotkey, shares, payout in rows or []
+        for hotkey, _shares, payout in rows or []
     ]
     records.sort(key=lambda entry: -entry["owed_tao"].rao)
     return records
@@ -125,7 +123,7 @@ async def root_basket_owed_breakdown(view, coldkey_ss58: str) -> list[dict]:
     param_docs={"hotkey_ss58": "Validator hotkey whose basket to list."},
 )
 async def validator_basket(view, hotkey_ss58: str) -> list[dict]:
-    """A validator's beta basket holdings: per subnet, the alpha held and its TAO value.
+    """A validator's basket holdings: per subnet, the alpha held and its TAO value.
 
     The netuid-0 entry is the basket's TAO cash slot (held as root stake, so
     alpha and value coincide). Values are realizable quotes — what selling
@@ -149,13 +147,13 @@ async def validator_basket(view, hotkey_ss58: str) -> list[dict]:
     param_docs={"hotkey_ss58": "Validator hotkey whose basket to summarize."},
 )
 async def validator_basket_summary(view, hotkey_ss58: str) -> dict:
-    """Everything about one validator's beta basket, in a single call.
+    """Everything about one validator's basket, in a single call.
 
-    Valuation (realizable NAV and spot NAV), outstanding fund shares and the
-    resulting share price (1.0 at par, grows as the fund compounds), lifetime
-    deposited/redeemed TAO and the lifetime return multiple
-    `(nav + redeemed) / deposited`, the validator's root weight vector, and
-    the per-subnet holdings each valued at spot and at realizable depth.
+    Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
+    and the lifetime return multiple `(nav + redeemed) / deposited`, the
+    validator's root weight vector, and the per-subnet alpha holdings each
+    valued at spot and at realizable depth. All figures are TAO (or alpha
+    for the holdings themselves).
     """
     summary = await view.runtime(
         api.BetaBasketRuntimeApi.get_validator_basket_summary, [hotkey_ss58]
@@ -169,12 +167,11 @@ async def validator_basket_summary(view, hotkey_ss58: str) -> dict:
     category="Staking",
 )
 async def root_baskets(view) -> list[dict]:
-    """Beta basket summaries for every validator with an active basket.
+    """Basket summaries for every validator with an active basket.
 
     The network-wide leaderboard: one `validator_basket_summary` record per
-    validator with outstanding fund shares, sorted by NAV descending. Compare
-    `share_price` / `lifetime_return` across validators to rank basket
-    performance.
+    validator with an active fund, sorted by NAV descending. Compare
+    `lifetime_return` across validators to rank basket performance.
     """
     rows = await view.runtime(api.BetaBasketRuntimeApi.get_all_validator_baskets, [])
     records = [_summary_record(view, summary) for summary in rows or []]
@@ -189,7 +186,7 @@ async def root_baskets(view) -> list[dict]:
     param_docs={"hotkey_ss58": "Validator hotkey whose basket to value."},
 )
 async def validator_basket_nav(view, hotkey_ss58: str) -> Balance:
-    """A validator's beta basket net asset value in TAO (realizable quote)."""
+    """A validator's basket net asset value in TAO (realizable quote)."""
     value = await view.runtime(api.BetaBasketRuntimeApi.get_validator_basket_nav, [hotkey_ss58])
     return view.balance(int(value or 0), _ROOT_NETUID)
 
@@ -200,7 +197,7 @@ async def validator_basket_nav(view, hotkey_ss58: str) -> Balance:
     category="Staking",
 )
 async def root_basket_total_nav(view) -> Balance:
-    """Network-wide total beta basket NAV across all validators, in TAO.
+    """Network-wide total basket NAV across all validators, in TAO.
 
     Sampling this over time yields the TAO/day flowing to root stakers.
     """
@@ -215,7 +212,7 @@ async def root_basket_total_nav(view) -> Balance:
     param_docs={"hotkey_ss58": "Validator hotkey whose root weights to read."},
 )
 async def validator_root_weights(view, hotkey_ss58: str) -> list[dict]:
-    """A validator's root dividend distribution vector (beta basket weights).
+    """A validator's root dividend distribution vector (basket weights).
 
     The `(netuid, weight)` pairs its root dividends are deployed into each
     epoch, exactly as stored (u16, max-upscaled), plus each destination's
@@ -245,8 +242,9 @@ async def root_claim_threshold(view) -> Balance:
     """The minimum TAO payout for a root dividend claim.
 
     `claim_root` silently skips any per-validator basket redemption whose
-    estimated payout falls below this threshold; the shares keep accruing
-    and pay out once they clear it. Set by root via `set_root_claim_threshold`.
+    estimated payout falls below this threshold; the entitlement keeps
+    accruing and pays out once it clears. Set by root via
+    `set_root_claim_threshold`.
     """
     value = await view.query(_ROOT_CLAIM_THRESHOLD, [_ROOT_NETUID])
     return view.balance(_i96f32_rao(value), _ROOT_NETUID)

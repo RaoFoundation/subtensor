@@ -25,7 +25,7 @@ enum BasketFunding<'a, AccountId> {
 }
 
 impl<T: Config> Pallet<T> {
-    /// The single global escrow coldkey that custodies every validator's beta basket.
+    /// The single global escrow coldkey that custodies every validator's basket.
     ///
     /// A validator's basket (fund) holdings are positions `(validator_hotkey, this_account,
     /// netuid)` in the normal alpha share pool, so they count toward each validator's stake and
@@ -381,7 +381,7 @@ impl<T: Config> Pallet<T> {
         Ok((nav_before, nav_after.saturating_sub(nav_before)))
     }
 
-    /// Stakes `tao` from `coldkey`'s free balance directly into a validator's beta basket:
+    /// Stakes `tao` from `coldkey`'s free balance directly into a validator's basket:
     /// the TAO is deployed across subnets per the validator's root weight vector (exactly
     /// like a dividend deposit), and the resulting fund shares are credited to the staker
     /// through their signed claimed watermark — `owed = rate * root_stake - claimed`, so a
@@ -403,10 +403,7 @@ impl<T: Config> Pallet<T> {
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists
         );
-        ensure!(
-            tao >= DefaultMinStake::<T>::get(),
-            Error::<T>::AmountTooLow
-        );
+        ensure!(tao >= DefaultMinStake::<T>::get(), Error::<T>::AmountTooLow);
         ensure!(
             Self::can_remove_balance_from_coldkey_account(&coldkey, tao.into()),
             Error::<T>::NotEnoughBalanceToStake
@@ -417,8 +414,8 @@ impl<T: Config> Pallet<T> {
 
         // Each weight slot can add at most one new holding, so pre-deploy holdings plus the
         // slot count bounds the holdings the two NAV valuations will sweep.
-        let num_holdings = (Self::get_basket_holdings(&hotkey).len() as u64)
-            .saturating_add(valid.len() as u64);
+        let num_holdings =
+            (Self::get_basket_holdings(&hotkey).len() as u64).saturating_add(valid.len() as u64);
 
         with_transaction(
             || match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &valid) {
@@ -528,7 +525,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Claims (redeems) a staker's share of a validator's beta basket.
+    /// Claims (redeems) a staker's share of a validator's basket.
     ///
     /// Redemption is fund-level and purely proportional: the staker's owed shares define a
     /// fraction `f = owed / P` of the fund, and exactly that fraction of *every* holding is

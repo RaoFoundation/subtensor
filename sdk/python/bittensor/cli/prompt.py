@@ -373,7 +373,9 @@ def _supplied(param: Any, args: list[str]) -> bool:
     return bool(given.intersection(param.opts) or given.intersection(param.secondary_opts))
 
 
-def _signing_wallet_spec(command: Any, app_ctx: AppContext, args: list[str]) -> Optional[PromptSpec]:
+def _signing_wallet_spec(
+    command: Any, app_ctx: AppContext, args: list[str]
+) -> Optional[PromptSpec]:
     """The wallet-confirmation spec for the generic prompt round, or None.
 
     Commands that use the local wallet (the tx and unlock tiers, see

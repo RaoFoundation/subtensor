@@ -2,19 +2,19 @@
 
 use crate::tests::mock::*;
 use crate::{
-    BasketClaimed, BasketRate, BasketShares, DefaultMinRootClaimAmount, Error, Keys,
-    MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
-    StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice,
-    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
+    Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
+    StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow,
+    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
-use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
+use frame_support::dispatch::RawOrigin;
 use frame_support::pallet_prelude::Weight;
 use frame_support::traits::Get;
 use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::U256;
 use sp_runtime::DispatchError;
-use substrate_fixed::types::I96F32;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance, Token};
 
 // =============================================================================
@@ -2648,3 +2648,159 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
     });
 }
 
+// =============================================================================
+// The full "become a root validator fund" journey, through real extrinsics.
+// =============================================================================
+
+/// End-to-end operator flow: burn-based root registration with **zero prior
+/// stake**, self-subscription, basket weight curation, an epoch's dividend
+/// distribution into the basket, and a delegating staker's claim.
+///
+/// Pins the burn accounting introduced by burn-based admission: the coldkey
+/// pays exactly `Burn(0)`, and the price bumps for the next registrant.
+#[test]
+fn test_become_root_validator_fund_journey() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let validator_coldkey = U256::from(1003);
+        let validator_hotkey = U256::from(1004);
+        let staker_coldkey = U256::from(1005);
+
+        // A live subnet with a deep pool for the basket to buy into. Root
+        // dividends flow through the subnet epoch, so the validator hotkey
+        // validates this subnet (it is its registered neuron and the subnet
+        // owner delegates alpha to it) — but it holds no ROOT stake yet.
+        let netuid = add_dynamic_network(&validator_hotkey, &subnet_owner_coldkey);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &validator_hotkey,
+            &subnet_owner_coldkey,
+            netuid,
+            10_000_000u64.into(),
+        );
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        // The root network, charging a real, demand-priced burn. The mock's
+        // `add_network` pins the bump multiplier to 1.0 for subnet tests;
+        // restore the production 1.26 to exercise the pricing path.
+        add_network(NetUid::ROOT, 10, 0);
+        let burn_cost = 1_000_000u64; // 0.001 tao
+        SubtensorModule::set_burn(NetUid::ROOT, TaoBalance::from(burn_cost));
+        BurnIncreaseMult::<Test>::insert(NetUid::ROOT, U64F64::from_num(1.26));
+        // Root staking consumes root alpha 1:1.
+        SubnetAlphaIn::<Test>::insert(NetUid::ROOT, AlphaBalance::from(10_000_000_000u64));
+
+        // --- Step 1: register. The hotkey has no root stake; admission is
+        // paid for from the coldkey's free balance, not gated on stake.
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_on_subnet(&validator_hotkey, NetUid::ROOT),
+            AlphaBalance::ZERO
+        );
+        let funding = 10_000_000_000u64; // 10 tao
+        add_balance_to_coldkey_account(&validator_coldkey, TaoBalance::from(funding));
+        let balance_before = SubtensorModule::get_coldkey_balance(&validator_coldkey);
+        assert_ok!(SubtensorModule::root_register(
+            RuntimeOrigin::signed(validator_coldkey),
+            validator_hotkey,
+        ));
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, validator_hotkey));
+        // Exactly the burn was charged, and the price bumped for the next registrant.
+        let balance_after = SubtensorModule::get_coldkey_balance(&validator_coldkey);
+        assert_eq!(balance_before - balance_after, TaoBalance::from(burn_cost));
+        assert!(SubtensorModule::get_burn(NetUid::ROOT) > TaoBalance::from(burn_cost));
+
+        // --- Step 2: subscribe TAO to the seat. This is what holds it (pruning
+        // is lowest-stake) and clears the weight-setting stake threshold.
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(validator_coldkey),
+            validator_hotkey,
+            NetUid::ROOT,
+            TaoBalance::from(2_000_000_000u64),
+        ));
+
+        // --- Step 3: curate the basket — route 100% of dividends into the subnet.
+        // Registration stamps `LastUpdate`, so on-chain the first weight-set
+        // waits out the rate limit; zero it here to stay in one block.
+        SubtensorModule::set_weights_set_rate_limit(NetUid::ROOT, 0);
+        assert_ok!(SubtensorModule::set_root_weights(
+            RuntimeOrigin::signed(validator_hotkey),
+            vec![u16::from(netuid)],
+            vec![u16::MAX],
+            0,
+        ));
+
+        // --- Step 4: a delegator subscribes to the fund.
+        add_balance_to_coldkey_account(&staker_coldkey, TaoBalance::from(2_000_000_000u64));
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(staker_coldkey),
+            validator_hotkey,
+            NetUid::ROOT,
+            TaoBalance::from(1_000_000_000u64),
+        ));
+        let staker_principal = root_stake_of(&validator_hotkey, &staker_coldkey);
+        assert!(staker_principal > 0);
+
+        // --- Step 5: an epoch pays the validator root dividends; the chain
+        // sells them and buys the basket per the weight vector.
+        SubtensorModule::distribute_emission(
+            netuid,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            1_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+        assert!(has_fund(&validator_hotkey));
+        assert!(escrow_alpha(&validator_hotkey, netuid) > 0);
+        assert!(SubtensorModule::get_basket_owed_shares(&validator_hotkey, &staker_coldkey) > 0);
+
+        // --- Step 6: the staker claims — accrued entitlement comes back as
+        // TAO staked on root, on top of untouched principal.
+        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(
+            staker_coldkey
+        )));
+        assert!(root_stake_of(&validator_hotkey, &staker_coldkey) > staker_principal);
+    });
+}
+
+/// Burn-based admission cannot sybil seats: pruning removes the lowest-staked
+/// member, so an attacker's own zero-stake keys shield every staked member —
+/// each new unstaked registration evicts the previous unstaked key, never a
+/// staked validator.
+#[test]
+fn test_root_register_zero_stake_keys_shield_staked_members() {
+    new_test_ext(1).execute_with(|| {
+        let staked_coldkey = U256::from(2001);
+        let staked_hotkey = U256::from(2002);
+        let sybil_coldkey = U256::from(2003);
+        let sybil_hotkeys = [U256::from(2004), U256::from(2005), U256::from(2006)];
+
+        add_network(NetUid::ROOT, 10, 0);
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 2);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+
+        // A staked validator and one zero-stake key fill the two slots.
+        root_register_ok(staked_hotkey, staked_coldkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &staked_hotkey,
+            &staked_coldkey,
+            NetUid::ROOT,
+            5_000_000u64.into(),
+        );
+        root_register_ok(sybil_hotkeys[0], sybil_coldkey);
+        assert_eq!(SubnetworkN::<Test>::get(NetUid::ROOT), 2);
+
+        // Every further zero-stake registration evicts the previous zero-stake
+        // key; the staked validator keeps its seat throughout.
+        for pair in sybil_hotkeys.windows(2) {
+            root_register_ok(pair[1], sybil_coldkey);
+            assert!(
+                !Uids::<Test>::contains_key(NetUid::ROOT, pair[0]),
+                "previous zero-stake key must be the one pruned"
+            );
+            assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));
+        }
+    });
+}

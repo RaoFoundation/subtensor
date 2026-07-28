@@ -105,7 +105,8 @@ mod errors {
         NotSubnetOwner,
         /// Operation is not permitted on the root subnet.
         RegistrationNotPermittedOnRootSubnet,
-        /// A hotkey with too little stake is attempting to join the root subnet.
+        /// Retired: root admission is burn-based and no longer stake-gated.
+        /// Kept so later error variants keep their metadata indices.
         StakeTooLowForRoot,
         /// All subnets are in the immunity period.
         AllNetworksInImmunity,

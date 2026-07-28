@@ -56,17 +56,15 @@ pub fn migrate_clear_root_basket_weights<T: Config>() -> Weight {
         .map(u16::from)
         .collect();
     dests.sort_unstable();
-    total_weight = total_weight.saturating_add(T::DbWeight::get().reads(dests.len() as u64 + 1));
+    total_weight = total_weight
+        .saturating_add(T::DbWeight::get().reads((dests.len() as u64).saturating_add(1)));
 
     let balanced: Vec<(u16, u16)> = if dests.is_empty() {
         // No productive subnets yet — leave empty so the runtime default (100% root) applies.
         Vec::new()
     } else {
         // Equal relative weights, max-upscaled like `set_root_weights` (all `u16::MAX`).
-        dests
-            .into_iter()
-            .map(|netuid| (netuid, u16::MAX))
-            .collect()
+        dests.into_iter().map(|netuid| (netuid, u16::MAX)).collect()
     };
 
     let mut seeded: u64 = 0;

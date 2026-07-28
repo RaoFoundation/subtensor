@@ -435,12 +435,12 @@ async def _root_weights_preflight(substrate, hotkey_ss58: str) -> None:
 @register
 @dataclass
 class SetRootWeights(Intent):
-    """Set how your root dividends are deployed across subnets (beta basket weights).
+    """Set how your root dividends are deployed across subnets (basket weights).
 
     Declares the root validator's dividend distribution vector: each epoch
     the chain sells the validator's root alpha dividend for TAO and splits it
     across the listed subnets in proportion to these weights, buying each
-    subnet's alpha into the validator's beta basket — the escrowed
+    subnet's alpha into the validator's basket — the escrowed
     per-validator index fund that root stakers redeem with ``claim_root``.
     Netuid 0 is a valid destination: that share is held as TAO (root stake)
     instead of subnet alpha, letting a validator keep part of the basket out

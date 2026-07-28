@@ -22,7 +22,7 @@ position instead of leaving dust (`AmountTooLow`).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L610-L619), [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1462-L1480) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L610-L619), [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1467-L1485) |
 
 ## Parameters
 
@@ -96,7 +96,7 @@ pub fn remove_stake(
 
 Delegates to [`do_remove_stake`](/code/pallets/subtensor/src/staking/remove_stake.rs#L35).
 
-`SubtensorModule.remove_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1464`](/code/pallets/subtensor/src/macros/dispatches.rs#L1462-L1480):
+`SubtensorModule.remove_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1469`](/code/pallets/subtensor/src/macros/dispatches.rs#L1467-L1485):
 
 ```rust
 #[pallet::call_index(89)]

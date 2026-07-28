@@ -1,8 +1,10 @@
-"""``btcli root``: stake, inspect, and curate the root network in beta (τ).
+"""``btcli root``: subscribe to, redeem from, and curate root validator funds.
 
-Beta is the currency of root: staked beta is principal on netuid 0, accrued beta
-is yield from a validator's fund. Stake and unstake move β; accrued beta is merged
-into staked beta automatically when you unstake more than your staked balance.
+Everything is denominated in TAO. Subscribing moves τ from your free balance
+into root stake with a validator (assets in; shares minted). Dividends accrue
+as fund shares quoted in τ; redeeming burns shares and returns τ (assets out).
+Accrued yield is merged automatically when you redeem more than your staked
+balance.
 """
 
 from __future__ import annotations
@@ -19,13 +21,13 @@ from ..globals import with_globals, with_tx_globals
 from ..helpers import dust_note, list_coldkeys
 from ..prompt import interactive
 from ..root_helpers import (
-    beta_list_columns,
-    beta_list_rows,
-    fetch_all_beta_positions,
-    fetch_beta_positions,
-    filter_dust_beta,
-    is_dust_beta,
+    fetch_all_root_positions,
+    fetch_root_positions,
+    filter_dust_positions,
+    is_dust_position,
     pick_validator,
+    position_columns,
+    position_rows,
     print_command_hint,
     render_validator_detail,
     resolve_show_wallet,
@@ -34,7 +36,7 @@ from .weights import _parse_weight_pairs
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Root network: beta stake, validator funds, and dividend weights.",
+    help="Root network: validator funds, dividend weights, and your TAO positions.",
 )
 
 
@@ -46,7 +48,7 @@ def root_list(
         False,
         "--all",
         "-a",
-        help="List beta for every wallet (unified view).",
+        help="List root positions for every wallet (unified view).",
     ),
     coldkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("coldkey_ss58"), help=ss58_param_help("coldkey_ss58")
@@ -54,14 +56,14 @@ def root_list(
     show_dust: bool = typer.Option(
         False,
         "--dust",
-        help="Also show validators whose total β is below τ0.001. JSON always includes all.",
+        help="Also show validators whose total position is below τ0.001. JSON always includes all.",
     ),
 ):
-    """List your beta on root: staked principal and accrued yield per validator.
+    """List your root positions: staked principal and accrued yield per validator.
 
-    Each row shows staked β (principal on netuid 0), accrued β (fund yield,
-    realizable τ quote), total β, and the τ value. JSON records use ``beta``,
-    ``staked_beta``, and ``accrued_beta``.
+    Each row shows staked τ (principal on netuid 0), accrued τ (fund yield,
+    realizable quote), and the total value. JSON records use ``staked_tao``,
+    ``accrued_tao``, and ``total_tao``.
     """
     app_ctx: AppContext = ctx_of(ctx)
 
@@ -70,12 +72,12 @@ def root_list(
         if not coldkeys:
             app_ctx.output.error(f"no wallets found in {app_ctx.wallet_path}")
             raise typer.Exit(1)
-        positions = app_ctx.run(lambda c: fetch_all_beta_positions(c, coldkeys))
-        title = "beta (all wallets)"
+        positions = app_ctx.run(lambda c: fetch_all_root_positions(c, coldkeys))
+        title = "root positions (all wallets)"
     else:
         owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-        positions = app_ctx.run(lambda c: fetch_beta_positions(c, owner))
-        title = f"beta of {owner}"
+        positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
+        title = f"root positions of {owner}"
 
     records = [pos.as_record() for pos in positions]
     if app_ctx.output.json_mode:
@@ -90,8 +92,8 @@ def root_list(
         shown = positions
         dust: list = []
     else:
-        shown = filter_dust_beta(positions)
-        dust = [pos for pos in positions if is_dust_beta(pos)]
+        shown = filter_dust_positions(positions)
+        dust = [pos for pos in positions if is_dust_position(pos)]
 
     if not shown:
         app_ctx.output.message(f"{title}: none above dust (τ0.001)")
@@ -100,110 +102,111 @@ def root_list(
         return
 
     shown_records = [pos.as_record() for pos in shown]
-    total = Balance(sum(pos.total_beta.rao for pos in shown))
+    total = Balance(sum(pos.total.rao for pos in shown))
     app_ctx.output.table(
         title,
-        beta_list_columns(all_wallets),
-        beta_list_rows(shown),
+        position_columns(all_wallets),
+        position_rows(shown),
         shown_records,
     )
     app_ctx.output.message(
-        f"total beta: {total} (τ {total.tao:.6f}) — "
-        "staked β is principal; accrued β is fund yield (realizable quote)"
+        f"total: {total} (τ {total.tao:.6f}) — "
+        "staked is principal; accrued is fund yield (realizable quote)"
     )
     if dust:
         app_ctx.output.message(dust_note([pos.as_record() for pos in dust]))
 
 
-@app.command("stake")
+@app.command("subscribe")
 @with_tx_globals
-def root_stake(
+def root_subscribe(
     ctx: typer.Context,
-    amount_beta: str = typer.Option(
+    amount: str = typer.Option(
         ...,
-        "--amount-beta",
-        help="Beta to stake (τ): moved from free balance to root on the validator.",
+        "--amount",
+        help="TAO to subscribe: moved from free balance to root stake with the validator.",
     ),
     hotkey_ss58: str = typer.Option(
         ...,
         address_cli_name("hotkey_ss58"),
-        help="Validator hotkey to stake beta with.",
+        help="Validator whose fund to subscribe to.",
     ),
 ):
-    """Stake beta on root (τ from free balance → staked β on a validator)."""
+    """Subscribe to a validator's root fund (assets in; shares minted)."""
     app_ctx: AppContext = ctx_of(ctx)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-    app_ctx.submit(AddStake(hotkey_ss58=hotkey, netuid=0, amount_tao=amount_beta))
+    app_ctx.submit(AddStake(hotkey_ss58=hotkey, netuid=0, amount_tao=amount))
 
 
-@app.command("unstake")
+@app.command("redeem")
 @with_tx_globals
-def root_unstake(
+def root_redeem(
     ctx: typer.Context,
-    amount_beta: str = typer.Option(
+    amount: str = typer.Option(
         ...,
-        "--amount-beta",
-        help="Beta to unstake (τ): staked β returned to free balance. "
-        "If the amount exceeds staked β, accrued β is merged first.",
+        "--amount",
+        help="TAO to redeem: returned from root to free balance. "
+        "If the amount exceeds your staked τ, accrued yield is claimed first.",
     ),
     hotkey_ss58: str = typer.Option(
         ...,
         address_cli_name("hotkey_ss58"),
-        help="Validator hotkey to unstake beta from.",
+        help="Validator whose fund to redeem from.",
     ),
 ):
-    """Unstake beta from root (staked β → free τ).
+    """Redeem from a validator's root fund (shares burned; assets returned).
 
-    When the amount is larger than your staked β on that validator, accrued β
-    is merged into staked β first (one chain transaction), then the unstake
-    runs. Pass ``all`` to exit the full position including accrued β.
+    When the amount is larger than your staked τ on that validator, accrued
+    yield is claimed into root stake first (one chain transaction), then the
+    redemption runs. Pass ``all`` to exit the full position including accrued
+    yield.
     """
     app_ctx: AppContext = ctx_of(ctx)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     owner = app_ctx.resolve_address("coldkey_ss58", None)
 
-    positions = app_ctx.run(lambda c: fetch_beta_positions(c, owner))
+    positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
     row = next((p for p in positions if p.hotkey == hotkey), None)
-    staked = row.staked_beta if row else Balance.from_rao(0)
-    accrued = row.accrued_beta if row else Balance.from_rao(0)
+    staked = row.staked if row else Balance.from_rao(0)
+    accrued = row.accrued if row else Balance.from_rao(0)
     total = staked.rao + accrued.rao
 
-    if amount_beta.strip().lower() == "all":
+    if amount.strip().lower() == "all":
         if total == 0:
-            app_ctx.output.error(f"no beta on {hotkey}")
+            app_ctx.output.error(f"nothing to redeem on {hotkey}")
             raise typer.Exit(1)
         if accrued.rao > 0:
-            app_ctx.output.message("merging accrued β into staked β…")
+            app_ctx.output.message("claiming accrued yield into root stake…")
             app_ctx.submit(ClaimRoot())
-            positions = app_ctx.run(lambda c: fetch_beta_positions(c, owner))
+            positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
             row = next((p for p in positions if p.hotkey == hotkey), None)
-            staked = row.staked_beta if row else Balance.from_rao(0)
+            staked = row.staked if row else Balance.from_rao(0)
         app_ctx.submit(RemoveStake(hotkey_ss58=hotkey, netuid=0, amount_alpha="all"))
         return
 
     try:
-        amount_rao = Balance.from_tao(amount_beta).rao
+        amount_rao = Balance.from_tao(amount).rao
     except Exception as error:
-        app_ctx.output.error(f"invalid --amount-beta: {error}")
+        app_ctx.output.error(f"invalid --amount: {error}")
         raise typer.Exit(1) from error
 
     if amount_rao > total:
         app_ctx.output.error(
-            f"only {Balance.from_rao(total)} β on {hotkey} "
-            f"(staked {staked}, accrued {accrued})"
+            f"only {Balance.from_rao(total)} on {hotkey} (staked {staked}, accrued {accrued})"
         )
         raise typer.Exit(1)
 
     if amount_rao > staked.rao and accrued.rao > 0:
-        app_ctx.output.message("merging accrued β into staked β…")
+        app_ctx.output.message("claiming accrued yield into root stake…")
         app_ctx.submit(ClaimRoot())
-        positions = app_ctx.run(lambda c: fetch_beta_positions(c, owner))
+        positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
         row = next((p for p in positions if p.hotkey == hotkey), None)
-        staked = row.staked_beta if row else Balance.from_rao(0)
+        staked = row.staked if row else Balance.from_rao(0)
 
     if amount_rao > staked.rao:
         app_ctx.output.error(
-            f"after merge, staked β is only {staked}; accrued may be below claim threshold"
+            f"after the claim, staked τ is only {staked}; "
+            "accrued yield may be below the claim threshold"
         )
         raise typer.Exit(1)
 
@@ -224,7 +227,7 @@ def root_set_weights(
         ...,
         "--weights",
         help="Comma-separated netuid:weight pairs (e.g. '0:0.2,4:0.3,8:0.5'). "
-        "Netuid 0 holds that share as β (τ) instead of subnet alpha.",
+        "Netuid 0 holds that share as TAO instead of subnet alpha.",
     ),
     version_key: int = typer.Option(
         0, "--version-key", help=SetRootWeights.field_help("version_key")
@@ -257,7 +260,7 @@ def root_get_weights(
     if not rows:
         app_ctx.output.detail("root weights", {"hotkey": hotkey, "weights": []})
         app_ctx.output.message(
-            "no custom weights set: dividends default to 100% root (TAO in the basket)"
+            "no custom weights set: dividends default to 100% root (TAO in the fund)"
         )
         return
     table_rows = [[r["netuid"], f"{r['share']:.2%}", r["weight"]] for r in rows]
@@ -280,7 +283,7 @@ def root_show(
     """Inspect a validator's fund: weights, holdings, and performance.
 
     Without ``--hotkey``, prompts for a wallet, lists validators where you hold
-    more than dust β, then prompts for one to inspect. Pass ``--hotkey`` to skip
+    more than dust, then prompts for one to inspect. Pass ``--hotkey`` to skip
     the picker.
     """
     app_ctx: AppContext = ctx_of(ctx)
@@ -289,7 +292,7 @@ def root_show(
     if hotkey_ss58:
         hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
         owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-        your_rows = app_ctx.run(lambda c: fetch_beta_positions(c, owner))
+        your_rows = app_ctx.run(lambda c: fetch_root_positions(c, owner))
         yours = next((p for p in your_rows if p.hotkey == hotkey), None)
         summary = app_ctx.run(lambda c: c.read("validator_basket_summary", hotkey_ss58=hotkey))
         render_validator_detail(app_ctx, summary, yours)
@@ -300,29 +303,27 @@ def root_show(
     )
 
     async def _fetch(client):
-        yours = await fetch_beta_positions(client, owner)
+        yours = await fetch_root_positions(client, owner)
         by_hotkey = {p.hotkey: p for p in yours}
-        held = filter_dust_beta(yours)
+        held = filter_dust_positions(yours)
         if not held:
             return [], by_hotkey, wallet_name, owner
 
         summaries = await client.read("root_baskets")
         summary_by_hotkey = {row["hotkey"]: row for row in summaries}
         rows = []
-        for pos in sorted(held, key=lambda p: -p.total_beta.rao):
+        for pos in sorted(held, key=lambda p: -p.total.rao):
             hotkey = pos.hotkey
             summary = summary_by_hotkey.get(hotkey)
             if summary is None:
-                summary = await client.read(
-                    "validator_basket_summary", hotkey_ss58=hotkey
-                )
+                summary = await client.read("validator_basket_summary", hotkey_ss58=hotkey)
             rows.append(
                 {
                     "hotkey": hotkey,
                     "nav_tao": summary["nav_tao"],
                     "weight_count": len(summary.get("weights") or []),
                     "lifetime_return": summary.get("lifetime_return"),
-                    "your_beta_tao": pos.total_beta.tao,
+                    "your_tao": pos.total.tao,
                     "summary": summary,
                 }
             )

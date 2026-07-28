@@ -643,10 +643,10 @@ DESCRIPTIONS: dict[str, str] = {
         "`--no-slippage-protection`; check the current price with `btcli subnets price`."
     ),
     "StakeTooLowForRoot": (
-        "`root_register` when the root network is full and the hotkey's stake on netuid 0 does "
-        "not exceed the lowest-staked current root member. Compare your hotkey's root stake "
-        "against existing root validators (`btcli subnets metagraph 0` or "
-        "`btcli query neurons --netuid 0`)."
+        "Retired. `root_register` used to raise this when the root network was full and the "
+        "hotkey's netuid-0 stake did not exceed the lowest-staked root member; root admission "
+        "is now burn-based (the coldkey pays the root burn price), so this error is no longer "
+        "raised."
     ),
     "StakeUnavailable": (
         "An unstake or same-subnet stake transfer would dip into stake that is still reserved: "

@@ -816,6 +816,22 @@ pub(crate) fn next_block() -> u64 {
     block
 }
 
+/// Fund `coldkey` for the current root burn price and register `hotkey` on
+/// the root network. Root admission is burn-based; this mirrors the
+/// `register_ok_neuron` top-up so tests don't have to fund the burn by hand.
+pub fn root_register_ok(hotkey_account_id: U256, coldkey_account_id: U256) {
+    let burn: TaoBalance = SubtensorModule::get_burn(NetUid::ROOT);
+    let ed: TaoBalance = ExistentialDeposit::get();
+    let min_balance_needed: TaoBalance = burn + ed.max(1.into()) + TaoBalance::from(10);
+    let bal: TaoBalance = SubtensorModule::get_coldkey_balance(&coldkey_account_id);
+    if bal < min_balance_needed {
+        add_balance_to_coldkey_account(&coldkey_account_id, min_balance_needed - bal);
+    }
+    let origin = <<Test as frame_system::Config>::RuntimeOrigin>::signed(coldkey_account_id);
+    SubtensorModule::root_register(origin, hotkey_account_id)
+        .expect("funded root registration should succeed");
+}
+
 pub fn register_ok_neuron(
     netuid: NetUid,
     hotkey_account_id: U256,

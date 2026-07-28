@@ -1379,14 +1379,8 @@ fn test_get_root_children() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold, 0);
         register_ok_neuron(alpha, bob, cold, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold);
+        root_register_ok(bob, cold);
 
         // Add stake for Alice and Bob on root.
         let alice_root_stake = AlphaBalance::from(1_000_000_000);
@@ -1504,14 +1498,8 @@ fn test_get_root_children_drain() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold_alice, 0);
         register_ok_neuron(alpha, bob, cold_bob, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_alice).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_bob).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold_alice);
+        root_register_ok(bob, cold_bob);
         // Add stake for Alice and Bob on root.
         let alice_root_stake = 1_000_000_000;
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1650,14 +1638,8 @@ fn test_get_root_children_drain_half_proportion() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold_alice, 0);
         register_ok_neuron(alpha, bob, cold_bob, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_alice).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_bob).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold_alice);
+        root_register_ok(bob, cold_bob);
         // Add stake for Alice and Bob on root.
         let alice_root_stake = AlphaBalance::from(1_000_000_000);
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1738,14 +1720,8 @@ fn test_get_root_children_drain_with_take() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold_alice, 0);
         register_ok_neuron(alpha, bob, cold_bob, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_alice).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_bob).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold_alice);
+        root_register_ok(bob, cold_bob);
         // Add stake for Alice and Bob on root.
         let alice_root_stake = AlphaBalance::from(1_000_000_000);
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1826,14 +1802,8 @@ fn test_get_root_children_drain_with_half_take() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold_alice, 0);
         register_ok_neuron(alpha, bob, cold_bob, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_alice).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_bob).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold_alice);
+        root_register_ok(bob, cold_bob);
         // Add stake for Alice and Bob on root.
         let alice_root_stake = AlphaBalance::from(1_000_000_000);
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(

@@ -125,7 +125,10 @@ fn test_stake_into_basket_empty_fund_par_mint_equals_nav() {
 
         let shares = fund_shares(&hotkey);
         let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
-        assert_eq!(shares, nav, "par mint must equal post-deposit realizable NAV");
+        assert_eq!(
+            shares, nav,
+            "par mint must equal post-deposit realizable NAV"
+        );
         assert!(
             shares <= amount,
             "mint value can never exceed the TAO brought in"
@@ -234,11 +237,7 @@ fn test_stake_into_basket_rejections() {
         // Below the minimum stake.
         let dust = DefaultMinStake::<Test>::get().to_u64().saturating_sub(1);
         assert_noop!(
-            SubtensorModule::stake_into_basket(
-                RuntimeOrigin::signed(bob),
-                hotkey,
-                dust.into(),
-            ),
+            SubtensorModule::stake_into_basket(RuntimeOrigin::signed(bob), hotkey, dust.into(),),
             Error::<Test>::AmountTooLow
         );
 
@@ -320,9 +319,7 @@ fn test_stake_into_basket_credit_survives_stake_changes() {
             NetUid::ROOT,
             stake.into(),
         );
-        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
-            &hotkey, &bob, stake,
-        );
+        SubtensorModule::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(&hotkey, &bob, stake);
         assert_eq!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &bob),
             minted,
@@ -569,7 +566,11 @@ fn test_root_slot_yield_accrues_to_share_holders() {
         // track value 1:1 here).
         let expected_minted = (u128::from(delta2) * u128::from(alice_root)
             / u128::from(alice_root + escrow_root)) as u64;
-        assert_abs_diff_eq!(minted2, expected_minted, epsilon = expected_minted / SLIPPAGE_EPS_DENOM + ROUNDING_EPS);
+        assert_abs_diff_eq!(
+            minted2,
+            expected_minted,
+            epsilon = expected_minted / SLIPPAGE_EPS_DENOM + ROUNDING_EPS
+        );
         assert!(
             minted2 < delta2,
             "part of the dividend must enter unminted: minted {minted2} of {delta2}"
@@ -646,7 +647,11 @@ fn test_stake_into_basket_cannot_skim_compounding() {
         ));
 
         let bob_payout = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
-        assert_abs_diff_eq!(bob_payout, amount, epsilon = amount * FEE_TOLERANCE_PCT / 100);
+        assert_abs_diff_eq!(
+            bob_payout,
+            amount,
+            epsilon = amount * FEE_TOLERANCE_PCT / 100
+        );
 
         // Alice keeps her compounding.
         let alice_payout_after = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
