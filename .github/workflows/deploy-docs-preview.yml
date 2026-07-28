@@ -1,0 +1,271 @@
+name: Deploy Docs Preview
+
+# Trusted half of docs previews. GitHub loads workflow_run workflows from the
+# default branch. This job checks out only that branch, never PR HEAD, and
+# validates the PR-produced artifact before any deployment credential appears.
+# The preview project and *.preview.DOCS_DOMAIN must be provisioned in advance.
+
+on:
+  workflow_run:
+    workflows: ["Request Docs Preview"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+# Serialize each PR while allowing unrelated previews in parallel. GitHub may
+# replace an older pending run; every run reconciles the PR's current state.
+concurrency:
+  group: docs-preview-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy or clean up docs preview
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''
+    runs-on: ubuntu-24.04
+    env:
+      DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PREVIEW_PROJECT_ID: ${{ vars.VERCEL_DOCS_PREVIEW_PROJECT_ID }}
+      VERCEL_PRODUCTION_PROJECT_ID: ${{ vars.VERCEL_DOCS_PROJECT_ID }}
+    steps:
+      - name: Check out trusted controls from the default branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          path: trusted-source
+          sparse-checkout: |
+            .github/docs-preview-vercel
+            .github/scripts
+
+      - name: Validate the dedicated preview configuration
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            validate-config \
+            --production-project-id "${VERCEL_PRODUCTION_PROJECT_ID}" \
+            --docs-domain "${DOCS_DOMAIN}"
+
+      - name: Resolve, download, and authorize the producing artifact
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_PULL_REQUESTS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_github.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            prepare \
+            --workflow-pulls-json "${WORKFLOW_PULL_REQUESTS}" \
+            --workflow-head-sha "${WORKFLOW_HEAD_SHA}" \
+            --workflow-run-id "${WORKFLOW_RUN_ID}" \
+            --docs-domain "${DOCS_DOMAIN}" \
+            --artifact-zip "${RUNNER_TEMP}/docs-preview-artifact.zip" \
+            --artifact-directory "${GITHUB_WORKSPACE}/artifact"
+
+      - name: Set up Node.js
+        if: steps.meta.outputs.mode == 'deploy'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: trusted-source/.github/docs-preview-vercel/package-lock.json
+
+      - name: Install locked Vercel CLI (no secrets)
+        if: steps.meta.outputs.mode == 'deploy'
+        id: vercel-cli
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --prefix trusted-source/.github/docs-preview-vercel
+          npm audit --audit-level=high --omit=dev --prefix trusted-source/.github/docs-preview-vercel
+          cli="${GITHUB_WORKSPACE}/trusted-source/.github/docs-preview-vercel/node_modules/.bin/vercel"
+          test -x "${cli}"
+          "${cli}" --version
+          echo "bin=${cli}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate and extract the self-contained bundle (no secrets)
+        if: steps.meta.outputs.mode == 'deploy'
+        id: extract
+        run: |
+          set -euo pipefail
+          deploy_root="${RUNNER_TEMP}/docs-preview-deploy"
+          test ! -e "${deploy_root}"
+          python3 trusted-source/.github/scripts/docs_preview_bundle.py \
+            extract \
+            "${GITHUB_WORKSPACE}/artifact/docs-preview-sealed.tgz" \
+            "${deploy_root}"
+          echo "root=${deploy_root}" >> "${GITHUB_OUTPUT}"
+
+      - name: Audit preview project and pre-provisioned domain
+        if: steps.meta.outputs.mode == 'deploy'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            audit-project \
+            --preview-domain "*.preview.${DOCS_DOMAIN}"
+
+      - name: Re-check PR head immediately before deployment
+        if: steps.meta.outputs.mode == 'deploy'
+        id: recheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.meta.outputs.pr }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_github.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            recheck \
+            --pr-number "${PR_NUMBER}" \
+            --workflow-head-sha "${WORKFLOW_HEAD_SHA}"
+
+      - name: Link validated output to the preview project
+        if: steps.recheck.outputs.authorized == 'true'
+        env:
+          DEPLOY_ROOT: ${{ steps.extract.outputs.root }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            link-project \
+            --directory "${DEPLOY_ROOT}"
+
+      - name: Deploy validated prebuilt output
+        if: steps.recheck.outputs.authorized == 'true'
+        id: deploy
+        env:
+          DEPLOY_ROOT: ${{ steps.extract.outputs.root }}
+          PR_NUMBER: ${{ steps.meta.outputs.pr }}
+          VERCEL_BIN: ${{ steps.vercel-cli.outputs.bin }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN}"
+          test -x "${VERCEL_BIN}"
+          token="${VERCEL_TOKEN}"
+          unset VERCEL_TOKEN
+          cli_home="${RUNNER_TEMP}/vercel-cli-home"
+          mkdir -m 700 "${cli_home}"
+          cd "${DEPLOY_ROOT}"
+          url=$(env -i \
+            CI=true \
+            HOME="${cli_home}" \
+            PATH="${PATH}" \
+            TMPDIR="${RUNNER_TEMP}" \
+            "${VERCEL_BIN}" deploy \
+              --prebuilt \
+              --archive=tgz \
+              --yes \
+              --token "${token}" \
+              --meta "docsPreviewPr=${PR_NUMBER}" \
+              --meta "docsPreviewSha=${WORKFLOW_HEAD_SHA}")
+          VERCEL_TOKEN="${token}" \
+            python3 "${GITHUB_WORKSPACE}/trusted-source/.github/scripts/docs_preview_vercel.py" \
+              --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+              --team-id "${VERCEL_ORG_ID}" \
+              deployment-id \
+              --deployment-url "${url}"
+
+      # Once alias switching starts, its remote result can be ambiguous after a
+      # network error. Preserve the new deployment rather than risk breaking
+      # the stable alias by rolling it back.
+      - name: Switch stable preview alias
+        id: alias
+        if: steps.recheck.outputs.authorized == 'true'
+        env:
+          ALIAS: ${{ steps.meta.outputs.alias }}
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            set-alias \
+            --deployment-id "${DEPLOYMENT_ID}" \
+            --alias "${ALIAS}"
+
+      - name: Delete superseded deployments for this PR
+        if: always() && steps.alias.outcome == 'success'
+        env:
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+          PR_NUMBER: ${{ steps.meta.outputs.pr }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            delete-pr-deployments \
+            --pr-number "${PR_NUMBER}" \
+            --keep-deployment-id "${DEPLOYMENT_ID}"
+
+      - name: Comment preview URL on PR
+        if: always() && steps.alias.outcome == 'success'
+        env:
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_URL: ${{ steps.meta.outputs.url }}
+          PR_NUMBER: ${{ steps.meta.outputs.pr }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_github.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            comment \
+            --pr-number "${PR_NUMBER}" \
+            --deployment-id "${DEPLOYMENT_ID}" \
+            --preview-url "${PREVIEW_URL}"
+
+      - name: Remove closed PR alias
+        if: steps.meta.outputs.mode == 'cleanup'
+        env:
+          ALIAS: ${{ steps.meta.outputs.alias }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            remove-alias \
+            --alias "${ALIAS}"
+
+      - name: Delete closed PR deployments
+        if: always() && steps.meta.outputs.mode == 'cleanup'
+        env:
+          PR_NUMBER: ${{ steps.meta.outputs.pr }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            delete-pr-deployments \
+            --pr-number "${PR_NUMBER}"
+
+      - name: Roll back an unpromoted failed deployment
+        if: >-
+          failure() &&
+          steps.deploy.outputs.deployment_id != '' &&
+          steps.alias.outcome == 'skipped'
+        env:
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          python3 trusted-source/.github/scripts/docs_preview_vercel.py \
+            --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
+            --team-id "${VERCEL_ORG_ID}" \
+            delete-deployment \
+            --deployment-id "${DEPLOYMENT_ID}" \
+            || true
+
+      - name: Report a stale or superseded run
+        if: steps.meta.outputs.mode == 'noop'
+        run: echo "No external state was changed." >> "${GITHUB_STEP_SUMMARY}"

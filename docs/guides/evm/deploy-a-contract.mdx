@@ -1,0 +1,212 @@
+---
+title: Deploy a contract
+description: From an empty directory to a live contract on the Bittensor EVM, with Hardhat or Remix.
+---
+
+Subtensor's EVM accepts standard Solidity contracts deployed with standard
+tooling. This walkthrough deploys a small vault contract that holds native
+TAO, first with Hardhat, then with Remix. Everything here works identically
+on localnet, testnet, and mainnet — only the RPC URL and the source of funds
+change.
+
+**Prerequisites:**
+
+- A funded EVM key: the [quick start](/docs/guides/evm#quick-start-your-first-evm-key)
+  gets you one in four commands. Gas costs fractions of a TAO; develop
+  against testnet or a [localnet](/docs/guides/local-development) (where the
+  faucet mints test TAO) rather than spending mainnet TAO.
+- Node.js 20+ for the Hardhat path.
+
+<Callout>
+Two settings prevent almost every mysterious deploy failure on subtensor:
+compile with **Solidity 0.8.24 or lower** and **EVM target Cancun**. And on a
+fresh localnet, run `btcli evm setup-localnet -w alice` once — it sets the
+EVM chain ID and disables the deployment whitelist, the two things that
+otherwise fail your first deploy.
+</Callout>
+
+## The contract
+
+`TaoVault.sol` — anyone can deposit native TAO, only the owner can withdraw.
+Small, but it exercises the thing that differs from a toy chain: real value
+in `msg.value`.
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract TaoVault {
+    address public immutable owner;
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    receive() external payable {}
+
+    function balance() external view returns (uint256) {
+        return address(this).balance; // wei: 1 TAO = 1e18
+    }
+
+    function withdraw(uint256 amountWei) external {
+        require(msg.sender == owner, "not owner");
+        (bool ok, ) = owner.call{value: amountWei}("");
+        require(ok, "transfer failed");
+    }
+}
+```
+
+Remember the [decimals rule](/docs/guides/evm#the-decimals-trap): balances
+and `msg.value` are in wei (1 TAO = 1e18); only precompile amount parameters
+use rao.
+
+## Path A: Hardhat
+
+### 1. Project setup
+
+```bash
+mkdir tao-vault && cd tao-vault
+npm init -y
+npm install --save-dev hardhat ethers
+mkdir contracts scripts
+# save TaoVault.sol into contracts/
+```
+
+### 2. Configure for subtensor
+
+`btcli evm config --format hardhat` prints a ready config for your configured
+network — save it as `hardhat.config.js`. It pins the compiler settings, points
+at the right RPC, and takes the deployer key from the environment as either a
+raw key (`ETH_PRIVATE_KEY`) or an encrypted keystore file (`ETH_KEYSTORE` +
+`ETH_KEYSTORE_PASSWORD`), which it decrypts with ethers at load time.
+
+### 3. Provide the deployer key
+
+The emitted config accepts either form:
+
+```bash
+# simplest: raw key in the environment (prompts for the keystore password)
+export ETH_PRIVATE_KEY=$(btcli evm key export --private-key -w my_coldkey)
+
+# or keep the key encrypted: the config decrypts the keystore file itself
+btcli evm key export --out key.json -w my_coldkey
+export ETH_KEYSTORE=./key.json ETH_KEYSTORE_PASSWORD=…
+```
+
+The keystore route means no raw key ever sits in an environment variable —
+prefer it for anything long-lived.
+
+### 4. Deploy
+
+`scripts/deploy.js`:
+
+```javascript
+const hre = require("hardhat");
+
+async function main() {
+  const [deployer] = await hre.ethers.getSigners();
+  console.log("deploying from", deployer.address);
+
+  const vault = await hre.ethers.deployContract("TaoVault");
+  await vault.waitForDeployment();
+  console.log("TaoVault at", await vault.getAddress());
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
+```
+
+```bash
+npx hardhat run scripts/deploy.js --network subtensor
+```
+
+```text
+deploying from 0x1074…
+TaoVault at 0x5FbDB2315678afecb367f032d93F642f64180aa3
+```
+
+Deployment lands in the next ~12-second block. If it fails at gas
+estimation, remember that subtensor's `eth_estimateGas` rejects *any*
+invalid transaction — an unfunded deployer and the localnet whitelist are
+the usual suspects, not gas itself.
+
+### 5. Interact
+
+`scripts/use.js` — deposit 0.1 TAO, read the balance back:
+
+```javascript
+const hre = require("hardhat");
+
+async function main() {
+  const vault = await hre.ethers.getContractAt("TaoVault", process.env.VAULT);
+  const [signer] = await hre.ethers.getSigners();
+
+  const tx = await signer.sendTransaction({
+    to: await vault.getAddress(),
+    value: hre.ethers.parseEther("0.1"), // 0.1 TAO as 1e17 wei
+  });
+  await tx.wait();
+
+  console.log("vault holds", hre.ethers.formatEther(await vault.balance()), "TAO");
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
+```
+
+```bash
+VAULT=0x5FbDB… npx hardhat run scripts/use.js --network subtensor
+```
+
+The contract's TAO is real native currency: the contract address also has an
+ss58 mirror (`btcli evm mirror 0x5FbDB…`), and if the contract calls a
+precompile, that mirror is its coldkey — the seam explained in
+[Two address domains](/docs/guides/evm#two-address-domains).
+
+### Alternative: deploy the artifact with btcli
+
+Once Hardhat has compiled (`npx hardhat compile`), you don't need a deploy
+script at all — btcli reads the artifact directly:
+
+```bash
+btcli evm deploy artifacts/contracts/TaoVault.sol/TaoVault.json -w my_coldkey
+```
+
+`--dry-run` previews gas and fee; on success it prints the contract address
+*and its ss58 mirror* (the contract's identity for native TAO and precompile
+calls). Constructor arguments follow the artifact path, and `bytes32`
+parameters accept ss58 addresses. Foundry artifacts and raw `.bin` files work
+too. Interact the same way:
+
+```bash
+btcli evm call 0xCONTRACT… balance --abi artifacts/contracts/TaoVault.sol/TaoVault.json
+```
+
+## Path B: Remix
+
+No local toolchain — everything happens in the browser through MetaMask.
+
+1. **Connect MetaMask to subtensor.** `btcli evm config --format metamask`
+   prints the network settings; add them under *Add network → Add manually*.
+   Import a funded key (`btcli evm key export --out key.json`, then import
+   the JSON in MetaMask).
+2. **Configure the compiler.** `btcli evm config --format remix` prints the
+   settings: compiler **0.8.24 or lower**, *Advanced Configurations → EVM
+   version* **cancun**.
+3. **Compile.** Paste `TaoVault.sol` into a new file in
+   [remix.ethereum.org](https://remix.ethereum.org) and compile.
+4. **Deploy.** In *Deploy & run transactions*, set environment to **Injected
+   Provider – MetaMask** (confirm the chain ID is 964 for mainnet or 945 for
+   testnet), then Deploy and approve in MetaMask.
+5. **Interact.** Use the deployed-contract panel: put an amount in the
+   *Value* field (unit: ether — 1 "ether" = 1 TAO) and press the low-level
+   *Transact* button to deposit; `balance` and `withdraw` appear as buttons.
+
+## Where to go next
+
+A contract that only holds TAO doesn't need Bittensor. The interesting part
+is that contracts can call the chain's own operations through
+[precompiles](/docs/guides/evm#precompiles):
+
+- [Read chain state](/docs/guides/evm/read-chain-state) — query the
+  metagraph from Solidity and JSON-RPC.
+- [Stake from the EVM](/docs/guides/evm/stake-from-evm) — a contract that
+  stakes the TAO it receives.

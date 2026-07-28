@@ -1,0 +1,307 @@
+name: Refresh Mainnet Snapshot
+
+# Nightly producer of the state snapshots that keep PR runs of runtime-checks
+# off the live RPC endpoints:
+#
+#   - `mainnet-snapshot`: patched chainspec + genesis-inited local database
+#     for the clone-upgrade shards, which otherwise each spend 15-20 min
+#     re-scraping identical state from the finney RPC.
+#   - `try-runtime-snap-{devnet,testnet,mainnet}`: try-runtime-cli state
+#     snapshots consumed by the try-runtime jobs via `on-runtime-upgrade
+#     snap`, replacing each job's own 30-40 min `live --uri` scrape.
+#
+# Security: PR jobs only consume snapshots produced by runs of this workflow
+# on the default branch, so a PR can never feed a poisoned snapshot to another
+# PR. Day-old network state
+# is just as representative for an upgrade test as live state — and a pinned
+# snapshot is more reproducible than a fresh scrape. A PR that changes the
+# spec-patching logic itself (node/src/clone_spec.rs) can apply the
+# `fresh-mainnet-clone` label to bypass the clone snapshot and scrape live.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Trusted branch to refresh"
+        required: true
+        default: main
+        type: choice
+        options:
+          - main
+      try_runtime_only:
+        description: "Generate only try-runtime snapshots (targeted recovery)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # Serialize every ref globally: diagnostic dispatches must not cancel a
+  # running production refresh or consume a second RPC/runner slot alongside it.
+  group: refresh-mainnet-snapshot
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TRY_RUNTIME_VERSION: "0.10.1"
+  # v0.10.1 exposes parallelism only through the number of URI values.
+  SNAPSHOT_RPC_CLIENTS: "4"
+
+jobs:
+  snapshot:
+    name: scrape mainnet and publish snapshot
+    if: >-
+      (github.event_name != 'workflow_dispatch' || !inputs.try_runtime_only) &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: sccache-writer
+      deployment: false
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: runtime-checks
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Add wasm target and rust-src
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Build node-subtensor (release)
+        run: cargo build --release -p node-subtensor
+
+      - name: Scrape mainnet and build patched chainspec
+        run: ./clones/scripts/clone-mainnet.sh
+
+      - name: Genesis-init the local clone database
+        run: |
+          # Genesis init from the ~2 GB chainspec takes several minutes before
+          # the RPC server comes up. Preserve the node's default consensus mode
+          # and only require RPC health before packaging.
+          ./clones/scripts/start-local-clone-and-wait.sh node-default
+          ./clones/scripts/stop-local-clone.sh
+
+      - name: Package snapshot
+        run: |
+          tar -czf mainnet-snapshot.tar.gz \
+            clones/mainnet-clone-chainspec.json \
+            clones/mainnet-clone
+          ls -lh mainnet-snapshot.tar.gz
+
+      - name: Upload snapshot artifact
+        id: upload-snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-snapshot
+          path: mainnet-snapshot.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+          # The tarball is already gzipped.
+          compression-level: 0
+
+      - name: Mirror snapshot for fleet prefetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload-snapshot.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-snapshot.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          .github/scripts/publish-artifact-mirror.sh \
+            "$ARTIFACT_ID" \
+            mainnet-snapshot \
+            "$ARTIFACT_DIGEST" \
+            "$GITHUB_SHA" \
+            .github/workflows/refresh-mainnet-snapshot.yml
+
+  # try-runtime state snapshots, one job per network so one flaky endpoint
+  # doesn't prevent the others from publishing. The .snap format
+  # is tied to the try-runtime-cli release, so this version must match the
+  # consumer pin in runtime-checks.yml.
+  try-runtime-snapshot:
+    name: try-runtime snapshot ${{ matrix.network.name }}
+    # Snapshot assembly exceeds the memory available on ubuntu-latest. This is
+    # scheduled, off-critical-path work, so use the shared 8-core pool instead
+    # of retaining a dedicated runner host.
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      # Snapshot production is off the PR critical path. Serialize the network
+      # jobs to bound archive RPC load and shared-runner usage.
+      max-parallel: 1
+      matrix:
+        network:
+          # Same endpoints and genesis-hash identity checks as the try-runtime
+          # consumer jobs (the hostnames are misleading; see runtime-checks.yml).
+          - name: mainnet
+            uri: wss://archive.dev.opentensor.ai:443
+            genesis: "0x2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
+          - name: testnet
+            uri: wss://archive.dev.opentensor.ai:8443
+            genesis: "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+          - name: devnet
+            uri: wss://dev.chain.opentensor.ai:443
+            genesis: "0x077899043eb684c5277b6814a39161f4ce072b45e782e12c81a521c63fb4f3e5"
+    steps:
+      - name: Resolve and verify finalized source state
+        id: source
+        run: |
+          set -euo pipefail
+          http_uri="${{ matrix.network.uri }}"
+          http_uri="${http_uri/wss:/https:}"
+          rpc() {
+            curl -fsS -m 30 -H 'Content-Type: application/json' -d "$1" "$http_uri"
+          }
+          genesis=$(rpc \
+            '{"id":1,"jsonrpc":"2.0","method":"chain_getBlockHash","params":[0]}' \
+            | jq -er '.result')
+          echo "endpoint genesis: $genesis"
+          if [ "$genesis" != "${{ matrix.network.genesis }}" ]; then
+            echo "::error::${{ matrix.network.name }} endpoint $http_uri serves genesis $genesis, expected ${{ matrix.network.genesis }}"
+            exit 1
+          fi
+
+          finalized_hash=$(rpc \
+            '{"id":1,"jsonrpc":"2.0","method":"chain_getFinalizedHead","params":[]}' \
+            | jq -er '.result')
+          header=$(rpc \
+            "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"chain_getHeader\",\"params\":[\"$finalized_hash\"]}")
+          number_hex=$(jq -er '.result.number' <<< "$header")
+          finalized_number=$((16#${number_hex#0x}))
+          runtime_version=$(rpc \
+            "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"state_getRuntimeVersion\",\"params\":[\"$finalized_hash\"]}")
+          spec_name=$(jq -er '.result.specName' <<< "$runtime_version")
+          spec_version=$(jq -er '.result.specVersion' <<< "$runtime_version")
+
+          echo "finalized block: $finalized_number ($finalized_hash)"
+          echo "runtime: $spec_name/$spec_version"
+          {
+            echo "block-hash=$finalized_hash"
+            echo "block-number=$finalized_number"
+            echo "spec-name=$spec_name"
+            echo "spec-version=$spec_version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download try-runtime-cli v${{ env.TRY_RUNTIME_VERSION }}
+        run: |
+          TRY_RUNTIME_BIN="$RUNNER_TEMP/try-runtime"
+          curl --fail --silent --show-error --location \
+            "https://github.com/paritytech/try-runtime-cli/releases/download/v${TRY_RUNTIME_VERSION}/try-runtime-x86_64-unknown-linux-musl" \
+            --output "$TRY_RUNTIME_BIN"
+          chmod +x "$TRY_RUNTIME_BIN"
+          echo "TRY_RUNTIME_BIN=$TRY_RUNTIME_BIN" >> "$GITHUB_ENV"
+
+      - name: Create state snapshot
+        run: |
+          set -euo pipefail
+          export RUST_LOG=remote-ext=debug
+          snapshot="${{ matrix.network.name }}.snap"
+          manifest="${{ matrix.network.name }}.manifest.json"
+          # The positional path must precede --uri because --uri is variadic.
+          # Each client creates four remote-externalities value-fetch workers;
+          # the archive endpoint is dedicated to this workload.
+          rpc_uri="${{ matrix.network.uri }}"
+          [[ "$SNAPSHOT_RPC_CLIENTS" =~ ^[1-9][0-9]*$ ]] || {
+            echo "invalid SNAPSHOT_RPC_CLIENTS: $SNAPSHOT_RPC_CLIENTS" >&2
+            exit 2
+          }
+          rpc_uris=()
+          for ((client = 0; client < SNAPSHOT_RPC_CLIENTS; client++)); do
+            rpc_uris+=("$rpc_uri")
+          done
+          "$TRY_RUNTIME_BIN" create-snapshot \
+            "$snapshot" \
+            --uri "${rpc_uris[@]}" \
+            --at "${{ steps.source.outputs.block-hash }}"
+
+          snapshot_size=$(stat -c '%s' "$snapshot")
+          snapshot_sha=$(sha256sum "$snapshot" | awk '{print $1}')
+          created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n \
+            --arg network "${{ matrix.network.name }}" \
+            --arg genesis "${{ matrix.network.genesis }}" \
+            --arg block_hash "${{ steps.source.outputs.block-hash }}" \
+            --argjson block_number "${{ steps.source.outputs.block-number }}" \
+            --arg spec_name "${{ steps.source.outputs.spec-name }}" \
+            --argjson spec_version "${{ steps.source.outputs.spec-version }}" \
+            --arg cli_version "$TRY_RUNTIME_VERSION" \
+            --arg created_at "$created_at" \
+            --arg producer_sha "$GITHUB_SHA" \
+            --arg snapshot_file "$snapshot" \
+            --argjson snapshot_size "$snapshot_size" \
+            --arg snapshot_sha "$snapshot_sha" '
+              {
+                schema_version: 1,
+                kind: "try-runtime-state",
+                network: $network,
+                genesis_hash: $genesis,
+                finalized_block_hash: $block_hash,
+                finalized_block_number: $block_number,
+                source_spec_name: $spec_name,
+                source_spec_version: $spec_version,
+                try_runtime_cli_version: $cli_version,
+                created_at: $created_at,
+                producer_sha: $producer_sha,
+                snapshot_file: $snapshot_file,
+                snapshot_size_bytes: $snapshot_size,
+                snapshot_sha256: $snapshot_sha
+              }
+            ' > "$manifest"
+          ls -lh "$snapshot" "$manifest"
+
+      - name: Upload snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: try-runtime-snap-v${{ env.TRY_RUNTIME_VERSION }}-${{ matrix.network.name }}
+          path: |
+            ${{ matrix.network.name }}.snap
+            ${{ matrix.network.name }}.manifest.json
+          if-no-files-found: error
+          retention-days: 7
+
+  mirror-try-runtime-snapshots:
+    name: mirror try-runtime snapshot ${{ matrix.network }}
+    needs: try-runtime-snapshot
+    # Publish every successful matrix artifact even if another network scrape
+    # failed; the missing network remains visible as a failed mirror leg.
+    if: >-
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && inputs.source_ref == 'main'))
+    runs-on: ubuntu-latest
+    environment:
+      name: sccache-writer
+      deployment: false
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        network: [mainnet, testnet, devnet]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Publish immutable artifact and latest manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCCACHE_BUCKET: subtensor-ci-sccache
+          SCCACHE_ENDPOINT: https://3dc4cebb791314d78848969042fb3382.r2.cloudflarestorage.com
+          SCCACHE_REGION: auto
+          AWS_ACCESS_KEY_ID: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+        run: >-
+          .github/scripts/publish-current-run-artifact-mirror.sh
+          "try-runtime-snap-v${TRY_RUNTIME_VERSION}-${{ matrix.network }}"

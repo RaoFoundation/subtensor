@@ -1,0 +1,30 @@
+name: Localnet Publication Contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/docker-localnet.yml"
+      - ".github/workflows/check-localnet-publication.yml"
+      - ".github/scripts/resolve-localnet-image.sh"
+      - ".github/scripts/test-resolve-localnet-image.sh"
+      - ".github/scripts/publish-localnet-manifest.sh"
+      - ".github/scripts/test-publish-localnet-manifest.sh"
+
+concurrency:
+  group: check-localnet-publication-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test image tag policy
+        run: ./.github/scripts/test-resolve-localnet-image.sh
+
+      - name: Test immutable manifest publication
+        run: ./.github/scripts/test-publish-localnet-manifest.sh

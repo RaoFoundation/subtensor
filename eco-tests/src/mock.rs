@@ -203,6 +203,7 @@ parameter_types! {
     pub const InitialBurn: u64 = 0;
     pub const InitialMinBurn: u64 = 500_000;
     pub const InitialMinStake: u64 = 2_000_000;
+    pub const InitialMinTransfer: u64 = 2_000_000;
     pub const InitialMaxBurn: u64 = 1_000_000_000;
     pub const MinBurnUpperBound: TaoBalance = TaoBalance::new(1_000_000_000); // 1 TAO
     pub const MaxBurnLowerBound: TaoBalance = TaoBalance::new(100_000_000); // 0.1 TAO
@@ -240,7 +241,7 @@ parameter_types! {
     pub const InitialColdkeySwapAnnouncementDelay: u64 = 50;
     pub const InitialColdkeySwapReannouncementDelay: u64 = 10;
     pub const InitialDissolveNetworkScheduleDuration: u64 =  5 * 24 * 60 * 60 / 12; // Default as 5 days
-    pub const InitialTaoWeight: u64 = 0; // 100% global weight.
+    pub const InitialTaoWeight: u64 = 0; // 0% TAO weight.
     pub const InitialEmaPriceHalvingPeriod: u64 = 201_600_u64; // 4 weeks
     pub const InitialStartCallDelay: u64 =  0; // 0 days
     pub const InitialKeySwapOnSubnetCost: u64 = 10_000_000;
@@ -298,6 +299,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxBurn = InitialMaxBurn;
     type InitialMinBurn = InitialMinBurn;
     type InitialMinStake = InitialMinStake;
+    type InitialMinTransfer = InitialMinTransfer;
     type MinBurnUpperBound = MinBurnUpperBound;
     type MaxBurnLowerBound = MaxBurnLowerBound;
     type MinTempo = MinTempo;
@@ -617,11 +619,19 @@ pub fn add_balance_to_coldkey_account(coldkey: &U256, tao: TaoBalance) {
 mod api_mocks {
     use codec::Compact;
     use pallet_subtensor::rpc_info::delegate_info::DelegateInfo;
+    use pallet_subtensor::rpc_info::dynamic_info::DynamicInfo;
+    use pallet_subtensor::rpc_info::metagraph::{Metagraph, SelectiveMetagraph};
+    use pallet_subtensor::rpc_info::show_subnet::SubnetState;
     use pallet_subtensor::rpc_info::stake_info::StakeInfo;
+    use pallet_subtensor::rpc_info::subnet_info::{
+        SubnetHyperparams, SubnetHyperparamsV2, SubnetHyperparamsV3, SubnetInfo, SubnetInfov2,
+    };
     use pallet_subtensor_swap_runtime_api::{SimSwapResult, SubnetPrice, SwapRuntimeApi};
     use sp_runtime::AccountId32;
-    use subtensor_custom_rpc_runtime_api::{DelegateInfoRuntimeApi, StakeInfoRuntimeApi};
-    use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
+    use subtensor_custom_rpc_runtime_api::{
+        DelegateInfoRuntimeApi, StakeInfoRuntimeApi, SubnetInfoRuntimeApi,
+    };
+    use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, TaoBalance};
 
     use super::Block;
 
@@ -663,6 +673,32 @@ mod api_mocks {
             ) -> u64 {
                 0
             }
+        }
+
+        impl SubnetInfoRuntimeApi<Block> for MockApi {
+            fn get_subnet_info(_netuid: NetUid) -> Option<SubnetInfo<AccountId32>> { None }
+            fn get_subnets_info() -> Vec<Option<SubnetInfo<AccountId32>>> { Vec::new() }
+            fn get_subnet_info_v2(_netuid: NetUid) -> Option<SubnetInfov2<AccountId32>> { None }
+            fn get_subnets_info_v2() -> Vec<Option<SubnetInfov2<AccountId32>>> { Vec::new() }
+            #[allow(deprecated)]
+            fn get_subnet_hyperparams(_netuid: NetUid) -> Option<SubnetHyperparams> { None }
+            #[allow(deprecated)]
+            fn get_subnet_hyperparams_v2(_netuid: NetUid) -> Option<SubnetHyperparamsV2> { None }
+            fn get_subnet_hyperparams_v3(_netuid: NetUid) -> Option<SubnetHyperparamsV3> { None }
+            fn get_all_dynamic_info() -> Vec<Option<DynamicInfo<AccountId32>>> { Vec::new() }
+            fn get_all_metagraphs() -> Vec<Option<Metagraph<AccountId32>>> { Vec::new() }
+            fn get_metagraph(_netuid: NetUid) -> Option<Metagraph<AccountId32>> { None }
+            fn get_all_mechagraphs() -> Vec<Option<Metagraph<AccountId32>>> { Vec::new() }
+            fn get_mechagraph(_netuid: NetUid, _mecid: MechId) -> Option<Metagraph<AccountId32>> { None }
+            fn get_dynamic_info(_netuid: NetUid) -> Option<DynamicInfo<AccountId32>> { None }
+            fn get_subnet_state(_netuid: NetUid) -> Option<SubnetState<AccountId32>> { None }
+            fn get_selective_metagraph(_netuid: NetUid, _metagraph_indexes: Vec<u16>) -> Option<SelectiveMetagraph<AccountId32>> { None }
+            fn get_coldkey_auto_stake_hotkey(_coldkey: AccountId32, _netuid: NetUid) -> Option<AccountId32> { None }
+            fn get_selective_mechagraph(_netuid: NetUid, _subid: MechId, _metagraph_indexes: Vec<u16>) -> Option<SelectiveMetagraph<AccountId32>> { None }
+            fn get_subnet_to_prune() -> Option<NetUid> { None }
+            fn get_subnet_account_id(_netuid: NetUid) -> Option<AccountId32> { None }
+            fn get_next_epoch_start_block(_netuid: NetUid) -> Option<u64> { None }
+            fn get_block_emission() -> TaoBalance { TaoBalance::from(0u64) }
         }
 
         impl SwapRuntimeApi<Block> for MockApi {

@@ -4,7 +4,7 @@ use crate::system::{ensure_signed, ensure_signed_or_root, pallet_prelude::BlockN
 use safe_math::*;
 use sp_core::Get;
 use sp_core::U256;
-use sp_runtime::Saturating;
+use sp_runtime::{PerU16, Saturating};
 use substrate_fixed::types::{I32F32, I64F64, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
 
@@ -108,9 +108,9 @@ impl<T: Config> Pallet<T> {
     // ==== Global Setters ====
     // ========================
     /// Unchecked tempo write used by tests, precompiles, and internal helpers.
-    /// Does NOT reset `LastEpochBlock` — that is the responsibility of the owner-side
-    /// `set_tempo` extrinsic and `sudo_set_tempo` (root), both of which perform the cycle
-    /// reset explicitly.
+    /// Does NOT reset `LastEpochBlock` — that is the responsibility of
+    /// `AdminUtils::sudo_set_tempo` (owner-or-root), which performs the cycle
+    /// reset explicitly via `apply_tempo_with_cycle_reset`.
     pub fn set_tempo_unchecked(netuid: NetUid, tempo: u16) {
         Tempo::<T>::insert(netuid, tempo);
         Self::deposit_event(Event::TempoSet(netuid, tempo));
@@ -180,12 +180,21 @@ impl<T: Config> Pallet<T> {
     }
     pub fn get_consensus(netuid: NetUid) -> Vec<u16> {
         Consensus::<T>::get(netuid)
+            .into_iter()
+            .map(PerU16::deconstruct)
+            .collect()
     }
     pub fn get_incentive(netuid: NetUidStorageIndex) -> Vec<u16> {
         Incentive::<T>::get(netuid)
+            .into_iter()
+            .map(PerU16::deconstruct)
+            .collect()
     }
     pub fn get_dividends(netuid: NetUid) -> Vec<u16> {
         Dividends::<T>::get(netuid)
+            .into_iter()
+            .map(PerU16::deconstruct)
+            .collect()
     }
     /// Fetch LastUpdate for `netuid` and ensure its length is at least `get_subnetwork_n(netuid)`,
     /// padding with zeros if needed. Returns the (possibly padded) vector.
@@ -204,6 +213,9 @@ impl<T: Config> Pallet<T> {
     }
     pub fn get_validator_trust(netuid: NetUid) -> Vec<u16> {
         ValidatorTrust::<T>::get(netuid)
+            .into_iter()
+            .map(PerU16::deconstruct)
+            .collect()
     }
     pub fn get_validator_permit(netuid: NetUid) -> Vec<bool> {
         ValidatorPermit::<T>::get(netuid)
@@ -259,15 +271,24 @@ impl<T: Config> Pallet<T> {
     }
     pub fn get_consensus_for_uid(netuid: NetUid, uid: u16) -> u16 {
         let vec = Consensus::<T>::get(netuid);
-        vec.get(uid as usize).copied().unwrap_or(0)
+        vec.get(uid as usize)
+            .copied()
+            .unwrap_or_default()
+            .deconstruct()
     }
     pub fn get_incentive_for_uid(netuid: NetUidStorageIndex, uid: u16) -> u16 {
         let vec = Incentive::<T>::get(netuid);
-        vec.get(uid as usize).copied().unwrap_or(0)
+        vec.get(uid as usize)
+            .copied()
+            .unwrap_or_default()
+            .deconstruct()
     }
     pub fn get_dividends_for_uid(netuid: NetUid, uid: u16) -> u16 {
         let vec = Dividends::<T>::get(netuid);
-        vec.get(uid as usize).copied().unwrap_or(0)
+        vec.get(uid as usize)
+            .copied()
+            .unwrap_or_default()
+            .deconstruct()
     }
     pub fn get_last_update_for_uid(netuid: NetUidStorageIndex, uid: u16) -> u64 {
         let vec = LastUpdate::<T>::get(netuid);
@@ -279,7 +300,10 @@ impl<T: Config> Pallet<T> {
     }
     pub fn get_validator_trust_for_uid(netuid: NetUid, uid: u16) -> u16 {
         let vec = ValidatorTrust::<T>::get(netuid);
-        vec.get(uid as usize).copied().unwrap_or(0)
+        vec.get(uid as usize)
+            .copied()
+            .unwrap_or_default()
+            .deconstruct()
     }
     pub fn get_validator_permit_for_uid(netuid: NetUid, uid: u16) -> bool {
         let vec = ValidatorPermit::<T>::get(netuid);
@@ -401,28 +425,28 @@ impl<T: Config> Pallet<T> {
         TxDelegateTakeRateLimit::<T>::put(tx_rate_limit);
         Self::deposit_event(Event::TxDelegateTakeRateLimitSet(tx_rate_limit));
     }
-    pub fn set_min_delegate_take(take: u16) {
+    pub fn set_min_delegate_take(take: PerU16) {
         MinDelegateTake::<T>::put(take);
         Self::deposit_event(Event::MinDelegateTakeSet(take));
     }
-    pub fn set_max_delegate_take(take: u16) {
+    pub fn set_max_delegate_take(take: PerU16) {
         MaxDelegateTake::<T>::put(take);
         Self::deposit_event(Event::MaxDelegateTakeSet(take));
     }
     pub fn get_min_delegate_take() -> u16 {
-        MinDelegateTake::<T>::get()
+        MinDelegateTake::<T>::get().deconstruct()
     }
     pub fn get_max_delegate_take() -> u16 {
-        MaxDelegateTake::<T>::get()
+        MaxDelegateTake::<T>::get().deconstruct()
     }
     pub fn get_default_delegate_take() -> u16 {
         // Default to maximum
-        MaxDelegateTake::<T>::get()
+        MaxDelegateTake::<T>::get().deconstruct()
     }
     // get_default_childkey_take
     pub fn get_default_childkey_take() -> u16 {
         // Default to maximum
-        MinChildkeyTake::<T>::get()
+        MinChildkeyTake::<T>::get().deconstruct()
     }
     pub fn get_tx_childkey_take_rate_limit() -> u64 {
         TxChildkeyTakeRateLimit::<T>::get()
@@ -431,30 +455,30 @@ impl<T: Config> Pallet<T> {
         TxChildkeyTakeRateLimit::<T>::put(tx_rate_limit);
         Self::deposit_event(Event::TxChildKeyTakeRateLimitSet(tx_rate_limit));
     }
-    pub fn set_min_childkey_take(take: u16) {
+    pub fn set_min_childkey_take(take: PerU16) {
         MinChildkeyTake::<T>::put(take);
         Self::deposit_event(Event::MinChildKeyTakeSet(take));
     }
-    pub fn set_min_childkey_take_for_subnet(netuid: NetUid, take: u16) {
+    pub fn set_min_childkey_take_for_subnet(netuid: NetUid, take: PerU16) {
         MinChildkeyTakePerSubnet::<T>::insert(netuid, take);
         Self::deposit_event(Event::MinChildKeyTakePerSubnetSet(netuid, take));
     }
-    pub fn set_max_childkey_take(take: u16) {
+    pub fn set_max_childkey_take(take: PerU16) {
         MaxChildkeyTake::<T>::put(take);
         Self::deposit_event(Event::MaxChildKeyTakeSet(take));
     }
     pub fn get_min_childkey_take() -> u16 {
-        MinChildkeyTake::<T>::get()
+        MinChildkeyTake::<T>::get().deconstruct()
     }
     pub fn get_min_childkey_take_for_subnet(netuid: NetUid) -> u16 {
-        MinChildkeyTakePerSubnet::<T>::get(netuid)
+        MinChildkeyTakePerSubnet::<T>::get(netuid).deconstruct()
     }
     pub fn get_effective_min_childkey_take(netuid: NetUid) -> u16 {
         Self::get_min_childkey_take().max(Self::get_min_childkey_take_for_subnet(netuid))
     }
 
     pub fn get_max_childkey_take() -> u16 {
-        MaxChildkeyTake::<T>::get()
+        MaxChildkeyTake::<T>::get().deconstruct()
     }
 
     pub fn get_serving_rate_limit(netuid: NetUid) -> u64 {
@@ -872,7 +896,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `duration` - The blocks for dissolve network execution.
+    /// * `duration`: The blocks for dissolve network execution.
     ///
     /// # Effects
     ///
@@ -887,8 +911,8 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `netuid` - The unique identifier for the subnet.
-    /// * `hotkey` - The new hotkey for the subnet owner.
+    /// * `netuid`: The unique identifier for the subnet.
+    /// * `hotkey`: The new hotkey for the subnet owner.
     ///
     /// # Effects
     ///
@@ -921,13 +945,13 @@ impl<T: Config> Pallet<T> {
     /// and [`MaxImmuneOwnerUidsLimit`]. If the bound check fails, this returns
     /// [`Error::<T>::InvalidValue`] and leaves storage unchanged.
     ///
-    /// # Parameters
-    /// - `netuid`: Identifier of the subnet to update.
-    /// - `limit`: New inclusive upper bound for the count of owner-immune UIDs on this subnet.
+    /// # Arguments
+    /// * `netuid`: Identifier of the subnet to update.
+    /// * `limit`: New inclusive upper bound for the count of owner-immune UIDs on this subnet.
     ///
     /// # Returns
-    /// - `Ok(())` on success (value written to storage).
-    /// - `Err(Error::<T>::InvalidValue)` if `limit` is outside `[MinImmuneOwnerUidsLimit, MaxImmuneOwnerUidsLimit]`.
+    /// * `Ok(())` on success (value written to storage).
+    /// * `Err(Error::<T>::InvalidValue)` if `limit` is outside `[MinImmuneOwnerUidsLimit, MaxImmuneOwnerUidsLimit]`.
     pub fn set_owner_immune_neuron_limit(netuid: NetUid, limit: u16) -> DispatchResult {
         ensure!(
             limit >= MinImmuneOwnerUidsLimit::<T>::get()
@@ -941,8 +965,8 @@ impl<T: Config> Pallet<T> {
 
     /// Fetches the max number of subnet
     ///
-    /// # Returns:
-    /// * 'u16': The max number of subnet
+    /// # Returns
+    /// * `u16`: The max number of subnet
     ///
     pub fn get_max_subnets() -> u16 {
         SubnetLimit::<T>::get()
@@ -964,6 +988,18 @@ impl<T: Config> Pallet<T> {
         FlowNormExponent::<T>::set(exponent);
     }
 
+    /// Sets the emission bar quantile (q)
+    pub fn set_emission_bar_quantile(quantile: U64F64) {
+        EmissionBarQuantile::<T>::set(quantile);
+        // Force a bar recompute with the new quantile on the next block.
+        EmissionGateBar::<T>::kill();
+    }
+
+    /// Sets the emission gate Hill exponent (h)
+    pub fn set_emission_gate_exponent(exponent: U64F64) {
+        EmissionGateExponent::<T>::set(exponent);
+    }
+
     /// Sets TAO flow smoothing factor (alpha)
     pub fn set_tao_flow_smoothing_factor(smoothing_factor: u64) {
         FlowEmaSmoothingFactor::<T>::set(smoothing_factor);
@@ -981,8 +1017,8 @@ impl<T: Config> Pallet<T> {
     ///   0.5 == 1 << 31
     ///
     /// Safe / non-panicking:
-    /// - uses saturating u128 multiplication
-    /// - clamps back into u64 range
+    /// * uses saturating u128 multiplication
+    /// * clamps back into u64 range
     pub fn mul_by_q32(value: u64, factor_q32: u64) -> u64 {
         let product: u128 = (value as u128).saturating_mul(factor_q32 as u128);
         let shifted: u128 = product >> 32;
@@ -994,7 +1030,7 @@ impl<T: Config> Pallet<T> {
     /// Returns `base_q32 ^ exp` in Q32.
     ///
     /// Safe / non-panicking:
-    /// - uses `mul_by_q32`, which is saturating/clamped
+    /// * uses `mul_by_q32`, which is saturating/clamped
     pub fn pow_q32(base_q32: u64, exp: u16) -> u64 {
         let mut result: u64 = 1u64 << 32; // 1.0 in Q32
         let mut factor: u64 = base_q32;

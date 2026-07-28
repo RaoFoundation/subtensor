@@ -1,79 +1,119 @@
-ARG BASE_IMAGE=ubuntu:latest
+# syntax=docker/dockerfile:1
 
-FROM $BASE_IMAGE AS builder
+ARG BASE_IMAGE=ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+
+# Source builds remain the default for developers running:
+#   docker build -f Dockerfile-localnet .
+FROM ${BASE_IMAGE} AS source-builder
 
 SHELL ["/bin/bash", "-c"]
-
-# Set noninteractive mode for apt-get
 ARG DEBIAN_FRONTEND=noninteractive
 
-LABEL ai.opentensor.image.authors="operations@opentensor.ai" \
-  ai.opentensor.image.vendor="Opentensor Foundation" \
-  ai.opentensor.image.title="raofoundation/subtensor-localnet" \
-  ai.opentensor.image.description="Opentensor Subtensor Blockchain" \
-  ai.opentensor.image.documentation="https://docs.bittensor.com"
-
-# Copy repo first (you want this *before* RUN to enable layer cache reuse)
 COPY . /build
 WORKDIR /build
 
-# Set up env var
-ARG BUILT_IN_CI
-ARG TARGETARCH
-
-ENV BUILT_IN_CI=${BUILT_IN_CI}
-ENV RUST_BACKTRACE=1
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-## Ubdate certificates
-RUN apt-get update && apt-get install -y ca-certificates
-
-# Install requirements
-RUN chmod +x ./scripts/install_build_env.sh
-RUN ./scripts/install_build_env.sh
-
-## Build fast-runtime node
+RUN chmod +x ./scripts/install_build_env.sh \
+  && ./scripts/install_build_env.sh
 RUN ./scripts/localnet.sh --build-only
-# Build non-fast-runtime
 RUN ./scripts/localnet.sh False --build-only
 
-# We will prepare the necessary binaries if they are created in CI
-RUN chmod +x ./scripts/install_prebuilt_binaries.sh
-RUN ./scripts/install_prebuilt_binaries.sh
+RUN test -x /build/target/fast-runtime/release/node-subtensor \
+  && test -x /build/target/non-fast-runtime/release/node-subtensor
 
-# Verify the binaries was produced
-RUN test -e /build/target/fast-runtime/release/node-subtensor
-RUN test -e /build/target/non-fast-runtime/release/node-subtensor
+# CI already compiles architecture-specific binaries on native runners. This
+# stage only normalizes the downloaded artifacts into the layout used by the
+# final image, avoiding a second Rust toolchain install inside Docker.
+FROM ${BASE_IMAGE} AS prebuilt-artifacts
 
-FROM $BASE_IMAGE AS subtensor-localnet
+SHELL ["/bin/bash", "-c"]
+ARG TARGETARCH
+ENV BUILT_IN_CI=1
 
-# Copy binaries
-COPY --from=builder /build/target/fast-runtime/release/node-subtensor target/fast-runtime/release/node-subtensor
-RUN chmod +x target/fast-runtime/release/node-subtensor
+WORKDIR /build
+COPY ./build/ ./build/
+COPY ./scripts/install_prebuilt_binaries.sh ./scripts/install_prebuilt_binaries.sh
+RUN chmod +x ./scripts/install_prebuilt_binaries.sh \
+  && ./scripts/install_prebuilt_binaries.sh
 
-COPY --from=builder /build/target/non-fast-runtime/release/node-subtensor target/non-fast-runtime/release/node-subtensor
-RUN chmod +x target/non-fast-runtime/release/node-subtensor
+RUN test -x /build/target/fast-runtime/release/node-subtensor \
+  && test -x /build/target/non-fast-runtime/release/node-subtensor
 
-COPY --from=builder /build/snapshot.json /snapshot.json
+FROM ${BASE_IMAGE} AS runtime-base
 
-COPY --from=builder /build/scripts/localnet.sh scripts/localnet.sh
-RUN chmod +x /scripts/localnet.sh
+ARG DEBIAN_FRONTEND=noninteractive
+ARG TARGETARCH
 
-# Copy WebAssembly artifacts
-COPY --from=builder /build/target/fast-runtime/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm target/fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
-COPY --from=builder /build/target/non-fast-runtime/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm target/non-fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
+LABEL com.bittensor.image.authors="operations@bittensor.com" \
+  com.bittensor.image.vendor="Rao Foundation" \
+  com.bittensor.image.title="raofoundation/subtensor-localnet" \
+  com.bittensor.image.description="Bittensor Subtensor local development network" \
+  com.bittensor.image.documentation="https://bittensor.com/docs" \
+  org.opencontainers.image.authors="operations@bittensor.com" \
+  org.opencontainers.image.vendor="Rao Foundation" \
+  org.opencontainers.image.title="Subtensor Localnet" \
+  org.opencontainers.image.description="Subtensor local development network for CI and local testing" \
+  org.opencontainers.image.source="https://github.com/RaoFoundation/subtensor" \
+  org.opencontainers.image.url="https://github.com/RaoFoundation/subtensor/pkgs/container/subtensor-localnet" \
+  org.opencontainers.image.documentation="https://github.com/RaoFoundation/subtensor/blob/main/docs/guides/local-development.mdx" \
+  org.opencontainers.image.licenses="Apache-2.0"
 
-# Update certificates for next layer
-RUN apt-get update && apt-get install -y ca-certificates
+RUN set -eu; \
+  if [ "${TARGETARCH}" = "arm64" ]; then \
+    for sources in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+      [ ! -f "${sources}" ] || sed -i \
+        's|http://ports.ubuntu.com/ubuntu-ports|http://ftp.kaist.ac.kr/ubuntu-ports|g' \
+        "${sources}"; \
+    done; \
+  fi; \
+  apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update; \
+  apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true install -y ca-certificates; \
+  if [ "${TARGETARCH}" = "arm64" ]; then \
+    for sources in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+      [ ! -f "${sources}" ] || sed -i \
+        's|http://ftp.kaist.ac.kr/ubuntu-ports|https://ftp.kaist.ac.kr/ubuntu-ports|g' \
+        "${sources}"; \
+    done; \
+    apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true update; \
+  fi; \
+  apt-get -o Acquire::Retries=5 -o Acquire::ForceIPv4=true install -y --no-install-recommends curl procps; \
+  rm -rf /var/lib/apt/lists/*
 
-# Do not build (just run)
+COPY ./snapshot.json /snapshot.json
+COPY --chmod=0755 ./scripts/localnet.sh /scripts/localnet.sh
+COPY --chmod=0755 ./scripts/localnet_healthcheck.sh /scripts/localnet_healthcheck.sh
+RUN mkdir -p /scripts/specs
+
 ENV BUILD_BINARY=0
-# Switch to local run with IP 0.0.0.0 within docker image
 ENV RUN_IN_DOCKER=1
-# Expose ports
-EXPOSE 30334 30335 9944 9945
+
+EXPOSE 30334 30335 30336 9944 9945 9946
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=90s --retries=6 \
+  CMD ["/scripts/localnet_healthcheck.sh"]
 
 ENTRYPOINT ["/scripts/localnet.sh"]
-# Fast blocks defaults to True, you can disable it by passing False to the docker command, e.g.:
-# docker run ghcr.io/raofoundation/subtensor-localnet False
+# Fast blocks remain the default. Pass False for the standard 12-second runtime.
 CMD ["True"]
+
+# CI target: package binaries produced by docker-localnet.yml.
+FROM runtime-base AS subtensor-localnet-prebuilt
+
+COPY --from=prebuilt-artifacts /build/target/fast-runtime/release/node-subtensor /target/fast-runtime/release/node-subtensor
+COPY --from=prebuilt-artifacts /build/target/non-fast-runtime/release/node-subtensor /target/non-fast-runtime/release/node-subtensor
+COPY --from=prebuilt-artifacts /build/target/fast-runtime/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm /target/fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
+COPY --from=prebuilt-artifacts /build/target/non-fast-runtime/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm /target/non-fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
+
+RUN chmod +x /target/fast-runtime/release/node-subtensor \
+  /target/non-fast-runtime/release/node-subtensor
+
+# Developer target: package binaries compiled by source-builder. Keep this
+# target last so a target-less local docker build retains its historic behavior.
+FROM runtime-base AS subtensor-localnet
+
+COPY --from=source-builder /build/target/fast-runtime/release/node-subtensor /target/fast-runtime/release/node-subtensor
+COPY --from=source-builder /build/target/non-fast-runtime/release/node-subtensor /target/non-fast-runtime/release/node-subtensor
+COPY --from=source-builder /build/target/fast-runtime/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm /target/fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
+COPY --from=source-builder /build/target/non-fast-runtime/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm /target/non-fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
+
+RUN chmod +x /target/fast-runtime/release/node-subtensor \
+  /target/non-fast-runtime/release/node-subtensor

@@ -6,6 +6,8 @@
 
 **/*.lock
 !evm-tests/yarn.lock
+!website/yarn.lock
+!sdk/python/uv.lock
 
 *.ipynb
 
@@ -55,6 +57,36 @@ node_modules
 __pycache__/
 *.py[cod]
 
+# Python dev environments and tooling caches
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.mypy_cache/
+*.egg-info/
+.coverage
+htmlcov/
+sdk/bittensor-core-py/dist/
+sdk/python/dist/
+
+# Local dev logs
+*.log
+
 # Claude Code configuration (skills are checked in; everything else is ignored)
+# .claude/skills is a symlink to .agents/skills (single source of truth);
+# the trailing-slash-free negation is required to re-include the symlink.
 .claude/*
-!.claude/skills/
+!.claude/skills
+.vercel
+
+# Secrets and local env files (keep .env.example committable if added)
+.env
+.env.*
+!.env.example
+
+# First-signer working files (see .github/scripts/deploy/README.md)
+.github/scripts/deploy/subtensor.wasm
+.github/scripts/deploy/subtensor-digest.json
+.github/scripts/deploy/proxy_proxy_blob.hex
+.github/scripts/deploy/pending-release.json
+.github/scripts/deploy/deployment-multisig-proposal.hex

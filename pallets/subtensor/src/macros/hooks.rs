@@ -1,3 +1,4 @@
+#![allow(clippy::crate_in_macro_def)]
 use frame_support::pallet_macros::pallet_section;
 
 /// A [`pallet_section`] that defines the events for a pallet.
@@ -22,17 +23,13 @@ mod hooks {
                 Ok(_) => {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
-                    Weight::from_parts(110_634_229_000_u64, 0)
-                        .saturating_add(T::DbWeight::get().reads(8304_u64))
-                        .saturating_add(T::DbWeight::get().writes(110_u64))
+                    <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
                 }
                 Err(e) => {
                     // --- If the block step was unsuccessful, return the weight anyway.
                     log::error!("Error while stepping block: {:?}", e);
-                    Weight::from_parts(110_634_229_000_u64, 0)
-                        .saturating_add(T::DbWeight::get().reads(8304_u64))
-                        .saturating_add(T::DbWeight::get().writes(110_u64))
+                    <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
                 }
             }
@@ -179,7 +176,14 @@ mod hooks {
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
                 .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>())
                 // Populate reverse lookup index for EVM address associations.
-                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>());
+                .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>())
+                // Fold deprecated SubnetTaoProvided / SubnetAlphaInProvided residuals into the
+                // main AMM reserves (issue #2793). Guarded by HasMigrationRun, so it only runs once.
+                .saturating_add(migrations::migrate_cleanup_swap_v3::migrate_cleanup_swap_v3::<T>())
+                // Remove orphan SubnetIdentitiesV3 entries left for recycled netuids.
+                .saturating_add(migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<T>())
+                // Backfill ColdkeyCollateralHotkeys from standing MinerCollateral rows.
+                .saturating_add(migrations::migrate_coldkey_collateral_hotkeys::migrate_coldkey_collateral_hotkeys::<T>());
             weight
         }
 

@@ -191,6 +191,97 @@ fn it_rejects_pulses_with_non_incremental_round_numbers() {
 }
 
 #[test]
+fn write_pulse_rejects_round_skip() {
+    // A single pulse must not be allowed to leap LastStoredRound past the rounds
+    // in between, or those rounds can never be stored and any reveal/timelock that
+    // references them is wedged (#2794). Here round 1000 is a valid (BLS-verified)
+    // pulse, but LastStoredRound is seeded to 998 so round 1000 is a skip of two.
+    new_test_ext().execute_with(|| {
+        let block_number = 100_000_000;
+        let alice = sp_keyring::Sr25519Keyring::Alice;
+        System::set_block_number(block_number);
+
+        let info: BeaconInfoResponse = serde_json::from_str(DRAND_INFO_RESPONSE).unwrap();
+        let config_payload = BeaconConfigurationPayload {
+            block_number,
+            config: info.clone().try_into_beacon_config().unwrap(),
+            public: alice.public(),
+        };
+        let signature = None;
+        assert_ok!(Drand::set_beacon_config(
+            RuntimeOrigin::root(),
+            config_payload,
+            signature
+        ));
+
+        // Seed an existing baseline so this is not the anchor (first) storage.
+        LastStoredRound::<Test>::put(998);
+        OldestStoredRound::<Test>::put(998);
+
+        let u_p: DrandResponseBody = serde_json::from_str(DRAND_PULSE).unwrap();
+        let p: Pulse = u_p.try_into_pulse().unwrap();
+        let pulses_payload = PulsesPayload {
+            pulses: vec![p.clone()],
+            block_number,
+            public: alice.public(),
+        };
+
+        // Round 1000 is NOT last(998) + 1, so it must be rejected.
+        assert_noop!(
+            Drand::write_pulse(RuntimeOrigin::none(), pulses_payload, signature),
+            Error::<Test>::InvalidRoundNumber,
+        );
+
+        // State is unchanged: no leap, nothing stored.
+        assert_eq!(LastStoredRound::<Test>::get(), 998);
+        assert!(Pulses::<Test>::get(ROUND_NUMBER).is_none());
+    });
+}
+
+#[test]
+fn write_pulse_accepts_consecutive_round() {
+    // The strict-advance rule must still accept the legitimate next round.
+    // Round 1000 == last(999) + 1, so it is stored.
+    new_test_ext().execute_with(|| {
+        let block_number = 100_000_000;
+        let alice = sp_keyring::Sr25519Keyring::Alice;
+        System::set_block_number(block_number);
+
+        let info: BeaconInfoResponse = serde_json::from_str(DRAND_INFO_RESPONSE).unwrap();
+        let config_payload = BeaconConfigurationPayload {
+            block_number,
+            config: info.clone().try_into_beacon_config().unwrap(),
+            public: alice.public(),
+        };
+        let signature = None;
+        assert_ok!(Drand::set_beacon_config(
+            RuntimeOrigin::root(),
+            config_payload,
+            signature
+        ));
+
+        LastStoredRound::<Test>::put(999);
+        OldestStoredRound::<Test>::put(999);
+
+        let u_p: DrandResponseBody = serde_json::from_str(DRAND_PULSE).unwrap();
+        let p: Pulse = u_p.try_into_pulse().unwrap();
+        let pulses_payload = PulsesPayload {
+            pulses: vec![p.clone()],
+            block_number,
+            public: alice.public(),
+        };
+
+        assert_ok!(Drand::write_pulse(
+            RuntimeOrigin::none(),
+            pulses_payload,
+            signature
+        ));
+        assert_eq!(LastStoredRound::<Test>::get(), ROUND_NUMBER);
+        assert!(Pulses::<Test>::get(ROUND_NUMBER).is_some());
+    });
+}
+
+#[test]
 fn it_blocks_non_root_from_submit_beacon_info() {
     new_test_ext().execute_with(|| {
         let block_number = 100_000_000;
@@ -298,6 +389,75 @@ fn test_validate_unsigned_write_pulse() {
         let validity = Drand::validate_unsigned(source, &call);
 
         assert_ok!(validity);
+    });
+}
+
+#[test]
+fn validate_unsigned_accepts_first_live_round_as_storage_anchor() {
+    // On a fresh chain the current drand round is far beyond the normal catch-up
+    // window. It must be admitted so `write_pulse` can anchor both round markers.
+    new_test_ext().execute_with(|| {
+        let block_number = 100_000_000;
+        let alice = sp_keyring::Sr25519Keyring::Alice;
+        System::set_block_number(block_number);
+
+        assert_eq!(LastStoredRound::<Test>::get(), 0);
+        assert_eq!(OldestStoredRound::<Test>::get(), 0);
+
+        let pulse = Pulse {
+            round: crate::MAX_PULSES_TO_FETCH + 1,
+            randomness: frame_support::BoundedVec::truncate_from(vec![0u8; 32]),
+            signature: frame_support::BoundedVec::truncate_from(vec![1u8; 96]),
+        };
+        let pulses_payload = PulsesPayload {
+            block_number,
+            pulses: vec![pulse],
+            public: alice.public(),
+        };
+        let signature = alice.sign(&pulses_payload.encode());
+        let call = Call::write_pulse {
+            pulses_payload,
+            signature: Some(signature),
+        };
+
+        assert_ok!(Drand::validate_unsigned(TransactionSource::Local, &call));
+    });
+}
+
+#[test]
+fn validate_unsigned_rejects_round_too_far_ahead() {
+    // A round that would leap LastStoredRound by more than the offchain worker ever
+    // submits in one run is not a legitimate catch-up pulse. Drop it at the mempool
+    // before it can reach dispatch (#2794).
+    new_test_ext().execute_with(|| {
+        let block_number = 100_000_000;
+        let alice = sp_keyring::Sr25519Keyring::Alice;
+        System::set_block_number(block_number);
+
+        LastStoredRound::<Test>::put(100);
+
+        // 151 == last(100) + MAX_PULSES_TO_FETCH(50) + 1, i.e. one beyond the cap.
+        let pulse = Pulse {
+            round: 100 + crate::MAX_PULSES_TO_FETCH + 1,
+            randomness: frame_support::BoundedVec::truncate_from(vec![0u8; 32]),
+            signature: frame_support::BoundedVec::truncate_from(vec![1u8; 96]),
+        };
+        let pulses_payload = PulsesPayload {
+            block_number,
+            pulses: vec![pulse],
+            public: alice.public(),
+        };
+        let signature = alice.sign(&pulses_payload.encode());
+
+        let call = Call::write_pulse {
+            pulses_payload: pulses_payload.clone(),
+            signature: Some(signature),
+        };
+
+        let source = TransactionSource::External;
+        let validity = Drand::validate_unsigned(source, &call);
+
+        assert_noop!(validity, InvalidTransaction::Stale);
     });
 }
 

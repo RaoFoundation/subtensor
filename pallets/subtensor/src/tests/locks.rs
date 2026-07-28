@@ -2248,6 +2248,252 @@ fn test_do_transfer_stake_same_subnet_transfers_lock_to_destination_coldkey() {
     });
 }
 
+// Regression test: a same-subnet transfer that changes the hotkey must move the
+// individual lock and the aggregate lock to the destination hotkey. Before the
+// fix the recipient's lock (and aggregate conviction) stayed on the origin
+// hotkey while the stake landed on the destination hotkey.
+#[test]
+fn test_do_transfer_stake_and_hotkey_same_subnet_moves_lock_to_destination_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey_sender = U256::from(1);
+        let coldkey_receiver = U256::from(5);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(6);
+        let netuid = setup_subnet_with_stake(coldkey_sender, origin_hotkey, 100_000_000_000);
+
+        // The destination hotkey is owned by the receiving coldkey, so origin and
+        // destination hotkeys have different owners.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey_receiver,
+            &destination_hotkey
+        ));
+        DecayingLock::<Test>::insert(coldkey_receiver, netuid, false);
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(coldkey_receiver),
+            false,
+        ));
+
+        let total = SubtensorModule::total_coldkey_alpha_on_subnet(&coldkey_sender, netuid);
+        let lock_half = total / 2.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_sender,
+            netuid,
+            &origin_hotkey,
+            lock_half,
+        ));
+
+        let sender_lock_before = Lock::<Test>::get((coldkey_sender, netuid, origin_hotkey))
+            .expect("sender lock should exist");
+
+        step_block(1);
+
+        // Transfer the whole position (unlocked and locked halves) to the
+        // destination coldkey and hotkey.
+        assert_ok!(SubtensorModule::do_transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(coldkey_sender),
+            coldkey_receiver,
+            origin_hotkey,
+            destination_hotkey,
+            netuid,
+            netuid,
+            total,
+        ));
+
+        let expected_sender_lock = roll_forward_lock(
+            sender_lock_before,
+            SubtensorModule::get_current_block_as_u64(),
+            false,
+            true,
+        );
+
+        // The sender's lock is fully transferred away.
+        assert!(Lock::<Test>::get((coldkey_sender, netuid, origin_hotkey)).is_none());
+
+        // The receiver's lock follows the stake to the destination hotkey and
+        // does not stay stranded on the origin hotkey.
+        assert!(Lock::<Test>::get((coldkey_receiver, netuid, origin_hotkey)).is_none());
+        let receiver_lock = Lock::<Test>::get((coldkey_receiver, netuid, destination_hotkey))
+            .expect("receiver lock should exist on the destination hotkey");
+        assert_eq!(receiver_lock.locked_mass, expected_sender_lock.locked_mass);
+
+        // The hotkeys are owned by different coldkeys, so the transferred
+        // conviction is forfeited, mirroring do_move_lock.
+        assert_eq!(receiver_lock.conviction, U64F64::from_num(0));
+
+        // The aggregate lock moves off the origin hotkey and onto the destination hotkey.
+        assert!(
+            HotkeyLock::<Test>::get(netuid, origin_hotkey)
+                .map(|lock| lock.locked_mass)
+                .unwrap_or(AlphaBalance::ZERO)
+                .is_zero()
+        );
+        let destination_hotkey_lock = HotkeyLock::<Test>::get(netuid, destination_hotkey)
+            .expect("destination hotkey aggregate lock should exist");
+        assert_eq!(
+            destination_hotkey_lock.locked_mass,
+            expected_sender_lock.locked_mass
+        );
+    });
+}
+
+// When origin and destination hotkeys share an owning coldkey, the transferred
+// conviction follows the lock to the destination hotkey instead of being forfeited.
+#[test]
+fn test_do_transfer_stake_and_hotkey_same_owner_preserves_conviction() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey_sender = U256::from(1);
+        let coldkey_receiver = U256::from(5);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(6);
+        let netuid = setup_subnet_with_stake(coldkey_sender, origin_hotkey, 100_000_000_000);
+
+        // Both hotkeys are owned by the sending coldkey.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey_sender,
+            &destination_hotkey
+        ));
+        DecayingLock::<Test>::insert(coldkey_receiver, netuid, false);
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(coldkey_receiver),
+            false,
+        ));
+
+        let total = SubtensorModule::total_coldkey_alpha_on_subnet(&coldkey_sender, netuid);
+        let lock_half = total / 2.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_sender,
+            netuid,
+            &origin_hotkey,
+            lock_half,
+        ));
+
+        let sender_lock_before = Lock::<Test>::get((coldkey_sender, netuid, origin_hotkey))
+            .expect("sender lock should exist");
+
+        step_block(1);
+
+        assert_ok!(SubtensorModule::do_transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(coldkey_sender),
+            coldkey_receiver,
+            origin_hotkey,
+            destination_hotkey,
+            netuid,
+            netuid,
+            total,
+        ));
+
+        let expected_sender_lock = roll_forward_lock(
+            sender_lock_before,
+            SubtensorModule::get_current_block_as_u64(),
+            false,
+            true,
+        );
+
+        let receiver_lock = Lock::<Test>::get((coldkey_receiver, netuid, destination_hotkey))
+            .expect("receiver lock should exist on the destination hotkey");
+        assert_eq!(receiver_lock.locked_mass, expected_sender_lock.locked_mass);
+
+        // Same-owner hotkey change: the conviction moved with the lock.
+        assert!(receiver_lock.conviction > U64F64::from_num(0));
+        assert!(receiver_lock.conviction <= expected_sender_lock.conviction);
+    });
+}
+
+// The LockHotkeyMismatch guard is checked against the hotkey the stake lands on:
+// a recipient with an existing lock can only receive locked alpha onto that same
+// hotkey, and transfers targeting any other hotkey are rejected.
+#[test]
+fn test_do_transfer_stake_and_hotkey_locked_requires_destination_match_receiver_lock() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey_sender = U256::from(1);
+        let coldkey_receiver = U256::from(5);
+        let origin_hotkey = U256::from(2);
+        let receiver_lock_hotkey = U256::from(6);
+        let other_hotkey = U256::from(7);
+        let netuid = setup_subnet_with_stake(coldkey_sender, origin_hotkey, 100_000_000_000);
+
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey_receiver,
+            &receiver_lock_hotkey
+        ));
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey_receiver,
+            &other_hotkey
+        ));
+        DecayingLock::<Test>::insert(coldkey_receiver, netuid, false);
+        assert_ok!(SubtensorModule::set_reject_locked_alpha(
+            RuntimeOrigin::signed(coldkey_receiver),
+            false,
+        ));
+
+        // The receiver already has an active lock on receiver_lock_hotkey.
+        let receiver_locked = AlphaBalance::from(1_000_000u64);
+        SubtensorModule::insert_lock_state(
+            &coldkey_receiver,
+            netuid,
+            &receiver_lock_hotkey,
+            LockState {
+                locked_mass: receiver_locked,
+                conviction: U64F64::from_num(0),
+                last_update: SubtensorModule::get_current_block_as_u64(),
+            },
+        );
+
+        let total = SubtensorModule::total_coldkey_alpha_on_subnet(&coldkey_sender, netuid);
+        let lock_half = total / 2.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_sender,
+            netuid,
+            &origin_hotkey,
+            lock_half,
+        ));
+        let sender_lock_before = Lock::<Test>::get((coldkey_sender, netuid, origin_hotkey))
+            .expect("sender lock should exist");
+
+        step_block(1);
+
+        // Locked alpha targeting a hotkey other than the receiver's lock hotkey fails.
+        assert_noop!(
+            SubtensorModule::do_transfer_stake_and_hotkey(
+                RuntimeOrigin::signed(coldkey_sender),
+                coldkey_receiver,
+                origin_hotkey,
+                other_hotkey,
+                netuid,
+                netuid,
+                total,
+            ),
+            Error::<Test>::LockHotkeyMismatch
+        );
+
+        // Targeting the receiver's lock hotkey succeeds even though it differs
+        // from the origin hotkey (the pre-fix check compared against the origin
+        // hotkey and would have rejected this).
+        assert_ok!(SubtensorModule::do_transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(coldkey_sender),
+            coldkey_receiver,
+            origin_hotkey,
+            receiver_lock_hotkey,
+            netuid,
+            netuid,
+            total,
+        ));
+
+        let expected_sender_lock = roll_forward_lock(
+            sender_lock_before,
+            SubtensorModule::get_current_block_as_u64(),
+            false,
+            true,
+        );
+        let receiver_lock = Lock::<Test>::get((coldkey_receiver, netuid, receiver_lock_hotkey))
+            .expect("receiver lock should exist on its lock hotkey");
+        assert_eq!(
+            receiver_lock.locked_mass,
+            receiver_locked.saturating_add(expected_sender_lock.locked_mass)
+        );
+    });
+}
+
 #[test]
 fn test_move_stake_cross_subnet_blocked_by_lock() {
     new_test_ext(1).execute_with(|| {

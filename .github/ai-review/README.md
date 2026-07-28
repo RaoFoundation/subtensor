@@ -54,7 +54,7 @@ nothing more. The token is masked in logs and is never passed to Codex.
 
 | Trust boundary | Mechanism |
 | --- | --- |
-| Persona prompts can be modified by PR | Loaded from base branch via `git show origin/$BASE:...` into `/tmp/ai-review-trusted/`; PR-side copies are never loaded |
+| Persona prompts can be modified by PR | Loaded from the base branch via `git show origin/$BASE:...` into `/tmp/ai-review-trusted/`. If a trusted file is absent on the base, bootstrap mode falls back to the PR-side copy; execution remains gated, and changes to reviewer policy require trusted human validation. |
 | Codex prompt-injection might call `gh` | Codex runs with no `GH_TOKEN` and no `OPENAI_API_KEY` in env; prefetch step holds tokens, post-comment step holds tokens; Codex only reads files |
 | Malicious `build.rs` in PR-added dep | Same env-stripping above means cargo subprocesses inherit no tokens; `drop-sudo` strategy removes sudo from the runner |
 | Upstream Gittensor compromise | Indexer workflow installs gittensor pinned to commit SHA, runs in a job with `contents: read` only; a separate job with `contents: write` publishes the resulting JSON via PR — never executing third-party code |
@@ -103,7 +103,7 @@ gh workflow run ai-review.yml --repo RaoFoundation/subtensor -f pr_number=<N>
 
 ## Required-checks setup
 
-After the first successful run, add these to branch protection on `devnet-ready`
+After the first successful run, add these to branch protection on `devnet`
 (and other protected branches) under Settings → Branches → Branch protection rules:
 
 - `ai-review / skeptic`

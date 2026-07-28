@@ -13,6 +13,20 @@ interface INeuron {
     function burnedRegister(uint16 netuid, bytes32 hotkey) external payable;
 
     /**
+     * @dev Registers a neuron like `burnedRegister`, but only if the current
+     * burn cost does not exceed `limitPrice` (in rao).
+     *
+     * @param netuid The subnet to register the neuron to (uint16).
+     * @param hotkey The hotkey public key (32 bytes).
+     * @param limitPrice The maximum acceptable burn cost in rao (uint64).
+     */
+    function registerLimit(
+        uint16 netuid,
+        bytes32 hotkey,
+        uint64 limitPrice
+    ) external payable;
+
+    /**
      * @dev Registers axon information for a neuron.
      * This function is used to serve axon information, including the subnet to register to, version, IP address, port, IP type, protocol, and placeholders for future use.
      *

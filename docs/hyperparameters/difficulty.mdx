@@ -1,0 +1,64 @@
+---
+title: difficulty
+description: Current PoW registration difficulty; u64::MAX means PoW registration is effectively disabled.
+---
+
+`difficulty` is the proof-of-work target a miner's registration nonce must
+beat to claim a UID via PoW registration. It is a raw u64: finding a valid
+nonce takes about `difficulty` hash attempts on average, so the value is a
+direct price in compute. Miners planning PoW registration care about it;
+`u64::MAX` is the sentinel for "no nonce can ever pass" — PoW registration
+effectively disabled, burned registration only.
+
+## How it works
+
+A PoW registration submits a seal built from a recent block hash, the
+hotkey, and a nonce
+([`create_seal_hash`](/code/pallets/subtensor/src/subnets/registration.rs#L426-L446)
+in `pallets/subtensor/src/subnets/registration.rs`). The check is
+[`hash_meets_difficulty`](/code/pallets/subtensor/src/subnets/registration.rs#L362-L372):
+the seal hash times `difficulty` must not overflow
+a 256-bit integer, which passes with probability roughly 1 in `difficulty`.
+At `u64::MAX` essentially nothing passes.
+
+On the current runtime this check no longer gates subnet registration: the
+[`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814)
+extrinsic (`pallets/subtensor/src/macros/dispatches.rs`, call
+index 6) accepts the work arguments but ignores them and routes to the
+burned-registration path
+([`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L38-L132)).
+No controller adjusts `difficulty`
+anymore either — the per-block price update
+([`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515))
+only decays the burn cost. The
+value stays on-chain, is reported in the metagraph, and root can still
+change it. The seal check itself survives in the testnet faucet
+([`do_faucet`](/code/pallets/subtensor/src/subnets/registration.rs#L165-L214),
+fixed difficulty 1,000,000).
+
+Historically, `difficulty` walked between its floor and ceiling as the
+chain steered registrations toward a target rate:
+
+<HyperparamPowDifficulty focus="difficulty" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name difficulty
+```
+
+Root/governance only:
+[`sudo_set_difficulty`](/code/pallets/admin-utils/src/lib.rs#L827-L841)
+in the AdminUtils pallet
+requires the root origin and takes a raw u64. It is not settable by the
+subnet owner via `btcli sudo set`.
+
+## Related
+
+[`min_difficulty`](/docs/hyperparameters/min-difficulty) ·
+[`max_difficulty`](/docs/hyperparameters/max-difficulty) ·
+[`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) ·
+[`registration_allowed`](/docs/hyperparameters/registration-allowed) ·
+[`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block) ·
+[`min_burn`](/docs/hyperparameters/min-burn) ·
+[`max_burn`](/docs/hyperparameters/max-burn)

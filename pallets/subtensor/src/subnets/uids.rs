@@ -1,6 +1,6 @@
 use super::*;
 use frame_support::storage::IterableStorageDoubleMap;
-use sp_runtime::Percent;
+use sp_runtime::{PerU16, Percent};
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 use sp_std::{cmp, vec};
 use subtensor_runtime_common::NetUid;
@@ -23,10 +23,14 @@ impl<T: Config> Pallet<T> {
     pub fn clear_neuron(netuid: NetUid, neuron_uid: u16) {
         let neuron_index: usize = neuron_uid.into();
         Emission::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0.into()));
-        Consensus::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
+        Consensus::<T>::mutate(netuid, |v| {
+            Self::set_element_at(v, neuron_index, PerU16::zero())
+        });
         for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
             let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
-            Incentive::<T>::mutate(netuid_index, |v| Self::set_element_at(v, neuron_index, 0));
+            Incentive::<T>::mutate(netuid_index, |v| {
+                Self::set_element_at(v, neuron_index, PerU16::zero())
+            });
             Bonds::<T>::remove(netuid_index, neuron_uid); // Remove bonds for Validator.
 
             // Clear weights set BY the neuron_uid
@@ -44,9 +48,13 @@ impl<T: Config> Pallet<T> {
                 });
             }
         }
-        Dividends::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
+        Dividends::<T>::mutate(netuid, |v| {
+            Self::set_element_at(v, neuron_index, PerU16::zero())
+        });
         StakeWeight::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
-        ValidatorTrust::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, 0));
+        ValidatorTrust::<T>::mutate(netuid, |v| {
+            Self::set_element_at(v, neuron_index, PerU16::zero())
+        });
         ValidatorPermit::<T>::mutate(netuid, |v| Self::set_element_at(v, neuron_index, false));
     }
 
@@ -88,6 +96,8 @@ impl<T: Config> Pallet<T> {
         Uids::<T>::insert(netuid, new_hotkey.clone(), uid_to_replace); // Make uid - hotkey association.
         BlockAtRegistration::<T>::insert(netuid, uid_to_replace, block_number); // Fill block at registration.
         IsNetworkMember::<T>::insert(new_hotkey.clone(), netuid, true); // Fill network is member.
+        // Drop a stale rename edge if this SS58 was previously swapped away.
+        Self::clear_stale_hotkey_successor(netuid, new_hotkey);
 
         // 4. Clear neuron axons, certificates and prometheus info
         Axons::<T>::remove(netuid, &old_hotkey);
@@ -119,14 +129,14 @@ impl<T: Config> Pallet<T> {
         // 3. Expand per-neuron vectors with new position.
         Active::<T>::mutate(netuid, |v| v.push(true));
         Emission::<T>::mutate(netuid, |v| v.push(0.into()));
-        Consensus::<T>::mutate(netuid, |v| v.push(0));
+        Consensus::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
         for mecid in 0..MechanismCountCurrent::<T>::get(netuid).into() {
             let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
-            Incentive::<T>::mutate(netuid_index, |v| v.push(0));
+            Incentive::<T>::mutate(netuid_index, |v| v.push(PerU16::zero()));
             Self::set_last_update_for_uid(netuid_index, next_uid, block_number);
         }
-        Dividends::<T>::mutate(netuid, |v| v.push(0));
-        ValidatorTrust::<T>::mutate(netuid, |v| v.push(0));
+        Dividends::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
+        ValidatorTrust::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
         ValidatorPermit::<T>::mutate(netuid, |v| v.push(false));
 
         // 4. Insert new account information.
@@ -134,6 +144,8 @@ impl<T: Config> Pallet<T> {
         Uids::<T>::insert(netuid, new_hotkey.clone(), next_uid); // Make uid - hotkey association.
         BlockAtRegistration::<T>::insert(netuid, next_uid, block_number); // Fill block at registration.
         IsNetworkMember::<T>::insert(new_hotkey.clone(), netuid, true); // Fill network is member.
+        // Drop a stale rename edge if this SS58 was previously swapped away.
+        Self::clear_stale_hotkey_successor(netuid, new_hotkey);
     }
 
     pub fn trim_to_max_allowed_uids(netuid: NetUid, max_n: u16) -> DispatchResult {

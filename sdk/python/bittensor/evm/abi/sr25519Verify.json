@@ -1,0 +1,14 @@
+[
+    {
+        "inputs": [
+            { "internalType": "bytes32", "name": "message", "type": "bytes32" },
+            { "internalType": "bytes32", "name": "publicKey", "type": "bytes32" },
+            { "internalType": "bytes32", "name": "r", "type": "bytes32" },
+            { "internalType": "bytes32", "name": "s", "type": "bytes32" }
+        ],
+        "name": "verify",
+        "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+        "stateMutability": "pure",
+        "type": "function"
+    }
+]

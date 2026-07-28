@@ -19,6 +19,7 @@ use frame_support::{
 use sp_core::U256;
 use sp_runtime::traits::{AccountIdConversion, Zero};
 use subtensor_runtime_common::TaoBalance;
+use subtensor_swap_interface::OrderSwapInterface;
 
 const MAX_TAO_ISSUANCE: u64 = 21_000_000_000_000_000_u64;
 
@@ -94,7 +95,7 @@ fn test_transfer_tao_zero_balance_non_zero_amount_fails() {
 
         assert_noop!(
             SubtensorModule::transfer_tao(&origin, &dest, 1u64.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
 
         assert_eq!(total_balance(&origin), 0.into());
@@ -113,7 +114,7 @@ fn test_transfer_tao_amount_greater_than_transferrable_fails() {
 
         assert_noop!(
             SubtensorModule::transfer_tao(&origin, &dest, amount.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
     });
 }
@@ -306,7 +307,7 @@ fn test_burn_tao_insufficient_balance_fails() {
 
         assert_noop!(
             SubtensorModule::burn_tao(&coldkey, 1u64.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
     });
 }
@@ -356,7 +357,7 @@ fn test_recycle_tao_amount_greater_than_max_preserving_fails() {
 
         assert_noop!(
             SubtensorModule::recycle_tao(&coldkey, too_much.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
 
         assert_eq!(balances_total_issuance(), subtensor_total_issuance());
@@ -501,6 +502,62 @@ fn test_transfer_tao_reaps_origin() {
 }
 
 #[test]
+fn test_withdraw_tao_as_credit_reaps_origin_and_updates_subtensor_total_issuance() {
+    new_test_ext(1).execute_with(|| {
+        let origin = U256::from(1);
+
+        let ed = ExistentialDeposit::get();
+        let dust = ed - 1u64.into();
+        let amount = TaoBalance::from(1_000);
+        let balance = amount + dust;
+        add_balance_to_coldkey_account(&origin, balance);
+
+        let subtensor_ti_before = subtensor_total_issuance();
+        let balances_ti_before = balances_total_issuance();
+
+        let credit = SubtensorModule::withdraw_tao_as_credit(&origin, amount).unwrap();
+
+        let subtensor_ti_after = subtensor_total_issuance();
+        let balances_ti_after = balances_total_issuance();
+
+        assert_eq!(credit.peek(), amount);
+        assert_eq!(Balances::total_balance(&origin), 0.into());
+        assert_eq!(balances_ti_before - balances_ti_after, dust);
+        assert_eq!(subtensor_ti_before - subtensor_ti_after, dust);
+        assert_eq!(balances_ti_after, subtensor_ti_after);
+    });
+}
+
+#[test]
+fn test_order_swap_transfer_tao_reaps_origin_and_updates_subtensor_total_issuance() {
+    new_test_ext(1).execute_with(|| {
+        let origin = U256::from(1);
+        let dest = U256::from(2);
+
+        let ed = ExistentialDeposit::get();
+        let dust = ed - 1u64.into();
+        let amount = TaoBalance::from(1_000);
+        add_balance_to_coldkey_account(&origin, amount + dust);
+
+        let subtensor_ti_before = subtensor_total_issuance();
+        let balances_ti_before = balances_total_issuance();
+
+        assert_ok!(<SubtensorModule as OrderSwapInterface<U256>>::transfer_tao(
+            &origin, &dest, amount
+        ));
+
+        let subtensor_ti_after = subtensor_total_issuance();
+        let balances_ti_after = balances_total_issuance();
+
+        assert_eq!(Balances::total_balance(&origin), 0.into());
+        assert_eq!(Balances::total_balance(&dest), amount);
+        assert_eq!(balances_ti_before - balances_ti_after, dust);
+        assert_eq!(subtensor_ti_before - subtensor_ti_after, dust);
+        assert_eq!(balances_ti_after, subtensor_ti_after);
+    });
+}
+
+#[test]
 fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
     new_test_ext(1).execute_with(|| {
         let origin = U256::from(1);
@@ -510,7 +567,7 @@ fn test_recycle_tao_cannot_cross_preserve_threshold_in_high_ed_runtime() {
 
         assert_noop!(
             SubtensorModule::recycle_tao(&origin, max_preserving + 1u64.into()),
-            Error::<Test>::InsufficientBalance
+            Error::<Test>::InsufficientTaoBalance
         );
     });
 }

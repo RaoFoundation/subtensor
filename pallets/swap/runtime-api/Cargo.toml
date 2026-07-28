@@ -1,5 +1,6 @@
 [package]
 name = "pallet-subtensor-swap-runtime-api"
+publish = false
 version = "1.0.0"
 description = "Runtime API for the Swap pallet"
 edition.workspace = true

@@ -33,6 +33,7 @@ import {
     sudoSetLockReductionInterval,
     tao,
     waitForFinalizedBlocks,
+    waitUntilBlockFinalized,
 } from "../../utils";
 
 const DEPLOYED_BYTECODE_PREFIX = "0x60806040523480156";
@@ -296,8 +297,13 @@ describeSuite({
 
                 const depositAlphaTx = await contractForCall.depositAlpha(netuid, tao(10).toString(), hotkey.publicKey);
                 const depositReceipt = await depositAlphaTx.wait();
-                expect(depositReceipt?.status).toEqual(1);
-                await waitForFinalizedBlocks(api, 2);
+                if (!depositReceipt) throw new Error("Missing depositAlpha receipt");
+                expect(depositReceipt.status).toEqual(1);
+                // Wait for the deposit's own block to finalize rather than a
+                // fixed block count: when GRANDPA lags best by more than 2
+                // blocks, the finalized-state stake reads below see the
+                // pre-deposit stake and the toBeLessThan assertion flakes.
+                await waitUntilBlockFinalized(api, depositReceipt.blockNumber);
 
                 const stakeAfterDeposit = await getStake(api, hotkeySs58, walletSs58, netuid);
                 expect(stakeAfterDeposit).toBeLessThan(stakeBeforeDeposit);

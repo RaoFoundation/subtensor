@@ -5,7 +5,7 @@ description = "FRAME pallet for runtime logic of Subtensor Blockchain."
 authors = ["Bittensor Nucleus Team"]
 homepage = "https://bittensor.com"
 edition.workspace = true
-license = "Unlicense"
+license = "Apache-2.0"
 publish = false
 repository = "https://github.com/RaoFoundation/subtensor"
 

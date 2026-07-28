@@ -1,0 +1,42 @@
+.card_container {
+  display: flex;
+  flex-direction: column;
+  height: 220px;
+  width: 220px;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  text-align: center;
+  gap: 30px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.title {
+  font-family: 'Haffer';
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 180%;
+  letter-spacing: 3%;
+}
+
+.description {
+  font-family: 'Haffer';
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 180%;
+  letter-spacing: 3%;
+}
+.action {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  line-height: 180%;
+  letter-spacing: 3%;
+}
+
+.div {
+  max-width: 220px;
+  width: 100%;
+}

@@ -1,0 +1,78 @@
+/* The /code source viewer. Lines are block boxes (so #L anchors can highlight
+   the full row) inside a white-space:normal <code>, which suppresses the
+   newline text nodes shiki emits between lines; each .line restores pre
+   whitespace for its own content. Copying still yields real newlines because
+   block boxes break lines in the clipboard serialization. */
+
+/* Navigation links (breadcrumbs, listing rows, header actions) carry their
+   own utility colors; kill the UA anchor styling underneath them. Links that
+   want an underline (the intro prose) opt back in with utilities. */
+.bt-codepage a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.bt-code pre.shiki {
+  border: 1px solid var(--bt-line);
+  border-radius: 2px;
+  background: var(--bt-panel) !important;
+  padding-block: 1rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
+.bt-code pre.shiki > code {
+  display: block;
+  white-space: normal;
+  counter-reset: bt-line;
+  width: max-content;
+  min-width: 100%;
+}
+
+.bt-code .line {
+  display: block;
+  white-space: pre;
+  counter-increment: bt-line;
+  padding-inline-end: 1.25rem;
+  scroll-margin-top: 8rem;
+  /* Empty source lines still get a full row (the gutter anchor has no text). */
+  min-height: 1.7em;
+}
+
+/* Addressed lines — the #L12 (:target, no-JS fallback) or #L12-L34 (.bt-hl,
+   set by LineRangeHighlight) the URL points at. Red, so a doc link saying
+   "this is the code" lands on something unmistakable. */
+.bt-code .line:target,
+.bt-code .line.bt-hl {
+  background: rgba(209, 81, 104, 0.12);
+  box-shadow: inset 2px 0 0 rgb(209, 81, 104);
+}
+
+/* Line-number gutter: an empty anchor whose number is a counter in ::before,
+   so selecting and copying code never picks up the numbers. */
+.bt-code .bt-ln {
+  display: inline-block;
+  width: 3.5rem;
+  padding-inline-end: 1.25rem;
+  text-align: end;
+  color: var(--bt-mute);
+  opacity: 0.55;
+  text-decoration: none;
+  user-select: none;
+}
+
+.bt-code .bt-ln::before {
+  content: counter(bt-line);
+}
+
+.bt-code .bt-ln:hover {
+  opacity: 1;
+}
+
+.bt-code .line:target > .bt-ln,
+.bt-code .line.bt-hl > .bt-ln {
+  color: rgb(209, 81, 104);
+  opacity: 1;
+}

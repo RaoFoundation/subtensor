@@ -1,0 +1,19 @@
+{
+  "title": "Internals",
+  "description": "Runtime internals and contributor documentation",
+  "pages": [
+    "contributing",
+    "repo-layout",
+    "release-process",
+    "consensus",
+    "transaction-priority",
+    "benchmarks-and-weights",
+    "testing",
+    "mainnet-clone",
+    "sdk-tests",
+    "eco-tests",
+    "wasm-contracts",
+    "rust-setup",
+    "scripts"
+  ]
+}

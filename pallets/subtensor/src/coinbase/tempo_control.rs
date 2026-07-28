@@ -8,28 +8,39 @@ use crate::system::pallet_prelude::OriginFor;
 use crate::utils::rate_limiting::{Hyperparameter, TransactionType};
 
 impl<T: Config> Pallet<T> {
-    /// Owner-side `set_tempo` implementation.
+    /// `set_tempo` implementation, dispatched by `AdminUtils::sudo_set_tempo`.
+    /// Callable by the subnet owner (bounded to `[MinTempo, MaxTempo]` and
+    /// cooled down by a fixed `MinTempo` blocks via `TransactionType::TempoUpdate`)
+    /// or by root (any u16, no rate limit). Both respect the admin freeze window
+    /// and reset the cycle (`LastEpochBlock = current_block`) on success.
     pub fn do_set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
-        let who = Self::ensure_subnet_owner(origin, netuid)?;
+        let maybe_who = Self::ensure_subnet_owner_or_root(origin, netuid)?;
 
-        ensure!(
-            (MIN_TEMPO..=MAX_TEMPO).contains(&tempo),
-            Error::<T>::TempoOutOfBounds
-        );
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+
+        if maybe_who.is_some() {
+            ensure!(
+                (MIN_TEMPO..=MAX_TEMPO).contains(&tempo),
+                Error::<T>::TempoOutOfBounds
+            );
+        }
 
         Self::ensure_admin_window_open(netuid)?;
 
         let tx = TransactionType::TempoUpdate;
-        ensure!(
-            tx.passes_rate_limit_on_subnet::<T>(&who, netuid),
-            Error::<T>::TxRateLimitExceeded
-        );
-
-        let now = Self::get_current_block_as_u64();
+        if let Some(who) = maybe_who.as_ref() {
+            ensure!(
+                tx.passes_rate_limit_on_subnet::<T>(who, netuid),
+                Error::<T>::TxRateLimitExceeded
+            );
+        }
 
         Self::apply_tempo_with_cycle_reset(netuid, tempo);
 
-        tx.set_last_block_on_subnet::<T>(&who, netuid, now);
+        if let Some(who) = maybe_who.as_ref() {
+            let now = Self::get_current_block_as_u64();
+            tx.set_last_block_on_subnet::<T>(who, netuid, now);
+        }
         Ok(())
     }
 

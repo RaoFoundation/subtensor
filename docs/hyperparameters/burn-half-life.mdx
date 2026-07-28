@@ -1,0 +1,57 @@
+---
+title: burn_half_life
+description: Blocks for the burn cost to decay halfway back toward min_burn.
+---
+
+Sets how quickly an elevated registration price cools off. After registrations
+bump the burn cost up, it decays exponentially — this parameter is the number
+of blocks for the price to halve. Owners tune it against
+[`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) to pick the
+registration rate their subnet sustains; miners watching an expensive subnet
+can read it as "how long until the price is reasonable again."
+
+## How it works
+
+Every block,
+[`update_registration_prices_for_networks`](/code/pallets/subtensor/src/subnets/registration.rs#L473-L515)
+(in `pallets/subtensor/src/subnets/registration.rs`, called from
+[`block_step`](/code/pallets/subtensor/src/coinbase/block_step.rs#L7-L36))
+multiplies each subnet's burn by a per-block factor `f` chosen so that
+`f ^ burn_half_life = 1/2`, then clamps into
+\[[`min_burn`](/docs/hyperparameters/min-burn),
+[`max_burn`](/docs/hyperparameters/max-burn)\]. The factor is computed in Q32
+fixed-point by binary search
+([`decay_factor_q32`](/code/pallets/subtensor/src/utils/misc.rs#L1043-L1067) in
+`pallets/subtensor/src/utils/misc.rs`), giving continuous exponential decay:
+after `n` blocks without registrations the price is `burn × 0.5^(n /
+half_life)`, until it hits the `min_burn` floor.
+
+The value is stored in
+[`BurnHalfLife`](/code/pallets/subtensor/src/lib.rs#L2726) as a u16 block
+count; the default is
+**360 blocks** (~72 minutes at 12s blocks). A stored value of 0 disables decay
+entirely, but the owner-set extrinsic
+([`sudo_set_burn_half_life`](/code/pallets/admin-utils/src/lib.rs#L2128-L2164)
+in `pallets/admin-utils/src/lib.rs`) requires **1 to 36,100 blocks** (~5 days) and
+rejects the root subnet. Together with the multiplier, the break-even
+registration cadence is one registration per `half_life × log2(mult)` blocks —
+faster than that and the price climbs, slower and it falls.
+
+<HyperparamBurnController focus="burn_half_life" />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name burn_half_life
+btcli sudo set --netuid 12 --name burn_half_life --value 720
+```
+
+Settable by the subnet owner or root; the value is a plain block count
+(12-second blocks).
+
+## Related
+
+- [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) — the bump
+  this decay works against
+- [`min_burn`](/docs/hyperparameters/min-burn) — where the decay comes to rest
+- [`max_burn`](/docs/hyperparameters/max-burn) — the ceiling it decays down from

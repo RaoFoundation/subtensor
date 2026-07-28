@@ -1,39 +1,33 @@
+use sp_runtime::PerU16;
+
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    /// ---- The implementation for the extrinsic increase_take
+    /// The implementation for the extrinsic increase_take
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>::RuntimeOrigin):
-    ///     - The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     - The hotkey we are delegating (must be owned by the coldkey.)
+    /// * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).
     ///
-    /// * 'take' (u16):
-    ///     - The stake proportion that this hotkey takes from delegations for subnet ID.
+    /// * `take`: The stake proportion that this hotkey takes from delegations for subnet ID.
     ///
-    /// # Event:
-    /// * TakeIncreased;
-    ///     - On successfully setting a increased take for this hotkey.
+    /// # Events
+    /// * `TakeIncreased`: On successfully setting a increased take for this hotkey.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     - The hotkey we are delegating is not registered on the network.
+    /// # Errors
+    /// * `NotRegistered`: The hotkey we are delegating is not registered on the network.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     - The hotkey we are delegating is not owned by the calling coldket.
+    /// * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldket.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     - Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
-    /// * 'DelegateTakeTooLow':
-    ///     - The delegate is setting a take which is not greater than the previous.
+    /// * `DelegateTakeTooLow`: The delegate is setting a take which is not greater than the previous.
     ///
     pub fn do_increase_take(
         origin: OriginFor<T>,
         hotkey: T::AccountId,
-        take: u16,
+        take: PerU16,
     ) -> dispatch::DispatchResult {
         // --- 1. We check the coldkey signature.
         let coldkey = ensure_signed(origin)?;

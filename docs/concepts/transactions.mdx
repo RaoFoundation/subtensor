@@ -1,0 +1,197 @@
+---
+title: The transaction model
+description: Intents, plan and execute, Policy guardrails, and typed results.
+---
+
+Every state change goes through one shape, whether you drive it from Python,
+the CLI, or an agent tool call:
+
+1. Describe **what** you want as an **intent** — a small serializable dataclass.
+2. **`plan`** it — fee, predicted effects, warnings, policy verdict. Nothing is
+   submitted.
+3. **`execute`** it — sign and submit through a single policy-gated choke
+   point, and get a typed result back.
+
+## Intents
+
+An intent's fields are JSON-native, so it round-trips to and from a dict
+without custom encoders. Each intent knows its chain call, its signer
+(coldkey or hotkey), and its JSON schema. All 70+ of them are cataloged under
+[Transactions](/docs/tx), one page each.
+
+```python
+import bittensor as bt
+from bittensor.wallet import Wallet
+
+wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
+intent = bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10)
+```
+
+Or build one by op name from a plain dict — how agents and tools do it:
+
+```python
+intent = bt.intents.build("add_stake", {"hotkey_ss58": "5F...", "netuid": 1, "amount_tao": 10})
+```
+
+## Plan: preview everything
+
+```python
+async with bt.Subtensor() as client:
+    plan = await client.plan(intent, wallet)
+    plan.fee         # estimated fee (Balance)
+    plan.effects     # ["stake 10 TAO to 5F... on subnet 1", ...]
+    plan.warnings    # non-fatal cautions
+    plan.violations  # policy violations that would block execute
+    plan.ok          # no violations?
+```
+
+On the CLI, `--dry-run` on any `tx` command prints the same plan and submits
+nothing.
+
+## Execute: one choke point
+
+```python
+result = await client.execute(intent, wallet)
+result.success       # bool
+result.block_hash    # where it landed
+```
+
+`execute` re-plans, enforces the policy, signs with the correct key (the
+intent declares whether it needs the coldkey or hotkey), submits, and decodes
+the receipt. `client.execute_tool(op, args, wallet)` is the by-name variant.
+
+## Policy: hard guardrails
+
+A `Policy` bounds what any execution may do. Violations raise `PolicyError` at
+execute time and appear in every plan:
+
+```python
+policy = bt.Policy(
+    max_fee_tao=0.1,
+    max_spend_tao=5.0,
+    allowed_netuids=[1, 2],
+    allow_raw_calls=False,   # default: raw submit_call is refused
+)
+async with bt.Subtensor("finney", policy=policy) as client:
+    ...
+```
+
+Intents whose spend cannot be bounded ahead of time (subnet registration,
+`transfer_all`, ...) report an infinite spend, so a spend cap blocks them until
+deliberately raised.
+
+## Typed results and errors
+
+Failures come back as data, not prose. The `error` on a failed
+`ExtrinsicResult` carries the exact chain error name, a semantic
+[`ErrorCode`](/docs/errors) to branch on, and a remediation hint:
+
+```python
+result = await client.execute(bt.BurnedRegister(netuid=999), wallet)
+if not result.success:
+    print(result.error.name)         # "SubnetNotExists"
+    print(result.error.code)         # ErrorCode.SUBNET_NOT_EXISTS
+    print(result.error.remediation)  # what to try next
+```
+
+Every chain error name is deliberately classified — a CI gate keeps the mapping
+complete in both directions — so a failure never degrades to "unknown" without
+a reason.
+
+### Pool-level rejections
+
+Besides dispatch errors, a transaction can be rejected before it enters the
+pool — the node's pre-checks fail it with `Custom error: N` instead of a
+named error, surfaced over RPC as error 1010 `Invalid Transaction`. The
+codes:
+
+| Code | Name | Meaning |
+| --- | --- | --- |
+| 0 | ColdkeyInSwapSchedule | Coldkey has an announced swap pending (deprecated) |
+| 1 | StakeAmountTooLow | Amount below the minimum stake |
+| 2 | BalanceTooLow | Not enough free balance |
+| 3 | SubnetNotExists | Target subnet does not exist |
+| 4 | HotkeyAccountDoesntExist | Hotkey account not found |
+| 5 | NotEnoughStakeToWithdraw | Unstake exceeds the stake held |
+| 6 | RateLimitExceeded | Weight-setting or transaction rate limit hit |
+| 7 | InsufficientLiquidity | Pool cannot absorb the trade |
+| 8 | SlippageTooHigh | Execution price outside the limit |
+| 9 | TransferDisallowed | Transfers disabled for this operation |
+| 10 | HotKeyNotRegisteredInNetwork | Hotkey not registered anywhere |
+| 11 | InvalidIpAddress | Axon/prometheus IP invalid |
+| 12 | ServingRateLimitExceeded | Axon/prometheus serving rate limit hit |
+| 13 | InvalidPort | Axon/prometheus port invalid |
+| 14 | ZeroMaxAmount | Computed max amount is zero |
+| 15 | InvalidRevealRound | Wrong reveal round for timelocked weights |
+| 16 | CommitNotFound | No matching weight commit |
+| 17 | CommitBlockNotInRevealRange | Reveal outside its window |
+| 18 | InputLengthsUnequal | Paired input vectors differ in length |
+| 19 | UidNotFound | Hotkey not registered on this subnet |
+| 20 | EvmKeyAssociateRateLimitExceeded | EVM key association rate limit hit |
+| 21 | ColdkeySwapDisputed | Coldkey swap under dispute |
+| 22 | InvalidRealAccount | Proxy real account invalid |
+| 23 | FailedShieldedTxParsing | Shielded payload failed to decode |
+| 24 | InvalidShieldedTxPubKeyHash | Shielded payload key hash mismatch |
+| 25 | NonAssociatedColdKey | Coldkey does not own this hotkey |
+| 26 | DelegateTakeTooLow | Take below the allowed minimum |
+| 27 | DelegateTakeTooHigh | Take above the allowed maximum |
+| 255 | BadRequest | Catch-all for anything else |
+
+Code 6 covers weight-setting and general transaction rate limits; axon
+serving has its own code 12.
+
+## Fees
+
+A fee-bearing extrinsic pays two components in TAO from the signer's free
+balance: a **weight fee**, linear in the call's dispatch weight, and a
+**length fee** of 1 rao per byte of the encoded extrinsic. Both are withdrawn
+up front, before the call runs — insufficient balance rejects the transaction
+outright, and a failed call does not refund them. The fee is paid to the
+block author, not recycled or burned (dropped in the edge case of a block
+with no author). `plan.fee` (and the `--dry-run` output) is this number,
+estimated from the chain before anything is signed.
+
+The validator hot path is free: [`set-weights`](/docs/tx/set-weights),
+[`commit-weights`](/docs/tx/commit-weights),
+[`reveal-weights`](/docs/tx/reveal-weights) and their batch and timelocked
+variants pay no transaction fee, as do [`serve-axon`](/docs/tx/serve-axon)
+and take changes. For a small set of unstake-side calls (`remove_stake` and
+friends), a signer with no TAO can have the fee taken in alpha instead,
+converted at pool price; every other call simply requires TAO.
+
+Staking, unstaking, and stake moves additionally pay a pool swap fee on the
+amount transacted — a property of the swap, not the extrinsic; see
+[swap fees](/docs/concepts/money#swap-fees).
+
+## Rate limits
+
+Chain rate limits are block-based cooldowns armed only by **successful**
+operations — a failed call can be retried immediately. Notable defaults
+(governance-settable):
+
+- Delegate-take changes ([`increase-take`](/docs/tx/increase-take) /
+  [`decrease-take`](/docs/tx/decrease-take)): once per 216,000 blocks
+  (~30 days). Childkey-take changes
+  ([`set-childkey-take`](/docs/tx/set-childkey-take)) have the same limit.
+- [`set-children`](/docs/tx/set-children): once per 150 blocks (~30 minutes)
+  per subnet.
+- [`swap-hotkey`](/docs/tx/swap-hotkey): a global cooldown (live value:
+  [`tx-rate-limit`](/docs/query/tx-rate-limit)) plus a per-subnet interval of
+  7,200 blocks (~1 day).
+
+## Mortality
+
+Extrinsics are signed with a mortal era: valid for 128 blocks (~25 minutes)
+by default, after which an unincluded transaction lapses instead of lingering
+in the pool indefinitely. `execute` and `submit_call` take a `period=`
+argument to change it (`period=None` signs an immortal transaction);
+MEV-shielded inner extrinsics use a shorter 8-block era — the chain rejects
+shielded wrappers signed with anything longer.
+
+## The CLI is the same machinery
+
+Every intent is `btcli tx <op-name>`; the command's options are generated
+from the intent's fields, so the CLI and SDK can't diverge. Interactive
+sessions prompt for missing required options and confirm before submitting;
+`--yes` skips confirmation, and a non-interactive session without `--yes` is
+declined rather than left hanging.

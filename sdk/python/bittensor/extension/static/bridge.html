@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <!--
+    CSP: only esm.sh (the @polkadot/extension-dapp import below) and this page's
+    own inline script may run; network access is limited to the local bridge
+    websocket. 'unsafe-inline' is required because the bridge script is inline.
+    TODO: vendor @polkadot/extension-dapp locally (SRI cannot cover a bare ESM
+    import) so the esm.sh origin can be dropped entirely.
+  -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'unsafe-inline' https://esm.sh; connect-src 'self' ws://127.0.0.1:* ws://localhost:* https://esm.sh; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bittensor Extension Bridge</title>
+  <style>
+    /* Shared local-page theme (see vault/static/vault.html): bittensor.com's
+       light look — white ground, #292929 ink, thin dark borders, #2f46f4
+       accent, Haffer-style sans + DM Mono labels. */
+    :root {
+      color-scheme: light;
+      --background: #ffffff;
+      --ink: #292929;
+      --muted: #757575;
+      --line: #262626;
+      --line-soft: #e3e3e3;
+      --accent: #2f46f4;
+      --success: #49c24e;
+      --error: #d93737;
+      --sans: Haffer, HafferSQ, "Helvetica Neue", Arial, system-ui, -apple-system, sans-serif;
+      --mono: "DM Mono", FiraCode, "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: var(--background);
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    /* Top bar: same anatomy as bittensor.com's header (and the vault signing
+       page) — τ logo left in a 105px slot, mono uppercase page name centered,
+       session status right where the site puts its wallet widget. */
+    .topbar {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      padding: 32px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.03em;
+    }
+
+    .topbar .logo {
+      width: 105px;
+      display: flex;
+      align-items: center;
+    }
+
+    .topbar .logo svg {
+      width: 21px;
+      height: 23px;
+      color: var(--ink);
+    }
+
+    .topbar .page-name {
+      flex-grow: 1;
+      display: flex;
+      justify-content: center;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+
+    .topbar .session {
+      width: 105px;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .topbar .session .dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--line-soft);
+    }
+
+    body[data-bridge-state="ready"] .topbar .session .dot,
+    body[data-bridge-state="authorizing"] .topbar .session .dot { background: var(--accent); }
+    body[data-bridge-state="complete"] .topbar .session .dot { background: var(--success); }
+    body[data-bridge-state="failed"] .topbar .session .dot,
+    body[data-bridge-state="error"] .topbar .session .dot { background: var(--error); }
+
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(18rem, 26rem);
+      justify-content: center;
+      align-content: center;
+      gap: clamp(1.5rem, 4vw, 3rem);
+      min-height: calc(100vh - 87px);
+      padding: clamp(1.5rem, 5vw, 4rem);
+      padding-top: 0;
+    }
+
+    .status {
+      justify-self: center;
+      text-align: center;
+      max-width: 44rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .status h1 {
+      margin: 0;
+      font-size: clamp(1.7rem, 3.4vw, 2.5rem);
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+
+    .status p {
+      margin: 0.7rem 0 0;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--background);
+    }
+
+    .panel-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 2.4rem;
+      padding: 0 0.9rem;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .panel-bar .dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--line-soft);
+    }
+
+    .panel-body {
+      padding: 1.1rem;
+      display: grid;
+      gap: 0.9rem;
+      justify-items: center;
+    }
+
+    /* Connected wallet extensions: one row each, with a toggle deciding
+       whether that extension's accounts are offered to btcli. */
+    .ext-list {
+      width: 100%;
+      display: grid;
+      border: 1px solid var(--line-soft);
+    }
+
+    .ext-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.8rem;
+      padding: 0.75rem 0.9rem;
+    }
+
+    .ext-row + .ext-row {
+      border-top: 1px solid var(--line-soft);
+    }
+
+    .ext-row .ext-id {
+      display: grid;
+      gap: 0.15rem;
+      min-width: 0;
+    }
+
+    .ext-row .ext-name {
+      font-size: 0.92rem;
+      color: var(--ink);
+    }
+
+    .ext-row .ext-detail {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .ext-row.disabled .ext-name,
+    .ext-row.disabled .ext-detail {
+      color: var(--line-soft);
+    }
+
+    .ext-toggle {
+      appearance: none;
+      width: 2.1rem;
+      height: 1.15rem;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      position: relative;
+      cursor: pointer;
+      flex-shrink: 0;
+      background: var(--background);
+    }
+
+    .ext-toggle::after {
+      content: "";
+      position: absolute;
+      top: 0.14rem;
+      left: 0.14rem;
+      width: 0.72rem;
+      height: 0.72rem;
+      border-radius: 50%;
+      background: var(--line-soft);
+      transition: transform 120ms ease, background 120ms ease;
+    }
+
+    .ext-toggle:checked::after {
+      transform: translateX(0.9rem);
+      background: var(--accent);
+    }
+
+    .ext-empty {
+      padding: 0.9rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+      text-align: center;
+      margin: 0;
+    }
+
+    .hint code {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--ink);
+      border: 1px solid var(--line-soft);
+      padding: 0.05rem 0.3rem;
+      white-space: nowrap;
+    }
+
+    body[data-bridge-state="ready"] .panel-bar .dot,
+    body[data-bridge-state="authorizing"] .panel-bar .dot { background: var(--accent); }
+    body[data-bridge-state="complete"] .panel-bar .dot { background: var(--success); }
+    body[data-bridge-state="complete"] .panel { border-color: var(--success); }
+    body[data-bridge-state="failed"] .panel-bar .dot,
+    body[data-bridge-state="error"] .panel-bar .dot { background: var(--error); }
+    body[data-bridge-state="failed"] .panel,
+    body[data-bridge-state="error"] .panel { border-color: var(--error); }
+    body[data-bridge-state="failed"] .status h1,
+    body[data-bridge-state="error"] .status h1 { color: var(--error); }
+  </style>
+</head>
+<body data-bridge-state="connecting">
+  <header class="topbar">
+    <div class="logo">
+      <a href="https://bittensor.com" target="_blank" rel="noreferrer" aria-label="Bittensor">
+        <!-- τ logo (website/packages/ui/assets/TaoLogo.svg) -->
+        <svg width="21" height="23" viewBox="0 0 21 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12.5309 17.7832V8.70318C12.5238 7.60933 12.0844 6.56266 11.3087 5.79143C10.533 5.02019 9.48378 4.58695 8.38991 4.58618V19.0972C8.38387 19.6135 8.48312 20.1256 8.6816 20.6023C8.88007 21.0789 9.17361 21.5102 9.54428 21.8696C9.91496 22.2291 10.355 22.5092 10.8376 22.6929C11.3201 22.8766 11.835 22.9601 12.3509 22.9382C13.3561 23.0064 14.353 22.7174 15.1659 22.1222C12.7769 21.8692 12.5309 20.4292 12.5309 17.7832Z" fill="currentColor"/>
+          <path d="M3.775 0.787109C2.77152 0.793711 1.81138 1.19698 1.10414 1.9089C0.396901 2.62083 -2.17165e-05 3.5836 8.91144e-10 4.58711H16.893C17.8965 4.58051 18.8566 4.17724 19.5639 3.46531C20.2711 2.75339 20.668 1.79062 20.668 0.787109H3.775Z" fill="currentColor"/>
+        </svg>
+      </a>
+    </div>
+    <div class="page-name">Extension bridge</div>
+    <div class="session"><span class="dot" aria-hidden="true"></span><span id="session-state">local</span></div>
+  </header>
+  <main class="shell">
+    <div class="status">
+      <h1 id="headline">Keep this page open</h1>
+      <p id="detail">Switch back to btcli.</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-bar"><span>connected extensions</span><span class="dot" aria-hidden="true"></span></div>
+      <div class="panel-body">
+        <div class="ext-list" id="ext-list">
+          <div class="ext-empty">waiting for wallet extensions…</div>
+        </div>
+        <p class="hint">
+          btcli talks to your wallet extensions through this page. Toggle an
+          extension off to hide its accounts from btcli; signing requests
+          appear as extension popups — approve or reject them there.
+        </p>
+        <p class="hint">
+          Wrong browser? If your wallet lives elsewhere, make this page open
+          there instead: <code>btcli config set extension_browser firefox</code>
+          (or pass <code>--extension-browser</code> per command).
+        </p>
+      </div>
+    </section>
+  </main>
+  <script type="module">
+    import { web3Accounts, web3Enable, web3FromAddress } from "https://esm.sh/@polkadot/extension-dapp@0.46.9";
+
+    const APP_NAME = "Bittensor SDK";
+    const headlineEl = document.getElementById("headline");
+    const detailEl = document.getElementById("detail");
+    const extListEl = document.getElementById("ext-list");
+    const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+    const bridgeSession = new URLSearchParams(location.search).get("session") || "";
+    let ws;
+    let extensionsEnabled = false;
+    // Extensions web3Enable authorized: [{name, version}]. Account sources
+    // use the same name key.
+    let knownExtensions = [];
+    let accountsBySource = {};
+    // Page-side extension filter, remembered across bridge sessions.
+    const DISABLED_KEY = "bittensorBridgeDisabledSources";
+    let disabledSources = new Set(JSON.parse(localStorage.getItem(DISABLED_KEY) || "[]"));
+
+    function persistDisabled() {
+      localStorage.setItem(DISABLED_KEY, JSON.stringify([...disabledSources]));
+    }
+
+    function renderExtensions() {
+      if (!knownExtensions.length) {
+        extListEl.innerHTML = '<div class="ext-empty">no wallet extensions connected</div>';
+        return;
+      }
+      extListEl.innerHTML = "";
+      for (const ext of knownExtensions) {
+        const row = document.createElement("div");
+        row.className = "ext-row" + (disabledSources.has(ext.name) ? " disabled" : "");
+        const id = document.createElement("div");
+        id.className = "ext-id";
+        const name = document.createElement("span");
+        name.className = "ext-name";
+        name.textContent = ext.name;
+        const detail = document.createElement("span");
+        detail.className = "ext-detail";
+        const count = (accountsBySource[ext.name] || []).length;
+        detail.textContent = `v${ext.version || "?"} · ${count} account${count === 1 ? "" : "s"}` +
+          (disabledSources.has(ext.name) ? " · hidden from btcli" : "");
+        id.append(name, detail);
+        const toggle = document.createElement("input");
+        toggle.type = "checkbox";
+        toggle.className = "ext-toggle";
+        toggle.checked = !disabledSources.has(ext.name);
+        toggle.title = toggle.checked
+          ? `hide ${ext.name} accounts from btcli`
+          : `offer ${ext.name} accounts to btcli`;
+        toggle.addEventListener("change", () => {
+          if (toggle.checked) disabledSources.delete(ext.name);
+          else disabledSources.add(ext.name);
+          persistDisabled();
+          renderExtensions();
+        });
+        row.append(id, toggle);
+        extListEl.appendChild(row);
+      }
+    }
+
+    const STATE_LABELS = {
+      connecting: "connecting",
+      ready: "connected",
+      authorizing: "in progress",
+      complete: "complete",
+      failed: "failed",
+      error: "error",
+    };
+
+    function setBridgeState(state) {
+      document.body.dataset.bridgeState = state;
+      document.getElementById("session-state").textContent = STATE_LABELS[state] || state;
+    }
+
+    function showCopy(headline, detail) {
+      headlineEl.textContent = headline;
+      detailEl.textContent = detail;
+    }
+
+    function showError(headline, detail) {
+      setBridgeState("error");
+      showCopy(headline, detail);
+    }
+
+    function showReady() {
+      setBridgeState("ready");
+      showCopy(
+        "Connected to btcli",
+        "A signing popup appears here when a transaction is ready."
+      );
+    }
+
+    function showSubmitting() {
+      setBridgeState("authorizing");
+      showCopy("Signature sent", "btcli is submitting the transaction…");
+    }
+
+    function showSigning(source) {
+      setBridgeState("authorizing");
+      showCopy(
+        source ? `Approve in ${source}` : "Approve in your wallet",
+        "Confirm or reject the signature request in the extension popup."
+      );
+    }
+
+    function showSignError(error) {
+      showError(
+        "Signing failed",
+        error?.message || String(error) || "Switch back to btcli for details."
+      );
+    }
+
+    function showTransactionResult(success) {
+      setBridgeState(success ? "complete" : "failed");
+      showCopy(
+        success ? "Transaction complete" : "Transaction failed",
+        success ? "This tab closes itself in a moment." : "Switch back to btcli."
+      );
+      if (success) {
+        closeTabSoon();
+      }
+    }
+
+    // Close this tab once the flow is done. Browsers only let a script close
+    // tabs it (or an external opener) created with no further history — which
+    // is exactly how btcli opens this page. If the browser refuses, fall back
+    // to telling the user.
+    function closeTabSoon(delayMs = 1200) {
+      setTimeout(() => {
+        window.close();
+        setTimeout(() => {
+          if (!document.hidden) {
+            showCopy("Transaction complete", "You can close this tab.");
+          }
+        }, 400);
+      }, delayMs);
+    }
+
+    async function ensureExtensions() {
+      if (extensionsEnabled) {
+        return;
+      }
+      setBridgeState("authorizing");
+      const extensions = await web3Enable(APP_NAME);
+      if (!extensions.length) {
+        renderExtensions();
+        throw new Error("No compatible wallet extension found. Install Talisman or Polkadot.js in this browser.");
+      }
+      extensionsEnabled = true;
+      knownExtensions = extensions.map((ext) => ({ name: ext.name, version: ext.version }));
+      renderExtensions();
+      setBridgeState("ready");
+    }
+
+    async function listAccounts() {
+      await ensureExtensions();
+      const accounts = (await web3Accounts()).map((account) => ({
+        address: account.address,
+        name: account.meta?.name || account.address,
+        meta: {
+          name: account.meta?.name || account.address,
+          source: account.meta?.source || "unknown",
+        },
+        source: account.meta?.source || "unknown",
+        type: account.type || "sr25519",
+      }));
+      accountsBySource = {};
+      for (const account of accounts) {
+        (accountsBySource[account.source] ??= []).push(account);
+      }
+      renderExtensions();
+      return accounts.filter((account) => !disabledSources.has(account.source));
+    }
+
+    function sourceOf(address) {
+      for (const [source, accounts] of Object.entries(accountsBySource)) {
+        if (accounts.some((account) => account.address === address)) return source;
+      }
+      return null;
+    }
+
+    function assertSourceEnabled(address) {
+      const source = sourceOf(address);
+      if (source && disabledSources.has(source)) {
+        throw new Error(
+          `the account belongs to ${source}, which is toggled off on the bridge page — enable it and retry`
+        );
+      }
+      return source;
+    }
+
+    async function signExtrinsic(params) {
+      const payload = params?.payload;
+      if (!payload?.address) {
+        throw new Error("missing payload.address");
+      }
+      await ensureExtensions();
+      const source = assertSourceEnabled(payload.address);
+      showSigning(source);
+      const injector = await web3FromAddress(payload.address);
+      const signature = await injector.signer.signPayload(payload);
+      showSubmitting();
+      return signature;
+    }
+
+    async function signBytes(params) {
+      const address = params?.address;
+      const data = params?.data;
+      if (!address || !data) {
+        throw new Error("missing address or data");
+      }
+      await ensureExtensions();
+      const source = assertSourceEnabled(address);
+      showSigning(source);
+      const injector = await web3FromAddress(address);
+      const signature = await injector.signer.signRaw({
+        address,
+        data,
+        type: params?.type || "bytes",
+      });
+      showSubmitting();
+      return signature;
+    }
+
+    async function handleRequest(request) {
+      switch (request.method) {
+        case "accounts.list":
+          return { accounts: await listAccounts() };
+        case "extrinsic.sign":
+          return await signExtrinsic(request.params || {});
+        case "bytes.sign":
+          return await signBytes(request.params || {});
+        case "transaction.result":
+          showTransactionResult(request.params?.success === true);
+          return { acknowledged: true };
+        default:
+          throw new Error(`unsupported method ${request.method}`);
+      }
+    }
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ role: "bridge", session: bridgeSession }));
+        setBridgeState("authorizing");
+        showCopy("Connecting your wallet", "Authorize the extension if it asks.");
+        listAccounts()
+          .then(() => {
+            // Don't clobber a signing prompt that raced ahead of the warm-up.
+            if (headlineEl.textContent === "Connecting your wallet") showReady();
+          })
+          .catch((error) => {
+            showError(
+              "Authorization failed",
+              error.message || String(error)
+            );
+          });
+      };
+      ws.onclose = (event) => {
+        if (event.code === 1008 || event.code === 1012) {
+          // Stale or replaced session: this tab can do nothing further, so
+          // try to get out of the way instead of piling up.
+          showError(
+            "Stale session",
+            "This bridge tab is stale — a fresh one opens with the next btcli run."
+          );
+          setTimeout(() => window.close(), 800);
+          return;
+        }
+        setBridgeState("connecting");
+        showCopy("Reconnecting", "Bridge disconnected. Reconnecting…");
+        setTimeout(connect, 1500);
+      };
+      ws.onerror = () => {
+        showError("Connection error", "WebSocket error. Check that btcli is still running.");
+      };
+      ws.onmessage = async (event) => {
+        let request;
+        try {
+          request = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (!request?.id || !request?.method) {
+          return;
+        }
+        try {
+          const result = await handleRequest(request);
+          ws.send(JSON.stringify({ id: request.id, result }));
+        } catch (error) {
+          // Always return the error to btcli; also surface sign/account failures
+          // on this page so a wallet rejection doesn't leave "Keep this page open".
+          if (request.method === "extrinsic.sign" || request.method === "bytes.sign") {
+            showSignError(error);
+          } else if (request.method === "accounts.list") {
+            showError("Authorization failed", error.message || String(error));
+          }
+          ws.send(JSON.stringify({ id: request.id, error: { message: error.message || String(error) } }));
+        }
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>

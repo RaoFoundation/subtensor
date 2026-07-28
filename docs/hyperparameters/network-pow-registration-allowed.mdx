@@ -1,0 +1,63 @@
+---
+title: network_pow_registration_allowed
+description: Whether proof-of-work registration is allowed, as opposed to burned registration only.
+---
+
+`network_pow_registration_allowed` is the per-subnet flag that historically
+let owners choose whether miners could register by proof-of-work (grinding
+nonces against [`difficulty`](/docs/hyperparameters/difficulty)) or only by
+burning TAO. Miners reading the metagraph still see the flag, but on the
+current runtime it is a deprecated remnant: PoW registration has been
+retired chain-wide.
+
+## How it works
+
+Storage is
+[`NetworkPowRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L1917) in
+`pallets/subtensor/src/lib.rs`, exposed through the metagraph RPC as
+`pow_registration_allowed`. Two pieces of code make its deprecation
+concrete:
+
+- The migration
+  [`migrate_clear_deprecated_registration_maps`](/code/pallets/subtensor/src/migrations/migrate_clear_deprecated_registration_maps.rs#L5-L64)
+  (`pallets/subtensor/src/migrations/`) cleared every stored entry, so all
+  subnets read the storage default.
+- The AdminUtils setter
+  [`sudo_set_network_pow_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L709-L715)
+  (`pallets/admin-utils/src/lib.rs`, call index 20) no longer writes
+  anything — it unconditionally returns the
+  [`POWRegistrationDisabled`](/code/pallets/admin-utils/src/lib.rs#L151)
+  error.
+
+Independently, the PoW
+[`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814)
+extrinsic
+(`pallets/subtensor/src/macros/dispatches.rs`) ignores its work arguments
+and routes to the burned-registration path, so the flag has nothing left to
+gate. Both ends of the wire are cut:
+
+<HyperparamPowToggleDeadEnd />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name network_pow_registration_allowed
+```
+
+Nominally owner-settable as a boolean:
+
+```
+btcli sudo set --netuid N --name network_pow_registration_allowed --value false
+```
+
+but on the current runtime the underlying extrinsic always fails with
+`POWRegistrationDisabled`, so the value cannot actually be changed.
+
+## Related
+
+[`registration_allowed`](/docs/hyperparameters/registration-allowed) ·
+[`difficulty`](/docs/hyperparameters/difficulty) ·
+[`min_difficulty`](/docs/hyperparameters/min-difficulty) ·
+[`max_difficulty`](/docs/hyperparameters/max-difficulty) ·
+[`min_burn`](/docs/hyperparameters/min-burn) ·
+[`max_burn`](/docs/hyperparameters/max-burn)

@@ -1,0 +1,62 @@
+---
+title: min_difficulty
+description: Lower bound for the PoW registration difficulty controller; u64::MAX pins difficulty at maximum, disabling PoW registration.
+---
+
+`min_difficulty` is the floor under
+[`difficulty`](/docs/hyperparameters/difficulty), the proof-of-work target
+for PoW neuron registration. However cheap registrations get, the
+difficulty controller never lets the PoW price fall below this value.
+Setting it to `u64::MAX` pins difficulty at maximum, which effectively
+disables PoW registration outright. Miners care because it fixes the
+minimum compute cost of a PoW slot; root/governance sets it.
+
+## How it works
+
+Storage is [`MinDifficulty`](/code/pallets/subtensor/src/lib.rs#L2145) in
+`pallets/subtensor/src/lib.rs`, read and
+written by
+[`get_min_difficulty`](/code/pallets/subtensor/src/utils/misc.rs#L492-L494) /
+[`set_min_difficulty`](/code/pallets/subtensor/src/utils/misc.rs#L495-L498)
+(`pallets/subtensor/src/utils/misc.rs`). In the classic controller,
+difficulty was rescaled each adjustment interval by how far registrations
+ran over or under target, then clamped to the
+\[`min_difficulty`, `max_difficulty`\] band — so with quiet demand,
+difficulty decayed until it sat on this floor.
+
+The chain-wide migration
+[`migrate_set_min_difficulty`](/code/pallets/subtensor/src/migrations/migrate_set_min_difficulty.rs#L9-L53)
+(`pallets/subtensor/src/migrations/migrate_set_min_difficulty.rs`) set the
+floor to 10,000,000 on every subnet, matching the runtime default
+([`SubtensorInitialMinDifficulty`](/code/runtime/src/lib.rs#L813) in
+`runtime/src/lib.rs`).
+
+Note that on the current runtime PoW registration is deprecated: the
+`register` extrinsic routes to burned registration and no controller
+adjusts `difficulty` between intervals, so this floor is dormant. The
+playground below opens on a quiet-demand scenario where difficulty decays
+until it sits on the bold floor line — drag the floor to its top stop (or
+use the button) to see the `u64::MAX` disabled state:
+
+<HyperparamPowDifficulty focus="min_difficulty" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name min_difficulty
+```
+
+Root/governance only:
+[`sudo_set_min_difficulty`](/code/pallets/admin-utils/src/lib.rs#L284-L301)
+in the AdminUtils pallet
+requires the root origin and takes a raw u64. It is not settable by the
+subnet owner via `btcli sudo set`.
+
+## Related
+
+[`difficulty`](/docs/hyperparameters/difficulty) ·
+[`max_difficulty`](/docs/hyperparameters/max-difficulty) ·
+[`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) ·
+[`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval) ·
+[`adjustment_interval`](/docs/hyperparameters/adjustment-interval) ·
+[`min_burn`](/docs/hyperparameters/min-burn)

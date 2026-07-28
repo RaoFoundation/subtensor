@@ -31,7 +31,7 @@ use scale_info::prelude::collections::VecDeque;
 use sp_core::{H160, H256, U256, crypto::Ss58Codec};
 use sp_io::hashing::twox_128;
 use sp_runtime::{
-    AccountId32,
+    AccountId32, PerU16,
     traits::{Hash, Zero},
 };
 use sp_std::marker::PhantomData;
@@ -75,6 +75,51 @@ fn test_migrate_associated_evm_address_index() {
             vec![(0, 12)]
         );
         assert!(HasMigrationRun::<Test>::get(&migration_name));
+    });
+}
+
+#[test]
+fn test_migrate_clear_orphan_subnet_identities_v3() {
+    new_test_ext(1).execute_with(|| {
+        let migration_name = b"migrate_clear_orphan_subnet_identities_v3".to_vec();
+        HasMigrationRun::<Test>::remove(&migration_name);
+
+        let orphan_netuid = NetUid::from(1);
+        let live_netuid = NetUid::from(2);
+
+        // live_netuid is a registered network; orphan_netuid is not.
+        NetworksAdded::<Test>::insert(live_netuid, true);
+
+        let orphan_identity = SubnetIdentityV3 {
+            subnet_name: b"orphan".to_vec(),
+            ..Default::default()
+        };
+        let live_identity = SubnetIdentityV3 {
+            subnet_name: b"live".to_vec(),
+            ..Default::default()
+        };
+
+        SubnetIdentitiesV3::<Test>::insert(orphan_netuid, orphan_identity);
+        SubnetIdentitiesV3::<Test>::insert(live_netuid, live_identity.clone());
+
+        crate::migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<Test>();
+
+        // The orphan identity is removed; the live subnet identity is preserved.
+        assert!(!SubnetIdentitiesV3::<Test>::contains_key(orphan_netuid));
+        assert_eq!(
+            SubnetIdentitiesV3::<Test>::get(live_netuid),
+            Some(live_identity.clone())
+        );
+
+        // Migration is marked as run.
+        assert!(HasMigrationRun::<Test>::get(&migration_name));
+
+        // Idempotent: re-running is a no-op (live identity still present).
+        crate::migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<Test>();
+        assert_eq!(
+            SubnetIdentitiesV3::<Test>::get(live_netuid),
+            Some(live_identity)
+        );
     });
 }
 
@@ -200,14 +245,17 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             (coldkey_to_move, netuid, old_hotkey),
             moved_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey_to_move), ());
         Lock::<Test>::insert(
             (coldkey_with_conflict, netuid, old_hotkey),
             discarded_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey_with_conflict), ());
         Lock::<Test>::insert(
             (coldkey_with_conflict, netuid, new_hotkey),
             existing_destination_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert((netuid, new_hotkey, coldkey_with_conflict), ());
         DecayingLock::<Test>::insert(coldkey_to_move, netuid, false);
         DecayingLock::<Test>::insert(coldkey_with_conflict, netuid, false);
         DecayingLock::<Test>::insert(chained_coldkey, chained_netuid, false);
@@ -225,6 +273,10 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             (chained_coldkey, chained_netuid, chained_first_hotkey),
             chained_lock.clone(),
         );
+        LockingColdkeys::<Test>::insert(
+            (chained_netuid, chained_first_hotkey, chained_coldkey),
+            (),
+        );
         HotkeyLock::<Test>::insert(chained_netuid, chained_first_hotkey, chained_lock.clone());
 
         let weight =
@@ -234,14 +286,34 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
         assert!(HasMigrationRun::<Test>::get(&migration_name));
         assert!(Lock::<Test>::get((coldkey_to_move, netuid, old_hotkey)).is_none());
         assert!(Lock::<Test>::get((coldkey_with_conflict, netuid, old_hotkey)).is_none());
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid,
+            old_hotkey,
+            coldkey_to_move
+        )));
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid,
+            old_hotkey,
+            coldkey_with_conflict
+        )));
         assert_eq!(
             Lock::<Test>::get((coldkey_to_move, netuid, new_hotkey)),
             Some(moved_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            coldkey_to_move
+        )));
         assert_eq!(
             Lock::<Test>::get((coldkey_with_conflict, netuid, new_hotkey)),
             Some(existing_destination_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_hotkey,
+            coldkey_with_conflict
+        )));
         assert!(HotkeyLock::<Test>::get(netuid, old_hotkey).is_none());
 
         let new_aggregate = HotkeyLock::<Test>::get(netuid, new_hotkey)
@@ -270,10 +342,25 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
             chained_middle_hotkey
         ))
         .is_none());
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_first_hotkey,
+            chained_coldkey
+        )));
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_middle_hotkey,
+            chained_coldkey
+        )));
         assert_eq!(
             Lock::<Test>::get((chained_coldkey, chained_netuid, chained_final_hotkey)),
             Some(chained_lock.clone())
         );
+        assert!(LockingColdkeys::<Test>::contains_key((
+            chained_netuid,
+            chained_final_hotkey,
+            chained_coldkey
+        )));
         assert!(HotkeyLock::<Test>::get(chained_netuid, chained_first_hotkey).is_none());
         assert!(HotkeyLock::<Test>::get(chained_netuid, chained_middle_hotkey).is_none());
         assert_eq!(
@@ -1202,6 +1289,16 @@ fn test_migrate_last_tx_block_childkey_take() {
 }
 
 #[allow(deprecated)]
+// PerU16 must SCALE-encode byte-identically to u16, so the take/epoch storages
+// retyped from u16 to PerU16 require no storage migration.
+#[test]
+fn test_per_u16_encodes_identically_to_u16() {
+    assert_eq!(PerU16::from_parts(5).encode(), 5u16.encode());
+    assert_eq!(PerU16::from_parts(u16::MAX).encode(), u16::MAX.encode());
+    assert_eq!(PerU16::zero().encode(), 0u16.encode());
+}
+
+#[allow(deprecated)]
 #[test]
 fn test_migrate_last_tx_block_delegate_take() {
     new_test_ext(1).execute_with(|| {
@@ -1291,7 +1388,7 @@ fn test_migrate_rate_limit_keys() {
 
         // Legacy LastTxBlockDelegateTake entry (index 4)
         let legacy_delegate_account = U256::from(4);
-        Delegates::<Test>::insert(legacy_delegate_account, 500u16);
+        Delegates::<Test>::insert(legacy_delegate_account, PerU16::from_parts(500));
         let mut legacy_delegate_key = prefix.clone();
         legacy_delegate_key.push(4u8);
         legacy_delegate_key.extend_from_slice(&legacy_delegate_account.encode());
@@ -2867,10 +2964,17 @@ fn do_setup_unactive_sn() -> (Vec<NetUid>, Vec<NetUid>) {
         let coldkey_account_id = U256::from(1111);
         let hotkey_account_id = U256::from(1111);
         let burn_cost = SubtensorModule::get_burn(*netuid);
-        add_balance_to_coldkey_account(&coldkey_account_id, burn_cost.into());
+        // Registration requires keep-alive coverage above the burn (Preservation::Preserve).
+        let fund = TaoBalance::from(
+            u64::from(burn_cost)
+                .checked_add(u64::from(ExistentialDeposit::get()))
+                .and_then(|value| value.checked_add(10))
+                .expect("burn funding overflow"),
+        );
+        add_balance_to_coldkey_account(&coldkey_account_id, fund);
         TotalIssuance::<Test>::mutate(|total_issuance| {
             let updated_total = u64::from(*total_issuance)
-                .checked_add(u64::from(burn_cost))
+                .checked_add(u64::from(fund))
                 .expect("total issuance overflow (burn)");
             *total_issuance = updated_total.into();
         });
@@ -3296,6 +3400,42 @@ fn test_migrate_cleanup_swap_v3() {
         assert_eq!(
             u64::from(SubnetAlphaIn::<Test>::get(NetUid::from(1))),
             reserves + provided
+        );
+    });
+}
+
+// Regression test for issue #2793: migrate_cleanup_swap_v3 must be wired into the pallet
+// on_runtime_upgrade hook. Seeds a *Provided residual, runs the full upgrade hook, and asserts
+// the residual is folded into the main reserves. Without the wiring line in hooks.rs this fails.
+#[test]
+fn test_migrate_cleanup_swap_v3_runs_on_runtime_upgrade() {
+    use crate::migrations::migrate_cleanup_swap_v3::deprecated_swap_maps;
+    use frame_support::traits::Hooks;
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let provided: u64 = 9876;
+
+        deprecated_swap_maps::SubnetTaoProvided::<Test>::insert(netuid, TaoBalance::from(provided));
+        deprecated_swap_maps::SubnetAlphaInProvided::<Test>::insert(
+            netuid,
+            AlphaBalance::from(provided),
+        );
+
+        let tao_before = u64::from(SubnetTAO::<Test>::get(netuid));
+        let alpha_before = u64::from(SubnetAlphaIn::<Test>::get(netuid));
+
+        let _ = <crate::Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+
+        assert!(!deprecated_swap_maps::SubnetTaoProvided::<Test>::contains_key(netuid));
+        assert!(!deprecated_swap_maps::SubnetAlphaInProvided::<Test>::contains_key(netuid));
+        assert_eq!(
+            u64::from(SubnetTAO::<Test>::get(netuid)),
+            tao_before + provided
+        );
+        assert_eq!(
+            u64::from(SubnetAlphaIn::<Test>::get(netuid)),
+            alpha_before + provided
         );
     });
 }
@@ -4768,6 +4908,7 @@ fn test_migrate_subnet_balances() {
 fn test_migrate_fix_total_issuance_evm_fees() {
     new_test_ext(1).execute_with(|| {
         const MIGRATION_NAME: &[u8] = b"migrate_fix_total_issuance_evm_fees";
+        const DUST_MIGRATION_NAME: &[u8] = b"migrate_fix_total_issuance_after_dust_collection";
 
         let account = U256::from(42);
         let balances_total_issuance = TaoBalance::from(123_456_789_u64);
@@ -4788,16 +4929,29 @@ fn test_migrate_fix_total_issuance_evm_fees() {
         assert!(!weight.is_zero(), "weight must be non-zero");
         assert_eq!(TotalIssuance::<Test>::get(), balances_total_issuance);
         assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!HasMigrationRun::<Test>::get(
+            DUST_MIGRATION_NAME.to_vec()
+        ));
 
         let second_wrong_value = TaoBalance::from(555_u64);
         TotalIssuance::<Test>::put(second_wrong_value);
 
         crate::migrations::migrate_fix_total_issuance_evm_fees::migrate_fix_total_issuance_evm_fees::<Test>();
 
+        assert_eq!(TotalIssuance::<Test>::get(), balances_total_issuance);
+        assert!(HasMigrationRun::<Test>::get(
+            DUST_MIGRATION_NAME.to_vec()
+        ));
+
+        let third_wrong_value = TaoBalance::from(777_u64);
+        TotalIssuance::<Test>::put(third_wrong_value);
+
+        crate::migrations::migrate_fix_total_issuance_evm_fees::migrate_fix_total_issuance_evm_fees::<Test>();
+
         assert_eq!(
             TotalIssuance::<Test>::get(),
-            second_wrong_value,
-            "migration must not run more than once"
+            third_wrong_value,
+            "migration must not run after all known migration keys have run"
         );
     });
 }

@@ -1,0 +1,338 @@
+[
+  {
+    "test": "intent_add_proxy"
+  },
+  {
+    "test": "intent_add_stake"
+  },
+  {
+    "test": "intent_add_stake_limit"
+  },
+  {
+    "test": "intent_announce_coldkey_swap"
+  },
+  {
+    "test": "intent_associate_evm_key"
+  },
+  {
+    "test": "intent_associate_hotkey"
+  },
+  {
+    "test": "intent_batch"
+  },
+  {
+    "test": "intent_burned_register"
+  },
+  {
+    "test": "intent_claim_root"
+  },
+  {
+    "test": "intent_clear_coldkey_swap_announcement"
+  },
+  {
+    "test": "intent_commit_weights"
+  },
+  {
+    "test": "intent_contribute_crowdloan"
+  },
+  {
+    "test": "intent_create_crowdloan"
+  },
+  {
+    "test": "intent_create_pure_proxy"
+  },
+  {
+    "test": "intent_decrease_take"
+  },
+  {
+    "test": "intent_dispute_coldkey_swap"
+  },
+  {
+    "test": "intent_dissolve_crowdloan"
+  },
+  {
+    "test": "intent_evm_withdraw"
+  },
+  {
+    "test": "intent_execute_proxy_announced"
+  },
+  {
+    "test": "intent_finalize_crowdloan"
+  },
+  {
+    "test": "intent_fund_evm_key"
+  },
+  {
+    "test": "intent_increase_take"
+  },
+  {
+    "test": "intent_kill_pure_proxy"
+  },
+  {
+    "test": "intent_lock_stake"
+  },
+  {
+    "test": "intent_move_lock"
+  },
+  {
+    "test": "intent_move_stake"
+  },
+  {
+    "test": "intent_multisig_approve"
+  },
+  {
+    "test": "intent_multisig_cancel"
+  },
+  {
+    "test": "intent_multisig_execute"
+  },
+  {
+    "test": "intent_multisig_threshold_1"
+  },
+  {
+    "test": "intent_refund_crowdloan"
+  },
+  {
+    "test": "intent_register_leased_network"
+  },
+  {
+    "test": "intent_register_subnet"
+  },
+  {
+    "test": "intent_remove_proxies"
+  },
+  {
+    "test": "intent_remove_proxy"
+  },
+  {
+    "test": "intent_remove_stake"
+  },
+  {
+    "test": "intent_remove_stake_limit"
+  },
+  {
+    "test": "intent_reset_axon"
+  },
+  {
+    "test": "intent_reveal_weights"
+  },
+  {
+    "test": "intent_root_register"
+  },
+  {
+    "test": "intent_serve_axon"
+  },
+  {
+    "test": "intent_serve_axon_tls"
+  },
+  {
+    "test": "intent_serve_prometheus"
+  },
+  {
+    "test": "intent_set_auto_stake"
+  },
+  {
+    "test": "intent_set_childkey_take"
+  },
+  {
+    "test": "intent_set_children"
+  },
+  {
+    "test": "intent_set_crowdloan_max_contribution"
+  },
+  {
+    "test": "intent_set_hyperparameter"
+  },
+  {
+    "test": "intent_set_identity"
+  },
+  {
+    "test": "intent_set_mechanism_count"
+  },
+  {
+    "test": "intent_set_perpetual_lock"
+  },
+  {
+    "test": "intent_set_root_claim_type"
+  },
+  {
+    "test": "intent_set_subnet_identity"
+  },
+  {
+    "test": "intent_set_take"
+  },
+  {
+    "test": "intent_set_weights"
+  },
+  {
+    "test": "intent_stake_burn"
+  },
+  {
+    "test": "intent_start_call"
+  },
+  {
+    "test": "intent_swap_coldkey_announced"
+  },
+  {
+    "test": "intent_swap_hotkey"
+  },
+  {
+    "test": "intent_swap_stake"
+  },
+  {
+    "test": "intent_terminate_lease"
+  },
+  {
+    "test": "intent_transfer"
+  },
+  {
+    "test": "intent_transfer_all"
+  },
+  {
+    "test": "intent_transfer_stake"
+  },
+  {
+    "test": "intent_trim_subnet"
+  },
+  {
+    "test": "intent_unstake_all"
+  },
+  {
+    "test": "intent_unstake_all_alpha"
+  },
+  {
+    "test": "intent_update_crowdloan_cap"
+  },
+  {
+    "test": "intent_update_crowdloan_end"
+  },
+  {
+    "test": "intent_update_crowdloan_min_contribution"
+  },
+  {
+    "test": "intent_update_symbol"
+  },
+  {
+    "test": "intent_withdraw_crowdloan"
+  },
+  {
+    "test": "test_batch_applies_all_children_atomically"
+  },
+  {
+    "test": "test_failed_batch_reverts_everything"
+  },
+  {
+    "test": "test_policy_aggregates_spend_across_batch"
+  },
+  {
+    "test": "test_mev_shield_next_key_is_mlkem768"
+  },
+  {
+    "test": "test_submit_shielded_runs_full_pipeline"
+  },
+  {
+    "test": "test_crowdloan_create_read_update"
+  },
+  {
+    "test": "test_nonexistent_subnet_maps_to_semantic_code"
+  },
+  {
+    "test": "test_compose_nested_sudo_call"
+  },
+  {
+    "test": "test_raw_call_escape_hatch_and_commitment"
+  },
+  {
+    "test": "test_root_claim_type_variants"
+  },
+  {
+    "test": "test_keep_subnets_requires_subnets"
+  },
+  {
+    "test": "test_coldkey_swap_announcement_flow"
+  },
+  {
+    "test": "test_key_association"
+  },
+  {
+    "test": "test_plan_simulates_real_fee"
+  },
+  {
+    "test": "test_policy_blocks_with_live_fee"
+  },
+  {
+    "test": "test_spend_cap_blocks_value_movers"
+  },
+  {
+    "test": "test_netuid_allowlist_blocks_live"
+  },
+  {
+    "test": "test_pending_op_open_read_cancel"
+  },
+  {
+    "test": "test_account_object_m_of_n_executes"
+  },
+  {
+    "test": "test_proxy_flow"
+  },
+  {
+    "test": "test_block_number"
+  },
+  {
+    "test": "test_subnets_all_batched"
+  },
+  {
+    "test": "test_balance_and_existential_deposit"
+  },
+  {
+    "test": "test_generic_accessors_over_generated_descriptors"
+  },
+  {
+    "test": "test_reads_catalog_nonempty"
+  },
+  {
+    "test": "test_typed_reads"
+  },
+  {
+    "test": "test_quote_stake_slippage_and_fee"
+  },
+  {
+    "test": "test_metagraph_fast_path_matches_runtime"
+  },
+  {
+    "test": "test_snapshot_pins_reads_to_one_block"
+  },
+  {
+    "test": "test_leases_read"
+  },
+  {
+    "test": "test_block_subscription_streams_increasing_headers"
+  },
+  {
+    "test": "test_transfer_moves_exactly_the_amount"
+  },
+  {
+    "test": "test_add_stake_increases_stake"
+  },
+  {
+    "test": "test_delegation_lifecycle"
+  },
+  {
+    "test": "test_owned_subnet_is_registered"
+  },
+  {
+    "test": "test_serving_endpoints"
+  },
+  {
+    "test": "test_owner_sets_hyperparameter"
+  },
+  {
+    "test": "test_unsettable_hyperparameter_rejected_at_construction"
+  },
+  {
+    "test": "test_identity_coldkey_and_subnet"
+  },
+  {
+    "test": "test_auto_stake_destination"
+  }
+]

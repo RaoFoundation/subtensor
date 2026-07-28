@@ -2,6 +2,12 @@ name: Typescript E2E Tests
 
 on:
   pull_request:
+  push:
+    branches: [staging, main]
+
+concurrency:
+  group: typescript-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -10,28 +16,182 @@ permissions:
   contents: read
 
 jobs:
+  trusted-pr:
+    name: Trusted PR source (non-fork)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Non-fork PR; self-hosted runners may execute checkout."
+
+  # typescript-formatting is a required merge check, so the workflow must
+  # always trigger and that job always runs (it is cheap). The expensive node
+  # builds and zombienet suites skip themselves when the PR touches nothing
+  # they exercise; `skipped` satisfies branch protection.
+  changes:
+    name: detect e2e-relevant changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      evm: ${{ steps.filter.outputs.evm }}
+      shield: ${{ steps.filter.outputs.shield }}
+      topology_audit: ${{ steps.filter.outputs.topology_audit }}
+      state_count: ${{ steps.plan.outputs.state_count }}
+      state_matrix: ${{ steps.plan.outputs.state_matrix }}
+      shield_count: ${{ steps.plan.outputs.shield_count }}
+      shield_matrix: ${{ steps.plan.outputs.shield_matrix }}
+      build_count: ${{ steps.plan.outputs.build_count }}
+      build_matrix: ${{ steps.plan.outputs.build_matrix }}
+      runtime_release: ${{ steps.filter.outputs.runtime_release }}
+    steps:
+      # Routing decisions for pull requests must come from the trusted base
+      # revision. A PR may change these scripts, but those changes take effect
+      # only after merge; during initial rollout, their absence fails closed.
+      - name: Check out trusted E2E classifier
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: |
+            .github/scripts/classify-typescript-e2e-changes.sh
+            .github/scripts/classify-runtime-changes.sh
+            .github/scripts/extract-pull-file-paths.sh
+            ts-tests/scripts/e2e-shard-plan.mjs
+          path: .trusted-e2e-filter
+          persist-credentials: false
+
+      # Shard topology is data from the proposed revision. A generic builder
+      # from the trusted base validates and expands it, so a new shard is
+      # exercised by the PR that introduces it rather than only after merge.
+      - name: Check out proposed E2E shard manifest
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          sparse-checkout: |
+            ts-tests/e2e-shards.json
+            ts-tests/scripts/e2e-shard-plan.mjs
+          sparse-checkout-cone-mode: false
+          path: .proposed-e2e-plan
+          persist-credentials: false
+
+      # Plain gh-api file listing instead of a marketplace action: the org's
+      # Actions allowlist rejects unlisted third-party actions (startup_failure).
+      - name: Filter changed paths
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -euo pipefail
+          classifier=.trusted-e2e-filter/.github/scripts/classify-typescript-e2e-changes.sh
+          extractor=.trusted-e2e-filter/.github/scripts/extract-pull-file-paths.sh
+
+          select_all() {
+            {
+              echo 'evm=true'
+              echo 'staking=true'
+              echo 'coldkey_swap=true'
+              echo 'dev=true'
+              echo 'subnets=true'
+              echo 'shield=true'
+              echo 'topology_audit=true'
+              echo 'runtime_release=true'
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          # During rollout the trusted scripts may be absent from the base
+          # revision. Never fall back to PR-controlled code in that bootstrap
+          # window: run every E2E suite instead.
+          if [[ ! -x "$classifier" || ! -x "$extractor" ]]; then
+            echo "trusted E2E classifier unavailable; running the full matrix" >&2
+            select_all
+            exit 0
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            "$classifier" --all "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate); then
+            echo "changed-file lookup failed; running the full E2E matrix" >&2
+            "$classifier" --all "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! paths=$(printf '%s\n' "$files" | "$extractor" "$EXPECTED_CHANGED_FILES"); then
+            echo "changed-file response invalid; running the full E2E matrix" >&2
+            "$classifier" --all "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "$paths" | "$classifier" "$GITHUB_OUTPUT"
+
+          # Runtime Checks is the faster canonical producer for the identical
+          # release binary. Only wait for it when its trusted classifier says
+          # that workflow will build; TypeScript-suite-only changes keep their
+          # immediate local build.
+          runtime_release=false
+          runtime_classifier=.trusted-e2e-filter/.github/scripts/classify-runtime-changes.sh
+          runtime_output=$(mktemp)
+          trap 'rm -f "$runtime_output"' EXIT
+          if [[ -x "$runtime_classifier" ]] &&
+             printf '%s\n' "$paths" | "$runtime_classifier" "$runtime_output" >/dev/null; then
+            grep -qx 'runtime=true' "$runtime_output" && runtime_release=true
+          else
+            # Runtime's own missing-classifier fallback enables all checks, so
+            # its release producer will exist in this bootstrap case as well.
+            runtime_release=true
+          fi
+          echo "runtime_release=$runtime_release" >> "$GITHUB_OUTPUT"
+
+      - name: Build matrix from proposed shard manifest
+        id: plan
+        env:
+          EVM: ${{ steps.filter.outputs.evm }}
+          STAKING: ${{ steps.filter.outputs.staking }}
+          COLDKEY_SWAP: ${{ steps.filter.outputs.coldkey_swap }}
+          DEV: ${{ steps.filter.outputs.dev }}
+          SUBNETS: ${{ steps.filter.outputs.subnets }}
+          SHIELD: ${{ steps.filter.outputs.shield }}
+        run: |
+          set -euo pipefail
+          builder=.trusted-e2e-filter/ts-tests/scripts/e2e-shard-plan.mjs
+          if [[ ! -x "$builder" ]]; then
+            # One-time bootstrap only. Future PRs always execute the trusted
+            # base builder over proposed data, matching the Rust SDK pattern.
+            builder=.proposed-e2e-plan/ts-tests/scripts/e2e-shard-plan.mjs
+          fi
+          node "$builder" plan \
+            .proposed-e2e-plan/ts-tests/e2e-shards.json \
+            "$GITHUB_OUTPUT" \
+            "$EVM" "$STAKING" "$COLDKEY_SWAP" "$DEV" "$SUBNETS" "$SHIELD"
+
   typescript-formatting:
     runs-on: ubuntu-latest
     steps:
       - name: Check-out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: ts-tests/.nvmrc
 
-      - name: Install system dependencies
+      - name: Validate E2E configuration
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
-            -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
-            build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
+          node ts-tests/scripts/test-e2e-shard-plan.mjs
+          node ts-tests/scripts/validate-e2e-config.mjs
+
+      - name: Test E2E suite routing
+        run: .github/scripts/test-classify-typescript-e2e-changes.sh
 
       - name: Install e2e dependencies
         working-directory: ts-tests
@@ -42,110 +202,257 @@ jobs:
           cd ts-tests
           pnpm run fmt
 
-  # Build the node binary in both variants and share as artifacts.
+  # Build each variant required by the selected suites exactly once and share
+  # it as an artifact. Ambiguous/shared changes select every suite and therefore
+  # still build both production release and fast-runtime binaries.
   build:
-    runs-on: [self-hosted, fireactions-heavy]
-    needs: [typescript-formatting]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    # PR HEAD executes here; never attach sccache-writer / pass R2 write keys.
+    environment:
+      name: sccache-reader
+      deployment: false
+    needs: [trusted-pr, changes]
+    if: needs.changes.outputs.build_count != '0'
     timeout-minutes: 60
     strategy:
-      matrix:
-        include:
-          - variant: release 
-            flags: ""
-          - variant: fast
-            flags: "--features fast-runtime"
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
     env:
       RUST_BACKTRACE: full
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Check-out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Install system dependencies
+      - name: Select exact-merge Runtime release artifact
+        id: shared
+        if: >-
+          github.event_name == 'pull_request' &&
+          matrix.variant == 'release' &&
+          needs.changes.outputs.runtime_release == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/select-shared-release-artifact.sh "$GITHUB_OUTPUT"
+
+      - name: Reuse verified Runtime release build
+        id: reuse
+        if: steps.shared.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends \
-            -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
-            build-essential clang curl git make libssl-dev llvm libudev-dev protobuf-compiler pkg-config
+          set -euo pipefail
+          output=$(mktemp)
+          trap 'rm -f "$output"' EXIT
+          if .github/scripts/download-artifact.sh \
+              "${{ steps.shared.outputs.artifact_id }}" \
+              "node-subtensor-release-${GITHUB_SHA}" \
+              "${{ steps.shared.outputs.digest }}" \
+              "${{ steps.shared.outputs.size }}" \
+              target/release "$output" &&
+             [[ -s target/release/node-subtensor ]] &&
+             [[ -s target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm ]]; then
+            cat "$output" >> "$GITHUB_OUTPUT"
+            echo "reused=true" >> "$GITHUB_OUTPUT"
+            chmod +x target/release/node-subtensor
+            {
+              echo "### E2E release node"
+              echo "- Reused exact-merge Runtime Checks artifact"
+              echo "- Producer wait: ${{ steps.shared.outputs.waited_seconds }}s"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            rm -rf target/release
+            echo "::warning::Shared release artifact could not be verified; rebuilding locally."
+            echo "reused=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - name: Set up Rust build environment
+        if: steps.reuse.outputs.reused != 'true'
+        uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
-
-      - name: Utilize Shared Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: e2e-${{ matrix.variant }}
-          cache-on-failure: true
+          cache-key: e2e-${{ matrix.variant }}
+          sccache-credential-mode: reader
 
       - name: Build node-subtensor (${{ matrix.variant }})
+        if: steps.reuse.outputs.reused != 'true'
         run: cargo build --profile release ${{ matrix.flags }} -p node-subtensor
 
+      - name: Report ${{ matrix.variant }} compiler cache
+        if: always() && steps.reuse.outputs.reused != 'true'
+        run: .github/scripts/sccache-report.sh "E2E ${{ matrix.variant }} compiler cache"
+
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: node-subtensor-${{ matrix.variant }}
           path: target/release/node-subtensor
           if-no-files-found: error
+          retention-days: 3
 
+  # State-focused suites do not exercise multi-validator consensus. They use a
+  # single immediately-finalized node; EVM and staking are split by measured
+  # file runtime without changing coverage. Shield retains the production-like
+  # multi-node topology below. Seven state workers plus five Shield workers use
+  # 12 of the 32 turbo-8 runners, so two full PRs still leave eight slots free.
   run-e2e-tests:
-    needs: [build]
-    runs-on: [self-hosted, fireactions-heavy]
+    needs: [trusted-pr, changes, build]
+    if: needs.changes.outputs.state_count != '0'
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
 
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - test: dev
-            binary: release
-          - test: zombienet_shield
-            binary: release
-          - test: zombienet_staking
-            binary: fast
-          - test: zombienet_coldkey_swap
-            binary: fast
-          - test: zombienet_subnets
-            binary: fast
-          - test: zombienet_evm
-            binary: fast
+      max-parallel: 7
+      matrix: ${{ fromJSON(needs.changes.outputs.state_matrix) }}
 
     name: "typescript-e2e-${{ matrix.test }}"
 
     steps:
       - name: Check-out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Download binary
-        uses: actions/download-artifact@v4
+      - name: Run E2E suite
+        uses: ./.github/actions/run-typescript-e2e
         with:
-          name: node-subtensor-${{ matrix.binary }}
-          path: target/release
+          binary: ${{ matrix.binary }}
+          test: ${{ matrix.test }}
+          additional-test: ${{ matrix.additional_test }}
 
-      - name: Make binary executable
-        run: chmod +x target/release/node-subtensor
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: ts-tests/.nvmrc
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install e2e dependencies
-        working-directory: ts-tests
-        run: pnpm install --frozen-lockfile
-
-      - name: Install lsof (dev foundation RPC port discovery)
-        if: matrix.test == 'dev'
+  # Keep the historical EVM check context stable while the implementation is
+  # split into balanced _a/_b/_c jobs. This also reports success when path routing
+  # intentionally skips state E2E, avoiding a permanently Expected context.
+  evm-result:
+    name: typescript-e2e-zombienet_evm
+    if: always()
+    needs: [trusted-pr, changes, build, run-e2e-tests, sharding-audit]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check EVM shard prerequisites
+        env:
+          TRUSTED_RESULT: ${{ needs.trusted-pr.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          EVM_SELECTED: ${{ needs.changes.outputs.evm }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          STATE_RESULT: ${{ needs.run-e2e-tests.result }}
+          TOPOLOGY_AUDIT: ${{ needs.changes.outputs.topology_audit }}
+          AUDIT_RESULT: ${{ needs.sharding-audit.result }}
         run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+          if [[ "$TRUSTED_RESULT" != "success" || "$CHANGES_RESULT" != "success" ]]; then
+            echo "EVM E2E routing failed: trusted=$TRUSTED_RESULT changes=$CHANGES_RESULT" >&2
+            exit 1
+          fi
+          case "$EVM_SELECTED" in
+            false)
+              echo "EVM E2E was intentionally skipped by trusted path routing."
+              exit 0
+              ;;
+            true) ;;
+            *)
+              echo "EVM E2E routing produced an invalid selection: '$EVM_SELECTED'" >&2
+              exit 1
+              ;;
+          esac
+          if [[ "$BUILD_RESULT" != "success" || "$STATE_RESULT" != "success" ]]; then
+            echo "EVM E2E prerequisites failed: build=$BUILD_RESULT state-shards=$STATE_RESULT" >&2
+            exit 1
+          fi
+          if [[ "$TOPOLOGY_AUDIT" == true && "$AUDIT_RESULT" != success ]]; then
+            echo "Canonical unsharded audit failed: $AUDIT_RESULT" >&2
+            exit 1
+          fi
 
-      - name: Run tests
+  # Shield validates consensus, key rotation, timing, and transaction
+  # mortality, so every shard retains the six-node topology and production
+  # slot duration. A 250 ms runtime outruns the asynchronous key-rotation
+  # pipeline and can finalize a wrapper without unshielding its inner call.
+  run-shield-tests:
+    needs: [trusted-pr, changes, build]
+    if: needs.changes.outputs.shield_count != '0'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.shield_matrix) }}
+    name: "typescript-e2e-${{ matrix.test }}"
+    steps:
+      - name: Check-out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Run Shield shard
+        uses: ./.github/actions/run-typescript-e2e
+        with:
+          binary: ${{ matrix.binary }}
+          test: ${{ matrix.test }}
+
+  # Only topology/matrix changes pay for this audit. It proves that the fast
+  # file shards remain equivalent to the original canonical environments and
+  # catches hidden cross-file state or concurrency assumptions before merge.
+  sharding-audit:
+    name: Audit canonical unsharded ${{ matrix.test }}
+    needs: [trusted-pr, changes, build]
+    if: needs.changes.outputs.topology_audit == 'true'
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: zombienet_evm
+            binary: fast
+          - test: zombienet_staking
+            binary: fast
+          - test: zombienet_shield
+            binary: release
+    steps:
+      - name: Check-out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Run canonical environment
+        uses: ./.github/actions/run-typescript-e2e
+        with:
+          binary: ${{ matrix.binary }}
+          test: ${{ matrix.test }}
+
+  shield-result:
+    name: typescript-e2e-zombienet_shield
+    if: always()
+    needs: [trusted-pr, changes, build, run-shield-tests, sharding-audit]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Shield shard results
+        env:
+          TRUSTED_RESULT: ${{ needs.trusted-pr.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          SHIELD_SELECTED: ${{ needs.changes.outputs.shield }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          SHIELD_RESULT: ${{ needs.run-shield-tests.result }}
+          TOPOLOGY_AUDIT: ${{ needs.changes.outputs.topology_audit }}
+          AUDIT_RESULT: ${{ needs.sharding-audit.result }}
         run: |
-          cd ts-tests
-          pnpm moonwall test ${{ matrix.test }}
+          if [[ "$TRUSTED_RESULT" != "success" || "$CHANGES_RESULT" != "success" ]]; then
+            echo "Shield E2E routing failed: trusted=$TRUSTED_RESULT changes=$CHANGES_RESULT" >&2
+            exit 1
+          fi
+          case "$SHIELD_SELECTED" in
+            false)
+              echo "Shield E2E was intentionally skipped by trusted path routing."
+              exit 0
+              ;;
+            true) ;;
+            *)
+              echo "Shield E2E routing produced an invalid selection: '$SHIELD_SELECTED'" >&2
+              exit 1
+              ;;
+          esac
+          if [[ "$BUILD_RESULT" != "success" || "$SHIELD_RESULT" != "success" ]]; then
+            echo "Shield E2E prerequisites failed: build=$BUILD_RESULT shards=$SHIELD_RESULT" >&2
+            exit 1
+          fi
+          if [[ "$TOPOLOGY_AUDIT" == true && "$AUDIT_RESULT" != success ]]; then
+            echo "Canonical unsharded audit failed: $AUDIT_RESULT" >&2
+            exit 1
+          fi

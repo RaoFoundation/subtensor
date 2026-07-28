@@ -4,6 +4,7 @@ use super::mock::*;
 use crate::rpc_info::subnet_info::{HyperparamEntry, HyperparamValue, SubnetHyperparamsV3};
 use crate::{BurnHalfLife, BurnIncreaseMult};
 use codec::{Compact, Decode, Encode};
+use sp_runtime::PerU16;
 use std::collections::BTreeSet;
 use substrate_fixed::types::{I32F32, U64F64};
 use subtensor_runtime_common::{NetUid, TaoBalance};
@@ -45,6 +46,8 @@ const EXPECTED_V3_NAMES: &[&[u8]] = &[
     b"owner_cut_enabled",
     b"owner_cut_auto_lock_enabled",
     b"min_childkey_take",
+    b"collateral_lock_share",
+    b"collateral_drain_ratio",
 ];
 
 fn find<'a>(params: &'a [HyperparamEntry], name: &[u8]) -> &'a HyperparamValue {
@@ -125,8 +128,8 @@ fn test_get_subnet_hyperparams_v3_values_reflect_storage() {
         SubtensorModule::set_bonds_reset(netuid, true);
         SubtensorModule::set_owner_cut_enabled_flag(netuid, true);
         SubtensorModule::set_owner_cut_auto_lock_enabled(netuid, true);
-        SubtensorModule::set_min_childkey_take(31);
-        SubtensorModule::set_min_childkey_take_for_subnet(netuid, 32);
+        SubtensorModule::set_min_childkey_take(PerU16::from_parts(31));
+        SubtensorModule::set_min_childkey_take_for_subnet(netuid, PerU16::from_parts(32));
 
         let result = SubtensorModule::get_subnet_hyperparams_v3(netuid).unwrap();
         let p = &result;

@@ -1,0 +1,110 @@
+---
+title: Signing with a Ledger
+description: Sign any transaction on a Ledger hardware wallet with the Polkadot generic app — the key never leaves the device, and every transaction is decoded and verified on its screen.
+---
+
+Every transaction command can sign on a Ledger device instead of a local
+keyfile. Pass `--ledger` and the CLI ships the transaction to the device over
+USB; you review the decoded call on the Ledger's own screen and approve it
+there. The private key never exists on the computer, and there is no
+blind-signing mode — the device refuses anything it cannot display.
+
+This works through the [Polkadot generic
+app](https://support.ledger.com/article/360016289919-zd) and [RFC-0078
+merkleized metadata](https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html):
+alongside each transaction, the CLI sends a compact cryptographic proof of the
+runtime types the transaction touches. The device checks the proof against a
+metadata digest that is *also signed into the transaction* (the
+`CheckMetadataHash` extension), and the chain verifies the same digest on its
+side. If the proof, the device, and the chain disagree about what the
+transaction means, the signature is rejected — nothing can show you "transfer
+1 TAO" while signing something else.
+
+## Setup
+
+1. Install the **Polkadot** app (the "generic" app, not a legacy
+   chain-specific one) on the device through Ledger Live. Version 100.0.5 or
+   later.
+2. Connect the device, unlock it, and open the Polkadot app.
+3. There is no step 3 — the account lives on the device.
+
+The device derives the standard Polkadot path `m/44'/354'/account'/0'/index'`
+with ed25519 keys — the same addresses Ledger Live, Nova, Talisman, and
+SubWallet show for the device, rendered with Bittensor's SS58 prefix.
+
+## Sign a transaction
+
+Add `--ledger` to any [transaction](/docs/tx):
+
+```bash
+btcli tx transfer --dest 5F... --amount-tao 1 --ledger
+```
+
+What happens:
+
+1. The CLI connects to the device and prints the Ledger account's address.
+2. The transaction is prepared exactly as usual (same fees, same preview,
+   same confirmation prompt).
+3. The device shows the decoded transaction — pallet, call, destination,
+   amount — on its screen. Review and approve with the buttons.
+4. The CLI submits the signed extrinsic and reports inclusion as usual.
+
+Different accounts on the same device are selected with the derivation path
+options:
+
+```bash
+btcli tx transfer --dest 5F... --amount-tao 1 --ledger --ledger-account 1
+```
+
+`--ledger` is shorthand for `--signer ledger`; both forms work anywhere
+`--signer extension` does.
+
+## From the SDK
+
+`LedgerSigner` satisfies the SDK's `Signer` protocol and plugs into every
+signing path a wallet does:
+
+```python
+import bittensor
+
+signer = bittensor.LedgerSigner()          # account 0, index 0
+print(signer.ss58_address)                 # the on-device account
+print(signer.confirm_address())            # re-derive with on-screen display
+
+async with bittensor.Subtensor() as client:
+    result = await client.execute(
+        bittensor.Transfer(dest_ss58="5F...", amount_tao=bittensor.tao(1)),
+        signer,
+    )
+```
+
+The signer implements the transport's clear-signing capabilities: it computes
+the RFC-0078 metadata digest for the exact runtime the payload targets
+(`metadata_digest`), and signs prepared extrinsics with the type proof shipped
+to the device (`sign_unsigned_extrinsic`). Raw `sign(bytes)` calls are
+refused by design — the generic app does not blind-sign.
+
+## Platform notes
+
+- **macOS**: works out of the box with the published wheels.
+- **Linux**: works out of the box with the published wheels too. The device
+  itself must be accessible from userspace, which usually means installing
+  the standard udev rules for Ledger devices
+  ([ledger-udev-rules](https://github.com/LedgerHQ/udev-rules)) or running
+  as a user in the appropriate group.
+- **Windows**: the SDK is WSL-only (no native wheels are published). Under
+  WSL 2 the Linux wheel applies; attach the device to the WSL VM with
+  [usbipd-win](https://github.com/dorssel/usbipd-win) and set up the udev
+  rules as on Linux.
+
+## Troubleshooting
+
+- **"no Ledger device found"** — check the cable, unlock the device, and open
+  the Polkadot app. On Linux, check the udev rules.
+- **"instruction not supported"** — a different app is open on the device;
+  switch to the Polkadot app.
+- **"the request was rejected on the device"** — the transaction was declined
+  on-screen (or timed out waiting).
+- **The device shows "Blind signing must be enabled"** — you are in a legacy
+  chain-specific app; install and open the *Polkadot* (generic) app instead.
+  No blind-signing toggle is needed with the generic app.

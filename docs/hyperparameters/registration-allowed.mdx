@@ -1,0 +1,67 @@
+---
+title: registration_allowed
+description: Whether new neuron registrations are currently accepted on this subnet.
+---
+
+`registration_allowed` is the master on/off switch for joining a subnet.
+When it is false, every neuron registration — burned or the legacy PoW
+entry point — is rejected, no matter how much TAO the caller is willing to
+burn. Prospective miners and validators should check it before attempting
+to register; it is a root/governance-controlled gate, typically used to
+close a subnet during incidents or before launch.
+
+## How it works
+
+Storage is
+[`NetworkRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L1912) in
+`pallets/subtensor/src/lib.rs`
+(default true; new subnets also set it explicitly to true during
+initialization in `pallets/subtensor/src/subnets/subnet.rs`). The
+gate is enforced at step 3 of
+[`do_register`](/code/pallets/subtensor/src/subnets/registration.rs#L38-L132)
+(`pallets/subtensor/src/subnets/registration.rs`): the extrinsic fails with
+[`SubNetRegistrationDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L97)
+if
+[`get_network_registration_allowed`](/code/pallets/subtensor/src/utils/misc.rs#L661-L663)
+returns false. Both
+[`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832)
+and the legacy PoW
+[`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814)
+extrinsic land
+in `do_register`, so the flag closes every registration path at once. The
+validity helper
+[`checked_allowed_register`](/code/pallets/subtensor/src/lib.rs#L2802-L2823)
+(`pallets/subtensor/src/lib.rs`)
+applies the same check, alongside the per-block cap
+([`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block)) and the
+per-interval cap of 3 ×
+[`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval).
+
+Note the flag only stops new registrations; already-registered neurons are
+unaffected, and pruning/immunity mechanics continue as normal.
+
+Flip the gate below to see how the same stream of registration attempts is
+accepted or rejected:
+
+<HyperparamRegistrationGate />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name registration_allowed
+```
+
+Root/governance only:
+[`sudo_set_network_registration_allowed`](/code/pallets/admin-utils/src/lib.rs#L685-L699)
+in the
+AdminUtils pallet requires the root origin (a boolean). It is not settable
+by the subnet owner via `btcli sudo set`.
+
+## Related
+
+[`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) ·
+[`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block) ·
+[`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval) ·
+[`min_burn`](/docs/hyperparameters/min-burn) ·
+[`max_burn`](/docs/hyperparameters/max-burn) ·
+[`immunity_period`](/docs/hyperparameters/immunity-period)

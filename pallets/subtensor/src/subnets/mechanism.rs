@@ -158,7 +158,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Update current count for a subnet identified by netuid
-    /// - Cleans up all sub-subnet maps if count is reduced
+    /// * Cleans up all sub-subnet maps if count is reduced
     ///
     pub fn update_mechanism_counts_if_needed(netuid: NetUid, new_count: MechId) {
         let old_count = u8::from(MechanismCountCurrent::<T>::get(netuid));
@@ -208,7 +208,7 @@ impl<T: Config> Pallet<T> {
             // Check the length
             ensure!(!split.is_empty(), Error::<T>::InvalidValue);
             ensure!(
-                split.len() <= u8::from(MechanismCountCurrent::<T>::get(netuid)) as usize,
+                split.len() == u8::from(MechanismCountCurrent::<T>::get(netuid)) as usize,
                 Error::<T>::InvalidValue
             );
 
@@ -229,9 +229,10 @@ impl<T: Config> Pallet<T> {
     ///
     pub fn split_emissions(netuid: NetUid, alpha: AlphaBalance) -> Vec<AlphaBalance> {
         let mechanism_count = u64::from(MechanismCountCurrent::<T>::get(netuid));
-        let maybe_split = MechanismEmissionSplit::<T>::get(netuid);
+        let maybe_split = MechanismEmissionSplit::<T>::get(netuid)
+            .filter(|split| split.len() == mechanism_count as usize);
 
-        // Unset split means even distribution
+        // Unset or legacy malformed split means even distribution
         let mut result: Vec<AlphaBalance> = if let Some(split) = maybe_split {
             split
                 .iter()
@@ -247,11 +248,6 @@ impl<T: Config> Pallet<T> {
             let per_mechanism = u64::from(alpha).safe_div(mechanism_count);
             vec![AlphaBalance::from(per_mechanism); mechanism_count as usize]
         };
-
-        // Trim / extend and pad with zeroes if result is shorter than mechanism_count
-        if result.len() != mechanism_count as usize {
-            result.resize(mechanism_count as usize, 0u64.into()); // pad with AlphaBalance::from(0)
-        }
 
         // If there's any rounding error or lost due to truncation emission, credit it to mechanism 0
         let rounding_err =

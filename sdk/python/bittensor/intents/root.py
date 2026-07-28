@@ -1,0 +1,85 @@
+"""Root-origin chain administration intents.
+
+These intents build the inner call the chain only accepts from its root
+origin. ``Executor`` nests that call in ``Sudo.sudo`` from ``origin = "root"``,
+so the signer must be the chain sudo key. When the sudo key is a multisig,
+that ``Sudo.sudo`` call is what the multisig signatories approve and dispatch
+(via the multisig intents or ``btcli call``'s ``--multisig`` flags). Every
+intent here declares a ``verify`` read that confirms its effect after inclusion.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from .._generated import calls
+from .base import Intent
+from .registry import register
+
+
+@register
+@dataclass
+class SetSubnetEmissionEnabled(Intent):
+    """Enable or disable a subnet's pool-side TAO emission (root only).
+
+    Flips the ``SubnetEmissionEnabled`` storage flag for each listed subnet —
+    the ROOT-ONLY switch that gates whether a subnet earns its share of TAO
+    emission on the pool side. Distinct from the owner's one-shot
+    ``start_call`` (``subnet_is_active``): a subnet can be active — epochs
+    running, alpha trading — yet earn no TAO emission share until root flips
+    this flag on. Disabling only zeros the pool-side ``alpha_in`` /
+    ``tao_in`` / ``excess_tao`` chain-buy paths; it does not remove the
+    subnet from emission share calculation and does not touch ``alpha_out``,
+    the owner cut, root proportion, or pending server/validator emission.
+
+    Requires the chain sudo key: ``Executor`` wraps the built call in
+    ``Sudo.sudo`` because ``origin`` is ``root``, and when root is a multisig
+    that ``Sudo.sudo`` call is what the multisig must dispatch. Multiple
+    netuids batch atomically via ``Utility.batch_all`` inside the single sudo
+    call. Verify the effect afterwards with the ``subnet_emission_enabled``
+    read.
+    """
+
+    op = "set_subnet_emission_enabled"
+    signer = "coldkey"
+    origin = "root"
+    verify = "subnet_emission_enabled"
+    wraps = (
+        ("AdminUtils", "sudo_set_subnet_emission_enabled"),
+        ("Sudo", "sudo"),
+    )
+
+    netuids: list[int] = field(
+        metadata={"help": "Subnets to toggle; multiple netuids batch atomically."}
+    )
+    enabled: bool = field(
+        metadata={
+            "help": "True to let the subnets earn their pool-side TAO emission share, "
+            "false to zero the pool-side alpha_in/tao_in/excess_tao chain-buy paths."
+        }
+    )
+
+    def __post_init__(self):
+        if not self.netuids:
+            raise ValueError("set_subnet_emission_enabled requires at least one netuid")
+        self.netuids = [int(n) for n in self.netuids]
+
+    async def build(self, substrate, wallet: Any):
+        # Inner call only — Executor wraps ``Sudo.sudo`` from ``origin = "root"``
+        # so privilege metadata and dispatch stay in lockstep.
+        inner = [
+            calls.AdminUtils.sudo_set_subnet_emission_enabled(netuid=n, enabled=self.enabled)
+            for n in self.netuids
+        ]
+        if len(inner) == 1:
+            return await substrate.compose(inner[0])
+        composed = [await substrate.compose(c) for c in inner]
+        return await substrate.compose(calls.Utility.batch_all(calls=composed))
+
+    def summary(self) -> str:
+        action = "enable" if self.enabled else "disable"
+        return f"{action} subnet emission on netuids {self.netuids}"
+
+    def touches_netuids(self) -> list[int]:
+        return list(self.netuids)

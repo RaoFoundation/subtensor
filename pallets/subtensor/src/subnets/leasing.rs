@@ -16,9 +16,10 @@
 //! ownership will be transferred to the beneficiary.
 
 use super::*;
+use crate::weights::WeightInfo;
 use frame_support::{
     dispatch::RawOrigin,
-    traits::{Defensive, fungible::*, tokens::Preservation},
+    traits::{Defensive, fungible::*},
 };
 use frame_system::pallet_prelude::OriginFor;
 use frame_system::pallet_prelude::*;
@@ -92,12 +93,7 @@ impl<T: Config> Pallet<T> {
         frame_system::Pallet::<T>::inc_providers(&lease_coldkey);
         frame_system::Pallet::<T>::inc_providers(&lease_hotkey);
 
-        <T as Config>::Currency::transfer(
-            &crowdloan.funds_account,
-            &lease_coldkey,
-            crowdloan.raised,
-            Preservation::Expendable,
-        )?;
+        Self::transfer_tao(&crowdloan.funds_account, &lease_coldkey, crowdloan.raised)?;
 
         Self::do_register_network(
             RawOrigin::Signed(lease_coldkey.clone()).into(),
@@ -151,23 +147,13 @@ impl<T: Config> Pallet<T> {
                 .saturating_mul(U64F64::from(u64::from(leftover_cap)))
                 .floor()
                 .saturating_to_num::<u64>();
-            <T as Config>::Currency::transfer(
-                &lease_coldkey,
-                &contributor,
-                contributor_refund.into(),
-                Preservation::Expendable,
-            )?;
+            Self::transfer_tao(&lease_coldkey, &contributor, contributor_refund.into())?;
             refunded_cap = refunded_cap.saturating_add(contributor_refund);
         }
 
         // Refund what's left after refunding the contributors to the beneficiary
         let beneficiary_refund = leftover_cap.saturating_sub(refunded_cap.into());
-        <T as Config>::Currency::transfer(
-            &lease_coldkey,
-            &who,
-            beneficiary_refund,
-            Preservation::Expendable,
-        )?;
+        Self::transfer_tao(&lease_coldkey, &who, beneficiary_refund)?;
 
         Self::deposit_event(Event::SubnetLeaseCreated {
             beneficiary: who,
@@ -178,12 +164,10 @@ impl<T: Config> Pallet<T> {
 
         if crowdloan.contributors_count < T::MaxContributors::get() {
             // We have less contributors than the max allowed, so we need to refund the difference
-            Ok(
-                Some(SubnetLeasingWeightInfo::<T>::do_register_leased_network(
-                    crowdloan.contributors_count,
-                ))
-                .into(),
-            )
+            Ok(Some(<T as Config>::WeightInfo::register_leased_network(
+                crowdloan.contributors_count,
+            ))
+            .into())
         } else {
             // We have the max number of contributors, so we don't need to refund anything
             Ok(().into())
@@ -230,6 +214,7 @@ impl<T: Config> Pallet<T> {
             SubnetLeaseShares::<T>::clear_prefix(lease_id, T::MaxContributors::get(), None);
         AccumulatedLeaseDividends::<T>::remove(lease_id);
         SubnetLeases::<T>::remove(lease_id);
+        SubnetUidToLeaseId::<T>::remove(lease.netuid);
 
         // Remove the beneficiary proxy
         T::ProxyInterface::remove_lease_beneficiary_proxy(&lease.coldkey, &lease.beneficiary)?;
@@ -239,10 +224,12 @@ impl<T: Config> Pallet<T> {
             netuid: lease.netuid,
         });
 
-        if clear_result.unique < T::MaxContributors::get() {
+        // Lease shares exclude the beneficiary, while the benchmark's `k` includes them.
+        let contributors_count = clear_result.unique.saturating_add(1);
+        if contributors_count < T::MaxContributors::get() {
             // We have cleared less than the max number of shareholders, so we need to refund the difference
-            Ok(Some(SubnetLeasingWeightInfo::<T>::do_terminate_lease(
-                clear_result.unique,
+            Ok(Some(<T as Config>::WeightInfo::terminate_lease(
+                contributors_count,
             ))
             .into())
         } else {
@@ -391,29 +378,5 @@ impl<T: Config> Pallet<T> {
         let crowdloan = pallet_crowdloan::Crowdloans::<T>::get(crowdloan_id)
             .ok_or(pallet_crowdloan::Error::<T>::InvalidCrowdloanId)?;
         Ok((crowdloan_id, crowdloan))
-    }
-}
-
-/// Weight functions needed for subnet leasing.
-pub struct SubnetLeasingWeightInfo<T>(PhantomData<T>);
-impl<T: frame_system::Config> SubnetLeasingWeightInfo<T> {
-    pub fn do_register_leased_network(k: u32) -> Weight {
-        Weight::from_parts(301_560_714, 10079)
-            .saturating_add(Weight::from_parts(26_884_006, 0).saturating_mul(k.into()))
-            .saturating_add(T::DbWeight::get().reads(41_u64))
-            .saturating_add(T::DbWeight::get().reads(2_u64.saturating_mul(k.into())))
-            .saturating_add(T::DbWeight::get().writes(55_u64))
-            .saturating_add(T::DbWeight::get().writes(2_u64.saturating_mul(k.into())))
-            .saturating_add(Weight::from_parts(0, 2579).saturating_mul(k.into()))
-    }
-
-    pub fn do_terminate_lease(k: u32) -> Weight {
-        Weight::from_parts(56_635_122, 6148)
-            .saturating_add(Weight::from_parts(912_993, 0).saturating_mul(k.into()))
-            .saturating_add(T::DbWeight::get().reads(4_u64))
-            .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(k.into())))
-            .saturating_add(T::DbWeight::get().writes(6_u64))
-            .saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(k.into())))
-            .saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
     }
 }

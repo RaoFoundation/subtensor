@@ -31,6 +31,10 @@ interface ISubnet {
 
     function getServingRateLimit(uint16 netuid) external view returns (uint64);
 
+    function getNetworkRegistrationBlock(
+        uint16 netuid
+    ) external view returns (uint64);
+
     function setServingRateLimit(
         uint16 netuid,
         uint64 servingRateLimit
@@ -99,7 +103,7 @@ interface ISubnet {
 
     function getAlphaSigmoidSteepness(
         uint16 netuid
-    ) external view returns (unt16);
+    ) external view returns (uint16);
 
     function setAlphaSigmoidSteepness(
         uint16 netuid,
@@ -147,6 +151,22 @@ interface ISubnet {
     function getMaxBurn(uint16 netuid) external view returns (uint64);
 
     function setMaxBurn(uint16 netuid, uint64 maxBurn) external payable;
+
+    /**
+     * @dev Returns whether owner-cut emission is automatically stake-locked.
+     */
+    function getOwnerCutAutoLockEnabled(
+        uint16 netuid
+    ) external view returns (bool);
+
+    /**
+     * @dev Sets whether owner-cut emission is automatically stake-locked.
+     * Callable by root or the subnet owner.
+     */
+    function setOwnerCutAutoLockEnabled(
+        uint16 netuid,
+        bool enabled
+    ) external payable;
 
     function getDifficulty(uint16 netuid) external view returns (uint64);
 

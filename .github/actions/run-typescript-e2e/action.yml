@@ -1,0 +1,68 @@
+name: Run TypeScript E2E suite
+description: Download a prebuilt node and run one or two isolated Moonwall environments.
+
+inputs:
+  binary:
+    description: Node artifact variant to download.
+    required: true
+  test:
+    description: Moonwall environment to run.
+    required: true
+  additional-test:
+    description: Optional second Moonwall environment to run after the first one exits.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Download binary
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: node-subtensor-${{ inputs.binary }}
+        path: target/release
+
+    - name: Make binary executable
+      shell: bash
+      run: chmod +x target/release/node-subtensor
+
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version-file: ts-tests/.nvmrc
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      with:
+        version: 10
+
+    - name: Install e2e dependencies
+      shell: bash
+      working-directory: ts-tests
+      run: pnpm install --frozen-lockfile
+
+    - name: Install lsof (dev foundation RPC port discovery)
+      if: inputs.test == 'dev'
+      shell: bash
+      run: |
+        if ! command -v lsof >/dev/null 2>&1; then
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends lsof
+        fi
+
+    - name: Run tests
+      shell: bash
+      working-directory: ts-tests
+      env:
+        MOONWALL_TEST: ${{ inputs.test }}
+        MOONWALL_ADDITIONAL_TEST: ${{ inputs.additional-test }}
+      run: |
+        # The checked-in Moonwall file contains only canonical environments.
+        # Generate shard environments from the data manifest in this disposable
+        # checkout so local and CI topology cannot drift.
+        node scripts/e2e-shard-plan.mjs materialize moonwall.config.json e2e-shards.json
+        pnpm moonwall test "$MOONWALL_TEST"
+        if [[ -n "$MOONWALL_ADDITIONAL_TEST" ]]; then
+          echo "Starting isolated follow-up environment: $MOONWALL_ADDITIONAL_TEST"
+          pnpm moonwall test "$MOONWALL_ADDITIONAL_TEST"
+        fi

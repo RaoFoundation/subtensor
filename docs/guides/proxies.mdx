@@ -1,0 +1,396 @@
+---
+title: Proxy accounts
+description: Keep the coldkey offline and do daily work through scoped, revocable, optionally delayed delegate keys.
+---
+
+Every coldkey that sits on a working machine is one compromise away from a
+total loss — and the loss is irreversible: nobody can claw back a drained
+wallet. The **proxy** pallet exists so the coldkey holding your funds never
+has to be that key. You register a *delegate* key that may sign on the real
+account's behalf, scoped to a class of operations (**proxy type**) and
+optionally forced through a time delay you can veto. The valuable key goes to
+cold storage; the key that lives on your laptop or server is a limited,
+revocable stand-in.
+
+What this buys you:
+
+* **Blast-radius control.** A leaked `Staking` proxy can shuffle your stake;
+  it cannot transfer a single TAO out. Revoke it, rotate, move on — your
+  principal never moved.
+* **A veto window.** A delegation with `delay > 0` must announce each call
+  and wait; the real account can reject anything it doesn't recognize before
+  it executes.
+* **An offline primary.** After a one-time setup, day-to-day operations never
+  need the primary coldkey on any networked machine.
+
+The related **pure proxy** is an account *nobody* has a key for — the chain
+derives a fresh address controlled only through proxy relationships. Useful as
+disposable role accounts and as swappable members of a
+[multisig](/docs/guides/multisig).
+
+## How it works
+
+The real account signs [`add-proxy`](/docs/tx/add-proxy) once, naming a
+delegate, a proxy type, and a delay. From then on the delegate submits
+ordinary calls wrapped in `Proxy.proxy(real, ...)` — the CLI flag for this is
+`--proxy-for`, the SDK keyword is `proxy_for=` — and the runtime checks each
+call against the delegation's type
+([`proxy_type_filter`](/code/runtime/src/proxy_filters/mod.rs#L108-L129))
+before dispatching it *as the real
+account*. Bookkeeping is paid with reserved deposits (returned on removal),
+not fees.
+
+### Proxy types
+
+Prefer the narrowest type that covers the job:
+
+* **Any** — everything, including transfers. Avoid: leaking an `Any` proxy is
+  exactly as bad as leaking the coldkey.
+* **NonTransfer** — everything *except* balance transfers, stake transfers,
+  and coldkey swaps. Notably it can manage the account's other proxies, which
+  makes it the natural "manager" proxy.
+* **Transfer** — balance transfers and stake transfers (`transfer_stake` /
+  `transfer_stake_and_hotkey`) only.
+  **SmallTransfer** is the same but caps each transfer below 0.5 TAO
+  (0.5 alpha for stake transfers).
+* **Staking** — stake add / remove / move / swap / unstake-all and their
+  limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). Its allowlist does *not*
+  include [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L314-L362), so batched staking through a Staking proxy
+  fails with `CallFiltered` — use NonTransfer for batched staking.
+* **Registration** — neuron registration ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832), [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814),
+  [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
+* **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945);
+  **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1910-L1926) only.
+* **Owner** — subnet-owner admin calls; **NonCritical** — everything except
+  registrations, coldkey swaps, and subnet dissolution;
+  **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.
+
+`Triumvirate`, `Senate`, `Governance`, and `RootWeights` are deprecated on the
+current runtime — they deny all calls.
+
+## Prerequisites
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install bittensor
+```
+
+One install gives you both `btcli` and the Python SDK. Practice on testnet
+(`-n test` on every command, or `btcli config set network test`) before
+mainnet. Two wallets for the walkthrough:
+
+* `safe` — the real account holding the funds. Its coldkey is the crown
+  jewel; on mainnet it should live in a hardware wallet or on an air-gapped
+  machine.
+* `ops` — the delegate that will do daily work. Its coldkey lives on your
+  working machine and needs a little TAO for transaction fees.
+
+```bash
+btcli wallet create -w safe
+btcli wallet create -w ops
+```
+
+## Step 1 — grant the delegation
+
+The real account signs the grant — this is the one step that needs the `safe`
+coldkey. Give `ops` staking powers with no delay:
+
+```bash
+btcli proxy add --delegate ops --proxy-type Staking --delay 0 -w safe
+```
+
+`--delegate` accepts a wallet name, address-book name, or raw ss58. The same
+operation exists as the [`add-proxy`](/docs/tx/add-proxy) intent
+(`btcli tx add-proxy`), with `--dry-run` to preview the fee and reserved
+deposit first. Multiple delegations can exist between the same pair of
+accounts as long as each uses a different proxy type.
+
+**Keep the coldkey off this machine anyway.** The CLI can sign this grant on
+a [Ledger](/docs/guides/ledger) (`--ledger`) or in a
+[browser extension](/docs/guides/extension-signing) (`--signer extension`
+with Talisman, Polkadot.js, SubWallet, ...), so even the initial `add-proxy`
+never puts the `safe` mnemonic on a networked box:
+
+```bash
+btcli proxy add --delegate ops --proxy-type Staking -w safe --ledger
+```
+
+After the first grant, a `NonTransfer` proxy can add and remove the account's
+other proxies — so the primary coldkey is only ever needed once (see
+[the recommended architecture](#a-recommended-architecture) below).
+
+## Step 2 — view delegations
+
+Straight from chain state — who may sign for the account, with what scope,
+delay, and reserved deposit:
+
+```bash
+btcli proxy list --coldkey safe
+btcli query proxies --coldkey safe --json     # same read, machine-readable
+```
+
+```python
+import bittensor as bt
+
+async with bt.Subtensor("test") as client:
+    delegations = await client.balances.proxies(coldkey_ss58="5F...safe")
+```
+
+For proxies you use often — especially ones on other machines or pure proxies
+— the local **proxy book** gives them names that every `--proxy-for` and
+address argument resolves:
+
+```bash
+btcli proxy book add --name safe-staking --address 5F...ops \
+  --proxy-type Staking --delay 0 --note "daily staking ops"
+btcli proxy book list
+```
+
+(`update`, `remove`, and `clear` complete the group.)
+
+## Step 3 — act through the proxy
+
+Every `btcli tx` command takes `--proxy-for`. The wallet you sign with (`-w`)
+is the *delegate*; `--proxy-for` names the *real account* being acted for:
+
+```bash
+btcli tx add-stake --hotkey 5F...validator --netuid 1 --amount-tao 25 \
+  -w ops --proxy-for safe --dry-run
+
+btcli tx add-stake --hotkey 5F...validator --netuid 1 --amount-tao 25 \
+  -w ops --proxy-for safe
+```
+
+The stake moves from the `safe` account's balance; the `safe` coldkey was
+never touched. `--force-proxy-type Staking` additionally requires the
+delegation used to be exactly that type. In Python it's one keyword on
+`execute`:
+
+```python
+from bittensor.wallet import Wallet
+
+ops = Wallet(name="ops")
+
+async with bt.Subtensor("test") as client:
+    intent = bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=25)
+    result = await client.execute(intent, ops, proxy_for="5F...safe")
+    if not result.success:
+        print(result.error.code, result.error.remediation)
+```
+
+A call outside the delegation's scope fails with [`Unproxyable`](/code/pallets/proxy/src/lib.rs#L785) /
+`CallFiltered` — the runtime filter, not the CLI, is what enforces the scope.
+
+## Step 4 — delayed proxies: announce, wait, execute, veto
+
+For higher-risk powers, add a delay (in blocks; one block ≈ 12 seconds, so
+300 blocks ≈ 1 hour). The delegate must then announce each call's hash and
+wait out the delay before executing — and during that window the real account
+(or its NonTransfer proxy) can veto:
+
+```bash
+btcli proxy add --delegate ops --proxy-type Transfer --delay 300 -w safe
+```
+
+**Announce.** Announcing publishes the hash of the intended call
+(blake2-256 of its SCALE encoding). Compose the call to get its hash, then
+submit `Proxy.announce` as the delegate — via the raw-call escape hatch on
+the CLI, or `submit_call` in Python:
+
+```python
+ops = Wallet(name="ops")
+
+async with bt.Subtensor("test") as client:
+    call = bt.calls.Balances.transfer_keep_alive(
+        dest="5DevPayee...",
+        value=10 * 10**9,               # raw calls take rao (1 TAO = 1e9 rao)
+    )
+    composed = await client.compose(call)
+    call_hash = "0x" + bytes(composed.call_hash).hex()
+
+    await client.submit_call(
+        bt.calls.Proxy.announce(real="5F...safe", call_hash=call_hash), ops
+    )
+```
+
+**Execute after the delay.** The announced call is rebuilt with byte-identical
+parameters — anything else hashes differently and matches no announcement.
+The convenient form takes an intent op and its args:
+
+```bash
+btcli proxy execute \
+  --delegate ops --real safe \
+  --inner-op transfer \
+  --inner-args '{"dest_ss58": "5DevPayee...", "amount_tao": 10}' \
+  -w ops
+```
+
+(the same operation as the
+[`execute-proxy-announced`](/docs/tx/execute-proxy-announced) intent, also
+reachable as `btcli tx execute-proxy-announced` or `bt.ExecuteProxyAnnounced`
+in Python). Executing before the delay elapses fails with [`Unannounced`](/code/pallets/proxy/src/lib.rs#L791).
+
+**Monitor and veto.** A delay only protects you if you *watch* — check
+pending announcements on a schedule shorter than the delay, otherwise the
+window is only forensic. Announcements are keyed by delegate in the
+`Proxy.Announcements` storage map:
+
+```python
+async with bt.Subtensor("test") as client:
+    for delegate, value in await client.query_map(bt.storage.Proxy.Announcements):
+        announcements, _deposit = value
+        for ann in announcements:
+            if str(ann["real"]) == "5F...safe":
+                print(delegate, ann["call_hash"], "announced at", ann["height"])
+```
+
+Reject anything you don't recognize — rejection cancels the announcement
+on-chain, signed by the real account or a `NonTransfer` proxy acting for it:
+
+```bash
+btcli call Proxy.reject_announcement \
+  --args '{"delegate": "5F...ops", "call_hash": "0x..."}' \
+  -w safe
+```
+
+A delegate withdrawing its own mistaken announcement uses
+`Proxy.remove_announcement` instead, signed by the delegate and passing the
+*real* account: `--args '{"real": "5F...safe", "call_hash": "0x..."}'`.
+
+## Step 5 — pure proxies
+
+[`create-pure-proxy`](/docs/tx/create-pure-proxy) spawns a fresh account with
+**no private key anywhere** — the spawner controls it purely through the
+proxy relationship. That makes it a disposable, role-scoped account (a
+staking-only treasury, a per-project operational account), and the standard
+building block for multisigs with swappable members: make each multisig
+member a pure proxy, and a departing teammate is handled by re-pointing one
+pure proxy's delegate — the multisig address never changes.
+
+```bash
+btcli proxy create --proxy-type Any --name treasury -w safe
+```
+
+`--name` saves the spawned address *and its creation block height / extrinsic
+index* to the proxy book — record these; killing the account later requires
+them. Fund the pure proxy, then act as it with the same `--proxy-for` flow,
+signed by the spawner:
+
+```bash
+btcli tx transfer --dest treasury --amount-tao 50 -w safe
+btcli tx add-stake --hotkey 5F...validator --netuid 1 --amount-tao 20 \
+  -w safe --proxy-for treasury
+```
+
+`btcli proxy list --coldkey treasury` shows the spawner as its delegate.
+Additional delegates can be registered on the pure proxy itself by
+dispatching `add-proxy` *through* it (`btcli tx add-proxy --delegate ... -w
+safe --proxy-for treasury`).
+
+When it's no longer needed, empty it first, then destroy it. `kill` must be
+dispatched through the pure proxy itself and must reproduce the exact
+creation coordinates — which the proxy book entry supplies automatically:
+
+```bash
+btcli tx transfer --dest safe --amount-tao all -w safe --proxy-for treasury
+btcli proxy kill treasury -w safe
+```
+
+**Irreversible:** any funds left in a killed pure proxy are gone permanently.
+And since the spawner relationship is the only control path, losing the
+spawner key — or removing its delegation — strands the pure proxy and
+everything it holds. See [`kill-pure-proxy`](/docs/tx/kill-pure-proxy).
+
+## Step 6 — revoke
+
+Removal must match the original grant's (delegate, type, delay) triple
+exactly, and takes effect immediately regardless of the delegation's delay.
+The deposit comes back:
+
+```bash
+btcli proxy remove --delegate ops --proxy-type Staking --delay 0 -w safe
+```
+
+The panic switch drops every delegation at once
+([`remove-proxies`](/docs/tx/remove-proxies)):
+
+```bash
+btcli proxy remove --all -w safe
+```
+
+Careful with `--all` if the account spawned pure proxies — they are
+controlled *through* delegations, so removing everything can strand them
+permanently. Treat any leaked **zero-delay** proxy key as already spent:
+revoke first, investigate second.
+
+## A recommended architecture
+
+The pattern the pieces are designed for, from a compromised-wallet
+perspective:
+
+1. **Primary coldkey** in a hardware wallet or air-gapped machine. It signs
+   exactly one thing, once: `add-proxy` for a delayed **NonTransfer** manager
+   proxy (`--ledger` / `--signer extension` keep it off the CLI machine even
+   for that).
+2. **Manager proxy** (`NonTransfer`, `delay > 0`) creates, removes, and
+   monitors all other proxies, and rejects hostile announcements. It cannot
+   move funds even if leaked, and its own actions are announced and delayed —
+   visible before they bite.
+3. **Scoped daily proxies** (`Staking`, `Registration`, `ChildKeys`, ...,
+   `delay 0`) on working machines, one per job, revoked the moment they're
+   not actively needed.
+4. **A monitor** — a cron job or agent polling `Proxy.Announcements` (and
+   your delegations via `btcli query proxies --json`) on a schedule shorter
+   than your shortest delay.
+
+With this in place, the key that can drain you touches a signer once in its
+life, every routine key is individually expendable, and an attacker's move
+announces itself before it can execute. For shared custody on top —
+subnet-owner treasuries especially — put a [multisig](/docs/guides/multisig)
+behind the real account.
+
+### Subnet owners specifically
+
+A subnet owner's coldkey controls the subnet's identity and owner-settable
+hyperparameters — exactly the kind of authority that should never live in a
+single key on an operational machine. The layering:
+
+* Make the owner account a [multisig](/docs/guides/multisig) from
+  registration (or migrate an existing owner to one via the announced
+  coldkey swap — see
+  [that guide](/docs/guides/multisig#migrate-an-existing-account-to-a-multisig);
+  a plain transfer moves TAO but *not* subnet ownership).
+* From the owner, grant a dedicated operations key the narrow **Owner** proxy
+  type. It can manage subnet identity and hyperparameters but cannot transfer
+  funds or rotate the owner. Use it for all routine changes; the owner
+  account itself acts only to replace or revoke that proxy.
+* Add an announcement delay on the Owner proxy when your operational cadence
+  permits, and monitor announcements more often than the delay.
+
+Crowd-funded subnets get a chain-native version of this model for free: a
+crowdloan lease creates the lease-owner account itself and grants the
+beneficiary a scoped `SubnetLeaseBeneficiary` proxy.
+
+## Deposits and limits
+
+* Adding a proxy reserves **0.06 TAO base + 0.033 TAO per delegation** from
+  the granting account, returned on removal. At most **20 proxies** per
+  account.
+* Announcements reserve **0.036 TAO base + 0.068 TAO each** from the
+  delegate; at most **75 pending** per delegate.
+* The delegate pays ordinary transaction fees on proxied calls, so keep a
+  little TAO on it.
+
+## Troubleshooting
+
+* [`NotProxy`](/code/pallets/proxy/src/lib.rs#L783) — no delegation matches; check `btcli proxy list` and that
+  you're signing with the delegate (`-w`) and naming the real account
+  (`--proxy-for`), not the reverse.
+* `Unproxyable` / `CallFiltered` — the call is outside the delegation's proxy
+  type (remember `Staking` excludes `batch_all`).
+* `Unannounced` — a delayed delegation executed without announcing, before
+  the delay elapsed, or with parameters that don't hash to the announcement.
+* [`Duplicate`](/code/pallets/proxy/src/lib.rs#L787) — a delegation with the same (delegate, type, delay) already
+  exists.
+* [`TooMany`](/code/pallets/proxy/src/lib.rs#L779) — over the 20-proxy or 75-announcement cap; remove unused
+  entries.

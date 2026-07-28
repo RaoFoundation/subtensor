@@ -88,16 +88,16 @@ impl DissolveCleanupStatus {
 impl<T: Config> Pallet<T> {
     /// Facilitates the removal of a user's subnetwork.
     ///
-    /// # Args:
-    /// * 'origin': ('T::RuntimeOrigin'): The calling origin. Must be signed.
-    /// * 'netuid': ('u16'): The unique identifier of the network to be removed.
+    /// # Arguments
+    /// * `origin`: ('T::RuntimeOrigin'): The calling origin. Must be signed.
+    /// * `netuid`: ('u16'): The unique identifier of the network to be removed.
     ///
-    /// # Event:
-    /// * 'NetworkRemoved': Emitted when a network is successfully removed.
+    /// # Events
+    /// * `NetworkRemoved`: Emitted when a network is successfully removed.
     ///
-    /// # Raises:
-    /// * 'MechanismDoesNotExist': If the specified network does not exist.
-    /// * 'NotSubnetOwner': If the caller does not own the specified subnet.
+    /// # Errors
+    /// * `MechanismDoesNotExist`: If the specified network does not exist.
+    /// * `NotSubnetOwner`: If the caller does not own the specified subnet.
     ///
     pub fn do_dissolve_network(netuid: NetUid) -> dispatch::DispatchResult {
         // --- The network exists?
@@ -105,6 +105,18 @@ impl<T: Config> Pallet<T> {
             Self::if_subnet_exist(netuid) && netuid != NetUid::ROOT,
             Error::<T>::SubnetNotExists
         );
+
+        // Since TotalStake is updated on this level, purge reservoirs here into reserves and TotalStake
+        let reservoir_tao = T::SwapInterface::protocol_tao_reservoir(netuid);
+        let reservoir_alpha = T::SwapInterface::protocol_alpha_reservoir(netuid);
+        T::SwapInterface::clear_protocol_liquidity_reservoirs(netuid);
+        Self::increase_provided_tao_reserve(netuid, reservoir_tao);
+        Self::increase_provided_alpha_reserve(netuid, reservoir_alpha);
+        if !reservoir_tao.is_zero() {
+            TotalStake::<T>::mutate(|total| {
+                *total = total.saturating_add(reservoir_tao);
+            });
+        }
 
         let mut dissolved_networks = DissolveCleanupQueue::<T>::get();
         ensure!(
@@ -158,6 +170,16 @@ impl<T: Config> Pallet<T> {
             DecayingHotkeyLock::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             LockingColdkeys::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            // Lock metadata only. Alpha (including collateral stake) was already
+            // pro-rata converted to coldkey free TAO in AlphaInOutStakesSettleStakes;
+            // unlocking here would double-pay. Clearing drops the now-meaningless
+            // MinerCollateral rows for the dissolved netuid.
+            MinerCollateral::<T>::clear_prefix((netuid,), limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ColdkeyMinerCollateral::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            ColdkeyCollateralHotkeys::<T>::clear_prefix(netuid, limit, None)
         });
 
         if !result {
@@ -212,6 +234,10 @@ impl<T: Config> Pallet<T> {
 
         if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             LastHotkeySwapOnNetuid::<T>::clear_prefix(netuid, limit, None)
+        }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            HotkeySuccessor::<T>::clear_prefix(netuid, limit, None)
+        }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            HotkeyRoot::<T>::clear_prefix(netuid, limit, None)
         }) {
             return false;
         }
@@ -236,7 +262,9 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
-        let removal_weight = T::DbWeight::get().writes(80);
+        // Flat write charge for the `::remove(netuid)` list below. Bump this when
+        // adding or removing entries from that list so the weight stays in step.
+        let removal_weight = T::DbWeight::get().writes(82);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -302,6 +330,8 @@ impl<T: Config> Pallet<T> {
         CommitRevealWeightsEnabled::<T>::remove(netuid);
         BurnHalfLife::<T>::remove(netuid);
         BurnIncreaseMult::<T>::remove(netuid);
+        CollateralLockShare::<T>::remove(netuid);
+        CollateralDrainRatio::<T>::remove(netuid);
         Burn::<T>::remove(netuid);
         MinBurn::<T>::remove(netuid);
         MaxBurn::<T>::remove(netuid);

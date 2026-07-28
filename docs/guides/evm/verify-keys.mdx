@@ -1,0 +1,141 @@
+---
+title: Verify substrate keys
+description: Check ed25519/sr25519 signatures in contracts, and associate an EVM key with a hotkey.
+---
+
+Ethereum tooling can only verify secp256k1 signatures (`ecrecover`), but
+Bittensor identity lives in substrate keys — sr25519 and ed25519. Two
+precompiles bridge the gap, letting a contract check "does the holder of
+this hotkey/coldkey approve this?" without any substrate extrinsic:
+
+| Precompile | Address | Checks |
+| --- | --- | --- |
+| `sr25519-verify` | `0x…0403` | sr25519 — what btcli wallets use by default. |
+| `ed25519-verify` | `0x…0402` | ed25519 — keys created with that crypto type. |
+
+Both have one function with the same shape:
+
+```solidity
+function verify(bytes32 message, bytes32 publicKey, bytes32 r, bytes32 s)
+    external pure returns (bool);
+```
+
+The **message is exactly 32 bytes** — you sign a digest of your payload, not
+the payload itself. The 64-byte substrate signature splits into `r` (first
+32 bytes) and `s` (last 32).
+
+## Round trip from the terminal
+
+Sign a digest with an SDK keypair, verify it through the precompile — no gas,
+no contract:
+
+```python
+import hashlib
+from bittensor.keyfiles import Keypair
+
+keypair = Keypair.create_from_mnemonic("your twelve words …")  # sr25519 by default
+message = hashlib.sha256(b"claim:0x1074Ad…").digest()          # any 32-byte digest
+signature = keypair.sign(message)
+
+print("message  ", "0x" + message.hex())
+print("pubkey   ", keypair.ss58_address)
+print("r        ", "0x" + signature[:32].hex())
+print("s        ", "0x" + signature[32:].hex())
+```
+
+```bash
+btcli evm call sr25519-verify verify 0xMESSAGE… 5Fpubkey… 0xR… 0xS…
+# → true
+```
+
+(`btcli evm call` converts the ss58 address to the `bytes32` public key; flip
+any byte of the signature and the call returns `false`.)
+
+## In a contract: gate an action on hotkey approval
+
+The canonical use: an EVM airdrop or registry where claiming for a hotkey
+requires that hotkey's signature over the claimer's EVM address —
+so nobody can claim on someone else's identity:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+interface ISr25519Verify {
+    function verify(bytes32 message, bytes32 publicKey, bytes32 r, bytes32 s)
+        external pure returns (bool);
+}
+
+contract HotkeyClaim {
+    ISr25519Verify constant VERIFY =
+        ISr25519Verify(0x0000000000000000000000000000000000000403);
+
+    mapping(bytes32 => address) public claimedBy;
+
+    function claim(bytes32 hotkey, bytes32 r, bytes32 s) external {
+        require(claimedBy[hotkey] == address(0), "already claimed");
+        // the hotkey must have signed sha256("claim:" ++ caller address)
+        bytes32 message = sha256(abi.encodePacked("claim:", msg.sender));
+        require(VERIFY.verify(message, hotkey, r, s), "bad signature");
+        claimedBy[hotkey] = msg.sender;
+    }
+}
+```
+
+The off-chain side produces `r`/`s` with the Python snippet above (signing
+`sha256(b"claim:" + bytes.fromhex(evm_address[2:]))`). Use
+`ed25519-verify` at `0x…0402` for ed25519 keys — same interface.
+
+## On-chain association: hotkey ↔ EVM key
+
+Signature checks prove ownership per call. For a **standing** link the chain
+stores, associate the EVM key with a hotkey on a subnet — this is what makes
+[`uid-lookup`](/docs/guides/evm/read-chain-state#from-an-evm-address-to-its-uids)
+resolve, and some subnets require it:
+
+```bash
+btcli evm associate --netuid 1 -w my_wallet -H my_hotkey
+btcli query uid --netuid 1 --hotkey 5F… --json          # resolve UID
+btcli query associated-evm-key --netuid 1 --uid 0 --json
+```
+
+Under the hood this is the reverse direction of proof: the **EVM key** signs
+(EIP-191) over the hotkey's public key and a recent block number, and the
+**hotkey** submits [`associate-evm-key`](/docs/tx/associate-evm-key) carrying
+that signature. In Python:
+
+```python
+import bittensor as bt
+from bittensor.evm import association_proof
+from bittensor.evm.keys import unlock_evm_key
+
+wallet = bt.Wallet(name="my_wallet", hotkey="my_hotkey")
+account = unlock_evm_key("default", "my_wallet")
+
+async with bt.Subtensor() as client:
+    signature, block = association_proof(
+        account, wallet.hotkey.ss58_address, await client.block()
+    )
+    result = await client.execute(
+        bt.AssociateEvmKey(
+            netuid=1, evm_key=account.address,
+            block_number=block, signature=signature,
+        ),
+        wallet,  # associate_evm_key is signed by the hotkey
+    )
+```
+
+There is also `address-mapping` (`0x…080c`), the chain's own h160 → mirror
+conversion as a precompile — useful when a contract needs the ss58 mirror of
+an address it only knows as h160:
+
+```bash
+btcli evm call address-mapping addressMapping 0x1074Ad…   # → bytes32 mirror pubkey
+```
+
+## See also
+
+- [Hotkey association](/docs/guides/evm#hotkey-association) — the CLI
+  command reference.
+- [Two address domains](/docs/guides/evm#two-address-domains) — mirrors,
+  truncated mappings, and where balances live.

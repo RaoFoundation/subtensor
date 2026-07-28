@@ -24,8 +24,7 @@ mod errors {
         /// Request to stake, unstake or subscribe is made by a coldkey that is not associated with
         /// the hotkey account.
         NonAssociatedColdKey,
-        /// DEPRECATED: Stake amount to withdraw is zero.
-        // StakeToWithdrawIsZero,
+        // StakeToWithdrawIsZero (deprecated, kept commented out for historical reference).
         /// The caller does not have enought stake to perform this action.
         NotEnoughStake,
         /// The caller is requesting removing more stake than there exists in the staking account.
@@ -213,10 +212,15 @@ mod errors {
         SubtokenDisabled,
         /// Too frequent hotkey swap on subnet
         HotKeySwapOnSubnetIntervalNotPassed,
+        /// `keep_stake` hotkey swap refused because the old hotkey still has
+        /// standing miner collateral. Stake would stay on the old key while
+        /// the UID moves, stranding the bond. Swap with `keep_stake=false` so
+        /// collateral migrates with the UID (lineage maps track the rename).
+        KeepStakeBlockedByCollateral,
         /// Invalid netuid duplication
         SameNetuid,
-        /// The caller does not have enough balance for the operation.
-        InsufficientBalance,
+        /// The caller does not have enough TAO balance for the operation.
+        InsufficientTaoBalance,
         /// Invalid lease beneficiary to register the leased network.
         InvalidLeaseBeneficiary,
         /// Lease cannot end in the past.
@@ -331,5 +335,18 @@ mod errors {
         LockIdOverFlow,
         /// Need to wait more blocks to do the start call.
         StartCallNotReady,
+        /// The caller does not have enough Alpha stake for the operation.
+        InsufficientAlphaBalance,
+        /// Coldkey swap could not fully migrate miner collateral: the old
+        /// coldkey's [`ColdkeyMinerCollateral`] aggregate remained non-zero
+        /// after migrating every indexed collateral hotkey. Failing closed
+        /// avoids under-locking the destination unstake guard.
+        ColdkeyCollateralIncomplete,
+        /// This coldkey already has the maximum number of distinct hotkeys
+        /// with miner collateral on the subnet
+        /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
+        ColdkeyCollateralPositionsFull,
+        /// The coldkey has too many staking hotkeys for a single manual root claim.
+        TooManyRootClaimHotkeys,
     }
 }

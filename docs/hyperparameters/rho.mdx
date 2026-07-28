@@ -1,0 +1,62 @@
+---
+title: rho
+description: Steepness of the classic Yuma trust sigmoid mapping consensus alignment to trust.
+---
+
+`rho` sets the temperature (steepness) of the sigmoid that maps a validator's
+consensus alignment to trust in the classic Yuma Consensus formulation. Subnet
+owners tuning how sharply the network rewards agreement with consensus are the
+main audience.
+
+## How it works
+
+The formula lives in
+[`sigmoid_safe`](/code/pallets/subtensor/src/epoch/math.rs#L198-L207)
+(`pallets/subtensor/src/epoch/math.rs`):
+
+```
+trust = 1 / (1 + e^(−rho × (x − kappa)))
+```
+
+where `x` is the stake fraction aligned with a validator's view and
+[`kappa`](/docs/hyperparameters/kappa) is the midpoint. Higher `rho` makes the
+curve steeper: alignment just above `kappa` maps to trust near 1, just below
+to near 0. The recommended range in the code is 0 to 40; the mainnet
+default is 10.
+
+One caveat, straight from the source: the current epoch
+([`pallets/subtensor/src/epoch/run_epoch.rs`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L340-L343))
+computes consensus as the
+`kappa`-weighted median of weights and clips to it — the helper that would
+feed `rho` into the sigmoid
+([`get_float_rho`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1111-L1113))
+is defined but not called on
+the active path. `rho` remains a stored, owner-settable parameter of the
+Yuma formulation, but changing it does not alter today's epoch output. See
+[Yuma Consensus](/docs/concepts/emissions#yuma-consensus) for the full
+pipeline.
+
+<HyperparamConsensusSigmoid focus="rho" />
+
+## Reading and setting
+
+Inspect with:
+
+```
+btcli sudo get --netuid N --name rho
+```
+
+Owner-settable:
+
+```
+btcli sudo set --netuid N --name rho --value 10
+```
+
+The value is a plain integer (stored as u16), not a fraction.
+
+## Related
+
+[`kappa`](/docs/hyperparameters/kappa) ·
+[`tempo`](/docs/hyperparameters/tempo) ·
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) ·
+[`max_validators`](/docs/hyperparameters/max-validators)

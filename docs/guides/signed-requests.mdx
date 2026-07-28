@@ -1,0 +1,321 @@
+---
+title: Signed requests
+description: Hotkey-signed HTTP between validators and miners — the btauth/1 wire format, framework recipes, and cross-language notes.
+---
+
+Validators and miners talk to each other over plain HTTP; the chain only
+stores where to find each other (see [Mining](/docs/guides/mining)). What
+those requests need is **identity**: proof that a request came from a specific
+hotkey, was addressed to yours, covers exactly the bytes received, and is
+recent. `bittensor.http_auth` provides that as two pure functions — `sign`
+produces headers, `verify` checks them — with no HTTP server or client
+attached. Bring your own framework; recipes for FastAPI and httpx are below.
+
+```python
+import bittensor as bt
+
+# client (e.g. a validator querying a miner)
+headers = bt.http_auth.sign(
+    wallet, method="POST", path="/generate", body=body_bytes,
+    receiver_ss58=miner_hotkey,
+)
+
+# server (e.g. the miner)
+caller = bt.http_auth.verify(
+    request_headers, body_bytes,
+    method="POST", path="/generate", self_hotkey_ss58=my_hotkey,
+)
+caller.hotkey_ss58    # the authenticated sender — score it, rate-limit it, gate it
+```
+
+`verify` raises an `AuthError` subclass on failure — `MalformedAuth`,
+`WrongReceiver`, `StaleRequest`, `ReplayedRequest`, or `BadSignature` — with
+messages safe to return to the unauthenticated caller.
+
+## The wire format (btauth/1)
+
+This section is normative; everything needed to implement the protocol in any
+language is here and in the [test vectors](#golden-test-vectors).
+
+A signed request carries these headers (names are case-insensitive, values
+exact):
+
+| Header | Value |
+| --- | --- |
+| `X-Bittensor-Version` | `1` |
+| `X-Bittensor-Hotkey` | sender hotkey, ss58 |
+| `X-Bittensor-Receiver` | receiver hotkey, ss58 (optional — see below) |
+| `X-Bittensor-Nonce` | unix time in **nanoseconds**, decimal string |
+| `X-Bittensor-Crypto` | `ed25519` — omitted entirely for sr25519 |
+| `X-Bittensor-Signature` | `0x` + lowercase hex signature |
+
+The signature is over the UTF-8 bytes of exactly eight lines joined by `\n`
+(no trailing newline):
+
+```
+btauth/1
+<scheme: "sr25519" or "ed25519">
+<HTTP method, uppercase>
+<request target: path plus ?query, exactly as sent>
+<sha256 of the raw body bytes, lowercase hex>
+<nonce, decimal>
+<sender hotkey ss58>
+<receiver hotkey ss58, or "-" if unbound>
+```
+
+The request target is the **percent-encoded (wire) form** on both sides —
+`/a%20b?q=1`, never the decoded `/a b`. Server frameworks usually hand you
+the decoded path, so rebuild the target from the raw/encoded value (see the
+FastAPI recipe below).
+
+Signing the method, path, and body hash means a captured signature cannot be
+replayed against a different route or payload; signing the receiver means a
+malicious miner cannot proxy a validator's request to another miner. sr25519
+signatures use the substrate signing context (`b"substrate"` in schnorrkel) —
+the same as chain extrinsics; ed25519 is plain RFC 8032. Signatures must be
+over the exact payload bytes, never a wrapped or re-encoded form.
+
+Verification, in order:
+
+1. **Shape** — all required headers present and parseable, version is `1`,
+   the scheme (if present) is known.
+2. **Receiver** — the `X-Bittensor-Receiver` value must equal the server's
+   hotkey. Servers reject unbound requests by default
+   (`require_receiver=False` opts out).
+3. **Freshness** — the nonce must be within `max_age` seconds in the past
+   (default 10) and `allowed_skew` seconds in the future (default 2).
+4. **Signature** — rebuild the payload from the *received* method, path, and
+   body (always recompute the body hash), decode the sender's ss58, and
+   verify under the declared scheme **only**. Never fall back to trying the
+   other scheme: sr25519 and ed25519 public keys are both 32-byte
+   curve25519-family points, and try-both verification opens an
+   algorithm-confusion surface. The scheme inside the signed payload closes
+   it.
+5. **Replay** — the `(hotkey, nonce)` pair must not have been accepted before
+   within the window. The store is consulted only after the signature
+   verifies, so unauthenticated traffic cannot poison it. The default is an
+   in-process `InMemoryNonceStore`; a multi-process server should supply a
+   `NonceStore` backed by shared storage (`SET NX EX` in Redis is exactly
+   this shape).
+
+Clients sign a fresh nonce for every attempt, including retries of an
+identical body.
+
+## Serving: FastAPI
+
+The one rule when wiring `verify` into any framework: hash the **raw received
+bytes**, before anything parses or re-serializes the body. A server that
+re-encodes parsed JSON (key order, whitespace) will compute a different hash
+and reject valid requests.
+
+```python
+import bittensor as bt
+from fastapi import Depends, FastAPI, HTTPException, Request
+
+MY_HOTKEY = bt.Wallet(name="my_coldkey", hotkey="my_hotkey").hotkey.ss58_address
+
+app = FastAPI()
+
+async def authenticated(request: Request) -> bt.http_auth.Caller:
+    body = await request.body()          # raw bytes, cached by Starlette
+    # Rebuild the request target in its wire (percent-encoded) form. ASGI's
+    # `path` is percent-decoded — using it would break signatures on any
+    # encoded path — so take `raw_path` from the scope instead.
+    target = request.scope["raw_path"].decode()
+    if request.scope["query_string"]:
+        target += "?" + request.scope["query_string"].decode()
+    try:
+        return bt.http_auth.verify(
+            request.headers, body,
+            method=request.method,
+            path=target,
+            self_hotkey_ss58=MY_HOTKEY,
+        )
+    except bt.http_auth.AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+@app.post("/generate")
+async def generate(request: Request, caller: bt.http_auth.Caller = Depends(authenticated)):
+    payload = await request.json()       # parse only after verification
+    ...
+```
+
+Authentication says *who*; whether they may call you is your policy. The old
+Axon `blacklist_fn` was almost always "is this hotkey a validator on my
+subnet with real stake" — that's a metagraph lookup:
+
+```python
+mg = await client.subnets.metagraph(netuid)      # refresh periodically
+
+def allowed(caller: bt.http_auth.Caller) -> bool:
+    n = mg.by_hotkey(caller.hotkey_ss58)
+    return n is not None and n.validator_permit and n.tao_stake >= bt.tao(1000)
+```
+
+Return 403 for a verified-but-unwelcome caller, and use `caller.hotkey_ss58`
+as the key for any rate limiting or prioritization.
+
+## Querying: httpx
+
+Discovery comes from the metagraph — each neuron's served endpoint is
+`n.axon` (`"ip:port"` or `None`, published via
+[`serve-axon`](/docs/tx/serve-axon)). An `httpx.Auth` signs each request as
+it is sent (both sides use the percent-encoded request target, matching the
+FastAPI recipe above). Application-level retries through `auth_flow` get a
+fresh nonce; note that transport-level connection retries resend the
+already-signed request and will be rejected as replays — retry at the
+application level:
+
+```python
+import bittensor as bt
+import httpx
+
+class HotkeyAuth(httpx.Auth):
+    requires_request_body = True
+
+    def __init__(self, wallet, receiver_ss58: str):
+        self.wallet, self.receiver = wallet, receiver_ss58
+
+    def auth_flow(self, request):
+        request.headers.update(bt.http_auth.sign(
+            self.wallet,
+            method=request.method,
+            path=request.url.raw_path.decode(),   # path + query, as sent
+            body=request.content,
+            receiver_ss58=self.receiver,
+        ))
+        yield request
+
+async def query_miner(wallet, miner: bt.MetagraphNeuron, body: bytes):
+    async with httpx.AsyncClient(base_url=f"http://{miner.axon}") as http:
+        r = await http.post(
+            "/generate", content=body,
+            auth=HotkeyAuth(wallet, receiver_ss58=miner.hotkey),
+        )
+        r.raise_for_status()
+        return r.json()
+```
+
+Fan-out to many miners is `asyncio.gather` over `query_miner` calls; there is
+nothing protocol-specific about it.
+
+## Composing with timelock (drand)
+
+`sign` covers raw bytes without caring what they are, so
+[timelock](/docs/guides/timelock)-encrypted bodies compose with no protocol
+changes. Two patterns subnets use:
+
+- **Synchronized challenges.** A validator seals a challenge with
+  `timelock.encrypt(challenge, reveal_in="30s")` and fans it out signed. Every
+  miner holds the ciphertext early; none can open it before the beacon round —
+  no head start for better network placement, and challenge batches can be
+  distributed ahead of time.
+- **Copy-proof responses.** A miner returns its answer timelocked to a short
+  reveal. The validator provably received it (the response is in hand) but
+  cannot read it until the round opens — so a colluding validator cannot leak
+  one miner's answer to another before scoring. This is the chain's
+  commit-reveal-weights mechanism applied to the data plane, on the same
+  beacon.
+
+The header names `X-Bittensor-Drand-Round` and `X-Bittensor-Drand-Randomness`
+are **reserved** for a future optional extension that anchors freshness to the
+drand beacon instead of the sender's clock (proving a request was signed
+*after* a beacon round existed, which a timestamp cannot). They are not part
+of btauth/1; do not use them for other purposes.
+
+## Cross-language implementations
+
+The format is deliberately buildable from any language's standard substrate
+tooling:
+
+- **sha256** is in every standard library (this is why it was chosen over
+  blake2b).
+- **ss58 decode** and **sr25519 verify** ship in every Polkadot-ecosystem
+  toolkit: `sp-core`/`schnorrkel` (Rust), `@polkadot/util-crypto` +
+  `@polkadot/wasm-crypto` (JS/TS), `go-schnorrkel` (Go),
+  `bittensor.sp_core` (this SDK). sr25519 verification **must** use the
+  substrate signing context (`b"substrate"`); most libraries default to it,
+  but a mismatch produces silent verification failures.
+- **ed25519** is plain RFC 8032 — Go stdlib, PyNaCl, noble-ed25519, ring.
+- Sign the exact payload bytes. (One asymmetry to know about: this SDK's
+  verifier, via `sp_core`, additionally tolerates signatures over the
+  `<Bytes>…</Bytes>`-wrapped payload for Polkadot-JS `signRaw`
+  compatibility. Other implementations are not required to accept the
+  wrapped form — and must never produce it.)
+- **JavaScript**: the nanosecond nonce exceeds `Number.MAX_SAFE_INTEGER`.
+  Treat it as a string or `BigInt` end to end; a `parseInt` round-trip
+  corrupts the payload you reconstruct.
+- Everywhere: hash the raw received bytes before any body parsing, and build
+  the payload byte-for-byte as specified — no trailing newline, lowercase
+  hex, uppercase method.
+
+### Golden test vectors
+
+Fixtures: sender `//Alice`, receiver `//Bob` (sr25519:
+`5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty`), nonce
+`1752076800000000000`, body `{"prompt": "hello"}` (19 bytes, no trailing
+newline), request `POST /generate?stream=false`.
+
+`sha256(body)` = `341c57448e531310fbbe83f44cea2a5e838bd9e8a6b82b269f01d0dbbc23c3cc`.
+
+**sr25519** — `//Alice` is `5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`.
+The exact signed payload:
+
+```
+btauth/1
+sr25519
+POST
+/generate?stream=false
+341c57448e531310fbbe83f44cea2a5e838bd9e8a6b82b269f01d0dbbc23c3cc
+1752076800000000000
+5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty
+```
+
+sr25519 signatures are randomized, so no fixed signature bytes exist: a
+conforming implementation signs this payload and verifies it against Alice's
+public key (and verifies any signature produced by another implementation).
+
+**ed25519** — deterministic, so the signature bytes are pinned. `//Alice`
+with ed25519 derivation is `5FA9nQDVg267DEd8m1ZypXLBnvN7SFxYwV7ndqSYGiN9TTpu`;
+the payload is identical except line 2 is `ed25519` and line 7 is that
+address. The signature must be exactly:
+
+```
+0x1a6b631988bf1f7ea093ab9d5acf61f05c316d0b0e428b24b487b75a5f6ee0e1a56a26918fdf871b6cf09437e6588023a4ce423cf622621b2a7feee17612f704
+```
+
+The Python `bt.http_auth.build_payload(...)` function produces these payload
+bytes directly, for pinning in tests.
+
+## Accepting legacy (v10 SDK) callers
+
+During a subnet's transition, a miner on this SDK may still receive requests
+from validators on the v10 `Dendrite`. Its scheme signed the sr25519 message
+`f"{nonce}.{sender_hotkey}.{receiver_hotkey}.{uuid}.{body_hash}"` from the
+`bt_header_dendrite_*` headers, where `body_hash` is sha3-256 over the
+concatenated sha3-256 hashes of `str()` of the synapse's
+`required_hash_fields` — schema-dependent, so it cannot be verified
+generically. If you must accept it, recompute `body_hash` with your synapse's
+field rules and check:
+
+```python
+from bittensor import sp_core
+
+def verify_v10(headers: dict, body_hash: str) -> str:
+    h = {k.lower(): v for k, v in headers.items()}
+    sender = h["bt_header_dendrite_hotkey"]
+    message = (
+        f"{h['bt_header_dendrite_nonce']}.{sender}."
+        f"{h['bt_header_axon_hotkey']}.{h['bt_header_dendrite_uuid']}.{body_hash}"
+    )
+    sig = bytes.fromhex(h["bt_header_dendrite_signature"].removeprefix("0x"))
+    if not sp_core.verify(message.encode(), sig, sender):
+        raise PermissionError("bad v10 signature")
+    return sender
+```
+
+Note what this legacy scheme does not cover — method, path, receiver-bound
+replay, unlisted fields — which is exactly why btauth/1 replaced it. Treat it
+as a bridge, enforce your own nonce freshness on top, and remove it once your
+validators have migrated.

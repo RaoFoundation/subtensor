@@ -1,34 +1,31 @@
 name: Scheduled Smoke Tests
 
+# Read-only smoke suites against the live networks, every 6 hours. The same
+# suites gate promotion in release-train.yml; this catches drift between
+# trains.
+
 on:
   schedule:
-    - cron: '0 */6 * * *'
-
-env:
-  CARGO_TERM_COLOR: always
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  run-smoke-tests:
-    runs-on: ${{ matrix.runner }}
+  smoke:
+    name: smoke-e2e-${{ matrix.test }}
+    # Periodic monitoring must not compete with state-heavy PR checks for the
+    # small try-runtime runner pool. This public repository can use standard
+    # GitHub-hosted Linux runners for these read-only public-RPC suites.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - test: smoke_mainnet
-            runner: [self-hosted, fireactions-tryruntime-finney]
-          - test: smoke_testnet
-            runner: [self-hosted, fireactions-tryruntime]
-
-    name: "smoke-e2e-${{ matrix.test }}"
-
+        test: [smoke_devnet, smoke_testnet, smoke_mainnet]
     steps:
-      - name: Check-out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,10 +37,8 @@ jobs:
         with:
           version: 10
 
-      - name: Install e2e dependencies
-        working-directory: ts-tests
-        run: pnpm install --frozen-lockfile
-
       - name: Run smoke test
         working-directory: ts-tests
-        run: pnpm moonwall test ${{ matrix.test }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm moonwall test ${{ matrix.test }}

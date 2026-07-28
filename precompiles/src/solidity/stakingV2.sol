@@ -3,6 +3,28 @@ pragma solidity ^0.8.0;
 address constant ISTAKING_ADDRESS = 0x0000000000000000000000000000000000000805;
 
 interface IStaking {
+    /// A coldkey's non-zero alpha stake position on a subnet.
+    struct StakeInfo {
+        bytes32 hotkey;
+        uint256 stake;
+    }
+
+    /// One coldkey's stake lock, rolled forward to the queried block.
+    struct ColdkeyLockInfo {
+        bool exists;
+        bytes32 hotkey;
+        uint256 locked_mass;
+        uint128 conviction;
+        bool is_perpetual;
+    }
+
+    /// Rolled aggregate lock state targeting one hotkey.
+    struct HotkeyLockInfo {
+        bool exists;
+        uint256 locked_mass;
+        uint128 conviction;
+    }
+
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey`.
      *
@@ -152,6 +174,23 @@ interface IStaking {
     ) external view returns (uint256);
 
     /**
+     * @dev Returns non-zero alpha stake positions for up to 64 caller-supplied
+     * distinct hotkeys. Duplicate hotkeys revert. Callers that need more must
+     * split their hotkeys across calls.
+     * This function does not read the coldkey's unbounded historical hotkey index.
+     *
+     * @param coldkey The coldkey public key (32 bytes).
+     * @param netuid The subnet to query.
+     * @param hotkeys The distinct candidate hotkeys to query (maximum 64).
+     * @return positions Non-zero hotkey and alpha stake pairs.
+     */
+    function getStakeInfoForColdkeyAndNetuid(
+        bytes32 coldkey,
+        uint256 netuid,
+        bytes32[] calldata hotkeys
+    ) external view returns (StakeInfo[] memory positions);
+
+    /**
      * @dev Delegates staking to a proxy account.
      *
      * @param delegate The public key (32 bytes) of the delegate.
@@ -204,6 +243,114 @@ interface IStaking {
      * @return The minimum required stake for a nominator.
      */
     function getNominatorMinRequiredStake() external view returns (uint256);
+
+    /**
+     * @dev Returns DefaultMinStake. This is a base value only; operation fees,
+     * price conversion, and full-unstake rules can change the accepted amount.
+     *
+     * @return defaultMinStake The current DefaultMinStake value in rao.
+     */
+    function getDefaultMinStake()
+        external
+        view
+        returns (uint256 defaultMinStake);
+
+    /**
+     * @dev Locks existing alpha stake on a subnet and builds conviction for a hotkey.
+     *
+     * The lock is a subnet-wide unstaking floor for the caller. It does not
+     * move stake and may target a different hotkey from the staked positions.
+     * Repeated calls top up the same lock; use `moveLock` to change its target.
+     *
+     * @param hotkey Hotkey that receives the conviction.
+     * @param amount Alpha to add to the lock.
+     * @param netuid Subnet on which the alpha is locked.
+     */
+    function lockStake(
+        bytes32 hotkey,
+        uint256 amount,
+        uint256 netuid
+    ) external payable;
+
+    /**
+     * @dev Moves the caller's existing subnet lock to another hotkey.
+     *
+     * Current decayed mass is preserved. Conviction is preserved when the
+     * source and destination hotkeys share an owner; otherwise it resets.
+     */
+    function moveLock(
+        bytes32 destinationHotkey,
+        uint256 netuid
+    ) external payable;
+
+    /**
+     * @dev Selects perpetual or decaying behavior for the caller's subnet lock.
+     *
+     * There is no direct unlock operation. Disabling perpetual mode lets the
+     * locked mass decay according to the runtime unlock rate.
+     */
+    function setPerpetualLock(
+        uint256 netuid,
+        bool enabled
+    ) external payable;
+
+    /**
+     * @dev Sets whether the caller rejects incoming alpha that carries a lock.
+     *
+     * Rejection is enabled by default. Pass false to opt into receiving locked
+     * alpha through compatible stake transfers or coldkey swaps.
+     */
+    function setRejectLockedAlpha(bool enabled) external payable;
+
+    /**
+     * @dev Returns a coldkey's lock rolled forward to the current block.
+     *
+     * `conviction` is exact unsigned Q64.64 bits. Divide it by 2^64 to obtain
+     * conviction in alpha rao. `exists` is false once the rolled lock crosses
+     * the runtime cleanup threshold, even if its stale storage row remains.
+     */
+    function getColdkeyLock(
+        bytes32 coldkey,
+        uint256 netuid
+    ) external view returns (ColdkeyLockInfo memory lockInfo);
+
+    /**
+     * @dev Returns rolled aggregate lock state targeting a hotkey.
+     *
+     * Perpetual and decaying buckets are combined. For the subnet owner hotkey,
+     * the owner-specific buckets are included as well. `exists` is derived
+     * from the rolled aggregate, so fully expired stale buckets do not count.
+     */
+    function getHotkeyLock(
+        bytes32 hotkey,
+        uint256 netuid
+    ) external view returns (HotkeyLockInfo memory lockInfo);
+
+    /**
+     * @dev Returns exact rolled Q64.64 conviction for distinct candidate hotkeys.
+     *
+     * Results align with `hotkeys`. The list is capped at 64 to keep gas and
+     * storage work bounded; larger metagraphs can be queried in batches.
+     */
+    function getHotkeyConvictions(
+        uint256 netuid,
+        bytes32[] calldata hotkeys
+    ) external view returns (uint128[] memory convictions);
+
+    /**
+     * @dev Returns `(unlockRate, maturityRate)` in blocks.
+     */
+    function getLockRates()
+        external
+        view
+        returns (uint64 unlockRate, uint64 maturityRate);
+
+    /**
+     * @dev Returns whether a coldkey rejects incoming locked alpha.
+     */
+    function getRejectLockedAlpha(
+        bytes32 coldkey
+    ) external view returns (bool);
 
     /**
      * @dev Adds a subtensor stake `amount` associated with the `hotkey` within a price limit.
@@ -340,7 +487,7 @@ interface IStaking {
     function allowance(
         address sourceAddress,
         address spenderAddress,
-        uint256 netuid,
+        uint256 netuid
     ) external view returns (uint256);
 
     /**

@@ -96,6 +96,17 @@ Read the full diff. Apply the threat model from `.github/copilot-instructions.md
 - Newly-added `git` / `path` / pre-release dependencies, especially crypto- or networking-adjacent
 - Build-script changes (`build.rs`, `Cargo.toml` `[build-dependencies]`) — these execute at build time on contributor and CI machines
 
+**CI execution integrity** (static analysis only — never execute PR code):
+- Trace every path the PR can cause CI to execute, including workflow steps and actions, shell scripts, build scripts, procedural macros, package install/lifecycle hooks, test/bootstrap tooling, and changed dependencies.
+- Establish the PR-specific delta before reporting. A finding must identify a capability that the PR introduces, expands, makes newly reachable, redirects, or makes less constrained. Do not relitigate unchanged behavior merely because the surrounding line or file was touched.
+- Evaluate behavior against the stated purpose of the affected job or workflow, including build, test, release, deployment, publication, and repository maintenance. Necessary credential use, network access, and artifact transfer are not findings by themselves. Verify that they remain least-privileged, use expected fixed destinations and immutable inputs where applicable, and cannot be redirected or broadened by PR-controlled values.
+- Flag new or materially changed behavior unnecessary for that purpose that enumerates or exports the process environment, accesses credentials beyond the job's needs, reads outside the checkout, probes host or runtime control interfaces, weakens execution boundaries, creates persistence, or sends local data to an unexpected destination.
+- Flag newly introduced or newly unpinned download-and-execute behavior from mutable sources, obfuscated or dynamically assembled commands, unexpected background processes, and new network activity that can carry local data.
+- Follow transitive execution introduced by manifest or lockfile changes; a small dependency change can activate code before the project itself builds.
+- Use `[CRITICAL]` when the diff provides a concrete path to credentials, host control, or execution-boundary escape. Use `[HIGH]` only when the PR introduces or expands a credible adverse path but one necessary reachability or permission link remains unresolved. Mere capability presence or uncertainty is not a finding.
+- Do not emit informational observations for routine CI mechanics that match the workflow's stated purpose and do not weaken a security boundary.
+- In public findings, cite the offending file and minimally describe the observable behavior. Do not publish environment topology, credential names or locations, or step-by-step exploitation details. When fuller disclosure would increase risk, require private maintainer follow-up.
+
 **Supply chain**:
 - New `Cargo.toml` dependencies — flag every one with author, download count, last-release date, and whether it pins a version or accepts a range. Unmaintained / obscure / typosquatted crates are [HIGH].
 - Updates to `parity-scale-codec`, `sp-*`, `frame-*`, `subtensor`-internal crates, or any cryptographic crate — verify the changelog matches the version bump.
@@ -103,11 +114,11 @@ Read the full diff. Apply the threat model from `.github/copilot-instructions.md
 
 ## Step 3 — Branch-strategy sanity
 
-If `base_ref == main` and `head_ref != testnet`:
-- This is either a hotfix or an unauthorized direct-to-main PR. The PR description must justify it explicitly. If it doesn't, raise [HIGH] regardless of diff content.
+If `base_ref == mainnet` and `head_ref != testnet`:
+- This is either a hotfix or an unauthorized direct-to-mainnet PR. The PR description must justify it explicitly. If it doesn't, raise [HIGH] regardless of diff content.
 
-If `base_ref == main` and `head_ref == testnet`:
-- This is the testnet→main release cut. You are likely running standalone (no Auditor will follow). Be especially thorough — this is the last gate before mainnet.
+If `base_ref == mainnet` and `head_ref == testnet`:
+- This is the testnet→mainnet release cut. You are likely running standalone (no Auditor will follow). Be especially thorough — this is the last gate before mainnet.
 
 ## Step 4 — Output
 

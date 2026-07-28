@@ -8,8 +8,6 @@ services:
     cpu_count: 4
     mem_limit: 40000000000
     memswap_limit: 80000000000
-    environment:
-      - CARGO_HOME=/var/www/node-subtensor/.cargo
 
   alice:
     <<: *common

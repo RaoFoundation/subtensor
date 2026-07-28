@@ -13,6 +13,7 @@ use pallet_subtensor::{
 };
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{Get, Pair, U256, ed25519};
+use sp_runtime::PerU16;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 pub mod mock;
@@ -21,7 +22,7 @@ use mock::*;
 #[test]
 fn test_sudo_set_default_take() {
     new_test_ext().execute_with(|| {
-        let to_be_set: u16 = 10;
+        let to_be_set = PerU16::from_parts(10);
         let init_value: u16 = SubtensorModule::get_default_delegate_take();
         assert_eq!(
             AdminUtils::sudo_set_default_take(
@@ -35,7 +36,10 @@ fn test_sudo_set_default_take() {
             <<Test as Config>::RuntimeOrigin>::root(),
             to_be_set
         ));
-        assert_eq!(SubtensorModule::get_default_delegate_take(), to_be_set);
+        assert_eq!(
+            SubtensorModule::get_default_delegate_take(),
+            to_be_set.deconstruct()
+        );
     });
 }
 
@@ -682,6 +686,138 @@ fn test_sudo_set_activity_cutoff() {
 }
 
 #[test]
+fn test_sudo_set_activity_cutoff_factor() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        let owner = U256::from(5);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+
+        // A non-owner signed origin is rejected.
+        assert_eq!(
+            AdminUtils::sudo_set_activity_cutoff_factor(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                netuid,
+                5_000
+            ),
+            Err(DispatchError::BadOrigin)
+        );
+
+        // Out-of-bounds factors are rejected for owner and root alike.
+        assert_noop!(
+            AdminUtils::sudo_set_activity_cutoff_factor(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                MAX_ACTIVITY_CUTOFF_FACTOR_MILLI + 1
+            ),
+            SubtensorError::<Test>::ActivityCutoffFactorMilliOutOfBounds
+        );
+
+        // The owner can set a factor within bounds.
+        assert_ok!(AdminUtils::sudo_set_activity_cutoff_factor(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            5_000
+        ));
+        assert_eq!(ActivityCutoffFactorMilli::<Test>::get(netuid), 5_000);
+
+        // A second owner change within the rate limit is rejected; root bypasses it.
+        assert_noop!(
+            AdminUtils::sudo_set_activity_cutoff_factor(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                6_000
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+        assert_ok!(AdminUtils::sudo_set_activity_cutoff_factor(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            6_000
+        ));
+        assert_eq!(ActivityCutoffFactorMilli::<Test>::get(netuid), 6_000);
+    });
+}
+
+#[test]
+fn test_sudo_set_tempo_owner_and_root() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        add_network(netuid, 10);
+        let owner = U256::from(5);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+
+        // A non-owner signed origin is rejected.
+        assert_eq!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                netuid,
+                MIN_TEMPO
+            ),
+            Err(DispatchError::BadOrigin)
+        );
+
+        // A nonexistent subnet is rejected for root.
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid.next(),
+                MIN_TEMPO
+            ),
+            SubtensorError::<Test>::SubnetNotExists
+        );
+
+        // The owner is bounded to [MIN_TEMPO, MAX_TEMPO].
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                MIN_TEMPO - 1
+            ),
+            SubtensorError::<Test>::TempoOutOfBounds
+        );
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                MAX_TEMPO + 1
+            ),
+            SubtensorError::<Test>::TempoOutOfBounds
+        );
+
+        // Within bounds the owner change lands and resets the cycle.
+        assert_ok!(AdminUtils::sudo_set_tempo(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            MIN_TEMPO
+        ));
+        assert_eq!(Tempo::<Test>::get(netuid), MIN_TEMPO);
+        let now = SubtensorModule::get_current_block_as_u64();
+        assert_eq!(LastEpochBlock::<Test>::get(netuid), now);
+
+        // A second owner change within the MIN_TEMPO cooldown is rate-limited.
+        assert_noop!(
+            AdminUtils::sudo_set_tempo(
+                <<Test as Config>::RuntimeOrigin>::signed(owner),
+                netuid,
+                MIN_TEMPO + 1
+            ),
+            SubtensorError::<Test>::TxRateLimitExceeded
+        );
+
+        // Root bypasses the bounds and the rate limit.
+        assert_ok!(AdminUtils::sudo_set_tempo(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            netuid,
+            10
+        ));
+        assert_eq!(Tempo::<Test>::get(netuid), 10);
+    });
+}
+
+#[test]
 fn test_sudo_set_target_registrations_per_interval() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
@@ -1089,7 +1225,7 @@ fn test_sudo_set_tx_delegate_take_rate_limit() {
 #[test]
 fn test_sudo_set_min_delegate_take() {
     new_test_ext().execute_with(|| {
-        let to_be_set = u16::MAX / 100;
+        let to_be_set = PerU16::from_parts(u16::MAX / 100);
         let init_value = SubtensorModule::get_min_delegate_take();
         assert_eq!(
             AdminUtils::sudo_set_min_delegate_take(
@@ -1103,7 +1239,10 @@ fn test_sudo_set_min_delegate_take() {
             <<Test as Config>::RuntimeOrigin>::root(),
             to_be_set
         ));
-        assert_eq!(SubtensorModule::get_min_delegate_take(), to_be_set);
+        assert_eq!(
+            SubtensorModule::get_min_delegate_take(),
+            to_be_set.deconstruct()
+        );
     });
 }
 
@@ -1113,7 +1252,7 @@ fn test_sudo_set_min_childkey_take_per_subnet() {
         let netuid = NetUid::from(1);
         let owner = U256::from(10);
         let non_owner = U256::from(11);
-        let take = SubtensorModule::get_max_childkey_take() / 2;
+        let take = PerU16::from_parts(SubtensorModule::get_max_childkey_take() / 2);
 
         add_network(netuid, 10);
         SubnetOwner::<Test>::insert(netuid, owner);
@@ -1134,11 +1273,11 @@ fn test_sudo_set_min_childkey_take_per_subnet() {
         ));
         assert_eq!(
             SubtensorModule::get_min_childkey_take_for_subnet(netuid),
-            take
+            take.deconstruct()
         );
         assert_eq!(
             SubtensorModule::get_effective_min_childkey_take(netuid),
-            take
+            take.deconstruct()
         );
     });
 }
@@ -1147,23 +1286,23 @@ fn test_sudo_set_min_childkey_take_per_subnet() {
 fn test_sudo_set_min_childkey_take_per_subnet_rejects_below_global() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
-        let global_min = 100;
+        let global_min: u16 = 100;
 
         add_network(netuid, 10);
-        SubtensorModule::set_min_childkey_take(global_min);
+        SubtensorModule::set_min_childkey_take(PerU16::from_parts(global_min));
 
         assert_noop!(
             AdminUtils::sudo_set_min_childkey_take_per_subnet(
                 <<Test as Config>::RuntimeOrigin>::root(),
                 netuid,
-                global_min - 1
+                PerU16::from_parts(global_min - 1)
             ),
             Error::<Test>::InvalidValue
         );
         assert_ok!(AdminUtils::sudo_set_min_childkey_take_per_subnet(
             <<Test as Config>::RuntimeOrigin>::root(),
             netuid,
-            global_min
+            PerU16::from_parts(global_min)
         ));
     });
 }
@@ -2699,11 +2838,12 @@ fn test_trim_to_max_allowed_uids() {
         ];
         let alpha_values = values.iter().map(|&v| (v as u64).into()).collect();
         let u64_values: Vec<u64> = values.iter().map(|&v| v as u64).collect();
+        let per_values: Vec<PerU16> = values.iter().map(|&v| PerU16::from_parts(v)).collect();
 
         Emission::<Test>::set(netuid, alpha_values);
-        Consensus::<Test>::insert(netuid, values.clone());
-        Dividends::<Test>::insert(netuid, values.clone());
-        ValidatorTrust::<Test>::insert(netuid, values.clone());
+        Consensus::<Test>::insert(netuid, per_values.clone());
+        Dividends::<Test>::insert(netuid, per_values.clone());
+        ValidatorTrust::<Test>::insert(netuid, per_values.clone());
         StakeWeight::<Test>::insert(netuid, values.clone());
         ValidatorPermit::<Test>::insert(netuid, bool_values.clone());
         Active::<Test>::insert(netuid, bool_values);
@@ -2711,7 +2851,7 @@ fn test_trim_to_max_allowed_uids() {
         for mecid in 0..mechanism_count.into() {
             let netuid_index =
                 SubtensorModule::get_mechanism_storage_index(netuid, MechId::from(mecid));
-            Incentive::<Test>::insert(netuid_index, values.clone());
+            Incentive::<Test>::insert(netuid_index, per_values.clone());
             LastUpdate::<Test>::insert(netuid_index, u64_values.clone());
         }
 
@@ -2781,21 +2921,25 @@ fn test_trim_to_max_allowed_uids() {
         );
 
         // Ensure rest of (active) storage has been trimmed correctly
-        let expected_values = vec![56, 91, 34, 77, 65, 88, 51, 74];
+        let expected_values: Vec<u16> = vec![56, 91, 34, 77, 65, 88, 51, 74];
+        let expected_per_values: Vec<PerU16> = expected_values
+            .iter()
+            .map(|&v| PerU16::from_parts(v))
+            .collect();
         let expected_bools = vec![true, true, true, true, true, true, true, true];
         let expected_u64_values = vec![56, 91, 34, 77, 65, 88, 51, 74];
 
         assert_eq!(Active::<Test>::get(netuid), expected_bools);
-        assert_eq!(Consensus::<Test>::get(netuid), expected_values);
-        assert_eq!(Dividends::<Test>::get(netuid), expected_values);
-        assert_eq!(ValidatorTrust::<Test>::get(netuid), expected_values);
+        assert_eq!(Consensus::<Test>::get(netuid), expected_per_values);
+        assert_eq!(Dividends::<Test>::get(netuid), expected_per_values);
+        assert_eq!(ValidatorTrust::<Test>::get(netuid), expected_per_values);
         assert_eq!(ValidatorPermit::<Test>::get(netuid), expected_bools);
         assert_eq!(StakeWeight::<Test>::get(netuid), expected_values);
 
         for mecid in 0..mechanism_count.into() {
             let netuid_index =
                 SubtensorModule::get_mechanism_storage_index(netuid, MechId::from(mecid));
-            assert_eq!(Incentive::<Test>::get(netuid_index), expected_values);
+            assert_eq!(Incentive::<Test>::get(netuid_index), expected_per_values);
             assert_eq!(LastUpdate::<Test>::get(netuid_index), expected_u64_values);
         }
 

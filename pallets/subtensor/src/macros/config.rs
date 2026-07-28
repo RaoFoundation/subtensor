@@ -76,9 +76,7 @@ mod config {
         /// Weight information for extrinsics in this pallet.
         type WeightInfo: crate::weights::WeightInfo;
 
-        /// =================================
-        /// ==== Initial Value Constants ====
-        /// =================================
+        // Initial Value Constants
 
         /// Initial currency issuance.
         #[pallet::constant]
@@ -116,6 +114,9 @@ mod config {
         /// Initial minimum stake.
         #[pallet::constant]
         type InitialMinStake: Get<TaoBalance>;
+        /// Initial minimum stake transfer amount.
+        #[pallet::constant]
+        type InitialMinTransfer: Get<TaoBalance>;
         /// Min  burn upper bound.
         #[pallet::constant]
         type MinBurnUpperBound: Get<TaoBalance>;

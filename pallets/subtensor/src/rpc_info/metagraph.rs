@@ -5,12 +5,13 @@ use codec::Compact;
 use frame_support::IterableStorageDoubleMap;
 use frame_support::pallet_prelude::{Decode, Encode};
 use pallet_commitments::GetCommitments;
+use sp_runtime::PerU16;
 use substrate_fixed::types::I64F64;
 use substrate_fixed::types::I96F32;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, MechId, NetUid, NetUidStorageIndex, TaoBalance};
 
-#[freeze_struct("54520f5534d7e59e")]
+#[freeze_struct("93460b9b3cbf6d4e")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     // Subnet index
@@ -95,10 +96,10 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     pruning_score: Vec<Compact<u16>>,           // Pruning per UID
     last_update: Vec<Compact<u64>>,             // Last update per UID
     emission: Vec<Compact<AlphaBalance>>,       // Emission per UID
-    dividends: Vec<Compact<u16>>,               // Dividends per UID
-    incentives: Vec<Compact<u16>>,              // Mining incentives per UID
-    consensus: Vec<Compact<u16>>,               // Consensus per UID
-    trust: Vec<Compact<u16>>,                   // Trust per UID
+    dividends: Vec<Compact<PerU16>>,            // Dividends per UID
+    incentives: Vec<Compact<PerU16>>,           // Mining incentives per UID
+    consensus: Vec<Compact<PerU16>>,            // Consensus per UID
+    trust: Vec<Compact<PerU16>>,                // Trust per UID
     rank: Vec<Compact<u16>>,                    // Rank per UID
     block_at_registration: Vec<Compact<u64>>,   // Reg block per UID
     alpha_stake: Vec<Compact<AlphaBalance>>,    // Alpha staked per UID
@@ -108,9 +109,14 @@ pub struct Metagraph<AccountId: TypeInfo + Encode + Decode> {
     // Dividend break down.
     tao_dividends_per_hotkey: Vec<(AccountId, Compact<TaoBalance>)>, // List of dividend payouts in tao via root.
     alpha_dividends_per_hotkey: Vec<(AccountId, Compact<AlphaBalance>)>, // List of dividend payout in alpha via subnet.
+
+    // Miner collateral (per UID; zero when the hotkey has no collateral entry).
+    collateral_locked: Vec<Compact<AlphaBalance>>, // Locked collateral per UID
+    collateral_min: Vec<Compact<AlphaBalance>>,    // Miner-set collateral floor per UID
+    collateral_earned: Vec<Compact<AlphaBalance>>, // Lifetime emission earned per UID (since collateral existed)
 }
 
-#[freeze_struct("5f9c8beab622882c")]
+#[freeze_struct("bb7420226d39c0eb")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     // Subnet index
@@ -195,10 +201,10 @@ pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     pruning_score: Option<Vec<Compact<u16>>>, // Pruning per UID
     last_update: Option<Vec<Compact<u64>>>, // Last update per UID
     emission: Option<Vec<Compact<AlphaBalance>>>, // Emission per UID
-    dividends: Option<Vec<Compact<u16>>>, // Dividends per UID
-    incentives: Option<Vec<Compact<u16>>>, // Mining incentives per UID
-    consensus: Option<Vec<Compact<u16>>>, // Consensus per UID
-    trust: Option<Vec<Compact<u16>>>, // Trust per UID
+    dividends: Option<Vec<Compact<PerU16>>>, // Dividends per UID
+    incentives: Option<Vec<Compact<PerU16>>>, // Mining incentives per UID
+    consensus: Option<Vec<Compact<PerU16>>>, // Consensus per UID
+    trust: Option<Vec<Compact<PerU16>>>, // Trust per UID
     rank: Option<Vec<Compact<u16>>>,  // Rank per UID
     block_at_registration: Option<Vec<Compact<u64>>>, // Reg block per UID
     alpha_stake: Option<Vec<Compact<AlphaBalance>>>, // Alpha staked per UID
@@ -213,6 +219,11 @@ pub struct SelectiveMetagraph<AccountId: TypeInfo + Encode + Decode + Clone> {
     validators: Option<Vec<Compact<u16>>>, // List of validators
     // commitments
     commitments: Option<Vec<(AccountId, Vec<Compact<u8>>)>>, // List of commitments
+
+    // Miner collateral (per UID; zero when the hotkey has no collateral entry).
+    collateral_locked: Option<Vec<Compact<AlphaBalance>>>, // Locked collateral per UID
+    collateral_min: Option<Vec<Compact<AlphaBalance>>>,    // Miner-set collateral floor per UID
+    collateral_earned: Option<Vec<Compact<AlphaBalance>>>, // Lifetime emission earned per UID
 }
 
 impl<AccountId> SelectiveMetagraph<AccountId>
@@ -373,6 +384,15 @@ where
             Some(SelectiveMetagraphIndex::Commitments) => {
                 self.commitments = other.commitments.clone()
             }
+            Some(SelectiveMetagraphIndex::CollateralLocked) => {
+                self.collateral_locked = other.collateral_locked.clone()
+            }
+            Some(SelectiveMetagraphIndex::CollateralMin) => {
+                self.collateral_min = other.collateral_min.clone()
+            }
+            Some(SelectiveMetagraphIndex::CollateralEarned) => {
+                self.collateral_earned = other.collateral_earned.clone()
+            }
             None => {}
         };
     }
@@ -458,6 +478,9 @@ where
             alpha_dividends_per_hotkey: None,
             validators: None,
             commitments: None,
+            collateral_locked: None,
+            collateral_min: None,
+            collateral_earned: None,
         }
     }
 }
@@ -537,6 +560,9 @@ pub enum SelectiveMetagraphIndex {
     AlphaDividendsPerHotkey,
     Validators,
     Commitments,
+    CollateralLocked,
+    CollateralMin,
+    CollateralEarned,
 }
 
 impl SelectiveMetagraphIndex {
@@ -616,6 +642,9 @@ impl SelectiveMetagraphIndex {
             71 => Some(SelectiveMetagraphIndex::AlphaDividendsPerHotkey),
             72 => Some(SelectiveMetagraphIndex::Validators),
             73 => Some(SelectiveMetagraphIndex::Commitments),
+            74 => Some(SelectiveMetagraphIndex::CollateralLocked),
+            75 => Some(SelectiveMetagraphIndex::CollateralMin),
+            76 => Some(SelectiveMetagraphIndex::CollateralEarned),
             _ => None,
         }
     }
@@ -660,6 +689,8 @@ impl<T: Config> Pallet<T> {
         ) = Self::get_stake_weights_for_network(netuid);
 
         let subnet_volume = SubnetVolume::<T>::get(netuid);
+        let (collateral_locked, collateral_min, collateral_earned) =
+            Self::collateral_vectors(netuid);
         Some(Metagraph {
             // Subnet index
             netuid: netuid.into(), // subnet index.
@@ -788,6 +819,11 @@ impl<T: Config> Pallet<T> {
             // Dividend break down.
             tao_dividends_per_hotkey,
             alpha_dividends_per_hotkey,
+
+            // Miner collateral.
+            collateral_locked,
+            collateral_min,
+            collateral_earned,
         })
     }
     pub fn get_all_metagraphs() -> Vec<Option<Metagraph<T::AccountId>>> {
@@ -1420,12 +1456,63 @@ impl<T: Config> Pallet<T> {
             }
             Some(SelectiveMetagraphIndex::Validators) => Self::get_validators(netuid),
             Some(SelectiveMetagraphIndex::Commitments) => Self::get_commitments(netuid),
+            Some(SelectiveMetagraphIndex::CollateralLocked) => {
+                let (locked, _, _) = Self::collateral_vectors(netuid);
+                SelectiveMetagraph {
+                    netuid: netuid.into(),
+                    collateral_locked: Some(locked),
+                    ..Default::default()
+                }
+            }
+            Some(SelectiveMetagraphIndex::CollateralMin) => {
+                let (_, min, _) = Self::collateral_vectors(netuid);
+                SelectiveMetagraph {
+                    netuid: netuid.into(),
+                    collateral_min: Some(min),
+                    ..Default::default()
+                }
+            }
+            Some(SelectiveMetagraphIndex::CollateralEarned) => {
+                let (_, _, earned) = Self::collateral_vectors(netuid);
+                SelectiveMetagraph {
+                    netuid: netuid.into(),
+                    collateral_earned: Some(earned),
+                    ..Default::default()
+                }
+            }
             None => SelectiveMetagraph {
                 // Subnet index
                 netuid: netuid.into(),
                 ..Default::default()
             },
         }
+    }
+
+    /// Per-UID miner-collateral vectors: (locked, floor, lifetime earned).
+    /// Zero entries for hotkeys without a collateral entry.
+    fn collateral_vectors(
+        netuid: NetUid,
+    ) -> (
+        Vec<Compact<AlphaBalance>>,
+        Vec<Compact<AlphaBalance>>,
+        Vec<Compact<AlphaBalance>>,
+    ) {
+        let n: u16 = Self::get_subnetwork_n(netuid);
+        let mut locked_vec: Vec<Compact<AlphaBalance>> = Vec::with_capacity(n as usize);
+        let mut min_vec: Vec<Compact<AlphaBalance>> = Vec::with_capacity(n as usize);
+        let mut earned_vec: Vec<Compact<AlphaBalance>> = Vec::with_capacity(n as usize);
+        for uid in 0..n {
+            let hotkey = Keys::<T>::get(netuid, uid);
+            let coldkey = Owner::<T>::get(&hotkey);
+            let (locked, min_locked, earned) =
+                MinerCollateral::<T>::get((netuid, &hotkey, &coldkey))
+                    .map(|s| (s.locked, s.min_locked, s.earned))
+                    .unwrap_or((AlphaBalance::ZERO, AlphaBalance::ZERO, AlphaBalance::ZERO));
+            locked_vec.push(locked.into());
+            min_vec.push(min_locked.into());
+            earned_vec.push(earned.into());
+        }
+        (locked_vec, min_vec, earned_vec)
     }
 
     fn get_single_selective_mechagraph(
@@ -1605,6 +1692,9 @@ fn test_selective_metagraph() {
         alpha_dividends_per_hotkey: None,
         validators: None,
         commitments: None,
+        collateral_locked: None,
+        collateral_min: None,
+        collateral_earned: None,
     };
 
     // test init value

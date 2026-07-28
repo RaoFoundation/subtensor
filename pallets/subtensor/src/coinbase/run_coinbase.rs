@@ -85,11 +85,6 @@ impl<T: Config> Pallet<T> {
                 let tao_to_swap_with: TaoBalance =
                     tou64!(excess_tao.get(netuid_i).unwrap_or(&asfloat!(0))).into();
 
-                // Inject tao and alpha into protocol liquidity. In theorry, it may not always
-                // be a success (returned values are 0s) in case of high liquidity disbalance
-                let (actual_injected_tao, actual_injected_alpha) =
-                    T::SwapInterface::adjust_protocol_liquidity(*netuid_i, tao_in_i, alpha_in_i);
-
                 // Clear per-block pool-side emission counters up front so a subnet
                 // disabled this block does not display stale values from an earlier block.
                 SubnetExcessTao::<T>::insert(*netuid_i, TaoBalance::ZERO);
@@ -107,17 +102,36 @@ impl<T: Config> Pallet<T> {
                                 T::SwapInterface::max_price(),
                                 true,
                             );
-                            if let Ok(buy_swap_result_ok) = buy_swap_result {
-                                let bought_alpha: AlphaBalance =
-                                    buy_swap_result_ok.amount_paid_out.into();
-                                SubnetProtocolAlpha::<T>::mutate(*netuid_i, |total| {
-                                    *total = total.saturating_add(bought_alpha);
-                                });
+                            match buy_swap_result {
+                                Ok(buy_swap_result_ok) => {
+                                    let bought_alpha: AlphaBalance =
+                                        buy_swap_result_ok.amount_paid_out.into();
+                                    SubnetProtocolAlpha::<T>::mutate(*netuid_i, |total| {
+                                        *total = total.saturating_add(bought_alpha);
+                                    });
 
-                                // Record actual excess TAO that entered pool.
-                                let actual_excess: TaoBalance = buy_swap_result_ok.amount_paid_in;
-                                SubnetExcessTao::<T>::insert(*netuid_i, actual_excess);
-                                Self::record_protocol_inflow(*netuid_i, actual_excess);
+                                    // Record actual excess TAO that entered pool.
+                                    let actual_excess: TaoBalance =
+                                        buy_swap_result_ok.amount_paid_in;
+                                    SubnetExcessTao::<T>::insert(*netuid_i, actual_excess);
+                                    Self::record_protocol_inflow(*netuid_i, actual_excess);
+                                }
+                                Err(error) => {
+                                    match Self::withdraw_tao_as_credit(
+                                        &subnet_account_id,
+                                        tao_to_swap_with,
+                                    ) {
+                                        Ok(refund_credit) => {
+                                            remaining_credit =
+                                                remaining_credit.merge(refund_credit);
+                                        }
+                                        Err(withdraw_error) => {
+                                            log::error!(
+                                                "Failed to revert excess TAO deposit after swap failure: netuid_i = {netuid_i:?}, tao_to_swap_with = {tao_to_swap_with:?}, swap_error = {error:?}, withdraw_error = {withdraw_error:?}"
+                                            );
+                                        }
+                                    }
+                                }
                             }
                         }
                         Err(remainder) => {
@@ -130,38 +144,56 @@ impl<T: Config> Pallet<T> {
                     }
                 }
 
-                // Inject Alpha in.
-                SubnetAlphaInEmission::<T>::insert(*netuid_i, actual_injected_alpha);
-
-                // Mint alpha and resolve to alpha reserve
-                Self::resolve_to_alpha_in(Self::mint_alpha(*netuid_i, actual_injected_alpha));
-
-                // Inject TAO in.
-                if !actual_injected_tao.is_zero() {
-                    match Self::spend_tao(&subnet_account_id, remaining_credit, actual_injected_tao)
-                    {
+                // Materialize this block's TAO before updating balancer reservoir
+                // state. If spending fails, do not let the swap pallet consume
+                // reservoir state as if this block's TAO arrived.
+                let materialized_tao_delta = if tao_in_i.is_zero() {
+                    TaoBalance::ZERO
+                } else {
+                    match Self::spend_tao(&subnet_account_id, remaining_credit, tao_in_i) {
                         Ok(remainder) => {
                             remaining_credit = remainder;
-
-                            SubnetTaoInEmission::<T>::insert(*netuid_i, actual_injected_tao);
-                            SubnetTAO::<T>::mutate(*netuid_i, |total| {
-                                *total = total.saturating_add(actual_injected_tao);
-                            });
-                            TotalStake::<T>::mutate(|total| {
-                                *total = total.saturating_add(actual_injected_tao);
-                            });
-
-                            // Record emission injection as protocol inflow.
-                            Self::record_protocol_inflow(*netuid_i, actual_injected_tao);
+                            tao_in_i
                         }
                         Err(remainder) => {
                             remaining_credit = remainder;
                             let remaining_balance = remaining_credit.peek();
                             log::error!(
-                                "Failed to spend credit: injected_tao = {actual_injected_tao:?}, netuid_i = {netuid_i:?}, remaining_balance = {remaining_balance:?}"
+                                "Failed to spend credit: tao_delta = {tao_in_i:?}, netuid_i = {netuid_i:?}, remaining_balance = {remaining_balance:?}"
                             );
+                            TaoBalance::ZERO
                         }
                     }
+                };
+
+                // Decide which current/reservoir liquidity can become price-active
+                // without pushing balancer weights out of range. Only already
+                // materialized current TAO is offered to the swap pallet.
+                let (price_active_tao, price_active_alpha) =
+                    T::SwapInterface::adjust_protocol_liquidity(
+                        *netuid_i,
+                        materialized_tao_delta,
+                        alpha_in_i,
+                    );
+
+                // Materialize this block's alpha emission, then add only the
+                // price-active portion to the pool reserve. The price-active
+                // portion may include alpha that was materialized in an earlier
+                // block and held in the reservoir.
+                let _ = Self::mint_alpha(*netuid_i, alpha_in_i);
+                SubnetAlphaInEmission::<T>::insert(*netuid_i, price_active_alpha);
+                Self::increase_provided_alpha_reserve(*netuid_i, price_active_alpha);
+
+                // Add only the price-active TAO to the pool reserve. This may
+                // include TAO materialized in an earlier block and held in the
+                // reservoir.
+                if !price_active_tao.is_zero() {
+                    SubnetTaoInEmission::<T>::insert(*netuid_i, price_active_tao);
+                    Self::increase_provided_tao_reserve(*netuid_i, price_active_tao);
+                    TotalStake::<T>::mutate(|total| {
+                        *total = total.saturating_add(price_active_tao);
+                    });
+                    Self::record_protocol_inflow(*netuid_i, price_active_tao);
                 }
             }
         }
@@ -359,10 +391,17 @@ impl<T: Config> Pallet<T> {
         let mut epochs_run_this_block: u32 = 0;
 
         for &netuid in subnets.iter() {
-            // Increment blocks since last *successful* step (existing semantics).
-            BlocksSinceLastStep::<T>::mutate(netuid, |total| *total = total.saturating_add(1));
+            // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
+            // record that a due epoch missed its slot while avoiding an unbounded
+            // public counter when the epoch is repeatedly deferred or its input
+            // state remains inconsistent.
+            let tempo = Self::get_tempo(netuid);
+            let max_blocks_since_last_step = u64::from(tempo).saturating_add(1);
+            BlocksSinceLastStep::<T>::mutate(netuid, |total| {
+                *total = total.saturating_add(1).min(max_blocks_since_last_step)
+            });
 
-            if !Self::should_run_epoch(netuid, current_block) {
+            if !Self::should_run_epoch_with_tempo(netuid, current_block, tempo) {
                 continue;
             }
 
@@ -701,19 +740,33 @@ impl<T: Config> Pallet<T> {
             }
 
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
+
+            // Settle collateral first: below a miner-set floor, part of the
+            // emission is captured into the lock (staked to the registered
+            // hotkey itself, never the auto-stake destination, so it lands on
+            // the guarded position); above the floor, earned emission
+            // releases locked collateral. Miner incentive is fully
+            // capturable. Only the uncaptured remainder is credited below.
+            let captured =
+                Self::settle_miner_collateral(netuid, &hotkey, &owner, incentive, incentive);
+            let liquid = incentive.saturating_sub(captured);
+            if liquid.is_zero() {
+                continue;
+            }
+
             let maybe_dest = AutoStakeDestination::<T>::get(&owner, netuid);
 
             // Always stake but only emit event if autostake is set.
             let destination = maybe_dest.clone().unwrap_or(hotkey.clone());
 
             if let Some(dest) = maybe_dest {
-                log::debug!("incentives: auto staking {incentive:?} to {dest:?}");
+                log::debug!("incentives: auto staking {liquid:?} to {dest:?}");
                 Self::deposit_event(Event::<T>::AutoStakeAdded {
                     netuid,
                     destination: dest,
                     hotkey: hotkey.clone(),
                     owner: owner.clone(),
-                    incentive,
+                    incentive: liquid,
                 });
             }
 
@@ -721,7 +774,7 @@ impl<T: Config> Pallet<T> {
                 &destination,
                 &owner,
                 netuid,
-                incentive,
+                liquid,
             );
         }
 
@@ -732,62 +785,75 @@ impl<T: Config> Pallet<T> {
             .unwrap_or_else(|| U96F32::saturating_from_num(0));
         MinerBurned::<T>::insert(netuid, withheld_proportion);
 
-        // Distribute alpha divs.
+        // Distribute alpha divs. Split take vs nominators first so nominator
+        // shares can never be floor-captured into owner collateral. Full
+        // dividend emission still drives release rate / earned; only the
+        // validator take is capturable.
         let _ = AlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
-        for (hotkey, mut alpha_divs) in alpha_dividends {
-            // Get take prop
+        for (hotkey, alpha_divs) in alpha_dividends {
+            let owner: T::AccountId = Owner::<T>::get(&hotkey);
+            let total: AlphaBalance = tou64!(alpha_divs).into();
             let alpha_take: U96F32 =
                 Self::get_hotkey_take_float(&hotkey).saturating_mul(alpha_divs);
-            // Remove take prop from alpha_divs
-            alpha_divs = alpha_divs.saturating_sub(alpha_take);
-            // Give the validator their take.
-            log::debug!("hotkey: {hotkey:?} alpha_take: {alpha_take:?}");
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                &Owner::<T>::get(&hotkey),
-                netuid,
-                tou64!(alpha_take).into(),
-            );
-            // Give all other nominators.
-            log::debug!("hotkey: {hotkey:?} alpha_divs: {alpha_divs:?}");
-            Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, tou64!(alpha_divs).into());
-            // Record dividends for this hotkey.
-            AlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
-                *divs = divs.saturating_add(tou64!(alpha_divs).into());
-            });
-            // Record total hotkey alpha based on which this value of AlphaDividendsPerSubnet
-            // was calculated
+            let nominator_divs: U96F32 = alpha_divs.saturating_sub(alpha_take);
+            let take: AlphaBalance = tou64!(alpha_take).into();
+            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
+            let liquid_take = take.saturating_sub(captured);
+            if !liquid_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &owner,
+                    netuid,
+                    liquid_take,
+                );
+            }
+            let nominator_alpha: AlphaBalance = tou64!(nominator_divs).into();
+            if !nominator_alpha.is_zero() {
+                log::debug!("hotkey: {hotkey:?} alpha_divs: {nominator_divs:?}");
+                Self::increase_stake_for_hotkey_on_subnet(&hotkey, netuid, nominator_alpha);
+                AlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
+                    *divs = divs.saturating_add(nominator_alpha);
+                });
+            }
             let total_hotkey_alpha = TotalHotkeyAlpha::<T>::get(&hotkey, netuid);
             TotalHotkeyAlphaLastEpoch::<T>::insert(hotkey, netuid, total_hotkey_alpha);
         }
 
-        // Distribute root alpha divs.
+        // Distribute root alpha divs. Same ownership rule: full root emission
+        // for release/earned; only validator take is capturable.
         let _ = RootAlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
-        for (hotkey, mut root_alpha) in root_alpha_dividends {
-            // Get take prop
+        for (hotkey, root_alpha) in root_alpha_dividends {
+            let owner: T::AccountId = Owner::<T>::get(&hotkey);
+            let total: AlphaBalance = tou64!(root_alpha).into();
             let alpha_take: U96F32 =
                 Self::get_hotkey_take_float(&hotkey).saturating_mul(root_alpha);
-            // Remove take prop from root_alpha
-            root_alpha = root_alpha.saturating_sub(alpha_take);
-            // Give the validator their take.
-            log::debug!("hotkey: {hotkey:?} alpha_take: {alpha_take:?}");
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                &Owner::<T>::get(hotkey.clone()),
-                netuid,
-                tou64!(alpha_take).into(),
-            );
+            let root_claimable: U96F32 = root_alpha.saturating_sub(alpha_take);
+            let take: AlphaBalance = tou64!(alpha_take).into();
+            let captured = Self::settle_miner_collateral(netuid, &hotkey, &owner, total, take);
+            let liquid_take = take.saturating_sub(captured);
+            if !liquid_take.is_zero() {
+                log::debug!("hotkey: {hotkey:?} alpha_take: {liquid_take:?}");
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &owner,
+                    netuid,
+                    liquid_take,
+                );
+            }
 
-            Self::increase_root_claimable_for_hotkey_and_subnet(
-                &hotkey,
-                netuid,
-                tou64!(root_alpha).into(),
-            );
+            let root_claimable_alpha: AlphaBalance = tou64!(root_claimable).into();
+            if !root_claimable_alpha.is_zero() {
+                Self::increase_root_claimable_for_hotkey_and_subnet(
+                    &hotkey,
+                    netuid,
+                    root_claimable_alpha,
+                );
 
-            // Record root alpha dividends for this validator on this subnet.
-            RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
-                *divs = divs.saturating_add(tou64!(root_alpha).into());
-            });
+                RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
+                    *divs = divs.saturating_add(root_claimable_alpha);
+                });
+            }
         }
     }
 
@@ -934,9 +1000,9 @@ impl<T: Config> Pallet<T> {
     /// The hotkey also gets a portion based on its own stake contribution, this is added to the childkey take.
     ///
     /// # Arguments
-    /// * `hotkye` - The hotkey to distribute out from.
-    /// * `netuid` - The netuid we are computing on.
-    /// * `dividends` - the dividends to distribute.
+    /// * `hotkye`: The hotkey to distribute out from.
+    /// * `netuid`: The netuid we are computing on.
+    /// * `dividends`: the dividends to distribute.
     ///
     /// # Returns
     /// * dividend_tuples: `Vec<(T::AccountId, u64)>` - Vector of (hotkey, divs) for each parent including self.
@@ -1078,12 +1144,18 @@ impl<T: Config> Pallet<T> {
     /// Checks if the epoch should run for a given subnet based on the current block.
     ///
     /// # Arguments
-    /// * `netuid` - The unique identifier of the subnet.
+    /// * `netuid`: The unique identifier of the subnet.
     ///
     /// # Returns
-    /// * `bool` - True if the epoch should run, false otherwise.
+    /// * `bool`: True if the epoch should run, false otherwise.
     pub fn should_run_epoch(netuid: NetUid, current_block: u64) -> bool {
         let tempo = Self::get_tempo(netuid);
+        Self::should_run_epoch_with_tempo(netuid, current_block, tempo)
+    }
+
+    /// Same predicate as `should_run_epoch`, using an already-loaded tempo so
+    /// callers that also need the tempo do not charge a duplicate storage read.
+    fn should_run_epoch_with_tempo(netuid: NetUid, current_block: u64, tempo: u16) -> bool {
         if tempo == 0 {
             return false;
         }
@@ -1091,7 +1163,7 @@ impl<T: Config> Pallet<T> {
         if pending > 0 && current_block >= pending {
             return true;
         }
-        if BlocksSinceLastStep::<T>::get(netuid) > MAX_TEMPO as u64 {
+        if BlocksSinceLastStep::<T>::get(netuid) > u64::from(tempo) {
             return true;
         }
         let last = LastEpochBlock::<T>::get(netuid);
@@ -1102,7 +1174,7 @@ impl<T: Config> Pallet<T> {
     /// Returns the number of blocks remaining before the next automatic epoch under the
     /// stateful scheduler (period `tempo`, anchored on `LastEpochBlock`). Does NOT account for:
     ///     - `PendingEpochAt` (owner-triggered manual fire — could happen sooner),
-    ///     - `BlocksSinceLastStep > MAX_TEMPO` safety-net,
+    ///     - `BlocksSinceLastStep > tempo` safety-net,
     ///     - per-block-cap defer (could push the actual fire one or more blocks later)
     /// Used by the admin-freeze-window predicate and external tooling. Returns `u64::MAX` when
     /// `tempo == 0` (legacy defensive short-circuit).
@@ -1119,7 +1191,7 @@ impl<T: Config> Pallet<T> {
     /// Returns the absolute block number at which the next epoch is expected to fire for the
     /// given subnet, considering both the automatic schedule (`LastEpochBlock + tempo`) and
     /// any owner-triggered `PendingEpochAt`. Returns `None` if `tempo == 0` (subnet does not run).
-    /// Does NOT account for the per-block cap deferral or the `BlocksSinceLastStep > MAX_TEMPO`
+    /// Does NOT account for the per-block cap deferral or the `BlocksSinceLastStep > tempo`
     /// safety-net (which can fire earlier under extreme drift).
     pub fn get_next_epoch_start_block(netuid: NetUid) -> Option<u64> {
         let tempo = Self::get_tempo(netuid);

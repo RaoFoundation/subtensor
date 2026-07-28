@@ -1,0 +1,129 @@
+[package]
+name = "bittensor-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The chain-defined compute core for Bittensor clients: sp-core key primitives, keyfiles, drand timelock, and ML-KEM, built against the same crate revisions as the runtime"
+license = "Apache-2.0"
+
+[lib]
+name = "bittensor_core"
+crate-type = ["rlib"]
+
+# External localnet suite. It is selected explicitly by the dedicated E2E
+# workflow; `test = false` keeps ordinary workspace/nextest runs unit-only.
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"
+test = false
+
+[dependencies]
+# keys / keyfiles (absorbed from py-sp-core). The optional crates below are
+# host-only (see the `host` feature): they either do I/O or compile C, both
+# of which break the wasm32 seam.
+ansible-vault = { version = "0.2.1", optional = true }
+base64 = "0.22.1"
+bip39 = { version = "2.0", default-features = false, features = ["std", "rand"] }
+fernet = { version = "=0.2.1", optional = true }
+# Not used directly: fernet needs openssl, and "vendored" makes openssl-sys
+# compile and statically link its own OpenSSL. Without it the wheel links the
+# build machine's libssl — absent in manylinux containers (build failure) and
+# Homebrew-pathed on macOS runners (broken wheel for anyone without it).
+openssl = { version = "0.10", features = ["vendored"], optional = true }
+hex = "0.4.3"
+pbkdf2 = { version = "0.12.2", optional = true }
+schnorrkel = "0.11.5"
+scrypt = { version = "0.11.0", optional = true }
+serde = { version = "1.0.132", features = ["derive"] }
+# arbitrary_precision: corpus fixtures and decoded values carry full-width
+# u128/u256 integers that must survive JSON round-trips digit-exact.
+serde_json = { version = "1.0.132", features = ["arbitrary_precision"] }
+sha2 = "0.10.8"
+sodiumoxide = { version = "0.2", default-features = false, features = ["std"], optional = true }
+# std is host-only: sp-core/std links the C secp256k1 for ecdsa, which can't
+# build for wasm32; without std sp-core swaps in the pure-Rust k256. serde is
+# needed either way for the ss58 codec.
+sp-core = { workspace = true, features = ["full_crypto", "serde"] }
+zeroize = "1"
+
+# timelock (absorbed from bittensor-drand). tle and w3f-bls inherit the
+# workspace pins (the ideal-lab5 rev and the vendored no-std fork in
+# vendor/w3f-bls) so ciphertexts never drift from what pallet-drand can decrypt.
+ark-serialize = { version = "0.4.0", features = ["derive"], default-features = false }
+codec = { package = "parity-scale-codec", version = "3.7.5", default-features = false, features = ["derive", "max-encoded-len"] }
+rand_core = "0.6.4"
+# blocking: the timelock surface is synchronous (asyncio stays in Python per
+# the spec); reqwest's blocking client runs its own internal runtime, so no
+# tokio dependency is needed here.
+reqwest = { version = "0.12.15", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"], optional = true }
+tle = { workspace = true, features = ["std"] }
+w3f-bls = { workspace = true, features = ["std"] }
+
+# mlkem
+chacha20poly1305 = "0.10"
+ml-kem = "0.2.1"
+twox-hash = { version = "2.1", default-features = false, features = ["xxhash64"] }
+
+# digest (RFC-0078 merkleized metadata). frame-metadata inherits the workspace
+# pin so the digest is computed over the same metadata types the runtime bakes
+# its RUNTIME_METADATA_HASH with.
+frame-metadata = { workspace = true, features = ["current", "decode", "std"] }
+merkleized-metadata = "0.5.1"
+
+# runtime + codec (the portable-registry engine). serde: the corpus recorder
+# walks the registry as plain JSON. rayon: bulk decode fans out across
+# workers (codec/batch.rs).
+rayon = { version = "1.10", optional = true }
+scale-info = { workspace = true, features = ["std", "serde"] }
+subtensor-macros = { workspace = true }
+
+# signers (feature "ledger"): APDU types for the Polkadot generic app; the
+# HID transport itself lives in signers/ledger.rs on top of hidapi (below).
+ledger-apdu = { version = "0.11", optional = true }
+
+# hidapi backend per OS: on Linux the pure-Rust hidraw backend — it links no
+# libudev and no C, which is what lets the manylinux wheels carry Ledger
+# support. Elsewhere the bundled C backend (IOKit on macOS, hid.dll on
+# Windows) needs no features and no external libraries.
+[target.'cfg(target_os = "linux")'.dependencies]
+hidapi = { version = "2.6.6", optional = true, default-features = false, features = ["linux-native-basic-udev"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+hidapi = { version = "2.6.6", optional = true, default-features = false }
+
+# Browser WASM support: rand_core 0.6's OsRng resolves to getrandom 0.2,
+# which needs the "js" backend on wasm32-unknown-unknown. Features are
+# additive, so this also covers schnorrkel/sp-core/bip39 randomness.
+# web-time replaces std::time::SystemTime (which panics on this target)
+# with a Date.now()-backed drop-in for the timelock round arithmetic.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+web-time = "1"
+
+[features]
+# `host` is everything that assumes a host OS: network fetch (reqwest),
+# thread fan-out (rayon), C-backed crypto (sodiumoxide, openssl/fernet) and
+# the keyfile formats built on it. Without `host` the crate is the portable
+# core seam — codec, digest, runtime, keys (minus NaCl sealed-box and
+# keystore import), timelock crypto, mlkem — and must keep compiling for
+# wasm32-unknown-unknown; CI holds that invariant with
+# `cargo check --target wasm32-unknown-unknown --no-default-features`.
+default = ["host"]
+host = [
+    "dep:ansible-vault",
+    "dep:fernet",
+    "dep:openssl",
+    "dep:pbkdf2",
+    "dep:rayon",
+    "dep:reqwest",
+    "dep:scrypt",
+    "dep:sodiumoxide",
+    "sp-core/std",
+]
+ledger = ["dep:ledger-apdu", "dep:hidapi"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+bs58 = "0.5.1"

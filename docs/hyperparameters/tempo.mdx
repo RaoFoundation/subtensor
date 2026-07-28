@@ -1,0 +1,66 @@
+---
+title: tempo
+description: Blocks per epoch — how often a subnet runs Yuma Consensus and distributes emissions.
+---
+
+`tempo` is the number of 12-second blocks between a subnet's consensus
+epochs. It sets the payout cadence for everyone on the subnet: miners and
+validators are paid once per tempo, not per block.
+
+## How it works
+
+Each subnet's epoch fires once `tempo` blocks have passed since its last
+epoch: [`should_run_epoch`](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L1117-L1132)
+(`pallets/subtensor/src/coinbase/run_coinbase.rs`)
+checks `current_block − LastEpochBlock ≥ tempo`. The default is 360 blocks
+(~72 minutes); at most 2 subnet epochs run per block, with extras
+[deferred](/code/pallets/subtensor/src/coinbase/run_coinbase.rs#L388-L411),
+and the owner can trigger an early epoch. When the epoch fires, the alpha
+accumulated since the previous epoch is distributed via
+[Yuma Consensus](/docs/concepts/emissions#yuma-consensus); see
+[Epochs](/docs/concepts/emissions#epochs) for scheduling details.
+
+`tempo` also anchors other parameters: the effective
+[`activity_cutoff`](/docs/hyperparameters/activity-cutoff) is a per-mille
+factor multiplied by `tempo`, and commit-reveal delays are counted in tempos.
+Setting a new tempo resets the epoch cycle
+([`apply_tempo_with_cycle_reset`](/code/pallets/subtensor/src/utils/misc.rs#L121-L125)
+re-anchors `LastEpochBlock` to the current block), so the next epoch lands a
+full tempo after the change.
+
+The timeline below shows emission accruing block by block and paying out at
+each epoch boundary — slide `tempo` across the full owner-settable range
+(360 to 50,400 blocks, ~72 minutes to ~7 days) to see the cadence in
+wall-clock time.
+
+<HyperparamTempoTimeline />
+
+## Reading and setting
+
+Inspect with:
+
+```
+btcli sudo get --netuid N --name tempo
+```
+
+Owner-settable:
+
+```
+btcli sudo set --netuid N --name tempo --value 720
+```
+
+This dispatches
+[`sudo_set_tempo`](/code/pallets/admin-utils/src/lib.rs#L1020-L1024)
+(AdminUtils), which is owner-or-root: the
+owner is bounded to 360–50,400 blocks (~72 minutes to ~7 days) and
+rate-limited to one change per 360 blocks; root may set any u16. Both paths
+respect the admin freeze window, and a successful change resets the epoch
+cycle so the next epoch lands a full new tempo after the change.
+
+## Related
+
+[`rho`](/docs/hyperparameters/rho) ·
+[`kappa`](/docs/hyperparameters/kappa) ·
+[`activity_cutoff_factor`](/docs/hyperparameters/activity-cutoff-factor) ·
+[`max_validators`](/docs/hyperparameters/max-validators) ·
+[`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period)

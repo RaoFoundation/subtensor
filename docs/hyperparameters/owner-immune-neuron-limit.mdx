@@ -1,0 +1,30 @@
+---
+title: owner_immune_neuron_limit
+description: How many of the subnet owner's own neurons are permanently immune from pruning.
+---
+
+`owner_immune_neuron_limit` is the number of neurons registered under the subnet owner's coldkey that can never be pruned, regardless of emission or age. Owners use it to keep their own validator or infrastructure hotkeys safe on a full subnet; everyone else cares because each owner-immune UID is one slot removed from the competition.
+
+## How it works
+
+[`get_immune_owner_tuples`](/code/pallets/subtensor/src/subnets/registration.rs#L237-L277) (`pallets/subtensor/src/subnets/registration.rs`) collects all of the owner coldkey's hotkeys that hold a UID, sorts them by registration block (earliest first, so older keys keep priority), and truncates the list to `owner_immune_neuron_limit`. The subnet owner hotkey itself is inserted at the front of the list if it holds a UID. Both [`get_neuron_to_prune`](/code/pallets/subtensor/src/subnets/registration.rs#L280-L356) and [`trim_to_max_allowed_uids`](/code/pallets/subtensor/src/subnets/uids.rs#L147-L379) skip these UIDs entirely — unlike [`immunity_period`](/docs/hyperparameters/immunity-period) immunity, this protection never expires and has no emission-based fallback.
+
+The limit must stay between 1 and 10 ([`set_owner_immune_neuron_limit`](/code/pallets/subtensor/src/utils/misc.rs#L955-L964) in `pallets/subtensor/src/utils/misc.rs` rejects anything outside [`MinImmuneOwnerUidsLimit`](/code/pallets/subtensor/src/lib.rs#L2292)..[`MaxImmuneOwnerUidsLimit`](/code/pallets/subtensor/src/lib.rs#L2286) with [`InvalidValue`](/code/pallets/subtensor/src/macros/errors.rs#L252)). The default is 1: just the owner's primary hotkey.
+
+<HyperparamUidLifecycle focus="owner_immune_neuron_limit" />
+
+## Reading and setting
+
+```
+btcli sudo get --netuid N --name owner_immune_neuron_limit
+```
+
+The value is a plain integer between 1 and 10:
+
+```
+btcli sudo set --netuid N --name owner_immune_neuron_limit --value 3
+```
+
+## Related
+
+[`immunity_period`](/docs/hyperparameters/immunity-period), [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids), [`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit)

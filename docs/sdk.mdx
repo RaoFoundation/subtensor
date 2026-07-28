@@ -1,0 +1,166 @@
+---
+title: The SDK
+description: "The five core primitives — Subtensor, Wallet, Balance, intents, and results — and their one-line constructors."
+---
+
+Everything in the SDK hangs off five primitives. Know these and the rest of
+the docs is reference.
+
+| Primitive | What it is | Easy constructor |
+| --- | --- | --- |
+| [`Subtensor`](#subtensor--the-connection) | the chain connection, blocking or async | `bt.Subtensor()` |
+| [`Wallet`](#wallet--the-keys) | your keys: coldkey (money) + hotkey (operations) | `bt.Wallet("my_coldkey", "my_hotkey")` |
+| [`Balance`](#balance--the-money) | unit-tagged money: TAO or a subnet's alpha | `bt.tao(1.5)`, `bt.alpha(2.5, 42)` |
+| [intents](#intents--the-mutations) | one mutation, as a dataclass | `bt.Transfer(dest_ss58="5F...", amount_tao=1.5)` |
+| [`ExtrinsicResult`](#extrinsicresult--the-outcome) | the outcome, as data | returned by `sub.execute(intent, wallet)` |
+
+And one optional guardrail: [`Policy`](#policy--the-guardrail) bounds what any
+execution may do.
+
+## Subtensor — the connection
+
+```python
+import bittensor as bt
+
+sub = bt.Subtensor()          # mainnet (finney); "test" | "local" | "ws://..." too
+```
+
+One class for both worlds: used directly it is a blocking client — connects
+lazily on the first call, cleaned up automatically, no `close()` — and
+awaited it is the async client:
+
+```python
+sub.block                                       # blocking
+
+client = await bt.Subtensor()                   # async, same surface awaited
+async with bt.Subtensor() as client: ...        # scoped async
+```
+
+Every read in the catalog is a typed method on a category namespace, also
+dispatchable by name; anything else on chain is reachable through generic
+accessors:
+
+```python
+sub.balances.get("5F...")                       # typed namespace
+sub.subnets.metagraph(netuid=1)                 # a whole subnet as one object
+sub.collateral.collateral_policy(netuid=1)      # lock share + drain ratio
+sub.read("delegate_take", hotkey_ss58="5F...")  # same catalog, by name
+sub.query(bt.storage.SubtensorModule.Tempo, [1])  # anything in the runtime
+```
+
+One page per read under [Queries](/docs/query); the full tour is
+[The client](/docs/concepts/client).
+
+## Wallet — the keys
+
+```python
+wallet = bt.Wallet("my_coldkey", "my_hotkey")   # ~/.bittensor/wallets/<name>/
+wallet = bt.Wallet("my_coldkey/my_hotkey")      # same thing, one string
+wallet = bt.Wallet()                            # name and hotkey both "default"
+```
+
+The **coldkey** holds funds and signs financial operations; the **hotkey**
+identifies you on subnets and signs operational calls (weights, serving). The
+SDK picks the right signer per operation — you just pass the wallet. Anywhere
+a wallet is expected, the name string alone also works:
+`sub.execute(intent, "my_coldkey/my_hotkey")`. And anywhere an ss58 *address*
+is expected (`dest_ss58`, `hotkey_ss58`, `coldkey_ss58`, ...), a `Wallet` or
+keypair works too — the parameter takes the matching key's address:
+
+```python
+sub.balances.get(wallet)                        # instead of wallet.coldkeypub.ss58_address
+bt.AddStake(hotkey_ss58=wallet, netuid=1, amount_tao=10)   # the wallet's hotkey
+```
+Encrypted coldkeys prompt for the password; set `BT_WALLET_PASSWORD` for
+unattended use. Creation and recovery live in `bt.wallets`
+(`create`, `regen_coldkey`, ...) or `btcli wallet`. See
+[Wallets and keys](/docs/concepts/wallets).
+
+## Balance — the money
+
+```python
+bt.tao(1.5)                 # 1.5 TAO
+bt.alpha(2.5, 42)           # 2.5 alpha on subnet 42
+bt.rao(1_500_000_000)       # raw chain units (1 TAO = 1e9 rao)
+```
+
+Every `Balance` is tagged with its unit — TAO or one subnet's alpha — and
+refuses to mix them: adding alpha to TAO, or comparing across subnets, raises
+`bt.UnitMismatchError` instead of silently producing a wrong number. Read the
+amount back with `.tao` or `.alpha` (each raises on the other's unit).
+
+Intent amount fields are unit-named (`amount_tao`, `amount_alpha`) and also
+accept plain numbers and strings — `amount_tao=1.5` means 1.5 TAO. Why the
+strictness: [Money](/docs/concepts/money).
+
+## Intents — the mutations
+
+Every state-changing operation is a small dataclass, exported at the top
+level — `bt.Transfer`, `bt.AddStake`, `bt.SetWeights`, `bt.BurnedRegister`,
+... ([one page each](/docs/tx)). Preview with `plan`, submit with `execute`:
+
+```python
+intent = bt.AddStake(hotkey_ss58="5F...validator", netuid=1, amount_tao=10)
+# Miner collateral (spec >= 435): bt.AddCollateral / bt.SetMinCollateral
+
+plan = sub.plan(intent, wallet)       # fee, effects, warnings — nothing submitted
+result = sub.execute(intent, wallet)  # sign and submit
+```
+
+Intents are plain data — build them by name from a dict too
+(`sub.execute_tool("add_stake", {...}, wallet)`), which is how
+[agents](/docs/agents) and the CLI drive the same catalog. Semantics:
+[The transaction model](/docs/concepts/transactions).
+
+The most common operations also have one-call helpers that bundle
+construct-connect-execute, e.g.:
+
+```python
+bt.set_weights(1, {0: 0.1, 1: 0.7, 2: 0.2}, wallet="my_coldkey", hotkey="my_hotkey")
+```
+
+## ExtrinsicResult — the outcome
+
+`execute` returns data, not an exception:
+
+```python
+result = sub.execute(intent, wallet)
+if not result.success:
+    print(result.error.code)           # bt.ErrorCode.RATE_LIMITED, INSUFFICIENT_BALANCE, ...
+    print(result.error.remediation)    # what to do about it
+result.raise_for_failure()             # or opt into raising
+```
+
+`result.error.code` is a stable, machine-readable `bt.ErrorCode` — branch on
+it, never on message strings. Success carries `block_hash`, `extrinsic_id`,
+`events`, and `explorer_url`. The full taxonomy: [Errors](/docs/errors).
+
+## Policy — the guardrail
+
+```python
+policy = bt.Policy(max_spend_tao=5.0, allowed_netuids=[1, 2])
+sub = bt.Subtensor(policy=policy)
+```
+
+A `Policy` on the connection hard-bounds every mutation that passes through
+it: `max_spend_tao`, `max_fee_tao`, `allowed_netuids` (raw calls are refused
+outright unless `allow_raw_calls=True`). Violations raise `PolicyError` at
+execute time and show up in `plan`. Designed for handing a key to an agent or
+a script you don't fully trust.
+
+## All five together
+
+```python
+import bittensor as bt
+
+sub = bt.Subtensor()                                   # connection
+wallet = bt.Wallet("my_coldkey/my_hotkey")             # keys
+
+balance = sub.balances.get(wallet)
+print(balance)                                          # a Balance, e.g. τ12.5
+
+intent = bt.Transfer(dest_ss58="5F...", amount_tao=1.5)  # mutation
+result = sub.execute(intent, wallet)                     # outcome
+if not result.success:
+    print(result.error.code, result.error.remediation)
+```

@@ -1,0 +1,46 @@
+---
+title: Eco-tests (indexer contract)
+description: What the eco-tests pin, why they run on every PR, and what to do when one fails.
+---
+
+`eco-tests/` is a standalone crate (excluded from the cargo workspace) that
+pins the **storage shapes and runtime API signatures the TAO.com ecosystem
+indexer depends on**. The indexer reads chain state directly — storage items
+like `Consensus`, `Incentive`, `Weights`, `Bonds`, ownership and childkey
+maps, and runtime APIs like [`DelegateInfoRuntimeApi`](/code/pallets/subtensor/runtime-api/src/lib.rs#L27-L31) and
+[`StakeInfoRuntimeApi`](/code/pallets/subtensor/runtime-api/src/lib.rs#L67-L76). If a runtime change renames a storage item, changes a
+value type, or alters an API return shape, the indexer breaks in production
+even though nothing in this repo's own tests would notice.
+
+The tests are intentionally shallow: they mostly assert that each pinned
+storage item still exists with the expected key and value types (the test
+body is often just a typed `::get()` call that must compile) and that the
+runtime API signatures are unchanged. A compile failure *is* the signal.
+
+## Running them
+
+The crate is excluded from the workspace, so run from its own directory:
+
+```bash
+cd eco-tests
+SKIP_WASM_BUILD=1 cargo test
+```
+
+CI runs this on every PR (`eco-tests.yml`).
+
+## When one fails on your PR
+
+A failure means your change breaks the data contract the indexer consumes.
+Two valid resolutions:
+
+1. **Unintended breakage** — adjust your change to preserve the storage/API
+   shape (e.g. keep the old item alongside the new one, or provide a
+   migration plus an unchanged read path).
+2. **Intentional change** — update the eco-test to the new shape. Any PR that
+   touches `eco-tests/**` automatically requests review from the indexer
+   liaison (`eco-tests-indexer-notify.yml`), so the indexer team hears about
+   the change before it ships. Don't merge until they've acknowledged it.
+
+What you should **not** do is silently change the assertion to make CI green:
+the whole point of the suite is that the notification fires and the indexer
+team gets lead time.

@@ -1,0 +1,67 @@
+---
+title: subnet_emission_enabled
+description: Root-controlled switch for the subnet's pool-side TAO emission share.
+---
+
+`subnet_emission_enabled` controls whether the subnet receives its share of
+network TAO emission into the pool. While it is false the chain injects no
+`tao_in` or `alpha_in` into the subnet's reserves and makes no `excess_tao`
+chain buys — the pool side of emission is zeroed. Everything else keeps
+running: `alpha_out` still pays miners and validators each epoch, the owner
+cut and root proportion are untouched, and pending emissions are preserved.
+The flag decides whether the subnet's market demand translates into actual
+TAO flowing into its pool.
+
+## How it works
+
+Storage is
+[`SubnetEmissionEnabled`](/code/pallets/subtensor/src/lib.rs#L1394) in
+`pallets/subtensor/src/lib.rs`. New
+subnets register with it **false**
+([`do_register_network`](/code/pallets/subtensor/src/subnets/subnet.rs#L142-L268)
+in `pallets/subtensor/src/subnets/subnet.rs`), so a freshly created subnet earns
+no TAO emission share until root turns it on. Each coinbase run
+[skips the pool-side terms for disabled subnets](/code/pallets/subtensor/src/coinbase/subnet_emissions.rs#L48-L70)
+and clears any stale per-block TAO-side
+emission storage.
+
+This is not the same flag as [`subnet_is_active`](/docs/hyperparameters/subnet-is-active).
+That one is the owner's one-shot [`start-call`](/docs/tx/start-call): it opens
+staking, alpha trading, and epochs. This one is root's emission valve. The two
+are independent — a subnet can be fully active, with trading and epochs
+running, while its TAO emission share stays off. Bringing a new subnet fully
+online takes both: the owner starts it, and root enables its emission.
+
+## Reading and setting
+
+Anyone can check the flag:
+
+```bash
+btcli query subnet-emission-enabled --netuid 89 --json
+```
+
+Root only — there is no `btcli sudo set` name for it and the subnet owner
+cannot flip it. The chain sudo key uses
+[`set-subnet-emission-enabled`](/docs/tx/set-subnet-emission-enabled), which
+takes multiple netuids and batches them atomically, wrapping the call in
+`Sudo.sudo`:
+
+```bash
+btcli tx set-subnet-emission-enabled --netuids 89,127 --enabled -w sudo_key
+btcli tx set-subnet-emission-enabled --netuids 89 --no-enabled -w sudo_key
+```
+
+The [raw-call escape hatch](/docs/concepts/advanced) still works for a single
+netuid:
+
+```bash
+btcli call AdminUtils.sudo_set_subnet_emission_enabled --args '{"netuid": 89, "enabled": true}' --sudo
+```
+
+## Related
+
+[`subnet_is_active`](/docs/hyperparameters/subnet-is-active) ·
+[`registration_allowed`](/docs/hyperparameters/registration-allowed) ·
+[`set-subnet-emission-enabled`](/docs/tx/set-subnet-emission-enabled) ·
+[`subnet_emission_enabled`](/docs/query/subnet-emission-enabled) ·
+[Emissions](/docs/concepts/emissions)

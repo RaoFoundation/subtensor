@@ -3,6 +3,7 @@
 use approx::assert_abs_diff_eq;
 use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::{Get, U256};
+use sp_runtime::PerU16;
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::TaoBalance;
 use subtensor_swap_interface::SwapHandler;
@@ -515,7 +516,7 @@ fn test_do_move_wrong_origin() {
                 netuid,
                 alpha,
             ),
-            Error::<Test>::AmountTooLow
+            Error::<Test>::NotEnoughStakeToWithdraw
         );
 
         // Check that no stake was moved
@@ -1023,17 +1024,45 @@ fn test_do_transfer_insufficient_stake() {
         )
         .unwrap();
 
-        // Amount over available stake succeeds (because fees can be paid in Alpha,
-        // this limitation is removed)
+        let origin_alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &origin_coldkey,
+            netuid,
+        );
+        let destination_alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &destination_coldkey,
+            netuid,
+        );
+
         let alpha = stake_amount * 2;
-        assert_ok!(SubtensorModule::do_transfer_stake(
-            RuntimeOrigin::signed(origin_coldkey),
-            destination_coldkey,
-            hotkey,
-            netuid,
-            netuid,
-            alpha.into()
-        ));
+        assert_noop!(
+            SubtensorModule::do_transfer_stake(
+                RuntimeOrigin::signed(origin_coldkey),
+                destination_coldkey,
+                hotkey,
+                netuid,
+                netuid,
+                alpha.into()
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &origin_coldkey,
+                netuid
+            ),
+            origin_alpha_before
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &destination_coldkey,
+                netuid
+            ),
+            destination_alpha_before
+        );
     });
 }
 
@@ -1072,7 +1101,7 @@ fn test_do_transfer_wrong_origin() {
                 netuid,
                 stake_amount.into()
             ),
-            Error::<Test>::AmountTooLow
+            Error::<Test>::NotEnoughStakeToWithdraw
         );
     });
 }
@@ -1186,6 +1215,347 @@ fn test_do_transfer_different_subnets() {
             ),
             expected_alpha,
             epsilon = 1000.into()
+        );
+    });
+}
+
+#[test]
+fn test_do_transfer_stake_and_hotkey_success() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let origin_coldkey = U256::from(1);
+        let destination_coldkey = U256::from(2);
+        let origin_hotkey = U256::from(3);
+        let destination_hotkey = U256::from(4);
+        let stake_amount = DefaultMinStake::<Test>::get().to_u64() * 10;
+
+        let _ = SubtensorModule::create_account_if_non_existent(&origin_coldkey, &origin_hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(
+            &destination_coldkey,
+            &destination_hotkey,
+        );
+        add_balance_to_coldkey_account(&origin_coldkey, stake_amount.into());
+        SubtensorModule::stake_into_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+            stake_amount.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+        );
+
+        // Transfer the entire stake to (destination_coldkey, destination_hotkey)
+        // on the same subnet.
+        assert_ok!(SubtensorModule::do_transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(origin_coldkey),
+            destination_coldkey,
+            origin_hotkey,
+            destination_hotkey,
+            netuid,
+            netuid,
+            alpha
+        ));
+
+        // The origin position is empty and the destination position holds the stake.
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &origin_coldkey,
+                netuid
+            ),
+            AlphaBalance::ZERO
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &destination_hotkey,
+                &destination_coldkey,
+                netuid
+            ),
+            alpha,
+            epsilon = alpha / 1000.into()
+        );
+
+        // Nothing leaked onto the mixed (origin hotkey / destination coldkey) positions.
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &destination_coldkey,
+                netuid
+            ),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &destination_hotkey,
+                &origin_coldkey,
+                netuid
+            ),
+            AlphaBalance::ZERO
+        );
+
+        // The dedicated event was emitted.
+        assert!(System::events().iter().any(|e| matches!(
+            &e.event,
+            RuntimeEvent::SubtensorModule(Event::StakeAndHotkeyTransferred {
+                origin_coldkey: oc,
+                destination_coldkey: dc,
+                origin_hotkey: oh,
+                destination_hotkey: dh,
+                ..
+            }) if *oc == origin_coldkey
+                && *dc == destination_coldkey
+                && *oh == origin_hotkey
+                && *dh == destination_hotkey
+        )));
+    });
+}
+
+// Regression: locked miner collateral must not be liberated by a same-subnet,
+// ownership-changing transfer to a second coldkey. The collateral lock does not
+// follow the stake on this path (unlike conviction), so the origin coldkey must
+// be blocked from transferring away alpha it needs to cover its collateral.
+#[test]
+fn test_do_transfer_stake_and_hotkey_same_subnet_respects_collateral() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let origin_coldkey = U256::from(1);
+        let destination_coldkey = U256::from(2);
+        let origin_hotkey = U256::from(3);
+        let destination_hotkey = U256::from(4);
+        let stake_amount = DefaultMinStake::<Test>::get().to_u64() * 10;
+
+        let _ = SubtensorModule::create_account_if_non_existent(&origin_coldkey, &origin_hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(
+            &destination_coldkey,
+            &destination_hotkey,
+        );
+        add_balance_to_coldkey_account(&origin_coldkey, stake_amount.into());
+        SubtensorModule::stake_into_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+            stake_amount.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+        );
+
+        // Flag the origin (hotkey, coldkey) position as registration collateral.
+        MinerCollateral::<Test>::insert(
+            (netuid, origin_hotkey, origin_coldkey),
+            MinerCollateralState {
+                locked: alpha,
+                drain_ratio: U64F64::from_num(1),
+                min_locked: AlphaBalance::ZERO,
+                earned: AlphaBalance::ZERO,
+            },
+        );
+        ColdkeyMinerCollateral::<Test>::insert(netuid, origin_coldkey, alpha);
+
+        // Same-subnet transfer to a second coldkey must be rejected: it would
+        // liberate the locked collateral.
+        assert_err!(
+            SubtensorModule::do_transfer_stake_and_hotkey(
+                RuntimeOrigin::signed(origin_coldkey),
+                destination_coldkey,
+                origin_hotkey,
+                destination_hotkey,
+                netuid,
+                netuid,
+                alpha
+            ),
+            Error::<Test>::StakeUnavailable
+        );
+
+        // Collateral remains locked on the origin position.
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &origin_coldkey,
+                netuid
+            ),
+            alpha
+        );
+    });
+}
+
+#[test]
+fn test_do_transfer_stake_and_hotkey_nonexistent_destination_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let origin_coldkey = U256::from(1);
+        let destination_coldkey = U256::from(2);
+        let origin_hotkey = U256::from(3);
+        let nonexistent_hotkey = U256::from(999);
+        let stake_amount = DefaultMinStake::<Test>::get().to_u64() * 10;
+
+        let _ = SubtensorModule::create_account_if_non_existent(&origin_coldkey, &origin_hotkey);
+        add_balance_to_coldkey_account(&origin_coldkey, stake_amount.into());
+        SubtensorModule::stake_into_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+            stake_amount.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+        );
+
+        assert_noop!(
+            SubtensorModule::do_transfer_stake_and_hotkey(
+                RuntimeOrigin::signed(origin_coldkey),
+                destination_coldkey,
+                origin_hotkey,
+                nonexistent_hotkey,
+                netuid,
+                netuid,
+                alpha
+            ),
+            Error::<Test>::HotKeyAccountNotExists
+        );
+    });
+}
+
+#[test]
+fn test_do_transfer_stake_and_hotkey_different_subnets() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let origin_netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let destination_netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let origin_coldkey = U256::from(1);
+        let destination_coldkey = U256::from(2);
+        let origin_hotkey = U256::from(3);
+        let destination_hotkey = U256::from(4);
+        let stake_amount = DefaultMinStake::<Test>::get().to_u64() * 10;
+
+        let _ = SubtensorModule::create_account_if_non_existent(&origin_coldkey, &origin_hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(
+            &destination_coldkey,
+            &destination_hotkey,
+        );
+        add_balance_to_coldkey_account(&origin_coldkey, 1_000_000_000.into());
+        SubtensorModule::stake_into_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            origin_netuid,
+            stake_amount.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            origin_netuid,
+        );
+        let (tao_equivalent, _) = mock::swap_alpha_to_tao_ext(origin_netuid, alpha, true);
+        let (expected_alpha, _) = mock::swap_tao_to_alpha(destination_netuid, tao_equivalent);
+
+        assert_ok!(SubtensorModule::do_transfer_stake_and_hotkey(
+            RuntimeOrigin::signed(origin_coldkey),
+            destination_coldkey,
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha
+        ));
+
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &origin_coldkey,
+                origin_netuid
+            ),
+            AlphaBalance::ZERO
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &destination_hotkey,
+                &destination_coldkey,
+                destination_netuid,
+            ),
+            expected_alpha,
+            epsilon = 1000.into()
+        );
+    });
+}
+
+#[test]
+fn test_do_transfer_stake_and_hotkey_respects_transfer_toggle() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let origin_coldkey = U256::from(1);
+        let destination_coldkey = U256::from(2);
+        let origin_hotkey = U256::from(3);
+        let destination_hotkey = U256::from(4);
+        let stake_amount = DefaultMinStake::<Test>::get().to_u64() * 10;
+
+        let _ = SubtensorModule::create_account_if_non_existent(&origin_coldkey, &origin_hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(
+            &destination_coldkey,
+            &destination_hotkey,
+        );
+        add_balance_to_coldkey_account(&origin_coldkey, stake_amount.into());
+        SubtensorModule::stake_into_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+            stake_amount.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &origin_coldkey,
+            netuid,
+        );
+
+        // Disable transfers on the subnet: the call is a transfer, so it must fail.
+        assert_ok!(SubtensorModule::toggle_transfer(netuid, false));
+        assert_noop!(
+            SubtensorModule::do_transfer_stake_and_hotkey(
+                RuntimeOrigin::signed(origin_coldkey),
+                destination_coldkey,
+                origin_hotkey,
+                destination_hotkey,
+                netuid,
+                netuid,
+                alpha
+            ),
+            Error::<Test>::TransferDisallowed
         );
     });
 }
@@ -1322,13 +1692,16 @@ fn test_do_swap_insufficient_stake() {
         )
         .unwrap();
 
-        assert_ok!(SubtensorModule::do_swap_stake(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-            netuid1,
-            netuid2,
-            attempted_swap.into()
-        ));
+        assert_noop!(
+            SubtensorModule::do_swap_stake(
+                RuntimeOrigin::signed(coldkey),
+                hotkey,
+                netuid1,
+                netuid2,
+                attempted_swap.into()
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
     });
 }
 
@@ -1365,7 +1738,7 @@ fn test_do_swap_wrong_origin() {
                 netuid2,
                 stake_amount.into()
             ),
-            Error::<Test>::AmountTooLow
+            Error::<Test>::NotEnoughStakeToWithdraw
         );
     });
 }
@@ -1716,7 +2089,7 @@ fn test_move_stake_specific_stake_into_subnet_fail() {
         TotalHotkeyAlpha::<Test>::insert(hotkey_account_id, netuid, existing_stake);
 
         // Make the hotkey a delegate
-        Delegates::<Test>::insert(hotkey_account_id, 0);
+        Delegates::<Test>::insert(hotkey_account_id, PerU16::zero());
 
         // Setup Subnet pool
         SubnetAlphaIn::<Test>::insert(netuid, alpha_in);

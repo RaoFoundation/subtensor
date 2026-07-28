@@ -1,0 +1,161 @@
+---
+title: The client
+description: Connecting, the three levels of reading chain state, blocks and waiting, and snapshots.
+---
+
+`bt.Subtensor` is the entry point to everything: reads, transactions, and
+chain metadata. One class serves both worlds — used directly it is a blocking
+client; awaited, it is the async client. The mode is declared by syntax,
+never guessed from the environment.
+
+```python
+import bittensor as bt
+
+sub = bt.Subtensor()               # defaults to finney; connects lazily
+print(sub.block)                   # blocking; no close() needed
+
+client = await bt.Subtensor()      # the same class, awaited: the async client
+print(await client.block())
+
+with bt.Subtensor("test") as client: ...        # scoped, blocking
+async with bt.Subtensor("test") as client: ...  # scoped, async
+```
+
+Networks: `finney` (mainnet, the default), `test` (the public testnet),
+`local` (a dev node at `ws://127.0.0.1:9944`), and any `ws://` / `wss://`
+endpoint directly.
+
+Blocking mode never needs `close()`: the connection opens on the first call
+and is torn down automatically when the object is garbage collected or the
+process exits. Async mode follows normal asyncio hygiene — prefer
+`async with`, or `await client.close()` for deterministic teardown.
+
+The examples below show the async form; every one works identically in
+blocking mode with the `await`s dropped.
+
+## Three levels of reading
+
+**Typed namespaces** — one per read category (`balances`, `subnets`,
+`neurons`, `staking`, `delegation`, `prices`, `epochs`, `weights`, `locks`,
+`identity`, `leasing`, `hyperparameters`, `collateral`, `chain`). Every read
+in the catalog is a method on its namespace, with autocomplete, signature help,
+and typed returns; a few curated helpers (`subnets.all()`, `balances.get()`)
+add renamed or richer variants on top:
+
+```python
+await client.balances.get("5F...")                  # Balance
+await client.subnets.all()                          # list[SubnetInfo]
+await client.subnets.subnet_registration_cost()     # Balance
+await client.delegation.delegate_take(hotkey_ss58="5F...")
+await client.neurons.all(netuid=1)                  # list[Neuron]
+await client.collateral.miner_collateral(netuid=1, hotkey_ss58="5F...")
+```
+
+Every method takes an optional `block=` to pin the read to one block.
+
+**Named reads** — the same catalog dispatched by name, the form agents and
+the CLI's `query` group use. One page each under [Queries](/docs/query):
+
+```python
+take = await client.read("delegate_take", hotkey_ss58="5F...")
+client.reads()                            # the machine-readable catalog
+```
+
+**Generic accessors** — anything in the chain's runtime metadata, via generated
+descriptors. This is the escape hatch when no read wraps what you need:
+
+```python
+tempo = await client.query(bt.storage.SubtensorModule.Tempo, [1])
+pairs = await client.query_map(bt.storage.SubtensorModule.Tempo)
+ed = await client.constant(bt.constants.Balances.ExistentialDeposit)
+info = await client.runtime(bt.runtime_api.NeuronInfoRuntimeApi.get_neurons_lite, [1])
+```
+
+The `bt.storage`, `bt.constants`, `bt.runtime_api`, and `bt.calls` modules
+are generated from chain metadata and cover the entire runtime surface.
+
+## Typed results: the metagraph
+
+The richest typed result is the metagraph — a whole subnet as one object.
+`client.subnets.metagraph(netuid)` returns a `Metagraph` (the
+[`metagraph`](/docs/query/metagraph) named read returns the underlying raw
+runtime record instead):
+
+```python
+mg = await client.subnets.metagraph(netuid=1)
+
+for n in mg:                        # iterates neurons, ordered by uid; len(mg) works
+    print(n.uid, n.hotkey, n.incentive)
+
+mg.validators                       # neurons holding a validator permit
+mg.neuron(5)                        # by uid (KeyError if unknown)
+mg.by_hotkey("5F...")               # by hotkey, or None
+mg.hotkeys, mg.coldkeys             # parallel address lists
+```
+
+Each `MetagraphNeuron` carries the identity columns (`uid`, `hotkey`,
+`coldkey`), status (`active`, `validator_permit`, `last_update`,
+`block_at_registration`), the 0..1-normalized scores (`rank`, `trust`,
+`consensus`, `incentive`, `dividends`, `pruning_score`), balances (`emission`,
+`alpha_stake`, `tao_stake`, `total_stake`), and `axon` (the served `ip:port`
+or None), `identity`, and `commitment`. Subnet-level fields (`tempo`, `price`,
+`owner_hotkey`, ...) live on the `Metagraph` itself, and `mg.raw` keeps the
+untouched runtime record.
+
+`commitment` is the neuron's entry in the Commitments pallet, timelock-aware:
+
+```python
+c = mg.neuron(5).commitment          # or mg.commitments[5]; None if none
+if c is not None:
+    c.status                         # "plain" | "sealed" | "revealed"
+    c.value                          # visible content, or None while sealed
+    c.reveals_at                     # UTC datetime a sealed payload opens (else None)
+```
+
+`client.subnets.commitments(netuid)` fetches just the commitments (keyed by
+hotkey, much cheaper than the full metagraph); the named reads are
+[`commitment`](/docs/query/commitment), [`commitments`](/docs/query/commitments),
+and [`revealed-commitment`](/docs/query/revealed-commitment). Writing one has
+no dedicated intent: the chain call is `Commitments.set_commitment`, reachable
+via the raw-call escape hatch ([Advanced submission](/docs/concepts/advanced)).
+
+## Blocks, time, and waiting
+
+```python
+await client.block()                       # current block number
+await client.block_info(123)               # header + extrinsics + timestamp
+async for header in await client.blocks(): ...   # subscribe to new blocks
+
+await client.wait_for_block(1_000_000)
+await client.wait_for_timestamp("2026-08-01T00:00:00Z")
+await client.wait_for_epoch(netuid=1)      # next epoch boundary on a subnet
+```
+
+## Pinned snapshots
+
+`client.at(block)` returns a `Snapshot`: the same read surface — all the
+typed namespaces and named reads — pinned to one block, so a multi-read
+computation sees one consistent state instead of racing the chain. Writes
+through a snapshot are rejected — it is a view, not a signer.
+
+```python
+snap = await client.at(await client.block())
+bal = await snap.balances.get("5F...")
+subnets = await snap.subnets.all()
+```
+
+## Writing
+
+`plan`, `execute`, `execute_tool`, `submit_shielded`, and `submit_call` are
+covered in [The transaction model](/docs/concepts/transactions) and
+[Advanced submission](/docs/concepts/advanced).
+
+## Logging
+
+The SDK logs under the `bittensor.*` namespace and never configures handlers —
+it is silent unless your application opts in:
+
+```python
+import logging
+logging.getLogger("bittensor").setLevel(logging.DEBUG)
+```

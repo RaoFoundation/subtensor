@@ -1,0 +1,39 @@
+# Keep the E2E transport image aligned with Dockerfile-localnet so tests and
+# published images exercise the same userspace.
+ARG BASE_IMAGE=ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+
+FROM $BASE_IMAGE
+
+ARG BUILD_TRIPLE=x86_64-unknown-linux-gnu
+
+LABEL org.opencontainers.image.authors="operations@bittensor.com" \
+    org.opencontainers.image.vendor="Rao Foundation" \
+    org.opencontainers.image.title="Subtensor Localnet CI" \
+    org.opencontainers.image.description="PR-specific Subtensor localnet image for repository E2E tests" \
+    org.opencontainers.image.source="https://github.com/RaoFoundation/subtensor" \
+    org.opencontainers.image.url="https://github.com/RaoFoundation/subtensor" \
+    org.opencontainers.image.documentation="https://github.com/RaoFoundation/subtensor/blob/main/docs/guides/local-development.mdx" \
+    org.opencontainers.image.licenses="Apache-2.0"
+
+ENV RUST_BACKTRACE=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY build/ci_target/fast-runtime/${BUILD_TRIPLE}/release/node-subtensor \
+    /target/fast-runtime/release/node-subtensor
+COPY build/ci_target/fast-runtime/${BUILD_TRIPLE}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm \
+    /target/fast-runtime/release/node_subtensor_runtime.compact.compressed.wasm
+COPY snapshot.json /snapshot.json
+COPY scripts/localnet.sh /scripts/localnet.sh
+
+RUN chmod +x /target/fast-runtime/release/node-subtensor /scripts/localnet.sh
+
+ENV BUILD_BINARY=0
+ENV RUN_IN_DOCKER=1
+
+EXPOSE 30334 30335 9944 9945
+
+ENTRYPOINT ["/scripts/localnet.sh"]
+CMD ["True"]

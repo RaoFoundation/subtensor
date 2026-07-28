@@ -1,0 +1,123 @@
+---
+title: Money
+description: The Balance type, TAO vs alpha, rao, and valuing stake without lying to yourself.
+---
+
+Amounts on Bittensor come in two kinds of currency: **TAO**, the chain token,
+and **alpha**, of which every subnet has its own. They trade against each other
+in per-subnet pools, so an alpha amount is meaningless without knowing which
+subnet it belongs to — and 1 alpha on subnet 1 is not worth 1 alpha on
+subnet 2.
+
+## The Balance type
+
+`Balance` is unit-tagged: every instance carries the netuid whose currency it
+denominates (netuid 0 is TAO). Arithmetic between different units raises
+`UnitMismatchError` instead of silently mixing currencies.
+
+```python
+import bittensor as bt
+
+bt.Balance.from_tao("10000000.123456789")   # exact TAO (str/Decimal for big amounts)
+bt.Balance.from_alpha(2.5, netuid=42)       # subnet-42 alpha; prints with the subnet's
+                                             # on-chain token symbol (α₄₂ before connect)
+bt.tao(1.5); bt.alpha(2.5, 42); bt.rao(1_500_000_000)   # shorthands
+```
+
+Readback is unit-named too: `.tao` on a TAO balance, `.alpha` on an alpha
+balance — and `.tao` on an alpha balance raises rather than pretending the
+units are interchangeable. The base unit is **rao**: 1 TAO = 10⁹ rao.
+
+## Amount parameters
+
+Intent fields are named by unit so there is no ambiguity about what a number
+means: `amount_tao` is TAO, `amount_alpha` is the subnet's alpha (the origin
+subnet for cross-subnet moves), `*_rao` is rao. Money fields that support it
+accept the string `"all"` — the concrete amount is resolved from chain state at
+build time (e.g. [`transfer`](/docs/tx/transfer),
+[`remove-stake`](/docs/tx/remove-stake)).
+
+## Valuing stake
+
+Alpha is never summed across subnets or silently treated as TAO. To value a
+coldkey's stake in TAO, use the
+[`stake-value-for-coldkey`](/docs/query/stake-value-for-coldkey) read: a spot
+price mark (`alpha × price`, excluding slippage and fees), pinned to one block.
+For what you would actually receive by exiting a position, simulate the swap
+with [`quote-unstake`](/docs/query/quote-unstake), which includes fees and
+slippage.
+
+## Slippage
+
+Staking and unstaking are swaps against a pool
+([staking and pools](/docs/concepts/staking-pools) explains the pool
+mechanics with interactive charts), so the trade itself moves the
+price: your order consumes reserves as it fills, and the gap between what the
+spot price promised and what you actually receive grows with the trade's size
+relative to the pool's liquidity. Strictly, that self-inflicted gap is
+**price impact**; **slippage** is the further movement from other
+transactions landing before yours. The quotes account for the first, and the
+limit variants protect against both. The `*-limit` variants
+([`add-stake-limit`](/docs/tx/add-stake-limit),
+[`remove-stake-limit`](/docs/tx/remove-stake-limit)) bound the execution price
+and fail instead of filling badly.
+
+To turn a tolerance into a `limit_price`: when staking, ceiling = spot × (1 +
+tolerance); when unstaking, floor = spot × (1 − tolerance). At a spot price of
+2.0 TAO ([`alpha-price`](/docs/query/alpha-price)), a 0.5% tolerance means
+2.01 staking and 1.99 unstaking.
+
+The same economics decide what is worth
+[MEV-shielding](/docs/concepts/advanced#mev-shielded-submission).
+Root-subnet (netuid 0) staking is not a pool swap — it converts 1:1 with no
+swap fee and no price impact, so there is nothing for a front-runner to
+extract and shielding it buys nothing. Small swaps (well under ~1 TAO) are
+equally unattractive targets; the danger case is a large swap with a loose
+or absent limit price.
+
+## Swap fees
+
+Every swap against a pool pays a fee of amount × FeeRate / 65535, where
+[`FeeRate`](/code/pallets/swap/src/pallet/mod.rs#L96) is per-subnet and governance-settable (default 33 ≈ 0.05%). It is
+taken from the input side: TAO when staking, alpha when unstaking — and paid
+to the block author (an alpha-side fee is converted to TAO first). Moving
+stake between hotkeys within the same subnet is not a swap and pays no swap
+fee; a cross-subnet move runs two swaps but is charged the fee only once. The
+[`quote-stake`](/docs/query/quote-stake) /
+[`quote-unstake`](/docs/query/quote-unstake) reads include it. This is
+distinct from the per-extrinsic transaction fee — see
+[the transaction model](/docs/concepts/transactions).
+
+## Minimums
+
+Two floors to know about:
+
+- **Existential deposit** — 500 rao. An account whose balance drops below it
+  is reaped: deactivated, with the remaining dust destroyed. Live value:
+  [`existential-deposit`](/docs/query/existential-deposit).
+- **Minimum stake** — staking operations below a chain-configured minimum
+  ([`DefaultMinStake`](/code/pallets/subtensor/src/lib.rs#L1047), enforced in
+  [`stake_utils.rs`](/code/pallets/subtensor/src/staking/stake_utils.rs#L1089-L1102))
+  (default 2,000,000 rao = 0.002 TAO, plus the swap fee on top) fail with
+  [`AmountTooLow`](/code/pallets/subtensor/src/macros/errors.rs#L188); unstakes are held to the same floor, both on the amount
+  withdrawn and on any dust position left behind.
+
+## Supply
+
+Every token is hard-capped at **21 million** — TAO and each subnet's alpha
+alike. **Total issuance** is the chain's counter of what has been emitted and
+not recycled; it is what halving thresholds are measured against
+([emissions](/docs/concepts/emissions)). Circulating supply is smaller:
+issuance includes tokens locked in pool reserves and staked positions.
+
+## Recycled vs burned
+
+Both remove tokens from circulation, but not equivalently. **Recycled**
+tokens are subtracted from the chain's issuance counter, so the emission
+schedule can re-issue them later — neuron registration costs are recycled
+this way. **Burned** tokens stay counted in total issuance and are simply
+gone forever; nothing re-emits them. The distinction matters when reasoning
+about supply: recycling slows emission's approach to the cap, burning
+permanently retires supply. Transaction fees are neither — they are paid to
+the block author, not destroyed
+([fees](/docs/concepts/transactions#fees)).

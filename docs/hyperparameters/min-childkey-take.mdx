@@ -1,0 +1,52 @@
+---
+title: min_childkey_take
+description: Per-subnet floor on the take a childkey may charge its parent hotkeys.
+---
+
+Sets the minimum take a childkey can charge on this subnet. It matters to
+validators running parent–child hotkey setups
+([`set-children`](/docs/tx/set-children)): the take is the share of
+child-earned dividends the childkey keeps before passing the rest back to its
+parents. A subnet owner can raise this floor to stop childkeys from
+undercutting each other to zero.
+
+## How it works
+
+The value is stored per subnet as a `PerU16` fraction (65535 = 100%). The
+chain combines it with the global, root-set minimum: the **effective floor is
+the greater of the two**, so a subnet can only make the global minimum
+stricter, never looser. Both defaults are currently 0.
+
+The floor is enforced in two places. Setting a take via
+[`set-childkey-take`](/docs/tx/set-childkey-take) rejects values below the
+effective floor (or above the global maximum, 11796/65535 ≈ 18%) with
+[`InvalidChildkeyTake`](/code/pallets/subtensor/src/macros/errors.rs#L166).
+And every read of a childkey's take clamps up to the
+floor — so raising it immediately re-prices existing childkeys that were set
+lower, without anyone resubmitting.
+
+The setter itself bounds the floor to the \[global min, global max\] range, so
+an owner cannot set a floor above 18%.
+
+Raise the floor below and watch an existing childkey's take get pushed up:
+
+<HyperparamChildkeyTakeRange />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name min_childkey_take
+btcli sudo set --netuid 12 --name min_childkey_take --value 0.05
+```
+
+Settable by the subnet owner or root. The value is a fraction between 0 and 1
+written with a decimal point (`0.05` = 5%, stored as 3276/65535). The get
+command reports the effective floor — the max of global and per-subnet values.
+
+## Related
+
+- [`transfers_enabled`](/docs/hyperparameters/transfers-enabled)
+- [`owner_cut_enabled`](/docs/hyperparameters/owner-cut-enabled)
+- [`set-children`](/docs/tx/set-children) and
+  [`set-childkey-take`](/docs/tx/set-childkey-take) — the transactions this
+  floor governs

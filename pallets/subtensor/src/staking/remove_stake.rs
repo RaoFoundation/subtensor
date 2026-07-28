@@ -9,37 +9,28 @@ use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{Order, SwapHandler};
 
 impl<T: Config> Pallet<T> {
-    /// ---- The implementation for the extrinsic remove_stake: Removes stake from a hotkey account and adds it onto a coldkey.
+    /// The implementation for the extrinsic remove_stake: Removes stake from a hotkey account and adds it onto a coldkey.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     -  The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     -  The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// * 'netuid' (u16):
-    ///     - Subnetwork UID
+    /// * `netuid`: Subnetwork UID.
     ///
-    /// * 'alpha_unstaked' (Alpha):
-    ///     -  The amount of stake to be removed from the staking account.
+    /// * `alpha_unstaked`: The amount of stake to be removed from the staking account.
     ///
-    /// # Event:
-    /// * StakeRemoved;
-    ///     -  On the successfully removing stake from the hotkey account.
+    /// # Events
+    /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     -  Thrown if the account we are attempting to unstake from is non existent.
+    /// # Errors
+    /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     -  Thrown if the coldkey does not own the hotkey we are unstaking from.
+    /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
     ///
-    /// * 'NotEnoughStakeToWithdraw':
-    ///     -  Thrown if there is not enough stake on the hotkey to withdwraw this amount.
+    /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     -  Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     pub fn do_remove_stake(
         origin: OriginFor<T>,
@@ -97,31 +88,24 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
+    /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     -  The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     -  The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// # Event:
-    /// * StakeRemoved;
-    ///     -  On the successfully removing stake from the hotkey account.
+    /// # Events
+    /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     -  Thrown if the account we are attempting to unstake from is non existent.
+    /// # Errors
+    /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     -  Thrown if the coldkey does not own the hotkey we are unstaking from.
+    /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
     ///
-    /// * 'NotEnoughStakeToWithdraw':
-    ///     -  Thrown if there is not enough stake on the hotkey to withdraw this amount.
+    /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     -  Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     pub fn do_unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> dispatch::DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
@@ -182,31 +166,24 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
+    /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///     -  The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     -  The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// # Event:
-    /// * StakeRemoved;
-    ///     -  On the successfully removing stake from the hotkey account.
+    /// # Events
+    /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     -  Thrown if the account we are attempting to unstake from is non existent.
+    /// # Errors
+    /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     -  Thrown if the coldkey does not own the hotkey we are unstaking from.
+    /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
     ///
-    /// * 'NotEnoughStakeToWithdraw':
-    ///     -  Thrown if there is not enough stake on the hotkey to withdraw this amount.
+    /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdraw this amount.
     ///
-    /// * 'TxRateLimitExceeded':
-    ///     -  Thrown if key has hit transaction rate limit
+    /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
     ///
     pub fn do_unstake_all_alpha(
         origin: OriginFor<T>,
@@ -287,46 +264,36 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- The implementation for the extrinsic remove_stake_limit: Removes stake from
+    /// The implementation for the extrinsic remove_stake_limit: Removes stake from
     /// a hotkey on a subnet with a price limit.
     ///
     /// In case if slippage occurs and the price shall move beyond the limit
     /// price, the staking order may execute only partially or not execute
     /// at all.
     ///
-    /// # Args:
-    /// * 'origin': (<T as frame_system::Config>Origin):
-    ///     - The signature of the caller's coldkey.
+    /// # Arguments
+    /// * `origin`: The signature of the caller's coldkey.
     ///
-    /// * 'hotkey' (T::AccountId):
-    ///     - The associated hotkey account.
+    /// * `hotkey`: The associated hotkey account.
     ///
-    /// * 'netuid' (u16):
-    ///     - Subnetwork UID
+    /// * `netuid`: Subnetwork UID.
     ///
-    /// * 'amount_unstaked' (u64):
-    ///     - The amount of stake to be added to the hotkey staking account.
+    /// * `amount_unstaked`: The amount of stake to be added to the hotkey staking account.
     ///
-    ///  * 'limit_price' (u64):
-    ///     - The limit price expressed in units of RAO per one Alpha.
+    /// * `limit_price`: The limit price expressed in units of RAO per one Alpha.
     ///
-    ///  * 'allow_partial' (bool):
-    ///     - Allows partial execution of the amount. If set to false, this becomes
-    ///       fill or kill type or order.
+    /// * `allow_partial`: Allows partial execution of the amount. If set to false, this becomes
+    ///   fill or kill type of order.
     ///
-    /// # Event:
-    /// * StakeRemoved;
-    ///     - On the successfully removing stake from the hotkey account.
+    /// # Events
+    /// * `StakeRemoved`: On the successfully removing stake from the hotkey account.
     ///
-    /// # Raises:
-    /// * 'NotRegistered':
-    ///     - Thrown if the account we are attempting to unstake from is non existent.
+    /// # Errors
+    /// * `NotRegistered`: Thrown if the account we are attempting to unstake from is non existent.
     ///
-    /// * 'NonAssociatedColdKey':
-    ///     - Thrown if the coldkey does not own the hotkey we are unstaking from.
+    /// * `NonAssociatedColdKey`: Thrown if the coldkey does not own the hotkey we are unstaking from.
     ///
-    /// * 'NotEnoughStakeToWithdraw':
-    ///     - Thrown if there is not enough stake on the hotkey to withdwraw this amount.
+    /// * `NotEnoughStakeToWithdraw`: Thrown if there is not enough stake on the hotkey to withdwraw this amount.
     ///
     pub fn do_remove_stake_limit(
         origin: OriginFor<T>,
@@ -576,16 +543,13 @@ impl<T: Config> Pallet<T> {
     /// It iterates through all hotkeys in the subnet and calculates the total alpha value.
     /// It returns true if all hotkeys are iterated, otherwise false.
     ///
-    /// # Args:
-    /// * 'netuid' (NetUid):
-    ///     - The subnet to calculate the total alpha value for.
+    /// # Arguments
+    /// * `netuid`: The subnet to calculate the total alpha value for.
     ///
-    /// * 'weight_meter' (WeightMeter):
-    ///     - The weight meter to consume the weight for the operation.
+    /// * `weight_meter`: The weight meter to consume the weight for the operation.
     ///
-    /// # Returns:
-    /// * 'bool':
-    ///     - True if all hotkeys are iterated, otherwise false.
+    /// # Returns
+    /// * `bool`: True if all hotkeys are iterated, otherwise false.
     ///
     pub fn destroy_alpha_in_out_stakes_get_total_alpha_value(
         netuid: NetUid,
@@ -616,15 +580,24 @@ impl<T: Config> Pallet<T> {
             total_alpha_value_u128 = protocol_alpha_value_u128;
         }
 
+        // Preserve the inbound cursor so a pass that only skips other-netuid rows (or
+        // exhausts weight before finishing another matching hotkey) cannot return None
+        // and restart from the beginning — that would double-count into
+        // status.subnet_total_alpha_value.
+        let mut last_completed_key = last_key.clone();
+        // Once a hotkey's Alpha/AlphaV2 prefix scan is started, finish it even if the
+        // remaining on_idle budget is exhausted. A single hotkey can have more prefix
+        // entries across all subnets than one block's leftover weight; aborting mid-hotkey
+        // and retrying forever livelocks dissolution.
+        let mut exhausted = false;
+
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
             None => TotalHotkeyAlpha::<T>::iter(),
         };
 
-        let mut last_hot = None;
-
         for (hot, this_netuid, _) in iter {
-            if !weight_meter.can_consume(r) {
+            if exhausted || !weight_meter.can_consume(r) {
                 read_all = false;
                 break;
             }
@@ -634,13 +607,12 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            let mut iterate_all = true;
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                if !weight_meter.can_consume(r) {
-                    iterate_all = false;
-                    break;
+                if weight_meter.can_consume(r) {
+                    weight_meter.consume(r);
+                } else {
+                    exhausted = true;
                 }
-                weight_meter.consume(r);
 
                 if this_netuid != netuid {
                     continue;
@@ -663,20 +635,16 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
-            if !iterate_all {
+            last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
+            if exhausted {
                 read_all = false;
                 break;
-            } else {
-                last_hot = Some(hot);
             }
         }
 
         status.subnet_total_alpha_value = Some(total_alpha_value_u128);
 
-        (
-            read_all,
-            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
-        )
+        (read_all, last_completed_key)
     }
 
     pub fn destroy_alpha_in_out_stakes_settle_stakes(
@@ -702,7 +670,10 @@ impl<T: Config> Pallet<T> {
 
         let mut hotkeys_in_subnet: Vec<T::AccountId> = Vec::new();
         let mut coldkeys = BTreeSet::<T::AccountId>::new();
-        let mut last_hot = None;
+        let mut last_completed_key = last_key.clone();
+        // Finish the current hotkey even if weight runs out mid-prefix; otherwise a fat
+        // Alpha/AlphaV2 hotkey prefix livelocks dissolution across blocks.
+        let mut exhausted = false;
 
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
@@ -710,7 +681,7 @@ impl<T: Config> Pallet<T> {
         };
 
         for (hot, this_netuid, _) in iter {
-            if !weight_meter.can_consume(r) {
+            if exhausted || !weight_meter.can_consume(r) {
                 read_all = false;
                 break;
             }
@@ -721,18 +692,17 @@ impl<T: Config> Pallet<T> {
             }
             hotkeys_in_subnet.push(hot.clone());
 
-            let mut inner_read_all = true;
             let mut coldkey_value_vec: Vec<(T::AccountId, u128)> = Vec::new();
 
-            // Handle one hotkey and all its coldkeys or skip the hotkey if the weight is not enough
-            // Then we just need to record the hotkey as checkpoint
+            // Drain the whole hotkey prefix once started. Weight is accounted when it
+            // still fits; overshoot is allowed so the cursor can advance past this hotkey.
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                if !weight_meter.can_consume(r.saturating_mul(2_u64)) {
-                    inner_read_all = false;
-                    break;
+                let inner_reads = r.saturating_mul(2_u64);
+                if weight_meter.can_consume(inner_reads) {
+                    weight_meter.consume(inner_reads);
+                } else {
+                    exhausted = true;
                 }
-
-                weight_meter.consume(r.saturating_mul(2_u64));
                 if this_netuid != netuid {
                     continue;
                 }
@@ -758,26 +728,23 @@ impl<T: Config> Pallet<T> {
                         coldkeys.insert(cold.clone());
                     }
 
-                    // reserve the weight for the add_balance_to_coldkey_account function call later
-                    if !weight_meter.can_consume(need_to_consume_weight) {
-                        inner_read_all = false;
-                        last_hot = Some(hot.clone());
-                        break;
+                    if weight_meter.can_consume(need_to_consume_weight) {
+                        weight_meter.consume(need_to_consume_weight);
+                    } else {
+                        exhausted = true;
                     }
-                    weight_meter.consume(need_to_consume_weight);
                     let val_u128 = val_u64 as u128;
                     coldkey_value_vec.push((cold.clone(), val_u128));
                 }
             }
 
-            if !inner_read_all {
+            for (cold, value) in coldkey_value_vec {
+                stakers.push((hot.clone(), cold, value));
+            }
+            last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
+            if exhausted {
                 read_all = false;
                 break;
-            } else {
-                for (cold, value) in coldkey_value_vec {
-                    stakers.push((hot.clone(), cold, value));
-                }
-                last_hot = Some(hot.clone());
             }
         }
 
@@ -861,10 +828,7 @@ impl<T: Config> Pallet<T> {
         // ignore the weight for handling the final operation, we must set the correct status for the next run
         status.subnet_distributed_tao = Some(distributed_tao_value_u128);
 
-        (
-            read_all,
-            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
-        )
+        (read_all, last_completed_key)
     }
 
     pub fn destroy_alpha_in_out_stakes_clean_alpha(
@@ -876,16 +840,20 @@ impl<T: Config> Pallet<T> {
         let w = T::DbWeight::get().writes(1);
         let mut read_all = true;
 
+        // Same cursor preserve as settle/get_total: do not wipe last_key when a pass
+        // only skips non-matching rows or runs out of weight before the next hotkey.
+        let mut last_completed_key = last_key.clone();
+        // Finish the current hotkey's Alpha/AlphaV2 cleanup even if weight is exhausted.
+        let mut exhausted = false;
+
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
             None => TotalHotkeyAlpha::<T>::iter(),
         };
 
-        let mut last_hot = None;
-
         for (hot, this_netuid, _) in iter {
             let mut coldkeys: Vec<T::AccountId> = Vec::new();
-            if !weight_meter.can_consume(r) {
+            if exhausted || !weight_meter.can_consume(r) {
                 read_all = false;
                 break;
             }
@@ -895,46 +863,39 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            let mut iterate_all = true;
-            // handle all coldkeys for the hotkey as transactional, it is overdesigned to record two layers of checkpoints
             for (cold, this_netuid, _) in Self::alpha_iter_single_prefix(&hot) {
-                if !weight_meter.can_consume(r) {
-                    read_all = false;
-                    iterate_all = false;
-                    break;
+                if weight_meter.can_consume(r) {
+                    weight_meter.consume(r);
+                } else {
+                    exhausted = true;
                 }
-                weight_meter.consume(r);
                 if this_netuid != netuid {
                     continue;
                 }
                 coldkeys.push(cold.clone());
             }
 
-            if !iterate_all {
-                read_all = false;
-                break;
-            }
-
             let weight_for_all_remove = w.saturating_mul(coldkeys.len() as u64);
-
-            if !weight_meter.can_consume(weight_for_all_remove) {
-                read_all = false;
-                break;
+            if weight_meter.can_consume(weight_for_all_remove) {
+                weight_meter.consume(weight_for_all_remove);
+            } else {
+                exhausted = true;
             }
-            weight_meter.consume(weight_for_all_remove);
 
-            last_hot = Some(hot.clone());
+            last_completed_key = Some(TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid));
 
             for cold in coldkeys {
                 Alpha::<T>::remove((&hot, &cold, netuid));
                 AlphaV2::<T>::remove((&hot, &cold, netuid));
             }
+
+            if exhausted {
+                read_all = false;
+                break;
+            }
         }
 
-        (
-            read_all,
-            last_hot.map(|hot| TotalHotkeyAlpha::<T>::hashed_key_for(&hot, netuid)),
-        )
+        (read_all, last_completed_key)
     }
 
     pub fn destroy_alpha_in_out_stakes_clear_hotkey_totals(

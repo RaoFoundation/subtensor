@@ -1,5 +1,3 @@
-version: "3.8"
-
 volumes:
   mainnet-lite-volume:
   mainnet-archive-volume:
@@ -25,8 +23,6 @@ services:
       - "9944"
       - "30333"
       - "9933"
-    environment:
-      - CARGO_HOME=/var/www/node-subtensor/.cargo
 
   mainnet-lite:
     <<: *common

@@ -31,23 +31,30 @@ impl LockState {
     }
 }
 
-/// Unsigned decrease produced by rolling a lock forward.
+/// Change produced by rolling a lock forward. Locked mass only ever
+/// decreases, but conviction can move either way (it matures upward from
+/// locked mass and decays downward once the mass is gone), so its change is
+/// carried as separate unsigned growth/decay components.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RollDelta {
     pub locked_mass_delta: AlphaBalance,
-    pub conviction_delta: U64F64,
+    pub conviction_decay: U64F64,
+    pub conviction_growth: U64F64,
 }
 
 impl RollDelta {
     pub fn zero() -> Self {
         Self {
             locked_mass_delta: AlphaBalance::ZERO,
-            conviction_delta: U64F64::saturating_from_num(0),
+            conviction_decay: U64F64::saturating_from_num(0),
+            conviction_growth: U64F64::saturating_from_num(0),
         }
     }
 
     pub fn is_zero(&self) -> bool {
-        self.locked_mass_delta.is_zero() && self.conviction_delta == U64F64::saturating_from_num(0)
+        self.locked_mass_delta.is_zero()
+            && self.conviction_decay == U64F64::saturating_from_num(0)
+            && self.conviction_growth == U64F64::saturating_from_num(0)
     }
 }
 
@@ -248,8 +255,16 @@ impl ConvictionModel {
         *aggregate = Self::reduce_lock(
             aggregate,
             roll_delta.locked_mass_delta,
-            roll_delta.conviction_delta,
+            roll_delta.conviction_decay,
         );
+        // Conviction matured by the individual lock must be credited to the
+        // aggregate here: bumping last_update below means the aggregate's own
+        // roll-forward will never cover this window, so dropping the growth
+        // (as a saturating decrease-only delta used to) permanently
+        // understates aggregate conviction.
+        aggregate.conviction = aggregate
+            .conviction
+            .saturating_add(roll_delta.conviction_growth);
         aggregate.last_update = now;
         *aggregate_dirty = true;
     }
@@ -448,7 +463,8 @@ impl ConvictionModel {
 
         let roll_delta = RollDelta {
             locked_mass_delta: previous_locked_mass.saturating_sub(rolled.locked_mass),
-            conviction_delta: previous_conviction.saturating_sub(rolled.conviction),
+            conviction_decay: previous_conviction.saturating_sub(rolled.conviction),
+            conviction_growth: rolled.conviction.saturating_sub(previous_conviction),
         };
 
         (rolled, roll_delta)
@@ -724,15 +740,20 @@ impl<T: Config> Pallet<T> {
 
     /// (total_stake, locked_mass, available_to_unstake) for a coldkey on one subnet.
     ///
-    /// The lock is subnet-wide: it blocks unstaking from any hotkey on that subnet,
-    /// not from a single hotkey position.
+    /// The conviction lock is subnet-wide: it blocks unstaking from any hotkey on
+    /// that subnet, not from a single hotkey position. Miner registration
+    /// collateral is also subtracted here as a coldkey-wide residual; call sites
+    /// that know the origin hotkey must additionally call
+    /// `ensure_hotkey_covers_collateral` so the bond cannot be covered by free
+    /// stake on a sibling hotkey.
     pub fn stake_availability(
         coldkey: &T::AccountId,
         netuid: NetUid,
     ) -> (AlphaBalance, AlphaBalance, AlphaBalance) {
         let total = Self::total_coldkey_alpha_on_subnet(coldkey, netuid);
         let locked = Self::get_current_locked(coldkey, netuid);
-        let available = total.saturating_sub(locked);
+        let collateral = Self::total_miner_collateral_for_coldkey(coldkey, netuid);
+        let available = total.saturating_sub(locked).saturating_sub(collateral);
         (total, locked, available)
     }
 
@@ -1706,6 +1727,17 @@ impl<T: Config> Pallet<T> {
         (reads, writes)
     }
 
+    /// Conviction is only preserved when a lock moves between hotkeys owned by
+    /// the same coldkey; moving it to a differently owned hotkey forfeits it.
+    /// Shared by `do_move_lock` and `transfer_lock`.
+    fn conviction_survives_hotkey_change(
+        source_hotkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
+    ) -> bool {
+        Self::get_owning_coldkey_for_hotkey(source_hotkey)
+            == Self::get_owning_coldkey_for_hotkey(destination_hotkey)
+    }
+
     /// Moves lock from one hotkey to another and clears conviction
     ///
     /// The lock is rolled forward to the current block before switching the
@@ -1734,9 +1766,7 @@ impl<T: Config> Pallet<T> {
                 let mut lock = model.individual_lock().clone();
                 let removed = lock.clone();
 
-                if Self::get_owning_coldkey_for_hotkey(&origin_hotkey)
-                    != Self::get_owning_coldkey_for_hotkey(destination_hotkey)
-                {
+                if !Self::conviction_survives_hotkey_change(&origin_hotkey, destination_hotkey) {
                     lock.conviction = U64F64::saturating_from_num(0);
                 }
                 lock = ConvictionModel::roll_forward_lock(
@@ -1801,13 +1831,16 @@ impl<T: Config> Pallet<T> {
     ///
     /// First, this function rolls the lock forward and checks if amount is over available
     /// stake and if it is, the stake that's over the available amount on the destination
-    /// coldkey is locked in the same way as the original stake: If original stake is locked to
-    /// a hotkey, it remains locked to the same hotkey. Conviction is moved proportionally to
-    /// the moved locked amount of alpha. For example, if 20% of locked alpha is moved, then
-    /// also 20% of conviction is moved.
+    /// coldkey is locked in the same way as the original stake: the lock follows the stake
+    /// to `destination_hotkey` (which, for plain stake transfers, is the same hotkey the
+    /// stake was locked to). Conviction is moved proportionally to the moved locked amount
+    /// of alpha. For example, if 20% of locked alpha is moved, then also 20% of conviction
+    /// is moved. If the source and destination hotkeys are owned by different coldkeys,
+    /// the moved conviction is reset to zero, mirroring `do_move_lock`.
     pub fn transfer_lock(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
+        destination_hotkey: &T::AccountId,
         netuid: NetUid,
         amount: AlphaBalance,
     ) -> DispatchResult {
@@ -1841,10 +1874,10 @@ impl<T: Config> Pallet<T> {
                 (hotkey, model.individual_lock().clone())
             });
 
-        let mut destination_hotkey = maybe_destination_lock
+        let destination_lock_hotkey = maybe_destination_lock
             .as_ref()
             .map(|(hotkey, _)| hotkey.clone())
-            .unwrap_or_else(|| source_hotkey.clone());
+            .unwrap_or_else(|| destination_hotkey.clone());
         let mut destination_lock = maybe_destination_lock
             .as_ref()
             .map(|(_, lock)| lock.clone())
@@ -1870,13 +1903,13 @@ impl<T: Config> Pallet<T> {
         // on the destination coldkey proportionally.
         let mut locked_transfer = AlphaBalance::ZERO;
         let mut conviction_transfer = U64F64::saturating_from_num(0);
+        let mut received_conviction = U64F64::saturating_from_num(0);
         if !remaining_to_transfer.is_zero() {
             if let Some((existing_hotkey, _)) = maybe_destination_lock.as_ref() {
                 ensure!(
-                    existing_hotkey == &source_hotkey,
+                    existing_hotkey == destination_hotkey,
                     Error::<T>::LockHotkeyMismatch
                 );
-                destination_hotkey = existing_hotkey.clone();
             }
 
             locked_transfer = remaining_to_transfer.min(source_lock.locked_mass);
@@ -1892,13 +1925,25 @@ impl<T: Config> Pallet<T> {
                     .saturating_mul(transferred_proportion)
             };
 
+            // Conviction only follows the lock when the destination hotkey is owned
+            // by the same coldkey as the source hotkey; otherwise it is forfeited,
+            // mirroring `do_move_lock`.
+            received_conviction = if Self::conviction_survives_hotkey_change(
+                &source_hotkey,
+                &destination_lock_hotkey,
+            ) {
+                conviction_transfer
+            } else {
+                U64F64::saturating_from_num(0)
+            };
+
             source_lock.locked_mass = source_lock.locked_mass.saturating_sub(locked_transfer);
             source_lock.conviction = source_lock.conviction.saturating_sub(conviction_transfer);
             destination_lock.locked_mass =
                 destination_lock.locked_mass.saturating_add(locked_transfer);
             destination_lock.conviction = destination_lock
                 .conviction
-                .saturating_add(conviction_transfer);
+                .saturating_add(received_conviction);
         }
         Self::ensure_can_receive_locked_alpha(destination_coldkey, locked_transfer)?;
 
@@ -1916,7 +1961,7 @@ impl<T: Config> Pallet<T> {
             now,
             unlock_rate,
             maturity_rate,
-            Self::is_subnet_owner_hotkey(netuid, &destination_hotkey),
+            Self::is_subnet_owner_hotkey(netuid, &destination_lock_hotkey),
             Self::is_perpetual_lock(destination_coldkey, netuid),
         )
         .0;
@@ -1927,7 +1972,7 @@ impl<T: Config> Pallet<T> {
         Self::insert_lock_state(
             destination_coldkey,
             netuid,
-            &destination_hotkey,
+            &destination_lock_hotkey,
             destination_lock,
         );
         if !locked_transfer.is_zero() {
@@ -1940,11 +1985,11 @@ impl<T: Config> Pallet<T> {
             );
             Self::add_aggregate_lock(
                 destination_coldkey,
-                &destination_hotkey,
+                &destination_lock_hotkey,
                 netuid,
                 LockState {
                     locked_mass: locked_transfer,
-                    conviction: conviction_transfer,
+                    conviction: received_conviction,
                     last_update: now,
                 },
             );

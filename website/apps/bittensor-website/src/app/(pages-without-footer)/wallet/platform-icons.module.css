@@ -1,0 +1,101 @@
+/* 12×12 platform glyphs — insets from Figma Platform Icons (flattened vectors) */
+
+.stack {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* Figma omits overflow clip for Apple + Google Play only */
+.stackNoClip {
+  overflow: visible;
+}
+
+/* Apple — SVG includes 12×12 frame + Figma-offset glyph; fill stack */
+.apple {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.googlePlay {
+  position: absolute;
+  inset: 8.33% 13.89%;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.chrome {
+  position: absolute;
+  inset: 8.33%;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Ledger (hardware wallet glyph, 12×12 frame) */
+.ledger {
+  position: absolute;
+  inset: 8.33%;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+/* External (generic outbound link) */
+.ex1 {
+  position: absolute;
+  top: calc(50% + 0.45px);
+  left: 8.33%;
+  right: 8.33%;
+  height: 8.895px;
+  transform: translateY(-50%);
+  width: auto;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+/* Tangem */
+.tang {
+  position: absolute;
+  left: calc(50% + 0.13px);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 7.5px;
+  height: 10px;
+}
+
+/* Polkadot Vault */
+.pv {
+  position: absolute;
+  inset: 0 6.29% 3.71% 8.33%;
+}
+
+/* CLI — scaled to match updated Figma frame (larger glyph in 12×12 cell) */
+.cli {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 11.5px;
+  height: 6.83px;
+  object-fit: contain;
+}
+
+/* Firefox */
+.fx {
+  position: absolute;
+  inset: 9.79% 7.14%;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}

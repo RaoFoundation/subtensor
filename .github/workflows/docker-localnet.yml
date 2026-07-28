@@ -1,24 +1,27 @@
 name: Publish Localnet Docker Image
 
+# Localnet images are the chain-in-a-box used by SDK/btcli e2e harnesses.
+# The release train force-moves the devnet/testnet mirror branch only after
+# that exact commit is verified on the corresponding live network; the mirror
+# push is therefore the publication hook for those tags. Main publishes its
+# candidate tag directly and is the only branch that advances :latest. Manual
+# PR builds publish :pr-N without moving a branch tag or :latest.
+
 on:
   release:
     types: [published]
+  push:
+    branches: [main, devnet, testnet]
   workflow_dispatch:
     inputs:
       branch-or-tag:
-        description: "The branch or tag to use as the Docker image tag (optional)."
+        description: "Ref to build and Docker tag to publish (optional)"
         required: false
         default: ""
       pr-number:
-        description: "PR number to build (e.g., 2283). If specified, creates tag pr-{number} and does not update latest."
+        description: "PR number to build (e.g. 2283). Creates tag pr-{number} and does not move :latest."
         required: false
         default: ""
-  push:
-    branches:
-      - devnet-ready
-      - main
-      - testnet
-      - devnet
 
 concurrency:
   group: docker-localnet-${{ github.ref }}
@@ -27,8 +30,6 @@ concurrency:
 permissions:
   contents: read
   packages: write
-  actions: read
-  security-events: write
   pull-requests: read
 
 jobs:
@@ -38,79 +39,96 @@ jobs:
       tag: ${{ steps.vars.outputs.tag }}
       ref: ${{ steps.vars.outputs.ref }}
       latest_tag: ${{ steps.vars.outputs.latest_tag }}
+      sha: ${{ steps.source.outputs.sha }}
+      image: ${{ steps.image.outputs.image }}
+      repository: ${{ steps.image.outputs.repository }}
+      publication_id: ${{ steps.image.outputs.publication_id }}
     steps:
-      - name: Get PR branch (if pr-number is specified)
+      - name: Check out workflow scripts
+        uses: actions/checkout@v4
+
+      - name: Validate image tag policy
+        run: ./.github/scripts/test-resolve-localnet-image.sh
+
+      - name: Validate image publication contract
+        run: ./.github/scripts/test-publish-localnet-manifest.sh
+
+      - name: Get PR source (if pr-number is specified)
         id: pr-info
         if: ${{ github.event.inputs.pr-number != '' }}
         uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ github.event.inputs.pr-number }}
         with:
           script: |
-            const prNumber = '${{ github.event.inputs.pr-number }}';
+            const prNumber = process.env.PR_NUMBER;
+            if (!/^\d+$/.test(prNumber)) {
+              core.setFailed(`Invalid PR number: ${prNumber}`);
+              return;
+            }
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: parseInt(prNumber)
+              pull_number: Number(prNumber)
             });
+            if (pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.setFailed('Fork PRs cannot run on the localnet publishing runners.');
+              return;
+            }
             core.setOutput('head_ref', pr.head.ref);
             core.setOutput('head_sha', pr.head.sha);
 
-      - name: Determine Docker tag and ref
+      - name: Determine Docker tag and source ref
         id: vars
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.inputs.pr-number }}
+          PR_HEAD_REF: ${{ steps.pr-info.outputs.head_ref }}
+          PR_HEAD_SHA: ${{ steps.pr-info.outputs.head_sha }}
+          BRANCH_OR_TAG: ${{ github.event.inputs.branch-or-tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: ./.github/scripts/resolve-localnet-image.sh
+
+      - name: Determine image identity
+        id: image
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "ref=${{ github.head_ref }}" >> $GITHUB_OUTPUT
-            echo "tag=${{ github.base_ref }}" >> $GITHUB_OUTPUT
-          elif [[ -n "${{ github.event.inputs.pr-number }}" ]]; then
-            # PR build mode: use pr-{number} as tag, don't update latest
-            pr_number="${{ github.event.inputs.pr-number }}"
-            tag="pr-${pr_number}"
-            echo "tag=$tag" >> $GITHUB_OUTPUT
+          repository="${GITHUB_REPOSITORY,,}-localnet"
+          echo "image=ghcr.io/$repository" >> "$GITHUB_OUTPUT"
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "publication_id=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
-            # Use branch from PR info if available, otherwise use branch-or-tag input
-            if [[ -n "${{ steps.pr-info.outputs.head_ref }}" ]]; then
-              echo "ref=${{ steps.pr-info.outputs.head_ref }}" >> $GITHUB_OUTPUT
-            elif [[ -n "${{ github.event.inputs.branch-or-tag }}" ]]; then
-              echo "ref=${{ github.event.inputs.branch-or-tag }}" >> $GITHUB_OUTPUT
-            else
-              echo "ref=main" >> $GITHUB_OUTPUT
-            fi
-            echo "latest_tag=false" >> $GITHUB_OUTPUT
-          else
-            tag="${{ github.event.inputs.branch-or-tag || github.ref_name }}"
-            echo "ref=${{ github.event.inputs.branch-or-tag || github.ref_name }}" >> $GITHUB_OUTPUT
-            echo "tag=$tag" >> $GITHUB_OUTPUT
+      - name: Check out immutable source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.vars.outputs.ref }}
 
-            if [[ "$tag" != "devnet-ready" ]]; then
-              echo "latest_tag=true" >> $GITHUB_OUTPUT
-            else
-              echo "latest_tag=false" >> $GITHUB_OUTPUT
-            fi
-          fi
+      - name: Record source commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  # build artifacts for fast-runtime and non-fast-runtime
+  # Build node binaries for both runtimes on both architectures.
   artifacts:
     name: Node • ${{ matrix.runtime }} • ${{ matrix.platform.arch }}
     needs: setup
+    timeout-minutes: 90
     strategy:
+      fail-fast: false
       matrix:
         platform:
-          # triple names used `in scripts/install_prebuilt_binaries.sh` file
-          - runner: [self-hosted, fireactions-heavy]
+          # Triple names are also used by scripts/install_prebuilt_binaries.sh.
+          - runner: [self-hosted, fireactions-turbo-8]
             triple: x86_64-unknown-linux-gnu
             arch: amd64
           - runner: [ubuntu-24.04-arm]
             triple: aarch64-unknown-linux-gnu
             arch: arm64
-
-        runtime: ["fast-runtime", "non-fast-runtime"]
-
+        runtime: [fast-runtime, non-fast-runtime]
     runs-on: ${{ matrix.platform.runner }}
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.setup.outputs.ref }}
+          ref: ${{ needs.setup.outputs.sha }}
 
       - name: Install Rust + dependencies
         run: |
@@ -131,24 +149,20 @@ jobs:
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
           export CARGO_BUILD_TARGET="${{ matrix.platform.triple }}"
-
           if [ "${{ matrix.runtime }}" = "fast-runtime" ]; then
             ./scripts/localnet.sh --build-only
           else
             ./scripts/localnet.sh False --build-only
           fi
 
-        # use `ci_target` name bc .dockerignore excludes `target`
+      # Use ci_target because .dockerignore excludes target.
       - name: Prepare artifacts for upload
         run: |
           RUNTIME="${{ matrix.runtime }}"
           TRIPLE="${{ matrix.platform.triple }}"
-
-          mkdir -p build/ci_target/${RUNTIME}/${TRIPLE}/release/
+          mkdir -p build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
           cp -v target/${RUNTIME}/${TRIPLE}/release/node-subtensor \
             build/ci_target/${RUNTIME}/${TRIPLE}/release/
-
-          mkdir -p build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
           cp -v target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm \
             build/ci_target/${RUNTIME}/${TRIPLE}/release/wbuild/node-subtensor-runtime/
 
@@ -159,36 +173,117 @@ jobs:
           path: build/
           if-no-files-found: error
 
-  # Collect all artifacts and publish them to docker repo
-  docker:
+  # Package and test each native architecture before pushing that exact image.
+  # The amd64 runner also exercises the public compatibility contract:
+  # True/False, both RPC ports, graceful stop, health, and --no-purge
+  # persistence.
+  validate-image:
+    name: Image smoke test • ${{ matrix.platform.arch }}
     needs: [setup, artifacts]
-    runs-on: [self-hosted, fireactions-heavy]
-    defaults:
-      run:
-        working-directory: ${{ github.workspace }}
-
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: [self-hosted, fireactions-turbo-8]
+            triple: x86_64-unknown-linux-gnu
+            arch: amd64
+          - runner: [ubuntu-24.04-arm]
+            triple: aarch64-unknown-linux-gnu
+            arch: arm64
+    runs-on: ${{ matrix.platform.runner }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.setup.outputs.ref }}
+          ref: ${{ needs.setup.outputs.sha }}
 
-      - name: Download all binary artifacts
+      - name: Download architecture artifacts
         uses: actions/download-artifact@v5
         with:
-          pattern: binaries-*
+          pattern: binaries-${{ matrix.platform.triple }}-*
           path: build/
           merge-multiple: true
 
-      - name: Show current Git branch
-        run: |
-          echo "==============================="
-          echo "Current Git branch:"
-          git rev-parse --abbrev-ref HEAD
-          echo "==============================="
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Build native image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile-localnet
+          target: subtensor-localnet-prebuilt
+          platforms: linux/${{ matrix.platform.arch }}
+          load: true
+          # Run-scoped tags retain the platform manifests in GHCR. Only the
+          # immutable digests recorded below are used for final publication.
+          tags: ${{ needs.setup.outputs.image }}:build-${{ needs.setup.outputs.publication_id }}-${{ matrix.platform.arch }}
+          labels: |
+            org.opencontainers.image.revision=${{ needs.setup.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.setup.outputs.tag }}
+
+      - name: Verify architecture and bundled binaries
+        env:
+          PLATFORM_IMAGE: ${{ needs.setup.outputs.image }}:build-${{ needs.setup.outputs.publication_id }}-${{ matrix.platform.arch }}
+        run: |
+          test "$(docker image inspect "$PLATFORM_IMAGE" --format '{{.Architecture}}')" = "${{ matrix.platform.arch }}"
+          test "$(docker image inspect "$PLATFORM_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.title"}}')" = "Subtensor Localnet"
+          test "$(docker image inspect "$PLATFORM_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.description"}}')" = "Subtensor local development network for CI and local testing"
+          test "$(docker image inspect "$PLATFORM_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = "https://github.com/RaoFoundation/subtensor"
+          test "$(docker image inspect "$PLATFORM_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}')" = "Apache-2.0"
+          docker run --rm --entrypoint /target/fast-runtime/release/node-subtensor "$PLATFORM_IMAGE" --help
+          docker run --rm --entrypoint /target/non-fast-runtime/release/node-subtensor "$PLATFORM_IMAGE" --help
+
+      - name: Exercise localnet compatibility contract
+        if: ${{ matrix.platform.arch == 'amd64' }}
+        run: ./.github/scripts/test-localnet-image.sh "${{ needs.setup.outputs.image }}:build-${{ needs.setup.outputs.publication_id }}-amd64"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push tested platform image
+        env:
+          IMAGE: ${{ needs.setup.outputs.image }}
+          PLATFORM_IMAGE: ${{ needs.setup.outputs.image }}:build-${{ needs.setup.outputs.publication_id }}-${{ matrix.platform.arch }}
+          ARCH: ${{ matrix.platform.arch }}
+        run: |
+          docker push "$PLATFORM_IMAGE"
+          manifest="$(docker buildx imagetools inspect "$PLATFORM_IMAGE" --format '{{json .Manifest}}')"
+          digest="$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<<"$manifest")"
+          mkdir -p image-descriptors
+          printf '%s@%s\n' "$IMAGE" "$digest" > "image-descriptors/$ARCH.txt"
+
+      - name: Upload tested image descriptor
+        uses: actions/upload-artifact@v4
+        with:
+          name: localnet-image-${{ needs.setup.outputs.publication_id }}-${{ matrix.platform.arch }}
+          path: image-descriptors/${{ matrix.platform.arch }}.txt
+          if-no-files-found: error
+
+  # Publish a multi-architecture manifest composed only of the platform images
+  # that passed the smoke tests above.
+  docker:
+    needs: [setup, validate-image]
+    runs-on: [self-hosted, fireactions-turbo-8]
+    steps:
+      # Publication tooling belongs to the workflow revision, not the selected
+      # application source. Manual runs may intentionally build an older ref or
+      # a PR whose copy of this script is missing or incompatible.
+      - name: Check out publication tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      - name: Download tested image descriptors
+        uses: actions/download-artifact@v5
+        with:
+          pattern: localnet-image-${{ needs.setup.outputs.publication_id }}-*
+          path: image-descriptors/
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -200,20 +295,69 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine image name
-        # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-localnet" >> $GITHUB_ENV
+      - name: Publish tested image manifest
+        env:
+          IMAGE: ${{ needs.setup.outputs.image }}
+          TAG: ${{ needs.setup.outputs.tag }}
+          SHA: ${{ needs.setup.outputs.sha }}
+          PUBLISH_LATEST: ${{ needs.setup.outputs.latest_tag }}
+        run: ./.github/scripts/publish-localnet-manifest.sh image-descriptors
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile-localnet
-          build-args: |
-            BUILT_IN_CI="Boom shakalaka"
+  # CI consumers pull anonymously. A successful authenticated push is not
+  # sufficient: fail if package visibility regresses to private.
+  verify-public:
+    needs: [setup, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify anonymous pulls
+        env:
+          IMAGE: ${{ needs.setup.outputs.image }}
+          REPOSITORY: ${{ needs.setup.outputs.repository }}
+          TAG: ${{ needs.setup.outputs.tag }}
+          SHA: ${{ needs.setup.outputs.sha }}
+          VERIFY_LATEST: ${{ needs.setup.outputs.latest_tag }}
+        run: |
+          DOCKER_CONFIG="$(mktemp -d)"
+          export DOCKER_CONFIG
+          tags=("$TAG" "sha-$SHA")
+          if [ "$VERIFY_LATEST" = true ]; then
+            tags+=(latest)
+          fi
 
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.image }}:${{ needs.setup.outputs.tag }}
-            ${{ needs.setup.outputs.latest_tag == 'true' && format('{0}:latest', env.image) || '' }}
+          for tag in "${tags[@]}"; do
+            for attempt in {1..12}; do
+              if docker manifest inspect "$IMAGE:$tag" >/dev/null; then
+                break
+              fi
+              if [ "$attempt" -eq 12 ]; then
+                echo "Anonymous pull failed for $IMAGE:$tag" >&2
+                exit 1
+              fi
+              sleep 10
+            done
+          done
+
+          registry_token="$(
+            curl -fsSL --get \
+              --data-urlencode "scope=repository:$REPOSITORY:pull" \
+              https://ghcr.io/token \
+              | jq -er '.token // .access_token'
+          )"
+          manifest="$(
+            curl -fsSL \
+              -H "Authorization: Bearer $registry_token" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json' \
+              "https://ghcr.io/v2/$REPOSITORY/manifests/$TAG"
+          )"
+          test "$(jq -r '.annotations["org.opencontainers.image.description"]' <<<"$manifest")" = \
+            "Subtensor local development network for CI and local testing"
+          test "$(jq -r '.annotations["org.opencontainers.image.source"]' <<<"$manifest")" = \
+            "https://github.com/RaoFoundation/subtensor"
+          test "$(jq -r '.annotations["org.opencontainers.image.licenses"]' <<<"$manifest")" = \
+            "Apache-2.0"
+
+          # Match the anonymous CI consumer path, including layer downloads
+          # and execution, rather than treating manifest visibility as enough.
+          docker pull "$IMAGE:$TAG"
+          docker run --rm --entrypoint /target/fast-runtime/release/node-subtensor \
+            "$IMAGE:$TAG" --help >/dev/null

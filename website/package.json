@@ -1,0 +1,51 @@
+{
+  "name": "apps-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md,css,graphql,json}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,css,graphql,json}\"",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "eslint-config-custom": "*",
+    "prettier": "latest",
+    "turbo": "latest"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "yarn format"
+    }
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "expo-file-system": "~16.0.9",
+    "graphql": "^16.9.0",
+    "husky": "8.0.3"
+  },
+  "packageManager": "yarn@4.3.1",
+  "resolutions": {
+    "@types/mime": "3.0.2",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "~18.0.10",
+    "@babel/runtime@npm:^7.3.1": "npm:7.26.10",
+    "@babel/runtime@npm:^7.8.4": "npm:7.26.10",
+    "js-yaml@npm:^4.1.0": "npm:4.2.0",
+    "postcss@npm:8.4.31": "npm:8.5.10",
+    "prismjs@npm:^1.27.0": "npm:1.30.0",
+    "prismjs@npm:~1.27.0": "npm:1.30.0",
+    "send": "0.19.0",
+    "semver": "7.5.3",
+    "undici": "5.28.4",
+    "ws": "8.17.1"
+  }
+}

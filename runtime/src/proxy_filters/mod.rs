@@ -415,8 +415,13 @@ mod tests {
         assert!(owner.contains("AdminUtils::sudo_set_serving_rate_limit"));
         assert!(owner.contains("AdminUtils::sudo_set_max_difficulty"));
         assert!(owner.contains("SubtensorModule::set_subnet_identity"));
+        // Canonical owner-or-root tempo control lives in AdminUtils; deprecated
+        // Subtensor entry points remain available for encoded-call compatibility.
+        assert!(owner.contains("AdminUtils::sudo_set_tempo"));
+        assert!(owner.contains("AdminUtils::sudo_set_activity_cutoff_factor"));
+        assert!(owner.contains("SubtensorModule::set_tempo"));
+        assert!(owner.contains("SubtensorModule::set_activity_cutoff_factor"));
         // Root-only admin is not owner-settable (gated by `ensure_root`).
-        assert!(!owner.contains("AdminUtils::sudo_set_tempo"));
         assert!(!owner.contains("AdminUtils::sudo_set_kappa"));
         assert!(!owner.contains("AdminUtils::sudo_set_total_issuance"));
         assert!(!owner.contains("AdminUtils::swap_authorities"));
@@ -452,6 +457,7 @@ mod tests {
                 "Balances::transfer_allow_death",
                 "Balances::transfer_all",
                 "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(
@@ -460,11 +466,13 @@ mod tests {
                 "Balances::transfer_keep_alive",
                 "Balances::transfer_allow_death",
                 "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
             ])
         );
         assert_eq!(
             allowed_calls(ProxyType::Staking),
             expected(&[
+                "SubtensorModule::add_collateral",
                 "SubtensorModule::add_stake",
                 "SubtensorModule::add_stake_limit",
                 "SubtensorModule::remove_stake",
@@ -473,6 +481,7 @@ mod tests {
                 "SubtensorModule::unstake_all",
                 "SubtensorModule::unstake_all_alpha",
                 "SubtensorModule::move_stake",
+                "SubtensorModule::set_min_collateral",
                 "SubtensorModule::swap_stake",
                 "SubtensorModule::swap_stake_limit",
                 "SubtensorModule::set_root_claim_type",

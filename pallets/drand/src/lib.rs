@@ -356,10 +356,26 @@ pub mod pallet {
                     .map_err(|_| Error::<T>::PulseVerificationError)?;
 
                 if is_verified {
-                    ensure!(
-                        pulse.round > last_stored_round,
-                        Error::<T>::InvalidRoundNumber
-                    );
+                    if is_first_storage {
+                        // No pulse has ever been stored, so this pulse anchors
+                        // LastStoredRound/OldestStoredRound. Accept any round > 0,
+                        // matching the offchain worker, which seeds LastStoredRound
+                        // to `current_round - 1` before submitting the first pulse.
+                        ensure!(
+                            pulse.round > last_stored_round,
+                            Error::<T>::InvalidRoundNumber
+                        );
+                    } else {
+                        // Once anchored, a pulse must advance by exactly one round.
+                        // A larger jump would leap `LastStoredRound` past the skipped
+                        // rounds, which could then never be stored (every later pulse
+                        // must be `last + 1`), permanently wedging the reveals and
+                        // metadata timelocks that reference them. See #2794.
+                        ensure!(
+                            pulse.round == last_stored_round.saturating_add(1),
+                            Error::<T>::InvalidRoundNumber
+                        );
+                    }
 
                     // Store the pulse
                     Pulses::<T>::insert(pulse.round, pulse.clone());
@@ -671,6 +687,13 @@ impl<T: Config> Pallet<T> {
                 // Drop stale rounds at mempool time to avoid re-including last block's rounds.
                 let last = LastStoredRound::<T>::get();
                 if r <= last {
+                    return InvalidTransaction::Stale.into();
+                }
+
+                // A fresh chain's live round exceeds the catch-up window. Let the
+                // first pulse establish the anchor, matching `write_pulse`.
+                let is_first_storage = last == 0 && OldestStoredRound::<T>::get() == 0;
+                if !is_first_storage && r > last.saturating_add(MAX_PULSES_TO_FETCH) {
                     return InvalidTransaction::Stale.into();
                 }
 

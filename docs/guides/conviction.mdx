@@ -1,0 +1,127 @@
+---
+title: Conviction locks
+description: Lock alpha on a subnet, accrue conviction toward a hotkey, and understand the path to subnet ownership — with a worked example on Subnet 7.
+---
+
+Conviction is **time-weighted commitment**: when you [`lock-stake`](/docs/tx/lock-stake)
+alpha on a subnet, the locked amount accrues **conviction** toward the lock's
+target hotkey. Conviction is not spendable stake — it is a score the chain uses
+to recognize long-horizon alignment, including the automatic **subnet ownership**
+transfer when enough aggregate conviction exists.
+
+This guide walks through a fictional **Subnet 7 ("Atlas")** with three
+stakers. The numbers are round teaching examples, not live chain state — always
+read real values with [`subnet-convictions`](/docs/query/subnet-convictions)
+before acting.
+
+## What locking does
+
+A lock is a **floor on unstaking**, not a separate bucket:
+
+- Your coldkey's **total** staked alpha on the subnet must stay at or above the
+  locked mass. Anything above remains freely unstakable.
+- Locked alpha **keeps earning** validator dividends and emissions — locking
+  changes liquidity, not rewards.
+- Conviction is credited to the **hotkey you choose** at lock time (often your
+  validator). Stake and conviction hotkeys can differ, but repeat
+  [`lock-stake`](/docs/tx/lock-stake) calls must target the same hotkey.
+
+One lock per coldkey per subnet. Top-ups add mass; conviction continues from
+its current value.
+
+## Example subnet: Atlas (netuid 7)
+
+| Field | Value | Meaning |
+|-------|-------|---------|
+| `SubnetAlphaOut` | 8,000,000 α | Outstanding alpha on the subnet |
+| Ownership threshold | 800,000 α | 10% of alpha out — aggregate conviction gate |
+| Subnet age | > 1 year | Required before ownership can transfer |
+| Alice (owner) | 250,000 α locked | Perpetual lock on **owner hotkey** — conviction = mass |
+| Bob (validator) | 600,000 α locked | Perpetual lock toward his validator hotkey |
+| Carol (staker) | 200,000 α locked | Decaying lock (default) toward a validator |
+
+<ConvictionSubnetScenario />
+
+Drag **elapsed time** forward: Bob's perpetual conviction climbs toward 600k α.
+Carol's decaying conviction **rises then falls** as her locked mass frees.
+When **total conviction** crosses 800k α and the subnet is old enough, the
+**highest-conviction hotkey** becomes the new owner.
+
+## Perpetual vs decaying
+
+New locks are **decaying** by default. Opt into **perpetual** with
+[`set-perpetual-lock`](/docs/tx/set-perpetual-lock).
+
+| Mode | Locked mass | Conviction |
+|------|-------------|------------|
+| **Perpetual** | Fixed | Approaches mass: `c = m − (m − c₀)·e^(−Δt/τ)` |
+| **Decaying** | Exponential decay on `UnlockRate` | Integral of decaying mass — peaks, then falls |
+
+On mainnet today [`MaturityRate`](/code/pallets/subtensor/src/lib.rs#L1654) is **311,622 blocks** (~43 days) and
+[`UnlockRate`](/code/pallets/subtensor/src/lib.rs#L1658) is **934,866 blocks** (~130 days). Both are governance-set
+storage values — read them live before planning, do not hardcode them.
+
+<ConvictionModeComparison />
+
+<Callout type="note">
+Switching to **decaying** mode emits a public on-chain event — an advance exit
+signal to other stakers. Locks on the **subnet owner hotkey** mature instantly:
+conviction always equals locked mass.
+</Callout>
+
+## Subnet ownership via conviction
+
+After each epoch, the chain runs [`change_subnet_owner_if_needed`](/code/pallets/subtensor/src/staking/lock.rs#L1160-L1377) when **all** of
+these hold:
+
+1. Subnet age ≥ **ONE_YEAR** (2,629,800 blocks from registration).
+2. **Total aggregate conviction** ≥ 10% of [`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424).
+3. A hotkey with the highest rolled aggregate conviction resolves to a real
+   coldkey owner (not the default account).
+
+The winning hotkey becomes [`SubnetOwnerHotkey`](/code/pallets/subtensor/src/lib.rs#L1988); its coldkey becomes
+[`SubnetOwner`](/code/pallets/subtensor/src/lib.rs#L1983). If the leader already owns the subnet, nothing changes.
+
+This is **not** the same as the per-hotkey projection in
+[`subnet-convictions`](/docs/query/subnet-convictions) — that API estimates when
+*one* hotkey might reach 10% of alpha out; ownership requires **aggregate**
+conviction across all lockers.
+
+## Lock a position on a real subnet
+
+Replace netuid `7` with your target subnet:
+
+```bash
+# Inspect existing locks and conviction leaderboard
+btcli query subnet-convictions --netuid 7 --json
+btcli query hotkey-conviction --hotkey <ss58> --netuid 7 --json
+btcli query coldkey-lock --coldkey <ss58> --netuid 7 --json
+
+# Lock 1,000 alpha toward a validator hotkey (dry-run first)
+btcli tx lock-stake --netuid 7 --amount-alpha 1000 --dry-run -w my_coldkey
+btcli tx lock-stake --netuid 7 --amount-alpha 1000 -w my_coldkey
+
+# Switch to perpetual mode (irreversible public signal when switching to decaying)
+btcli tx set-perpetual-lock --netuid 7 --enabled -w my_coldkey
+```
+
+The same flow in Python — lock, opt into perpetual, then read conviction back:
+
+```python
+await client.execute(bt.LockStake(netuid=7, hotkey_ss58="5F...", amount_alpha=1000), wallet)
+await client.execute(bt.SetPerpetualLock(netuid=7, enabled=True), wallet)
+
+lock = await client.locks.coldkey_lock(coldkey_ss58="5C...", netuid=7)
+conviction = await client.locks.hotkey_conviction(hotkey_ss58="5F...", netuid=7)
+```
+
+## Rules worth remembering
+
+- [`move-lock`](/docs/tx/move-lock) to another hotkey **owned by a different
+  coldkey** resets conviction to zero; same-owner moves preserve it.
+- Subnet **deregistration** deletes lock records — conviction is lost even if
+  stake is paid out through the pool.
+- A **coldkey swap** fails if the destination has active locked mass on any
+  subnet.
+
+For staking mechanics beyond locks, see the [Staking guide](/docs/guides/staking).

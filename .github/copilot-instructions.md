@@ -3,9 +3,9 @@
 You are reviewing code for a Substrate-based blockchain with a $4B market cap. Lives and livelihoods depend on the security and correctness of this code. Be thorough, precise, and uncompromising on safety.
 
 ## Branch Strategy
-* Unless this is a hotfix or deployment PR (`devnet-ready` => `devnet`, `devnet` => `testnet`, or `testnet` => `main`), all PRs must target `devnet-ready`
-* Flag PRs targeting `main` directly unless they are hotfixes
-* `devnet` and `testnet` branches must only receive merges from their respective `-ready` branches
+* All PRs target `main`. Deployment is automated, not PR-driven: merges to `main` ride the release train, which promotes devnet → testnet → mainnet via on-chain `setCode` (see `docs/internals/release-process.mdx`)
+* `devnet`, `testnet`, and `mainnet` are CI-managed mirror branches recording what each network currently runs; they are ruleset-locked and only the release train updates them
+* Flag any PR that targets `devnet`, `testnet`, or `mainnet` — those branches never receive merges
 
 ## CRITICAL: Runtime Safety (Chain-Bricking Prevention)
 The runtime CANNOT panic under any circumstances. A single panic can brick the entire chain.

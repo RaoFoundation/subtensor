@@ -505,7 +505,7 @@ where
         netuid: u16,
         factor_milli: u32,
     ) -> EvmResult<()> {
-        let call = pallet_subtensor::Call::<R>::set_activity_cutoff_factor {
+        let call = pallet_admin_utils::Call::<R>::sudo_set_activity_cutoff_factor {
             netuid: netuid.into(),
             factor_milli,
         };
@@ -599,6 +599,38 @@ where
     fn get_max_burn(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<u64> {
         handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::MaxBurn::<R>::get(NetUid::from(netuid)).to_u64())
+    }
+
+    /// Return whether subnet owner-cut emission is automatically stake-locked.
+    #[precompile::public("getOwnerCutAutoLockEnabled(uint16)")]
+    #[precompile::view]
+    fn get_owner_cut_auto_lock_enabled(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::OwnerCutAutoLockEnabled::<R>::get(
+            NetUid::from(netuid),
+        ))
+    }
+
+    /// Set whether subnet owner-cut emission is automatically stake-locked.
+    #[precompile::public("setOwnerCutAutoLockEnabled(uint16,bool)")]
+    #[precompile::payable]
+    fn set_owner_cut_auto_lock_enabled(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        enabled: bool,
+    ) -> EvmResult<()> {
+        let call = pallet_admin_utils::Call::<R>::sudo_set_owner_cut_auto_lock_enabled {
+            netuid: NetUid::from(netuid),
+            enabled,
+        };
+
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
     }
 
     #[precompile::public("setMaxBurn(uint16,uint64)")]
@@ -982,6 +1014,58 @@ mod tests {
     }
 
     #[test]
+    fn subnet_precompile_sets_and_gets_owner_cut_auto_lock() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5003);
+            let netuid = setup_owner_subnet(caller);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getOwnerCutAutoLockEnabled(uint16)"),
+                        (TEST_NETUID_U16,),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    precompile_utils::prelude::RuntimeHelper::<Runtime>::db_read_gas_cost(),
+                )
+                .execute_returns(false);
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("setOwnerCutAutoLockEnabled(uint16,bool)"),
+                        (TEST_NETUID_U16, true),
+                    ),
+                )
+                .execute_returns(());
+            assert!(pallet_subtensor::OwnerCutAutoLockEnabled::<Runtime>::get(
+                netuid
+            ));
+            precompiles
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getOwnerCutAutoLockEnabled(uint16)"),
+                        (TEST_NETUID_U16,),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(
+                    precompile_utils::prelude::RuntimeHelper::<Runtime>::db_read_gas_cost(),
+                )
+                .execute_returns(true);
+        });
+    }
+
+    #[test]
     fn subnet_precompile_sets_and_gets_owner_hyperparameters() {
         new_test_ext().execute_with(|| {
             let caller = addr_from_index(0x5001);
@@ -1350,6 +1434,19 @@ mod tests {
                     (TEST_NETUID_U16,),
                 ),
                 U256::from(registration_block),
+            );
+
+            pallet_subtensor::NetworkRegisteredAt::<Runtime>::remove(netuid);
+
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getNetworkRegistrationBlock(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::zero(),
             );
         });
     }

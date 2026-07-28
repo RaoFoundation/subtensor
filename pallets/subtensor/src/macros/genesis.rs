@@ -118,11 +118,11 @@ mod genesis {
             SubnetworkN::<T>::insert(netuid, 1);
             Active::<T>::mutate(netuid, |v| v.push(true));
             Emission::<T>::mutate(netuid, |v| v.push(0.into()));
-            Consensus::<T>::mutate(netuid, |v| v.push(0));
-            Incentive::<T>::mutate(NetUidStorageIndex::from(netuid), |v| v.push(0));
-            Dividends::<T>::mutate(netuid, |v| v.push(0));
+            Consensus::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
+            Incentive::<T>::mutate(NetUidStorageIndex::from(netuid), |v| v.push(PerU16::zero()));
+            Dividends::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
             LastUpdate::<T>::mutate(NetUidStorageIndex::from(netuid), |v| v.push(block_number));
-            ValidatorTrust::<T>::mutate(netuid, |v| v.push(0));
+            ValidatorTrust::<T>::mutate(netuid, |v| v.push(PerU16::zero()));
             ValidatorPermit::<T>::mutate(netuid, |v| v.push(false));
             Keys::<T>::insert(netuid, 0, hotkey.clone()); // Make hotkey - uid association.
             Uids::<T>::insert(netuid, hotkey.clone(), 0); // Make uid - hotkey association.

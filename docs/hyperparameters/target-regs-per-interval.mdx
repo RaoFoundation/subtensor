@@ -1,0 +1,67 @@
+---
+title: target_regs_per_interval
+description: Registrations per interval the registration controller steers toward; today a hard admission cap.
+---
+
+Originally the setpoint of the registration-rate controller: the number of
+registrations per
+[`adjustment_interval`](/docs/hyperparameters/adjustment-interval) the chain
+tried to hit by moving burn and difficulty. On the current chain it survives
+as a **hard cap**: an interval may admit at most three times this many
+registrations. Root-subnet validators hit it most directly.
+
+## How it works
+
+The value lives in
+[`TargetRegistrationsPerInterval`](/code/pallets/subtensor/src/lib.rs#L2112)
+storage (u16, default
+**2**, so the cap is 6). Two places enforce the 3× cap:
+
+- [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L77-L188)
+  (`pallets/subtensor/src/coinbase/root.rs`) rejects a root
+  registration with
+  [`TooManyRegistrationsThisInterval`](/code/pallets/subtensor/src/macros/errors.rs#L99)
+  once
+  `RegistrationsThisInterval ≥ 3 × target_regs_per_interval`. The counter
+  resets on the root subnet's epoch boundary — one "interval" is effectively
+  one root tempo, and `adjustment_interval` itself is not consulted.
+- [`checked_allowed_register`](/code/pallets/subtensor/src/lib.rs#L2802-L2823)
+  (`pallets/subtensor/src/lib.rs`) applies the same
+  3× comparison when reporting whether a non-root subnet accepts
+  registrations; on those subnets pricing is done by the continuous burn
+  controller ([`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult)
+  and [`burn_half_life`](/docs/hyperparameters/burn-half-life)) rather than by
+  steering toward this target.
+
+The legacy EMA adjustment that used this value as a setpoint (together with
+[`adjustment_alpha`](/docs/hyperparameters/adjustment-alpha)) no longer exists
+in the runtime.
+
+The chart below shows the cap in action: attempts pile up over an interval, and
+admission stops once the count reaches 3× the target.
+
+<HyperparamRegsCapChart />
+
+## Reading and setting
+
+```bash
+btcli sudo get --netuid 12 --name target_regs_per_interval
+```
+
+Root/governance only —
+[`sudo_set_target_registrations_per_interval`](/code/pallets/admin-utils/src/lib.rs#L722-L742)
+in `pallets/admin-utils/src/lib.rs` requires the root origin (plus the admin
+freeze window being open), so subnet owners cannot change it. The value is a
+plain integer.
+
+## Related
+
+- [`adjustment_interval`](/docs/hyperparameters/adjustment-interval) — the
+  legacy cadence this target was measured over
+- [`adjustment_alpha`](/docs/hyperparameters/adjustment-alpha) — the legacy
+  smoothing factor
+- [`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block) — the
+  per-block admission cap
+- [`min_burn`](/docs/hyperparameters/min-burn) /
+  [`max_burn`](/docs/hyperparameters/max-burn) — the price bounds of the
+  current controller

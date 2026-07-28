@@ -13,34 +13,26 @@ use sp_std::{collections::vec_deque::VecDeque, vec};
 use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex};
 
 impl<T: Config> Pallet<T> {
-    /// ---- The implementation for committing weight hashes.
+    /// The implementation for committing weight hashes.
     ///
-    /// # Args:
-    /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-    ///   - The signature of the committing hotkey.
+    /// # Arguments
+    /// * `origin`: The signature of the committing hotkey.
     ///
-    /// * `netuid` (`u16`):
-    ///   - The u16 network identifier.
+    /// * `netuid`: The u16 network identifier.
     ///
-    /// * `commit_hash` (`H256`):
-    ///   - The hash representing the committed weights.
+    /// * `commit_hash`: The hash representing the committed weights.
     ///
-    /// # Raises:
-    /// * `CommitRevealDisabled`:
-    ///   - Raised if commit-reveal is disabled for the specified network.
+    /// # Errors
+    /// * `CommitRevealDisabled`: Raised if commit-reveal is disabled for the specified network.
     ///
-    /// * `HotKeyNotRegisteredInSubNet`:
-    ///   - Raised if the hotkey is not registered on the specified network.
+    /// * `HotKeyNotRegisteredInSubNet`: Raised if the hotkey is not registered on the specified network.
     ///
-    /// * `CommittingWeightsTooFast`:
-    ///   - Raised if the hotkey's commit rate exceeds the permitted limit.
+    /// * `CommittingWeightsTooFast`: Raised if the hotkey's commit rate exceeds the permitted limit.
     ///
-    /// * `TooManyUnrevealedCommits`:
-    ///   - Raised if the hotkey has reached the maximum number of unrevealed commits.
+    /// * `TooManyUnrevealedCommits`: Raised if the hotkey has reached the maximum number of unrevealed commits.
     ///
-    /// # Events:
-    /// * `WeightsCommitted`:
-    ///   - Emitted upon successfully storing the weight hash.
+    /// # Events
+    /// * `WeightsCommitted`: Emitted upon successfully storing the weight hash.
     pub fn do_commit_weights(
         origin: OriginFor<T>,
         netuid: NetUid,
@@ -141,31 +133,23 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// ---- The implementation for the extrinsic batch_commit_weights.
+    /// The implementation for the extrinsic batch_commit_weights.
     ///
     /// This call runs a batch of commit weights calls, continuing on errors.
     ///
-    /// # Args:
-    ///  * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///    - The signature of the calling hotkey.
+    /// # Arguments
+    /// * `origin`: The signature of the calling hotkey.
     ///
-    ///  * 'netuids' ( Vec<Compact<u16>> ):
-    ///    - The u16 network identifiers.
+    /// * `netuids`: The u16 network identifiers.
     ///
-    ///  * 'commit_hashes' ( Vec<H256> ):
-    ///    - The commit hashes to be committed, one hash for each netuid in the batch.
+    /// * `commit_hashes`: The commit hashes to be committed, one hash for each netuid in the batch.
     ///
-    /// # Event:
-    ///  * WeightsCommitted;
-    ///    - On successfully storing the weight hashes.
-    ///  * BatchCompletedWithErrors;
-    ///    - Emitted when at least on of the weight commits has an error.
-    ///  * BatchWeightItemFailed;
-    ///    - Emitted for each error within the batch.
-    ///  * BatchWeightsCompleted
-    ///    - Emitted when the batch of weights is completed.
-    ///  * InputLengthsUnequal;
-    ///    - Emitted when the lengths of the input vectors are not equal.
+    /// # Events
+    /// * `WeightsCommitted`: On successfully storing the weight hashes.
+    /// * `BatchCompletedWithErrors`: Emitted when at least on of the weight commits has an error.
+    /// * `BatchWeightItemFailed`: Emitted for each error within the batch.
+    /// * `BatchWeightsCompleted`: Emitted when the batch of weights is completed.
+    /// * `InputLengthsUnequal`: Emitted when the lengths of the input vectors are not equal.
     ///
     pub fn do_batch_commit_weights(
         origin: OriginFor<T>,
@@ -215,9 +199,9 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- Commits a timelocked, encrypted weight payload (Commit-Reveal v3).
+    /// Commits a timelocked, encrypted weight payload (Commit-Reveal v3).
     ///
-    /// # Args
+    /// # Arguments
     /// * `origin` (`<T as frame_system::Config>::RuntimeOrigin`):
     ///   The signed origin of the committing hotkey.
     /// * `netuid` (`NetUid` = `u16`):
@@ -250,7 +234,7 @@ impl<T: Config> Pallet<T> {
     /// 7. Updates `LastUpdateForUid` so subsequent rate-limit checks include this
     ///    commit.
     ///
-    /// # Raises
+    /// # Errors
     /// * `CommitRevealDisabled` – Commit-reveal is disabled on `netuid`.
     /// * `IncorrectCommitRevealVersion` – Provided version ≠ runtime version.
     /// * `HotKeyNotRegisteredInSubNet` – Caller’s hotkey is not registered.
@@ -381,42 +365,31 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// ---- The implementation for revealing committed weights.
+    /// The implementation for revealing committed weights.
     ///
-    /// # Args:
-    /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-    ///   - The signature of the revealing hotkey.
+    /// # Arguments
+    /// * `origin`: The signature of the revealing hotkey.
     ///
-    /// * `netuid` (`u16`):
-    ///   - The u16 network identifier.
+    /// * `netuid`: The u16 network identifier.
     ///
-    /// * `uids` (`Vec<u16>`):
-    ///   - The uids for the weights being revealed.
+    /// * `uids`: The uids for the weights being revealed.
     ///
-    /// * `values` (`Vec<u16>`):
-    ///   - The values of the weights being revealed.
+    /// * `values`: The values of the weights being revealed.
     ///
-    /// * `salt` (`Vec<u16>`):
-    ///   - The salt used to generate the commit hash.
+    /// * `salt`: The salt used to generate the commit hash.
     ///
-    /// * `version_key` (`u64`):
-    ///   - The network version key.
+    /// * `version_key`: The network version key.
     ///
-    /// # Raises:
-    /// * `CommitRevealDisabled`:
-    ///   - Attempting to reveal weights when the commit-reveal mechanism is disabled.
+    /// # Errors
+    /// * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.
     ///
-    /// * `NoWeightsCommitFound`:
-    ///   - Attempting to reveal weights without an existing commit.
+    /// * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.
     ///
-    /// * `ExpiredWeightCommit`:
-    ///   - Attempting to reveal a weight commit that has expired.
+    /// * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.
     ///
-    /// * `RevealTooEarly`:
-    ///   - Attempting to reveal weights outside the valid reveal period.
+    /// * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.
     ///
-    /// * `InvalidRevealCommitHashNotMatch`:
-    ///   - The revealed hash does not match any committed hash.
+    /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
     pub fn do_reveal_weights(
         origin: OriginFor<T>,
         netuid: NetUid,
@@ -564,45 +537,33 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// ---- The implementation for batch revealing committed weights.
+    /// The implementation for batch revealing committed weights.
     ///
-    /// # Args:
-    /// * `origin`: (`<T as frame_system::Config>::RuntimeOrigin`):
-    ///   - The signature of the revealing hotkey.
+    /// # Arguments
+    /// * `origin`: The signature of the revealing hotkey.
     ///
-    /// * `netuid` (`u16`):
-    ///   - The u16 network identifier.
+    /// * `netuid`: The u16 network identifier.
     ///
-    /// * `uids_list` (`Vec<Vec<u16>>`):
-    ///   - A list of uids for each set of weights being revealed.
+    /// * `uids_list`: A list of uids for each set of weights being revealed.
     ///
-    /// * `values_list` (`Vec<Vec<u16>>`):
-    ///   - A list of values for each set of weights being revealed.
+    /// * `values_list`: A list of values for each set of weights being revealed.
     ///
-    /// * `salts_list` (`Vec<Vec<u16>>`):
-    ///   - A list of salts used to generate the commit hashes.
+    /// * `salts_list`: A list of salts used to generate the commit hashes.
     ///
-    /// * `version_keys` (`Vec<u64>`):
-    ///   - A list of network version keys.
+    /// * `version_keys`: A list of network version keys.
     ///
-    /// # Raises:
-    /// * `CommitRevealDisabled`:
-    ///   - Attempting to reveal weights when the commit-reveal mechanism is disabled.
+    /// # Errors
+    /// * `CommitRevealDisabled`: Attempting to reveal weights when the commit-reveal mechanism is disabled.
     ///
-    /// * `NoWeightsCommitFound`:
-    ///   - Attempting to reveal weights without an existing commit.
+    /// * `NoWeightsCommitFound`: Attempting to reveal weights without an existing commit.
     ///
-    /// * `ExpiredWeightCommit`:
-    ///   - Attempting to reveal a weight commit that has expired.
+    /// * `ExpiredWeightCommit`: Attempting to reveal a weight commit that has expired.
     ///
-    /// * `RevealTooEarly`:
-    ///   - Attempting to reveal weights outside the valid reveal period.
+    /// * `RevealTooEarly`: Attempting to reveal weights outside the valid reveal period.
     ///
-    /// * `InvalidRevealCommitHashNotMatch`:
-    ///   - The revealed hash does not match any committed hash.
+    /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
     ///
-    /// * `InputLengthsUnequal`:
-    ///   - The input vectors are of mismatched lengths.
+    /// * `InputLengthsUnequal`: The input vectors are of mismatched lengths.
     pub fn do_batch_reveal_weights(
         origin: OriginFor<T>,
         netuid: NetUid,
@@ -862,61 +823,44 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// ---- The implementation for the extrinsic set_weights.
+    /// The implementation for the extrinsic set_weights.
     ///
-    /// # Args:
-    ///  * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///    - The signature of the calling hotkey.
+    /// # Arguments
+    /// * `origin`: The signature of the calling hotkey.
     ///
-    ///  * 'netuid' (u16):
-    ///    - The u16 network identifier.
+    /// * `netuid`: The u16 network identifier.
     ///
-    ///  * 'uids' ( Vec<u16> ):
-    ///    - The uids of the weights to be set on the chain.
+    /// * `uids`: The uids of the weights to be set on the chain.
     ///
-    ///  * 'values' ( Vec<u16> ):
-    ///    - The values of the weights to set on the chain.
+    /// * `values`: The values of the weights to set on the chain.
     ///
-    ///  * 'version_key' ( u64 ):
-    ///    - The network version key.
+    /// * `version_key`: The network version key.
     ///
-    /// # Event:
-    ///  * WeightsSet;
-    ///    - On successfully setting the weights on chain.
+    /// # Events
+    /// * `WeightsSet`: On successfully setting the weights on chain.
     ///
-    /// # Raises:
-    ///  * 'MechanismDoesNotExist':
-    ///    - Attempting to set weights on a non-existent network.
+    /// # Errors
+    /// * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.
     ///
-    ///  * 'NotRegistered':
-    ///    - Attempting to set weights from a non registered account.
+    /// * `NotRegistered`: Attempting to set weights from a non registered account.
     ///
-    ///  * 'IncorrectWeightVersionKey':
-    ///    - Attempting to set weights without having an up-to-date version_key.
+    /// * `IncorrectWeightVersionKey`: Attempting to set weights without having an up-to-date version_key.
     ///
-    ///  * 'SettingWeightsTooFast':
-    ///    - Attempting to set weights faster than the weights_set_rate_limit.
+    /// * `SettingWeightsTooFast`: Attempting to set weights faster than the weights_set_rate_limit.
     ///
-    ///  * 'NeuronNoValidatorPermit':
-    ///    - Attempting to set non-self weights without a validator permit.
+    /// * `NeuronNoValidatorPermit`: Attempting to set non-self weights without a validator permit.
     ///
-    ///  * 'WeightVecNotEqualSize':
-    ///    - Attempting to set weights with uids not of same length.
+    /// * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.
     ///
-    ///  * 'DuplicateUids':
-    ///    - Attempting to set weights with duplicate uids.
+    /// * `DuplicateUids`: Attempting to set weights with duplicate uids.
     ///
-    /// * 'UidsLengthExceedUidsInSubNet':
-    ///    - Attempting to set weights above the max allowed uids.
+    /// * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.
     ///
-    /// * 'UidVecContainInvalidOne':
-    ///    - Attempting to set weights with invalid uids.
+    /// * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.
     ///
-    /// * 'WeightVecLengthIsLow':
-    ///    - Attempting to set weights with fewer weights than min.
+    /// * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.
     ///
-    /// * 'MaxWeightExceeded':
-    ///    - Attempting to set weights with max value exceeding limit.
+    /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
     ///
     pub fn do_set_weights(
         origin: OriginFor<T>,
@@ -928,64 +872,46 @@ impl<T: Config> Pallet<T> {
         Self::internal_set_weights(origin, netuid, MechId::MAIN, uids, values, version_key)
     }
 
-    /// ---- The implementation for the extrinsic set_weights.
+    /// The implementation for the extrinsic set_weights.
     ///
-    /// # Args:
-    ///  * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///    - The signature of the calling hotkey.
+    /// # Arguments
+    /// * `origin`: The signature of the calling hotkey.
     ///
-    ///  * 'netuid' (u16):
-    ///    - The u16 network identifier.
+    /// * `netuid`: The u16 network identifier.
     ///
-    ///  * 'mecid' (u8):
-    ///    - The u8 identifier of sub-subnet.
+    /// * `mecid`: The u8 identifier of sub-subnet.
     ///
-    ///  * 'uids' ( Vec<u16> ):
-    ///    - The uids of the weights to be set on the chain.
+    /// * `uids`: The uids of the weights to be set on the chain.
     ///
-    ///  * 'values' ( Vec<u16> ):
-    ///    - The values of the weights to set on the chain.
+    /// * `values`: The values of the weights to set on the chain.
     ///
-    ///  * 'version_key' ( u64 ):
-    ///    - The network version key.
+    /// * `version_key`: The network version key.
     ///
-    /// # Event:
-    ///  * WeightsSet;
-    ///    - On successfully setting the weights on chain.
+    /// # Events
+    /// * `WeightsSet`: On successfully setting the weights on chain.
     ///
-    /// # Raises:
-    ///  * 'MechanismDoesNotExist':
-    ///    - Attempting to set weights on a non-existent network.
+    /// # Errors
+    /// * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.
     ///
-    ///  * 'NotRegistered':
-    ///    - Attempting to set weights from a non registered account.
+    /// * `NotRegistered`: Attempting to set weights from a non registered account.
     ///
-    ///  * 'IncorrectWeightVersionKey':
-    ///    - Attempting to set weights without having an up-to-date version_key.
+    /// * `IncorrectWeightVersionKey`: Attempting to set weights without having an up-to-date version_key.
     ///
-    ///  * 'SettingWeightsTooFast':
-    ///    - Attempting to set weights faster than the weights_set_rate_limit.
+    /// * `SettingWeightsTooFast`: Attempting to set weights faster than the weights_set_rate_limit.
     ///
-    ///  * 'NeuronNoValidatorPermit':
-    ///    - Attempting to set non-self weights without a validator permit.
+    /// * `NeuronNoValidatorPermit`: Attempting to set non-self weights without a validator permit.
     ///
-    ///  * 'WeightVecNotEqualSize':
-    ///    - Attempting to set weights with uids not of same length.
+    /// * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.
     ///
-    ///  * 'DuplicateUids':
-    ///    - Attempting to set weights with duplicate uids.
+    /// * `DuplicateUids`: Attempting to set weights with duplicate uids.
     ///
-    /// * 'UidsLengthExceedUidsInSubNet':
-    ///    - Attempting to set weights above the max allowed uids.
+    /// * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.
     ///
-    /// * 'UidVecContainInvalidOne':
-    ///    - Attempting to set weights with invalid uids.
+    /// * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.
     ///
-    /// * 'WeightVecLengthIsLow':
-    ///    - Attempting to set weights with fewer weights than min.
+    /// * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.
     ///
-    /// * 'MaxWeightExceeded':
-    ///    - Attempting to set weights with max value exceeding limit.
+    /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
     ///
     pub fn do_set_mechanism_weights(
         origin: OriginFor<T>,
@@ -998,35 +924,26 @@ impl<T: Config> Pallet<T> {
         Self::internal_set_weights(origin, netuid, mecid, uids, values, version_key)
     }
 
-    /// ---- The implementation for the extrinsic batch_set_weights.
+    /// The implementation for the extrinsic batch_set_weights.
     ///
     /// This call runs a batch of set weights calls, continuing on errors.
     ///
-    /// # Args:
-    ///  * 'origin': (<T as frame_system::Config>RuntimeOrigin):
-    ///    - The signature of the calling hotkey.
+    /// # Arguments
+    /// * `origin`: The signature of the calling hotkey.
     ///
-    ///  * 'netuids' ( Vec<Compact<u16>> ):
-    ///    - The u16 network identifiers.
+    /// * `netuids`: The u16 network identifiers.
     ///
-    ///  * 'weights' ( Vec<Vec<(Compact<u16>, Compact<u16>)>> ):
-    ///    - Tuples of (uid, value) of the weights to be set on the chain,
-    ///      one Vec for each netuid in the batch.
+    /// * `weights`: Tuples of (uid, value) of the weights to be set on the chain,
+    ///   one Vec for each netuid in the batch.
     ///
-    ///  * 'version_keys' ( Vec<Compact<u64>> ):
-    ///    - The network version key, one u64 for each netuid in the batch.
+    /// * `version_keys`: The network version key, one u64 for each netuid in the batch.
     ///
-    /// # Event:
-    ///  * WeightsSet;
-    ///    - On successfully setting the weights on chain.
-    ///  * BatchCompletedWithErrors;
-    ///    - Emitted when at least on of the weight sets has an error.
-    ///  * BatchWeightItemFailed;
-    ///    - Emitted for each error within the batch.
-    ///  * BatchWeightsCompleted;
-    ///    - Emitted when the batch of weights is completed.
-    ///  * InputLengthsUnequal;
-    ///    - Emitted when the lengths of the input vectors are not equal.
+    /// # Events
+    /// * `WeightsSet`: On successfully setting the weights on chain.
+    /// * `BatchCompletedWithErrors`: Emitted when at least on of the weight sets has an error.
+    /// * `BatchWeightItemFailed`: Emitted for each error within the batch.
+    /// * `BatchWeightsCompleted`: Emitted when the batch of weights is completed.
+    /// * `InputLengthsUnequal`: Emitted when the lengths of the input vectors are not equal.
     ///
     pub fn do_batch_set_weights(
         origin: OriginFor<T>,

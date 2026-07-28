@@ -77,6 +77,63 @@ fn test_stake_base_case() {
     });
 }
 
+// Regression for #2735: when the AMM price limit is hit before the full stake is
+// swapped, the unswapped TAO must be refunded to the staker and TotalStake must
+// reflect only the consumed portion. Without the fix the remainder is stranded on
+// the subnet PalletId account and TotalStake over-counts by the refunded amount.
+#[test]
+fn test_stake_into_subnet_refunds_unswapped_tao_at_price_limit() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(561337);
+        let coldkey = U256::from(61337);
+        let netuid = add_dynamic_network(&hotkey, &coldkey);
+
+        // Symmetric reserves => starting price ~1.0; a 1.1 limit allows only a
+        // partial swap of a 1 TAO stake, so a refund must occur.
+        SubnetMechanism::<Test>::insert(netuid, 1);
+        mock::setup_reserves(
+            netuid,
+            TaoBalance::from(10_000_000_000_u64),
+            AlphaBalance::from(10_000_000_000_u64),
+        );
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000_000_000_u64));
+
+        let stake = TaoBalance::from(1_000_000_000_u64); // 1 TAO
+        add_balance_to_coldkey_account(&coldkey, (2_000_000_000_u64).into());
+
+        let balance_before = SubtensorModule::get_coldkey_balance(&coldkey);
+        let total_stake_before = TotalStake::<Test>::get();
+
+        // Tight limit (1.1 RAO/Alpha) so the AMM cannot consume the full stake.
+        assert_ok!(SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            stake,
+            TaoBalance::from(1_100_000_000_u64),
+            false,
+        ));
+
+        let balance_after = SubtensorModule::get_coldkey_balance(&coldkey);
+        let total_stake_after = TotalStake::<Test>::get();
+
+        // Only the consumed TAO (amount_paid_in + fee) may leave the coldkey;
+        // the unswapped remainder must be refunded, not stranded.
+        let consumed = balance_before.saturating_sub(balance_after);
+        assert!(
+            consumed < stake,
+            "unswapped TAO must be refunded: consumed {consumed:?} >= stake {stake:?}"
+        );
+
+        // TotalStake must track the consumed TAO exactly, not the full stake.
+        assert_eq!(
+            total_stake_after.saturating_sub(total_stake_before),
+            consumed,
+            "TotalStake must equal consumed TAO (no stranded over-count)"
+        );
+    });
+}
+
 // Test: Share-based Staking System
 // This test verifies the functionality of the share-based staking system where:
 // 1. Stakes are represented as shares in a pool
@@ -445,6 +502,42 @@ fn test_share_based_staking_denominator_precision() {
             let expected_remaining_stake = stake_amount - unstake_amount;
             assert_eq!(stake1, expected_remaining_stake);
         });
+    });
+}
+
+// Regression test for #1960: removing more Alpha than is staked must return the
+// Alpha-specific `InsufficientAlphaBalance`, distinct from the TAO-side
+// `InsufficientTaoBalance`. Without the split this returns `InsufficientBalance`.
+#[test]
+fn test_decrease_stake_insufficient_alpha_returns_distinct_error() {
+    new_test_ext(1).execute_with(|| {
+        use frame_support::assert_noop;
+        use subtensor_runtime_common::BalanceOps;
+
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        let coldkey = U256::from(2);
+
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+
+        // Credit a known amount of Alpha stake for the (hotkey, coldkey, netuid).
+        let staked = AlphaBalance::from(1_000u64);
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey, &coldkey, netuid, staked,
+        );
+
+        // Removing more than is staked hits the Alpha balance guard and must fail
+        // with the Alpha-specific error, not the shared/TAO one.
+        assert_noop!(
+            SubtensorModule::decrease_stake(
+                &coldkey,
+                &hotkey,
+                netuid,
+                staked + AlphaBalance::from(1u64),
+            ),
+            Error::<Test>::InsufficientAlphaBalance
+        );
     });
 }
 

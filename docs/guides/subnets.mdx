@@ -1,0 +1,313 @@
+---
+title: Running a subnet
+description: Create a subnet, activate it, tune hyperparameters, and manage its identity and economics.
+---
+
+A subnet owner defines an incentive mechanism: what miners must produce and how
+validators must score it. The chain side — creating the subnet, tuning its
+hyperparameters, publishing its identity — is all reachable through the SDK.
+The mechanism itself is code you write and run off-chain.
+
+## Create
+
+[`register-subnet`](/docs/tx/register-subnet) creates a new subnet owned by
+your coldkey, with your wallet's hotkey as the subnet-owner hotkey:
+
+```bash
+btcli query subnet-registration-cost --json   # check the lock cost FIRST
+btcli tx register-subnet --dry-run -w my_coldkey
+btcli tx register-subnet -w my_coldkey
+```
+
+The cost **doubles** each time anyone registers a subnet, then decays linearly
+back over the lock-reduction interval (100,800 blocks, ~2 weeks), floored at
+[`NetworkMinLockCost`](/code/pallets/subtensor/src/lib.rs#L1765) — 1,000 TAO by default. It is only known at execution
+time, so a `Policy` spend cap blocks this call until raised; read the live
+price with [`subnet-registration-cost`](/docs/query/subnet-registration-cost).
+Subnet registrations are also chain-rate-limited to one per 7,200 blocks
+(~1 day) network-wide.
+
+The lock is not a refundable deposit. The **entire** lock is transferred into
+the new subnet's pool as its initial TAO reserve (floored at
+`NetworkMinLockCost`); the matching alpha reserve is sized so the starting
+price equals the median alpha price across subnets. Nothing is recycled at
+registration. You get it back only by owning a subnet that earns.
+
+Identity can be set atomically at registration: the chain's
+[`register_network_with_identity`](/code/pallets/subtensor/src/macros/dispatches.rs#L1198-L1204) extrinsic takes an optional identity record.
+`register-subnet` wraps plain [`register_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1016-L1018), so the identity variant
+needs the [raw-call escape hatch](/docs/concepts/advanced).
+
+A new subnet is a two-step commitment: register, then activate with
+[`start-call`](/docs/tx/start-call) — until then it earns nothing.
+
+## Secure the owner account
+
+A subnet owner's coldkey controls the subnet's identity and owner-settable
+hyperparameters — authority that should never live in a single coldkey on an
+operational machine. The standard layering: make the owner account a
+[**multisig**](/docs/guides/multisig) from registration, and from it grant a
+dedicated operations key the narrow **Owner**
+[proxy type](/docs/guides/proxies#proxy-types) for routine changes. The ops
+key can manage subnet identity and hyperparameters but cannot transfer funds
+or rotate the owner; the multisig convenes only to manage that proxy, veto
+delayed calls, and act outside the **Owner** scope. Both guides walk through
+the setup — see
+[Subnet owners specifically](/docs/guides/proxies#subnet-owners-specifically)
+in the proxy guide for this exact pattern.
+
+For a new crowd-funded subnet, a
+[crowdloan lease](#financing-leases-and-crowdloans) provides a different secure
+ownership model: the chain creates the lease owner account and grants the
+beneficiary a scoped `SubnetLeaseBeneficiary` proxy.
+
+If the subnet is already owned by a single coldkey, adopting this setup is a
+one-time ownership migration via the announced **coldkey swap**. Sending TAO to
+the multisig address is not enough: balance, stake, conviction locks, and
+subnet ownership are separate on-chain state, and a plain
+[`transfer`](/docs/tx/transfer) moves only the first. The full procedure —
+verifying the derived address, what the swap moves, and the delay — is in
+[Migrate an existing account to a multisig](/docs/guides/multisig#migrate-an-existing-account-to-a-multisig);
+[Wallet key rotation](/docs/concepts/wallets#key-rotation-and-recovery) covers
+what a coldkey swap does and doesn't move.
+
+## Activate
+
+Once the chain's activation delay has passed, flip the subnet on with
+[`start-call`](/docs/tx/start-call) — owner-only, once per subnet:
+
+```bash
+btcli tx start-call --netuid 42 -w my_coldkey
+```
+
+Check the schedule with
+[`subnet-start-schedule`](/docs/query/subnet-start-schedule).
+
+### Turning a subnet on: active vs emission-enabled
+
+"On" is two independent flags, held by two different parties:
+
+- **Want the subnet live — staking, alpha trading, epochs?** That is the
+  owner's one-shot [`start-call`](/docs/tx/start-call) (btcli's `sudo start`),
+  tracked by
+  [`subnet_is_active`](/docs/hyperparameters/subnet-is-active).
+- **Want the subnet to receive its TAO emission share — pool injections and
+  chain buys?** That is root's switch,
+  [`subnet_emission_enabled`](/docs/hyperparameters/subnet-emission-enabled),
+  flipped with `btcli tx set-subnet-emission-enabled`. New subnets register
+  with it off, and owners cannot set it.
+
+A subnet can be fully active with emissions off: trading and epochs run, but
+no TAO flows into its pool until root flips the switch. Verify both flags:
+
+```bash
+btcli sudo get --netuid 42 --name subnet_is_active
+btcli query subnet-emission-enabled --netuid 42
+```
+
+## The subnet economy
+
+Each subnet is an automated market maker with two reserves: TAO in and alpha
+in. The alpha price is the pool's weighted reserve ratio — exactly
+TAO-in / alpha-in at the default 0.5/0.5 pool weights — and moves on every
+stake and unstake; emission injections shift the pool weights instead of the
+price. The subnet's share of network TAO
+emissions follows the exponential moving average of that price — stakers vote
+with their TAO — so a subnet's income is set by market demand for its token,
+not by governance. See [emissions](/docs/concepts/emissions) for the full
+mechanics.
+
+Each tempo the subnet's alpha emission splits three ways: 18% to the owner,
+~41% to miners (incentive), ~41% to validators and their stakers (dividends).
+The owner cut can be auto-locked into a conviction position via the
+`owner_cut_auto_lock_enabled` hyperparameter instead of arriving as free
+stake; conviction locking and its unlock schedule are covered in the
+[staking guide](/docs/guides/staking).
+
+Three owner habits worth adopting. Decide your `registration_allowed` policy
+before activation — owners pause registration during mechanism upgrades so
+participants can update without eviction risk, and the toggle is root-gated
+here, so plan ahead. Run a validator on the owner hotkey: the owner cut and
+validation rewards land on the same key, and the 18% cut can be staked behind
+it. Do **not** mine on the owner hotkey — miner emission directed at owner
+hotkeys is burned or recycled, never paid.
+
+## Tune hyperparameters
+
+Owner-settable hyperparameters go through
+[`set-hyperparameter`](/docs/tx/set-hyperparameter) (the equivalent of btcli's
+`sudo set`); read them back with
+[`subnet-hyperparameters`](/docs/query/subnet-hyperparameters):
+
+```bash
+btcli query subnet-hyperparameters --netuid 42 --json
+btcli tx set-hyperparameter --netuid 42 --name commit_reveal_weights_enabled --value 1 -w my_coldkey
+```
+
+The important owner-settable parameters, with chain defaults:
+
+| Parameter | Default | What it does |
+| --- | --- | --- |
+| `tempo` | 360 | Blocks per epoch. Owner changes bounded 360–50,400 and reset the epoch cycle. |
+| `immunity_period` | 4,096 | Blocks a fresh UID is protected from pruning and trimming. |
+| `min_burn` / `max_burn` | 0.0005 τ / 100 τ | Clamp on the neuron registration price. Read the live price with [`burn`](/docs/query/burn). |
+| `burn_half_life` | 360 | Blocks for the registration price to decay halfway toward `min_burn` when nobody registers. |
+| `burn_increase_mult` | 1.26 | Multiplier applied to the registration price after each successful registration. |
+| `max_allowed_uids` | 256 | UID slots. Floor 64; times mechanism count must stay ≤ 256. |
+| `activity_cutoff_factor` | 13,889 | Per-mille of tempo; effective cutoff = factor × tempo / 1000 blocks (5,000 at tempo 360; bounds 1,000–50,000). A validator that hasn't set weights within the cutoff sits out until next epoch. Replaces the deprecated `activity_cutoff` (5,000). |
+| `serving_rate_limit` | 50 | Minimum blocks between `serve-axon` / `serve-prometheus` calls per key. |
+| `commit_reveal_weights_enabled` | true | Weights are committed hashed, revealed later. |
+| `commit_reveal_period` | 1 | Tempos between commit and reveal. |
+| `liquid_alpha_enabled` | false | Per-weight-pair bond smoothing between `alpha_low` and `alpha_high`. Only takes effect with `yuma3_enabled` on. |
+| `alpha_values` * | 0.7 / 0.9 | The `alpha_low` / `alpha_high` bounds used by liquid alpha. |
+| `yuma3_enabled` | false | Runs Yuma Consensus v3 instead of v2. |
+| `bonds_moving_avg` | 900,000 | Bond EMA window; larger is smoother and slower, smaller is faster and more volatile. |
+| `transfers_enabled` | true | Allows stake transfers on the subnet. |
+| `recycle_or_burn` * | burn | Whether miner emission directed at burn UIDs is destroyed or recycled back into the pool. |
+| `owner_cut_auto_lock_enabled` | false | Auto-locks the owner cut into conviction instead of paying it as free stake. |
+| `immune_owner_uids_limit` * | 1 | How many owner hotkeys are permanently immune from pruning and trimming (`ImmuneOwnerUidsLimit`). Owner-raisable to a maximum of 10. |
+
+Parameters marked * have their own extrinsics on chain rather than a name in
+`set-hyperparameter`; if the SDK doesn't expose one, use the
+[raw-call escape hatch](/docs/concepts/advanced).
+
+Chain reads also return `rho`, `difficulty`, `adjustment_interval`,
+`adjustment_alpha`, and `target_regs_per_interval` — legacy registration and
+consensus parameters that still exist as storage but no longer drive neuron
+admission; the burn price decay/bump mechanism replaced the old PoW and
+adjustment-interval machinery. (`max_registrations_per_block` is still
+enforced.)
+
+Two chain-side constraints on owner changes:
+
+- **Rate limit** — each hyperparameter can be changed roughly once per two
+  tempos (default [`OwnerHyperparamRateLimit`](/code/pallets/subtensor/src/lib.rs#L1160) = 2), tracked independently per
+  parameter, so you can change several different parameters in one tempo but
+  not the same one twice.
+- **Freeze window** — owner admin calls are rejected during the last ~10
+  blocks of each tempo ([`AdminFreezeWindow`](/code/pallets/subtensor/src/lib.rs#L1155)), so parameters can't change while
+  an epoch is being computed.
+
+Root-only parameters — `kappa` (default 32,767 ≈ 0.5),
+`max_allowed_validators` (128), `weights_set_rate_limit` (100 blocks between
+weight submissions), tempo outside the owner bounds, `registration_allowed`,
+and others — need root privileges and the
+[raw-call escape hatch](/docs/concepts/advanced).
+
+## Trim UIDs
+
+[`trim-subnet`](/docs/tx/trim-subnet) lowers `max_allowed_uids` and evicts the
+excess neurons. Rules:
+
+- Rate-limited to one trim per 216,000 blocks (~30 days).
+- Victims are the lowest-emission UIDs; temporally immune UIDs (within
+  `immunity_period`) and owner-immune UIDs are skipped, and immune UIDs may
+  not exceed 80% of the new maximum.
+- You cannot trim below 64 UIDs.
+- Surviving UIDs are renumbered consecutively from 0 — a miner's UID can
+  change even if it survives.
+- A trimmed UID's on-chain state (hotkey mapping, registration block, weights,
+  bonds, axon info) is permanently deleted.
+
+## Mechanisms
+
+A subnet can run multiple scoring mechanisms, each with its own weights.
+[`set-mechanism-count`](/docs/tx/set-mechanism-count) configures how many;
+validators target one via the `mechid` field on
+[`set-weights`](/docs/tx/set-weights). Read the current count and split with
+[`mechanism-count`](/docs/query/mechanism-count) and
+[`mechanism-emission-split`](/docs/query/mechanism-emission-split).
+
+- The chain currently caps subnets at **2** mechanisms.
+- Each mechanism runs Yuma Consensus independently, with its own weight matrix
+  and separate bond pools. Miners keep one UID across all mechanisms — no
+  separate registration — and their total emission is the sum across
+  mechanisms.
+- The same applies to validators: emission is computed per mechanism from that
+  mechanism's own consensus, then combined according to the emission split.
+- Mechanisms were formerly called "subsubnets"; the old name survives in some
+  APIs and code comments.
+- `max_allowed_uids` × mechanism count must stay ≤ 256; reduce
+  `max_allowed_uids` first if raising the count would exceed it.
+- The emission split is a vector of u16 weights summing to 65,535 (e.g.
+  `[13107, 52428]` is 20%/80%); unset means an even split. Changing the
+  mechanism count resets the split to even.
+- Count changes are rate-limited to once per 7,200 blocks (~24 hours).
+
+## Deregistration
+
+There is no inactivity-based deregistration; pruning is price-based. When the
+subnet limit (128) is reached, the next
+[`register-subnet`](/docs/tx/register-subnet) prunes the non-immune subnet
+with the lowest EMA alpha price (ties go to the oldest) and reuses its netuid.
+New subnets are immune for 1,296,000 blocks (~6 months) from registration; if
+every subnet is immune the new registration fails instead.
+
+Price-ranked deregistration has history: it existed pre-dTAO (ranked by
+emission then), was removed at dTAO's launch in February 2025, and returned
+price-ranked in September 2025.
+
+Deregistering a subnet deregisters all of its neurons with it — every UID's
+on-chain state is deleted along with the subnet.
+
+On dissolution the subnet's TAO reserve is distributed pro-rata over all alpha
+— credited directly to each holder's coldkey balance, not restaked. Two
+caveats: protocol-held alpha (the pool's alpha-in plus alpha bought back by
+the chain) counts in the denominator and its share returns to the chain,
+diluting holder payouts; and conviction locks are deleted before liquidation —
+locked stake is paid out like any other, but accumulated conviction is not
+compensated. Owners of subnets registered since dTAO get no lock refund.
+The payout can also cut the other way: liquidation pays the pool's
+TAO-per-alpha rate, so if that exceeds the market price at dissolution,
+holders receive more than market value.
+
+## Identity and token
+
+- [`set-subnet-identity`](/docs/tx/set-subnet-identity) — the subnet's public
+  profile (name, links, contact, logo). Public and permanent; each call
+  overwrites the whole record.
+- [`update-symbol`](/docs/tx/update-symbol) — the subnet token's ticker,
+  chosen from a fixed on-chain list of available symbols.
+
+The most common identity mistake: `logo_url` must point at a raw image file
+(e.g. a raw.githubusercontent.com URL), not an HTML page that displays the
+image.
+
+## Financing: leases and crowdloans
+
+A subnet can be financed collectively: create a crowdloan
+([`create-crowdloan`](/docs/tx/create-crowdloan), contributions via
+[`contribute-crowdloan`](/docs/tx/contribute-crowdloan)) and register the
+network under a lease that shares emissions with contributors
+([`register-leased-network`](/docs/tx/register-leased-network), ended with
+[`terminate-lease`](/docs/tx/terminate-lease)). Inspect with the
+[`crowdloans`](/docs/query/crowdloans) and [`leases`](/docs/query/leases)
+reads.
+
+Economics worth knowing before committing:
+
+- The lease's `emissions_share` is a percentage **of the owner cut** (18%),
+  not of total emissions: a 50% share pays contributors 9% of the subnet's
+  emission.
+- Contributor dividends are swapped from alpha to TAO and paid automatically
+  during coinbase, on a fixed distribution interval (100 blocks), pro-rata by
+  contribution. If pool liquidity is too thin to swap, the alpha accumulates
+  for a later interval.
+- At lease creation, whatever remains of the raised cap after paying the
+  registration cost is refunded to contributors pro-rata (rounding remainder
+  to the beneficiary) — so set the cap above the projected lock cost, not
+  wildly above it.
+- Crowdloans must run between 50,400 and 432,000 blocks (7–60 days).
+  Contributions are clipped to the remaining cap rather than rejected.
+  Refunds after a failed raise process at most 50 contributors per
+  [`refund-crowdloan`](/docs/tx/refund-crowdloan) call, so large campaigns
+  need several.
+
+## Bootstrapping validation
+
+A brand-new subnet has no validators, and the owner gets no special treatment:
+setting weights requires meeting the same stake threshold as any validator
+(see [validating](/docs/guides/validating)). The common tactic is to ask an
+established root validator to parent your validator hotkey as a childkey
+([`set-children`](/docs/tx/set-children)), lending it stake weight for
+consensus participation until the subnet attracts its own stake.

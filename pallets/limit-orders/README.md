@@ -85,9 +85,11 @@ encoding (`OrderId`) is persisted.
 ### `SignedOrder<AccountId>`
 
 Envelope submitted by the relayer: the `VersionedOrder` payload plus the user's
-sr25519 signature over the SCALE encoding of the `VersionedOrder` (including the
-version discriminant). Only sr25519 signatures are accepted. Signature
-verification uses the inner `order.signer` as the expected public key.
+sr25519 or ed25519 signature. The signature may cover either the SCALE encoding
+of the `VersionedOrder` (including the version discriminant), or `<Bytes>` plus
+its blake2-256 hash plus `</Bytes>` for Ledger compatibility. Signature
+verification uses the inner `order.signer` as the expected public key; ECDSA is
+not accepted.
 
 ### `OrderStatus`
 

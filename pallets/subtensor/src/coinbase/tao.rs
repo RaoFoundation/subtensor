@@ -36,32 +36,20 @@ impl<T: Config> Pallet<T> {
         SubnetTAO::<T>::get(netuid)
     }
 
-    /// Internal function that transfers and updates subtensor pallet total issuance
-    /// in case of dust collection.
+    /// Internal function that transfers TAO and allows the origin account to be reaped.
+    ///
+    /// Dust collection is handled by the runtime's Balances `DustRemoval` implementation.
     fn transfer_allow_death_update_ti(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
         amount: BalanceOf<T>,
     ) -> DispatchResult {
-        // If account balance remainder drops below ED, then account is killed, balance
-        // is lost, and we need to reduce total issuance in subtensor pallet. Measure
-        // balance TI before and after to detect the dust.
-        let balances_ti_before = <T as pallet::Config>::Currency::total_issuance();
-
         <T as pallet::Config>::Currency::transfer(
             origin_coldkey,
             destination_coldkey,
             amount,
             Preservation::Expendable,
         )?;
-
-        let balances_ti_after = <T as pallet::Config>::Currency::total_issuance();
-        if balances_ti_after < balances_ti_before {
-            let burned = balances_ti_before.saturating_sub(balances_ti_after);
-            TotalIssuance::<T>::mutate(|total| {
-                *total = total.saturating_sub(burned);
-            });
-        }
 
         Ok(())
     }
@@ -77,7 +65,10 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         // Get full balance including ED
         let max_transferrable = Self::get_coldkey_balance(origin_coldkey);
-        ensure!(amount <= max_transferrable, Error::<T>::InsufficientBalance);
+        ensure!(
+            amount <= max_transferrable,
+            Error::<T>::InsufficientTaoBalance
+        );
 
         Self::transfer_allow_death_update_ti(origin_coldkey, destination_coldkey, amount)
     }
@@ -85,15 +76,15 @@ impl<T: Config> Pallet<T> {
     /// Transfer all transferable TAO from `origin_coldkey` to `destination_coldkey`,
     /// allowing the origin account to be reaped.
     ///
-    /// # Parameters
-    /// - `origin_coldkey`: Source account.
-    /// - `destination_coldkey`: Destination account.
+    /// # Arguments
+    /// * `origin_coldkey`: Source account.
+    /// * `destination_coldkey`: Destination account.
     ///
     /// # Returns
     /// DispatchResult of the operation.
     ///
     /// # Errors
-    /// - Any error returned by the underlying currency transfer.
+    /// * Any error returned by the underlying currency transfer.
     pub fn transfer_all_tao_and_kill(
         origin_coldkey: &T::AccountId,
         destination_coldkey: &T::AccountId,
@@ -120,17 +111,17 @@ impl<T: Config> Pallet<T> {
     /// If transferring the full `amount` would reap the origin account, this
     /// function leaves the existential deposit (ED) in place and transfers less.
     ///
-    /// # Parameters
-    /// - `netuid`: Subnet identifier.
-    /// - `origin_coldkey`: Account to transfer TAO from.
-    /// - `destination_coldkey`: Account to transfer TAO to.
-    /// - `amount`: Requested amount to transfer.
+    /// # Arguments
+    /// * `netuid`: Subnet identifier.
+    /// * `origin_coldkey`: Account to transfer TAO from.
+    /// * `destination_coldkey`: Account to transfer TAO to.
+    /// * `amount`: Requested amount to transfer.
     ///
     /// # Returns
     /// Returns the actual amount transferred.
     ///
     /// # Errors
-    /// Returns [`Error::<T>::InsufficientBalance`] if no positive amount can be
+    /// Returns [`Error::<T>::InsufficientTaoBalance`] if no positive amount can be
     /// transferred while preserving the origin account.
     ///
     /// Propagates any other transfer error from the underlying currency.
@@ -156,7 +147,7 @@ impl<T: Config> Pallet<T> {
 
         ensure!(
             !amount_to_transfer.is_zero(),
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         <T as Config>::Currency::transfer(
@@ -200,7 +191,7 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(
             amount <= max_preserving_amount,
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         // Decrease subtensor pallet total issuance
@@ -289,6 +280,25 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Withdraw TAO from an account into a fresh credit.
+    ///
+    /// This is useful when a previous `spend_tao` resolve must be undone without
+    /// changing total issuance.
+    pub fn withdraw_tao_as_credit(
+        coldkey: &T::AccountId,
+        amount: BalanceOf<T>,
+    ) -> Result<CreditOf<T>, DispatchError> {
+        let credit = <T as Config>::Currency::withdraw(
+            coldkey,
+            amount,
+            Precision::Exact,
+            Preservation::Expendable,
+            Fortitude::Polite,
+        )?;
+
+        Ok(credit)
+    }
+
     /// Finalizes the unused part of the minted TAO.
     pub fn recycle_credit(credit: CreditOf<T>) {
         let amount = credit.peek();
@@ -323,7 +333,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         ensure!(
             Self::can_remove_balance_from_coldkey_account(coldkey, amount),
-            Error::<T>::InsufficientBalance
+            Error::<T>::InsufficientTaoBalance
         );
 
         let identifier = Self::get_network_registration_lock_identifier(lock_id);

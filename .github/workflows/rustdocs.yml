@@ -1,9 +1,12 @@
-name: Publish rustdocs
+name: Publish Rustdocs
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
   workflow_dispatch:
 
 concurrency:
@@ -15,55 +18,45 @@ env:
 
 jobs:
   build:
-    runs-on: [self-hosted, fireactions-light]
-
+    runs-on: [self-hosted, fireactions-turbo-8]
+    environment:
+      name: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'sccache-reader' || 'sccache-writer' }}
+      deployment: false
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential clang curl libssl-dev llvm libudev-dev protobuf-compiler pkg-config
-
-      - name: Install rustup
-        uses: actions-rs/toolchain@v1
+      - uses: ./.github/actions/rust-setup
         with:
-          toolchain: stable
+          cache-key: rustdocs
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
 
       - name: Generate documentation
-        uses: actions-rs/cargo@v1
-        with:
-            command: doc
-            args: --document-private-items
+        run: cargo doc --document-private-items
 
       - name: Fix file permissions
-        shell: sh
+        run: chmod -c -R +rX "target/doc"
+
+      - name: Generate index.html redirect
         run: |
-            chmod -c -R +rX "target/doc" |
-            while read line; do
-                echo "::warning title=Invalid file permissions automatically fixed::$line"
-            done
-      - name: Generate index.html file
-        run: |
-            echo "<meta http-equiv=refresh content=0;url=wasm_oidc_plugin/index.html>" > target/doc/index.html
+          echo '<meta http-equiv=refresh content=0;url=node_subtensor_runtime/index.html>' > target/doc/index.html
+
       - name: Upload documentation
         uses: actions/upload-pages-artifact@v3
         with:
-            path: ./target/doc
+          path: ./target/doc
 
   deploy:
-        needs: build
-        runs-on: [self-hosted, fireactions-light]
-
-        permissions:
-            pages: write
-            id-token: write
-        environment:
-            name: github-pages
-            url: ${{ steps.pages.outputs.page_url }}
-
-        steps:
-          - name: Deploy documentation
-            id: pages
-            uses: actions/deploy-pages@v2
+    needs: build
+    runs-on: [self-hosted, fireactions-turbo-8]
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - name: Deploy documentation
+        id: pages
+        uses: actions/deploy-pages@v4

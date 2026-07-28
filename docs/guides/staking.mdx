@@ -1,0 +1,222 @@
+---
+title: Staking
+description: Back validators with TAO, manage positions across subnets, and claim root dividends.
+---
+
+Staking backs a validator (a **hotkey**) with your TAO. On a subnet, staking
+swaps TAO into the subnet's alpha at the pool price; your position's value then
+follows the pool price and the validator's performance. On the root network
+(netuid 0) stake stays TAO-denominated. For how the pools themselves work —
+price impact, fees, MEV — see
+[staking and pools](/docs/concepts/staking-pools).
+
+## Pick a validator
+
+```bash
+btcli query delegates --json          # all delegate hotkeys
+btcli query delegate --hotkey 5F...   # one delegate's details
+btcli query delegate-take --hotkey 5F...   # the fraction the delegate keeps
+```
+
+The **take** is the fraction of staking emissions the validator keeps before
+distributing the rest to its nominators. The chain default is 18% (stored as
+11796/65535); a delegate can lower it any time with
+[`decrease-take`](/docs/tx/decrease-take), but raising it
+([`increase-take`](/docs/tx/increase-take) /
+[`set-take`](/docs/tx/set-take)) is rate-limited to once per 216,000 blocks
+(~30 days). Read the current value with
+[`delegate-take`](/docs/query/delegate-take).
+
+## Stake and unstake
+
+Quote first — staking is a swap, so large amounts incur slippage:
+
+```bash
+btcli query quote-stake --netuid 1 --amount-tao 100 --json
+btcli tx add-stake --hotkey 5F... --netuid 1 --amount-tao 100 --dry-run
+btcli tx add-stake --hotkey 5F... --netuid 1 --amount-tao 100 -w my_coldkey
+```
+
+```python
+intent = bt.AddStake(hotkey_ss58="5F...", netuid=1, amount_tao=100)
+await client.execute(intent, wallet)
+```
+
+Every stake operation must move at least the chain minimum — by default
+2,000,000 rao (0.002 TAO), stored in [`MinStake`](/code/pallets/subtensor/src/lib.rs#L1047). The chain can also sweep
+nominations that fall below a nominator minimum (a governance-set fraction of
+the minimum stake; currently zero, so the sweep is effectively disabled).
+
+Exit with [`remove-stake`](/docs/tx/remove-stake), or exit everything at once
+with [`unstake-all`](/docs/tx/unstake-all). Quote the exit the same way you
+quote the entry:
+
+```python
+quote = await client.prices.quote_unstake(netuid=1, amount_alpha=50)  # TAO out, fee, slippage
+await client.execute(bt.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha="all"), wallet)
+```
+
+`"all"` resolves to the full position at build time — only the remove-stake
+variants accept it.
+
+To bound the execution price instead of accepting whatever the pool gives, use
+[`add-stake-limit`](/docs/tx/add-stake-limit) /
+[`remove-stake-limit`](/docs/tx/remove-stake-limit). Compute the limit from the
+spot price and your tolerance (see [how money moves](/docs/concepts/money) for
+the pool mechanics):
+
+```python
+spot = await client.prices.alpha_price(netuid=1)
+intent = bt.AddStakeLimit(
+    hotkey_ss58="5F...", netuid=1, amount_tao=100,
+    limit_price_rao=int(spot["price_rao"] * 1.02),  # accept at most 2% above spot
+    allow_partial=False,
+)
+await client.execute(intent, wallet)
+```
+
+There is no unbonding period: plain unstaking settles immediately, with the
+TAO spendable at once. The only time constraints in the staking system are
+conviction locks (opt-in, below) and the rate limits on child and take
+changes.
+
+## Move positions without exiting
+
+- [`move-stake`](/docs/tx/move-stake) — different hotkey (and optionally
+  subnet).
+- [`swap-stake`](/docs/tx/swap-stake) — same hotkey, different subnet.
+- [`transfer-stake`](/docs/tx/transfer-stake) — different coldkey (gives the
+  position away). Pass `--dest-hotkey` to land it on a different hotkey in
+  the same call.
+
+```python
+intent = bt.MoveStake(origin_hotkey_ss58="5F...", origin_netuid=1,
+                       dest_hotkey_ss58="5G...", dest_netuid=1, amount_alpha=25)
+await client.execute(intent, wallet)
+```
+
+Same-subnet moves just change which validator backs the stake; cross-subnet
+moves swap through both pools and can incur slippage on each leg.
+
+## Inspect what you have
+
+```bash
+btcli stake show --hotkey 5F... --netuid 1
+btcli query stake-for-coldkey --coldkey my_coldkey --json     # all positions
+btcli query stake-value-for-coldkey --coldkey my_coldkey --json  # marked to TAO at spot
+```
+
+Spot valuation is `alpha × price`, excluding slippage and fees — use
+[`quote-unstake`](/docs/query/quote-unstake) for what you would actually
+receive.
+
+## Conviction locks
+
+[`lock-stake`](/docs/tx/lock-stake) commits alpha on a subnet as **locked
+mass** — a floor on unstaking that accrues **conviction** toward a target
+hotkey over time. Locked alpha keeps earning rewards; locking changes
+liquidity, not emissions.
+
+For a full walkthrough with interactive charts on a worked example subnet,
+see the [Conviction locks guide](/docs/guides/conviction).
+
+Quick reference:
+
+- One lock per coldkey per subnet; top-ups add mass, conviction continues.
+- **Perpetual** vs **decaying** modes — opt in with [`set-perpetual-lock`](/docs/tx/set-perpetual-lock).
+- The two timescales are governance-set storage values, not fixed constants.
+  On mainnet today [`MaturityRate`](/code/pallets/subtensor/src/lib.rs#L1654) is 311,622 blocks (~43 days) and
+  [`UnlockRate`](/code/pallets/subtensor/src/lib.rs#L1658) is 934,866 blocks (~130 days) — read them live before planning
+  around either.
+- Aggregate conviction can trigger **subnet ownership** after one year when
+  total conviction ≥ 10% of [`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424).
+- Query with [`subnet-convictions`](/docs/query/subnet-convictions),
+  [`hotkey-conviction`](/docs/query/hotkey-conviction),
+  [`coldkey-lock`](/docs/query/coldkey-lock).
+
+## Root stake and dividends
+
+Stake on the root network earns dividends from across subnets. Each subnet's
+root dividends are split between TAO and alpha according to the root
+proportion of stake, and the alpha part accrues per subnet until claimed.
+
+Unlike subnet staking, root staking and unstaking is not a pool swap: no swap
+fee, no slippage, no MEV exposure — you move TAO in and out at face value.
+See [how money moves](/docs/concepts/money) for the swap mechanics that root
+stake skips.
+
+How the alpha pays out is your choice, set with
+[`set-root-claim-type`](/docs/tx/set-root-claim-type): **Swap** (the chain
+default) sells the alpha dividends into TAO on your root position, **Keep**
+restakes them as alpha on the subnet, and a per-subnet map mixes the two. Read
+your setting with [`root-claim-type`](/docs/query/root-claim-type).
+
+You normally don't need to claim at all: every block the chain picks a
+handful of staking coldkeys pseudo-randomly and processes any of their accrued
+dividends that exceed the per-subnet claim threshold (default 500,000 rao;
+settable by the subnet owner or root). Each account comes up automatically
+every few days, depending on how many staking coldkeys exist. Manual
+[`claim-root`](/docs/tx/claim-root) is optional — it just claims sooner and
+takes at most 5 subnets per call. Unclaimed dividends keep accruing — there is
+no deadline. For small positions the extrinsic fee of a manual claim can
+exceed the dividends it collects — let the automatic sweep handle small
+amounts.
+
+## Child hotkeys
+
+A validator can delegate a fraction of its stake weight to **child hotkeys**
+per subnet with [`set-children`](/docs/tx/set-children). Two reasons to do
+this: confine a hotkey compromise to a single subnet (one child per subnet
+instead of one hotkey exposed everywhere), or lend stake weight to another
+operator without moving stake.
+
+The chain enforces:
+
+- At most **5 children per netuid**; a child can have multiple parents.
+  Proportions cannot be zero, and any proportion not assigned to children
+  stays with the parent.
+- Setting or revoking children is rate-limited to once per 150 blocks
+  (~30 minutes) per hotkey per subnet, and changes only take effect after a
+  cooldown (default 7,200 blocks, ~24 hours) — see
+  [`pending-children`](/docs/query/pending-children).
+- The child's take ([`set-childkey-take`](/docs/tx/set-childkey-take)) ranges
+  0–18% and defaults to 0; increases are rate-limited to once per 216,000
+  blocks (~30 days).
+- The parent must hold a minimum total stake (the chain's [`StakeThreshold`](/code/pallets/subtensor/src/lib.rs#L2489),
+  set by governance — read it live rather than assuming a value).
+
+Dividends settle back along the same links: a child hotkey's dividends are
+split among its parents in proportion to the stake weight each contributed
+(alpha plus TAO × [`TaoWeight`](/code/pallets/subtensor/src/lib.rs#L1197)), after deducting the childkey take. The
+deducted take is added to the child validator's own dividends — and since
+those distribute to the child's nominators like any validator dividends, most
+of the take flows onward to that validator's stakers rather than its
+operator.
+
+Because stake weight flows without infrastructure, a coldkey can act as a
+stakeless "validator": hold stake on its own hotkey and childkey-delegate the
+weight to operating validators, running no machines at all.
+
+Inspect relationships with [`children`](/docs/query/children) and
+[`parents`](/docs/query/parents).
+
+## Automation
+
+[`set-auto-stake`](/docs/tx/set-auto-stake) makes future rewards on a subnet
+stake themselves to a hotkey of your choice instead of accumulating unstaked.
+
+## Security
+
+Two habits for meaningful position sizes:
+
+- **Bound the price and shield the submission.** These protect against
+  different things: limit variants ([`add-stake-limit`](/docs/tx/add-stake-limit))
+  cap slippage however it arises, while
+  [MEV-shielded submission](/docs/concepts/advanced#mev-shielded-submission)
+  hides the transaction from front-runners until inclusion. Use both.
+- **Use delayed proxies, and monitor them.** A leaked zero-delay `Staking`
+  proxy cannot transfer your balance, but it can still drain value by forcing
+  repeated high-slippage stake/unstake round trips that counterparties profit
+  from. Give staking proxies an announcement delay and watch for
+  announcements you didn't make — see
+  [proxies](/docs/concepts/advanced#proxy-keep-the-coldkey-offline).

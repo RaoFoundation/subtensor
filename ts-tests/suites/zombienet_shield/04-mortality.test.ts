@@ -11,16 +11,20 @@ import {
     getAccountNonce,
     getBalance,
     getNextKey,
+    getShieldSlotDurationMs,
     getSignerFromKeypair,
     waitForFinalizedBlocks,
 } from "../../utils";
 import { describeSuite } from "@moonwall/cli";
 import { sleep } from "@zombienet/utils";
 
-// MAX_SHIELD_ERA_PERIOD is 8 blocks. With 12s slots, that's ~96s.
+// MAX_SHIELD_ERA_PERIOD is eight blocks. The assertion is block-based, so it
+// remains identical under the fast runtime while avoiding a production-time wait.
 const MAX_ERA_BLOCKS = 8;
-const SLOT_DURATION_MS = 12_000;
-const POLL_INTERVAL_MS = 3_000;
+const SLOT_DURATION_MS = getShieldSlotDurationMs();
+const POLL_INTERVAL_MS = Math.min(3_000, SLOT_DURATION_MS);
+const STARTUP_TIMEOUT_MS = Math.max(30_000, (MAX_ERA_BLOCKS + 8) * SLOT_DURATION_MS);
+const EVICTION_TIMEOUT_MS = Math.max(30_000, MAX_ERA_BLOCKS * 3 * SLOT_DURATION_MS);
 
 describeSuite({
     id: "04_mortality",
@@ -32,28 +36,25 @@ describeSuite({
         let apiFull: TypedApi<typeof subtensor>;
         let clientFull: PolkadotClient;
 
-        let alice: KeyringPair;
-        let bob: KeyringPair;
+        let mortalitySender: KeyringPair;
+        let mortalityRecipient: KeyringPair;
 
-        beforeAll(
-            async () => {
-                const keyring = new Keyring({ type: "sr25519" });
-                alice = keyring.addFromUri("//Alice");
-                bob = keyring.addFromUri("//Bob");
+        beforeAll(async () => {
+            const keyring = new Keyring({ type: "sr25519" });
+            mortalitySender = keyring.addFromUri("//Eve");
+            mortalityRecipient = keyring.addFromUri("//Ferdie");
 
-                apiAuthority = context.papi("Node").getTypedApi(subtensor);
+            apiAuthority = context.papi("Node").getTypedApi(subtensor);
 
-                clientFull = context.papi("NodeFull");
-                apiFull = clientFull.getTypedApi(subtensor);
+            clientFull = context.papi("NodeFull");
+            apiFull = clientFull.getTypedApi(subtensor);
 
-                await checkRuntime(apiAuthority);
+            await checkRuntime(apiAuthority);
 
-                // Wait for a fresh finalized block, then immediately read NextKey and submit.
-                // This tests the "just after block" boundary where keys just rotated.
-                await waitForFinalizedBlocks(apiAuthority, 1);
-            },
-            (MAX_ERA_BLOCKS + 8) * SLOT_DURATION_MS
-        );
+            // Wait for a fresh finalized block, then immediately read NextKey and submit.
+            // This tests the "just after block" boundary where keys just rotated.
+            await waitForFinalizedBlocks(apiAuthority, 1);
+        }, STARTUP_TIMEOUT_MS);
 
         it({
             id: "T01",
@@ -63,13 +64,13 @@ describeSuite({
                 const nextKey = await getNextKey(apiAuthority);
                 expect(nextKey).toBeDefined();
 
-                const balanceBefore = await getBalance(apiFull, bob.address);
+                const balanceBefore = await getBalance(apiFull, mortalityRecipient.address);
 
-                const nonce = await getAccountNonce(apiFull, alice.address);
+                const nonce = await getAccountNonce(apiFull, mortalitySender.address);
                 const innerTxHex = await apiFull.tx.Balances.transfer_keep_alive({
-                    dest: MultiAddress.Id(bob.address),
+                    dest: MultiAddress.Id(mortalityRecipient.address),
                     value: 1_000_000_000n,
-                }).sign(getSignerFromKeypair(alice), { nonce: nonce + 1 });
+                }).sign(getSignerFromKeypair(mortalitySender), { nonce: nonce + 1 });
 
                 // Encrypt with valid key, then tamper the key_hash so no proposer will include it.
                 const ciphertext = await encryptTransaction(hexToU8a(innerTxHex), nextKey);
@@ -83,7 +84,7 @@ describeSuite({
                 // Sign with short mortality (must be ≤ MAX_SHIELD_ERA_PERIOD=8 to pass
                 // CheckMortality validation). The tx enters the pool but no proposer
                 // will include it (tampered key_hash doesn't match PendingKey).
-                const signedHex = await tx.sign(getSignerFromKeypair(alice), {
+                const signedHex = await tx.sign(getSignerFromKeypair(mortalitySender), {
                     nonce,
                     mortality: { mortal: true, period: 8 },
                 });
@@ -98,7 +99,7 @@ describeSuite({
                 }
 
                 // Verify it's in the pool.
-                await sleep(1_000);
+                await sleep(Math.min(1_000, SLOT_DURATION_MS));
                 const normalizedTx = signedHex.toLowerCase();
                 const pending: string[] = await clientFull._request("author_pendingExtrinsics", []);
                 const inPool = pending.some((hex) => hex.toLowerCase() === normalizedTx);
@@ -107,9 +108,9 @@ describeSuite({
 
                 // Now poll until our specific tx disappears (mortality eviction).
                 // Use a generous timeout — CI zombienet nodes can miss AURA slots,
-                // so N blocks may take significantly longer than N * 12s.
+                // so N blocks may take significantly longer than N nominal slots.
                 const start = Date.now();
-                const maxPollMs = MAX_ERA_BLOCKS * 3 * SLOT_DURATION_MS;
+                const maxPollMs = EVICTION_TIMEOUT_MS;
                 let evicted = false;
 
                 log(`Waiting for mortality eviction (up to ${maxPollMs / 1000}s)...`);
@@ -132,7 +133,7 @@ describeSuite({
                 expect(evicted).toBe(true);
 
                 // The inner transfer should NOT have executed.
-                const balanceAfter = await getBalance(apiFull, bob.address);
+                const balanceAfter = await getBalance(apiFull, mortalityRecipient.address);
                 expect(balanceAfter).toBe(balanceBefore);
             },
         });

@@ -1,0 +1,68 @@
+.wrapper {
+  position: absolute;
+  bottom: 40px;
+  left: 70px;
+  overflow: hidden;
+}
+
+/* The switch - the box around the slider */
+.container {
+  display: flex;
+  flex-direction: row;
+  justify-items: center;
+  width: fit-content;
+  height: fit-content;
+  font-size: 12px;
+  white-space: nowrap;
+  gap: 5px;
+}
+
+.container > p {
+  opacity: 0.6;
+  font-size: 14px;
+}
+
+.new_chat_btn {
+  align-self: flex-start;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  padding: 0px;
+  margin: 0px;
+  font-family: 'Haffer';
+  font-weight: 200;
+  background-color: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.3s;
+}
+
+.new_chat_btn:hover {
+  text-decoration: underline;
+  opacity: 1;
+}
+
+.modal {
+  font-family: 'Haffer';
+  font-weight: 200;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  color: var(--text-primary);
+  font-size: 14px;
+  gap: 10px;
+  border-style: solid;
+  border-width: 0.5px;
+  border-color: var(--border-primary);
+  border-radius: 5px;
+  padding: 1rem;
+  width: 150px;
+  position: relative;
+  bottom: -100px;
+  transition: all 0.3s;
+}
+
+.visible {
+  bottom: 0;
+}

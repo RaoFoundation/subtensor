@@ -33,7 +33,7 @@ pub mod pallet {
         DefaultMaxAllowedUids,
         utils::rate_limiting::{Hyperparameter, TransactionType},
     };
-    use sp_runtime::BoundedVec;
+    use sp_runtime::{BoundedVec, PerU16};
     use substrate_fixed::types::{I64F64, I96F32, U64F64};
     use subtensor_runtime_common::{MechId, NetUid, TaoBalance};
 
@@ -118,6 +118,22 @@ pub mod pallet {
             /// Whether pool-side emission injections and chain buys are enabled.
             enabled: bool,
         },
+
+        /// Event emitted when the miner collateral lock share is set for a subnet.
+        CollateralLockShareSet {
+            /// The network identifier.
+            netuid: NetUid,
+            /// The new lock share, normalized so `u16::MAX` = 100%.
+            lock_share: u16,
+        },
+
+        /// Event emitted when the miner collateral drain ratio is set for a subnet.
+        CollateralDrainRatioSet {
+            /// The network identifier.
+            netuid: NetUid,
+            /// The new drain ratio (alpha released per alpha of emission earned).
+            drain_ratio: U64F64,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -151,6 +167,10 @@ pub mod pallet {
         POWRegistrationDisabled,
         /// Call is deprecated
         Deprecated,
+        /// The collateral lock share exceeds the settable maximum (95% of the registration price).
+        CollateralLockShareTooHigh,
+        /// The collateral drain ratio must be positive and at most the settable maximum.
+        CollateralDrainRatioOutOfBounds,
     }
     /// Enum for specifying the type of precompile operation.
     #[derive(
@@ -181,6 +201,8 @@ pub mod pallet {
         AddressMapping,
         /// Voting power precompile
         VotingPower,
+        /// Account balance precompile
+        AccountBalance,
     }
 
     #[pallet::type_value]
@@ -229,7 +251,7 @@ pub mod pallet {
         /// The extrinsic will call the Subtensor pallet to set the default take.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_default_take())]
-        pub fn sudo_set_default_take(origin: OriginFor<T>, default_take: u16) -> DispatchResult {
+        pub fn sudo_set_default_take(origin: OriginFor<T>, default_take: PerU16) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_max_delegate_take(default_take);
             log::debug!("DefaultTakeSet( default_take: {default_take:?} ) ");
@@ -419,10 +441,7 @@ pub mod pallet {
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the adjustment alpha.
         #[pallet::call_index(9)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1))
-        )]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_adjustment_alpha())]
         pub fn sudo_set_adjustment_alpha(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -650,6 +669,31 @@ pub mod pallet {
             Ok(())
         }
 
+        /// The extrinsic sets the activity-cutoff factor for a subnet, in per-mille
+        /// (1/1000) of the tempo: the effective cutoff in blocks is
+        /// `(factor × tempo) / 1000`. Bounded to `[MinActivityCutoffFactorMilli,
+        /// MaxActivityCutoffFactorMilli]`. It is callable by the subnet owner
+        /// (rate-limited via `OwnerHyperparamUpdate`, respects the admin freeze
+        /// window) or the root account (bypasses both). This supersedes the
+        /// absolute-blocks `sudo_set_activity_cutoff`.
+        #[pallet::call_index(97)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_activity_cutoff_factor())]
+        pub fn sudo_set_activity_cutoff_factor(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            factor_milli: u32,
+        ) -> DispatchResult {
+            pallet_subtensor::Pallet::<T>::do_set_activity_cutoff_factor(
+                origin,
+                netuid,
+                factor_milli,
+            )?;
+            log::debug!(
+                "ActivityCutoffFactorMilliSet( netuid: {netuid:?} factor_milli: {factor_milli:?} ) "
+            );
+            Ok(())
+        }
+
         /// The extrinsic sets the network registration allowed for a subnet.
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the network registration allowed.
@@ -675,10 +719,7 @@ pub mod pallet {
         /// It is only callable by the root account or subnet owner.
         /// The extrinsic will call the Subtensor pallet to set the network PoW registration allowed.
         #[pallet::call_index(20)]
-        #[pallet::weight(
-			Weight::from_parts(14_000_000, 0)
-				.saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1))
-		)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_pow_registration_allowed())]
         pub fn sudo_set_network_pow_registration_allowed(
             _origin: OriginFor<T>,
             _netuid: NetUid,
@@ -946,8 +987,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the subnet owner cut.
         #[pallet::call_index(28)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_owner_cut())]
         pub fn sudo_set_subnet_owner_cut(
             origin: OriginFor<T>,
             subnet_owner_cut: u16,
@@ -962,8 +1002,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the network rate limit.
         #[pallet::call_index(29)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_rate_limit())]
         pub fn sudo_set_network_rate_limit(
             origin: OriginFor<T>,
             rate_limit: u64,
@@ -975,23 +1014,28 @@ pub mod pallet {
         }
 
         /// The extrinsic sets the tempo for a subnet.
-        /// It is only callable by the root account.
-        /// The extrinsic will call the Subtensor pallet to set the tempo.
+        /// It is callable by the subnet owner (bounded to `[MinTempo, MaxTempo]` and
+        /// rate-limited to one change per `MinTempo` blocks) or the root account (any
+        /// u16, no rate limit). Both respect the admin freeze window. A successful
+        /// change resets the epoch cycle (`LastEpochBlock = current_block`).
         #[pallet::call_index(30)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_tempo())]
+        #[pallet::weight(
+            <T as pallet::Config>::WeightInfo::sudo_set_tempo().max(
+                // Conservative floor from the original owner-call benchmark,
+                // plus the additional subnet-existence read performed by this call.
+                // Remove once weights are regenerated with the owner-path benchmark.
+                Weight::from_parts(44_877_000, 4_498)
+                    .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(7_u64))
+                    .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(3_u64))
+            )
+        )]
         pub fn sudo_set_tempo(origin: OriginFor<T>, netuid: NetUid, tempo: u16) -> DispatchResult {
-            ensure_root(origin)?;
-            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
-            ensure!(
-                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
-                Error::<T>::SubnetDoesNotExist
-            );
-            pallet_subtensor::Pallet::<T>::apply_tempo_with_cycle_reset(netuid, tempo);
+            pallet_subtensor::Pallet::<T>::do_set_tempo(origin, netuid, tempo)?;
             log::debug!("TempoSet( netuid: {netuid:?} tempo: {tempo:?} ) ");
             Ok(())
         }
 
-        /// DEPRECATED
+        /// Deprecated. This extrinsic is no longer supported and always returns `Error::Deprecated`.
         #[pallet::call_index(33)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_total_issuance())]
         pub fn sudo_set_total_issuance(
@@ -1005,8 +1049,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the immunity period for the network.
         #[pallet::call_index(35)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_immunity_period())]
         pub fn sudo_set_network_immunity_period(
             origin: OriginFor<T>,
             immunity_period: u64,
@@ -1024,8 +1067,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the min lock cost for the network.
         #[pallet::call_index(36)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_network_min_lock_cost())]
         pub fn sudo_set_network_min_lock_cost(
             origin: OriginFor<T>,
             lock_cost: TaoBalance,
@@ -1043,8 +1085,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the subnet limit.
         #[pallet::call_index(37)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_subnet_limit())]
         pub fn sudo_set_subnet_limit(origin: OriginFor<T>, max_subnets: u16) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_max_subnets(max_subnets);
@@ -1056,8 +1097,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the lock reduction interval.
         #[pallet::call_index(38)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_lock_reduction_interval())]
         pub fn sudo_set_lock_reduction_interval(
             origin: OriginFor<T>,
             interval: u64,
@@ -1145,7 +1185,7 @@ pub mod pallet {
         /// The extrinsic will call the Subtensor pallet to set the minimum delegate take.
         #[pallet::call_index(46)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_min_delegate_take())]
-        pub fn sudo_set_min_delegate_take(origin: OriginFor<T>, take: u16) -> DispatchResult {
+        pub fn sudo_set_min_delegate_take(origin: OriginFor<T>, take: PerU16) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_min_delegate_take(take);
             log::debug!("TxMinDelegateTakeSet( tx_min_delegate_take: {take:?} ) ");
@@ -1160,7 +1200,7 @@ pub mod pallet {
         pub fn sudo_set_min_childkey_take_per_subnet(
             origin: OriginFor<T>,
             netuid: NetUid,
-            take: u16,
+            take: PerU16,
         ) -> DispatchResult {
             let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
                 origin,
@@ -1174,8 +1214,8 @@ pub mod pallet {
                 Error::<T>::SubnetDoesNotExist
             );
             ensure!(
-                take >= pallet_subtensor::Pallet::<T>::get_min_childkey_take()
-                    && take <= pallet_subtensor::Pallet::<T>::get_max_childkey_take(),
+                take.deconstruct() >= pallet_subtensor::Pallet::<T>::get_min_childkey_take()
+                    && take.deconstruct() <= pallet_subtensor::Pallet::<T>::get_max_childkey_take(),
                 Error::<T>::InvalidValue
             );
 
@@ -1225,10 +1265,10 @@ pub mod pallet {
 
         /// Enables or disables Liquid Alpha for a given subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `enabled`: A boolean flag to enable or disable Liquid Alpha.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `enabled`: A boolean flag to enable or disable Liquid Alpha.
         ///
         /// # Weight
         /// This function has a fixed weight of 0 and is classified as an operational transaction that does not incur any fees.
@@ -1289,11 +1329,11 @@ pub mod pallet {
         /// The dissolve network schedule determines how long it takes for a network dissolution operation to complete.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `duration` - The new duration for the dissolve network schedule, in number of blocks.
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `duration`: The new duration for the dissolve network schedule, in number of blocks.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1321,13 +1361,13 @@ pub mod pallet {
         /// The commit-reveal mechanism ensures that users commit weights in advance and reveal them only within a specified period.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the subnet owner or the root account.
-        /// * `netuid` - The unique identifier of the subnet for which the periods are being set.
-        /// * `periods` - The number of epochs that define the commit-reveal period.
+        /// * `origin`: The origin of the call, which must be the subnet owner or the root account.
+        /// * `netuid`: The unique identifier of the subnet for which the periods are being set.
+        /// * `periods`: The number of epochs that define the commit-reveal period.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is neither the subnet owner nor the root account.
-        /// * `SubnetDoesNotExist` - If the specified subnet does not exist.
+        /// * `BadOrigin`: If the caller is neither the subnet owner nor the root account.
+        /// * `SubnetDoesNotExist`: If the specified subnet does not exist.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1365,18 +1405,16 @@ pub mod pallet {
         /// Sets the EVM ChainID.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the subnet owner or the root account.
-        /// * `chainId` - The u64 chain ID
+        /// * `origin`: The origin of the call, which must be the subnet owner or the root account.
+        /// * `chainId`: The u64 chain ID
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is neither the subnet owner nor the root account.
+        /// * `BadOrigin`: If the caller is neither the subnet owner nor the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
         #[pallet::call_index(58)]
-        #[pallet::weight(Weight::from_parts(27_199_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_evm_chain_id())]
         pub fn sudo_set_evm_chain_id(origin: OriginFor<T>, chain_id: u64) -> DispatchResult {
             // Ensure the call is made by the root account
             ensure_root(origin)?;
@@ -1415,10 +1453,10 @@ pub mod pallet {
 
         /// Enable or disable atomic alpha transfers for a given subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `enabled`: A boolean flag to enable or disable Liquid Alpha.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `enabled`: A boolean flag to enable or disable Liquid Alpha.
         ///
         /// # Weight
         /// This function has a fixed weight of 0 and is classified as an operational transaction that does not incur any fees.
@@ -1450,15 +1488,13 @@ pub mod pallet {
         /// If set to `Burn`, the miner emission sent to the burn UID(s) will be burned.
         /// If set to `Recycle`, the miner emission sent to the burn UID(s) will be recycled.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `recycle_or_burn`: The desired behaviour of the "burn" UID(s) for the subnet.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `recycle_or_burn`: The desired behaviour of the "burn" UID(s) for the subnet.
         ///
         #[pallet::call_index(80)]
-        #[pallet::weight(Weight::from_parts(20_000_000, 0)
-        .saturating_add(T::DbWeight::get().reads(2_u64))
-        .saturating_add(T::DbWeight::get().writes(2_u64)))] // TODO: add benchmarks
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_recycle_or_burn())]
         pub fn sudo_set_recycle_or_burn(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1484,12 +1520,12 @@ pub mod pallet {
         /// Toggles the enablement of an EVM precompile.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `precompile_id` - The identifier of the EVM precompile to toggle.
-        /// * `enabled` - The new enablement state of the precompile.
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `precompile_id`: The identifier of the EVM precompile to toggle.
+        /// * `enabled`: The new enablement state of the precompile.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1514,11 +1550,11 @@ pub mod pallet {
         ///
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `alpha` - The new moving alpha value for the SubnetMovingAlpha.
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `alpha`: The new moving alpha value for the SubnetMovingAlpha.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1547,11 +1583,11 @@ pub mod pallet {
         ///
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `ema_alpha_period` - Number of blocks for EMA price to halve
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `ema_alpha_period`: Number of blocks for EMA price to halve
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1574,15 +1610,15 @@ pub mod pallet {
         ///
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `netuid` - The unique identifier for the subnet.
-        /// * `steepness` - The Steepness for the alpha sigmoid function. (range is 0-int16::MAX,
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `steepness`: The Steepness for the alpha sigmoid function. (range is 0-int16::MAX,
         /// negative values are reserved for future use)
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
-        /// * `SubnetDoesNotExist` - If the specified subnet does not exist.
-        /// * `NegativeSigmoidSteepness` - If the steepness is negative and the caller is
+        /// * `BadOrigin`: If the caller is not the root account.
+        /// * `SubnetDoesNotExist`: If the specified subnet does not exist.
+        /// * `NegativeSigmoidSteepness`: If the steepness is negative and the caller is
         /// root.
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1624,10 +1660,10 @@ pub mod pallet {
 
         /// Enables or disables Yuma3 for a given subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `enabled`: A boolean flag to enable or disable Yuma3.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `enabled`: A boolean flag to enable or disable Yuma3.
         ///
         /// # Weight
         /// This function has a fixed weight of 0 and is classified as an operational transaction that does not incur any fees.
@@ -1658,10 +1694,10 @@ pub mod pallet {
 
         /// Enables or disables Bonds Reset for a given subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The origin of the call, which must be the root account or subnet owner.
-        /// - `netuid`: The unique identifier for the subnet.
-        /// - `enabled`: A boolean flag to enable or disable Bonds Reset.
+        /// # Arguments
+        /// * `origin`: The origin of the call, which must be the root account or subnet owner.
+        /// * `netuid`: The unique identifier for the subnet.
+        /// * `enabled`: A boolean flag to enable or disable Bonds Reset.
         ///
         /// # Weight
         /// This function has a fixed weight of 0 and is classified as an operational transaction that does not incur any fees.
@@ -1696,27 +1732,27 @@ pub mod pallet {
         /// the hotkey for a given subnet. The subnet must already exist. To prevent abuse, the call is
         /// rate-limited to once per configured interval (default: one week) per subnet.
         ///
-        /// # Parameters
-        /// - `origin`: The dispatch origin of the call. Must be either root or the current owner of the subnet.
-        /// - `netuid`: The unique identifier of the subnet whose owner hotkey is being set.
-        /// - `hotkey`: The new hotkey account to associate with the subnet owner.
+        /// # Arguments
+        /// * `origin`: The dispatch origin of the call. Must be either root or the current owner of the subnet.
+        /// * `netuid`: The unique identifier of the subnet whose owner hotkey is being set.
+        /// * `hotkey`: The new hotkey account to associate with the subnet owner.
         ///
         /// # Returns
-        /// - `DispatchResult`: Returns `Ok(())` if the hotkey was successfully set, or an appropriate error otherwise.
+        /// * `DispatchResult`: Returns `Ok(())` if the hotkey was successfully set, or an appropriate error otherwise.
         ///
         /// # Errors
-        /// - `Error::SubnetNotExists`: If the specified subnet does not exist.
-        /// - `Error::TxRateLimitExceeded`: If the function is called more frequently than the allowed rate limit.
+        /// * `Error::SubnetNotExists`: If the specified subnet does not exist.
+        /// * `Error::TxRateLimitExceeded`: If the function is called more frequently than the allowed rate limit.
         ///
         /// # Access Control
         /// Only callable by:
-        /// - Root origin, or
-        /// - The coldkey account that owns the subnet.
+        /// * Root origin, or
+        /// * The coldkey account that owns the subnet.
         ///
         /// # Storage
-        /// - Updates [`SubnetOwnerHotkey`] for the given `netuid`.
-        /// - Reads and updates [`LastRateLimitedBlock`] for rate-limiting.
-        /// - Reads [`DefaultSetSNOwnerHotkeyRateLimit`] to determine the interval between allowed updates.
+        /// * Updates [`SubnetOwnerHotkey`] for the given `netuid`.
+        /// * Reads and updates [`LastRateLimitedBlock`] for rate-limiting.
+        /// * Reads [`DefaultSetSNOwnerHotkeyRateLimit`] to determine the interval between allowed updates.
         ///
         /// # Rate Limiting
         /// This function is rate-limited to one call per subnet per interval (e.g., one week).
@@ -1733,12 +1769,12 @@ pub mod pallet {
         /// Enables or disables subtoken trading for a given subnet.
         ///
         /// # Arguments
-        /// * `origin` - The origin of the call, which must be the root account.
-        /// * `netuid` - The unique identifier of the subnet.
-        /// * `subtoken_enabled` - A boolean indicating whether subtoken trading should be enabled or disabled.
+        /// * `origin`: The origin of the call, which must be the root account.
+        /// * `netuid`: The unique identifier of the subnet.
+        /// * `subtoken_enabled`: A boolean indicating whether subtoken trading should be enabled or disabled.
         ///
         /// # Errors
-        /// * `BadOrigin` - If the caller is not the root account.
+        /// * `BadOrigin`: If the caller is not the root account.
         ///
         /// # Weight
         /// Weight is handled by the `#[pallet::weight]` attribute.
@@ -1798,9 +1834,7 @@ pub mod pallet {
         /// It is only callable by the root account.
         /// The extrinsic will call the Subtensor pallet to set the childkey burn.
         #[pallet::call_index(73)]
-        #[pallet::weight(Weight::from_parts(15_650_000, 0)
-		.saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-		.saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_ck_burn())]
         pub fn sudo_set_ck_burn(origin: OriginFor<T>, burn: u64) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_ck_burn(burn);
@@ -1835,9 +1869,7 @@ pub mod pallet {
 
         /// Sets the desired number of mechanisms in a subnet
         #[pallet::call_index(76)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_mechanism_count())]
         pub fn sudo_set_mechanism_count(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1862,9 +1894,7 @@ pub mod pallet {
 
         /// Sets the emission split between mechanisms in a subnet
         #[pallet::call_index(77)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_mechanism_emission_split())]
         pub fn sudo_set_mechanism_emission_split(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1951,9 +1981,7 @@ pub mod pallet {
 
         /// Sets TAO flow cutoff value (A)
         #[pallet::call_index(81)]
-        #[pallet::weight(Weight::from_parts(7_343_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(0))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_cutoff())]
         pub fn sudo_set_tao_flow_cutoff(
             origin: OriginFor<T>,
             flow_cutoff: I64F64,
@@ -1966,9 +1994,7 @@ pub mod pallet {
 
         /// Sets TAO flow normalization exponent (p)
         #[pallet::call_index(82)]
-        #[pallet::weight(Weight::from_parts(7_343_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(0))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_normalization_exponent())]
         pub fn sudo_set_tao_flow_normalization_exponent(
             origin: OriginFor<T>,
             exponent: U64F64,
@@ -1987,11 +2013,53 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Sets the emission bar quantile (q): the fraction of demand carried by
+        /// subnets above the emission gate bar. Also forces a bar recompute on the
+        /// next block so the new quantile takes effect immediately.
+        #[pallet::call_index(100)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_bar_quantile())]
+        pub fn sudo_set_emission_bar_quantile(
+            origin: OriginFor<T>,
+            quantile: U64F64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let zero = U64F64::saturating_from_num(0);
+            let one = U64F64::saturating_from_num(1);
+            ensure!(
+                (zero < quantile) && (quantile < one),
+                Error::<T>::InvalidValue
+            );
+
+            pallet_subtensor::Pallet::<T>::set_emission_bar_quantile(quantile);
+            log::debug!("set_emission_bar_quantile( {quantile:?} ) ");
+            Ok(())
+        }
+
+        /// Sets the emission gate Hill exponent (h): cliff sharpness at the bar.
+        #[pallet::call_index(101)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_gate_exponent())]
+        pub fn sudo_set_emission_gate_exponent(
+            origin: OriginFor<T>,
+            exponent: U64F64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let one = U64F64::saturating_from_num(1);
+            let eight = U64F64::saturating_from_num(8);
+            ensure!(
+                (one <= exponent) && (exponent <= eight),
+                Error::<T>::InvalidValue
+            );
+
+            pallet_subtensor::Pallet::<T>::set_emission_gate_exponent(exponent);
+            log::debug!("set_emission_gate_exponent( {exponent:?} ) ");
+            Ok(())
+        }
+
         /// Sets TAO flow smoothing factor (alpha)
         #[pallet::call_index(83)]
-        #[pallet::weight(Weight::from_parts(7_343_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(0))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_smoothing_factor())]
         pub fn sudo_set_tao_flow_smoothing_factor(
             origin: OriginFor<T>,
             smoothing_factor: u64,
@@ -2006,9 +2074,7 @@ pub mod pallet {
         /// When enabled, emission shares use net flow = user flow - protocol cost.
         /// When disabled, emission shares use gross user flow only (current behavior).
         #[pallet::call_index(91)]
-        #[pallet::weight(Weight::from_parts(7_343_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(0))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_net_tao_flow_enabled())]
         pub fn sudo_set_net_tao_flow_enabled(
             origin: OriginFor<T>,
             enabled: bool,
@@ -2021,9 +2087,7 @@ pub mod pallet {
 
         /// Sets the global maximum number of mechanisms in a subnet
         #[pallet::call_index(88)]
-        #[pallet::weight(Weight::from_parts(15_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().reads(1_u64))
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1_u64)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_max_mechanism_count())]
         pub fn sudo_set_max_mechanism_count(
             origin: OriginFor<T>,
             max_mechanism_count: MechId,
@@ -2048,8 +2112,7 @@ pub mod pallet {
 
         /// Sets the delay before a subnet can call start
         #[pallet::call_index(85)]
-        #[pallet::weight(Weight::from_parts(14_000_000, 0)
-        .saturating_add(<T as frame_system::Config>::DbWeight::get().writes(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_start_call_delay())]
         pub fn sudo_set_start_call_delay(origin: OriginFor<T>, delay: u64) -> DispatchResult {
             ensure_root(origin)?;
             pallet_subtensor::Pallet::<T>::set_start_call_delay(delay);
@@ -2086,13 +2149,7 @@ pub mod pallet {
         /// Set BurnHalfLife for a subnet.
         /// It is only callable by root and subnet owner.
         #[pallet::call_index(89)]
-        #[pallet::weight((
-            Weight::from_parts(25_000_000, 0)
-                .saturating_add(T::DbWeight::get().reads(4))
-                .saturating_add(T::DbWeight::get().writes(1)),
-            DispatchClass::Operational,
-            Pays::Yes,
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::sudo_set_burn_half_life(), DispatchClass::Operational, Pays::Yes))]
         pub fn sudo_set_burn_half_life(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2134,13 +2191,7 @@ pub mod pallet {
         /// Set BurnIncreaseMult for a subnet.
         /// It is only callable by root and subnet owner.
         #[pallet::call_index(90)]
-        #[pallet::weight((
-            Weight::from_parts(25_000_000, 0)
-                .saturating_add(T::DbWeight::get().reads(4))
-                .saturating_add(T::DbWeight::get().writes(1)),
-            DispatchClass::Operational,
-            Pays::Yes,
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::sudo_set_burn_increase_mult(), DispatchClass::Operational, Pays::Yes))]
         pub fn sudo_set_burn_increase_mult(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2184,13 +2235,7 @@ pub mod pallet {
         /// Set whether the subnet owner cut is enabled for a subnet.
         /// It is only callable by root and subnet owner.
         #[pallet::call_index(92)]
-        #[pallet::weight((
-            Weight::from_parts(25_000_000, 0)
-                .saturating_add(T::DbWeight::get().reads(4))
-                .saturating_add(T::DbWeight::get().writes(1)),
-            DispatchClass::Operational,
-            Pays::Yes,
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::sudo_set_owner_cut_enabled(), DispatchClass::Operational, Pays::Yes))]
         pub fn sudo_set_owner_cut_enabled(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2214,13 +2259,7 @@ pub mod pallet {
         /// Set whether subnet owner cut is auto-locked for a subnet.
         /// It is only callable by root and subnet owner.
         #[pallet::call_index(95)]
-        #[pallet::weight((
-            Weight::from_parts(25_000_000, 0)
-                .saturating_add(T::DbWeight::get().reads(4))
-                .saturating_add(T::DbWeight::get().writes(1)),
-            DispatchClass::Operational,
-            Pays::Yes,
-        ))]
+        #[pallet::weight((<T as Config>::WeightInfo::sudo_set_owner_cut_auto_lock_enabled(), DispatchClass::Operational, Pays::Yes))]
         pub fn sudo_set_owner_cut_auto_lock_enabled(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -2265,6 +2304,98 @@ pub mod pallet {
             pallet_subtensor::SubnetEmissionEnabled::<T>::insert(netuid, enabled);
             Self::deposit_event(Event::SubnetEmissionEnabledSet { netuid, enabled });
             log::debug!("SubnetEmissionEnabledSet( netuid: {netuid:?}, enabled: {enabled:?} )");
+
+            Ok(())
+        }
+
+        /// Sets the miner collateral lock share (p) for a subnet: the share of
+        /// the registration price that is staked to the registering hotkey and
+        /// locked as collateral instead of burned. Normalized so `u16::MAX` =
+        /// 100%; capped at 95% so the burned share stays positive. 0 disables
+        /// collateral. Callable by root and subnet owner. Applies only to
+        /// future registrations; standing collateral is never re-priced.
+        #[pallet::call_index(98)]
+        #[pallet::weight((<T as pallet::Config>::WeightInfo::sudo_set_collateral_lock_share(), DispatchClass::Operational, Pays::Yes))]
+        pub fn sudo_set_collateral_lock_share(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            lock_share: u16,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::CollateralLockShare.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            ensure!(
+                lock_share <= pallet_subtensor::MaxCollateralLockShare::<T>::get(),
+                Error::<T>::CollateralLockShareTooHigh
+            );
+
+            pallet_subtensor::CollateralLockShare::<T>::insert(netuid, lock_share);
+            Self::deposit_event(Event::CollateralLockShareSet { netuid, lock_share });
+            log::debug!("CollateralLockShareSet( netuid: {netuid:?}, lock_share: {lock_share:?} )");
+
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::CollateralLockShare.into()],
+            );
+
+            Ok(())
+        }
+
+        /// Sets the miner collateral drain ratio (k) for a subnet: how much
+        /// locked collateral is released per alpha of hotkey emission earned
+        /// (miner incentive and validator dividends).
+        /// Must be positive, at most 10. Callable by root and subnet owner.
+        /// Snapshot per miner at registration; changing it never affects
+        /// already-locked collateral.
+        #[pallet::call_index(99)]
+        #[pallet::weight((<T as pallet::Config>::WeightInfo::sudo_set_collateral_drain_ratio(), DispatchClass::Operational, Pays::Yes))]
+        pub fn sudo_set_collateral_drain_ratio(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            drain_ratio: U64F64,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::CollateralDrainRatio.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+
+            ensure!(
+                pallet_subtensor::Pallet::<T>::if_subnet_exist(netuid),
+                Error::<T>::SubnetDoesNotExist
+            );
+            ensure!(!netuid.is_root(), Error::<T>::NotPermittedOnRootSubnet);
+            ensure!(
+                drain_ratio > U64F64::from_num(0)
+                    && drain_ratio <= pallet_subtensor::MaxCollateralDrainRatio::<T>::get(),
+                Error::<T>::CollateralDrainRatioOutOfBounds
+            );
+
+            pallet_subtensor::CollateralDrainRatio::<T>::insert(netuid, drain_ratio);
+            Self::deposit_event(Event::CollateralDrainRatioSet {
+                netuid,
+                drain_ratio,
+            });
+            log::debug!(
+                "CollateralDrainRatioSet( netuid: {netuid:?}, drain_ratio: {drain_ratio:?} )"
+            );
+
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::CollateralDrainRatio.into()],
+            );
 
             Ok(())
         }

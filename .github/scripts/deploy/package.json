@@ -1,0 +1,17 @@
+{
+  "name": "subtensor-deploy-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runtime upgrade deployment and multisig approval scripts",
+  "scripts": {
+    "deploy-wasm": "node deploy-wasm.js",
+    "propose-upgrade": "node propose-upgrade-multisig.js",
+    "prod-approval": "node prod-approval.js",
+    "samvps-approval": "node samvps-approval.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@polkadot/api": "^16",
+    "read": "^4.1.0"
+  }
+}

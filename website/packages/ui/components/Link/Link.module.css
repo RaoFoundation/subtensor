@@ -1,0 +1,44 @@
+.link {
+  color: inherit;
+  text-decoration: none;
+  position: relative;
+  font-family: 'FiraCode';
+  font-weight: 400;
+  transition: color 0.2s cubic-bezier(0.17, 0.04, 0.47, 1);
+  font-size: inherit;
+  max-width: fit-content;
+
+  &.link:before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+    border-bottom: 1px solid currentcolor;
+    transform: scaleX(0);
+    transform-origin: right;
+    transition: all 0.3s cubic-bezier(0.17, 0.04, 0.47, 1);
+  }
+
+  &.link:hover {
+    color: inherit;
+    &.link:before {
+      transform: scaleX(1);
+    }
+  }
+
+  &.is-button {
+    padding: 8px 0;
+    color: var(--supporting-red);
+
+    &.link:before {
+      box-shadow: 0 2px 0 0 currentcolor;
+    }
+
+    &.link:focus-visible,
+    &.link:active {
+      background: rgba(255, 140, 140, 0.1);
+    }
+  }
+}

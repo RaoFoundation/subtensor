@@ -1,5 +1,6 @@
 [package]
 name = "share-pool"
+publish = false
 version = "0.1.0"
 edition.workspace = true
 
@@ -27,7 +28,6 @@ default = ["std"]
 std = [
 	"codec/std",
     "log/std",
-    "rand/std",
 	"scale-info/std",
     "substrate-fixed/std",
     "sp-core/std",
