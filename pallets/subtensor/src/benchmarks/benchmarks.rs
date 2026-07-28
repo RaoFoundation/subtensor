@@ -9,6 +9,7 @@
 
 use crate::Pallet as Subtensor;
 use crate::staking::lock::LockState;
+use crate::subnets::leasing::SubnetLease;
 use crate::subnets::mechanism::GLOBAL_MAX_SUBNET_COUNT;
 use crate::subnets::symbols::SYMBOLS;
 use crate::*;
@@ -1798,58 +1799,57 @@ mod pallet_benchmarks {
 
     #[benchmark]
     fn terminate_lease(k: Linear<2, { T::MaxContributors::get() }>) {
-        let crowdloan_id = 0;
         let beneficiary: T::AccountId = whitelisted_caller();
-        let deposit = TaoBalance::from(20_000_000_000_u64); // 20 TAO
-        let now = frame_system::Pallet::<T>::block_number();
-        let crowdloan_end = now + T::MaximumBlockDuration::get();
-        let cap = TaoBalance::from(2_000_000_000_000_u64); // 2000 TAO
+        let lease_id = 0;
+        let lease_coldkey: T::AccountId = account("lease_coldkey", lease_id, 0);
+        let lease_hotkey: T::AccountId = account("lease_hotkey", lease_id, 0);
+        let netuid = NetUid::from(1);
+        let lease_end = T::MaximumBlockDuration::get();
+        let emissions_share = Percent::from_percent(30);
 
-        let funds_account: T::AccountId = account("funds", 0, 0);
-        add_balance_to_coldkey_account::<T>(&funds_account, cap);
+        // Termination only consumes the resulting lease state. Registering a
+        // worst-case subnet here repeats unrelated network-registration work
+        // for every sample and previously dominated this benchmark's runtime.
+        Subtensor::<T>::init_new_network(netuid, 1);
+        SubnetOwner::<T>::insert(netuid, &lease_coldkey);
+        frame_system::Pallet::<T>::inc_providers(&lease_coldkey);
+        frame_system::Pallet::<T>::inc_providers(&lease_hotkey);
 
-        pallet_crowdloan::Crowdloans::<T>::insert(
-            crowdloan_id,
-            pallet_crowdloan::CrowdloanInfo {
-                creator: beneficiary.clone(),
-                deposit,
-                min_contribution: 0.into(),
-                end: crowdloan_end,
-                cap,
-                raised: cap,
-                finalized: false,
-                funds_account: funds_account.clone(),
-                call: None,
-                target_address: None,
-                contributors_count: T::MaxContributors::get(),
+        // The runtime proxy implementation reserves a deposit from the lease
+        // account while installing the relation removed by the measured call.
+        add_balance_to_coldkey_account::<T>(
+            &lease_coldkey,
+            TaoBalance::from(2_000_000_000_000_u64),
+        );
+        assert_ok!(T::ProxyInterface::add_lease_beneficiary_proxy(
+            &lease_coldkey,
+            &beneficiary,
+        ));
+
+        SubnetLeases::<T>::insert(
+            lease_id,
+            SubnetLease {
+                beneficiary: beneficiary.clone(),
+                coldkey: lease_coldkey,
+                hotkey: lease_hotkey,
+                emissions_share,
+                end_block: Some(lease_end),
+                netuid,
+                cost: TaoBalance::from(1_000_000_000_u64),
             },
         );
+        SubnetUidToLeaseId::<T>::insert(netuid, lease_id);
+        AccumulatedLeaseDividends::<T>::insert(lease_id, AlphaBalance::from(u64::MAX));
 
-        frame_system::Pallet::<T>::set_block_number(crowdloan_end);
-
-        pallet_crowdloan::Contributions::<T>::insert(crowdloan_id, &beneficiary, deposit);
-
+        // Lease shares exclude the beneficiary, while `k` includes it.
         let contributors = k - 1;
-        let amount = (cap - deposit) / TaoBalance::from(contributors);
         for i in 0..contributors {
             let contributor = account::<T::AccountId>("contributor", i.try_into().unwrap(), 0);
-            pallet_crowdloan::Contributions::<T>::insert(crowdloan_id, contributor, amount);
+            SubnetLeaseShares::<T>::insert(lease_id, contributor, U64F64::from_num(1_u32));
         }
-
-        pallet_crowdloan::CurrentCrowdloanId::<T>::set(Some(0));
-
-        setup_worst_case_network_creation::<T>();
-        let emissions_share = Percent::from_percent(30);
-        let lease_end = crowdloan_end + 1000u32.into();
-        assert_ok!(Subtensor::<T>::register_leased_network(
-            RawOrigin::Signed(beneficiary.clone()).into(),
-            emissions_share,
-            Some(lease_end),
-        ));
 
         frame_system::Pallet::<T>::set_block_number(lease_end);
 
-        let lease_id = 0;
         let lease = SubnetLeases::<T>::get(0).unwrap();
         let hotkey = account::<T::AccountId>("beneficiary_hotkey", 0, 0);
         let _ = Subtensor::<T>::create_account_if_non_existent(&beneficiary, &hotkey);
@@ -2701,8 +2701,9 @@ mod pallet_benchmarks {
         }
 
         Owner::<T>::insert(&old_hotkey, &coldkey);
+        let ed = <T as pallet_balances::Config>::ExistentialDeposit::get();
         let cost = Subtensor::<T>::get_key_swap_cost();
-        add_balance_to_coldkey_account::<T>(&coldkey, cost.into());
+        add_balance_to_coldkey_account::<T>(&coldkey, cost + ed);
 
         #[extrinsic_call]
         _(
