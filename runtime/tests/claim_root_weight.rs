@@ -86,7 +86,7 @@ fn maximum_reserve_covers_call_dependent_subtensor_extensions() {
         frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
     );
     let call_extension_weight =
-        pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new().weight(&call);
+        pallet_subtensor::SubtensorTransactionExtension::<Runtime>::validation_weight(&call);
     let maximum_extension_weight =
         pallet_subtensor::SubtensorTransactionExtension::<Runtime>::maximum_weight();
     let mut dispatch_info = call.get_dispatch_info();

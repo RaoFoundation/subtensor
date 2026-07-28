@@ -5,7 +5,7 @@ use crate::{
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
-    dispatch::{DispatchExtension, DispatchInfo, PostDispatchInfo},
+    dispatch::{DispatchExtension, DispatchInfo, GetDispatchInfo, PostDispatchInfo},
     traits::{IsSubType, OriginTrait},
     weights::Weight,
 };
@@ -13,10 +13,7 @@ use scale_info::TypeInfo;
 use sp_runtime::traits::{
     DispatchInfoOf, Dispatchable, Implication, TransactionExtension, ValidateResult,
 };
-use sp_runtime::{
-    impl_tx_ext_default,
-    transaction_validity::{TransactionSource, TransactionValidityError},
-};
+use sp_runtime::transaction_validity::{TransactionSource, TransactionValidityError};
 use sp_std::marker::PhantomData;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::CustomTransactionError;
@@ -91,6 +88,74 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
             .saturating_add(<T as Config>::WeightInfo::check_evm_key_association_extension())
     }
 
+    /// Weight consumed by the validation guards themselves, excluding any
+    /// top-level dispatch reserve.
+    pub fn validation_weight(call: &CallOf<T>) -> Weight
+    where
+        T: pallet_shield::Config,
+        CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+            + IsSubType<Call<T>>
+            + IsSubType<pallet_shield::Call<T>>,
+    {
+        use DispatchExtension as DE;
+        <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
+            .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
+    }
+
+    fn reserves_maximum_dispatch_weight(call: &CallOf<T>) -> bool
+    where
+        CallOf<T>: IsSubType<Call<T>>,
+    {
+        let Some(call) = call.is_sub_type() else {
+            return false;
+        };
+        matches!(
+            call,
+            Call::set_weights { .. }
+                | Call::set_mechanism_weights { .. }
+                | Call::batch_set_weights { .. }
+                | Call::commit_weights { .. }
+                | Call::commit_mechanism_weights { .. }
+                | Call::batch_commit_weights { .. }
+                | Call::reveal_weights { .. }
+                | Call::reveal_mechanism_weights { .. }
+                | Call::commit_crv3_mechanism_weights { .. }
+                | Call::batch_reveal_weights { .. }
+                | Call::serve_axon_tls { .. }
+                | Call::swap_hotkey { .. }
+                | Call::swap_hotkey_v2 { .. }
+                | Call::swap_coldkey { .. }
+                | Call::set_children { .. }
+                | Call::set_identity { .. }
+                | Call::set_subnet_identity { .. }
+                | Call::register_network_with_identity { .. }
+                | Call::unstake_all { .. }
+                | Call::unstake_all_alpha { .. }
+                | Call::commit_timelocked_weights { .. }
+                | Call::set_coldkey_auto_stake_hotkey { .. }
+                | Call::commit_timelocked_mechanism_weights { .. }
+                | Call::claim_root { .. }
+                | Call::set_root_claim_type { .. }
+                | Call::swap_coldkey_announced { .. }
+        )
+    }
+
+    fn maximum_dispatch_reserve(call: &CallOf<T>) -> Weight
+    where
+        CallOf<T>: GetDispatchInfo + IsSubType<Call<T>>,
+    {
+        if Self::reserves_maximum_dispatch_weight(call) {
+            crate::Pallet::<T>::max_normal_dispatch_weight()
+                .saturating_sub(call.get_dispatch_info().call_weight)
+        } else {
+            Weight::zero()
+        }
+    }
+
     fn check(origin: &OriginOf<T>, call: &CallOf<T>) -> Result<(), Error<T>>
     where
         T: pallet_shield::Config,
@@ -129,6 +194,7 @@ impl<T> TransactionExtension<CallOf<T>> for SubtensorTransactionExtension<T>
 where
     T: Config + pallet_shield::Config + Send + Sync + TypeInfo,
     CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>, Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + GetDispatchInfo
         + IsSubType<Call<T>>
         + IsSubType<pallet_shield::Call<T>>,
     OriginOf<T>: Clone + OriginTrait<AccountId = T::AccountId>,
@@ -136,17 +202,11 @@ where
     const IDENTIFIER: &'static str = "SubtensorTransactionExtension";
 
     type Implicit = ();
-    type Val = ();
-    type Pre = ();
+    type Val = Weight;
+    type Pre = Weight;
 
     fn weight(&self, call: &CallOf<T>) -> Weight {
-        use DispatchExtension as DE;
-        <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
-            .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
+        Self::validation_weight(call).saturating_add(Self::maximum_dispatch_reserve(call))
     }
 
     fn validate(
@@ -160,11 +220,36 @@ where
         _source: TransactionSource,
     ) -> ValidateResult<Self::Val, CallOf<T>> {
         Self::check(&origin, call)
-            .map(|()| (Default::default(), (), origin))
+            .map(|()| {
+                (
+                    Default::default(),
+                    Self::maximum_dispatch_reserve(call),
+                    origin,
+                )
+            })
             .map_err(|error| TransactionValidityError::from(CustomTransactionError::from(error)))
     }
 
-    impl_tx_ext_default!(CallOf<T>; prepare);
+    fn prepare(
+        self,
+        reserve: Self::Val,
+        _origin: &OriginOf<T>,
+        _call: &CallOf<T>,
+        _info: &DispatchInfoOf<CallOf<T>>,
+        _len: usize,
+    ) -> Result<Self::Pre, TransactionValidityError> {
+        Ok(reserve)
+    }
+
+    fn post_dispatch_details(
+        reserve: Self::Pre,
+        _info: &DispatchInfoOf<CallOf<T>>,
+        _post_info: &PostDispatchInfo,
+        _len: usize,
+        _result: &sp_runtime::DispatchResult,
+    ) -> Result<Weight, TransactionValidityError> {
+        Ok(reserve)
+    }
 }
 
 #[cfg(test)]
@@ -178,7 +263,8 @@ mod tests {
     };
     use frame_support::{
         assert_ok,
-        dispatch::{DispatchExtension, GetDispatchInfo, Pays},
+        dispatch::{DispatchExtension, GetDispatchInfo, Pays, PostDispatchInfo},
+        weights::Weight,
     };
     use frame_system::RawOrigin;
     use sp_core::U256;
@@ -314,9 +400,87 @@ mod tests {
             for call in calls {
                 assert_eq!(
                     TransactionExtension::weight(&extension, &call),
-                    expected_transaction_extension_weight(&call)
+                    expected_transaction_extension_weight(&call).saturating_add(
+                        SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call)
+                    )
                 );
             }
+        });
+    }
+
+    #[test]
+    fn dynamic_call_and_extension_reserve_the_maximum_dispatch_weight() {
+        new_test_ext(1).execute_with(|| {
+            let call = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
+                netuid: NetUid::from(1),
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            });
+            let call_weight = call.get_dispatch_info().call_weight;
+            let reserve = SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call);
+
+            assert_eq!(
+                call_weight.saturating_add(reserve),
+                SubtensorModule::max_normal_dispatch_weight()
+            );
+            assert_eq!(
+                TransactionExtension::weight(&SubtensorTransactionExtension::<Test>::new(), &call),
+                expected_transaction_extension_weight(&call).saturating_add(reserve)
+            );
+        });
+    }
+
+    #[test]
+    fn fixed_weight_call_has_no_maximum_dispatch_reserve() {
+        new_test_ext(1).execute_with(|| {
+            let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
+
+            assert_eq!(
+                SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call),
+                Weight::zero()
+            );
+        });
+    }
+
+    #[test]
+    fn maximum_dispatch_reserve_is_refunded_after_success_and_failure() {
+        new_test_ext(1).execute_with(|| {
+            let call = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
+                netuid: NetUid::from(1),
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            });
+            let reserve = SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call);
+            let info = call.get_dispatch_info();
+            let post_info = PostDispatchInfo::default();
+
+            let success_result = <SubtensorTransactionExtension<Test> as TransactionExtension<
+                RuntimeCall,
+            >>::post_dispatch_details(
+                reserve, &info, &post_info, 0, &Ok(())
+            );
+            let failure_result = <SubtensorTransactionExtension<Test> as TransactionExtension<
+                RuntimeCall,
+            >>::post_dispatch_details(
+                reserve,
+                &info,
+                &post_info,
+                0,
+                &Err(sp_runtime::DispatchError::Other("expected failure")),
+            );
+            let refunded_after_success = match success_result {
+                Ok(weight) => weight,
+                Err(error) => panic!("successful dispatch accounting failed: {error:?}"),
+            };
+            let refunded_after_failure = match failure_result {
+                Ok(weight) => weight,
+                Err(error) => panic!("failed dispatch accounting failed: {error:?}"),
+            };
+
+            assert_eq!(refunded_after_success, reserve);
+            assert_eq!(refunded_after_failure, reserve);
         });
     }
 }

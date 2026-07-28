@@ -1492,13 +1492,13 @@ pub struct MaxSubtensorTransactionExtensionWeight;
 
 impl Get<Weight> for MaxSubtensorTransactionExtensionWeight {
     fn get() -> Weight {
-        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_hotkey {
-            hotkey: AccountId::new([0; 32]),
-            new_hotkey: AccountId::new([0; 32]),
-            netuid: None,
+        // Use a fixed-weight call so calculating this static ceiling cannot
+        // recurse through the Subtensor extension's top-level dispatch reserve.
+        let call = RuntimeCall::System(frame_system::Call::remark {
+            remark: Default::default(),
         });
         let call_subtensor_extension_weight =
-            pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new().weight(&call);
+            pallet_subtensor::SubtensorTransactionExtension::<Runtime>::validation_weight(&call);
         let maximum_subtensor_extension_weight =
             pallet_subtensor::SubtensorTransactionExtension::<Runtime>::maximum_weight();
         let non_subtensor_extension_weight = |era| {

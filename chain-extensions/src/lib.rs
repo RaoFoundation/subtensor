@@ -166,13 +166,18 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight = pallet_subtensor::Pallet::<T>::max_normal_dispatch_weight();
+        let subnet_count = u32::from(pallet_subtensor::TotalNetworks::<T>::get());
+        let weight =
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all(
+                subnet_count,
+            )
+            .saturating_add(T::DbWeight::get().reads(1));
 
-        let charged = env.charge_weight(weight)?;
+        env.charge_weight(weight)?;
 
-        let call_result = pallet_subtensor::Pallet::<T>::unstake_all(origin.into(), hotkey);
+        let call_result = pallet_subtensor::Pallet::<T>::do_unstake_all(origin.into(), hotkey);
 
-        finish_subtensor_call::<T, Env>(env, charged, weight, call_result)
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_unstake_all_alpha_v1<Env>(
@@ -187,13 +192,19 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight = pallet_subtensor::Pallet::<T>::max_normal_dispatch_weight();
+        let subnet_count = u32::from(pallet_subtensor::TotalNetworks::<T>::get());
+        let weight =
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all_alpha(
+                subnet_count,
+            )
+            .saturating_add(T::DbWeight::get().reads(1));
 
-        let charged = env.charge_weight(weight)?;
+        env.charge_weight(weight)?;
 
-        let call_result = pallet_subtensor::Pallet::<T>::unstake_all_alpha(origin.into(), hotkey);
+        let call_result =
+            pallet_subtensor::Pallet::<T>::do_unstake_all_alpha(origin.into(), hotkey);
 
-        finish_subtensor_call::<T, Env>(env, charged, weight, call_result)
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_move_stake_v1<Env>(
@@ -445,7 +456,40 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight = pallet_subtensor::Pallet::<T>::max_normal_dispatch_weight();
+        // Charge the state reads used to derive this nested call's conservative
+        // benchmark bound separately. The top-level extrinsic ceiling cannot be
+        // reserved inside a contract whose enclosing gas limit is smaller.
+        let metering_reserve = T::DbWeight::get().reads(3);
+        let metering_charged = env.charge_weight(metering_reserve)?;
+        let (weight, metering_reads) = match &origin {
+            RawOrigin::Signed(coldkey) => {
+                let current_hotkey =
+                    pallet_subtensor::AutoStakeDestination::<T>::get(coldkey, netuid);
+                let old_coldkeys = current_hotkey
+                    .as_ref()
+                    .and_then(|old_hotkey| {
+                        pallet_subtensor::AutoStakeDestinationColdkeys::<T>::decode_len(
+                            old_hotkey, netuid,
+                        )
+                    })
+                    .unwrap_or_default() as u32;
+                let new_coldkeys =
+                    pallet_subtensor::AutoStakeDestinationColdkeys::<T>::decode_len(&hotkey, netuid)
+                        .unwrap_or_default() as u32;
+                (
+                    <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey(
+                        old_coldkeys,
+                        new_coldkeys,
+                    ),
+                    if current_hotkey.is_some() { 3 } else { 2 },
+                )
+            }
+            _ => (
+                <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey(0, 0),
+                0,
+            ),
+        };
+        env.adjust_weight(metering_charged, T::DbWeight::get().reads(metering_reads));
 
         let charged = env.charge_weight(weight)?;
 
