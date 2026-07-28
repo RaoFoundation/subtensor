@@ -616,7 +616,7 @@ impl<T: Config> Pallet<T> {
 
         PendingChildKeys::<T>::iter_prefix(netuid).for_each(
             |(hotkey, (children, cool_down_block))| {
-                if (cool_down_block < current_block) || !start_call_occured {
+                if (cool_down_block <= current_block) || !start_call_occured {
                     Self::persist_pending_chidren_ok(netuid, &hotkey, &children);
                     to_remove.push(hotkey);
                 }

@@ -4123,6 +4123,75 @@ fn test_pending_cooldown_as_expected() {
 }
 
 #[test]
+fn test_pending_children_activate_after_exactly_configured_tempos() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let parent = U256::from(2);
+        let child = U256::from(3);
+        let netuid = NetUid::from(1);
+        let tempo = 5;
+        let cooldown_tempos = 2;
+
+        add_network(netuid, tempo, 0);
+        register_ok_neuron(netuid, parent, coldkey, 0);
+        ChildKeyCooldownTempos::<Test>::put(cooldown_tempos);
+
+        // Anchor the next epoch to exactly one tempo after this block.
+        let scheduled_at = System::block_number();
+        LastEpochBlock::<Test>::insert(netuid, scheduled_at);
+        BlocksSinceLastStep::<Test>::insert(netuid, 0);
+
+        mock_schedule_children(&coldkey, &parent, netuid, &[(u64::MAX, child)]);
+
+        let deadline = scheduled_at + u64::from(tempo) * u64::from(cooldown_tempos);
+        assert_eq!(PendingChildKeys::<Test>::get(netuid, parent).1, deadline);
+
+        step_epochs(1, netuid);
+        assert_eq!(System::block_number(), scheduled_at + u64::from(tempo));
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert!(ChildKeys::<Test>::get(parent, netuid).is_empty());
+
+        step_epochs(1, netuid);
+        assert_eq!(System::block_number(), deadline);
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            ChildKeys::<Test>::get(parent, netuid),
+            vec![(u64::MAX, child)]
+        );
+    });
+}
+
+#[test]
+fn test_pending_children_zero_cooldown_activates_at_deadline() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let parent = U256::from(2);
+        let child = U256::from(3);
+        let netuid = NetUid::from(1);
+
+        add_network(netuid, 5, 0);
+        register_ok_neuron(netuid, parent, coldkey, 0);
+        ChildKeyCooldownTempos::<Test>::put(0);
+
+        let scheduled_at = System::block_number();
+        mock_schedule_children(&coldkey, &parent, netuid, &[(u64::MAX, child)]);
+
+        assert_eq!(
+            PendingChildKeys::<Test>::get(netuid, parent).1,
+            scheduled_at
+        );
+
+        SubtensorModule::do_set_pending_children(netuid);
+
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            ChildKeys::<Test>::get(parent, netuid),
+            vec![(u64::MAX, child)]
+        );
+    });
+}
+
+#[test]
 #[allow(deprecated)]
 fn test_deprecated_pending_childkey_cooldown_is_retained() {
     new_test_ext(1).execute_with(|| {
