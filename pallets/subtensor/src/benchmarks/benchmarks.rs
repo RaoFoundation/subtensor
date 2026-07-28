@@ -78,8 +78,10 @@ mod pallet_benchmarks {
         );
     }
 
+    // The admin dispatch rejects values above this runtime-configured limit,
+    // so larger subnet populations cannot be reached through runtime calls.
     #[benchmark]
-    fn set_weights(n: Linear<1, { u16::MAX as u32 }>) {
+    fn set_weights(n: Linear<1, { T::InitialMaxAllowedUids::get() as u32 }>) {
         let netuid = NetUid::from(1);
         let version_key: u64 = 1;
         let tempo: u16 = 1;
@@ -370,8 +372,10 @@ mod pallet_benchmarks {
         _(RawOrigin::Signed(hotkey.clone()), netuid, commit_hash);
     }
 
+    // Benchmark the largest reachable subnet population. Values above this
+    // cannot pass the subnet's max-UID check.
     #[benchmark]
-    fn reveal_weights(n: Linear<1, { u16::MAX as u32 }>, q: Linear<1, 10>) {
+    fn reveal_weights(n: Linear<1, { T::InitialMaxAllowedUids::get() as u32 }>, q: Linear<1, 10>) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
         let (netuid, hotkey, uids, weight_values, salt, version_key) =
             setup_reveal_weight_benchmark::<T>("reveal_weights", mecid, n, q);
@@ -637,11 +641,16 @@ mod pallet_benchmarks {
         _(RawOrigin::Root, coldkey);
     }
 
+    // The per-row work uses the largest runtime-reachable subnet population.
     #[benchmark]
     fn batch_reveal_weights(b: Linear<1, 10>) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
-        let (netuid, hotkey, uids, values, _, _) =
-            setup_reveal_weight_benchmark::<T>("batch_reveal", mecid, u16::MAX.into(), 10);
+        let (netuid, hotkey, uids, values, _, _) = setup_reveal_weight_benchmark::<T>(
+            "batch_reveal",
+            mecid,
+            T::InitialMaxAllowedUids::get().into(),
+            10,
+        );
         let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
 
         let mut uids_list = Vec::new();
@@ -1353,8 +1362,12 @@ mod pallet_benchmarks {
         );
     }
 
+    // A successful worst-case batch can touch every non-root subnet once.
+    // The generated linear model continues to charge larger input vectors by
+    // extrapolation; repeated netuids beyond this point cannot make every
+    // commit take the more expensive successful path.
     #[benchmark]
-    fn batch_commit_weights(b: Linear<1, { u16::MAX as u32 }>) {
+    fn batch_commit_weights(b: Linear<1, { GLOBAL_MAX_SUBNET_COUNT as u32 - 1 }>) {
         let hotkey: T::AccountId = whitelisted_caller();
         let coldkey: T::AccountId = account("batch_commit_cold", 0, 1);
         let mut netuids: Vec<Compact<NetUid>> = Vec::new();
@@ -1393,8 +1406,10 @@ mod pallet_benchmarks {
         );
     }
 
+    // Sample through every distinct non-root subnet. This is a benchmark
+    // range, not a dispatch cap: WeightInfo evaluates the full input length.
     #[benchmark]
-    fn batch_set_weights(b: Linear<1, { u16::MAX as u32 }>) {
+    fn batch_set_weights(b: Linear<1, { GLOBAL_MAX_SUBNET_COUNT as u32 - 1 }>) {
         let hotkey: T::AccountId = whitelisted_caller();
         let coldkey: T::AccountId = account("batch_set_cold", 0, 1);
         let version: u64 = 1;
@@ -1633,16 +1648,18 @@ mod pallet_benchmarks {
         _(RawOrigin::Signed(coldkey.clone()), hot);
     }
 
+    // Stake can exist only on the finite netuid domain.
     #[benchmark]
-    fn unstake_all(n: Linear<1, { u16::MAX as u32 }>) {
+    fn unstake_all(n: Linear<1, { GLOBAL_MAX_SUBNET_COUNT as u32 - 1 }>) {
         let (coldkey, hotkey) = setup_unstake_all_benchmark::<T>("unstake_all", n);
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey);
     }
 
+    // Stake can exist only on the finite netuid domain.
     #[benchmark]
-    fn unstake_all_alpha(n: Linear<1, { u16::MAX as u32 }>) {
+    fn unstake_all_alpha(n: Linear<1, { GLOBAL_MAX_SUBNET_COUNT as u32 - 1 }>) {
         let (coldkey, hotkey) = setup_unstake_all_benchmark::<T>("unstake_all_alpha", n);
 
         #[extrinsic_call]
@@ -2501,8 +2518,9 @@ mod pallet_benchmarks {
         }
     }
 
+    // Mechanism UID capacity is also constrained by InitialMaxAllowedUids.
     #[benchmark]
-    fn set_mechanism_weights(n: Linear<1, { u16::MAX as u32 }>) {
+    fn set_mechanism_weights(n: Linear<1, { T::InitialMaxAllowedUids::get() as u32 }>) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
         let (netuid, hotkey, uids, weight_values, _salt, version_key) =
             setup_mechanism_weight_benchmark::<T>(mecid, n);
@@ -2523,7 +2541,7 @@ mod pallet_benchmarks {
     fn commit_mechanism_weights(q: Linear<0, 9>) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
         let (netuid, hotkey, uids, weight_values, _salt, version_key) =
-            setup_mechanism_weight_benchmark::<T>(mecid, 4096);
+            setup_mechanism_weight_benchmark::<T>(mecid, T::InitialMaxAllowedUids::get().into());
         let commit_hash: H256 =
             BlakeTwo256::hash_of(&(hotkey.clone(), netuid, uids, weight_values, version_key));
         let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
@@ -2542,7 +2560,10 @@ mod pallet_benchmarks {
         );
     }
     #[benchmark]
-    fn reveal_mechanism_weights(n: Linear<1, { u16::MAX as u32 }>, q: Linear<1, 10>) {
+    fn reveal_mechanism_weights(
+        n: Linear<1, { T::InitialMaxAllowedUids::get() as u32 }>,
+        q: Linear<1, 10>,
+    ) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
         let (netuid, hotkey, uids, weight_values, salt, version_key) =
             setup_reveal_weight_benchmark::<T>("mechanism_reveal", mecid, n, q);
@@ -2566,7 +2587,7 @@ mod pallet_benchmarks {
     ) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
         let (netuid, hotkey, _uids, _weight_values, _salt, _version_key) =
-            setup_mechanism_weight_benchmark::<T>(mecid, 4096);
+            setup_mechanism_weight_benchmark::<T>(mecid, T::InitialMaxAllowedUids::get().into());
         let vec_commit: Vec<u8> = vec![u8::MAX; c as usize];
         let commit: BoundedVec<_, _> = vec_commit.try_into().unwrap();
         let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
@@ -2599,7 +2620,7 @@ mod pallet_benchmarks {
     ) {
         let mecid = subtensor_runtime_common::MechId::MAIN;
         let (netuid, hotkey, _uids, _weight_values, _salt, _version_key) =
-            setup_mechanism_weight_benchmark::<T>(mecid, 4096);
+            setup_mechanism_weight_benchmark::<T>(mecid, T::InitialMaxAllowedUids::get().into());
         let vec_commit: Vec<u8> = vec![u8::MAX; c as usize];
         let commit: BoundedVec<_, _> = vec_commit.try_into().unwrap();
         let netuid_index = Subtensor::<T>::get_mechanism_storage_index(netuid, mecid);
@@ -2687,8 +2708,11 @@ mod pallet_benchmarks {
     #[benchmark]
     fn dissolve_network() {
         let netuid = NetUid::from(1);
-        let (_hotkey, coldkey, _uids, _weights) =
-            setup_worst_case_registered_subnet::<T>("dissolve", netuid, 4096);
+        let (_hotkey, coldkey, _uids, _weights) = setup_worst_case_registered_subnet::<T>(
+            "dissolve",
+            netuid,
+            T::InitialMaxAllowedUids::get().into(),
+        );
         SubnetOwner::<T>::insert(netuid, coldkey.clone());
 
         #[extrinsic_call]
@@ -2698,8 +2722,11 @@ mod pallet_benchmarks {
     #[benchmark]
     fn root_dissolve_network() {
         let netuid = NetUid::from(1);
-        let (_hotkey, _coldkey, _uids, _weights) =
-            setup_worst_case_registered_subnet::<T>("root_dissolve", netuid, 4096);
+        let (_hotkey, _coldkey, _uids, _weights) = setup_worst_case_registered_subnet::<T>(
+            "root_dissolve",
+            netuid,
+            T::InitialMaxAllowedUids::get().into(),
+        );
 
         #[extrinsic_call]
         _(RawOrigin::Root, netuid);

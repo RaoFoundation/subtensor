@@ -596,7 +596,10 @@ mod dispatches {
             // The batch benchmark runs every reveal at the full UID-domain
             // workload. Subtract the measured single-reveal difference for
             // each shorter row to obtain the work this call actually performs.
-            let maximum_row_weight = <T as Config>::WeightInfo::reveal_weights(u16::MAX.into(), 10);
+            let maximum_row_weight = <T as Config>::WeightInfo::reveal_weights(
+                T::InitialMaxAllowedUids::get().into(),
+                10,
+            );
             let unused_weight = uids_list.iter().fold(Weight::zero(), |weight, row| {
                 weight.saturating_add(maximum_row_weight.saturating_sub(
                     <T as Config>::WeightInfo::reveal_weights(row.len() as u32, 10),
