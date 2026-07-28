@@ -44,6 +44,11 @@ pub enum FunctionId {
     GetSubnetRegistrationStateV1 = 34,
     GetColdkeyLockV1 = 35,
     GetStakeAvailabilityV1 = 36,
+    GetVotingPowerV1 = 37,
+    GetTotalVotingPowerV1 = 38,
+    IsVotingPowerTrackingEnabledV1 = 39,
+    GetVotingPowerDisableAtBlockV1 = 40,
+    GetValidatorPermitV1 = 41,
 }
 
 #[freeze_struct("5dc33d60abed5c08")]
@@ -188,11 +193,16 @@ mod function_id_tests {
         assert_eq!(FunctionId::GetSubnetRegistrationStateV1 as u16, 34);
         assert_eq!(FunctionId::GetColdkeyLockV1 as u16, 35);
         assert_eq!(FunctionId::GetStakeAvailabilityV1 as u16, 36);
+        assert_eq!(FunctionId::GetVotingPowerV1 as u16, 37);
+        assert_eq!(FunctionId::GetTotalVotingPowerV1 as u16, 38);
+        assert_eq!(FunctionId::IsVotingPowerTrackingEnabledV1 as u16, 39);
+        assert_eq!(FunctionId::GetVotingPowerDisableAtBlockV1 as u16, 40);
+        assert_eq!(FunctionId::GetValidatorPermitV1 as u16, 41);
     }
 
     #[test]
     fn caller_ids_roundtrip_try_from_primitive() {
-        for id in 16u16..=36u16 {
+        for id in 16u16..=41u16 {
             let v = FunctionId::try_from_primitive(id)
                 .unwrap_or_else(|_| panic!("try_from_primitive failed for {id}"));
             assert_eq!(v as u16, id);

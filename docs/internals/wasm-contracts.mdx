@@ -68,6 +68,11 @@ Subtensor provides a custom chain extension that allows smart contracts to inter
 | 34 | `get_subnet_registration_state` | Query whether a subnet exists and which registration generation currently owns the netuid | `(NetUid)` | `SubnetRegistrationState { netuid, exists, registered_subnet_counter }` |
 | 35 | `get_coldkey_lock` | Query the current rolled-forward lock state for a coldkey on a subnet | `(AccountId, NetUid)` | `Option<ColdkeyLock { locked_mass: AlphaBalance, conviction_bits: u128, last_update: u64 }>` |
 | 36 | `get_stake_availability` | Query total, locked, and currently available alpha for a coldkey on a subnet | `(AccountId, NetUid)` | `StakeAvailability { netuid: NetUid, total: AlphaBalance, locked: AlphaBalance, available: AlphaBalance }` |
+| 37 | `get_voting_power` | Get voting power (EMA-smoothed stake) for a hotkey in a subnet | `(NetUid, AccountId)` | `u64` |
+| 38 | `get_total_voting_power` | Get total voting power across all hotkeys in a subnet | `(NetUid)` | `u64` |
+| 39 | `is_voting_power_tracking_enabled` | Check whether voting-power tracking is enabled for a subnet | `(NetUid)` | `bool` |
+| 40 | `get_voting_power_disable_at_block` | Get the block at which voting-power tracking will be disabled (0 = none) | `(NetUid)` | `u64` |
+| 41 | `get_validator_permit` | Check whether a hotkey holds a validator permit on a subnet | `(NetUid, AccountId)` | `bool` |
 
 <Callout type="note">
 Functions **1–14** dispatch with the **contract's own address** as the signed origin. Their caller-origin mirrors (functions **20–33**) dispatch with the **original transaction signer's** origin instead; parameters and return values are identical to the corresponding base function.

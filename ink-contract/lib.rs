@@ -43,6 +43,11 @@ pub enum FunctionId {
     GetSubnetRegistrationStateV1 = 34,
     GetColdkeyLockV1 = 35,
     GetStakeAvailabilityV1 = 36,
+    GetVotingPowerV1 = 37,
+    GetTotalVotingPowerV1 = 38,
+    IsVotingPowerTrackingEnabledV1 = 39,
+    GetVotingPowerDisableAtBlockV1 = 40,
+    GetValidatorPermitV1 = 41,
 }
 
 #[ink::chain_extension(extension = 0x1000)]
@@ -287,6 +292,27 @@ pub trait RuntimeReadWrite {
         coldkey: <CustomEnvironment as ink::env::Environment>::AccountId,
         netuid: u16,
     ) -> StakeAvailability;
+
+    #[ink(function = 37)]
+    fn get_voting_power(
+        netuid: u16,
+        hotkey: <CustomEnvironment as ink::env::Environment>::AccountId,
+    ) -> u64;
+
+    #[ink(function = 38)]
+    fn get_total_voting_power(netuid: u16) -> u64;
+
+    #[ink(function = 39)]
+    fn is_voting_power_tracking_enabled(netuid: u16) -> bool;
+
+    #[ink(function = 40)]
+    fn get_voting_power_disable_at_block(netuid: u16) -> u64;
+
+    #[ink(function = 41)]
+    fn get_validator_permit(
+        netuid: u16,
+        hotkey: <CustomEnvironment as ink::env::Environment>::AccountId,
+    ) -> bool;
 }
 
 #[ink::scale_derive(Encode, Decode, TypeInfo)]
