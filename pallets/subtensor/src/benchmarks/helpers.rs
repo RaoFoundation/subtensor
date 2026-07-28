@@ -266,10 +266,10 @@ pub(super) fn set_benchmark_block_number<T: Config>(block_number: u64) {
 /// state instead of a one-subnet toy state.
 ///
 /// Only the runtime-capped number of subnet epochs are made due in the measured
-/// block. The remaining subnets are fully populated and live, but not eligible
-/// for epoch execution in this block. This mirrors production behavior where
-/// `MaxEpochsPerBlock` bounds the number of Yuma epochs that can execute in a
-/// single block.
+/// block. The remaining subnets are live but not eligible for epoch execution.
+/// Neuron-level state is only seeded for due subnets because `block_step` does
+/// not read it from deferred subnets. This keeps repeated setup proportional to
+/// state the measured call can actually observe.
 pub(super) fn setup_block_step_benchmark<T: Config>() {
     const MAINNET_SUBNETS: u16 = 128;
     const MAINNET_NEURONS_PER_SUBNET: u16 = 256;
@@ -334,10 +334,9 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
         }
     }
 
-    // 128 live non-root subnets, each with 256 registered neurons. The first 128
-    // neurons per subnet are validator-permit neurons with dense weight and bond
-    // rows. Only the first `MaxEpochsPerBlock` subnets are scheduled to run their
-    // epoch in this measured block; the rest remain live ambient state.
+    // Keep 128 live non-root subnets for the ambient per-subnet scans. Only the
+    // first `MaxEpochsPerBlock` subnets are scheduled to run their epoch and
+    // therefore need the full 256-neuron state with dense weight and bond rows.
     for subnet_index in 1..=MAINNET_SUBNETS {
         let netuid = NetUid::from(subnet_index);
         let netuid_index = NetUidStorageIndex::from(netuid);
@@ -374,27 +373,26 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
             BlocksSinceLastStep::<T>::insert(netuid, 0);
         }
 
-        for uid in 0..MAINNET_NEURONS_PER_SUBNET {
-            let hotkey: T::AccountId =
-                account("block_step_hot", u32::from(subnet_index), u32::from(uid));
-            let coldkey: T::AccountId =
-                account("block_step_cold", u32::from(subnet_index), u32::from(uid));
+        if epoch_is_due_this_block {
+            for uid in 0..MAINNET_NEURONS_PER_SUBNET {
+                let hotkey: T::AccountId =
+                    account("block_step_hot", u32::from(subnet_index), u32::from(uid));
+                let coldkey: T::AccountId =
+                    account("block_step_cold", u32::from(subnet_index), u32::from(uid));
 
-            Owner::<T>::insert(&hotkey, &coldkey);
-            Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
-            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                &coldkey,
-                netuid,
-                AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
-            );
+                Owner::<T>::insert(&hotkey, &coldkey);
+                Subtensor::<T>::append_neuron(netuid, &hotkey, 0);
+                Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &coldkey,
+                    netuid,
+                    AlphaBalance::from(VALIDATOR_ALPHA_STAKE),
+                );
 
-            // Worst case for coinbase: every incentivized miner has standing
-            // collateral that must be settled. Alternate below-floor capture
-            // (stake write into the lock) and above-floor drain (release back
-            // to free stake) so both settle branches are measured. Only seed
-            // epoch-due subnets so ambient live state stays cheap.
-            if epoch_is_due_this_block {
+                // Worst case for coinbase: every incentivized miner has
+                // standing collateral that must be settled. Alternate
+                // below-floor capture and above-floor drain so both settle
+                // branches are measured.
                 let (locked, min_locked) = if uid % 2 == 0 {
                     (
                         AlphaBalance::from(VALIDATOR_ALPHA_STAKE / 4),
@@ -421,12 +419,12 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
                         let _ = hotkeys.try_push(hotkey.clone());
                     }
                 });
-            }
 
-            if uid < MAINNET_VALIDATORS_PER_SUBNET {
-                Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
-                Weights::<T>::insert(netuid_index, uid, dense_weights.clone());
-                Bonds::<T>::insert(netuid_index, uid, dense_weights.clone());
+                if uid < MAINNET_VALIDATORS_PER_SUBNET {
+                    Subtensor::<T>::set_validator_permit_for_uid(netuid, uid, true);
+                    Weights::<T>::insert(netuid_index, uid, dense_weights.clone());
+                    Bonds::<T>::insert(netuid_index, uid, dense_weights.clone());
+                }
             }
         }
     }
