@@ -217,6 +217,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidNumRootClaim": _C.INVALID_ARGUMENT,
     "InvalidRootClaimThreshold": _C.INVALID_ARGUMENT,
     "InvalidSubnetNumber": _C.INVALID_ARGUMENT,
+    "TooManyRootClaimHotkeys": _C.LIMIT_EXCEEDED,
     "TooManyUIDsPerMechanism": _C.LIMIT_EXCEEDED,
     "VotingPowerTrackingNotEnabled": _C.DISABLED,
     "InvalidVotingPowerEmaAlpha": _C.INVALID_ARGUMENT,

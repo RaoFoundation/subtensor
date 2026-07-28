@@ -108,7 +108,7 @@ def emit_errors(ir: MetadataIR) -> str:
                 f"    {key}: ErrorInfo({pallet.name!r}, {error.name!r}, {error.docs!r}),\n"
             )
     lines.append("}\n")
-    return "".join(lines)
+    return "".join(lines).rstrip() + "\n"
 
 
 def emit_calls(ir: MetadataIR) -> str:
@@ -164,7 +164,7 @@ def emit_calls(ir: MetadataIR) -> str:
                 f"        return Call({pallet.name!r}, {call.name!r}, {{{param_dict}}})\n\n"
             )
         lines.append("\n")
-    return "".join(lines)
+    return "".join(lines).rstrip() + "\n"
 
 
 def _emit_item_classes(
@@ -219,7 +219,7 @@ def _emit_item_classes(
             else:
                 lines.append(f"    {_py_name(entry)} = {item_class}({group_name!r}, {entry!r})\n")
         lines.append("\n")
-    return "".join(lines)
+    return "".join(lines).rstrip() + "\n"
 
 
 def emit_storage(ir: MetadataIR) -> str:

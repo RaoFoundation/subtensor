@@ -6,10 +6,11 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V441 Upgrade — Two-Tempo Child Keys',
+  title: 'The V441 Upgrade — Commit-Reveal-Safe Child Keys',
   description:
-    'Child-key updates now cool down for two subnet tempos instead of a fixed 24 hours. ' +
-    'The delay follows each subnet cadence and is configurable by root sudo.',
+    'Child-key updates now cool down for the greater of the configured tempo count and the ' +
+    'subnet reveal period, preventing stake from hopping between validator identities inside ' +
+    'one commit-reveal window.',
   alternates: {canonical: '/releases/v441-upgrade'},
 };
 
@@ -20,7 +21,7 @@ const page = () => {
         <section className={styles.title_section}>
           <p className={styles.paper_title}>The V441 Upgrade</p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Two-Tempo Child Keys · July 2026
+            Commit-Reveal-Safe Child Keys · July 2026
           </p>
         </section>
 
@@ -34,34 +35,58 @@ const page = () => {
           <p>
             Until now, every child-key update waited a fixed 7,200 blocks — approximately 24 hours —
             regardless of the subnet&apos;s own operating cadence. Spec <strong>441</strong>{' '}
-            replaces that fixed delay with a default of <strong>two subnet tempos</strong>.
+            replaces that fixed delay with a subnet-aware rule. The configured default is{' '}
+            <strong>two subnet tempos</strong>, but the effective cooldown can never be shorter than
+            that subnet&apos;s commit-reveal period.
           </p>
           <p>
-            The result is a cooldown expressed in the unit that matters to the subnet: its epoch
-            cycle. Child-key updates become usable sooner while still spanning two complete
-            consensus periods by default.
+            In symbols, for subnet tempo <code>T</code>, configured child-key cooldown{' '}
+            <code>C</code>, and reveal period <code>R</code>, a relationship submitted at block{' '}
+            <code>B</code> receives the deadline <code>B + T × max(C, R)</code>.
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>The cooldown follows the subnet</p>
+          <p className={styles.subtitle}>Why the reveal-period floor matters</p>
+          <p>
+            A parent stake position changes the inherited stake used for epoch consensus and
+            validator-permit selection. Without a reveal-period floor, one mature position could be
+            redirected between validator identities that keep separate weight commits, activity
+            histories, permits, and bond portfolios.
+          </p>
+          <p>
+            V441 keeps every new relationship pending through at least one complete commit-reveal
+            window. This prevents the same capital position from hopping to whichever identity is
+            currently most advantageous while commitments from that window are still unresolved.
+            Existing permit-loss behavior still clears an abandoned validator&apos;s bonds; the new
+            floor also covers validators that retain a permit on residual stake.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>The cooldown follows the subnet and its reveal period</p>
           <p>
             A tempo is the number of blocks between a subnet&apos;s epochs. V441 stores one global
-            cooldown value in tempos, then converts it to blocks using the tempo of the subnet where
-            the child-key update was submitted.
+            child-key cooldown in tempos, compares it with the subnet&apos;s{' '}
+            <code>RevealPeriodEpochs</code>, and converts the larger value to blocks using the
+            subnet tempo at submission.
           </p>
           <Code
             language='rust'
             code={`// pallets/subtensor/src/staking/set_children.rs
+let cooldown_tempos =
+    u64::from(ChildKeyCooldownTempos::<T>::get())
+        .max(Self::get_reveal_period(netuid));
 let cooldown = u64::from(Self::get_tempo(netuid))
-    .saturating_mul(u64::from(ChildKeyCooldownTempos::<T>::get()));
+    .saturating_mul(cooldown_tempos);
 let cooldown_block = Self::get_current_block_as_u64()
     .saturating_add(cooldown);`}
           />
           <p>
-            With the default setting, a subnet with a 360-block tempo waits 720 blocks; a subnet
-            with a 100-block tempo waits 200. If the subnet tempo later changes, already-scheduled
-            updates keep the deadline calculated when they were submitted.
+            With the two-tempo default, a subnet with a 360-block tempo and one-epoch reveal period
+            waits 720 blocks. If its reveal period is three epochs, it waits 1,080 blocks instead. A
+            100-block subnet with a five-epoch reveal period waits 500 blocks. Changes made after
+            submission do not rewrite an already-scheduled deadline.
           </p>
         </section>
 
@@ -70,8 +95,8 @@ let cooldown_block = Self::get_current_block_as_u64()
           <p>
             The deadline is inclusive. A pending update is eligible when the current block is equal
             to or greater than its cooldown block. If an update is submitted on epoch block{' '}
-            <code>B</code> and the subnet tempo is <code>T</code>, the default deadline is{' '}
-            <code>B + 2T</code>, and it activates on that second epoch — not one tempo later.
+            <code>B</code>, it becomes eligible at <code>B + T × max(C, R)</code> — not one tempo
+            later.
           </p>
           <Code
             language='rust'
@@ -81,9 +106,9 @@ let cooldown_block = Self::get_current_block_as_u64()
           />
           <p>
             Pending child keys are processed with subnet epochs. An update submitted between epoch
-            boundaries becomes eligible after its full two-tempo block delay and is applied at the
-            first subnet epoch that processes it. A root-configured value of zero makes the update
-            eligible immediately at its deadline.
+            boundaries becomes eligible after its full block delay and is applied at the first
+            subnet epoch that processes it. Setting <code>ChildKeyCooldownTempos</code> to zero does
+            not disable the protection: the subnet reveal period remains the minimum.
           </p>
         </section>
 
@@ -101,17 +126,17 @@ let cooldown_block = Self::get_current_block_as_u64()
               <tr>
                 <td>Child-key cooldown</td>
                 <td>7,200 blocks (~24 hours)</td>
-                <td>2 subnet tempos</td>
+                <td>Tempo × max(configured cooldown, reveal period)</td>
               </tr>
               <tr>
-                <td>Unit</td>
-                <td>Blocks</td>
-                <td>Tempos</td>
+                <td>Configured cooldown</td>
+                <td>Legacy block setting</td>
+                <td>2 tempos by default, global root setting</td>
               </tr>
               <tr>
-                <td>Configuration</td>
-                <td>Legacy Subtensor setting</td>
-                <td>Root sudo through AdminUtils</td>
+                <td>Security floor</td>
+                <td>None</td>
+                <td>Per-subnet RevealPeriodEpochs</td>
               </tr>
             </tbody>
           </table>
@@ -119,7 +144,9 @@ let cooldown_block = Self::get_current_block_as_u64()
             The new <code>ChildKeyCooldownTempos</code> storage value can be changed only through{' '}
             <code>AdminUtils.sudo_set_childkey_cooldown_tempos</code>, which requires a root origin.
             A successful change emits <code>AdminUtils.ChildKeyCooldownTemposSet</code> with the new
-            value.
+            value. Raising a subnet&apos;s reveal period above that value automatically raises its
+            effective child-key cooldown; lowering it cannot take the cooldown below the configured
+            global floor.
           </p>
         </section>
 
@@ -147,15 +174,17 @@ let cooldown_block = Self::get_current_block_as_u64()
             </li>
             <li>
               <strong>Subnet owners and validators:</strong> no action is required. New child-key
-              updates use the two-tempo default automatically.
+              updates use the two-tempo default automatically, or the subnet reveal period when it
+              is longer.
             </li>
             <li>
               <strong>Client developers:</strong> migrate from the deprecated block-based storage
               and call to <code>ChildKeyCooldownTempos</code> and the AdminUtils sudo call.
             </li>
             <li>
-              <strong>Root administrators:</strong> keep the default at two unless governance
-              explicitly chooses a different network-wide number of tempos.
+              <strong>Root administrators:</strong> <code>ChildKeyCooldownTempos</code> controls the
+              global floor. The commit-reveal floor applies even if this value is configured below a
+              subnet&apos;s reveal period.
             </li>
           </ul>
           <p>

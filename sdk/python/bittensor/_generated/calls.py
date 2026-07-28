@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 440
+Spec version: 441
 """
 from typing import Any, NamedTuple
 
@@ -257,7 +257,7 @@ class SubtensorModule:
 
     @staticmethod
     def claim_root(subnets: 'BTreeSet') -> Call:
-        "Claims the root emissions for a coldkey. # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims."
+        "Claims the root emissions for a coldkey. # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims. * `TooManyRootClaimHotkeys`: The coldkey's hotkey fanout exceeds one claim's bound."
         return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
 
     @staticmethod
@@ -467,7 +467,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_pending_childkey_cooldown(cooldown: 'u64') -> Call:
-        'Deprecated block-based setting retained for compatibility. It no longer controls childkey activation. Use AdminUtils.sudo_set_childkey_cooldown_tempos instead.'
+        'Deprecated block-based setting retained for call-index and storage compatibility. This setting no longer controls childkey activation. Use `AdminUtils::sudo_set_childkey_cooldown_tempos` instead.'
         return Call('SubtensorModule', 'set_pending_childkey_cooldown', {'cooldown': cooldown})
 
     @staticmethod
@@ -938,6 +938,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_burn_increase_mult', {'netuid': netuid, 'burn_increase_mult': burn_increase_mult})
 
     @staticmethod
+    def sudo_set_childkey_cooldown_tempos(tempos: 'u16') -> Call:
+        'Sets the childkey activation cooldown as a number of subnet tempos. Only callable by root.'
+        return Call('AdminUtils', 'sudo_set_childkey_cooldown_tempos', {'tempos': tempos})
+
+    @staticmethod
     def sudo_set_ck_burn(burn: 'u64') -> Call:
         'Sets the childkey burn for a subnet. It is only callable by the root account. The extrinsic will call the Subtensor pallet to set the childkey burn.'
         return Call('AdminUtils', 'sudo_set_ck_burn', {'burn': burn})
@@ -1201,11 +1206,6 @@ class AdminUtils:
     def sudo_set_start_call_delay(delay: 'u64') -> Call:
         'Sets the delay before a subnet can call start'
         return Call('AdminUtils', 'sudo_set_start_call_delay', {'delay': delay})
-
-    @staticmethod
-    def sudo_set_childkey_cooldown_tempos(tempos: 'u16') -> Call:
-        'Sets the childkey activation cooldown as a number of subnet tempos. Only callable by root.'
-        return Call('AdminUtils', 'sudo_set_childkey_cooldown_tempos', {'tempos': tempos})
 
     @staticmethod
     def sudo_set_subnet_emission_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
@@ -1627,4 +1627,3 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
-
