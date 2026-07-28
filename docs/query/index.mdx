@@ -131,6 +131,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`root-basket-owed`](/docs/query/root-basket-owed) | Total TAO a coldkey would realize by claiming its root dividends now. |
 | [`root-basket-owed-breakdown`](/docs/query/root-basket-owed-breakdown) | A coldkey's pending root dividends, itemized per validator hotkey. |
 | [`root-basket-total-nav`](/docs/query/root-basket-total-nav) | Network-wide total beta basket NAV across all validators, in TAO. |
+| [`root-baskets`](/docs/query/root-baskets) | Beta basket summaries for every validator with an active basket. |
 | [`root-claim-threshold`](/docs/query/root-claim-threshold) | The minimum TAO payout for a root dividend claim. |
 | [`stake`](/docs/query/stake) | Alpha staked by a coldkey to a hotkey on a subnet (TAO when netuid is 0). |
 | [`stake-for-coldkey`](/docs/query/stake-for-coldkey) | Every stake position held by a coldkey, across all hotkeys and subnets. |
@@ -140,6 +141,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`staking-hotkeys`](/docs/query/staking-hotkeys) | Every hotkey a coldkey has stake with, owned or nominated. |
 | [`validator-basket`](/docs/query/validator-basket) | A validator's beta basket holdings: per subnet, the alpha held and its TAO value. |
 | [`validator-basket-nav`](/docs/query/validator-basket-nav) | A validator's beta basket net asset value in TAO (realizable quote). |
+| [`validator-basket-summary`](/docs/query/validator-basket-summary) | Everything about one validator's beta basket, in a single call. |
 | [`validator-root-weights`](/docs/query/validator-root-weights) | A validator's root dividend distribution vector (beta basket weights). |
 
 ## Subnets

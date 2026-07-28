@@ -20,7 +20,7 @@ neuron.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.associate_evm_key`](/code/pallets/subtensor/src/macros/dispatches.rs#L1590-L1604) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.associate_evm_key`](/code/pallets/subtensor/src/macros/dispatches.rs#L1591-L1605) |
 
 ## Parameters
 
@@ -78,7 +78,7 @@ result = sub.execute_tool("associate_evm_key", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.associate_evm_key` — [`pallets/subtensor/src/macros/dispatches.rs#L1596`](/code/pallets/subtensor/src/macros/dispatches.rs#L1590-L1604):
+`SubtensorModule.associate_evm_key` — [`pallets/subtensor/src/macros/dispatches.rs#L1597`](/code/pallets/subtensor/src/macros/dispatches.rs#L1591-L1605):
 
 ```rust
 #[pallet::call_index(93)]

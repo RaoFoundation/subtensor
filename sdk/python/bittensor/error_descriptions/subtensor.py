@@ -59,10 +59,10 @@ DESCRIPTIONS: dict[str, str] = {
         "larger amount."
     ),
     "AnnouncedColdkeyHashDoesNotMatch": (
-        "The `new_coldkey` passed to `coldkey_swap` hashes to a different value than the hash "
-        "committed in the earlier `announce_coldkey_swap`. Verify the announced hash in the "
-        "`ColdkeySwapAnnouncements` storage matches the BlakeTwo256 hash of the coldkey you are "
-        "swapping to."
+        "The `new_coldkey` passed to `swap_coldkey_announced` (`btcli wallet swap-coldkey`) "
+        "hashes to a different value than the hash committed in the earlier "
+        "`announce_coldkey_swap` (`btcli wallet announce-coldkey-swap`). Use the same new "
+        "coldkey you announced; check status with `btcli wallet swap-check`."
     ),
     "AutoEpochAlreadyImminent": (
         "`trigger_epoch` was called when the next automatic epoch is closer than the "
@@ -133,14 +133,14 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "ColdkeySwapAnnounced": (
         "The coldkey has a pending swap announcement, so all but a small allow-list of "
-        "extrinsics are blocked until the swap completes or is cleared. Check the "
-        "`ColdkeySwapAnnouncements` storage for the coldkey and either finish the swap with "
-        "`coldkey_swap` or clear the announcement."
+        "extrinsics are blocked until the swap completes or is cleared. Check status with "
+        "`btcli wallet swap-check`, then finish with `btcli wallet swap-coldkey` or clear "
+        "via `btcli tx clear-coldkey-swap-announcement`."
     ),
     "ColdkeySwapAnnouncementNotFound": (
-        "`coldkey_swap`, `dispute_coldkey_swap`, or `clear_coldkey_swap_announcement` was "
-        "called for a coldkey with no pending announcement. Check the "
-        "`ColdkeySwapAnnouncements` storage; you must call `announce_coldkey_swap` first."
+        "`swap_coldkey_announced`, `dispute_coldkey_swap`, or `clear_coldkey_swap_announcement` "
+        "was called for a coldkey with no pending announcement. Announce first with "
+        "`btcli wallet announce-coldkey-swap` (`btcli wallet swap-check` shows status)."
     ),
     "ColdkeySwapClearTooEarly": (
         "The swap announcement cannot be cleared until the reannouncement delay after the "
@@ -159,10 +159,9 @@ DESCRIPTIONS: dict[str, str] = {
         "stored announcement time plus `ColdkeySwapReannouncementDelay` and retry later."
     ),
     "ColdkeySwapTooEarly": (
-        "`coldkey_swap` was executed before the announcement delay had elapsed since "
-        "`announce_coldkey_swap`. Check the execution block stored in "
-        "`ColdkeySwapAnnouncements` (announcement time plus `ColdkeySwapAnnouncementDelay`) and "
-        "wait until then."
+        "`swap_coldkey_announced` (`btcli wallet swap-coldkey`) was executed before the "
+        "announcement delay had elapsed since `announce_coldkey_swap`. Check remaining "
+        "blocks with `btcli wallet swap-check` and wait until then."
     ),
     "CommitRevealDisabled": (
         "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. "
@@ -198,8 +197,8 @@ DESCRIPTIONS: dict[str, str] = {
     "Deprecated": (
         "The extrinsic has been removed and always fails, e.g. `schedule_swap_coldkey`, the "
         "swap pallet's user-liquidity calls, or `sudo_set_total_issuance`. Migrate to the "
-        "replacement call noted in the deprecation (for coldkey swaps, `announce_coldkey_swap` "
-        "plus `coldkey_swap`)."
+        "replacement call noted in the deprecation (for coldkey swaps, "
+        "`btcli wallet announce-coldkey-swap` then `btcli wallet swap-coldkey`)."
     ),
     "DisabledTemporarily": (
         "The operation has been temporarily switched off in the runtime, usually as a hotfix "
@@ -255,9 +254,9 @@ DESCRIPTIONS: dict[str, str] = {
         "feature; use a funded wallet or testnet TAO instead."
     ),
     "FirstEmissionBlockNumberAlreadySet": (
-        "`start_call` was issued for a subnet whose emissions have already been started. Check "
-        "the `FirstEmissionBlockNumber` storage for the netuid; a non-empty value means the "
-        "subnet is already emitting and no action is needed."
+        "`btcli sudo start` was issued for a subnet whose emissions have already been started. "
+        "Check with `btcli sudo check-start`; if the subnet is already emitting, no action is "
+        "needed."
     ),
     "HotKeyAccountNotExists": (
         "The hotkey has no on-chain account, meaning it was never created through registration, "
@@ -472,9 +471,9 @@ DESCRIPTIONS: dict[str, str] = {
         "subnet."
     ),
     "NeedWaitingMoreBlocksToStarCall": (
-        "The subnet owner called start_call before enough blocks had passed since the subnet "
-        "was registered. Compare the current block with `NetworkRegisteredAt` for the netuid "
-        "plus the start-call delay and retry once the window opens."
+        "The subnet owner ran `btcli sudo start` before enough blocks had passed since the "
+        "subnet was registered. Check readiness with `btcli sudo check-start` and retry once "
+        "the window opens."
     ),
     "NetworkDissolveAlreadyQueued": (
         "The subnet is already in the dissolve cleanup queue, so it cannot be queued for "
@@ -535,7 +534,7 @@ DESCRIPTIONS: dict[str, str] = {
     "NotEnoughBalanceToPaySwapColdKey": (
         "The coldkey's free TAO balance cannot cover the coldkey swap cost, which is recycled "
         "when the swap executes. Check the balance with `btcli wallet balance` against the swap "
-        "cost and top up before scheduling the swap."
+        "cost and top up before `btcli wallet swap-coldkey`."
     ),
     "NotEnoughBalanceToPaySwapHotKey": (
         "The coldkey's free TAO balance is below the hotkey swap cost (a per-subnet cost "
@@ -639,9 +638,9 @@ DESCRIPTIONS: dict[str, str] = {
         "neuron's `LastUpdate` entry, then wait the remaining blocks."
     ),
     "SlippageTooHigh": (
-        "A stake, unstake, or move with a price limit would execute at a worse rate than the "
-        "limit allows and `allow_partial` was false. Compare the `limit_price` argument with "
-        "the subnet's current alpha price (`btcli subnets price`) or permit partial execution."
+        "A stake, unstake, or move would move the price past the slippage-protection limit "
+        "(default 5% tolerance). Retry, raise `--rate-tolerance`, or disable protection with "
+        "`--no-slippage-protection`; check the current price with `btcli subnets price`."
     ),
     "StakeTooLowForRoot": (
         "`root_register` when the root network is full and the hotkey's stake on netuid 0 does "
@@ -662,9 +661,9 @@ DESCRIPTIONS: dict[str, str] = {
         "transactions out and retry in a later block."
     ),
     "StartCallNotReady": (
-        "`start_call` was made before `StartCallDelay` blocks elapsed since the subnet was "
-        "registered. Compare the current block against `NetworkRegisteredAt` for the netuid "
-        "plus `StartCallDelay`, and wait for the remainder."
+        "`btcli sudo start` was run before `StartCallDelay` blocks elapsed since the subnet "
+        "was registered. Check readiness with `btcli sudo check-start` and wait for the "
+        "remainder."
     ),
     "SubNetRegistrationDisabled": (
         "Neuron registration is switched off: either the subnet's `NetworkRegistrationAllowed` "
@@ -690,8 +689,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "SubtokenDisabled": (
         "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it "
-        "are blocked; `SubtokenEnabled` is false until the owner makes the `start_call` after "
-        "registration. Check `SubtokenEnabled` for the netuid involved."
+        "are blocked until the owner runs `btcli sudo start` after registration. Check "
+        "readiness with `btcli sudo check-start`."
     ),
     "SymbolAlreadyInUse": (
         "The token symbol requested for the subnet is already assigned to another subnet. Scan "

@@ -1,5 +1,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
+mod grandpa_warp_sync;
+
 use crate::consensus::ConsensusMechanism;
 use futures::{FutureExt, StreamExt as _, channel::mpsc};
 use node_subtensor_runtime::{RuntimeApi, TransactionConverter, opaque::Block};
@@ -305,10 +307,9 @@ where
     let peer_store_handle = net_config.peer_store_handle();
     let metrics = NB::register_notification_metrics(maybe_registry);
 
-    let grandpa_protocol_name = sc_consensus_grandpa::protocol_standard_name(
-        &client.block_hash(0u32)?.expect("Genesis block exists; qed"),
-        &config.chain_spec,
-    );
+    let genesis_hash = client.block_hash(0u32)?.expect("Genesis block exists; qed");
+    let grandpa_protocol_name =
+        sc_consensus_grandpa::protocol_standard_name(&genesis_hash, &config.chain_spec);
 
     let (grandpa_protocol_config, grandpa_notification_service) =
         sc_consensus_grandpa::grandpa_peers_set_config::<_, NB>(
@@ -320,24 +321,15 @@ where
     let warp_sync_config = if sealing.is_some() {
         None
     } else {
-        let set_id = match config.chain_spec.chain_type() {
-            // Finney patch
-            ChainType::Live => 3,
-            // Testnet patch
-            ChainType::Development => 2,
-            // All others (e.g. localnet)
-            _ => 0,
-        };
-        log::warn!(
-            "Grandpa warp sync patch enabled. Chain type = {:?}. Set ID = {set_id}",
-            config.chain_spec.chain_type()
-        );
         net_config.add_notification_protocol(grandpa_protocol_config);
+        let warp_sync_config =
+            grandpa_warp_sync::config(genesis_hash, config.chain_spec.chain_type());
+        log::warn!("{}", warp_sync_config.log_message());
         let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
             Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
                 backend.clone(),
                 grandpa_link.shared_authority_set().clone(),
-                sc_consensus_grandpa::warp_proof::HardForks::new_initial_set_id(set_id),
+                warp_sync_config.into_hard_forks(),
             ));
 
         Some(WarpSyncConfig::WithProvider(warp_sync))

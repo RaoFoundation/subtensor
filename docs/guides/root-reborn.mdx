@@ -3,7 +3,7 @@ title: Root Reborn
 description: Validator-curated beta baskets — why root yield stopped being force-sold, how the fund works, and the btcli commands to stake, curate, and claim.
 ---
 
-**Root Reborn** (runtime v438) turns the root network from a passive dividend
+**Root Reborn** (runtime v441) turns the root network from a passive dividend
 pipe into a competitive allocation layer. Root stake's yield used to be sold
 to TAO mechanically, every block, the moment it arrived. Now it is deployed
 into **beta baskets** — per-validator, escrowed index funds of subnet alpha,
@@ -14,13 +14,13 @@ This replaces the old per-subnet claimable system (`claim_root(subnets)`,
 `set_root_claim_type`). Root staking itself is unchanged: moving TAO in and
 out of root stake is not a pool swap — no fee, no slippage, no MEV exposure.
 For the thesis and live network numbers, see the
-[v438 release notes](/releases/v438-upgrade).
+[v441 release notes](/releases/v441-upgrade).
 
 ## Why it exists
 
 TAO is a productive asset. The chain provides liquidity to its subnets and
 takes a share of each one's token emission back — the **root proportion**,
-paid in subnet alpha to root (netuid 0) stakers. Before v438 the protocol
+paid in subnet alpha to root (netuid 0) stakers. Before v441 the protocol
 sold that alpha for TAO on arrival, which had three structural costs:
 
 - **Constant sell pressure.** Every subnet token absorbed a mechanical,
@@ -151,7 +151,7 @@ and as `betaBasket_*` RPC methods for integrators:
 
 ## Migrating from v437
 
-The per-subnet claim model is retired, and the v438 upgrade migrates all
+The per-subnet claim model is retired, and the v441 upgrade migrates all
 previously accrued claimable alpha into basket holdings — nothing is lost,
 it simply becomes fund shares on the same validator.
 

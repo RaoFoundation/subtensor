@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 438
+Spec version: 441
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -155,6 +155,9 @@ class SubtensorModule:
     SubnetEmaProtocolFlow = Item('SubtensorModule', 'SubnetEmaProtocolFlow', '(u64, FixedI128)')
     TaoFlowCutoff = Item('SubtensorModule', 'TaoFlowCutoff', 'FixedI128')
     FlowNormExponent = Item('SubtensorModule', 'FlowNormExponent', 'FixedU128')
+    EmissionBarQuantile = Item('SubtensorModule', 'EmissionBarQuantile', 'FixedU128')
+    EmissionGateExponent = Item('SubtensorModule', 'EmissionGateExponent', 'FixedU128')
+    EmissionGateBar = Item('SubtensorModule', 'EmissionGateBar', 'FixedU128')
     FlowEmaSmoothingFactor = Item('SubtensorModule', 'FlowEmaSmoothingFactor', 'u64')
     UsedWork = Item('SubtensorModule', 'UsedWork', 'u64')
     MaxRegistrationsPerBlock = Item('SubtensorModule', 'MaxRegistrationsPerBlock', 'u16')

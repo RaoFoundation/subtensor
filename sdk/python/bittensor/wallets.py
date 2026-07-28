@@ -140,25 +140,20 @@ def signing_keypair(
     try:
         return wallet.get_coldkey(password=pwd)
     except WrongPasswordError as error:
-        if macos_prompt and not keychain:
-            hint = (
-                f" The password entered for wallet {wallet.name!r} did not decrypt its "
-                "coldkey. `--macos-password` only prompts — it does not set or change the "
-                "wallet password. Use the password from when the coldkey was created. After "
-                f"a successful unlock, run `btcli wallet keychain save -w {wallet.name}` "
-                "and use `--keychain-password`."
-            )
-        elif keychain:
-            hint = (
-                f" Keychain entry for wallet {wallet.name!r} did not decrypt its coldkey. "
-                f"Re-save with `btcli wallet keychain save -w {wallet.name}`."
-            )
-        else:
-            hint = (
-                " Set BT_WALLET_PASSWORD, use --keychain-password / --macos-password, "
-                "or run via `doppler run -- btcli ...`."
-            )
-        raise ValueError(f"Wrong password for decryption.{hint}") from error
+        # Keep the message short — CLI layers add `help:` remediation. A long
+        # Doppler/keychain essay here becomes an ugly traceback body when a
+        # command forgets to catch ValueError (e.g. `wallet sign`).
+        if keychain:
+            raise ValueError(
+                f"wrong password (keychain entry for wallet {wallet.name!r} "
+                "did not decrypt the coldkey)"
+            ) from error
+        if macos_prompt and pwd is not None:
+            raise ValueError(
+                f"wrong password for wallet {wallet.name!r} "
+                "(--macos-password does not change the wallet password)"
+            ) from error
+        raise ValueError("wrong password") from error
     except OSError as error:
         raise ValueError(f"could not unlock coldkey: {error}") from error
 
@@ -175,10 +170,12 @@ def sign_message(
     macos_prompt: bool = False,
     keychain: bool = False,
 ) -> dict[str, str]:
-    """Sign a message with a wallet key; returns the signer address and 0x-hex signature.
+    """Sign a message with a wallet key; returns the signer address and bare-hex signature.
 
     ``use`` selects the key: "coldkey" (unlocks if encrypted) or "hotkey".
-    Signs the exact utf-8 bytes of ``message``.
+    Signs the exact utf-8 bytes of ``message``. The signature is lowercase hex
+    without a ``0x`` prefix — the same framing classic ``btcli wallet sign``
+    printed — so paste-into-verifier flows keep working.
     """
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     keypair = signing_keypair(
@@ -190,7 +187,7 @@ def sign_message(
         keychain=keychain,
     )
     signature = keypair.sign(message.encode())
-    return {"ss58": keypair.ss58_address, "signature": "0x" + bytes(signature).hex()}
+    return {"ss58": keypair.ss58_address, "signature": bytes(signature).hex()}
 
 
 def verify_message(message: str, signature: str, ss58_address: str) -> bool:

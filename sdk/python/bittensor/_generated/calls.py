@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 438
+Spec version: 441
 """
 from typing import Any, NamedTuple
 
@@ -989,6 +989,16 @@ class AdminUtils:
     def sudo_set_ema_price_halving_period(netuid: 'NetUid', ema_halving: 'u64') -> Call:
         '# Arguments * `origin`: The origin of the call, which must be the root account. * `ema_alpha_period`: Number of blocks for EMA price to halve  # Errors * `BadOrigin`: If the caller is not the root account.  # Weight Weight is handled by the `#[pallet::weight]` attribute.'
         return Call('AdminUtils', 'sudo_set_ema_price_halving_period', {'netuid': netuid, 'ema_halving': ema_halving})
+
+    @staticmethod
+    def sudo_set_emission_bar_quantile(quantile: 'FixedU128') -> Call:
+        'Sets the emission bar quantile (q): the fraction of demand carried by subnets above the emission gate bar. Also forces a bar recompute on the next block so the new quantile takes effect immediately.'
+        return Call('AdminUtils', 'sudo_set_emission_bar_quantile', {'quantile': quantile})
+
+    @staticmethod
+    def sudo_set_emission_gate_exponent(exponent: 'FixedU128') -> Call:
+        'Sets the emission gate Hill exponent (h): cliff sharpness at the bar.'
+        return Call('AdminUtils', 'sudo_set_emission_gate_exponent', {'exponent': exponent})
 
     @staticmethod
     def sudo_set_evm_chain_id(chain_id: 'u64') -> Call:

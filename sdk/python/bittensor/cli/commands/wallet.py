@@ -192,6 +192,34 @@ def _unlock_options(app_ctx: AppContext) -> _UnlockOptions:
     }
 
 
+def _is_wrong_password(error: BaseException) -> bool:
+    if isinstance(error, WrongPasswordError):
+        return True
+    cause = error.__cause__
+    if isinstance(cause, WrongPasswordError):
+        return True
+    return str(error).lower().startswith("wrong password")
+
+
+def _report_unlock_error(app_ctx: AppContext, error: BaseException) -> None:
+    """Print a rustc-style unlock failure and exit (no traceback)."""
+    if _is_wrong_password(error):
+        help_text = (
+            "re-save with `btcli wallet keychain save`"
+            if app_ctx.keychain_password
+            else "re-run and enter the coldkey password used when the key was created"
+        )
+        app_ctx.output.error("wrong password", help=help_text)
+    else:
+        text = str(error).strip()
+        if text.endswith("."):
+            text = text[:-1]
+        if text:
+            text = text[0].lower() + text[1:]
+        app_ctx.output.error(text or "could not unlock coldkey")
+    raise typer.Exit(1)
+
+
 @app.command(rich_help_panel=PANEL_MANAGE)
 @with_globals
 def create(
@@ -540,22 +568,33 @@ def sign(
     """Sign a message with the wallet's coldkey (or hotkey).
 
     Signing with the coldkey requires unlocking it, so you may be prompted
-    for the wallet password. The signature is printed as 0x-hex and can be
-    checked with `btcli wallet verify`.
+    for the wallet password. The signature is printed as bare hex (no ``0x``)
+    under the classic ``signed_message`` / ``signer_address`` field names so
+    paste-into-verifier flows match old btcli. Checked with `btcli wallet verify`.
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(
         app_ctx, help_text="Wallet that signs the message.", require_coldkey=not use_hotkey
     )
-    signed = wallets.sign_message(
-        message,
-        name=app_ctx.wallet_name,
-        hotkey=app_ctx.hotkey_name,
-        path=app_ctx.wallet_path,
-        use="hotkey" if use_hotkey else "coldkey",
-        **_unlock_options(app_ctx),
+    try:
+        signed = wallets.sign_message(
+            message,
+            name=app_ctx.wallet_name,
+            hotkey=app_ctx.hotkey_name,
+            path=app_ctx.wallet_path,
+            use="hotkey" if use_hotkey else "coldkey",
+            **_unlock_options(app_ctx),
+        )
+    except (ValueError, OSError, WrongPasswordError) as error:
+        _report_unlock_error(app_ctx, error)
+    # Classic btcli field names + bare hex (no 0x).
+    app_ctx.output.detail(
+        "signed",
+        {
+            "signed_message": signed["signature"].removeprefix("0x"),
+            "signer_address": signed["ss58"],
+        },
     )
-    app_ctx.output.detail("signed", signed)
 
 
 @app.command(rich_help_panel=PANEL_OPS)
@@ -563,7 +602,9 @@ def sign(
 def verify(
     ctx: typer.Context,
     message: str = typer.Option(..., "--message", help="The exact message that was signed."),
-    signature: str = typer.Option(..., "--signature", help="0x-hex signature."),
+    signature: str = typer.Option(
+        ..., "--signature", help="Hex signature (with or without a 0x prefix)."
+    ),
     ss58: str = typer.Option(..., "--ss58", help="Address the message was signed with."),
 ):
     """Verify a message signature against an address."""
@@ -687,16 +728,12 @@ def unlock_wallet(ctx: typer.Context):
                 keychain=app_ctx.keychain_password,
             )
             break
-        except (ValueError, OSError) as error:
-            wrong = isinstance(error.__cause__, WrongPasswordError)
-            if prompted and wrong:
+        except (ValueError, OSError, WrongPasswordError) as error:
+            if prompted and _is_wrong_password(error) and attempts_left:
                 app_ctx.output.error("wrong password")
-                if attempts_left:
-                    password = None
-                    continue
-            else:
-                app_ctx.output.error(str(error))
-            raise typer.Exit(1)
+                password = None
+                continue
+            _report_unlock_error(app_ctx, error)
     app_ctx.output.detail(
         "unlocked",
         {

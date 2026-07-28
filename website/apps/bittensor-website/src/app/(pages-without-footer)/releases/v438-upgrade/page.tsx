@@ -1,16 +1,16 @@
 import FadeInWrapper from '@/app/components/FadeInWrapper';
+import {Code} from '@/app/components/Code/Code';
 import {Link} from '@raofoundation/ui';
 import type {Metadata} from 'next';
 import {Suspense} from 'react';
-import snapshot from '../../../../../public/catalog/root-reborn-snapshot.json';
-import styles from './page.module.css';
+import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'Root Reborn — The V438 Upgrade',
+  title: 'The V438 Upgrade — Interfaces & Reliability',
   description:
-    'Nearly half of every TAO ever minted sits on root. Root Reborn turns its dividend ' +
-    'stream into validator-curated beta baskets — live network numbers, how the fund ' +
-    'works, and what to do.',
+    'Bounded EVM staking views, Ledger-friendly limit-order signatures, exact mechanism ' +
+    'emission splits, predictable epoch counters, testnet warp-sync repair, and a more ' +
+    'recoverable release train.',
   alternates: {canonical: '/releases/v438-upgrade'},
 };
 
@@ -27,260 +27,149 @@ const GRAPH_TEXT = {
 } as const;
 
 const INK = 'rgb(41, 41, 41)';
-const MUTED = 'rgba(41, 41, 41, 0.45)';
-const GOLD = '#e0a53f';
+const MUTED = 'rgba(41, 41, 41, 0.5)';
+const ACCENT = '#d15168';
 
-const fmt = new Intl.NumberFormat('en-US', {maximumFractionDigits: 0});
-const pct = (x: number, digits = 1) => `${(x * 100).toFixed(digits)}%`;
-const taoUsd = snapshot.taoUsd;
-
-/** Compact USD for stock figures: $1.02B, $188M, $184k. */
-const usd = (tao: number) => {
-  const dollars = tao * taoUsd;
-  const abs = Math.abs(dollars);
-  if (abs >= 1e9) return `$${(dollars / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `$${(dollars / 1e6).toFixed(0)}M`;
-  if (abs >= 1e3) return `$${(dollars / 1e3).toFixed(0)}k`;
-  return `$${dollars.toFixed(0)}`;
-};
-
-const rootDividendsPerDay = fmt.format(snapshot.rootDividendsTaoPerDay);
-const buySideBoost = pct(snapshot.rootDividendsTaoPerDay / snapshot.taoPerDayIntoPools, 0);
-
-/** Calculated day mint: 0.5 τ/block × 7200 blocks/day (BlockEmission storage may still read 1.0). */
-const DAY_EMISSION_TAO = 3600;
-const poolInjectPerDay = snapshot.taoPerDayIntoPools;
-const rootMakebackPerDay = snapshot.rootDividendsTaoPerDay;
-const saveShareOfMint = poolInjectPerDay / DAY_EMISSION_TAO;
-const makebackShareOfMint = rootMakebackPerDay / DAY_EMISSION_TAO;
-const retainedPreShare = saveShareOfMint;
-const retainedPostShare = (poolInjectPerDay + rootMakebackPerDay) / DAY_EMISSION_TAO;
-const marketFlowSwingPerDay = rootMakebackPerDay * 2;
-
-const hexPoints = (cx: number, cy: number, r: number) => {
-  const dx = r * 0.866;
-  return [
-    [cx, cy - r],
-    [cx + dx, cy - r / 2],
-    [cx + dx, cy + r / 2],
-    [cx, cy + r],
-    [cx - dx, cy + r / 2],
-    [cx - dx, cy - r / 2],
-  ]
-    .map(([x, y]) => `${x},${y}`)
-    .join(' ');
-};
-
-const FlipDiagram = () => (
+const EvmStakeReadDiagram = () => (
   <svg
     className={styles.graph}
-    viewBox='0 0 760 300'
+    viewBox='0 0 760 330'
     role='img'
-    aria-label='Before the upgrade, the root dividend stream is sold every block into sell pressure. After it, the same stream is deployed across validator-curated baskets, compounds, and is realized only when the staker claims.'
+    aria-label='An EVM contract supplies a coldkey, subnet, and bounded list of candidate hotkeys to the staking precompile. The precompile reads only those positions and returns the non-zero stake entries, keeping gas proportional to at most 64 candidates.'
   >
-    <text {...GRAPH_TEXT} x='30' y='52' fill={MUTED}>
-      BEFORE
+    <rect x='60' y='90' width='170' height='130' fill='none' stroke={INK} strokeWidth='1.5' />
+    <text {...GRAPH_TEXT} x='145' y='120' textAnchor='middle'>
+      EVM CONTRACT
     </text>
-    <rect x='120' y='30' width='150' height='36' fill='none' stroke={MUTED} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='195' y='52' textAnchor='middle' fill={MUTED}>
-      ROOT YIELD α
+    <text {...GRAPH_TEXT} x='145' y='150' textAnchor='middle' fill={MUTED}>
+      COLDKEY · NETUID
     </text>
-    <line x1='270' y1='48' x2='420' y2='48' stroke={MUTED} strokeWidth='1.5' />
-    <polygon points='420,48 412,44 412,52' fill={MUTED} />
-    <text {...GRAPH_TEXT} x='345' y='38' textAnchor='middle' fill={MUTED}>
-      SOLD EVERY BLOCK
-    </text>
-    <rect x='424' y='30' width='190' height='36' fill='none' stroke={MUTED} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='519' y='52' textAnchor='middle' fill={MUTED}>
-      SELL PRESSURE · TAXED
-    </text>
-    <text {...GRAPH_TEXT} x='650' y='52' fill={MUTED}>
-      GONE
+    <text {...GRAPH_TEXT} x='145' y='168' textAnchor='middle' fill={MUTED}>
+      ≤ 64 HOTKEYS
     </text>
 
-    <line x1='30' y1='96' x2='730' y2='96' stroke='rgba(41,41,41,0.15)' strokeWidth='1' />
-
-    <text {...GRAPH_TEXT} x='30' y='150'>
-      AFTER
-    </text>
-    <rect x='120' y='128' width='150' height='36' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='195' y='150' textAnchor='middle'>
-      ROOT YIELD α
-    </text>
-    <line x1='270' y1='146' x2='340' y2='146' stroke={INK} strokeWidth='1.5' />
-    <polygon points='340,146 332,142 332,150' fill={INK} />
-    <text {...GRAPH_TEXT} x='305' y='136' textAnchor='middle'>
-      SOLD ONCE
+    <line x1='230' y1='155' x2='315' y2='155' stroke={INK} strokeWidth='1.5' />
+    <polygon points='315,155 305,150 305,160' fill={INK} />
+    <text {...GRAPH_TEXT} x='272' y='145' textAnchor='middle'>
+      STATICCALL
     </text>
 
     <rect
-      x='344'
-      y='110'
-      width='200'
-      height='104'
-      fill='rgba(41, 41, 41, 0.03)'
-      stroke='rgba(41, 41, 41, 0.4)'
-      strokeWidth='1'
-      strokeDasharray='4 4'
+      x='315'
+      y='70'
+      width='190'
+      height='170'
+      fill='rgba(209, 81, 104, 0.05)'
+      stroke={ACCENT}
+      strokeWidth='1.5'
     />
-    <text {...GRAPH_TEXT} x='444' y='126' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      VALIDATOR BASKET
+    <text {...GRAPH_TEXT} x='410' y='102' textAnchor='middle' fill={ACCENT}>
+      STAKING PRECOMPILE
     </text>
-    <rect x='360' y='136' width='168' height='20' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='368' y='150'>
-      SUBNET α HOLDINGS
+    <text {...GRAPH_TEXT} x='410' y='126' textAnchor='middle'>
+      0x…0805
     </text>
-    <rect x='360' y='164' width='168' height='20' fill='none' stroke={INK} strokeWidth='1.5' />
-    <rect x='364' y='168' width='8' height='8' fill={GOLD} />
-    <text {...GRAPH_TEXT} x='378' y='178'>
-      TAO SLOT
+    <line x1='344' y1='145' x2='476' y2='145' stroke={MUTED} strokeWidth='1' />
+    <text {...GRAPH_TEXT} x='410' y='170' textAnchor='middle'>
+      DISTINCT INPUTS
     </text>
-    <text {...GRAPH_TEXT} x='444' y='202' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      COMPOUNDS EVERY EPOCH
+    <text {...GRAPH_TEXT} x='410' y='189' textAnchor='middle'>
+      BOUNDED READS
+    </text>
+    <text {...GRAPH_TEXT} x='410' y='208' textAnchor='middle'>
+      NON-ZERO OUTPUTS
     </text>
 
-    <line x1='548' y1='146' x2='624' y2='146' stroke={INK} strokeWidth='1.5' />
-    <polygon points='624,146 616,142 616,150' fill={INK} />
-    <text {...GRAPH_TEXT} x='586' y='136' textAnchor='middle'>
-      CLAIM
-    </text>
-    <rect x='628' y='128' width='102' height='36' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='679' y='144' textAnchor='middle'>
-      TAO · YOURS
-    </text>
-    <text {...GRAPH_TEXT} x='679' y='157' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      WHEN YOU CHOOSE
-    </text>
-    <path
-      d='M 712 118 l 5 5 l 9 -11'
-      fill='none'
-      stroke='#5a8f5a'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-    />
+    <line x1='505' y1='155' x2='590' y2='155' stroke={INK} strokeWidth='1.5' />
+    <polygon points='590,155 580,150 580,160' fill={INK} />
 
-    <text {...GRAPH_TEXT} x='380' y='262' textAnchor='middle'>
-      SAME STREAM · {rootDividendsPerDay} τ / DAY ·{' '}
-      {pct(snapshot.rootDividendsPctOfEmission, 0)} OF EMISSION
+    <rect x='590' y='90' width='120' height='130' fill='none' stroke={INK} strokeWidth='1.5' />
+    <text {...GRAPH_TEXT} x='650' y='120' textAnchor='middle'>
+      STAKEINFO[]
     </text>
-    <text {...GRAPH_TEXT} x='380' y='278' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      REDEPLOYED ≈ +{buySideBoost} ON ALL TAO ENTERING SUBNET POOLS DAILY
+    <text {...GRAPH_TEXT} x='650' y='151' textAnchor='middle' fill={MUTED}>
+      HOTKEY
+    </text>
+    <text {...GRAPH_TEXT} x='650' y='169' textAnchor='middle' fill={MUTED}>
+      ALPHA STAKE
+    </text>
+    <text {...GRAPH_TEXT} x='650' y='198' textAnchor='middle' fill={ACCENT}>
+      GAS-BOUNDED
+    </text>
+
+    <text {...GRAPH_TEXT} x='380' y='286' textAnchor='middle' fill={MUTED}>
+      CALLER CHOOSES THE SEARCH SET · THE RUNTIME NEVER WALKS AN UNBOUNDED HISTORY
     </text>
   </svg>
 );
 
-const BasketFlowDiagram = () => (
+const SignatureCompatibilityDiagram = () => (
   <svg
     className={styles.graph}
     viewBox='0 0 760 340'
     role='img'
-    aria-label='Each epoch a validator’s root alpha dividend is sold to TAO and split across subnets per its root weights, buying alpha into an escrowed basket; root stakers are minted fund shares at NAV and later redeem them pro-rata as TAO staked back to root.'
+    aria-label='A limit order may be signed directly over its SCALE encoding or in the Ledger-compatible Bytes-wrapped hash form. Sr25519 and ed25519 signatures from either path are accepted, while ECDSA remains rejected.'
   >
+    <text {...GRAPH_TEXT} x='100' y='55' textAnchor='middle'>
+      LIMIT ORDER
+    </text>
+    <rect x='40' y='75' width='120' height='58' fill='none' stroke={INK} strokeWidth='1.5' />
+    <text {...GRAPH_TEXT} x='100' y='109' textAnchor='middle'>
+      SCALE BYTES
+    </text>
+
+    <path d='M 160 104 H 260 V 86 H 335' fill='none' stroke={INK} strokeWidth='1.5' />
+    <polygon points='335,86 325,81 325,91' fill={INK} />
+    <text {...GRAPH_TEXT} x='245' y='75' textAnchor='middle'>
+      DIRECT
+    </text>
+
+    <path d='M 160 104 H 215 V 215 H 335' fill='none' stroke={INK} strokeWidth='1.5' />
+    <polygon points='335,215 325,210 325,220' fill={INK} />
+    <rect x='230' y='180' width='105' height='70' fill='none' stroke={MUTED} strokeWidth='1' />
+    <text {...GRAPH_TEXT} x='282' y='204' textAnchor='middle'>
+      BLAKE2-256
+    </text>
+    <text {...GRAPH_TEXT} x='282' y='225' textAnchor='middle'>
+      &lt;BYTES&gt;…&lt;/BYTES&gt;
+    </text>
+    <text {...GRAPH_TEXT} x='282' y='270' textAnchor='middle' fill={ACCENT}>
+      LEDGER SIGNRAW
+    </text>
+
     <rect
-      x='300'
-      y='50'
-      width='240'
-      height='240'
-      fill='rgba(41, 41, 41, 0.03)'
-      stroke='rgba(41, 41, 41, 0.4)'
-      strokeWidth='1'
-      strokeDasharray='4 4'
+      x='335'
+      y='55'
+      width='190'
+      height='200'
+      fill='rgba(209, 81, 104, 0.05)'
+      stroke={ACCENT}
+      strokeWidth='1.5'
     />
-    <text {...GRAPH_TEXT} x='420' y='68' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      BETA BASKET · ESCROWED
+    <text {...GRAPH_TEXT} x='430' y='88' textAnchor='middle' fill={ACCENT}>
+      RUNTIME VERIFIER
+    </text>
+    <line x1='365' y1='108' x2='495' y2='108' stroke={MUTED} strokeWidth='1' />
+    <text {...GRAPH_TEXT} x='430' y='143' textAnchor='middle'>
+      SR25519 ✓
+    </text>
+    <text {...GRAPH_TEXT} x='430' y='174' textAnchor='middle'>
+      ED25519 ✓
+    </text>
+    <text {...GRAPH_TEXT} x='430' y='205' textAnchor='middle' fill={MUTED}>
+      ECDSA ✕
+    </text>
+    <text {...GRAPH_TEXT} x='430' y='232' textAnchor='middle' fill={MUTED}>
+      SAME ORDER ID
     </text>
 
-    <polygon points={hexPoints(120, 130, 46)} fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='120' y='127' textAnchor='middle'>
-      ROOT
+    <line x1='525' y1='155' x2='625' y2='155' stroke={INK} strokeWidth='1.5' />
+    <polygon points='625,155 615,150 615,160' fill={INK} />
+    <circle cx='675' cy='155' r='40' fill='none' stroke={INK} strokeWidth='1.5' />
+    <path d='M 654 155 L 669 170 L 697 137' fill='none' stroke={ACCENT} strokeWidth='3' />
+    <text {...GRAPH_TEXT} x='675' y='220' textAnchor='middle'>
+      EXECUTABLE
     </text>
-    <text {...GRAPH_TEXT} x='120' y='141' textAnchor='middle'>
-      DIVIDEND α
-    </text>
-    <text {...GRAPH_TEXT} x='120' y='196' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      EVERY EPOCH
-    </text>
-
-    <line x1='166' y1='130' x2='294' y2='130' stroke={INK} strokeWidth='1.5' />
-    <polygon points='294,130 286,126 286,134' fill={INK} />
-    <text {...GRAPH_TEXT} x='230' y='118' textAnchor='middle'>
-      SOLD TO TAO
-    </text>
-    <text {...GRAPH_TEXT} x='230' y='146' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      SPLIT PER ROOT WEIGHTS
-    </text>
-
-    <rect x='330' y='92' width='180' height='30' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='340' y='111'>
-      SN 4 · α HOLDING
-    </text>
-    <text {...GRAPH_TEXT} x='500' y='111' textAnchor='end'>
-      30%
-    </text>
-
-    <rect x='330' y='140' width='180' height='30' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='340' y='159'>
-      SN 8 · α HOLDING
-    </text>
-    <text {...GRAPH_TEXT} x='500' y='159' textAnchor='end'>
-      50%
-    </text>
-
-    <rect x='330' y='188' width='180' height='30' fill='none' stroke={INK} strokeWidth='1.5' />
-    <rect x='334' y='192' width='8' height='8' fill={GOLD} />
-    <text {...GRAPH_TEXT} x='350' y='207'>
-      NETUID 0 · TAO SLOT
-    </text>
-    <text {...GRAPH_TEXT} x='500' y='207' textAnchor='end'>
-      20%
-    </text>
-
-    <text {...GRAPH_TEXT} x='420' y='252' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      NAV = REALIZABLE TAO QUOTE
-    </text>
-    <text {...GRAPH_TEXT} x='420' y='266' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      NOT A SPOT MARK
-    </text>
-
-    <line x1='546' y1='130' x2='624' y2='130' stroke={INK} strokeWidth='1.5' />
-    <polygon points='624,130 616,126 616,134' fill={INK} />
-    <text {...GRAPH_TEXT} x='585' y='118' textAnchor='middle'>
-      SHARES
-    </text>
-    <text {...GRAPH_TEXT} x='585' y='146' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      MINTED AT NAV
-    </text>
-
-    <polygon points={hexPoints(672, 130, 40)} fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='672' y='127' textAnchor='middle'>
-      ROOT
-    </text>
-    <text {...GRAPH_TEXT} x='672' y='141' textAnchor='middle'>
-      STAKERS
-    </text>
-
-    <line x1='672' y1='172' x2='672' y2='226' stroke={INK} strokeWidth='1.5' />
-    <line x1='672' y1='226' x2='548' y2='226' stroke={INK} strokeWidth='1.5' />
-    <polygon points='548,226 556,222 556,230' fill={INK} />
-    <text {...GRAPH_TEXT} x='680' y='200'>
-      CLAIM
-    </text>
-    <text {...GRAPH_TEXT} x='614' y='214' textAnchor='middle'>
-      PRO-RATA
-    </text>
-    <text {...GRAPH_TEXT} x='614' y='242' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      SOLD TO TAO → ROOT STAKE
-    </text>
-
-    <path
-      d='M 700 220 l 6 6 l 10 -12'
-      fill='none'
-      stroke='#5a8f5a'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-    />
   </svg>
 );
 
@@ -289,415 +178,203 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <p className={styles.paper_title}>Root Reborn</p>
+          <p className={styles.paper_title}>The V438 Upgrade</p>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            The V438 Upgrade · July 2026
+            Interfaces &amp; Reliability · July 2026
           </p>
         </section>
 
         <section className={styles.section}>
+          <p className={styles.subtitle}>Introduction</p>
           <p>
-            TAO is not a fee token. It is a productive asset: the chain invests liquidity into{' '}
-            {snapshot.registeredSubnets} competing subnets and takes a share of every one of
-            them back, block by block. That share is called <strong>root proportion</strong> —
-            the return owed to TAO itself. Where it lands is the root network, subnet 0, and
-            what sits there is the deepest pool of capital in Bittensor:
-          </p>
-          <p className={styles.headline_number}>{fmt.format(snapshot.rootStakeTao)} τ</p>
-          <p className={styles.headline_label}>
-            {usd(snapshot.rootStakeTao)} staked on root — {pct(snapshot.rootShareOfIssuance)} of
-            every TAO ever minted
-          </p>
-          <p>
-            Nearly half of all TAO in existence, {pct(snapshot.rootShareOfStake, 0)} of all
-            staked TAO, concentrated in one place — and until now it was the only capital in
-            the network with no intelligence attached. Its yield was sold the moment it
-            arrived, mechanically, every block. Spec <strong>438</strong> switches the giant
-            on: per-subnet claimable dividends become{' '}
-            <DocLink href='/docs/guides/root-reborn'>beta baskets</DocLink> — every root
-            validator runs an escrowed index fund of subnet alpha, curated by its root
-            weights, and stakers redeem fund shares with one parameterless claim.
+            Spec <strong>438</strong> is a focused compatibility and correctness release after{' '}
+            <DocLink href='/releases/v436-upgrade'>v437</DocLink>. It gives smart contracts a
+            bounded way to inspect staking positions, lets Ledger-style signatures authorize limit
+            orders, closes two small but important gaps in mechanism and epoch accounting, repairs
+            testnet warp sync, and makes the release pipeline recover cleanly from a partial Python
+            publication. There is no new token model or migration for ordinary wallets: v438
+            tightens the surfaces that applications, operators, and automation already use.
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>The network, in raw numbers</p>
-          <table className={styles.metrics_table}>
-            <tbody>
-              <tr>
-                <td>TAO price</td>
-                <td>${taoUsd.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td>TAO issued to date</td>
-                <td>
-                  {fmt.format(snapshot.totalIssuanceTao)} τ · {usd(snapshot.totalIssuanceTao)}
-                </td>
-              </tr>
-              <tr>
-                <td>Staked on the root network</td>
-                <td>
-                  {fmt.format(snapshot.rootStakeTao)} τ · {usd(snapshot.rootStakeTao)} ·{' '}
-                  {pct(snapshot.rootShareOfIssuance)} of issuance
-                </td>
-              </tr>
-              <tr>
-                <td>Subnets live and earning</td>
-                <td>
-                  {snapshot.liveSubnets} of {snapshot.registeredSubnets}
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  Chain-held TAO in subnet pools
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    from TAO→α buys — sits until deregister
-                  </span>
-                </td>
-                <td>
-                  {fmt.format(snapshot.taoInSubnetPools)} τ · {usd(snapshot.taoInSubnetPools)}
-                </td>
-              </tr>
-              <tr>
-                <td>Subnet alpha market cap</td>
-                <td>
-                  {fmt.format(snapshot.alphaMarketCapTao)} τ · {usd(snapshot.alphaMarketCapTao)}
-                </td>
-              </tr>
-              <tr>
-                <td>Root dividend stream (protocol revenue, 7-day avg)</td>
-                <td>
-                  {rootDividendsPerDay} τ / day · {usd(snapshot.rootDividendsTaoPerDay)} / day ·{' '}
-                  {pct(snapshot.rootDividendsPctOfEmission, 0)} of emission
-                </td>
-              </tr>
-              <tr>
-                <td>Cumulative protocol revenue since dTAO</td>
-                <td>
-                  {fmt.format(snapshot.cumulativeRootRevenueTao)} τ ·{' '}
-                  {usd(snapshot.cumulativeRootRevenueTao)}
-                </td>
-              </tr>
-              <tr>
-                <td>Base root yield at that run-rate</td>
-                <td>{pct(snapshot.rootYieldApr)} / yr in TAO</td>
-              </tr>
-              <tr>
-                <td>Paid to miners for useful work</td>
-                <td>
-                  {fmt.format(snapshot.minersTaoPerDay)} τ / day ·{' '}
-                  {usd(snapshot.minersTaoPerDay)} / day
-                </td>
-              </tr>
-              <tr>
-                <td>Root dividend gate (Σ subnet EMA prices)</td>
-                <td>
-                  {snapshot.emaPriceSum.toFixed(2)} ·{' '}
-                  {snapshot.rootDividendGateOpen ? 'open' : 'closed'}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p className={styles.data_note}>
-            finney block {fmt.format(snapshot.block)} · july 24, 2026 · ${taoUsd.toFixed(2)}/τ ·
-            sources: taomarketcap api (subnets + protocol revenue + market candles) + chain
-            storage
+          <p className={styles.subtitle}>Staking data, directly from EVM</p>
+          <p>
+            Contracts can now read a coldkey&apos;s non-zero alpha positions on one subnet through
+            the staking precompile at <code>0x…0805</code>.{' '}
+            <DocLink href='/code/precompiles/src/solidity/stakingV2.sol'>
+              <code>getStakeInfoForColdkeyAndNetuid</code>
+            </DocLink>{' '}
+            accepts a coldkey, netuid, and up to 64 distinct candidate hotkeys, then returns only
+            the candidates with stake. The caller supplies the search set deliberately: the
+            precompile never walks the coldkey&apos;s unbounded historical hotkey index, so its work
+            and gas remain proportional to the request.
           </p>
-        </section>
+          <Code
+            language='rust'
+            code={`IStaking.StakeInfo[] memory positions =
+    staking.getStakeInfoForColdkeyAndNetuid(coldkey, netuid, hotkeys);
 
-        <section className={styles.section}>
-          <p className={styles.subtitle}>Emission P&amp;L</p>
-          <p>
-            Three ledgers on one mint. The chain <strong>spends</strong> dilution,{' '}
-            <strong>saves</strong> a slice as pool liquidity, and <strong>makes back</strong>{' '}
-            root&apos;s share of subnet alpha as protocol revenue. Root Reborn does not change
-            the spend — it flips the disposition of the makeback.
-          </p>
-          <p className={styles.headline_number}>
-            {pct(retainedPreShare, 0)} → {pct(retainedPostShare, 0)}
-          </p>
-          <p className={styles.headline_label}>
-            of daily mint kept productive — pool inject alone vs inject + basket redeploy
-          </p>
-          <table className={styles.metrics_table}>
-            <tbody>
-              <tr>
-                <td>
-                  Spend
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    day mint · 0.5 τ/block × 7200
-                  </span>
-                </td>
-                <td>
-                  {fmt.format(DAY_EMISSION_TAO)} τ / day · {usd(DAY_EMISSION_TAO)} / day
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  Save
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    pool inject → SubnetTAO
-                  </span>
-                </td>
-                <td>
-                  {fmt.format(poolInjectPerDay)} τ / day · {usd(poolInjectPerDay)} / day ·{' '}
-                  {pct(saveShareOfMint, 0)} of mint
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  Makeback
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    root dividends · TMC 7-day avg
-                  </span>
-                </td>
-                <td>
-                  {rootDividendsPerDay} τ / day · {usd(rootMakebackPerDay)} / day ·{' '}
-                  {pct(makebackShareOfMint, 0)} of mint
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  Market flow swing
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    stop selling + start buying the same stream
-                  </span>
-                </td>
-                <td>
-                  {fmt.format(marketFlowSwingPerDay)} τ / day · {usd(marketFlowSwingPerDay)}{' '}
-                  / day
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p className={styles.data_note}>
-            net organic pool accrual ≈ inject − makeback sales ≈{' '}
-            {fmt.format(poolInjectPerDay - rootMakebackPerDay)} τ / day before private stake
-            flows · makeback is a parallel cash ledger (root α marked to TAO), not a residual
-            of the inject split
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>The leak, and the flip</p>
-          <p>
-            Every day the subnets pay root roughly <strong>{rootDividendsPerDay} TAO</strong>{' '}
-            ({usd(snapshot.rootDividendsTaoPerDay)}/day) worth of their alpha —{' '}
-            {pct(snapshot.rootDividendsPctOfEmission, 0)} of all new emission, and{' '}
-            {fmt.format(snapshot.cumulativeRootRevenueTao)} τ (
-            {usd(snapshot.cumulativeRootRevenueTao)}) collected since dTAO went live. Under
-            the old machinery that entire stream was force-sold:
-            instant sell pressure on every subnet token, a taxable event for every staker,
-            value out the door on a schedule nobody chose.
-          </p>
-          <p>
-            Root Reborn inverts the pipe. The same dividend stream is now deployed across
-            baskets of subnet alpha curated by each root validator, held in a chain-owned
-            escrow, compounding every epoch. For scale: about{' '}
-            {fmt.format(snapshot.taoPerDayIntoPools)} TAO of fresh emission enters all subnet
-            pools daily — redirecting the root stream adds up to{' '}
-            <strong>{buySideBoost} more buy-side flow</strong> to the subnets validators
-            believe in, and lifts chain-productive retention from{' '}
-            {pct(retainedPreShare, 0)} to {pct(retainedPostShare, 0)} of mint — a market flow
-            swing of about {usd(marketFlowSwingPerDay)}/day. The network&apos;s single largest
-            source of mechanical selling becomes its single largest source of curated demand.
-          </p>
-          <FlipDiagram />
+uint256 baseMinimum = staking.getDefaultMinStake();`}
+          />
+          <EvmStakeReadDiagram />
           <p className={styles.graph_caption}>
-            Same stream, opposite sign. Yield that was sold every block now compounds in
-            validator baskets and is realized only when the staker claims.
+            The contract chooses at most 64 distinct candidate hotkeys. The precompile charges for
+            the bounded reads and returns only non-zero <code>(hotkey, stake)</code> pairs.
+          </p>
+          <p>
+            The companion <code>getDefaultMinStake()</code> view exposes the runtime&apos;s base
+            staking minimum. It is intentionally a primitive, not a quote: operation fees, subnet
+            price conversion, and full-unstake rules can still change what a particular transaction
+            accepts. Both selectors are added to the Solidity interface, JSON ABI, Rust precompile,
+            and gas-accounting tests, so Solidity and SDK callers share one contract.
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Validators become fund managers</p>
+          <p className={styles.subtitle}>Limit orders meet hardware wallets</p>
           <p>
-            Each root validator now publishes a weight vector — its allocation across subnets,
-            on-chain, for everyone to see. Dividends are deployed per that vector; stakers are
-            minted shares of the resulting basket at net asset value, and redeem them with one
-            claim, paid in TAO staked straight back to root. A weight on netuid 0 holds that
-            slice as pure TAO, so fully passive validators remain exactly one setting away.
-            The scoreboard is the simplest in finance:{' '}
-            <strong>who made their stakers the most TAO?</strong>
+            A signed limit order can now use either sr25519 or ed25519 and can cover either the raw
+            SCALE-encoded order or the Ledger-compatible{' '}
+            <code>&lt;Bytes&gt;blake2_256(order)&lt;/Bytes&gt;</code> payload produced by
+            <code>signRaw</code>. The order ID is unchanged: it remains the blake2-256 hash of the
+            versioned order, so cancellation, replay protection, partial fills, and relayer
+            restrictions behave exactly as before. ECDSA remains rejected because its account
+            recovery model does not map to the 32-byte signer identity used by the pallet.
+          </p>
+          <SignatureCompatibilityDiagram />
+          <p className={styles.graph_caption}>
+            Software keys can continue signing the order bytes directly. Ledger and compatible
+            signers can sign the wrapped order hash; both paths verify against the same signer and
+            derive the same on-chain order ID.
+          </p>
+          <Code
+            language='rust'
+            code={`raw       = SCALE(versioned_order)
+order_id  = blake2_256(raw)
+wrapped   = "<Bytes>" ++ order_id ++ "</Bytes>"
+
+accepted  = sr25519(raw | wrapped) or ed25519(raw | wrapped)
+rejected  = ecdsa`}
+          />
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>Mechanism emission splits are exact</p>
+          <p>
+            A custom mechanism split must now contain{' '}
+            <strong>one entry for every active mechanism</strong>, and the entries must still sum to
+            65,535. Previously, a shorter vector passed validation and was padded with zeroes, which
+            could silently starve trailing mechanisms while rounding residue was assigned to
+            mechanism zero. Owners that want an even split can continue clearing the custom value;
+            owners that set one explicitly must describe the full mechanism set.
           </p>
           <table className={styles.metrics_table}>
             <thead>
               <tr>
-                <th>Subnet</th>
-                <th>Netuid</th>
-                <th>Share of root dividends</th>
-                <th>Pool depth τ</th>
+                <th>Configuration</th>
+                <th>Before v438</th>
+                <th>v438</th>
               </tr>
             </thead>
             <tbody>
-              {snapshot.topRootDividendSubnets.map((s) => (
-                <tr key={s.netuid}>
-                  <td>{s.name}</td>
-                  <td>{s.netuid}</td>
-                  <td>{pct(s.shareOfRootDividends)}</td>
-                  <td>{fmt.format(s.poolTao)}</td>
-                </tr>
-              ))}
+              <tr>
+                <td>No custom split</td>
+                <td>Even distribution</td>
+                <td>Even distribution</td>
+              </tr>
+              <tr>
+                <td>Full vector, sum = 65,535</td>
+                <td>Accepted</td>
+                <td>Accepted</td>
+              </tr>
+              <tr>
+                <td>Short vector</td>
+                <td>Zero-padded</td>
+                <td>Rejected</td>
+              </tr>
+              <tr>
+                <td>Wrong sum</td>
+                <td>Rejected</td>
+                <td>Rejected</td>
+              </tr>
             </tbody>
           </table>
-          <p className={styles.data_note}>
-            top root-dividend payers — the raw material validators now allocate
-          </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>How a basket works</p>
+          <p className={styles.subtitle}>Epoch observability stays bounded</p>
           <p>
-            Each epoch, a validator&apos;s root alpha dividend is sold to TAO and redeployed
-            across the subnets it has chosen, in proportion to its root weights — buying each
-            destination&apos;s alpha into the basket. Holdings live under a chain-owned escrow
-            account as real stake positions, so they keep earning. When a dividend lands,
-            stakers are minted basket shares priced at the fund&apos;s{' '}
-            <strong>realizable</strong> TAO quote — what selling the holdings would actually
-            fetch at current pool depth, never a spot mark.
-          </p>
-          <BasketFlowDiagram />
-          <p className={styles.graph_caption}>
-            One validator&apos;s fund with a 30/50/20 vector. Dividends buy holdings; stakers
-            hold shares; a claim redeems a pro-rata slice of every holding as TAO staked back
-            to root.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>For root validators</p>
-          <p>
-            Set your distribution vector with your hotkey. A validator with no custom weights
-            still accrues — dividends default to 100% root (TAO in the fund&apos;s root slot).
-            Set the vector when you want to deploy into subnet alpha.
-          </p>
-          <pre className={styles.code_block}>
-            {`btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet
-btcli root get-weights --hotkey 5F...
-btcli root show --hotkey 5F...         # your fund: weights, holdings, NAV`}
-          </pre>
-          <p>
-            Weights are relative and normalized before submission (
-            <DocLink href='/docs/tx/set-root-weights'>
-              <code>set-root-weights</code>
-            </DocLink>
-            , call index 146); every destination must be netuid 0 or an existing subnet, and
-            the root weights rate limit applies. The SDK surfaces the same path as{' '}
-            <code>bt.SetRootWeights</code>.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>For root stakers</p>
-          <p>
-            Nothing to configure — stake TAO on root and shares accrue automatically.{' '}
-            <code>btcli</code> shows root positions in beta (β): staked β is principal,
-            accrued β is fund yield. Today&apos;s root stream is a{' '}
-            {pct(snapshot.rootYieldApr)} base yield in TAO; after this release that floor is
-            where the story starts — yield compounds inside the basket, and{' '}
-            <strong>nothing is realized until you claim</strong>.
-          </p>
-          <pre className={styles.code_block}>
-            {`btcli root list                    # staked β + accrued β, per validator
-btcli tx claim-root -w my_coldkey  # claim-root: redeem across all validators`}
-          </pre>
-          <p>
-            <DocLink href='/docs/tx/claim-root'>
-              <code>claim_root</code>
+            <DocLink href='/docs/query/blocks-since-last-step'>
+              <code>BlocksSinceLastStep</code>
             </DocLink>{' '}
-            takes <strong>no parameters</strong>: it walks every validator you root-stake to,
-            redeems your owed shares pro-rata from each basket, and stakes the TAO proceeds
-            back to root. Per-validator payouts below the claim threshold (default 500,000
-            rao; read it with{' '}
-            <DocLink href='/docs/query/root-claim-threshold'>
-              <code>root-claim-threshold</code>
-            </DocLink>
-            ) are skipped and keep accruing — there is no deadline and nothing expires.
-            Unstaking past your staked β also merges accrued β automatically.
+            is now capped at the subnet&apos;s <code>tempo + 1</code>. The scheduler&apos;s safety
+            check uses that same subnet-specific tempo instead of a global maximum. Deferred epochs
+            can still report the one-block-overdue state that triggers the fallback, but dashboards
+            and clients no longer see a counter grow indefinitely during inconsistent or delayed
+            state. The related epoch-status and next-epoch queries use the same model.
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Breaking changes</p>
-          <ul className={styles.list}>
-            <li>
-              <code>claim_root</code> (call index 121) changed signature: the{' '}
-              <code>subnets</code> argument is gone. Old-format transactions no longer
-              decode; clients must regenerate metadata.
-            </li>
-            <li>
-              <code>set_root_claim_type</code> (122) and{' '}
-              <code>sudo_set_num_root_claims</code> (123) are <strong>removed</strong>.
-              Payouts are always TAO staked back to root — the Swap / Keep / KeepSubnets
-              setting and the automatic per-block claim sweep are gone. To hold subnet
-              alpha, stake on the subnet directly.
-            </li>
-            <li>
-              The <code>RootClaimable</code> / <code>RootClaimed</code> per-subnet state is{' '}
-              <strong>migrated into baskets</strong> at upgrade: previously accrued claimable
-              alpha becomes basket holdings and shares on the same validator. Nothing is
-              lost, and no user action is needed for past accruals.
-            </li>
-            <li>
-              Hotkey and coldkey swaps carry basket state (holdings, shares, claim
-              watermarks) to the new key; a hotkey with a live basket is not
-              &quot;clean&quot; for reuse. Subnet dissolution converts that subnet&apos;s
-              basket holdings into the TAO slot of each affected fund.
-            </li>
-          </ul>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>New runtime APIs</p>
+          <p className={styles.subtitle}>Testnet warp sync, repaired</p>
           <p>
-            A <code>BetaBasketRuntimeApi</code> ships with the release, mirrored as{' '}
-            <code>betaBasket_*</code> RPC methods and as named SDK reads (available under{' '}
-            <code>btcli query</code> and <code>client.read</code>):
+            Testnet nodes now start GRANDPA warp sync from two trusted, genesis-scoped authority
+            checkpoints. The checkpoints are enabled only when the node sees the testnet genesis
+            hash; mainnet and development chains retain their existing initial set-ID behavior. This
+            repairs fast synchronization across historical authority-set changes without weakening
+            checkpoint selection on any other network. The release also aligns the Polkadot SDK
+            revision needed to verify those proofs and corrects dependency features that affected
+            node log decoding.
           </p>
-          <pre className={styles.code_block}>
-            {`betaBasket_getStakerOwed(coldkey)            root-basket-owed
-betaBasket_getStakerValidatorOwed(hk, ck)    root-basket-owed-breakdown
-betaBasket_getValidatorBasket(hotkey)        validator-basket
-betaBasket_getValidatorNav(hotkey)           validator-basket-nav
-betaBasket_getTotalNav()                     root-basket-total-nav
-betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
-          </pre>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>Release train, recoverable</p>
+          <p>
+            The mainnet watcher now tracks GitHub release completion and stable Python publication
+            independently. A release can exist while a failed or partial PyPI upload is retried on
+            the next watcher run; a provenance-bound completion marker is written only after every
+            expected distribution is accepted. That removes the old failure mode where a successful
+            GitHub release prevented the SDK publication from being retried.
+          </p>
+          <p>
+            Every merge to <code>main</code> also publishes the moving development image{' '}
+            <code>ghcr.io/raofoundation/subtensor:main</code>. The deployed <code>:latest</code> tag
+            remains tied to an executed mainnet release, while
+            <code>:devnet</code> and <code>:testnet</code> continue following their network mirrors.
+            Developers can therefore test merged code without mistaking it for the version running
+            on mainnet. The complete promotion sequence is documented in the{' '}
+            <DocLink href='/docs/internals/release-process'>release process</DocLink>.
+          </p>
         </section>
 
         <section className={styles.section}>
           <p className={styles.subtitle}>What to do</p>
-          <p>
-            Operators should wait for the on-chain <code>spec_version</code> to move to 438,
-            then upgrade nodes and clients. SDK users should pull the matching bittensor
-            release once the train publishes it.
-          </p>
-          <p>
-            <strong>Root validators:</strong> set your root weights with{' '}
-            <code>btcli root set-weights</code> to curate subnet exposure (the default is
-            100% root / TAO). <strong>Stakers:</strong> claims are now fund-level;{' '}
-            <code>btcli root list</code> shows staked and accrued β and{' '}
-            <code>btcli tx claim-root</code> redeems it. The retired{' '}
-            <code>btcli stake set-claim</code> / <code>process-claim</code> commands are
-            replaced by the <code>btcli root</code> suite.
-          </p>
-          <p>
-            <strong>Indexers and integrators:</strong> regenerate metadata for the changed{' '}
-            <code>claim_root</code> and new <code>set_root_weights</code> (146) calls, drop
-            the retired 122/123 calls, and add the <code>RootWeightsSet</code>,{' '}
-            <code>BasketDeposited</code>, <code>BasketClaimed</code>, <code>RootClaimed</code>
-            , and <code>BasketHoldingConverted</code> events plus the{' '}
-            <code>betaBasket_*</code> RPC namespace. The claim threshold is root-settable via{' '}
-            <code>sudo_set_root_claim_threshold</code> (124), wrapped as{' '}
-            <DocLink href='/docs/tx/set-root-claim-threshold'>
-              <code>set-root-claim-threshold</code>
-            </DocLink>
-            .
-          </p>
+          <ul className={styles.list}>
+            <li>
+              <strong>Node operators:</strong> wait for the on-chain <code>spec_version</code> to
+              move to 438, then update to the matching release. Testnet operators should update
+              promptly to pick up the warp-sync checkpoints.
+            </li>
+            <li>
+              <strong>EVM integrators:</strong> refresh <code>stakingV2.abi</code> and use a
+              bounded, duplicate-free hotkey list when calling the new stake-position view.
+            </li>
+            <li>
+              <strong>Limit-order clients:</strong> raw sr25519 signatures remain valid.
+              Ledger-style wrapped sr25519 and ed25519 signatures are now valid; do not emit ECDSA
+              orders.
+            </li>
+            <li>
+              <strong>Subnet owners:</strong> when setting a custom mechanism emission split, send
+              exactly one value per active mechanism and keep the total at 65,535.
+            </li>
+            <li>
+              <strong>Indexers:</strong> treat <code>BlocksSinceLastStep</code> as a bounded status
+              counter, not an elapsed-time source beyond <code>tempo + 1</code>.
+            </li>
+          </ul>
           <p>
             Signers: after the release train proposes, use{' '}
             <code>btcli upgrade sign --url &lt;v438 release URL&gt; -w &lt;wallet&gt;</code>.
@@ -705,7 +382,7 @@ betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
         </section>
 
         <span className={styles.paper_link}>
-          <Link href='/docs/guides/root-reborn'>Read the Root Reborn guide</Link>
+          <Link href='/docs/internals/release-process'>Read the release process</Link>
         </span>
       </FadeInWrapper>
     </Suspense>

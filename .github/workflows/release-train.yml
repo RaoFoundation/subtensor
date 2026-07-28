@@ -321,6 +321,29 @@ jobs:
           : ${base:?could not parse base version from sdk/python/pyproject.toml}
           core_base=$(sed -n 's/^version = "\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' sdk/bittensor-core-py/pyproject.toml | head -n 1)
           : ${core_base:?could not parse base version from sdk/bittensor-core-py/pyproject.toml}
+
+          # PyPI versions are immutable. Reject an already-published stable
+          # base before producing more release candidates that can never be
+          # promoted to a final release.
+          for package_version in "bittensor:${base}" "bittensor-core:${core_base}"; do
+            package=${package_version%%:*}
+            version=${package_version#*:}
+            status=$(curl -sS --connect-timeout 10 --max-time 30 \
+              -o /dev/null -w '%{http_code}' \
+              "https://pypi.org/pypi/${package}/${version}/json")
+            case "$status" in
+              404) ;;
+              200)
+                echo "${package} ${version} is already published; bump the base version."
+                exit 1
+                ;;
+              *)
+                echo "PyPI availability check for ${package} ${version} returned HTTP ${status}."
+                exit 1
+                ;;
+            esac
+          done
+
           echo "sdk=${base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
           echo "core=${core_base}rc${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
@@ -441,6 +464,45 @@ jobs:
         working-directory: .github/scripts/deploy
         run: npm ci --ignore-scripts
 
+      # Reserve the release identity before any on-chain side effect. Tag
+      # rules make v<spec> immutable; a retry from the same commit is safe,
+      # while changed code must bump spec_version rather than retargeting a
+      # proposal that signers may already be reviewing.
+      - name: Reserve immutable release tag
+        if: steps.guard.outputs.should_propose == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="v${{ needs.build.outputs.spec_version }}"
+          tag_ref="repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"
+
+          if tag_json=$(gh api "$tag_ref" 2>/dev/null); then
+            tag_type=$(jq -er '.object.type' <<<"$tag_json")
+            [ "$tag_type" = commit ] \
+              || { echo "release tag $tag must be a lightweight Git tag, found $tag_type"; exit 1; }
+            tag_sha=$(jq -er '.object.sha' <<<"$tag_json")
+            echo "release tag $tag already exists at $tag_sha"
+          else
+            if gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref="refs/tags/$tag" -f sha="$GITHUB_SHA" >/dev/null; then
+              echo "reserved release tag $tag"
+            else
+              # Handle a concurrent same-commit reservation without making
+              # tag creation racy. Any other failure remains fatal here.
+              echo "tag creation raced; verifying the exact tag ref"
+            fi
+            tag_json=$(gh api "$tag_ref")
+            tag_type=$(jq -er '.object.type' <<<"$tag_json")
+            [ "$tag_type" = commit ] \
+              || { echo "release tag $tag must be a lightweight Git tag, found $tag_type"; exit 1; }
+            tag_sha=$(jq -er '.object.sha' <<<"$tag_json")
+          fi
+          [[ "$tag_sha" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "tag $tag did not resolve to a Git commit"; exit 1; }
+          [ "$tag_sha" = "$GITHUB_SHA" ] \
+            || { echo "tag $tag is reserved for $tag_sha, not $GITHUB_SHA; bump spec_version"; exit 1; }
+
       - name: Submit multisig proposal (CI half of deployment multisig)
         if: steps.guard.outputs.should_propose == 'true'
         working-directory: .github/scripts/deploy
@@ -534,19 +596,15 @@ jobs:
           tag="v${spec}"
           url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
 
-          # A published (non-prerelease) v<spec> means this spec already
-          # shipped; never touch it. A pre-release for the same spec is a
-          # respun proposal (e.g. the first train failed mid-way): replace it.
-          if existing=$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease' 2>/dev/null); then
-            if [ "$existing" != "true" ]; then
-              echo "release $tag already published as a final release; refusing to overwrite"
-              exit 1
-            fi
-            echo "replacing existing proposal pre-release $tag"
-            gh release delete "$tag" --cleanup-tag --yes
-          fi
-
           commit=$(jq -r '.commit' wasm/pending-release.json)
+          tag_json=$(gh api \
+            "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")
+          tag_type=$(jq -er '.object.type' <<<"$tag_json")
+          [ "$tag_type" = commit ] \
+            || { echo "release tag $tag must be a lightweight Git tag, found $tag_type"; exit 1; }
+          tag_sha=$(jq -er '.object.sha' <<<"$tag_json")
+          [ "$tag_sha" = "$commit" ] \
+            || { echo "immutable tag $tag points at $tag_sha, expected $commit"; exit 1; }
           call_hash=$(jq -r '.proposal.callHash' wasm/pending-release.json)
           height=$(jq -r '.proposal.blockHeight' wasm/pending-release.json)
           index=$(jq -r '.proposal.extrinsicIndex' wasm/pending-release.json)
@@ -602,17 +660,41 @@ jobs:
           | wasm sha256 | \`${sha256}\` |
           EOF
 
-          gh release create "$tag" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$commit" \
-            --prerelease \
-            --title "Runtime ${spec} (proposed)" \
-            --notes-file release-body.md \
-            wasm/subtensor.wasm \
-            wasm/subtensor-digest.json \
-            wasm/proxy_proxy_blob.hex \
-            wasm/pending-release.json \
+          assets=(
+            wasm/subtensor.wasm
+            wasm/subtensor-digest.json
+            wasm/proxy_proxy_blob.hex
+            wasm/pending-release.json
             wasm/upgrade-manifest.json
+          )
+          if release_json=$(gh api \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$tag" 2>/dev/null); then
+            is_prerelease=$(jq -er \
+              '.prerelease | if type == "boolean" then tostring else error("prerelease must be boolean") end' \
+              <<<"$release_json")
+            [ "$is_prerelease" = true ] \
+              || { echo "release $tag is already final; refusing to overwrite it"; exit 1; }
+            target_sha=$(jq -er \
+              '.target_commitish | strings | select(test("^[0-9a-f]{40}$"))' \
+              <<<"$release_json")
+            [ "$target_sha" = "$commit" ] \
+              || { echo "pre-release target $target_sha does not match $commit"; exit 1; }
+            gh release upload "$tag" \
+              --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+            gh release edit "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Runtime ${spec} (proposed)" \
+              --notes-file release-body.md \
+              --prerelease
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$commit" \
+              --prerelease \
+              --title "Runtime ${spec} (proposed)" \
+              --notes-file release-body.md \
+              "${assets[@]}"
+          fi
 
           {
             echo "## Share this with the other signers"

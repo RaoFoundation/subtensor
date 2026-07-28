@@ -396,15 +396,18 @@ fn test_coinbase_tao_issuance_different_prices() {
         // Run the coinbase with the emission amount.
         SubtensorModule::run_coinbase(emission_credit);
 
-        // Assert tao emission is split evenly.
+        // Linear shares are 1/3 and 2/3. The emission gate bar (q = 0.61) lands
+        // on the larger share (theta = 2/3), so gate(2/3) = 1/2 and
+        // gate(1/3) = 1/(1 + 2^3) = 1/9. Gated weights 1/27 and 1/3 normalize
+        // to a 1/10 : 9/10 split.
         assert_abs_diff_eq!(
             SubnetTAO::<Test>::get(netuid1),
-            TaoBalance::from(initial_tao + emission / 3),
+            TaoBalance::from(initial_tao + emission / 10),
             epsilon = 10.into(),
         );
         assert_abs_diff_eq!(
             SubnetTAO::<Test>::get(netuid2),
-            TaoBalance::from(initial_tao + 2 * emission / 3),
+            TaoBalance::from(initial_tao + 9 * emission / 10),
             epsilon = 10.into(),
         );
 
@@ -671,17 +674,20 @@ fn test_coinbase_alpha_issuance_different() {
         set_full_injection_root_stake();
         // Run coinbase
         SubtensorModule::run_coinbase(emission_credit);
-        // tao_in = 333_333
-        // alpha_in = 333_333/price = 333_333 + initial
-        assert_eq!(
+        // Linear shares are 1/3 and 2/3; the emission gate (q = 0.61, h = 3)
+        // turns them into a 1/10 : 9/10 split (see
+        // test_coinbase_tao_issuance_different_prices for the gate math).
+        // tao_in = 100_000, alpha_in = 100_000/price = 100_000 + initial
+        assert_abs_diff_eq!(
             SubnetAlphaIn::<Test>::get(netuid1),
-            (initial + emission / 3).into()
+            AlphaBalance::from(initial + emission / 10),
+            epsilon = 10.into(),
         );
-        // tao_in = 666_666
-        // alpha_in = 666_666/price = 333_333 + initial
-        assert_eq!(
+        // tao_in = 900_000, alpha_in = 900_000/price = 450_000 + initial
+        assert_abs_diff_eq!(
             SubnetAlphaIn::<Test>::get(netuid2),
-            (initial + (emission * 2 / 3) / 2).into()
+            AlphaBalance::from(initial + (emission * 9 / 10) / 2),
+            epsilon = 10.into(),
         );
     });
 }
@@ -3846,6 +3852,66 @@ fn test_coinbase_drain_pending_increments_blockssincelaststep() {
             blocks_since_last_step_after,
             blocks_since_last_step_before + 1
         );
+    });
+}
+
+#[test]
+fn test_coinbase_drain_pending_caps_blockssincelaststep_when_epoch_is_deferred() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let tempo = 1;
+        Tempo::<Test>::insert(netuid, tempo);
+        PendingEpochAt::<Test>::insert(netuid, 1);
+        SubtensorModule::set_max_epochs_per_block(0);
+
+        for block in 1..=10 {
+            SubtensorModule::drain_pending(&[netuid], block);
+        }
+
+        assert_eq!(
+            BlocksSinceLastStep::<Test>::get(netuid),
+            u64::from(tempo) + 1
+        );
+        assert!(SubtensorModule::should_run_epoch(netuid, 11));
+    });
+}
+
+#[test]
+fn test_coinbase_drain_pending_caps_blockssincelaststep_for_inconsistent_epoch() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let tempo = 1;
+        Tempo::<Test>::insert(netuid, tempo);
+        PendingEpochAt::<Test>::insert(netuid, 1);
+
+        let duplicate_hotkey = U256::from(99);
+        Keys::<Test>::insert(netuid, 0, duplicate_hotkey);
+        Keys::<Test>::insert(netuid, 1, duplicate_hotkey);
+        assert!(!SubtensorModule::is_epoch_input_state_consistent(netuid));
+
+        for block in 1..=10 {
+            SubtensorModule::drain_pending(&[netuid], block);
+        }
+
+        assert_eq!(
+            BlocksSinceLastStep::<Test>::get(netuid),
+            u64::from(tempo) + 1
+        );
+        assert!(SubtensorModule::should_run_epoch(netuid, 11));
+    });
+}
+
+#[test]
+fn test_should_run_epoch_uses_subnet_tempo_for_step_age_safety_net() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let tempo = 1;
+        Tempo::<Test>::insert(netuid, tempo);
+        LastEpochBlock::<Test>::insert(netuid, 100);
+        PendingEpochAt::<Test>::insert(netuid, 0);
+        BlocksSinceLastStep::<Test>::insert(netuid, u64::from(tempo) + 1);
+
+        assert!(SubtensorModule::should_run_epoch(netuid, 2));
     });
 }
 

@@ -23,13 +23,42 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
-    tag: 'v438',
+    tag: 'v441',
     date: 'July 2026',
     title: 'Root Reborn',
     summary:
       'Nearly half of all TAO sits on root. This release turns its dividend stream into ' +
       'validator-curated beta baskets — live network numbers, how the fund works, btcli ' +
       'commands, breaking changes, and the migration of legacy claimable state.',
+    href: '/releases/v441-upgrade',
+  },
+  {
+    tag: 'v440',
+    date: 'July 2026',
+    title: 'The Emission Gate',
+    summary:
+      'Subnet emission now has to beat a market-set demand bar: price-proportional above it, ' +
+      'a smooth collapse below it. Idle slots stop earning, and the cost of building on ' +
+      'Bittensor falls toward the registration transaction.',
+    href: '/releases/v440-upgrade',
+  },
+  {
+    tag: 'v439',
+    date: 'July 2026',
+    title: 'Conviction for Contracts',
+    summary:
+      'EVM access to stake locks and miner conviction, rolled lock views, bounded conviction ' +
+      'queries, locked-alpha transfer policy, and subnet owner-cut auto-lock controls.',
+    href: '/releases/v439-upgrade',
+  },
+  {
+    tag: 'v438',
+    date: 'July 2026',
+    title: 'Interfaces & Reliability',
+    summary:
+      'Bounded EVM staking views, Ledger-friendly limit-order signatures, exact mechanism ' +
+      'emission splits, predictable epoch counters, repaired testnet warp sync, and a more ' +
+      'recoverable release train.',
     href: '/releases/v438-upgrade',
   },
   {

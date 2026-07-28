@@ -59,6 +59,8 @@ assert_classification .github/workflows/runtime-checks.yml "$runtime_and_snapsho
 assert_classification website/apps/bittensor-website/scripts/generate-metadata.mjs "$runtime_and_docs"
 assert_classification docs/concepts/client.mdx "$docs_only"
 assert_classification sdk/bittensor-core/src/lib.rs "$python_only"
+assert_classification .github/scripts/prepare-sdk-dist.py "$python_only"
+assert_classification .github/scripts/test_prepare_sdk_dist.py "$python_only"
 assert_classification Cargo.lock "$runtime_sdk_python"
 assert_classification .cargo/config.toml "$runtime_and_sdk"
 assert_classification future-runtime-crate/src/lib.rs "$runtime_and_sdk"

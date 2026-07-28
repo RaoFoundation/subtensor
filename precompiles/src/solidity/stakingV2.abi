@@ -96,6 +96,47 @@
     "inputs": [
       {
         "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "hotkeys",
+        "type": "bytes32[]"
+      }
+    ],
+    "name": "getStakeInfoForColdkeyAndNetuid",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "hotkey",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stake",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IStaking.StakeInfo[]",
+        "name": "positions",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
         "name": "hotkey",
         "type": "bytes32"
       },
@@ -190,6 +231,19 @@
       {
         "internalType": "uint256",
         "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getDefaultMinStake",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "defaultMinStake",
         "type": "uint256"
       }
     ],
@@ -529,6 +583,231 @@
     "name": "transferStakeFrom",
     "outputs": [],
     "stateMutability": "",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      }
+    ],
+    "name": "getColdkeyLock",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "hotkey",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "locked_mass",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint128",
+            "name": "conviction",
+            "type": "uint128"
+          },
+          {
+            "internalType": "bool",
+            "name": "is_perpetual",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct IStaking.ColdkeyLockInfo",
+        "name": "lockInfo",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "hotkeys",
+        "type": "bytes32[]"
+      }
+    ],
+    "name": "getHotkeyConvictions",
+    "outputs": [
+      {
+        "internalType": "uint128[]",
+        "name": "convictions",
+        "type": "uint128[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      }
+    ],
+    "name": "getHotkeyLock",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "locked_mass",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint128",
+            "name": "conviction",
+            "type": "uint128"
+          }
+        ],
+        "internalType": "struct IStaking.HotkeyLockInfo",
+        "name": "lockInfo",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getLockRates",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "unlockRate",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maturityRate",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getRejectLockedAlpha",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      }
+    ],
+    "name": "lockStake",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "destinationHotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      }
+    ],
+    "name": "moveLock",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "setPerpetualLock",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "setRejectLockedAlpha",
+    "outputs": [],
+    "stateMutability": "payable",
     "type": "function"
   }
 ]

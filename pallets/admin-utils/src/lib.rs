@@ -2013,6 +2013,50 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Sets the emission bar quantile (q): the fraction of demand carried by
+        /// subnets above the emission gate bar. Also forces a bar recompute on the
+        /// next block so the new quantile takes effect immediately.
+        #[pallet::call_index(100)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_bar_quantile())]
+        pub fn sudo_set_emission_bar_quantile(
+            origin: OriginFor<T>,
+            quantile: U64F64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let zero = U64F64::saturating_from_num(0);
+            let one = U64F64::saturating_from_num(1);
+            ensure!(
+                (zero < quantile) && (quantile < one),
+                Error::<T>::InvalidValue
+            );
+
+            pallet_subtensor::Pallet::<T>::set_emission_bar_quantile(quantile);
+            log::debug!("set_emission_bar_quantile( {quantile:?} ) ");
+            Ok(())
+        }
+
+        /// Sets the emission gate Hill exponent (h): cliff sharpness at the bar.
+        #[pallet::call_index(101)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_gate_exponent())]
+        pub fn sudo_set_emission_gate_exponent(
+            origin: OriginFor<T>,
+            exponent: U64F64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let one = U64F64::saturating_from_num(1);
+            let eight = U64F64::saturating_from_num(8);
+            ensure!(
+                (one <= exponent) && (exponent <= eight),
+                Error::<T>::InvalidValue
+            );
+
+            pallet_subtensor::Pallet::<T>::set_emission_gate_exponent(exponent);
+            log::debug!("set_emission_gate_exponent( {exponent:?} ) ");
+            Ok(())
+        }
+
         /// Sets TAO flow smoothing factor (alpha)
         #[pallet::call_index(83)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_smoothing_factor())]

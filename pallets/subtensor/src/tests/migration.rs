@@ -3033,9 +3033,12 @@ fn do_setup_unactive_sn() -> (Vec<NetUid>, Vec<NetUid>) {
         let hotkey_account_id = U256::from(1111);
         let burn_cost = SubtensorModule::get_burn(*netuid);
         // Registration requires keep-alive coverage above the burn (Preservation::Preserve).
-        let fund = burn_cost
-            .saturating_add(ExistentialDeposit::get())
-            .saturating_add(10.into());
+        let fund = TaoBalance::from(
+            u64::from(burn_cost)
+                .checked_add(u64::from(ExistentialDeposit::get()))
+                .and_then(|value| value.checked_add(10))
+                .expect("burn funding overflow"),
+        );
         add_balance_to_coldkey_account(&coldkey_account_id, fund);
         TotalIssuance::<Test>::mutate(|total_issuance| {
             let updated_total = u64::from(*total_issuance)

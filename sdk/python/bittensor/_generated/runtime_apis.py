@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 438
+Spec version: 441
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """
@@ -30,6 +30,10 @@ class BabeApi:
     generate_key_ownership_proof = Method('BabeApi', 'generate_key_ownership_proof')
     submit_report_equivocation_unsigned_extrinsic = Method('BabeApi', 'submit_report_equivocation_unsigned_extrinsic')
 
+class Benchmark:
+    benchmark_metadata = Method('Benchmark', 'benchmark_metadata')
+    dispatch_benchmark = Method('Benchmark', 'dispatch_benchmark')
+
 class BetaBasketRuntimeApi:
     get_root_basket_owed = Method('BetaBasketRuntimeApi', 'get_root_basket_owed')
     get_basket_payout = Method('BetaBasketRuntimeApi', 'get_basket_payout')
@@ -37,6 +41,9 @@ class BetaBasketRuntimeApi:
     get_validator_basket = Method('BetaBasketRuntimeApi', 'get_validator_basket')
     get_root_basket_total_nav = Method('BetaBasketRuntimeApi', 'get_root_basket_total_nav')
     get_validator_weights = Method('BetaBasketRuntimeApi', 'get_validator_weights')
+    get_validator_basket_summary = Method('BetaBasketRuntimeApi', 'get_validator_basket_summary')
+    get_all_validator_baskets = Method('BetaBasketRuntimeApi', 'get_all_validator_baskets')
+    get_root_basket_positions = Method('BetaBasketRuntimeApi', 'get_root_basket_positions')
 
 class BlockBuilder:
     apply_extrinsic = Method('BlockBuilder', 'apply_extrinsic')

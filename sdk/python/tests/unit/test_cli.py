@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 import bittensor.cli.context as cli_context
-from bittensor import wallets
+from bittensor import __version__, wallets
 from bittensor.cli.main import app
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
@@ -77,7 +77,7 @@ class TestOffline:
     def test_version(self):
         result = invoke("--version")
         assert result.exit_code == 0
-        assert "11.0.0" in result.output
+        assert result.output.strip() == __version__
 
     def test_tools_catalog(self):
         result = invoke("tools")

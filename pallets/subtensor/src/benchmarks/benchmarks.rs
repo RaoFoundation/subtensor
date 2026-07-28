@@ -2886,6 +2886,22 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn set_tempo() {
+        let caller: T::AccountId = whitelisted_caller();
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), NetUid::from(1), u16::MAX);
+    }
+
+    #[benchmark]
+    fn set_activity_cutoff_factor() {
+        let caller: T::AccountId = whitelisted_caller();
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), NetUid::from(1), u32::MAX);
+    }
+
+    #[benchmark]
     fn set_reject_locked_alpha() {
         let coldkey: T::AccountId = whitelisted_caller();
         AccountFlags::<T>::insert(&coldkey, crate::ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA);

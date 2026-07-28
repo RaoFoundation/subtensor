@@ -2,8 +2,8 @@ import type { KeyringPair } from "@moonwall/util";
 import type { TypedApi } from "polkadot-api";
 import type { subtensor } from "@polkadot-api/descriptors";
 import { Keyring } from "@polkadot/keyring";
-import { u8aToHex } from "@polkadot/util";
-import { blake2AsHex } from "@polkadot/util-crypto";
+import { u8aToHex, u8aWrapBytes } from "@polkadot/util";
+import { blake2AsHex, blake2AsU8a } from "@polkadot/util-crypto";
 import { waitForTransactionWithRetry } from "./transactions.js";
 import { MultiAddress } from "@polkadot-api/descriptors";
 
@@ -62,11 +62,11 @@ export const EXPIRED = BigInt(1); // 1ms — always in the past
 // ── Order building & signing ──────────────────────────────────────────────────
 
 /**
- * Build a SignedOrder ready for submission to execute_orders /
- * execute_batched_orders.  The Order struct is SCALE-encoded via the
- * polkadot.js registry and then signed with the signer's sr25519 key.
+ * Build the `VersionedOrder` (V1) struct from the supplied params.  Shared by
+ * `buildSignedOrder` (raw signing) and `buildWrappedSignedOrder` (Ledger /
+ * signRaw `<Bytes>`-wrapped signing) so the field mapping stays identical.
  */
-export function buildSignedOrder(api: any, params: OrderParams): SignedOrder {
+function buildVersionedOrder(params: OrderParams): VersionedOrder {
     const inner: Order = {
         signer: params.signer.address,
         hotkey: params.hotkey,
@@ -83,7 +83,16 @@ export function buildSignedOrder(api: any, params: OrderParams): SignedOrder {
         partial_fills_enabled: params.partialFillsEnabled ?? false,
     };
 
-    const versionedOrder: VersionedOrder = { V1: inner };
+    return { V1: inner };
+}
+
+/**
+ * Build a SignedOrder ready for submission to execute_orders /
+ * execute_batched_orders.  The Order struct is SCALE-encoded via the
+ * polkadot.js registry and then signed with the signer's sr25519 key.
+ */
+export function buildSignedOrder(api: any, params: OrderParams): SignedOrder {
+    const versionedOrder = buildVersionedOrder(params);
 
     // SCALE-encode the VersionedOrder so the signature covers the version tag.
     const encoded = api.registry.createType("LimitVersionedOrder", versionedOrder);
@@ -92,6 +101,46 @@ export function buildSignedOrder(api: any, params: OrderParams): SignedOrder {
     return {
         order: versionedOrder,
         signature: { Sr25519: u8aToHex(sig) as `0x${string}` },
+        partial_fill: null,
+    };
+}
+
+/**
+ * Build a SignedOrder whose signature is over the `<Bytes>`-wrapped order hash
+ * (the Ledger / `signRaw` form).  This exercises the runtime's alternative
+ * verification path:
+ *
+ *     signature.verify(b"<Bytes>" ++ blake2_256(SCALE(VersionedOrder)) ++ b"</Bytes>", signer)
+ *
+ * The signed payload is the raw 32-byte blake2-256 hash of the SCALE-encoded
+ * VersionedOrder, wrapped by `u8aWrapBytes` (which prepends `<Bytes>` and
+ * appends `</Bytes>`).  This is byte-for-byte what the runtime reconstructs
+ * from `order_id.as_bytes()`, so the hash must be wrapped raw — never
+ * hex-encoded before wrapping.
+ *
+ * The signature scheme tag (`Sr25519` vs `Ed25519`) follows the signer's
+ * keypair type, so the same helper works for both schemes.
+ */
+export function buildWrappedSignedOrder(api: any, params: OrderParams): SignedOrder {
+    const versionedOrder = buildVersionedOrder(params);
+
+    // SCALE-encode the VersionedOrder, then hash it (this is the OrderId).
+    const encoded = api.registry.createType("LimitVersionedOrder", versionedOrder);
+    const hash = blake2AsU8a(encoded.toU8a(), 256);
+
+    // Wrap the raw 32-byte hash in the signRaw envelope: <Bytes>..hash..</Bytes>.
+    const wrapped = u8aWrapBytes(hash);
+    const sig = params.signer.sign(wrapped);
+
+    // Tag the signature variant from the keypair type.
+    const signature =
+        params.signer.type === "ed25519"
+            ? { Ed25519: u8aToHex(sig) as `0x${string}` }
+            : { Sr25519: u8aToHex(sig) as `0x${string}` };
+
+    return {
+        order: versionedOrder,
+        signature,
         partial_fill: null,
     };
 }
