@@ -208,22 +208,10 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use alloc::format;
     use alloc::string::String;
+    use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
     use sp_runtime::traits::AccountIdConversion;
     use sp_std::collections::btree_set::BTreeSet;
     use sp_std::vec::Vec;
-
-    /// SS58 address format prefix used when rendering an `AccountId` into the
-    /// human-readable ("clear-signing") message that hardware wallets display.
-    ///
-    /// This is Bittensor's registered SS58 prefix (42). It fits in a single byte
-    /// because it is ≤ 63, which lets `render_account` use the simple single-byte
-    /// SS58 encoding path.
-    ///
-    /// INVARIANT: this MUST match the SS58 prefix constant used by the
-    /// frontend/wallet that produces the readable signing payload; otherwise the
-    /// rendered account strings — and therefore the whole signed message — will
-    /// differ and signature verification will fail.
-    const SS58_PREFIX: u8 = 42;
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -652,26 +640,32 @@ pub mod pallet {
                 .verify(payload.as_slice(), &order.signer)
         }
 
-        /// Render `who` into its SS58 (base58check) string using Bittensor's
-        /// [`SS58_PREFIX`], reproducing `Ss58Codec::to_ss58check_with_version` for a
-        /// single-byte prefix.
+        /// Render `who` into its SS58 (base58check) string, reproducing
+        /// `Ss58Codec::to_ss58check_with_version`.
         ///
-        /// We do the encoding manually rather than calling `to_ss58check` because that
-        /// method is gated behind sp-core's `serde` (`full_crypto`/`std`) feature and is
-        /// not reliably available in the no_std/wasm runtime build.
+        /// The address format prefix is taken from the chain's own
+        /// [`frame_system::Config::SS58Prefix`] rather than a constant local to this
+        /// pallet, so the accounts rendered into the human-readable ("clear-signing")
+        /// message are guaranteed to agree with the prefix the chain declares — and
+        /// therefore with the way wallets display those same accounts. For Bittensor
+        /// that value is 42.
         ///
-        /// `who.encode()` on `AccountId32` yields exactly 32 bytes; with the 1-byte
-        /// prefix and 2-byte checksum the output buffer is 35 bytes.
+        /// NOTE: this prefix is part of a signature preimage. Changing
+        /// `frame_system::Config::SS58Prefix` in a runtime upgrade changes every
+        /// rendered address, and therefore invalidates any readable-form order that
+        /// was signed before the upgrade (such orders then fail with
+        /// `InvalidSignature` / are skipped). The raw and wrapped signing forms are
+        /// unaffected, as neither renders addresses.
+        ///
+        /// The encoding itself is delegated to sp-core's canonical
+        /// `Ss58Codec::to_ss58check_with_version` rather than reimplemented here. That
+        /// method is gated behind sp-core's `serde` feature, which — despite the name —
+        /// is explicitly "serde support without relying on std features" and so is
+        /// available in the no_std/wasm runtime build; the pallet enables it via its
+        /// `sp-core/serde` dependency feature.
         pub(crate) fn render_account(who: &T::AccountId) -> String {
-            let raw = who.encode(); // 32 bytes (AccountId32)
-            let mut buf = Vec::with_capacity(35);
-            buf.push(SS58_PREFIX);
-            buf.extend_from_slice(&raw);
-            let h = sp_core::hashing::blake2_512(
-                &[b"SS58PRE".as_slice(), buf.as_slice()].concat(),
-            );
-            buf.extend_from_slice(&h[0..2]); // 2-byte checksum
-            bs58::encode(buf).into_string()
+            let prefix = <T as frame_system::Config>::SS58Prefix::get();
+            who.to_ss58check_with_version(Ss58AddressFormat::custom(prefix))
         }
 
         /// Build the canonical, single-line, all-printable-ASCII "clear-signing"

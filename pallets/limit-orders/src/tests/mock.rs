@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use codec::Encode;
 use frame_support::{
     BoundedVec, PalletId, construct_runtime, derive_impl, parameter_types,
-    traits::{ConstU32, ConstU64, Everything},
+    traits::{ConstU16, ConstU32, ConstU64, Everything},
 };
 use frame_system as system;
 use sp_core::{H256, Pair};
@@ -51,6 +51,11 @@ impl system::Config for Test {
     type MaxConsumers = ConstU32<16>;
     type Nonce = u64;
     type Block = Block;
+    /// Pinned to Bittensor's real prefix (42) because `render_account` renders
+    /// accounts into the readable signing message under this value. Leaving it at
+    /// `TestDefaultConfig`'s default (`()` → 0) would make the readable-form tests
+    /// exercise a prefix the chain never uses.
+    type SS58Prefix = ConstU16<42>;
 }
 
 // ── MockSwap ─────────────────────────────────────────────────────────────────

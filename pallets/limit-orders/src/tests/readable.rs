@@ -9,7 +9,10 @@
 //! must produce a different message and therefore break the original signature),
 //! and the deliberate `none` vs `[]` relayer-rendering distinction.
 
-use frame_support::{BoundedVec, assert_noop, assert_ok, traits::ConstU32};
+use frame_support::{
+    BoundedVec, assert_noop, assert_ok,
+    traits::{ConstU32, Get},
+};
 use sp_core::{H256, Pair};
 use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use sp_keyring::Sr25519Keyring as AccountKeyring;
@@ -22,15 +25,18 @@ use crate::{Error, Order, OrderType, VersionedOrder};
 
 use super::mock::*;
 
-/// The SS58 prefix the pallet renders accounts under. Must match `SS58_PREFIX`
-/// in `lib.rs`. Tests reconstruct the expected SS58 strings independently using
-/// `sp-core`'s canonical codec at this same version.
-const SS58_PREFIX: u16 = 42;
+/// The SS58 prefix accounts are rendered under, read from the same place
+/// `render_account` reads it — the chain's own `frame_system::Config::SS58Prefix`
+/// (pinned to 42 in the mock). Deliberately not a second hardcoded literal, so the
+/// test cannot silently disagree with the runtime about the prefix.
+fn ss58_prefix() -> u16 {
+    <<Test as frame_system::Config>::SS58Prefix as Get<u16>>::get()
+}
 
-/// Canonical `Ss58Codec` reconstruction of an account, used as the independent
-/// oracle against the pallet's hand-rolled `render_account`.
+/// Canonical `Ss58Codec` reconstruction of an account, used to rebuild the expected
+/// SS58 strings in the golden-message tests.
 fn canonical_ss58(acct: &AccountId) -> String {
-    acct.to_ss58check_with_version(Ss58AddressFormat::custom(SS58_PREFIX))
+    acct.to_ss58check_with_version(Ss58AddressFormat::custom(ss58_prefix()))
 }
 
 /// Build the payload the readable path signs: the `<Bytes>…</Bytes>` `signRaw`
@@ -79,12 +85,18 @@ fn make_readable_signed_order(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// A. SS58 correctness cross-check
+// A. SS58 prefix wiring
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// `render_account` delegates encoding to sp-core's `Ss58Codec`, so the encoding
+/// itself needs no cross-check. What this pins down is the *prefix wiring*: that
+/// accounts are rendered under the chain's own `frame_system::Config::SS58Prefix`
+/// and not some other value. If the pallet ever regressed to a local constant, or
+/// read the prefix from the wrong place, this fails.
 #[test]
-fn render_account_matches_canonical_ss58_codec() {
+fn render_account_uses_chain_ss58_prefix() {
     new_test_ext().execute_with(|| {
+        assert_eq!(ss58_prefix(), 42, "mock must pin Bittensor's real prefix");
         let cases = vec![
             alice(),
             bob(),
@@ -96,7 +108,7 @@ fn render_account_matches_canonical_ss58_codec() {
             let canonical = canonical_ss58(&acct);
             assert_eq!(
                 rendered, canonical,
-                "manual SS58 rendering must match sp-core Ss58Codec for {acct:?}"
+                "render_account must encode at the chain's SS58 prefix for {acct:?}"
             );
         }
     });

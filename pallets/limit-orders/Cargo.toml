@@ -4,7 +4,6 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-bs58 = { workspace = true, default-features = false, features = ["alloc"] }
 codec = { workspace = true, features = ["derive"] }
 frame-benchmarking = { workspace = true, optional = true }
 sp-io = { workspace = true, optional = true }
@@ -12,7 +11,10 @@ sp-keyring = { workspace = true, optional = true }
 frame-support.workspace = true
 frame-system.workspace = true
 scale-info.workspace = true
-sp-core.workspace = true
+# `serde` is what gates `Ss58Codec::to_ss58check_with_version`, used to render
+# accounts into the human-readable order message. Despite the name it is sp-core's
+# "serde support without relying on std features", so it works in the wasm build.
+sp-core = { workspace = true, features = ["serde"] }
 sp-runtime.workspace = true
 sp-std.workspace = true
 log.workspace = true
@@ -32,7 +34,6 @@ workspace = true
 [features]
 default = ["std"]
 std = [
-    "bs58/std",
     "codec/std",
     "frame-benchmarking?/std",
     "frame-support/std",
