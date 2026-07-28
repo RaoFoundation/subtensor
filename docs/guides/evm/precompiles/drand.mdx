@@ -25,11 +25,14 @@ of requiring callers to construct Drand storage keys and decode SCALE values.
 
 ## Planned operations
 
-```text
-writePulse
-setBeaconConfig
-setOldestStoredRound
-```
+| Proposed function | Source extrinsic |
+|---|---|
+| `setBeaconConfig` | `Drand.set_beacon_config` |
+| `setOldestStoredRound` | `Drand.set_oldest_stored_round` |
 
-The runtime's existing signed, unsigned, and Root origin checks remain in force.
-Names and signatures on this page are provisional and do not reserve selectors.
+`Drand.write_pulse` is not exposed. It is an unsigned offchain-worker
+submission that requires `None` origin, which an EVM caller cannot satisfy
+without changing the security model.
+
+The runtime's existing authorization checks remain in force. Names and
+signatures on this page are provisional and do not reserve selectors.

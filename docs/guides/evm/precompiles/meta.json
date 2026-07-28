@@ -2,6 +2,7 @@
   "title": "Precompiles",
   "pages": [
     "index",
+    "extrinsic-coverage",
     "balance-transfer",
     "staking-v1",
     "metagraph",
@@ -21,6 +22,7 @@
     "scheduler",
     "drand",
     "timestamp",
+    "runtime-configuration",
     "staking-events",
     "neuron-events",
     "weights-events",

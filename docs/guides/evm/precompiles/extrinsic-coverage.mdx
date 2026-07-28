@@ -1,0 +1,75 @@
+---
+title: Extrinsic coverage
+description: Audit of typed EVM coverage for every extrinsic in the authorized runtime pallets.
+---
+
+This audit covers the runtime's `SubtensorModule`, `AdminUtils`, `Balances`,
+`Proxy`, `Scheduler`, `Drand`, `Crowdloan`, `Timestamp`, and `Swap` pallets.
+Sudo and Multisig extrinsics are intentionally outside typed precompile
+coverage.
+
+Generic SCALE dispatch through the Frontier `Dispatch` precompile does not
+count as typed coverage. A covered operation must have a stable Solidity
+interface or an explicit proposed typed replacement.
+
+## Coverage summary
+
+| Pallet | Runtime extrinsics | Typed today | Proposed additions | Not exposed |
+|---|---:|---:|---:|---:|
+| `SubtensorModule` | 82 | 24 | 56 | 2 |
+| `AdminUtils` | 86 | 24 | 62 | 0 |
+| `Balances` | 9 | 1 | 8 | 0 |
+| `Proxy` | 12 | 7 | 5 | 0 |
+| `Scheduler` | 10 | 0 | 10 | 0 |
+| `Drand` | 3 | 0 | 2 | 1 |
+| `Crowdloan` | 10 | 9 | 1 | 0 |
+| `Timestamp` | 1 | 0 | 0 | 1 |
+| `Swap` | 6 | 0 | 1 | 5 |
+| **Total** | **219** | **65** | **145** | **9** |
+
+`Typed today` counts semantic coverage, not only direct dispatch to the same
+Rust call. For example, `registerNetwork(bytes32)` covers basic subnet
+registration by dispatching `register_network_with_identity` with empty
+identity fields.
+
+## Classification of proposed additions
+
+Each missing operation is listed on the page of its target precompile:
+
+| Target precompile | Missing extrinsics assigned |
+|---|---:|
+| [Subnet](/docs/guides/evm/precompiles/subnet) | 37 |
+| [Staking V2](/docs/guides/evm/precompiles/staking-v2) | 29 |
+| [Neuron](/docs/guides/evm/precompiles/neuron) | 27 |
+| [Alpha](/docs/guides/evm/precompiles/alpha) | 14 |
+| [Scheduler](/docs/guides/evm/precompiles/scheduler) | 10 |
+| [Account balance](/docs/guides/evm/precompiles/account-balance) | 6 |
+| [Proxy](/docs/guides/evm/precompiles/proxy) | 5 |
+| [Balance transfer](/docs/guides/evm/precompiles/balance-transfer) | 4 |
+| [Runtime configuration](/docs/guides/evm/precompiles/runtime-configuration) | 4 |
+| [Voting power](/docs/guides/evm/precompiles/voting-power) | 3 |
+| [Drand](/docs/guides/evm/precompiles/drand) | 2 |
+| [Leasing](/docs/guides/evm/precompiles/leasing) | 2 |
+| [Crowdloan](/docs/guides/evm/precompiles/crowdloan) | 1 |
+| [Precompile registry](/docs/guides/evm/precompiles/registry) | 1 |
+
+Proposed function names do not reserve selectors. Their final parameter types,
+bounds, authorization model, and return values must be specified before
+implementation.
+
+## Extrinsics not exposed as EVM calls
+
+| Pallet extrinsic | Reason |
+|---|---|
+| `SubtensorModule.set_tempo` | Retained call-index compatibility entry point that succeeds without changing state. The real setting is `AdminUtils.sudo_set_tempo`, proposed as `SubnetPrecompile.setTempo`. |
+| `SubtensorModule.set_activity_cutoff_factor` | Retained call-index compatibility entry point that succeeds without changing state. The active AdminUtils operation is already covered by `SubnetPrecompile.setActivityCutoffFactor`. |
+| `Drand.write_pulse` | Unsigned offchain-worker submission requiring `None` origin. An EVM caller cannot satisfy that origin without changing its security model. |
+| `Timestamp.set` | Block-production inherent requiring `None` origin. Contracts already receive the same time through `block.timestamp`. |
+| `Swap.add_liquidity` | Permanently disabled pallet call that always returns `Deprecated`. |
+| `Swap.remove_liquidity` | Permanently disabled pallet call that always returns `Deprecated`. |
+| `Swap.modify_position` | Permanently disabled pallet call that always returns `Deprecated`. |
+| `Swap.toggle_user_liquidity` | Permanently disabled pallet call that always returns `Deprecated`. |
+| `Swap.disable_lp` | Permanently disabled pallet call that always returns `Deprecated`. |
+
+These exclusions preserve the existing runtime origin and lifecycle semantics;
+they are not missing callable functionality.

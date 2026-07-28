@@ -32,8 +32,16 @@ interface IPrecompileRegistry {
 }
 ```
 
+## Proposed operation
+
+| Proposed function | Source extrinsic |
+|---|---|
+| `setPrecompileEnabled` | `AdminUtils.sudo_toggle_evm_precompile` |
+
+This operation changes reversible availability; it does not change or erase a
+function's deprecation lifecycle. Runtime authorization remains in force.
+
 The lifecycle model is described in
 [Precompile design and lifecycle](/docs/guides/evm/precompile-design#discovering-status).
 The address and selector are not reserved until the interface is implemented
 and released.
-

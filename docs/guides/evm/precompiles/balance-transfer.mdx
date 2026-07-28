@@ -19,5 +19,21 @@ public key.
 |---|---|
 | `transfer(bytes32)` | `payable` |
 
-Source: [`balanceTransfer.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/balanceTransfer.sol)
+## Proposed additions
 
+| Proposed function | Source extrinsic |
+|---|---|
+| `faucet` | `SubtensorModule.faucet` |
+| `transferKeepAlive` | `Balances.transfer_keep_alive` |
+| `transferAll` | `Balances.transfer_all` |
+| `forceTransfer` | `Balances.force_transfer` |
+
+The existing `transfer(bytes32)` semantically covers
+`Balances.transfer_allow_death` by taking the amount from attached EVM value.
+The proposed functions use explicit typed arguments where attached value does
+not express the complete source operation. Runtime authorization remains in
+force for `forceTransfer`.
+
+Proposed names and signatures do not reserve selectors.
+
+Source: [`balanceTransfer.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/balanceTransfer.sol)

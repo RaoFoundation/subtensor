@@ -1,0 +1,30 @@
+---
+title: Runtime configuration
+description: Proposed typed EVM interface for global runtime configuration operations.
+---
+
+| Property | Value |
+|---|---|
+| Proposed implementation | `RuntimeConfigurationPrecompile` |
+| Proposed Solidity interface | `IRuntimeConfiguration` |
+| Address | Not assigned |
+| Status | Proposed |
+
+This precompile groups the small set of global AdminUtils operations that do
+not belong to a subnet, staking, Alpha, account-balance, or precompile-lifecycle
+domain.
+
+## Planned operations
+
+| Proposed function | Source extrinsic |
+|---|---|
+| `swapAuthorities` | `AdminUtils.swap_authorities` |
+| `setTransactionRateLimit` | `AdminUtils.sudo_set_tx_rate_limit` |
+| `setEvmChainId` | `AdminUtils.sudo_set_evm_chain_id` |
+| `scheduleGrandpaChange` | `AdminUtils.schedule_grandpa_change` |
+
+The runtime's authorization checks remain in force. The implementation must
+define a typed, bounded authority representation and must not expose
+SCALE-encoded runtime values.
+
+Names and signatures on this page are provisional and do not reserve selectors.

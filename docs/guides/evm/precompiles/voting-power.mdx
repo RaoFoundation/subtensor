@@ -22,5 +22,14 @@ getVotingPowerEmaAlpha(uint16)
 getTotalVotingPower(uint16)
 ```
 
-Source: [`votingPower.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/votingPower.sol)
+## Proposed operations
 
+| Proposed function | Source extrinsic |
+|---|---|
+| `enableVotingPowerTracking` | `SubtensorModule.enable_voting_power_tracking` |
+| `disableVotingPowerTracking` | `SubtensorModule.disable_voting_power_tracking` |
+| `setVotingPowerEmaAlpha` | `SubtensorModule.sudo_set_voting_power_ema_alpha` |
+
+Proposed names and signatures do not reserve selectors.
+
+Source: [`votingPower.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/votingPower.sol)

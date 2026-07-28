@@ -33,5 +33,15 @@ updateEnd(uint32,uint32)
 updateCap(uint32,uint64)
 ```
 
-Source: [`crowdloan.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/crowdloan.sol)
+## Proposed addition
 
+| Proposed function | Source extrinsic |
+|---|---|
+| `setMaxContribution` | `Crowdloan.set_max_contribution` |
+
+The typed interface must preserve the source call's optional value so the
+creator can either set or clear the per-contributor maximum.
+
+The proposed name and signature do not reserve a selector.
+
+Source: [`crowdloan.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/crowdloan.sol)

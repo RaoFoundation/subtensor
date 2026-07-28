@@ -23,5 +23,20 @@ description: Reference for the deployed ProxyPrecompile.
 | `pokeDeposit()` | nonpayable |
 | `getProxies(bytes32)` | `view` |
 
-Source: [`proxy.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/proxy.sol)
+## Proposed additions
 
+| Proposed function | Source extrinsic |
+|---|---|
+| `announce` | `Proxy.announce` |
+| `removeAnnouncement` | `Proxy.remove_announcement` |
+| `rejectAnnouncement` | `Proxy.reject_announcement` |
+| `proxyAnnounced` | `Proxy.proxy_announced` |
+| `setRealPaysFee` | `Proxy.set_real_pays_fee` |
+
+`proxyAnnounced` must use the same versioned, stable EVM call description as
+other typed proxy execution. A new interface must not introduce another
+dependency on SCALE-encoded `RuntimeCall`.
+
+Proposed names and signatures do not reserve selectors.
+
+Source: [`proxy.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/proxy.sol)

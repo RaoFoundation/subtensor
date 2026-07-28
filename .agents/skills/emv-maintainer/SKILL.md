@@ -66,6 +66,11 @@ For each affected released function:
     - admin-util
     - balances
     - proxy
+    - scheduler
+    - drand
+    - crowdloan
+    - timestamp
+    - swap
 - All runtime API RPCs for the subtensor pallet should be exposed as a callable precompile function with similar interface
 - All events emitted from hooks (such as on_initialize or on_finalize) should be exposed as callbacks.
 

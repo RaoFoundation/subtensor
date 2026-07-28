@@ -27,5 +27,13 @@ terminateLease(uint32,bytes32)
 
 Both operations are `payable`.
 
-Source: [`leasing.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/leasing.sol)
+## Proposed additions
 
+| Proposed function | Source extrinsic |
+|---|---|
+| `startCall` | `SubtensorModule.start_call` |
+| `setStartCallDelay` | `AdminUtils.sudo_set_start_call_delay` |
+
+Proposed names and signatures do not reserve selectors.
+
+Source: [`leasing.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/leasing.sol)

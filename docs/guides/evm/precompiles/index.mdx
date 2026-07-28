@@ -8,6 +8,10 @@ runtime. `Deployed` means that the address is registered in the current runtime;
 it does not imply complete coverage of the underlying runtime domain.
 `Proposed` precompiles have no assigned address or released selectors.
 
+The [extrinsic coverage audit](/docs/guides/evm/precompiles/extrinsic-coverage)
+tracks every runtime extrinsic in scope and identifies its deployed, proposed,
+or intentionally non-callable EVM treatment.
+
 ## Ethereum and Frontier precompiles
 
 | Precompile | Address | Status |
@@ -48,6 +52,7 @@ it does not imply complete coverage of the underlying runtime domain.
 | [`SchedulerPrecompile`](/docs/guides/evm/precompiles/scheduler) | `IScheduler` | Address not assigned<br />Proposed |
 | [`DrandPrecompile`](/docs/guides/evm/precompiles/drand) | `IDrand` | Address not assigned<br />Proposed |
 | [`TimestampPrecompile`](/docs/guides/evm/precompiles/timestamp) | `ITimestamp` | Address not assigned<br />Proposed |
+| [`RuntimeConfigurationPrecompile`](/docs/guides/evm/precompiles/runtime-configuration) | `IRuntimeConfiguration` | Address not assigned<br />Proposed |
 | [`StakingEventsPrecompile`](/docs/guides/evm/precompiles/staking-events) | `IStakingEvents` | Dedicated address not assigned<br />Proposed |
 | [`NeuronEventsPrecompile`](/docs/guides/evm/precompiles/neuron-events) | `INeuronEvents` | Dedicated address not assigned<br />Proposed |
 | [`WeightsEventsPrecompile`](/docs/guides/evm/precompiles/weights-events) | `IWeightsEvents` | Dedicated address not assigned<br />Proposed |

@@ -76,4 +76,50 @@ transferStakeFrom(address,address,bytes32,uint256,uint256,uint256)
 `allowance` is `view`. Refer to the published ABI for the mutability and return
 encoding of the allowance mutations.
 
+## Proposed Subtensor operations
+
+| Proposed function | Source extrinsic |
+|---|---|
+| `decreaseTake` | `SubtensorModule.decrease_take` |
+| `increaseTake` | `SubtensorModule.increase_take` |
+| `setChildkeyTake` | `SubtensorModule.set_childkey_take` |
+| `setTxChildkeyTakeRateLimit` | `SubtensorModule.sudo_set_tx_childkey_take_rate_limit` |
+| `setMinChildkeyTake` | `SubtensorModule.sudo_set_min_childkey_take` |
+| `setMaxChildkeyTake` | `SubtensorModule.sudo_set_max_childkey_take` |
+| `unstakeAll` | `SubtensorModule.unstake_all` |
+| `unstakeAllAlpha` | `SubtensorModule.unstake_all_alpha` |
+| `swapStake` | `SubtensorModule.swap_stake` |
+| `swapStakeLimit` | `SubtensorModule.swap_stake_limit` |
+| `recycleAlpha` | `SubtensorModule.recycle_alpha` |
+| `setColdkeyAutoStakeHotkey` | `SubtensorModule.set_coldkey_auto_stake_hotkey` |
+| `claimRoot` | `SubtensorModule.claim_root` |
+| `setRootClaimType` | `SubtensorModule.set_root_claim_type` |
+| `setNumRootClaims` | `SubtensorModule.sudo_set_num_root_claims` |
+| `setRootClaimThreshold` | `SubtensorModule.sudo_set_root_claim_threshold` |
+| `addStakeBurn` | `SubtensorModule.add_stake_burn` |
+| `setAutoParentDelegationEnabled` | `SubtensorModule.set_auto_parent_delegation_enabled` |
+| `transferStakeAndHotkey` | `SubtensorModule.transfer_stake_and_hotkey` |
+| `addCollateral` | `SubtensorModule.add_collateral` |
+| `setMinCollateral` | `SubtensorModule.set_min_collateral` |
+
+`recycleAlpha` is distinct from deployed `burnAlpha`: recycling reduces
+`SubnetAlphaOut` and Alpha issuance, while burning does not reduce
+`SubnetAlphaOut`.
+
+## Proposed AdminUtils operations
+
+| Proposed function | Source extrinsic |
+|---|---|
+| `setDefaultTake` | `AdminUtils.sudo_set_default_take` |
+| `setStakeThreshold` | `AdminUtils.sudo_set_stake_threshold` |
+| `setNominatorMinRequiredStake` | `AdminUtils.sudo_set_nominator_min_required_stake` |
+| `setDelegateTakeRateLimit` | `AdminUtils.sudo_set_tx_delegate_take_rate_limit` |
+| `setMinDelegateTake` | `AdminUtils.sudo_set_min_delegate_take` |
+| `setMinChildkeyTakePerSubnet` | `AdminUtils.sudo_set_min_childkey_take_per_subnet` |
+| `setCollateralLockShare` | `AdminUtils.sudo_set_collateral_lock_share` |
+| `setCollateralDrainRatio` | `AdminUtils.sudo_set_collateral_drain_ratio` |
+
+Runtime authorization remains in force. Proposed names and signatures do not
+reserve selectors.
+
 Source: [`stakingV2.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/stakingV2.sol)
