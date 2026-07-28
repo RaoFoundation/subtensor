@@ -104,6 +104,11 @@ jobs:
 
       - name: Run & validate benchmarks
         timeout-minutes: 180
+        env:
+          # PRs use fewer regression points; nightly/manual runs retain the
+          # full-resolution benchmark configuration.
+          STEPS: ${{ github.event_name == 'pull_request' && '15' || '50' }}
+          REPEAT: "20"
         run: |
           mkdir -p .bench_patch
           chmod +x scripts/benchmark_action.sh
