@@ -104,6 +104,7 @@ runtime-benchmarks = [
 
 [dev-dependencies]
 pallet-drand = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
 pallet-evm-chain-id = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, features = ["std"] }
 pallet-scheduler = { workspace = true, features = ["std"] }
