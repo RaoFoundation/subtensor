@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v441',
+    date: 'July 2026',
+    title: 'Two-Tempo Child Keys',
+    summary:
+      'Child-key updates now cool down for two subnet tempos instead of a fixed 24 hours. ' +
+      'The delay follows each subnet cadence, with root-sudo configuration and preserved ' +
+      'legacy interfaces.',
+    href: '/releases/v441-upgrade',
+  },
+  {
     tag: 'v440',
     date: 'July 2026',
     title: 'The Emission Gate',

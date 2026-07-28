@@ -986,8 +986,8 @@ pub fn setup_neuron_with_stake(netuid: NetUid, hotkey: U256, coldkey: U256, stak
 #[allow(dead_code)]
 pub fn wait_set_pending_children_cooldown(netuid: NetUid) {
     let cooldown = u64::from(SubtensorModule::get_tempo(netuid))
-        .saturating_mul(u64::from(ChildKeyCooldownTempos::<Test>::get()));
-    run_to_block(System::block_number().saturating_add(cooldown));
+        * u64::from(ChildKeyCooldownTempos::<Test>::get());
+    run_to_block(System::block_number() + cooldown);
     step_epochs(1, netuid); // Run next epoch
 }
 

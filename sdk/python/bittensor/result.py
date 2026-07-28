@@ -312,8 +312,7 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "use the same new coldkey you announced"
     ),
     "Payment": (
-        "fund the signing account so it can cover fees (and tip); check with "
-        "`btcli wallet balance`"
+        "fund the signing account so it can cover fees (and tip); check with `btcli wallet balance`"
     ),
     "Future": (
         "the nonce is too high; wait for pending extrinsics or resubmit with "
@@ -326,8 +325,7 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "the command — if it keeps failing, use a local wallet or file a bug"
     ),
     "ZeroMaxAmount": (
-        "relax the price/slippage limit or wait for a better price so max_amount "
-        "is non-zero"
+        "relax the price/slippage limit or wait for a better price so max_amount is non-zero"
     ),
     "AmountTooLow": (
         "raise the amount above the chain minimum stake (after fees/slippage); "
@@ -631,9 +629,11 @@ def chain_error_from_dispatch(err: Any) -> ChainError:
             if wrapper not in err:
                 continue
             variant = err[wrapper]
-            if wrapper in ("Token", "Arithmetic", "Transactional") and isinstance(
-                variant, dict
-            ) and variant:
+            if (
+                wrapper in ("Token", "Arithmetic", "Transactional")
+                and isinstance(variant, dict)
+                and variant
+            ):
                 name = next(iter(variant))
             elif wrapper in ("BadOrigin", "CannotLookup", "Other"):
                 name = wrapper

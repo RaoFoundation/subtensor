@@ -232,6 +232,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_difficulty",
         "sudo_set_dissolve_network_schedule_duration",
         "sudo_set_ema_price_halving_period",
+        "sudo_set_emission_bar_quantile",
+        "sudo_set_emission_gate_exponent",
         "sudo_set_evm_chain_id",
         "sudo_set_kappa",
         "sudo_set_lock_reduction_interval",

@@ -190,10 +190,11 @@ mod tests {
     #[test]
     fn digest_matches_polkadot_js_merkleize_metadata() {
         let golden = golden();
-        let spec_version = golden["network"]["spec_version"]
-            .as_u64()
-            .and_then(|value| u32::try_from(value).ok())
-            .expect("golden.json network.spec_version fits u32");
+        let spec_version_u64: u64 =
+            serde_json::from_value(golden["network"]["spec_version"].clone())
+                .expect("golden.json network.spec_version is an unsigned integer");
+        let spec_version =
+            u32::try_from(spec_version_u64).expect("golden.json network.spec_version fits u32");
         let metadata = golden_metadata_v15();
         let digest = metadata_digest(&metadata, &chain_info(spec_version)).unwrap();
         assert_eq!(
