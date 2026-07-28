@@ -1630,7 +1630,10 @@ mod dispatches {
             Self::do_burn_alpha(origin, hotkey, amount, netuid).map(|_| ())
         }
 
-        /// Sets the pending childkey cooldown (in blocks). Root only.
+        /// Deprecated block-based setting retained for call-index and storage compatibility.
+        /// This setting no longer controls childkey activation.
+        /// Use `AdminUtils::sudo_set_childkey_cooldown_tempos` instead.
+        #[deprecated(note = "Use `AdminUtils::sudo_set_childkey_cooldown_tempos` instead")]
         #[pallet::call_index(109)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_pending_childkey_cooldown())]
         pub fn set_pending_childkey_cooldown(
@@ -1638,6 +1641,7 @@ mod dispatches {
             cooldown: u64,
         ) -> DispatchResult {
             ensure_root(origin)?;
+            #[allow(deprecated)]
             PendingChildKeyCooldown::<T>::put(cooldown);
             Ok(())
         }

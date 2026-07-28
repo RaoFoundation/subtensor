@@ -224,6 +224,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_adjustment_interval",
         "sudo_set_admin_freeze_window",
         "sudo_set_ck_burn",
+        "sudo_set_childkey_cooldown_tempos",
         "sudo_set_coldkey_swap_announcement_delay",
         "sudo_set_coldkey_swap_reannouncement_delay",
         "sudo_set_commit_reveal_version",

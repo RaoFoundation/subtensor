@@ -558,9 +558,10 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Calculate cool-down block
-        let cooldown_block =
-            Self::get_current_block_as_u64().saturating_add(PendingChildKeyCooldown::<T>::get());
+        // Calculate the cooldown from this subnet's tempo.
+        let cooldown = u64::from(Self::get_tempo(netuid))
+            .saturating_mul(u64::from(ChildKeyCooldownTempos::<T>::get()));
+        let cooldown_block = Self::get_current_block_as_u64().saturating_add(cooldown);
 
         // Insert or update PendingChildKeys
         PendingChildKeys::<T>::insert(netuid, hotkey.clone(), (children.clone(), cooldown_block));
@@ -604,7 +605,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_set_pending_children(netuid: NetUid) {
         let current_block = Self::get_current_block_as_u64();
 
-        // If the childkey cools down before the subnet start call + PendingChildKeyCooldown:
+        // If the childkey cools down before the subnet start call + configured cooldown:
         //   - If Start call happened: Normal track
         //   - If Start call didn't happen: Apply immediately
         // TODO: This check may be removed after all ck are applied after the runtime upgrade

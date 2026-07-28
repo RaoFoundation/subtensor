@@ -985,8 +985,9 @@ pub fn setup_neuron_with_stake(netuid: NetUid, hotkey: U256, coldkey: U256, stak
 
 #[allow(dead_code)]
 pub fn wait_set_pending_children_cooldown(netuid: NetUid) {
-    let cooldown = DefaultPendingCooldown::<Test>::get();
-    step_block(cooldown as u16); // Wait for cooldown to pass
+    let cooldown = u64::from(SubtensorModule::get_tempo(netuid))
+        .saturating_mul(u64::from(ChildKeyCooldownTempos::<Test>::get()));
+    run_to_block(System::block_number().saturating_add(cooldown));
     step_epochs(1, netuid); // Run next epoch
 }
 
@@ -1028,8 +1029,7 @@ pub fn mock_set_children_no_epochs(netuid: NetUid, parent: &U256, child_vec: &[(
     let backup_block = SubtensorModule::get_current_block_as_u64();
     PendingChildKeys::<Test>::insert(netuid, parent, (child_vec, 0));
     FirstEmissionBlockNumber::<Test>::insert(netuid, 0);
-    let cooldown = PendingChildKeyCooldown::<Test>::get();
-    System::set_block_number(cooldown + 1);
+    System::set_block_number(1);
     SubtensorModule::do_set_pending_children(netuid);
     System::set_block_number(backup_block);
 }

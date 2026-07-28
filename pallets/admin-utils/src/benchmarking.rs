@@ -885,6 +885,16 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_childkey_cooldown_tempos() {
+        let tempos = 2u16;
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, tempos);
+
+        assert_eq!(pallet_subtensor::ChildKeyCooldownTempos::<T>::get(), tempos);
+    }
+
+    #[benchmark]
     fn sudo_set_burn_half_life() {
         let netuid = NetUid::from(1);
         let owner = setup_worst_case_admin_subnet::<T>(netuid);

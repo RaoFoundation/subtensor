@@ -96,6 +96,11 @@ pub mod pallet {
             /// Indicates if the Bonds Reset was enabled or disabled.
             enabled: bool,
         },
+        /// Event emitted when the childkey activation cooldown is set.
+        ChildKeyCooldownTemposSet {
+            /// The new cooldown, measured in subnet tempos.
+            tempos: u16,
+        },
         /// Event emitted when the burn half-life parameter is set for a subnet.
         BurnHalfLifeSet {
             /// The network identifier.
@@ -2411,6 +2416,21 @@ pub mod pallet {
             ensure!(max_epochs_per_block >= 1, Error::<T>::ValueNotInBounds);
             pallet_subtensor::Pallet::<T>::set_max_epochs_per_block(max_epochs_per_block);
 
+            Ok(())
+        }
+
+        /// Sets the childkey activation cooldown as a number of subnet tempos.
+        /// Only callable by root.
+        #[pallet::call_index(102)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_childkey_cooldown_tempos())]
+        pub fn sudo_set_childkey_cooldown_tempos(
+            origin: OriginFor<T>,
+            tempos: u16,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::Pallet::<T>::set_childkey_cooldown_tempos(tempos);
+            Self::deposit_event(Event::ChildKeyCooldownTemposSet { tempos });
+            log::debug!("ChildKeyCooldownTemposSet( tempos: {tempos:?} ) ");
             Ok(())
         }
     }

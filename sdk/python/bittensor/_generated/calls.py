@@ -467,7 +467,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_pending_childkey_cooldown(cooldown: 'u64') -> Call:
-        'Sets the pending childkey cooldown (in blocks). Root only.'
+        'Deprecated block-based setting retained for compatibility. It no longer controls childkey activation. Use AdminUtils.sudo_set_childkey_cooldown_tempos instead.'
         return Call('SubtensorModule', 'set_pending_childkey_cooldown', {'cooldown': cooldown})
 
     @staticmethod
@@ -1203,6 +1203,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_start_call_delay', {'delay': delay})
 
     @staticmethod
+    def sudo_set_childkey_cooldown_tempos(tempos: 'u16') -> Call:
+        'Sets the childkey activation cooldown as a number of subnet tempos. Only callable by root.'
+        return Call('AdminUtils', 'sudo_set_childkey_cooldown_tempos', {'tempos': tempos})
+
+    @staticmethod
     def sudo_set_subnet_emission_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
         'Enables or disables subnet pool-side emission for a subnet.  This does not remove the subnet from emission share calculation and does not change `alpha_out`, owner cut, root proportion, pending server emission, or pending validator emission. It only zeros the pool-side `alpha_in`, `tao_in`, and `excess_tao` chain-buy paths.'
         return Call('AdminUtils', 'sudo_set_subnet_emission_enabled', {'netuid': netuid, 'enabled': enabled})
@@ -1622,5 +1627,4 @@ class LimitOrders:
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
-
 

@@ -4088,8 +4088,6 @@ fn test_dividend_distribution_with_children_same_coldkey_owner() {
 #[test]
 fn test_pending_cooldown_as_expected() {
     let curr_block = 1;
-    // TODO: Fix when CHK splitting patched
-    // let expected_cooldown = prod_or_fast!(7200, 15);
 
     new_test_ext(curr_block).execute_with(|| {
         let coldkey = U256::from(1);
@@ -4099,10 +4097,11 @@ fn test_pending_cooldown_as_expected() {
         let netuid = NetUid::from(1);
         let proportion1: u64 = 1000;
         let proportion2: u64 = 2000;
-        let expected_cooldown = PendingChildKeyCooldown::<Test>::get();
+        let tempo = 13;
+        let expected_cooldown = u64::from(tempo) * u64::from(ChildKeyCooldownTempos::<Test>::get());
 
         // Add network and register hotkey
-        add_network(netuid, 13, 0);
+        add_network(netuid, tempo, 0);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
         // Set multiple children
@@ -4120,6 +4119,19 @@ fn test_pending_cooldown_as_expected() {
             vec![(proportion1, child1), (proportion2, child2)]
         );
         assert_eq!(pending_children.1, curr_block + expected_cooldown);
+    });
+}
+
+#[test]
+#[allow(deprecated)]
+fn test_deprecated_pending_childkey_cooldown_is_retained() {
+    new_test_ext(1).execute_with(|| {
+        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
+            RuntimeOrigin::root(),
+            1,
+        ));
+
+        assert_eq!(PendingChildKeyCooldown::<Test>::get(), 1);
     });
 }
 
@@ -4419,15 +4431,11 @@ fn test_root_children_enable_subnet_owner_set_weights() {
         ));
 
         // --- Verify do_set_root_validators_for_subnet creates parent-child relationships ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
-
         assert_ok!(SubtensorModule::do_set_root_validators_for_subnet(netuid));
 
-        // Activate pending children (cooldown is 0, advance 1 block)
-        step_block(1);
+        // Activate pending children after the two-tempo cooldown.
+        let cooldown_block = PendingChildKeys::<Test>::get(netuid, root_val_hotkey_1).1;
+        run_to_block(cooldown_block.saturating_add(1));
         SubtensorModule::do_set_pending_children(netuid);
 
         // Each root validator should have the subnet owner hotkey as a child on netuid
@@ -4495,12 +4503,6 @@ fn test_register_network_schedules_root_validators() {
             NetUid::ROOT,
             root_stake,
         );
-
-        // --- Minimize cooldown so pending children activate quickly ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
 
         // --- Set a high stake threshold ---
         let high_threshold = 500_000_000u64;
@@ -4618,12 +4620,6 @@ fn test_register_network_schedules_root_validators_auto_parent_delegation_flag()
             NetUid::ROOT,
             root_stake,
         );
-
-        // --- Minimize cooldown so pending children activate quickly ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
 
         // --- Set a high stake threshold ---
         let high_threshold = 500_000_000u64;

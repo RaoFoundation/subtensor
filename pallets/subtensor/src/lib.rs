@@ -1111,10 +1111,16 @@ pub mod pallet {
         T::InitialColdkeySwapReannouncementDelay::get()
     }
 
-    /// Default value for applying pending items (e.g. childkeys).
+    /// Deprecated block-based default for applying pending childkeys.
     #[pallet::type_value]
     pub fn DefaultPendingCooldown<T: Config>() -> u64 {
         prod_or_fast!(7_200, 15)
+    }
+
+    /// Default childkey cooldown, measured in subnet tempos.
+    #[pallet::type_value]
+    pub fn DefaultChildKeyCooldownTempos<T: Config>() -> u16 {
+        2
     }
 
     /// Default minimum stake.
@@ -2979,17 +2985,24 @@ pub mod pallet {
     #[pallet::storage]
     pub type HasMigrationRun<T: Config> = StorageMap<_, Identity, Vec<u8>, bool, ValueQuery>;
 
-    /// Default value for pending childkey cooldown (settable by root).
-    /// Uses the same value as DefaultPendingCooldown for consistency.
+    /// Deprecated block-based pending childkey cooldown default.
+    ///
+    /// Use [`DefaultChildKeyCooldownTempos`] instead.
     #[pallet::type_value]
     pub fn DefaultPendingChildKeyCooldown<T: Config>() -> u64 {
         DefaultPendingCooldown::<T>::get()
     }
 
-    /// Storage value for pending childkey cooldown, settable by root.
+    /// Deprecated block-based childkey cooldown retained for storage compatibility.
+    #[deprecated(note = "Use `ChildKeyCooldownTempos` instead")]
     #[pallet::storage]
     pub type PendingChildKeyCooldown<T: Config> =
         StorageValue<_, u64, ValueQuery, DefaultPendingChildKeyCooldown<T>>;
+
+    /// Number of subnet tempos before a pending childkey update can be applied.
+    #[pallet::storage]
+    pub type ChildKeyCooldownTempos<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultChildKeyCooldownTempos<T>>;
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {

@@ -90,6 +90,11 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::OwnerHyperparamRateLimitSet(epochs));
     }
 
+    /// Set the number of subnet tempos before a pending childkey update can activate.
+    pub fn set_childkey_cooldown_tempos(tempos: u16) {
+        ChildKeyCooldownTempos::<T>::set(tempos);
+    }
+
     /// If owner is `Some`, record last-blocks for the provided `TransactionType`s.
     pub fn record_owner_rl(
         maybe_owner: Option<<T as frame_system::Config>::AccountId>,

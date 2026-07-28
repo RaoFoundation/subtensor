@@ -577,6 +577,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_ck_burn),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_admin_freeze_window),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_owner_hparam_rate_limit),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_childkey_cooldown_tempos),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_min_allowed_uids),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_min_non_immune_uids),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_flow_cutoff),

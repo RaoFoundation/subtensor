@@ -169,9 +169,11 @@ fn indexer_root_claim_type() {
 }
 
 #[test]
-fn indexer_pending_childkey_cooldown() {
+fn indexer_childkey_cooldown_tempos() {
     new_test_ext(1).execute_with(|| {
+        #[allow(deprecated)]
         let _: u64 = PendingChildKeyCooldown::<Test>::get();
+        let _: u16 = ChildKeyCooldownTempos::<Test>::get();
     });
 }
 

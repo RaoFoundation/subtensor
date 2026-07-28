@@ -314,7 +314,9 @@ class SubtensorModule:
     ColdkeyCollateralHotkeys = Item('SubtensorModule', 'ColdkeyCollateralHotkeys', 'BoundedVec')
     AutoParentDelegationEnabled = Item('SubtensorModule', 'AutoParentDelegationEnabled', 'bool')
     HasMigrationRun = Item('SubtensorModule', 'HasMigrationRun', 'bool')
+    # Deprecated: use ChildKeyCooldownTempos.
     PendingChildKeyCooldown = Item('SubtensorModule', 'PendingChildKeyCooldown', 'u64')
+    ChildKeyCooldownTempos = Item('SubtensorModule', 'ChildKeyCooldownTempos', 'u16')
 
 class Sudo:
     Key = Item('Sudo', 'Key', 'AccountId32')
@@ -436,4 +438,3 @@ class LimitOrders:
     Orders = Item('LimitOrders', 'Orders', 'OrderStatus')
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
-

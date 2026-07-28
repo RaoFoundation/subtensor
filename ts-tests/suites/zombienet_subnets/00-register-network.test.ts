@@ -14,7 +14,7 @@ import {
     waitForBlocks,
 } from "../../utils";
 import { sudoSetStakeThreshold } from "../../utils/admin_utils.ts";
-import { getChildren, setAutoParentDelegationEnabled, sudoSetPendingChildKeyCooldown } from "../../utils/children.ts";
+import { getChildren, setAutoParentDelegationEnabled, sudoSetChildKeyCooldownTempos } from "../../utils/children.ts";
 import { Keyring } from "@polkadot/keyring";
 
 describeSuite({
@@ -62,7 +62,7 @@ describeSuite({
                     await forceSetBalance(api, addr);
                 }
 
-                await sudoSetPendingChildKeyCooldown(api, 0n);
+                await sudoSetChildKeyCooldownTempos(api, 0);
 
                 await sudoSetStakeThreshold(api, 0n);
 

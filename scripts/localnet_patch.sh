@@ -47,14 +47,7 @@ echo "Applying patches..."
 # hardcodes `pub const InitialStartCallDelay: u64 = 0;` which already gives
 # local testing an immediate start_call.
 
-# Patch 2: DefaultPendingCooldown
-patch_file \
-  "pallets/subtensor/src/lib.rs" \
-  "pub fn DefaultPendingCooldown<T: Config>() -> u64 {" \
-  's|pub fn DefaultPendingCooldown<T: Config>\(\) -> u64 \{\s*prod_or_fast!\(7_200, 15\)\s*\}|pub fn DefaultPendingCooldown<T: Config>() -> u64 {\n        prod_or_fast!(15, 15)\n    }|g' \
-  "Reduce DefaultPendingCooldown for local testing"
-
-# Patch 3: SetChildren rate limit
+# Patch 2: SetChildren rate limit
 patch_file \
   "pallets/subtensor/src/utils/rate_limiting.rs" \
   "Self::SetChildren => 150, // 30 minutes" \
