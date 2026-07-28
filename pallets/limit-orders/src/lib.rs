@@ -642,27 +642,6 @@ pub mod pallet {
 
         /// Render `who` into its SS58 (base58check) string, reproducing
         /// `Ss58Codec::to_ss58check_with_version`.
-        ///
-        /// The address format prefix is taken from the chain's own
-        /// [`frame_system::Config::SS58Prefix`] rather than a constant local to this
-        /// pallet, so the accounts rendered into the human-readable ("clear-signing")
-        /// message are guaranteed to agree with the prefix the chain declares — and
-        /// therefore with the way wallets display those same accounts. For Bittensor
-        /// that value is 42.
-        ///
-        /// NOTE: this prefix is part of a signature preimage. Changing
-        /// `frame_system::Config::SS58Prefix` in a runtime upgrade changes every
-        /// rendered address, and therefore invalidates any readable-form order that
-        /// was signed before the upgrade (such orders then fail with
-        /// `InvalidSignature` / are skipped). The raw and wrapped signing forms are
-        /// unaffected, as neither renders addresses.
-        ///
-        /// The encoding itself is delegated to sp-core's canonical
-        /// `Ss58Codec::to_ss58check_with_version` rather than reimplemented here. That
-        /// method is gated behind sp-core's `serde` feature, which — despite the name —
-        /// is explicitly "serde support without relying on std features" and so is
-        /// available in the no_std/wasm runtime build; the pallet enables it via its
-        /// `sp-core/serde` dependency feature.
         pub(crate) fn render_account(who: &T::AccountId) -> String {
             let prefix = <T as frame_system::Config>::SS58Prefix::get();
             who.to_ss58check_with_version(Ss58AddressFormat::custom(prefix))
