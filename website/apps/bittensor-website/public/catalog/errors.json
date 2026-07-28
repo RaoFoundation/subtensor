@@ -5059,6 +5059,24 @@
         "Balances"
       ]
     },
+    "TooManyRootClaimHotkeys": {
+      "code": "limit_exceeded",
+      "description": "The coldkey has more staking hotkeys than a single manual root claim can process. Reduce the coldkey's staking-hotkey fanout below `MAX_ROOT_CLAIM_HOTKEYS`, or use automatic root claiming instead.",
+      "docs_url": "/docs/errors/chain/TooManyRootClaimHotkeys",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyRootClaimHotkeys/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 350,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L350",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "TooManySignatories": {
       "code": "limit_exceeded",
       "description": "The multisig signatory list exceeds the maximum allowed. Compare the length of `other_signatories` plus the sender against the pallet's `MaxSignatories` constant.",
