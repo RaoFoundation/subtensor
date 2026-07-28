@@ -154,6 +154,18 @@ export function buildWrappedSignedOrder(api: any, params: OrderParams): SignedOr
 export const READABLE_SS58_PREFIX = 42;
 
 /**
+ * Ledger's raw-signing size limit — `MAX_SIGN_SIZE` in the Zondax Polkadot app.
+ * MUST match the pallet's `LEDGER_MAX_SIGN_SIZE`.
+ *
+ * A `signRaw` payload longer than this is blake2_256-hashed on-device before the
+ * signature is produced, so for an oversized payload the signature commits to the
+ * hash rather than to the payload bytes, and the runtime verifies it that way.
+ * The device still displays the full message — the hashing happens in the signing
+ * step only.
+ */
+export const LEDGER_MAX_SIGN_SIZE = 256;
+
+/**
  * Re-encode an account address as SS58 at prefix 42.  Accepts any input the
  * `@polkadot/util-crypto` `decodeAddress` understands (SS58 of any prefix, hex,
  * or raw bytes) and always re-encodes so the output prefix is deterministic —
@@ -221,6 +233,13 @@ export function formatOrderMessage(order: Order): string {
  * `[b"<Bytes>", &render_order, b"</Bytes>"].concat()`.  Wrapping the raw string
  * instead of the bytes would corrupt the payload.
  *
+ * The bytes actually signed then follow the device's rule: a payload longer than
+ * `LEDGER_MAX_SIGN_SIZE` is blake2_256-hashed first, because that is what a Ledger
+ * signs and therefore what the runtime verifies.  The readable message is always
+ * oversized (three SS58 addresses alone are 144 characters), so this emulates a
+ * hardware signer.  Note that `signRaw` in a *software* wallet (polkadot.js
+ * extension) does NOT hash — such a signature is not valid on this path.
+ *
  * The signature scheme tag (`Sr25519` vs `Ed25519`) follows the signer's
  * keypair type, so the same helper works for both schemes.
  */
@@ -230,7 +249,8 @@ export function buildReadableSignedOrder(api: any, params: OrderParams): SignedO
     // Render the canonical message, convert to UTF-8 bytes, then wrap.
     const message = formatOrderMessage(versionedOrder.V1);
     const wrapped = u8aWrapBytes(stringToU8a(message));
-    const sig = params.signer.sign(wrapped);
+    const signedBytes = wrapped.length > LEDGER_MAX_SIGN_SIZE ? blake2AsU8a(wrapped, 256) : wrapped;
+    const sig = params.signer.sign(signedBytes);
 
     // Tag the signature variant from the keypair type.
     const signature =
