@@ -184,13 +184,16 @@ describeSuite({
                 await swapHotkey(api, oldHotkeyColdkey, oldHotkey.address, newHotkey.address);
                 log("Swap done");
 
-                expect(await getBasketRate(api, newHotkey.address), "newHotkey must have oldHotkey's fund rate").toBe(
-                    rateBefore
-                );
+                // Rate/shares may grow from dividends between the pre-swap read and
+                // finalization; require the fund moved (≥ before) and old is empty.
+                expect(
+                    await getBasketRate(api, newHotkey.address),
+                    "newHotkey must receive oldHotkey's fund rate"
+                ).toBeGreaterThanOrEqual(rateBefore);
                 expect(
                     await getBasketShares(api, newHotkey.address),
-                    "newHotkey must have oldHotkey's fund shares"
-                ).toBe(sharesBefore);
+                    "newHotkey must receive oldHotkey's fund shares"
+                ).toBeGreaterThanOrEqual(sharesBefore);
                 expect(await getBasketRate(api, oldHotkey.address), "oldHotkey must have no fund left").toBe(0n);
                 expect(await getBasketShares(api, oldHotkey.address), "oldHotkey must have no shares left").toBe(0n);
 
@@ -219,13 +222,14 @@ describeSuite({
                 await swapHotkey(api, oldHotkeyColdkey, oldHotkey.address, newHotkey.address, 0);
                 log("Swap done");
 
-                expect(await getBasketRate(api, newHotkey.address), "newHotkey must have oldHotkey's fund rate").toBe(
-                    rateBefore
-                );
+                expect(
+                    await getBasketRate(api, newHotkey.address),
+                    "newHotkey must receive oldHotkey's fund rate"
+                ).toBeGreaterThanOrEqual(rateBefore);
                 expect(
                     await getBasketShares(api, newHotkey.address),
-                    "newHotkey must have oldHotkey's fund shares"
-                ).toBe(sharesBefore);
+                    "newHotkey must receive oldHotkey's fund shares"
+                ).toBeGreaterThanOrEqual(sharesBefore);
                 expect(await getBasketRate(api, oldHotkey.address), "oldHotkey must have no fund left").toBe(0n);
                 expect(await getBasketShares(api, oldHotkey.address), "oldHotkey must have no shares left").toBe(0n);
 
