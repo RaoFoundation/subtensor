@@ -235,7 +235,7 @@ fn emission_gate_one_subnet_full_share() {
     });
 }
 
-/// Two-subnet 1:2 prices through the default gate (q = 0.61, h = 3) → 1/10 : 9/10.
+/// Two-subnet 1:2 prices through the default gate (q = 0.8073, h = 3) → 9/41 : 32/41.
 #[test]
 fn emission_gate_concentrates_1_to_2_price_split() {
     new_test_ext(1).execute_with(|| {
@@ -254,14 +254,16 @@ fn emission_gate_concentrates_1_to_2_price_split() {
         let s1 = shares.get(&n1).copied().unwrap().to_num::<f64>();
         let s2 = shares.get(&n2).copied().unwrap().to_num::<f64>();
 
-        // Linear 1/3 : 2/3; q-mass bar lands on 2/3; gated weights normalize to 1/10 : 9/10.
+        // Linear 1/3 : 2/3; cumulative 2/3 < q = 0.8073, so the q-mass bar lands
+        // on the smaller share (theta = 1/3). gate(1/3) = 1/2, gate(2/3) = 8/9;
+        // gated weights 1/6 and 16/27 normalize to 9/41 : 32/41.
         assert_abs_diff_eq!(
             EmissionGateBar::<Test>::get().to_num::<f64>(),
-            2.0 / 3.0,
+            1.0 / 3.0,
             epsilon = 1e-9
         );
-        assert_abs_diff_eq!(s1, 0.1_f64, epsilon = 1e-6);
-        assert_abs_diff_eq!(s2, 0.9_f64, epsilon = 1e-6);
+        assert_abs_diff_eq!(s1, 9.0 / 41.0, epsilon = 1e-6);
+        assert_abs_diff_eq!(s2, 32.0 / 41.0, epsilon = 1e-6);
         assert_abs_diff_eq!(s1 + s2, 1.0_f64, epsilon = 1e-9);
     });
 }
@@ -308,7 +310,7 @@ fn emission_gate_bar_update_cadence() {
         let n3 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
 
         System::set_block_number(0);
-        // Shares 0.7, 0.2, 0.1. q = 0.61 crosses on the first → theta = 0.7.
+        // Shares 0.7, 0.2, 0.1. q = 0.8073 crosses on the second → theta = 0.2.
         SubnetMovingPrice::<Test>::insert(n1, i96f32(7.0));
         SubnetMovingPrice::<Test>::insert(n2, i96f32(2.0));
         SubnetMovingPrice::<Test>::insert(n3, i96f32(1.0));
@@ -318,9 +320,9 @@ fn emission_gate_bar_update_cadence() {
 
         let _ = SubtensorModule::get_shares(&[n1, n2, n3]);
         let bar_head = EmissionGateBar::<Test>::get().to_num::<f64>();
-        assert_abs_diff_eq!(bar_head, 0.7_f64, epsilon = 1e-9);
+        assert_abs_diff_eq!(bar_head, 0.2_f64, epsilon = 1e-9);
 
-        // Flatten to equal thirds. Mid-interval: bar sticky at 0.6.
+        // Flatten to equal thirds. Mid-interval: bar sticky at 0.2.
         SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
         SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
         SubnetMovingPrice::<Test>::insert(n3, i96f32(1.0));
@@ -332,8 +334,8 @@ fn emission_gate_bar_update_cadence() {
             epsilon = 1e-9
         );
 
-        // At the cadence boundary: q = 0.61 over equal thirds crosses on the
-        // second share → theta = 1/3.
+        // At the cadence boundary: q = 0.8073 over equal thirds crosses on the
+        // third share → theta = 1/3.
         System::set_block_number(SubtensorModule::EMISSION_BAR_UPDATE_INTERVAL);
         let _ = SubtensorModule::get_shares(&[n1, n2, n3]);
         assert_abs_diff_eq!(

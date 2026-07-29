@@ -396,18 +396,18 @@ fn test_coinbase_tao_issuance_different_prices() {
         // Run the coinbase with the emission amount.
         SubtensorModule::run_coinbase(emission_credit);
 
-        // Linear shares are 1/3 and 2/3. The emission gate bar (q = 0.61) lands
-        // on the larger share (theta = 2/3), so gate(2/3) = 1/2 and
-        // gate(1/3) = 1/(1 + 2^3) = 1/9. Gated weights 1/27 and 1/3 normalize
-        // to a 1/10 : 9/10 split.
+        // Linear shares are 1/3 and 2/3. Cumulative 2/3 < q = 0.8073, so the
+        // emission gate bar lands on the smaller share (theta = 1/3):
+        // gate(1/3) = 1/2 and gate(2/3) = 1/(1 + (1/2)^3) = 8/9. Gated weights
+        // 1/6 and 16/27 normalize to a 9/41 : 32/41 split.
         assert_abs_diff_eq!(
             SubnetTAO::<Test>::get(netuid1),
-            TaoBalance::from(initial_tao + emission / 10),
+            TaoBalance::from(initial_tao + emission * 9 / 41),
             epsilon = 10.into(),
         );
         assert_abs_diff_eq!(
             SubnetTAO::<Test>::get(netuid2),
-            TaoBalance::from(initial_tao + 9 * emission / 10),
+            TaoBalance::from(initial_tao + emission * 32 / 41),
             epsilon = 10.into(),
         );
 
@@ -674,19 +674,19 @@ fn test_coinbase_alpha_issuance_different() {
         set_full_injection_root_stake();
         // Run coinbase
         SubtensorModule::run_coinbase(emission_credit);
-        // Linear shares are 1/3 and 2/3; the emission gate (q = 0.61, h = 3)
-        // turns them into a 1/10 : 9/10 split (see
+        // Linear shares are 1/3 and 2/3; the emission gate (q = 0.8073, h = 3)
+        // turns them into a 9/41 : 32/41 split (see
         // test_coinbase_tao_issuance_different_prices for the gate math).
-        // tao_in = 100_000, alpha_in = 100_000/price = 100_000 + initial
+        // tao_in = 219_512, alpha_in = 219_512/price = 219_512 + initial
         assert_abs_diff_eq!(
             SubnetAlphaIn::<Test>::get(netuid1),
-            AlphaBalance::from(initial + emission / 10),
+            AlphaBalance::from(initial + emission * 9 / 41),
             epsilon = 10.into(),
         );
-        // tao_in = 900_000, alpha_in = 900_000/price = 450_000 + initial
+        // tao_in = 780_487, alpha_in = 780_487/price = 390_243 + initial
         assert_abs_diff_eq!(
             SubnetAlphaIn::<Test>::get(netuid2),
-            AlphaBalance::from(initial + (emission * 9 / 10) / 2),
+            AlphaBalance::from(initial + (emission * 32 / 41) / 2),
             epsilon = 10.into(),
         );
     });

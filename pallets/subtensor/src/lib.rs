@@ -1850,9 +1850,9 @@ pub mod pallet {
     /// Default emission bar quantile (q). The bar theta is the demand share at
     /// which the sorted cumulative share distribution crosses q.
     pub fn DefaultEmissionBarQuantile<T: Config>() -> U64F64 {
-        // 0.61: on the July 2026 distribution this lands the bar at the
-        // uniform share (1/active_subnets), around rank 32.
-        U64F64::saturating_from_num(0.61)
+        // 0.8073: on the July 2026 distribution this lands the bar around
+        // rank 64 (theta ~0.441%, 24 of 62 enabled subnets gated).
+        U64F64::saturating_from_num(0.8073)
     }
     #[pallet::storage]
     /// ITEM --> Emission Bar Quantile (q)
