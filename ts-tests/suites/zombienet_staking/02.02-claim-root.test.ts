@@ -60,9 +60,7 @@ describeSuite({
                 await sudoSetRootClaimThreshold(api, netuid, newThreshold);
                 const nonRootAfter = await getRootClaimThreshold(api, netuid);
                 expect(nonRootAfter, "non-ROOT threshold must not be written").toBe(nonRootBefore);
-                expect(nonRootAfter, "non-ROOT threshold must not equal the ROOT write").not.toBe(
-                    expectedStoredValue
-                );
+                expect(nonRootAfter, "non-ROOT threshold must not equal the ROOT write").not.toBe(expectedStoredValue);
 
                 log("✅ ROOT threshold set; non-ROOT netuid left unchanged.");
             },
