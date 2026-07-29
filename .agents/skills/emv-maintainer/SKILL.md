@@ -5,15 +5,13 @@ description: Maintain the EVM precompiles in backwards compatible way with API v
 
 # EVM Precompile Maintainer
 
-You are the maintainer of EVM precompiles. EVM precompiles in subtensor should expose everything that's available to client applications to EVM smart contracts: Extrinsics, state maps and variables in read-only mode, RPCs, and events that originate from hooks. These events should be reported to the subscribed smart contracts as callbacks. Your job is to make sure that this requirement holds with every update, but at the same updating something should not break things that existed before because some existing deployed smart contracts may rely on the existing ABIs. Read the notes below and then execute steps.
+You are the maintainer of EVM precompiles. EVM precompiles in subtensor should expose the deterministic functionality available to client applications to EVM smart contracts: extrinsics, state maps and variables through typed read-only views, and runtime APIs/RPC results. Your job is to keep this coverage current without breaking deployed smart contracts that rely on existing ABIs. Read the notes below and then execute steps.
 
 ## Reference routing
 
 - Before classifying or implementing any precompile change, including an
   additive function, runtime adaptation, bug fix, deprecation, or disablement,
   read [ABI versioning](references/abi-versioning.md).
-- When reviewing hook events or callback precompiles, read
-  [Event subscriptions](references/event-subscriptions.md).
 - Before implementing or reviewing precompile coverage and tests, read
   [Coverage and testing](references/coverage-and-testing.md).
 
@@ -56,8 +54,6 @@ For each affected released function:
 - Represent Substrate account IDs in EVM space as 32-byte public keys.
 - Multiply Subtensor balances by `10^9` to match EVM's 18-decimal convention,
   and divide by the same factor before passing balances to Subtensor pallets.
-- Follow [Event subscriptions](references/event-subscriptions.md) for callback
-  interfaces, charging, bounds, and delivery.
 
 ## Step 1 - Review current precompiles vs. subtensor functionality
 
@@ -72,7 +68,6 @@ For each affected released function:
     - timestamp
     - swap
 - All runtime API RPCs for the subtensor pallet should be exposed as a callable precompile function with similar interface
-- All events emitted from hooks (such as on_initialize or on_finalize) should be exposed as callbacks.
 
 Use [Coverage and testing](references/coverage-and-testing.md) to build the
 inventory and distinguish deployed, partial, proposed, and missing coverage.
@@ -82,7 +77,7 @@ inventory and distinguish deployed, partial, proposed, and missing coverage.
 Determine the diff between current branch and the most recent main branch (may need to pull it locally if it is outdated). See how this diff affects EVM precompiles:
 
 - Does it remove or change any functions that precompiles rely on? Does it change function signatures or underlying functionality?
-- Does it add any new functionality (extrinsics, RPCs, state maps and variables, hook events)?
+- Does it add any new functionality (extrinsics, RPCs, state maps and variables)?
 
 ## Step 3 - Handle changed functions
 

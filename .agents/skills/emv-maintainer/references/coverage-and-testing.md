@@ -7,7 +7,6 @@
 - [Cover extrinsics](#cover-extrinsics)
 - [Cover state with typed views](#cover-state-with-typed-views)
 - [Cover runtime APIs and public RPCs](#cover-runtime-apis-and-public-rpcs)
-- [Cover events](#cover-events)
 - [Add regression tests first](#add-regression-tests-first)
 - [Test observable behavior](#test-observable-behavior)
 - [Validate ABIs and routing](#validate-abis-and-routing)
@@ -25,14 +24,12 @@ For each in-scope pallet, inspect:
 - every dispatchable extrinsic;
 - every public state map and value;
 - every publicly facing runtime API and RPC;
-- every emitted event, including events originating in hooks and scheduled
-  work; and
 - changes to types, guards, authorization, units, and error behavior used by
   existing precompiles.
 
-Coverage means that Solidity contracts receive a typed equivalent of the
-authorized client-facing functionality. It does not mean exposing raw pallet
-storage, SCALE bytes, or Rust types.
+Precompile coverage means that Solidity contracts receive a typed equivalent
+of the authorized deterministic client-facing functionality. It does not mean
+exposing raw pallet storage, SCALE bytes, or Rust types.
 
 Distinguish deployed coverage from proposed coverage. Do not describe a
 documented proposal, unassigned address, or Rust stub as callable.
@@ -41,9 +38,9 @@ documented proposal, unassigned address, or Rust stub as callable.
 
 Create or update a working matrix with one row per source item:
 
-| Source | Kind | Public functionality | Precompile domain | Function or callback | Status | Evidence |
+| Source | Kind | Public functionality | Precompile domain | Function | Status | Evidence |
 |---|---|---|---|---|---|---|
-| Pallet and item | Extrinsic, state, runtime API, RPC, or event | Meaning exposed to clients | Existing or proposed address/domain | Canonical signature or callback | Covered, partial, missing, or excluded | Rust, Solidity, ABI, and test paths |
+| Pallet and item | Extrinsic, state, runtime API, or RPC | Meaning exposed to clients | Existing or proposed address/domain | Canonical signature | Covered, partial, missing, or excluded | Rust, Solidity, ABI, and test paths |
 
 For every partial, missing, or excluded row, state the exact reason. Do not
 equate a similarly named function with coverage; compare parameters, returned
@@ -124,18 +121,6 @@ runtime. When a public RPC composes runtime state, implement the deterministic
 runtime-side result and document any transport-only behavior that has no EVM
 equivalent.
 
-## Cover events
-
-Inspect event enums and active emission sites. Cover relevant hook-origin
-events with subscription callbacks so contracts are not limited to their own
-transaction receipts.
-
-Use [Event subscriptions](event-subscriptions.md) for domain grouping,
-filtering, callback ABI, charging, queue bounds, and delivery semantics.
-
-Do not mark an enum-only placeholder as emitted coverage. Do not expose a raw
-runtime event or an unbounded vector callback.
-
 ## Add regression tests first
 
 For a bug fix, add a regression unit test that fails for the reported behavior
@@ -214,7 +199,6 @@ Test:
 - the maximum accepted collection size;
 - rejection just beyond the bound;
 - proof-size-sensitive database access where relevant;
-- callback gas and per-block delivery limits for subscriptions; and
 - failure paths that could otherwise perform unpaid work.
 
 Do not accept a bounded input if processing it can trigger an unbounded runtime

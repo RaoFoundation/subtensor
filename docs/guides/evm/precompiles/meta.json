@@ -23,11 +23,6 @@
     "drand",
     "timestamp",
     "runtime-configuration",
-    "staking-events",
-    "neuron-events",
-    "weights-events",
-    "subnet-events",
-    "configuration-events",
     "registry"
   ]
 }

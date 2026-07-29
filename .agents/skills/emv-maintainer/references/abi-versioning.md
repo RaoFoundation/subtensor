@@ -51,8 +51,7 @@ Preserve all observable properties of every released call:
 - state transitions and atomicity;
 - success-versus-revert behavior and documented error payloads;
 - bounded-input and complexity guarantees;
-- callback selectors, event-mask assignments, filters, charging,
-  auto-unsubscription, sequencing, and delivery guarantees.
+- lifecycle-status selectors and their documented availability guarantees.
 
 Return types do not contribute to a Solidity selector, but changing them under
 an existing selector still breaks old callers because they decode the returned

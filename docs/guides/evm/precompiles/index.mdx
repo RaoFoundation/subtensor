@@ -53,12 +53,11 @@ or intentionally non-callable EVM treatment.
 | [`DrandPrecompile`](/docs/guides/evm/precompiles/drand) | `IDrand` | Address not assigned<br />Proposed |
 | [`TimestampPrecompile`](/docs/guides/evm/precompiles/timestamp) | `ITimestamp` | Address not assigned<br />Proposed |
 | [`RuntimeConfigurationPrecompile`](/docs/guides/evm/precompiles/runtime-configuration) | `IRuntimeConfiguration` | Address not assigned<br />Proposed |
-| [`StakingEventsPrecompile`](/docs/guides/evm/precompiles/staking-events) | `IStakingEvents` | Dedicated address not assigned<br />Proposed |
-| [`NeuronEventsPrecompile`](/docs/guides/evm/precompiles/neuron-events) | `INeuronEvents` | Dedicated address not assigned<br />Proposed |
-| [`WeightsEventsPrecompile`](/docs/guides/evm/precompiles/weights-events) | `IWeightsEvents` | Dedicated address not assigned<br />Proposed |
-| [`SubnetEventsPrecompile`](/docs/guides/evm/precompiles/subnet-events) | `ISubnetEvents` | Dedicated address not assigned<br />Proposed |
-| [`ConfigurationEventsPrecompile`](/docs/guides/evm/precompiles/configuration-events) | `IConfigurationEvents` | Dedicated address not assigned<br />Proposed |
 | [`PrecompileRegistry`](/docs/guides/evm/precompiles/registry) | `IPrecompileRegistry` | Address not assigned<br />Proposed |
+
+Projects that need proactive event delivery should use
+[project-scoped event relays](/docs/guides/evm/precompile-design#project-scoped-event-relays)
+instead of protocol-level event-reporting precompiles.
 
 Released addresses and selectors remain reserved permanently. The compatibility
 and lifecycle rules are documented in

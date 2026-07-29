@@ -1,6 +1,6 @@
 ---
 title: Precompile design and lifecycle
-description: How Bittensor precompiles preserve deployed-contract compatibility, evolve function by function, and communicate deprecation or temporary disablement.
+description: How Bittensor precompiles preserve compatibility and how projects relay selected Substrate events to EVM contracts.
 ---
 
 Bittensor precompiles are fixed-address EVM contracts implemented by the
@@ -139,107 +139,93 @@ inherently brittle. The intended migration is:
 Whether this 1:1 coverage should extend beyond the authorized pallets remains
 an open design question.
 
-## Subscription-based event reporting
+## Project-scoped event relays
 
-Some Subtensor events are produced by runtime hooks rather than by the EVM
-transaction that is interested in them. A transaction receipt therefore cannot
-provide complete event coverage. Proposed event precompiles let a contract
-subscribe itself and receive those events later as typed EVM callbacks.
+Substrate events are already recorded in chain data. Reproducing the complete
+event stream through protocol-level EVM callbacks would add another on-chain
+copy together with subscription storage, delivery queues, and callback
+execution. It would also force the runtime to support broad event delivery even
+when an application needs only a small, highly filtered set of signals.
 
-Event reporting is divided into dedicated domain precompiles for
-[staking](/docs/guides/evm/precompiles/staking-events),
-[neurons and keys](/docs/guides/evm/precompiles/neuron-events),
-[weights](/docs/guides/evm/precompiles/weights-events),
-[subnet lifecycle](/docs/guides/evm/precompiles/subnet-events), and
-[runtime configuration](/docs/guides/evm/precompiles/configuration-events).
-Each domain will have its own address. These precompiles report typed events
-originating from `SubtensorModule` and `AdminUtils`; they do not expose raw
-`RuntimeEvent` values or SCALE-encoded payloads.
+Bittensor therefore does not propose event-reporting precompiles. A project
+that needs proactive notifications in its EVM contracts should run an
+off-chain relay tailored to that project's use cases. The relay watches
+finalized Substrate events, performs application-specific filtering,
+aggregation, and enrichment off chain, and submits only the reports that the
+project's contracts can act on.
 
-The callback inventories cover source variants with active emission sites in
-the current runtime. An enum-only placeholder is not presented as a live
-callback. If such a variant starts being emitted, its typed callback must be
-added without changing the existing subscription or receiver selectors.
+Typed precompile views remain the authoritative way for contracts to read
+current runtime state. Relayed reports are notifications under the trust and
+availability model chosen by the project.
 
-### Subscription control
+### Relay flow
 
-Each event precompile should expose the same control shape:
+A typical relay operates as follows:
 
-```solidity
-struct EventFilter {
-    uint256 eventMask;
-    uint16 netuid;
-    bytes32 accountId;
-    bool matchAnyNetuid;
-    bool matchAnyAccount;
-}
+1. Relay nodes read finalized blocks and events from Substrate RPC endpoints or
+   an indexer.
+2. Each node applies the project's filters and derives a canonical typed
+   report.
+3. A configured signer quorum attests to the report.
+4. A relayer submits the report and its authorization proof in an ordinary EVM
+   transaction.
+5. The reporting contract verifies the report, rejects duplicates, and either
+   emits a typed EVM log, invokes a bounded set of subscribed receivers, or
+   records data for receivers to pull.
 
-struct Subscription {
-    bool active;
-    EventFilter filter;
-    uint64 callbackGasLimit;
-    uint64 nextSequence;
-}
+A report should identify at least the source chain, finalized block hash and
+number, source event position or another unique event identifier, schema
+version, payload, and relay sequence or nonce. The signed message must be
+domain-separated by chain ID, reporting-contract address, and schema version so
+that it cannot be replayed on another chain, contract, or report type.
 
-function subscribe(
-    EventFilter calldata filter,
-    uint64 callbackGasLimit
-) external;
+Filtering belongs primarily in the relay. A subnet application might publish
+only completed tempo summaries, material configuration changes, or aggregate
+emission results instead of reproducing every underlying pallet event.
 
-function unsubscribe() external;
+### Subscription-capable reporting contracts
 
-function getSubscription(
-    address subscriber
-) external view returns (Subscription memory);
+A project can deploy a reporting contract that lets users or other contracts
+register subscriptions and lets authorized relayers submit observed reports.
+A subscription can select typed report kinds, project-specific filters, a
+receiver, and a callback gas limit. The contract should make its payment,
+retry, ordering, and removal rules explicit.
 
-function minimumCallbackBalance(
-    uint64 callbackGasLimit
-) external view returns (uint256);
-```
+Neither report submission nor callback delivery should iterate an unbounded
+subscriber set. Limit each transaction to a fixed-size batch, let relayers
+target matching subscribers explicitly, or let subscribers pull verified
+reports. Catch callback failures so one receiver cannot revert delivery to
+others, and require receiver callbacks to be idempotent.
 
-The caller is always the subscriber: a contract cannot subscribe or unsubscribe
-another address. One fixed-size subscription per contract and domain keeps
-lookup and update costs bounded. The event mask and optional single-netuid and
-single-account filters let a subscriber narrow delivery without storing or
-iterating an arbitrary filter list.
+Every successful relay submission has an EVM transaction and receipt. Projects
+must decide whether relayers fund these transactions, subscribers prepay for
+delivery, or another project account subsidizes them.
 
-`subscribe` succeeds only when the contract's own TAO balance can fund the
-documented minimum number of callback attempts at its selected gas limit. Each
-attempt is charged to that same balance. If the balance can no longer pay for
-an attempt, the subscription is automatically removed. A reverting callback is
-charged for the work it consumed and cannot revert the runtime operation that
-produced the event.
+### Relayer trust and security
 
-### Typed callbacks and delivery
+A single relay signer is the simplest design but makes that signer a trusted
+oracle. Projects that need stronger guarantees can use an independently
+operated committee with an explicit `M-of-N` multisignature, a threshold
+signature scheme, or another auditable quorum mechanism. The reporting
+contract must define signer enrollment, quorum, key rotation, emergency
+revocation, and version upgrades.
 
-Every report has a stable, event-specific callback selector. Substrate account
-IDs are represented as `bytes32`, and TAO and Alpha balances are multiplied by
-`10^9` for EVM's 18-decimal convention. New source events add callback
-selectors; released callbacks are never changed, removed, or reused.
+Relay implementations should also:
 
-Callbacks are asynchronous notifications, not part of the transaction or hook
-that produced the source event. Every callback includes a monotonically
-increasing sequence and source block number so receivers can order deliveries
-and detect a gap. A receiver must make its callback idempotent and must not
-assume delivery in the source event's block.
+- wait for the documented source-chain finality condition;
+- use deterministic report encoding and reject duplicate event identifiers;
+- expose sequences or source positions so receivers can detect gaps;
+- tolerate delayed, reordered, and repeated submissions;
+- bound report size, callback gas, batch size, and retained on-chain history;
+- separate observation from submission so any permitted party can submit a
+  valid quorum-authorized report; and
+- provide a reconciliation path through typed precompile views when a report is
+  missing or disputed.
 
-The runtime must not iterate every subscriber while emitting an event. Instead,
-emission appends one fixed-size typed report to a bounded queue in O(1), and a
-bounded amount of later block work advances a subscriber cursor one delivery at
-a time. Callback gas is capped, delivery is protected against reentrancy, and a
-callback cannot recursively create more callback work.
-
-Variable-length pallet events are normalized into bounded item callbacks. For
-example, miner emissions are reported one UID at a time and a batch of weight
-hashes is reported one hash at a time, with the same source sequence plus item
-index and item count. The adapter must produce those items incrementally at the
-source rather than copy or ABI-encode an unbounded vector.
-
-The queue has a fixed capacity so event reporting cannot grow runtime memory
-without bound. If delivery falls behind far enough to overwrite an undelivered
-report, the next successful callback exposes the sequence gap. Event callbacks
-are therefore best-effort integration signals; contracts that require
-authoritative recovery must use the corresponding typed view.
+Contracts must not treat relayed events as consensus-authenticated merely
+because they describe on-chain activity. Their integrity depends on the relay
+committee and verification rules, while their availability depends on relay
+operators continuing to observe and submit reports.
 
 ## Function lifecycle
 
