@@ -244,6 +244,9 @@ fn emission_gate_concentrates_1_to_2_price_split() {
         let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
 
+        // Pin to q-mass (quantile) mode; this test asserts quantile bar selection.
+        EmissionBarRank::<Test>::set(0);
+
         System::set_block_number(0);
         SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
         SubnetMovingPrice::<Test>::insert(n2, i96f32(2.0));
@@ -306,6 +309,9 @@ fn emission_gate_bar_update_cadence() {
         let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
         let n3 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        // Pin to q-mass (quantile) mode; this test asserts quantile bar selection.
+        EmissionBarRank::<Test>::set(0);
 
         System::set_block_number(0);
         // Shares 0.7, 0.2, 0.1. q = 0.61 crosses on the first → theta = 0.7.

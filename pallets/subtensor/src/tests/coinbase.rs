@@ -386,6 +386,8 @@ fn test_coinbase_tao_issuance_different_prices() {
         // so it should receive twice the TAO emission.
         SubnetMovingPrice::<Test>::insert(netuid1, I96F32::from_num(0.1));
         SubnetMovingPrice::<Test>::insert(netuid2, I96F32::from_num(0.2));
+        // Pin to q-mass (quantile) mode; this test asserts quantile gate math.
+        EmissionBarRank::<Test>::set(0);
         // Keep root_proportion ~1 so the injection cap does not bind.
         set_full_injection_root_stake();
 
@@ -670,6 +672,8 @@ fn test_coinbase_alpha_issuance_different() {
         // Price-based shares with prices 1 and 2 (1:2 ratio).
         SubnetMovingPrice::<Test>::insert(netuid1, I96F32::from_num(1));
         SubnetMovingPrice::<Test>::insert(netuid2, I96F32::from_num(2));
+        // Pin to q-mass (quantile) mode; this test asserts quantile gate math.
+        EmissionBarRank::<Test>::set(0);
         // Keep root_proportion ~1 so the injection cap does not bind.
         set_full_injection_root_stake();
         // Run coinbase
