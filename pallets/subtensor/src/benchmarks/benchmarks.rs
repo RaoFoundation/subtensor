@@ -2018,21 +2018,8 @@ mod pallet_benchmarks {
 
     #[benchmark]
     fn sudo_set_root_claim_threshold() {
-        let coldkey: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("A", 0, 1);
-
-        let netuid = Subtensor::<T>::get_next_netuid();
-
-        let lock_cost = Subtensor::<T>::get_network_lock_cost();
-        add_balance_to_coldkey_account::<T>(&coldkey, lock_cost.into());
-
-        assert_ok!(Subtensor::<T>::register_network(
-            RawOrigin::Signed(coldkey.clone()).into(),
-            hotkey.clone()
-        ));
-
         #[extrinsic_call]
-        _(RawOrigin::Root, netuid, 100);
+        _(RawOrigin::Root, NetUid::ROOT, 100);
     }
 
     #[benchmark]
