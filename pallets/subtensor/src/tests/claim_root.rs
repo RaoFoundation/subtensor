@@ -32,10 +32,15 @@ pub(super) fn set_root_weights_direct(hotkey: &U256, uid: u16, dests: &[(NetUid,
 }
 
 /// Ensure a subnet has deep, balanced AMM reserves so basket swaps execute with negligible
-/// slippage and never fail for lack of liquidity.
+/// slippage and never fail for lack of liquidity. Also funds the subnet free-balance pot so
+/// protocol redeploys can physically move sold TAO onto destination accounts.
 pub(super) fn fund_pool(netuid: NetUid) {
-    SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
+    let tao = TaoBalance::from(1_000_000_000_000u64);
+    SubnetTAO::<Test>::insert(netuid, tao);
     SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+    if let Some(subnet_account) = SubtensorModule::get_subnet_account_id(netuid) {
+        add_balance_to_coldkey_account(&subnet_account, tao);
+    }
 }
 
 /// Claims are fund-level and consult only the ROOT threshold entry; zero it for tests that

@@ -5,7 +5,6 @@ use frame_support::storage_alias;
 use frame_support::weights::Weight;
 use scale_info::TypeInfo;
 use scale_info::prelude::string::String;
-use sp_std::collections::btree_map::BTreeMap;
 use sp_std::vec::Vec;
 use substrate_fixed::types::{I96F32, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUid};
@@ -72,10 +71,6 @@ pub struct HotkeyConvertState {
     pub fund_rate: I96F32,
     /// Unified fund shares accumulated from fully-completed slots.
     pub fund_shares: u64,
-    /// Per-coldkey claimed-shares accumulator, keyed by SCALE-encoded `T::AccountId`.
-    /// Populated incrementally as `RootClaimed` rows are drained — including rows from the
-    /// in-progress slot — since each coldkey's contribution is independent of the slot's total.
-    pub fund_claimed: BTreeMap<Vec<u8>, i128>,
     /// Subnet slots that have contributed outstanding shares so far, for the seeded-slots
     /// log/weight accounting.
     pub seeded_slots: u64,
@@ -380,31 +375,17 @@ fn convert_hotkey_step<T: Config>(
     );
     weight.saturating_accrue(T::DbWeight::get().reads(2));
 
-    let (
-        mut done_through,
-        mut partial,
-        mut fund_rate,
-        mut fund_shares,
-        mut fund_claimed,
-        mut seeded_slots,
-    ) = match resume {
-        Some(state) => (
-            state.done_through,
-            state.partial,
-            state.fund_rate,
-            state.fund_shares,
-            state.fund_claimed,
-            state.seeded_slots,
-        ),
-        None => (
-            None,
-            None,
-            I96F32::saturating_from_num(0),
-            0u64,
-            BTreeMap::new(),
-            0u64,
-        ),
-    };
+    let (mut done_through, mut partial, mut fund_rate, mut fund_shares, mut seeded_slots) =
+        match resume {
+            Some(state) => (
+                state.done_through,
+                state.partial,
+                state.fund_rate,
+                state.fund_shares,
+                state.seeded_slots,
+            ),
+            None => (None, None, I96F32::saturating_from_num(0), 0u64, 0u64),
+        };
 
     // Copied once: subsequent slots are always greater in `BTreeMap` order, so the filter never
     // needs to observe `done_through` updates made later in this loop.
@@ -470,10 +451,15 @@ fn convert_hotkey_step<T: Config>(
             let claimed_shares: i128 = U96F32::saturating_from_num(claimed)
                 .saturating_mul(price)
                 .saturating_to_num::<i128>();
-            fund_claimed
-                .entry(coldkey.encode())
-                .and_modify(|c| *c = c.saturating_add(claimed_shares))
-                .or_insert(claimed_shares);
+            // Write the watermark incrementally — never accumulate claimants in the cursor
+            // value (that map grows without bound across resumes and would also make the
+            // hotkey-completion flush unbounded). Bounded by `claimed_budget` per pass.
+            if claimed_shares != 0 {
+                BasketClaimed::<T>::mutate(hotkey, &coldkey, |c| {
+                    *c = c.saturating_add(claimed_shares);
+                });
+                weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
+            }
             RootClaimed::<T>::remove((*netuid, hotkey, &coldkey));
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
             *claimed_budget = claimed_budget.saturating_sub(1);
@@ -491,7 +477,6 @@ fn convert_hotkey_step<T: Config>(
                 )),
                 fund_rate,
                 fund_shares,
-                fund_claimed,
                 seeded_slots,
             });
         }
@@ -571,23 +556,6 @@ fn convert_hotkey_step<T: Config>(
     if fund_shares != 0 {
         BasketShares::<T>::insert(hotkey, fund_shares);
         weight.saturating_accrue(T::DbWeight::get().writes(1));
-    }
-    for (coldkey_enc, claimed) in fund_claimed {
-        if claimed != 0 {
-            match T::AccountId::decode(&mut coldkey_enc.as_slice()) {
-                Ok(coldkey) => {
-                    BasketClaimed::<T>::insert(hotkey, coldkey, claimed);
-                    weight.saturating_accrue(T::DbWeight::get().writes(1));
-                }
-                Err(_) => {
-                    // Cannot happen: `coldkey_enc` was produced by encoding a valid
-                    // `T::AccountId` a few lines above. Never stall on it regardless.
-                    log::error!(
-                        "Migration 'migrate_seed_beta_basket_v2' failed to decode an accumulated coldkey; its claimed-shares watermark was dropped."
-                    );
-                }
-            }
-        }
     }
 
     ConvertOutcome::Done(seeded_slots)

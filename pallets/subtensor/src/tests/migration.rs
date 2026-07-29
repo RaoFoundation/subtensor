@@ -5499,6 +5499,12 @@ fn test_migrate_seed_beta_basket_claimed_drain_bounded_resumable() {
             remaining_rows as u64,
             NUM_COLDKEYS - u64::from(CLAIMED_DRAINS_PER_PASS)
         );
+        // Claimant watermarks are written incrementally (not deferred in the cursor map): the
+        // drained rows must already have BasketClaimed entries mid-hotkey.
+        let mid_claimed_rows = (0..NUM_COLDKEYS)
+            .filter(|i| BasketClaimed::<Test>::get(hotkey, U256::from(5_000 + i)) != 0)
+            .count();
+        assert_eq!(mid_claimed_rows as u32, CLAIMED_DRAINS_PER_PASS);
 
         // Drive remaining passes (mirrors on_idle) until fully converted.
         let mut passes = 1u32;

@@ -18,8 +18,12 @@ const DRAINED_FUND_DUST_DIVISOR: u64 = 100;
 /// deployment engine (`deploy_tao_into_basket`); this is the only difference between them.
 #[derive(Clone, Copy)]
 enum BasketFunding<'a, AccountId> {
-    /// Dividend TAO already inside the pools (protocol redeployment); swap fees are dropped.
-    Protocol,
+    /// Dividend TAO realized by selling origin-subnet alpha. Swap fees are dropped. The sell
+    /// drops `SubnetTAO[origin]` but leaves the free balance on the origin subnet account, so
+    /// each destination slice must be physically moved from `origin_netuid` before that dest's
+    /// reserves are credited — otherwise dest/root pots accrue an accounting surplus with no
+    /// cash, and later `transfer_tao_from_subnet` on claim/unstake fails.
+    Protocol { origin_netuid: NetUid },
     /// TAO transferred in from this user's balance; swap fees are charged.
     User(&'a AccountId),
 }
@@ -233,7 +237,7 @@ impl<T: Config> Pallet<T> {
             hotkey,
             valid,
             tao_total.to_u64(),
-            BasketFunding::Protocol,
+            BasketFunding::Protocol { origin_netuid },
         )?;
 
         // 3. Attribution: the dividend was earned by the whole root stake, escrow slot
@@ -287,10 +291,11 @@ impl<T: Config> Pallet<T> {
     /// the alpha entered, so entries must record the matching inflow or round trips skew the
     /// flow EMA.
     ///
-    /// `funding` is the only difference between the two deposit paths: protocol dividends
-    /// already live inside the pools (fees dropped), while user deposits are physically
-    /// transferred from the coldkey's balance to each destination subnet account first (fees
-    /// charged).
+    /// `funding` is the only difference between the two deposit paths: both must land free
+    /// balance on each destination subnet account before that dest's reserves are credited.
+    /// Protocol dividends move cash from the origin subnet pot (left there by the preceding
+    /// sell); user deposits pull from the coldkey. Swap fees are dropped for protocol, charged
+    /// for users.
     ///
     /// Returns `(nav_before, value_added)`: the realizable NAV snapshotted immediately before
     /// the buys, and the realizable NAV the deployment actually added (ΔNAV, post-buy minus
@@ -325,16 +330,26 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            if let BasketFunding::User(coldkey) = funding {
-                // Physically move the staker's TAO to the destination subnet account:
-                // basket buys here are real user stake entering the system, unlike
-                // dividend redeployments whose TAO already lives inside the pools.
-                let transferred =
-                    Self::transfer_tao_to_subnet(*dest_netuid, coldkey, tao_s.into())?;
-                ensure!(
-                    transferred == TaoBalance::from(tao_s),
-                    Error::<T>::InsufficientTaoBalance
-                );
+            match funding {
+                BasketFunding::User(coldkey) => {
+                    // Physically move the staker's TAO to the destination subnet account.
+                    let transferred =
+                        Self::transfer_tao_to_subnet(*dest_netuid, coldkey, tao_s.into())?;
+                    ensure!(
+                        transferred == TaoBalance::from(tao_s),
+                        Error::<T>::InsufficientTaoBalance
+                    );
+                }
+                BasketFunding::Protocol { origin_netuid } => {
+                    // The origin sell left free TAO on the origin pot while dropping
+                    // SubnetTAO[origin]. Move each slice onto the dest pot before crediting
+                    // dest reserves. Same-subnet redeploy: the surplus already sits on dest.
+                    if origin_netuid != *dest_netuid {
+                        let dest_account = Self::get_subnet_account_id(*dest_netuid)
+                            .ok_or(Error::<T>::SubnetNotExists)?;
+                        Self::transfer_tao_from_subnet(origin_netuid, &dest_account, tao_s.into())?;
+                    }
+                }
             }
 
             if dest_netuid.is_root() {
@@ -347,7 +362,7 @@ impl<T: Config> Pallet<T> {
                 );
                 Self::credit_root_reserves(tao_s.into());
             } else {
-                let drop_fees = matches!(funding, BasketFunding::Protocol);
+                let drop_fees = matches!(funding, BasketFunding::Protocol { .. });
                 let bought = Self::swap_tao_for_alpha(
                     *dest_netuid,
                     tao_s.into(),
@@ -359,11 +374,12 @@ impl<T: Config> Pallet<T> {
                     // Dust slice whose swap rounds to zero alpha: a user deposit must not
                     // silently donate its TAO to the pool (mirrors `stake_into_subnet`'s
                     // zero-out rejection), so the whole deposit rolls back. A protocol
-                    // dividend tolerates the dust slice and skips it — without booking an
-                    // inflow that would never see a matching claim outflow.
+                    // dividend tolerates the dust slice and skips the escrow credit — the
+                    // physical transfer (and any reserve bump from the zero-alpha swap)
+                    // stays on dest as a pool donation, matching prior behaviour.
                     match funding {
                         BasketFunding::User(_) => return Err(Error::<T>::AmountTooLow.into()),
-                        BasketFunding::Protocol => continue,
+                        BasketFunding::Protocol { .. } => continue,
                     }
                 }
                 // Record the buy as protocol inflow (TAO entered the pool).
