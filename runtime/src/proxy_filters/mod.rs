@@ -479,6 +479,7 @@ mod tests {
                 "SubtensorModule::unstake_all_alpha",
                 "SubtensorModule::move_stake",
                 "SubtensorModule::set_min_collateral",
+                "SubtensorModule::stake_into_basket",
                 "SubtensorModule::swap_stake",
                 "SubtensorModule::swap_stake_limit",
             ])
