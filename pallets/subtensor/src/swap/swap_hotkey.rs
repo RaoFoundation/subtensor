@@ -848,10 +848,10 @@ impl<T: Config> Pallet<T> {
                 // 9. Migrate the validator's whole basket fund only for the root subnet: shares,
                 // rate, per-coldkey claimed watermarks, and every escrow holding move by value.
                 // The clean-hotkey guard above makes this a move, not a merge. Claimant rows are
-                // hard-bounded (and charged) inside `transfer_basket_for_new_hotkey`.
+                // unbounded (like stake coldkeys); charge weight for each watermark moved.
                 let num_holdings = Self::get_basket_holdings(old_hotkey).len() as u64;
                 let claimed_count =
-                    Self::transfer_basket_for_new_hotkey(old_hotkey, new_hotkey)? as u64;
+                    Self::transfer_basket_for_new_hotkey(old_hotkey, new_hotkey) as u64;
                 let ops = num_holdings
                     .saturating_mul(2)
                     .saturating_add(4)

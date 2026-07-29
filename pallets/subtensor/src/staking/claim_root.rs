@@ -1,6 +1,6 @@
 use super::*;
 use frame_support::storage::{TransactionOutcome, with_transaction};
-use frame_support::weights::Weight;
+use frame_support::weights::{Weight, WeightMeter};
 use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_runtime::traits::AccountIdConversion;
@@ -878,12 +878,13 @@ impl<T: Config> Pallet<T> {
     /// clean on root (enforced by `do_swap_hotkey`), so this is a move, not a merge.
     ///
     /// Returns the number of `BasketClaimed` rows moved so the caller can charge weight.
-    /// Rejects when the claimant prefix exceeds [`crate::MAX_ROOT_CLAIM_WORK`] — same hard
-    /// bound as `claim_root` — so a fixed-weight root swap cannot drain an unbounded map.
+    /// Claimant rows are unbounded (same class of work as moving stake coldkeys): a popular
+    /// root validator must still be able to hotkey-swap; the extrinsic pays the resulting
+    /// weight rather than hard-failing above [`crate::MAX_ROOT_CLAIM_WORK`].
     pub fn transfer_basket_for_new_hotkey(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
-    ) -> Result<u32, DispatchError> {
+    ) -> u32 {
         let shares = BasketShares::<T>::take(old_hotkey);
         if shares != 0 {
             BasketShares::<T>::mutate(new_hotkey, |p| *p = p.saturating_add(shares));
@@ -904,15 +905,9 @@ impl<T: Config> Pallet<T> {
             BasketRedeemedTao::<T>::mutate(new_hotkey, |t| *t = t.saturating_add(redeemed));
         }
 
-        // Bound the claimant prefix before mutating: one row per historical coldkey.
-        let mut claimed_entries: Vec<(T::AccountId, i128)> = Vec::new();
-        for (coldkey, claimed) in BasketClaimed::<T>::iter_prefix(old_hotkey) {
-            ensure!(
-                (claimed_entries.len() as u32) < crate::MAX_ROOT_CLAIM_WORK,
-                Error::<T>::TooManyRootClaimHoldings
-            );
-            claimed_entries.push((coldkey, claimed));
-        }
+        // One row per historical coldkey — may be large; weight is charged by the caller.
+        let claimed_entries: Vec<(T::AccountId, i128)> =
+            BasketClaimed::<T>::iter_prefix(old_hotkey).collect();
         let claimed_count = claimed_entries.len() as u32;
         for (coldkey, claimed) in claimed_entries {
             BasketClaimed::<T>::remove(old_hotkey, &coldkey);
@@ -931,21 +926,44 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        Ok(claimed_count)
+        claimed_count
     }
 
-    /// Converts every validator's basket holding on a dissolving subnet into the fund's root
-    /// (TAO) slot: the escrow alpha is sold once and the proceeds are held as root stake under
-    /// the same escrow position. Fund shares, rates, and watermarks are untouched — the fund's
-    /// NAV is continuous across the conversion (minus slippage), so no per-staker accounting is
-    /// needed. Best-effort: a failed swap is logged and the slot is left for generic teardown.
-    pub fn convert_subnet_basket_holdings_to_root(netuid: NetUid) {
+    /// Converts validators' basket holdings on a dissolving subnet into each fund's root
+    /// (TAO) slot, metered and resumable via `last_key` over [`BasketShares`] keys.
+    ///
+    /// Escrow alpha is sold once per fund and held as root stake under the same escrow.
+    /// Fund shares, rates, and watermarks are untouched — NAV is continuous across the
+    /// conversion (minus slippage). Best-effort: a failed swap is logged and the slot is
+    /// left for generic teardown. Returns `(done, next_cursor)`.
+    pub fn convert_subnet_basket_holdings_to_root(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        // Budget covers stake reads, AMM swap bookkeeping, TAO transfer, root-slot credit,
+        // and the conversion event for one non-empty holding.
+        let per_key = T::DbWeight::get().reads_writes(25, 20);
         let escrow = Self::get_beta_escrow_account_id();
-        let hotkeys: Vec<T::AccountId> = BasketShares::<T>::iter_keys().collect();
 
-        for hotkey in hotkeys.iter() {
-            Self::convert_basket_holding_to_root(hotkey, &escrow, netuid);
+        let mut keys = match &last_key {
+            Some(raw_key) => BasketShares::<T>::iter_keys_from(raw_key.clone()),
+            None => BasketShares::<T>::iter_keys(),
+        };
+
+        // Preserve the inbound cursor if this call cannot afford even one key, so a tight
+        // weight budget does not rewind the scan and re-convert already-handled funds.
+        let mut cursor = last_key;
+        for hotkey in keys.by_ref() {
+            if !weight_meter.can_consume(per_key) {
+                return (false, cursor);
+            }
+            weight_meter.consume(per_key);
+            Self::convert_basket_holding_to_root(&hotkey, &escrow, netuid);
+            cursor = Some(BasketShares::<T>::hashed_key_for(hotkey));
         }
+
+        (true, None)
     }
 
     fn convert_basket_holding_to_root(

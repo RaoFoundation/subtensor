@@ -51,11 +51,16 @@ pub enum DissolveCleanupPhase {
     NetworkLock,
     /// Phase 5.12: Remove decaying lock entries for this netuid.
     NetworkDecayingLock,
+    /// Phase 0: Convert each validator's beta-basket holding on this subnet into the fund's
+    /// root (TAO) slot. Must finish before stake / protocol-liquidity teardown so the AMM and
+    /// escrow alpha still exist. Appended (not inserted) so in-flight cleanup discriminants stay
+    /// stable; new dissolves start here via [`Default`].
+    SubnetBasketHoldingsToRoot,
 }
 
 impl Default for DissolveCleanupPhase {
     fn default() -> Self {
-        Self::SubnetRootDividendsRootClaimable
+        Self::SubnetBasketHoldingsToRoot
     }
 }
 
@@ -124,10 +129,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NetworkDissolveAlreadyQueued
         );
 
-        // Convert every validator's beta-basket holding on this subnet into the fund's root
-        // (TAO) slot while the AMM pool is still intact; the deferred cleanup phases below
-        // only handle legacy claim state and generic stake teardown.
-        Self::convert_subnet_basket_holdings_to_root(netuid);
+        // Basket holdings are converted to each fund's root slot in the metered
+        // `SubnetBasketHoldingsToRoot` cleanup phase (before stake / AMM teardown).
 
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
@@ -666,6 +669,22 @@ impl<T: Config> Pallet<T> {
             );
 
             let done = match &status.phase {
+                DissolveCleanupPhase::SubnetBasketHoldingsToRoot => {
+                    let (done, new_key) = Self::convert_subnet_basket_holdings_to_root(
+                        netuid,
+                        weight_meter,
+                        status.last_key.clone(),
+                    );
+
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
+                        status.last_key = None;
+                    } else {
+                        status.last_key = new_key;
+                    }
+                    done
+                }
+
                 DissolveCleanupPhase::SubnetRootDividendsRootClaimable => {
                     let (done, new_key) = Self::clean_up_root_claimable_for_subnet(
                         netuid,

@@ -782,9 +782,10 @@ fn test_root_basket_dissolve_converts_to_root_slot() {
         assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), 0);
         let shares_before = fund_shares(&hotkey);
 
-        // Dissolving the subnet converts the holding into the fund's root (TAO) slot: shares,
-        // rates, and watermarks are untouched — NAV is continuous minus slippage.
+        // Dissolving queues the subnet; metered cleanup converts the holding into the fund's
+        // root (TAO) slot. Shares, rates, and watermarks are untouched — NAV continuous minus slippage.
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        run_block_idle();
 
         assert_eq!(escrow_alpha(&hotkey, netuid), 0);
         assert!(
@@ -858,6 +859,7 @@ fn test_root_basket_dissolve_preserves_owed_not_stake() {
         assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), 0);
 
         assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        run_block_idle();
 
         // Owed entitlements are untouched by the conversion.
         assert!(SubtensorModule::get_basket_owed_shares(&hotkey, &alice) > 0);
