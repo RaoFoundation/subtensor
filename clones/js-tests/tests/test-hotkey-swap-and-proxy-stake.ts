@@ -170,7 +170,8 @@ async function exerciseHotkeySwap(netuid) {
     api.tx.subtensorModule.swapHotkeyV2(oldHotkey.address, newHotkey.address, netuid, false),
     "swap hotkey v2"
   );
-  assertEvent(result.events, "subtensorModule", "HotkeySwapped");
+  // Single-subnet path emits HotkeySwappedOnSubnet; all-subnets emits HotkeySwapped.
+  assertEvent(result.events, "subtensorModule", "HotkeySwappedOnSubnet");
 
   const oldMembership = await api.query.subtensorModule.isNetworkMember(oldHotkey.address, netuid);
   const newMembership = await api.query.subtensorModule.isNetworkMember(newHotkey.address, netuid);
