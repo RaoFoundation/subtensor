@@ -15,7 +15,7 @@ the hotkey, which must be registered on the subnet. Use plain
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.serve_axon_tls`](/code/pallets/subtensor/src/macros/dispatches.rs#L723-L749) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.serve_axon_tls`](/code/pallets/subtensor/src/macros/dispatches.rs#L724-L750) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("serve_axon_tls", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.serve_axon_tls` — [`pallets/subtensor/src/macros/dispatches.rs#L725`](/code/pallets/subtensor/src/macros/dispatches.rs#L723-L749):
+`SubtensorModule.serve_axon_tls` — [`pallets/subtensor/src/macros/dispatches.rs#L726`](/code/pallets/subtensor/src/macros/dispatches.rs#L724-L750):
 
 ```rust
 #[pallet::call_index(40)]

@@ -23,7 +23,7 @@ set this vector to customize subnet allocation. Read it back with the
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L90-L99) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L91-L100) |
 
 ## Parameters
 
@@ -72,7 +72,7 @@ result = sub.execute_tool("set_root_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L92`](/code/pallets/subtensor/src/macros/dispatches.rs#L90-L99):
+`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L93`](/code/pallets/subtensor/src/macros/dispatches.rs#L91-L100):
 
 ```rust
 #[pallet::call_index(146)]

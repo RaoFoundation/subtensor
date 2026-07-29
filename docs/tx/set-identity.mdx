@@ -17,7 +17,7 @@ cosmetic: no effect on balances, stake, or permissions.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_identity`](/code/pallets/subtensor/src/macros/dispatches.rs#L1141-L1163) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_identity`](/code/pallets/subtensor/src/macros/dispatches.rs#L1142-L1164) |
 
 ## Parameters
 
@@ -72,7 +72,7 @@ result = sub.execute_tool("set_identity", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_identity` — [`pallets/subtensor/src/macros/dispatches.rs#L1143`](/code/pallets/subtensor/src/macros/dispatches.rs#L1141-L1163):
+`SubtensorModule.set_identity` — [`pallets/subtensor/src/macros/dispatches.rs#L1144`](/code/pallets/subtensor/src/macros/dispatches.rs#L1142-L1164):
 
 ```rust
 #[pallet::call_index(68)]

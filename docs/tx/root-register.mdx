@@ -19,7 +19,7 @@ until the window passes. Use `burned_register` for ordinary subnets.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L831-L835) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L832-L836) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("root_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L833`](/code/pallets/subtensor/src/macros/dispatches.rs#L831-L835):
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L834`](/code/pallets/subtensor/src/macros/dispatches.rs#L832-L836):
 
 ```rust
 #[pallet::call_index(62)]
