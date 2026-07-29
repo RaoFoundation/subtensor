@@ -63,7 +63,22 @@ capped at `root_proportion × alpha_emission`, where
 As a subnet ages its alpha issuance grows, the cap falls, and the TAO that
 can no longer be injected as liquidity is instead swapped for alpha on the
 subnet's own pool — buying pressure that transitions mature subnets from
-liquidity injection to chain buybacks. Alpha bought this way accumulates as
+liquidity injection to chain buybacks. A subnet's chain buy is capped at the
+spot-TAO value of the alpha actually allocated to miners:
+
+```
+allocated_miner_alpha_i =
+  alpha_out_i × (1 − owner_cut_i) × 50% × (1 − miner_burned_i)
+
+chain_buy_i = min(excess_tao_i, allocated_miner_alpha_i × spot_price_i)
+```
+
+`miner_burned` is the proportion recorded by the subnet's last settled tempo
+for miner incentive directed to owner/immune burn or recycle UIDs. Those
+withheld emissions do not support chain-buy capacity; at 100% miner burn, the
+cap is zero. If owner cut is disabled, the miner half is calculated from the
+full `alpha_out`. TAO above the cap is not reassigned or issued; the unused
+coinbase credit is recycled. Alpha bought by the chain-buy path accumulates as
 protocol-owned alpha.
 
 <RootProportionExplainer />

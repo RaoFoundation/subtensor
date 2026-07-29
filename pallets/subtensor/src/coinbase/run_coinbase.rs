@@ -219,6 +219,9 @@ impl<T: Config> Pallet<T> {
         let mut alpha_in: BTreeMap<NetUid, U96F32> = BTreeMap::new();
         let mut alpha_out: BTreeMap<NetUid, U96F32> = BTreeMap::new();
         let mut excess_tao: BTreeMap<NetUid, U96F32> = BTreeMap::new();
+        let owner_cut_percent = Self::get_float_subnet_owner_cut();
+        let one = asfloat!(1);
+        let miner_share = asfloat!(0.5);
 
         // Only calculate for subnets that we are emitting to.
         for (&netuid_i, &tao_emission_i) in subnet_emissions.iter() {
@@ -251,7 +254,23 @@ impl<T: Config> Pallet<T> {
                 tao_in_i = alpha_in_i.saturating_mul(price_i);
             }
 
-            let excess_amount: U96F32 = tao_emission_i.saturating_sub(tao_in_i);
+            // Chain buys may consume at most the TAO value of miner alpha actually
+            // allocated by the last settled tempo. Start from the miner half of
+            // alpha_out after owner cut, then exclude the proportion withheld from
+            // miners by burn/recycle UIDs. If owner cut is disabled, miners receive
+            // half of the full alpha_out before the burn adjustment.
+            let participant_alpha_i = if Self::get_owner_cut_enabled(netuid_i) {
+                alpha_emission_i.saturating_sub(alpha_emission_i.saturating_mul(owner_cut_percent))
+            } else {
+                alpha_emission_i
+            };
+            let miner_burned_i = MinerBurned::<T>::get(netuid_i).min(one);
+            let allocated_miner_alpha_i = participant_alpha_i
+                .saturating_mul(miner_share)
+                .saturating_mul(one.saturating_sub(miner_burned_i));
+            let chain_buy_cap_i = allocated_miner_alpha_i.saturating_mul(price_i);
+            let excess_amount: U96F32 =
+                tao_emission_i.saturating_sub(tao_in_i).min(chain_buy_cap_i);
             excess_tao.insert(netuid_i, excess_amount);
 
             // Insert values into maps

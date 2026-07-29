@@ -742,7 +742,6 @@ fn test_coinbase_alpha_issuance_with_cap_trigger_and_block_emission() {
         let netuid1 = NetUid::from(1);
         let netuid2 = NetUid::from(2);
         let emission: u64 = 1_000_000;
-        let emission_credit = SubtensorModule::mint_tao(emission.into());
         add_network(netuid1, 1, 0);
         add_network(netuid2, 1, 0);
 
@@ -777,35 +776,46 @@ fn test_coinbase_alpha_issuance_with_cap_trigger_and_block_emission() {
         SubnetAlphaOut::<Test>::insert(netuid2, AlphaBalance::from(21_000_000_000_000_000_u64)); // Set issuance above 21M
 
         // Run coinbase
+        let issuance_before = TotalIssuance::<Test>::get();
+        let emission_credit = SubtensorModule::mint_tao(emission.into());
         SubtensorModule::run_coinbase(emission_credit);
 
-        // New behavior: chain-bought alpha is cached instead of recycled.
-        // The cached amount remains part of outstanding alpha supply.
-        assert!(
-            !SubnetProtocolAlpha::<Test>::get(netuid1).is_zero()
-                || !SubnetProtocolAlpha::<Test>::get(netuid2).is_zero()
+        // At the alpha supply cap there is no miner or validator alpha emission,
+        // so the chain-buy cap is zero and all of the TAO credit is recycled.
+        assert_eq!(
+            SubnetProtocolAlpha::<Test>::get(netuid1),
+            AlphaBalance::ZERO
         );
+        assert_eq!(
+            SubnetProtocolAlpha::<Test>::get(netuid2),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(TotalIssuance::<Test>::get(), issuance_before);
 
         // Get the prices after the run_coinbase
         let price_1_after = <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid1);
         let price_2_after = <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid2);
 
-        // AlphaIn gets decreased beacuse of a buy
-        assert!(u64::from(SubnetAlphaIn::<Test>::get(netuid1)) < initial_alpha);
+        // No chain buy means pool reserves and prices remain unchanged.
         assert_eq!(
-            u64::from(SubnetAlphaOut::<Test>::get(netuid2)),
-            21_000_000_000_000_000_u64
-                .saturating_add(u64::from(SubnetProtocolAlpha::<Test>::get(netuid2)))
+            u64::from(SubnetAlphaIn::<Test>::get(netuid1)),
+            initial_alpha
         );
-        assert!(u64::from(SubnetAlphaIn::<Test>::get(netuid2)) < initial_alpha);
+        assert_eq!(
+            u64::from(SubnetAlphaOut::<Test>::get(netuid1)),
+            21_000_000_000_000_000_u64
+        );
+        assert_eq!(
+            u64::from(SubnetAlphaIn::<Test>::get(netuid2)),
+            initial_alpha
+        );
         assert_eq!(
             u64::from(SubnetAlphaOut::<Test>::get(netuid2)),
             21_000_000_000_000_000_u64
-                .saturating_add(u64::from(SubnetProtocolAlpha::<Test>::get(netuid2)))
         );
 
-        assert!(price_1_after > price_1_before);
-        assert!(price_2_after > price_2_before);
+        assert_eq!(price_1_after, price_1_before);
+        assert_eq!(price_2_after, price_2_before);
     });
 }
 
@@ -2039,6 +2049,7 @@ fn test_incentive_to_subnet_owner_is_burned() {
         assert_eq!(subnet_owner_stake_after, 0.into());
         let other_stake_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert!(other_stake_after > 0.into());
+        assert_eq!(MinerBurned::<Test>::get(netuid), U96F32::from_num(0.5));
     });
 }
 
@@ -2094,6 +2105,7 @@ fn test_incentive_to_subnet_owners_hotkey_is_burned() {
         assert_eq!(subnet_owner_stake_after, 0.into());
         let other_stake_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert_eq!(other_stake_after, 0.into());
+        assert_eq!(MinerBurned::<Test>::get(netuid), U96F32::from_num(1));
     });
 }
 
@@ -3676,6 +3688,128 @@ fn test_coinbase_subnet_terms_with_alpha_in_lte_alpha_emission() {
             excess_tao[&netuid0].to_num::<f64>(),
             tao_emission.to_num::<f64>() - tao_in[&netuid0].to_num::<f64>(),
             epsilon = 0.01
+        );
+    });
+}
+
+#[test]
+fn test_coinbase_chain_buy_is_capped_at_allocated_miner_alpha_value() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        mock::setup_reserves(
+            netuid,
+            TaoBalance::from(1_000_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_000_u64),
+        );
+        Swap::maybe_initialize_palswap(netuid, None);
+
+        // Force root_proportion to zero so the full subnet TAO allocation is
+        // eligible for the chain-buy path.
+        SubnetTAO::<Test>::insert(NetUid::ROOT, TaoBalance::ZERO);
+        SubnetOwnerCut::<Test>::set(u16::MAX / 10);
+        SubtensorModule::set_owner_cut_enabled_flag(netuid, true);
+        MinerBurned::<Test>::insert(netuid, U96F32::from_num(0));
+
+        let alpha_emission = U96F32::saturating_from_num(
+            SubtensorModule::get_block_emission_for_issuance(
+                SubtensorModule::get_alpha_issuance(netuid).into(),
+            )
+            .unwrap_or(0),
+        );
+        let price = U96F32::saturating_from_num(Swap::current_alpha_price(netuid));
+        let owner_cut =
+            alpha_emission.saturating_mul(SubtensorModule::get_float_subnet_owner_cut());
+        let participant_alpha = alpha_emission.saturating_sub(owner_cut);
+        let miner_alpha = participant_alpha.saturating_mul(U96F32::from_num(0.5));
+        let chain_buy_cap = miner_alpha.saturating_mul(price);
+        let tao_emission = chain_buy_cap.saturating_mul(U96F32::from_num(2));
+
+        let subnet_emissions = BTreeMap::from([(netuid, tao_emission)]);
+        let (tao_in, _, _, excess_tao) = SubtensorModule::get_subnet_terms(&subnet_emissions);
+
+        assert_eq!(tao_in[&netuid], U96F32::from_num(0));
+        assert_eq!(excess_tao[&netuid], chain_buy_cap);
+
+        // A chain buy already below the participant-emission value is unchanged.
+        let below_cap = chain_buy_cap.saturating_div(U96F32::from_num(2));
+        let subnet_emissions = BTreeMap::from([(netuid, below_cap)]);
+        let (_, _, _, excess_tao) = SubtensorModule::get_subnet_terms(&subnet_emissions);
+        assert_eq!(excess_tao[&netuid], below_cap);
+
+        // Miner emission withheld by burn/recycle UIDs reduces chain-buy
+        // capacity by the same proportion.
+        MinerBurned::<Test>::insert(netuid, U96F32::from_num(0.25));
+        let partially_burned_cap = chain_buy_cap.saturating_mul(U96F32::from_num(0.75));
+        let subnet_emissions = BTreeMap::from([(
+            netuid,
+            partially_burned_cap.saturating_mul(U96F32::from_num(2)),
+        )]);
+        let (_, _, _, excess_tao) = SubtensorModule::get_subnet_terms(&subnet_emissions);
+        assert_eq!(excess_tao[&netuid], partially_burned_cap);
+
+        // A subnet withholding all miner emission gets no chain-buy capacity.
+        MinerBurned::<Test>::insert(netuid, U96F32::from_num(1));
+        let subnet_emissions = BTreeMap::from([(netuid, chain_buy_cap)]);
+        let (_, _, _, excess_tao) = SubtensorModule::get_subnet_terms(&subnet_emissions);
+        assert_eq!(excess_tao[&netuid], U96F32::from_num(0));
+
+        // With owner cut disabled, the miner half is calculated from the full
+        // alpha_out amount before applying the burn adjustment.
+        SubtensorModule::set_owner_cut_enabled_flag(netuid, false);
+        MinerBurned::<Test>::insert(netuid, U96F32::from_num(0));
+        let full_miner_cap = alpha_emission
+            .saturating_mul(U96F32::from_num(0.5))
+            .saturating_mul(price);
+        let subnet_emissions =
+            BTreeMap::from([(netuid, full_miner_cap.saturating_mul(U96F32::from_num(2)))]);
+        let (_, _, _, excess_tao) = SubtensorModule::get_subnet_terms(&subnet_emissions);
+        assert_eq!(excess_tao[&netuid], full_miner_cap);
+    });
+}
+
+#[test]
+fn test_coinbase_recycles_tao_above_chain_buy_cap() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        mock::setup_reserves(
+            netuid,
+            TaoBalance::from(1_000_000_000_000_000_u64),
+            AlphaBalance::from(1_000_000_000_000_000_u64),
+        );
+        Swap::maybe_initialize_palswap(netuid, None);
+
+        SubnetTAO::<Test>::insert(NetUid::ROOT, TaoBalance::ZERO);
+        SubnetOwnerCut::<Test>::set(u16::MAX / 10);
+        SubtensorModule::set_owner_cut_enabled_flag(netuid, true);
+        MinerBurned::<Test>::insert(netuid, U96F32::from_num(0.25));
+
+        let alpha_emission = U96F32::saturating_from_num(
+            SubtensorModule::get_block_emission_for_issuance(
+                SubtensorModule::get_alpha_issuance(netuid).into(),
+            )
+            .unwrap_or(0),
+        );
+        let price = U96F32::saturating_from_num(Swap::current_alpha_price(netuid));
+        let miner_alpha = alpha_emission
+            .saturating_sub(
+                alpha_emission.saturating_mul(SubtensorModule::get_float_subnet_owner_cut()),
+            )
+            .saturating_mul(U96F32::from_num(0.5))
+            .saturating_mul(U96F32::from_num(0.75));
+        let chain_buy_cap = miner_alpha.saturating_mul(price);
+        let tao_emission = chain_buy_cap.saturating_mul(U96F32::from_num(2));
+        let tao_emission_balance = TaoBalance::from(tao_emission.saturating_to_num::<u64>());
+        let expected_chain_buy = TaoBalance::from(chain_buy_cap.saturating_to_num::<u64>());
+        let issuance_before = TotalIssuance::<Test>::get();
+
+        let credit = SubtensorModule::mint_tao(tao_emission_balance);
+        let subnet_emissions = BTreeMap::from([(netuid, tao_emission)]);
+        SubtensorModule::emit_to_subnets(&[netuid], &subnet_emissions, credit, false);
+
+        assert_eq!(SubnetExcessTao::<Test>::get(netuid), expected_chain_buy);
+        assert_eq!(
+            TotalIssuance::<Test>::get(),
+            issuance_before.saturating_add(expected_chain_buy)
         );
     });
 }
