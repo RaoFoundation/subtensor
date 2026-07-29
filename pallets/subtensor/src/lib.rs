@@ -69,6 +69,14 @@ pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 /// inspect.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 
+/// Pre-dispatch weight envelope for `stake_into_basket`: max usable weight-vector slots.
+/// Must match the extrinsic's declared weight cap.
+pub const MAX_STAKE_INTO_BASKET_SLOTS: u32 = 128;
+
+/// Pre-dispatch weight envelope for `stake_into_basket`: max holdings the two NAV sweeps
+/// may touch (existing positions plus one per slot).
+pub const MAX_STAKE_INTO_BASKET_HOLDINGS: u32 = 256;
+
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
     for SubtensorDustRemoval<T>

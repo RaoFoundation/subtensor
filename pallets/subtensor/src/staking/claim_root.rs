@@ -462,11 +462,20 @@ impl<T: Config> Pallet<T> {
 
         let valid = Self::get_valid_basket_weights(&hotkey);
         ensure!(!valid.is_empty(), Error::<T>::BasketHasNoWeights);
+        ensure!(
+            (valid.len() as u32) <= crate::MAX_STAKE_INTO_BASKET_SLOTS,
+            Error::<T>::TooManyBasketDepositSlots
+        );
 
         // Each weight slot can add at most one new holding, so pre-deploy holdings plus the
-        // slot count bounds the holdings the two NAV valuations will sweep.
-        let num_holdings =
-            (Self::get_basket_holdings(&hotkey).len() as u64).saturating_add(valid.len() as u64);
+        // slot count bounds the holdings the two NAV valuations will sweep. Reject above the
+        // declared pre-dispatch weight envelope so Substrate cannot undercharge the block.
+        let existing_holdings = Self::get_basket_holdings(&hotkey).len() as u64;
+        let num_holdings = existing_holdings.saturating_add(valid.len() as u64);
+        ensure!(
+            num_holdings <= crate::MAX_STAKE_INTO_BASKET_HOLDINGS as u64,
+            Error::<T>::TooManyBasketDepositHoldings
+        );
 
         with_transaction(
             || match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &valid) {

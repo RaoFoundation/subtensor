@@ -1957,13 +1957,21 @@ mod dispatches {
         ///   rounds to zero entitlement.
         /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.
         /// * `BasketHasNoWeights`: The validator's weight vector filters to nothing.
+        /// * `TooManyBasketDepositSlots`: Weight vector exceeds the declared weight cap.
+        /// * `TooManyBasketDepositHoldings`: Basket holdings exceed the declared weight cap.
         #[pallet::call_index(147)]
-        // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
-        // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
-        // sim-swap valuations); the actual weight is computed in `do_stake_into_basket`
-        // from the real slot and holding counts and refunded post-dispatch, mirroring
-        // `claim_root`.
-        #[pallet::weight((Pallet::<T>::stake_into_basket_weight(128, 256), DispatchClass::Normal, Pays::Yes))]
+        // Declared weight is a cap sized for [`MAX_STAKE_INTO_BASKET_SLOTS`] slots over
+        // [`MAX_STAKE_INTO_BASKET_HOLDINGS`] holdings (each slot: balance transfer + swap +
+        // escrow write; each holding: two NAV sim-swap valuations). `do_stake_into_basket`
+        // rejects above those bounds, then refunds actual weight post-dispatch.
+        #[pallet::weight((
+            Pallet::<T>::stake_into_basket_weight(
+                crate::MAX_STAKE_INTO_BASKET_SLOTS as u64,
+                crate::MAX_STAKE_INTO_BASKET_HOLDINGS as u64,
+            ),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn stake_into_basket(
             origin: OriginFor<T>,
             hotkey: T::AccountId,

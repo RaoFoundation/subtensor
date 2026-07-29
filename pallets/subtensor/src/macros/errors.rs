@@ -364,5 +364,11 @@ mod errors {
         /// Claims, direct basket deposits, and further root-touching swaps on the involved
         /// hotkeys are paused until `on_idle` finishes draining the retired prefix.
         BasketClaimedHotkeyMigrationInProgress,
+        /// `stake_into_basket` would deploy across more weight-vector slots than its
+        /// declared pre-dispatch weight envelope ([`crate::MAX_STAKE_INTO_BASKET_SLOTS`]).
+        TooManyBasketDepositSlots,
+        /// `stake_into_basket` would NAV-scan more holdings than its declared pre-dispatch
+        /// weight envelope ([`crate::MAX_STAKE_INTO_BASKET_HOLDINGS`]).
+        TooManyBasketDepositHoldings,
     }
 }

@@ -19,7 +19,7 @@ this as an unbounded spend and blocks it until the cap is raised. Use
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1323-L1341), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2426-L2446) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1323-L1341), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2434-L2454) |
 
 ## Parameters
 
@@ -107,7 +107,7 @@ pub fn transfer_stake(
 
 Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L120).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2428`](/code/pallets/subtensor/src/macros/dispatches.rs#L2426-L2446):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2436`](/code/pallets/subtensor/src/macros/dispatches.rs#L2434-L2454):
 
 ```rust
 #[pallet::call_index(143)]
