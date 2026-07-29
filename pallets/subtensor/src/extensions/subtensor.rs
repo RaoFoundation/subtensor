@@ -248,6 +248,13 @@ where
         _len: usize,
         _result: &sp_runtime::DispatchResult,
     ) -> Result<Weight, TransactionValidityError> {
+        // FRAME adds the complete extension precharge to the raw call-reported
+        // weight before running transaction-extension post-dispatch hooks. The
+        // state-dependent call overage is therefore already present in
+        // `post_info.actual_weight`; refunding less than the full reserve would
+        // charge that overage twice. Runtime ordering must keep transaction
+        // payment after this extension and WeightReclaim last so neither
+        // consumer caps the aggregate before this refund is applied.
         Ok(reserve)
     }
 }
@@ -444,7 +451,54 @@ mod tests {
     }
 
     #[test]
-    fn maximum_dispatch_reserve_is_refunded_after_success_and_failure() {
+    fn maximum_dispatch_reserve_refund_preserves_state_dependent_call_weight() {
+        new_test_ext(1).execute_with(|| {
+            let call = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
+                netuid: NetUid::from(1),
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            });
+            let reserve = SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call);
+            let declared_call_weight = call.get_dispatch_info().call_weight;
+            let other_extension_weight = Weight::from_parts(17, 19);
+            let info = frame_support::dispatch::DispatchInfo {
+                call_weight: declared_call_weight,
+                extension_weight: reserve.saturating_add(other_extension_weight),
+                ..call.get_dispatch_info()
+            };
+
+            // `set_extension_weight` adds the complete extension precharge to
+            // the raw weight reported by the call. The reserve must therefore
+            // be refunded in full: retaining the call's excess over its
+            // declaration happens automatically because that raw excess is
+            // still present and has not yet been capped.
+            for actual_call_weight in [
+                declared_call_weight / 2,
+                declared_call_weight,
+                declared_call_weight.saturating_add(reserve / 2),
+            ] {
+                let mut post_info = PostDispatchInfo {
+                    actual_weight: Some(actual_call_weight.saturating_add(info.extension_weight)),
+                    ..Default::default()
+                };
+
+                assert_ok!(<SubtensorTransactionExtension<Test> as TransactionExtension<
+                    RuntimeCall,
+                >>::post_dispatch(
+                    reserve, &info, &mut post_info, 0, &Ok(())
+                ));
+
+                assert_eq!(
+                    post_info.actual_weight,
+                    Some(actual_call_weight.saturating_add(other_extension_weight))
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn maximum_dispatch_reserve_is_refunded_after_failure() {
         new_test_ext(1).execute_with(|| {
             let call = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
                 netuid: NetUid::from(1),
@@ -456,12 +510,7 @@ mod tests {
             let info = call.get_dispatch_info();
             let post_info = PostDispatchInfo::default();
 
-            let success_result = <SubtensorTransactionExtension<Test> as TransactionExtension<
-                RuntimeCall,
-            >>::post_dispatch_details(
-                reserve, &info, &post_info, 0, &Ok(())
-            );
-            let failure_result = <SubtensorTransactionExtension<Test> as TransactionExtension<
+            let refunded = <SubtensorTransactionExtension<Test> as TransactionExtension<
                 RuntimeCall,
             >>::post_dispatch_details(
                 reserve,
@@ -469,18 +518,10 @@ mod tests {
                 &post_info,
                 0,
                 &Err(sp_runtime::DispatchError::Other("expected failure")),
-            );
-            let refunded_after_success = match success_result {
-                Ok(weight) => weight,
-                Err(error) => panic!("successful dispatch accounting failed: {error:?}"),
-            };
-            let refunded_after_failure = match failure_result {
-                Ok(weight) => weight,
-                Err(error) => panic!("failed dispatch accounting failed: {error:?}"),
-            };
+            )
+            .unwrap();
 
-            assert_eq!(refunded_after_success, reserve);
-            assert_eq!(refunded_after_failure, reserve);
+            assert_eq!(refunded, reserve);
         });
     }
 }

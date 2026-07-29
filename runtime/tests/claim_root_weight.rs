@@ -9,6 +9,31 @@ use sp_runtime::{generic::Era, traits::TransactionExtension};
 use std::collections::BTreeSet;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
+#[test]
+fn post_dispatch_extensions_refund_before_fee_and_block_reclaim() {
+    let identifiers = <TxExtension as TransactionExtension<RuntimeCall>>::metadata()
+        .into_iter()
+        .map(|metadata| metadata.identifier)
+        .collect::<Vec<_>>();
+
+    let subtensor = identifiers
+        .iter()
+        .position(|identifier| *identifier == "SubtensorTransactionExtension")
+        .expect("Subtensor transaction extension is configured");
+    let payment = identifiers
+        .iter()
+        .position(|identifier| *identifier == "ChargeTransactionPayment")
+        .expect("transaction-payment extension is configured");
+    let reclaim = identifiers
+        .iter()
+        .position(|identifier| *identifier == "WeightReclaim")
+        .expect("final weight-reclaim extension is configured");
+
+    assert!(subtensor < payment);
+    assert!(payment < reclaim);
+    assert_eq!(reclaim, identifiers.len() - 1);
+}
+
 fn checked_add_weight(
     left: frame_support::weights::Weight,
     right: frame_support::weights::Weight,
@@ -35,13 +60,14 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
             frame_system::CheckWeight::<Runtime>::new(),
         ),
         (
-            ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(0)),
             sudo_wrapper::SudoTransactionExtension::<Runtime>::new(),
             pallet_shield::CheckShieldedTxValidity::<Runtime>::new(),
             pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new(),
             pallet_drand::drand_priority::DrandPriority::<Runtime>::new(),
+            ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(0)),
         ),
         frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
+        frame_system::WeightReclaim::<Runtime>::new(),
     );
 
     let mut dispatch_info = call.get_dispatch_info();
@@ -77,13 +103,14 @@ fn maximum_reserve_covers_call_dependent_subtensor_extensions() {
             frame_system::CheckWeight::<Runtime>::new(),
         ),
         (
-            ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(0)),
             sudo_wrapper::SudoTransactionExtension::<Runtime>::new(),
             pallet_shield::CheckShieldedTxValidity::<Runtime>::new(),
             pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new(),
             pallet_drand::drand_priority::DrandPriority::<Runtime>::new(),
+            ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::new(0)),
         ),
         frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
+        frame_system::WeightReclaim::<Runtime>::new(),
     );
     let call_extension_weight =
         pallet_subtensor::SubtensorTransactionExtension::<Runtime>::validation_weight(&call);

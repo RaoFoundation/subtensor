@@ -136,13 +136,14 @@ pub fn create_benchmark_extrinsic(
             frame_system::CheckWeight::<runtime::Runtime>::new(),
         ),
         (
-            transaction_payment_wrapper::ChargeTransactionPaymentWrapper::new(TaoBalance::new(0)),
             sudo_wrapper::SudoTransactionExtension::<runtime::Runtime>::new(),
             pallet_shield::CheckShieldedTxValidity::<runtime::Runtime>::new(),
             pallet_subtensor::SubtensorTransactionExtension::<runtime::Runtime>::new(),
             pallet_drand::drand_priority::DrandPriority::<runtime::Runtime>::new(),
+            transaction_payment_wrapper::ChargeTransactionPaymentWrapper::new(TaoBalance::new(0)),
         ),
         frame_metadata_hash_extension::CheckMetadataHash::<runtime::Runtime>::new(true),
+        frame_system::WeightReclaim::<runtime::Runtime>::new(),
     );
 
     let raw_payload = runtime::SignedPayload::from_raw(
@@ -160,6 +161,7 @@ pub fn create_benchmark_extrinsic(
             ),
             ((), (), (), (), ()),
             None,
+            (),
         ),
     );
     let signature = raw_payload.using_encoded(|e| sender.sign(e));

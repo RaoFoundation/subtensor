@@ -235,10 +235,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 441,
+    spec_version: 442,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
-    transaction_version: 1,
+    transaction_version: 2,
     system_version: 1,
 };
 
@@ -1476,16 +1476,21 @@ pub type SystemTxExtension = (
     frame_system::CheckWeight<Runtime>,
 );
 pub type CustomTxExtension = (
-    ChargeTransactionPaymentWrapper<Runtime>,
     SudoTransactionExtension<Runtime>,
     pallet_shield::CheckShieldedTxValidity<Runtime>,
     pallet_subtensor::SubtensorTransactionExtension<Runtime>,
     pallet_drand::drand_priority::DrandPriority<Runtime>,
+    // Payment must run after Subtensor's post-dispatch reserve refund so fee
+    // calculation sees the uncapped, state-dependent call weight.
+    ChargeTransactionPaymentWrapper<Runtime>,
 );
 pub type TxExtension = (
     SystemTxExtension,
     CustomTxExtension,
     frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+    // CheckWeight runs before the custom extensions during post-dispatch.
+    // Reclaim once more at the end so the block meter sees their refunds.
+    frame_system::WeightReclaim<Runtime>,
 );
 
 pub struct MaxSubtensorTransactionExtensionWeight;
@@ -1513,13 +1518,14 @@ impl Get<Weight> for MaxSubtensorTransactionExtensionWeight {
                     frame_system::CheckWeight::<Runtime>::new(),
                 ),
                 (
-                    ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::ZERO),
                     SudoTransactionExtension::<Runtime>::new(),
                     pallet_shield::CheckShieldedTxValidity::<Runtime>::new(),
                     pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new(),
                     pallet_drand::drand_priority::DrandPriority::<Runtime>::new(),
+                    ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::ZERO),
                 ),
                 frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
+                frame_system::WeightReclaim::<Runtime>::new(),
             );
             extensions
                 .weight(&call)
