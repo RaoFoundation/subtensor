@@ -226,6 +226,27 @@ pub(super) fn setup_worst_case_network_creation<T: Config>() {
     TotalNetworks::<T>::put(GLOBAL_MAX_SUBNET_COUNT);
 }
 
+/// Fill every currently available subnet slot and leave one dissolved subnet
+/// awaiting cleanup. In this state a permissionless registration can only
+/// validate, lock its funds, and append to `NetworkRegistrationQueue`; the
+/// network creation itself is deferred to `on_idle`.
+pub(super) fn setup_worst_case_queued_network_registration<T: Config>() {
+    Subtensor::<T>::set_max_subnets(GLOBAL_MAX_SUBNET_COUNT);
+
+    for netuid_raw in 1..GLOBAL_MAX_SUBNET_COUNT {
+        let netuid = NetUid::from(netuid_raw);
+        NetworksAdded::<T>::insert(netuid, true);
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(150_000_000_000_u64),
+            AlphaBalance::from(100_000_000_000_u64),
+        );
+    }
+
+    DissolveCleanupQueue::<T>::put(vec![NetUid::from(GLOBAL_MAX_SUBNET_COUNT)]);
+    TotalNetworks::<T>::put(GLOBAL_MAX_SUBNET_COUNT);
+}
+
 /// Add a zero lock to a random hotkey just so that the lock records exist
 pub(super) fn add_lock<T: Config>(coldkey: &T::AccountId, netuid: NetUid) {
     let hotkey: T::AccountId = account("RandomHotkey", 0, 999);

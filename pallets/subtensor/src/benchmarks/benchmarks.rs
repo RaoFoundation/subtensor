@@ -302,13 +302,16 @@ mod pallet_benchmarks {
         let coldkey: T::AccountId = account("Test", 0, seed);
         let hotkey: T::AccountId = account("TestHotkey", 0, seed);
 
-        setup_worst_case_network_creation::<T>();
+        setup_worst_case_queued_network_registration::<T>();
         Subtensor::<T>::set_network_rate_limit(1);
         let amount: u64 = 100_000_000_000_000u64.saturating_mul(2);
         add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
+
+        assert_eq!(NetworkRegistrationQueue::<T>::get().len(), 1);
+        assert!(!Subtensor::<T>::hotkey_account_exists(&hotkey));
     }
 
     #[benchmark]
@@ -1482,7 +1485,7 @@ mod pallet_benchmarks {
         let hotkey: T::AccountId = account("Alice", 0, 1);
         let identity = Some(subnet_identity_with_bytes(i));
 
-        setup_worst_case_network_creation::<T>();
+        setup_worst_case_queued_network_registration::<T>();
         Subtensor::<T>::set_network_registration_allowed(1.into(), true);
         Subtensor::<T>::set_network_rate_limit(1);
         let amount: u64 = 9_999_999_999_999;
@@ -1494,6 +1497,9 @@ mod pallet_benchmarks {
             hotkey.clone(),
             identity.clone(),
         );
+
+        assert_eq!(NetworkRegistrationQueue::<T>::get().len(), 1);
+        assert!(!Subtensor::<T>::hotkey_account_exists(&hotkey));
     }
 
     #[benchmark]
