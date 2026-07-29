@@ -71,8 +71,8 @@
         "container": "SubtensorModule",
         "name": "AssociatedEvmAddress",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2836,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2836",
+        "line": 2856,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2856",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1026,8 +1026,8 @@
         "container": "SubtensorModule",
         "name": "SubnetLeases",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2854,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2854",
+        "line": 2874,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2874",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1048,8 +1048,8 @@
         "container": "SubtensorModule",
         "name": "SubnetLeases",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2854,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2854",
+        "line": 2874,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2874",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1126,8 +1126,8 @@
         "container": "SubtensorModule",
         "name": "MechanismCountCurrent",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2928,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2928",
+        "line": 2948,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2948",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]
@@ -1152,8 +1152,8 @@
         "container": "SubtensorModule",
         "name": "MechanismEmissionSplit",
         "path": "pallets/subtensor/src/lib.rs",
-        "line": 2933,
-        "url": "/code/pallets/subtensor/src/lib.rs#L2933",
+        "line": 2953,
+        "url": "/code/pallets/subtensor/src/lib.rs#L2953",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
       }
     ]

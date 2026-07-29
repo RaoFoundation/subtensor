@@ -33,11 +33,12 @@ impl<T: Config> Pallet<T> {
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
     }
 
-    /// Pre-dispatch weight for moving `BasketClaimed` on a root-touching hotkey swap.
-    /// Counts the prefix and charges per row so the block scheduler reserves the work up
-    /// front (post-dispatch accrual alone does not expand the inclusion reservation).
+    /// Pre-dispatch weight for the first metered pass of moving `BasketClaimed` on a
+    /// root-touching hotkey swap. Bounded by [`crate::MAX_ROOT_CLAIM_WORK`] — remainder
+    /// drains from `on_idle` under [`PendingBasketClaimedHotkeyMigration`]. Does not
+    /// scan storage (validation-time DoS).
     pub fn basket_claimed_swap_weight(
-        old_hotkey: &T::AccountId,
+        _old_hotkey: &T::AccountId,
         netuid: &Option<NetUid>,
     ) -> Weight {
         let touches_root = match netuid {
@@ -47,11 +48,11 @@ impl<T: Config> Pallet<T> {
         if !touches_root {
             return Weight::zero();
         }
-        let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
-        // One read per scanned row + remove/insert pair per row.
+        let claimed_rows = crate::MAX_ROOT_CLAIM_WORK as u64;
+        // One read per scanned row + remove/insert pair per row, plus pending-map writes.
         T::DbWeight::get().reads_writes(
-            claimed_rows.saturating_mul(2).saturating_add(1),
-            claimed_rows.saturating_mul(2),
+            claimed_rows.saturating_mul(2).saturating_add(2),
+            claimed_rows.saturating_mul(2).saturating_add(2),
         )
     }
 
@@ -186,6 +187,8 @@ impl<T: Config> Pallet<T> {
             // converting. Moving root stake/basket mid-migration would value those
             // leftovers against zero stake under the retired key.
             Self::ensure_beta_basket_seed_idle()?;
+            Self::ensure_basket_claimed_hotkey_migration_idle(old_hotkey)?;
+            Self::ensure_basket_claimed_hotkey_migration_idle(new_hotkey)?;
             ensure!(
                 !BasketRate::<T>::contains_key(new_hotkey)
                     && BasketShares::<T>::get(new_hotkey) == 0
@@ -874,15 +877,15 @@ impl<T: Config> Pallet<T> {
 
             if netuid == NetUid::ROOT {
                 // 9. Migrate the validator's whole basket fund only for the root subnet: shares,
-                // rate, per-coldkey claimed watermarks, and every escrow holding move by value.
-                // The clean-hotkey guard above makes this a move, not a merge. Claimant rows are
-                // unbounded (like stake coldkeys); charge weight for each watermark moved.
+                // rate, escrow holdings immediately; `BasketClaimed` in a bounded first pass
+                // (remainder via `on_idle`). The clean-hotkey guard above makes this a move,
+                // not a merge.
                 let num_holdings = Self::get_basket_holdings(old_hotkey).len() as u64;
                 let claimed_count =
                     Self::transfer_basket_for_new_hotkey(old_hotkey, new_hotkey) as u64;
                 let ops = num_holdings
                     .saturating_mul(2)
-                    .saturating_add(4)
+                    .saturating_add(6)
                     .saturating_add(claimed_count.saturating_mul(2));
                 weight.saturating_accrue(T::DbWeight::get().reads_writes(ops, ops));
 

@@ -360,5 +360,9 @@ mod errors {
         /// add/remove/transfer/swap are paused until it finishes so snapshotted conversion
         /// cannot desync from live stake (`Σ owed == BasketShares`).
         BetaBasketSeedInProgress,
+        /// A root hotkey swap left a metered `BasketClaimed` watermark move unfinished.
+        /// Claims, direct basket deposits, and further root-touching swaps on the involved
+        /// hotkeys are paused until `on_idle` finishes draining the retired prefix.
+        BasketClaimedHotkeyMigrationInProgress,
     }
 }

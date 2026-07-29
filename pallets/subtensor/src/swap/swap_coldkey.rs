@@ -13,6 +13,14 @@ impl<T: Config> Pallet<T> {
         // rows and mid-hotkey `BasketClaimed` writes. Moving root stake + only the new
         // watermark would leave legacy claims on the dead coldkey.
         Self::ensure_beta_basket_seed_idle()?;
+        // A pending post-swap BasketClaimed drain may still hold watermarks under a
+        // retired hotkey (including zero-stake / negative watermarks). Reject until idle.
+        ensure!(
+            PendingBasketClaimedHotkeyMigration::<T>::iter()
+                .next()
+                .is_none(),
+            Error::<T>::BasketClaimedHotkeyMigrationInProgress
+        );
         ensure!(
             StakingHotkeys::<T>::get(new_coldkey).is_empty(),
             Error::<T>::ColdKeyAlreadyAssociated

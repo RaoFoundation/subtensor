@@ -221,6 +221,13 @@ mod hooks {
                 );
             }
 
+            // Finish any post-swap BasketClaimed drains left by popular root validators.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(Self::process_pending_basket_claimed_hotkey_migrations(
+                    limit.saturating_sub(weight),
+                ));
+            }
+
             weight
         }
     }

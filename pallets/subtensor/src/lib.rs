@@ -2820,6 +2820,21 @@ pub mod pallet {
     pub type BasketRedeemedTao<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, TaoBalance, ValueQuery>;
 
+    /// --- MAP ( old_hotkey ) --> ( new_hotkey, cursor ) for a metered post-swap
+    /// [`BasketClaimed`] drain. Root hotkey swaps move fund shares/rate/holdings
+    /// immediately, then drain at most [`MAX_ROOT_CLAIM_WORK`] claimant rows in the
+    /// extrinsic and continue from `on_idle` so popular validators can still swap
+    /// without an unbounded one-shot collect under weight.
+    #[pallet::storage]
+    pub type PendingBasketClaimedHotkeyMigration<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (T::AccountId, Option<Vec<u8>>), OptionQuery>;
+
+    /// Reverse index of [`PendingBasketClaimedHotkeyMigration`]: new_hotkey → old_hotkey,
+    /// so claim/deposit/swap gates stay O(1).
+    #[pallet::storage]
+    pub type PendingBasketClaimedHotkeyMigrationByNew<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
+
     #[pallet::storage] // --- MAP ( u64 ) --> coldkey | Maps coldkeys that have stake to an index
     pub type StakingColdkeysByIndex<T: Config> =
         StorageMap<_, Identity, u64, T::AccountId, OptionQuery>;

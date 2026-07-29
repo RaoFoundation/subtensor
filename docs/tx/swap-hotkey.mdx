@@ -79,7 +79,7 @@ result = sub.execute_tool("swap_hotkey", {...}, wallet)
 ```rust
 #[pallet::call_index(70)]
 #[pallet::weight((
-    <T as crate::pallet::Config>::WeightInfo::swap_hotkey(),
+    crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(&hotkey, &netuid, false),
     DispatchClass::Normal,
     Pays::Yes
 ))]
@@ -93,6 +93,6 @@ pub fn swap_hotkey(
 }
 ```
 
-Delegates to [`do_swap_hotkey`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L73).
+Delegates to [`do_swap_hotkey`](/code/pallets/subtensor/src/swap/swap_hotkey.rs#L102).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
