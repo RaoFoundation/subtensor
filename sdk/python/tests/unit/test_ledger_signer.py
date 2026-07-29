@@ -26,11 +26,9 @@ pytest.importorskip("bittensor_core")
 
 pytestmark = pytest.mark.skipif(not GOLDEN_FIXTURE.exists(), reason="golden fixture not recorded")
 
-# The digest for the golden metadata with node-subtensor/438/42/9/TAO. The
-# digest *algorithm* is cross-checked against polkadot-js in
-# bittensor-core/src/digest; this value re-pins it to the recorded fixture and
-# must be recomputed whenever the golden fixture is re-recorded.
-EXPECTED_DIGEST = "325ff9f7db341a96182e1704731bb5a22f933cab15c3019acc2fed580b5ea3da"
+# The digest for the golden metadata with node-subtensor/439/42/9/TAO — the
+# same vector pinned against polkadot-js in bittensor-core/src/digest.
+EXPECTED_DIGEST = "b5c88dea6d1920f1b4ced91e632b1b1db2db5c79a01e51ea383848b61f37d8a8"
 
 
 class FakeDevice:
@@ -121,7 +119,7 @@ def test_sign_unsigned_extrinsic_ships_payload_and_proof(signer):
     # The proof ends with the SCALE-encoded ExtraInfo tail: spec_version LE,
     # then spec_name / prefix / decimals / symbol.
     assert proof.endswith(
-        (438).to_bytes(4, "little")
+        (439).to_bytes(4, "little")
         + bytes([0x38])  # compact len("node-subtensor")
         + b"node-subtensor"
         + (42).to_bytes(2, "little")
