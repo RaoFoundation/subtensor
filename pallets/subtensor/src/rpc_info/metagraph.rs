@@ -718,7 +718,7 @@ impl<T: Config> Pallet<T> {
             blocks_since_last_step: blocks_since_last_step.into(), // blocks since last epoch.
 
             // Subnet emission terms
-            subnet_emission: 0.into(),                        // DEPRECATED
+            subnet_emission: u64::from(SubnetTaoEmission::<T>::get(netuid)).into(), // final TAO allocated on the most recent block
             alpha_in: SubnetAlphaIn::<T>::get(netuid).into(), // amount of alpha in reserve
             alpha_out: SubnetAlphaOut::<T>::get(netuid).into(), // amount of alpha outstanding
             tao_in: SubnetTAO::<T>::get(netuid).into(),       // amount of tao injected per block
@@ -994,7 +994,7 @@ impl<T: Config> Pallet<T> {
             // Subnet emission terms
             Some(SelectiveMetagraphIndex::SubnetEmission) => SelectiveMetagraph {
                 netuid: netuid.into(),
-                subnet_emission: Some(0.into()),
+                subnet_emission: Some(u64::from(SubnetTaoEmission::<T>::get(netuid)).into()),
                 ..Default::default()
             },
             Some(SelectiveMetagraphIndex::AlphaIn) => SelectiveMetagraph {
@@ -1724,4 +1724,33 @@ fn test_selective_metagraph() {
     assert!(metagraph.alpha_low.is_none());
     metagraph.merge_value(&metagraph_alpha_low, alph_low_index);
     assert!(metagraph.alpha_low.is_some());
+}
+
+#[cfg(test)]
+mod emission_tests {
+    use super::*;
+    use crate::tests::mock::{SubtensorModule, Test, add_dynamic_network, new_test_ext};
+    use sp_core::U256;
+
+    #[test]
+    fn metagraphs_report_final_tao_emission() {
+        new_test_ext(1).execute_with(|| {
+            let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+            let final_emission = TaoBalance::from(456_u64);
+            SubnetTaoEmission::<Test>::insert(netuid, final_emission);
+
+            let metagraph = SubtensorModule::get_metagraph(netuid).unwrap();
+            let selective = SubtensorModule::get_selective_metagraph(
+                netuid,
+                vec![SelectiveMetagraphIndex::SubnetEmission as u16],
+            )
+            .unwrap();
+
+            assert_eq!(metagraph.subnet_emission.0, u64::from(final_emission));
+            assert_eq!(
+                selective.subnet_emission,
+                Some(u64::from(final_emission).into())
+            );
+        });
+    }
 }

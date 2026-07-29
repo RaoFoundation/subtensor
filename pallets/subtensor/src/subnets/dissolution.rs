@@ -291,6 +291,7 @@ impl<T: Config> Pallet<T> {
         SubnetAlphaInEmission::<T>::remove(netuid);
         SubnetAlphaOutEmission::<T>::remove(netuid);
         SubnetTaoInEmission::<T>::remove(netuid);
+        SubnetTaoEmission::<T>::remove(netuid);
         SubnetVolume::<T>::remove(netuid);
         SubnetMovingPrice::<T>::remove(netuid);
         SubnetTaoFlow::<T>::remove(netuid);

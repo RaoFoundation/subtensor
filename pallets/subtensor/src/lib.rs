@@ -1531,6 +1531,13 @@ pub mod pallet {
     pub type SubnetTaoInEmission<T: Config> =
         StorageMap<_, Identity, NetUid, TaoBalance, ValueQuery, DefaultZeroTao<T>>;
 
+    /// MAP ( netuid ) --> tao_emission | Returns the total TAO allocated to this subnet from the
+    /// most recent block emission. This includes current-block liquidity, successful chain buys
+    /// after spillover, and current-block TAO placed in the protocol reservoir.
+    #[pallet::storage]
+    pub type SubnetTaoEmission<T: Config> =
+        StorageMap<_, Identity, NetUid, TaoBalance, ValueQuery, DefaultZeroTao<T>>;
+
     /// MAP ( netuid ) --> excess_tao | Returns the excess TAO swapped (chain buys) into this subnet on the last block.
     #[pallet::storage]
     pub type SubnetExcessTao<T: Config> =

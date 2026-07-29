@@ -48,7 +48,7 @@ impl<T: Config> Pallet<T> {
         // --- 3. Get emissions for subnets to emit to
         let subnet_emissions =
             Self::get_subnet_block_emissions(&subnets_to_emit_to, block_emission);
-        log::debug!("Subnet emissions: {subnet_emissions:?}");
+        log::debug!("Raw subnet emission allocations: {subnet_emissions:?}");
         let root_sell_flag = Self::get_network_root_sell_flag(&subnets_to_emit_to);
         log::debug!("Root sell flag: {root_sell_flag:?}");
 
@@ -75,6 +75,11 @@ impl<T: Config> Pallet<T> {
         excess_tao: &BTreeMap<NetUid, U96F32>,
         credit: CreditOf<T>,
     ) {
+        // This map reports only the current block's final materialized allocation.
+        // Clearing the complete prefix also prevents an ineligible subnet from
+        // retaining a stale value from the previous block.
+        let _ = SubnetTaoEmission::<T>::clear(u32::MAX, None);
+
         let mut remaining_credit = credit;
         for netuid_i in subnets_to_emit_to.iter() {
             let maybe_subnet_account_id = Self::get_subnet_account_id(*netuid_i);
@@ -115,6 +120,7 @@ impl<T: Config> Pallet<T> {
                                     let actual_excess: TaoBalance =
                                         buy_swap_result_ok.amount_paid_in;
                                     SubnetExcessTao::<T>::insert(*netuid_i, actual_excess);
+                                    Self::record_subnet_tao_emission(*netuid_i, tao_to_swap_with);
                                     Self::record_protocol_inflow(*netuid_i, actual_excess);
                                 }
                                 Err(error) => {
@@ -127,6 +133,13 @@ impl<T: Config> Pallet<T> {
                                                 remaining_credit.merge(refund_credit);
                                         }
                                         Err(withdraw_error) => {
+                                            // The credit was already materialized on the subnet
+                                            // account and could not be recovered, so it remains
+                                            // part of this subnet's final TAO allocation.
+                                            Self::record_subnet_tao_emission(
+                                                *netuid_i,
+                                                tao_to_swap_with,
+                                            );
                                             log::error!(
                                                 "Failed to revert excess TAO deposit after swap failure: netuid_i = {netuid_i:?}, tao_to_swap_with = {tao_to_swap_with:?}, swap_error = {error:?}, withdraw_error = {withdraw_error:?}"
                                             );
@@ -154,6 +167,7 @@ impl<T: Config> Pallet<T> {
                     match Self::spend_tao(&subnet_account_id, remaining_credit, tao_in_i) {
                         Ok(remainder) => {
                             remaining_credit = remainder;
+                            Self::record_subnet_tao_emission(*netuid_i, tao_in_i);
                             tao_in_i
                         }
                         Err(remainder) => {
@@ -199,12 +213,23 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // Chain-buy caps can leave part of the block emission unspent. Allocate
-        // that TAO across all emitting subnets in proportion to their emission
-        // weights. It is materialized into each subnet's protocol TAO reservoir
-        // rather than sent through another chain buy, which preserves the cap and
-        // avoids an unpaired liquidity injection changing the spot price.
+        // After spillover has filled every available chain-buy cap, the block
+        // emission can still contain unspent TAO. Allocate that terminal remainder
+        // across all emitting subnets in proportion to their emission weights. It
+        // is materialized into each subnet's protocol TAO reservoir rather than
+        // sent through another chain buy, which preserves the caps and avoids an
+        // unpaired liquidity injection changing the spot price.
         Self::allocate_remaining_tao(subnets_to_emit_to, subnet_emissions, remaining_credit);
+    }
+
+    fn record_subnet_tao_emission(netuid: NetUid, amount: TaoBalance) {
+        if amount.is_zero() {
+            return;
+        }
+
+        SubnetTaoEmission::<T>::mutate(netuid, |total| {
+            *total = total.saturating_add(amount);
+        });
     }
 
     fn allocate_remaining_tao(
@@ -254,6 +279,7 @@ impl<T: Config> Pallet<T> {
                 Ok(remainder) => {
                     remaining_credit = remainder;
                     T::SwapInterface::reserve_protocol_tao(netuid, amount);
+                    Self::record_subnet_tao_emission(netuid, amount);
                 }
                 Err(remainder) => {
                     remaining_credit = remainder;
@@ -281,11 +307,17 @@ impl<T: Config> Pallet<T> {
         BTreeMap<NetUid, U96F32>,
         BTreeMap<NetUid, U96F32>,
     ) {
-        // Computation is described in detail in the dtao whitepaper.
+        // Build the complete pre-execution emission plan. `subnet_emissions`
+        // contains raw allocations and remains the authoritative priority signal
+        // for spillover; the returned TAO maps contain the post-cap plan.
         let mut tao_in: BTreeMap<NetUid, U96F32> = BTreeMap::new();
         let mut alpha_in: BTreeMap<NetUid, U96F32> = BTreeMap::new();
         let mut alpha_out: BTreeMap<NetUid, U96F32> = BTreeMap::new();
         let mut excess_tao: BTreeMap<NetUid, U96F32> = BTreeMap::new();
+        let mut chain_buy_caps: BTreeMap<NetUid, U96F32> = BTreeMap::new();
+        let mut alpha_injection_caps: BTreeMap<NetUid, U96F32> = BTreeMap::new();
+        let mut subnet_prices: BTreeMap<NetUid, U96F32> = BTreeMap::new();
+        let mut spillover_tao = asfloat!(0);
         let owner_cut_percent = Self::get_float_subnet_owner_cut();
         let one = asfloat!(1);
         let miner_share = asfloat!(0.5);
@@ -321,30 +353,171 @@ impl<T: Config> Pallet<T> {
                 tao_in_i = alpha_in_i.saturating_mul(price_i);
             }
 
-            // Chain buys may consume at most the TAO value of miner alpha actually
-            // allocated by the last settled tempo. Start from the miner half of
-            // alpha_out after owner cut, then exclude the proportion withheld from
-            // miners by burn/recycle UIDs. If owner cut is disabled, miners receive
-            // half of the full alpha_out before the burn adjustment.
+            // Chain buys may consume at most the TAO value of unburned miner alpha.
+            // Start from the miner half of alpha_out after owner cut, then exclude
+            // the proportion withheld from miners by burn/recycle UIDs in the last
+            // settled tempo. If owner cut is disabled, miners receive half of the
+            // full alpha_out before the burn adjustment.
             let participant_alpha_i = if Self::get_owner_cut_enabled(netuid_i) {
                 alpha_emission_i.saturating_sub(alpha_emission_i.saturating_mul(owner_cut_percent))
             } else {
                 alpha_emission_i
             };
             let miner_burned_i = MinerBurned::<T>::get(netuid_i).min(one);
-            let allocated_miner_alpha_i = participant_alpha_i
+            let unburned_miner_alpha_i = participant_alpha_i
                 .saturating_mul(miner_share)
                 .saturating_mul(one.saturating_sub(miner_burned_i));
-            let chain_buy_cap_i = allocated_miner_alpha_i.saturating_mul(price_i);
-            let excess_amount: U96F32 =
-                tao_emission_i.saturating_sub(tao_in_i).min(chain_buy_cap_i);
-            excess_tao.insert(netuid_i, excess_amount);
+            let chain_buy_cap_i = unburned_miner_alpha_i.saturating_mul(price_i);
+            let available_chain_buy_i = tao_emission_i.saturating_sub(tao_in_i);
+            let chain_buy_i = available_chain_buy_i.min(chain_buy_cap_i);
+            spillover_tao =
+                spillover_tao.saturating_add(available_chain_buy_i.saturating_sub(chain_buy_i));
+            excess_tao.insert(netuid_i, chain_buy_i);
+            chain_buy_caps.insert(netuid_i, chain_buy_cap_i);
+            alpha_injection_caps.insert(netuid_i, alpha_injection_cap);
+            subnet_prices.insert(netuid_i, price_i);
 
             // Insert values into maps
             tao_in.insert(netuid_i, tao_in_i);
             alpha_in.insert(netuid_i, alpha_in_i);
             alpha_out.insert(netuid_i, alpha_out_i);
         }
+
+        // Reassign TAO rejected by a subnet's local cap to the highest-emission
+        // subnet that still has uncovered unburned-miner-emission capacity.
+        // Preserve the normal emission ordering for each recipient: first fill
+        // its remaining liquidity-injection capacity, then fill its chain buy.
+        // Move to the next subnet only after both are full or spillover is
+        // exhausted. Netuid ascending is the deterministic tie-breaker for equal
+        // emission weights.
+        let mut spillover_priority: Vec<(NetUid, U96F32)> = subnet_emissions
+            .iter()
+            .filter(|(_, emission)| **emission > asfloat!(0))
+            .map(|(netuid, emission)| (*netuid, *emission))
+            .collect();
+        spillover_priority.sort_by(|(netuid_a, emission_a), (netuid_b, emission_b)| {
+            emission_b
+                .cmp(emission_a)
+                .then_with(|| netuid_a.cmp(netuid_b))
+        });
+
+        for (netuid, _) in spillover_priority.iter().copied() {
+            if spillover_tao == asfloat!(0) {
+                break;
+            }
+
+            let current_chain_buy = *excess_tao.get(&netuid).unwrap_or(&asfloat!(0));
+            let chain_buy_cap = *chain_buy_caps.get(&netuid).unwrap_or(&asfloat!(0));
+            if current_chain_buy >= chain_buy_cap {
+                continue;
+            }
+
+            let current_tao_in = *tao_in.get(&netuid).unwrap_or(&asfloat!(0));
+            let alpha_injection_cap = *alpha_injection_caps.get(&netuid).unwrap_or(&asfloat!(0));
+            let price = *subnet_prices.get(&netuid).unwrap_or(&asfloat!(0));
+            let tao_injection_cap = alpha_injection_cap.saturating_mul(price);
+            let uncovered_liquidity = tao_injection_cap.saturating_sub(current_tao_in);
+            let spillover_liquidity = spillover_tao.min(uncovered_liquidity);
+            if spillover_liquidity > asfloat!(0) {
+                let updated_tao_in = current_tao_in.saturating_add(spillover_liquidity);
+                let updated_alpha_in = if spillover_liquidity == uncovered_liquidity {
+                    alpha_injection_cap
+                } else {
+                    updated_tao_in.safe_div_or(price, asfloat!(0))
+                };
+                tao_in.insert(netuid, updated_tao_in);
+                alpha_in.insert(netuid, updated_alpha_in);
+                spillover_tao = spillover_tao.saturating_sub(spillover_liquidity);
+            }
+
+            if spillover_tao == asfloat!(0) {
+                break;
+            }
+
+            let uncovered_chain_buy = chain_buy_cap.saturating_sub(current_chain_buy);
+            let spillover_chain_buy = spillover_tao.min(uncovered_chain_buy);
+            if spillover_chain_buy == asfloat!(0) {
+                continue;
+            }
+
+            excess_tao.insert(
+                netuid,
+                current_chain_buy.saturating_add(spillover_chain_buy),
+            );
+            spillover_tao = spillover_tao.saturating_sub(spillover_chain_buy);
+        }
+
+        // Converting each fixed-point plan entry to an integer balance can leave
+        // a small number of rao unassigned even when the fixed-point spillover
+        // was exhausted. Reconcile that integer remainder through the same
+        // liquidity-first priority before allowing it to reach the terminal
+        // reservoir.
+        let total_emission_rao = subnet_emissions
+            .values()
+            .fold(asfloat!(0), |total, emission| {
+                total.saturating_add(*emission)
+            })
+            .saturating_to_num::<u64>();
+        let planned_tao_rao = tao_in
+            .values()
+            .chain(excess_tao.values())
+            .fold(0_u64, |total, amount| {
+                total.saturating_add(amount.saturating_to_num::<u64>())
+            });
+        let mut integer_spillover_rao = total_emission_rao.saturating_sub(planned_tao_rao);
+
+        for (netuid, _) in spillover_priority {
+            if integer_spillover_rao == 0 {
+                break;
+            }
+
+            let current_chain_buy = *excess_tao.get(&netuid).unwrap_or(&asfloat!(0));
+            let chain_buy_cap = *chain_buy_caps.get(&netuid).unwrap_or(&asfloat!(0));
+            let current_chain_buy_rao = current_chain_buy.saturating_to_num::<u64>();
+            let chain_buy_cap_rao = chain_buy_cap.saturating_to_num::<u64>();
+            if current_chain_buy_rao >= chain_buy_cap_rao {
+                continue;
+            }
+
+            let current_tao_in = *tao_in.get(&netuid).unwrap_or(&asfloat!(0));
+            let alpha_injection_cap = *alpha_injection_caps.get(&netuid).unwrap_or(&asfloat!(0));
+            let price = *subnet_prices.get(&netuid).unwrap_or(&asfloat!(0));
+            let tao_injection_cap = alpha_injection_cap.saturating_mul(price);
+            let current_tao_in_rao = current_tao_in.saturating_to_num::<u64>();
+            let tao_injection_cap_rao = tao_injection_cap.saturating_to_num::<u64>();
+            let uncovered_liquidity_rao = tao_injection_cap_rao.saturating_sub(current_tao_in_rao);
+            let spillover_liquidity_rao = integer_spillover_rao.min(uncovered_liquidity_rao);
+            if spillover_liquidity_rao > 0 {
+                let updated_tao_in_rao = current_tao_in_rao.saturating_add(spillover_liquidity_rao);
+                let updated_tao_in = asfloat!(updated_tao_in_rao);
+                tao_in.insert(netuid, updated_tao_in);
+                alpha_in.insert(
+                    netuid,
+                    updated_tao_in
+                        .safe_div_or(price, asfloat!(0))
+                        .min(alpha_injection_cap),
+                );
+                integer_spillover_rao =
+                    integer_spillover_rao.saturating_sub(spillover_liquidity_rao);
+            }
+
+            if integer_spillover_rao == 0 {
+                break;
+            }
+
+            let uncovered_chain_buy_rao = chain_buy_cap_rao.saturating_sub(current_chain_buy_rao);
+            let spillover_chain_buy_rao = integer_spillover_rao.min(uncovered_chain_buy_rao);
+            if spillover_chain_buy_rao == 0 {
+                continue;
+            }
+
+            excess_tao.insert(
+                netuid,
+                asfloat!(current_chain_buy_rao.saturating_add(spillover_chain_buy_rao)),
+            );
+            integer_spillover_rao = integer_spillover_rao.saturating_sub(spillover_chain_buy_rao);
+        }
+
         (tao_in, alpha_in, alpha_out, excess_tao)
     }
 
