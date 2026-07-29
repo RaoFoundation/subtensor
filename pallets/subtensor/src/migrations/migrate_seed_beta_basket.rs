@@ -54,6 +54,10 @@ pub mod deprecated {
 /// `RootClaimable[hotkey]` is left untouched in storage for as long as this state exists; it is
 /// only `remove`d once every slot has been fully processed, so an interrupted conversion never
 /// loses track of a hotkey's still-unconverted slots.
+///
+/// Valuation inputs (`total_root`, and the in-progress slot's `price`) are snapshotted here and
+/// reused on every resume so already-written `BasketClaimed` rows stay consistent with later
+/// drains / `fund_rate` / `fund_shares` if stake or moving prices change between blocks.
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
 pub struct HotkeyConvertState {
     /// SCALE-encoded `T::AccountId` of the hotkey being converted.
@@ -62,11 +66,13 @@ pub struct HotkeyConvertState {
     /// `None` means no slot has completed yet. Resuming re-reads `RootClaimable[hotkey]`
     /// (still present in storage) and skips every entry up to and including this one.
     pub done_through: Option<NetUid>,
+    /// Claimant-base root stake snapshotted at the start of this hotkey's conversion.
+    pub total_root: I96F32,
     /// The subnet slot whose `RootClaimed` drain was paused mid-way, if any:
-    /// `(netuid, rate, claimed_cursor, claimed_sum_so_far)`. `claimed_cursor` is the raw storage
-    /// key to resume `RootClaimed::iter_prefix_from` from; `claimed_sum_so_far` is the alpha sum
-    /// of the rows already drained for this slot.
-    pub partial: Option<(NetUid, I96F32, Vec<u8>, I96F32)>,
+    /// `(netuid, rate, price, claimed_cursor, claimed_sum_so_far)`. `price` is the fixed
+    /// conversion price for this slot; `claimed_cursor` resumes `RootClaimed::iter_prefix_from`;
+    /// `claimed_sum_so_far` is the alpha sum of rows already drained for this slot.
+    pub partial: Option<(NetUid, I96F32, U96F32, Vec<u8>, I96F32)>,
     /// Unified rate accumulated from fully-completed slots.
     pub fund_rate: I96F32,
     /// Unified fund shares accumulated from fully-completed slots.
@@ -366,26 +372,46 @@ fn convert_hotkey_step<T: Config>(
     let claimable = RootClaimable::<T>::get(hotkey);
     weight.saturating_accrue(T::DbWeight::get().reads(1));
 
-    let total_root: I96F32 = I96F32::saturating_from_num(
-        Pallet::<T>::get_stake_for_hotkey_on_subnet(hotkey, NetUid::ROOT).saturating_sub(
-            // On a v1 chain the escrow may already hold a root-slot position; it is custody,
-            // not a claimant, so it is excluded from the claimant base like everywhere else.
-            Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, NetUid::ROOT),
+    let (
+        mut done_through,
+        mut partial,
+        mut fund_rate,
+        mut fund_shares,
+        mut seeded_slots,
+        total_root,
+    ) = match resume {
+        Some(state) => (
+            state.done_through,
+            state.partial,
+            state.fund_rate,
+            state.fund_shares,
+            state.seeded_slots,
+            state.total_root,
         ),
-    );
-    weight.saturating_accrue(T::DbWeight::get().reads(2));
-
-    let (mut done_through, mut partial, mut fund_rate, mut fund_shares, mut seeded_slots) =
-        match resume {
-            Some(state) => (
-                state.done_through,
-                state.partial,
-                state.fund_rate,
-                state.fund_shares,
-                state.seeded_slots,
-            ),
-            None => (None, None, I96F32::saturating_from_num(0), 0u64, 0u64),
-        };
+        None => {
+            // Snapshot once at the start of this hotkey's conversion; resumes reuse it.
+            let total_root: I96F32 = I96F32::saturating_from_num(
+                Pallet::<T>::get_stake_for_hotkey_on_subnet(hotkey, NetUid::ROOT).saturating_sub(
+                    // On a v1 chain the escrow may already hold a root-slot position; it is
+                    // custody, not a claimant, so it is excluded from the claimant base.
+                    Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        hotkey,
+                        escrow,
+                        NetUid::ROOT,
+                    ),
+                ),
+            );
+            weight.saturating_accrue(T::DbWeight::get().reads(2));
+            (
+                None,
+                None,
+                I96F32::saturating_from_num(0),
+                0u64,
+                0u64,
+                total_root,
+            )
+        }
+    };
 
     // Copied once: subsequent slots are always greater in `BTreeMap` order, so the filter never
     // needs to observe `done_through` updates made later in this loop.
@@ -398,35 +424,34 @@ fn convert_hotkey_step<T: Config>(
         });
 
     for (netuid, rate) in slots {
-        // Fixed conversion price for this subnet: the moving/EMA price (manipulation
-        // resistant), falling back to spot if the EMA has not warmed up yet so legacy
-        // claims never convert to zero shares on a young subnet. Root converts 1:1.
-        let price: U96F32 = if netuid.is_root() {
-            U96F32::saturating_from_num(1)
-        } else {
-            let moving: U96F32 =
-                U96F32::saturating_from_num(Pallet::<T>::get_moving_alpha_price(*netuid));
-            if moving > U96F32::saturating_from_num(0) {
-                moving
+        // Resume the in-progress slot's partial drain (and its snapshotted price), if this is
+        // it. Otherwise fix a fresh conversion price for the slot: moving/EMA (manipulation
+        // resistant), spot fallback for cold EMAs, 1:1 for root.
+        let (mut claimed_sum, drain_from, price) =
+            if let Some((p_netuid, p_rate, p_price, cursor, sum)) = partial.take() {
+                debug_assert_eq!(p_netuid, *netuid);
+                debug_assert_eq!(p_rate, *rate);
+                (sum, Some(cursor), p_price)
             } else {
-                U96F32::saturating_from_num(T::SwapInterface::current_alpha_price((*netuid).into()))
-            }
-        };
-        weight.saturating_accrue(T::DbWeight::get().reads(1));
+                let price: U96F32 = if netuid.is_root() {
+                    U96F32::saturating_from_num(1)
+                } else {
+                    let moving: U96F32 =
+                        U96F32::saturating_from_num(Pallet::<T>::get_moving_alpha_price(*netuid));
+                    if moving > U96F32::saturating_from_num(0) {
+                        moving
+                    } else {
+                        U96F32::saturating_from_num(T::SwapInterface::current_alpha_price(
+                            (*netuid).into(),
+                        ))
+                    }
+                };
+                weight.saturating_accrue(T::DbWeight::get().reads(1));
+                (I96F32::saturating_from_num(0), None, price)
+            };
 
         // Gross credited principal (alpha) = rate * total_root_stake.
         let gross: I96F32 = rate.saturating_mul(total_root);
-
-        // Resume the in-progress slot's partial drain, if this is it (it always is: `partial`
-        // only ever holds the first slot past `done_through`, which is exactly this one).
-        let (mut claimed_sum, drain_from) =
-            if let Some((p_netuid, p_rate, cursor, sum)) = partial.take() {
-                debug_assert_eq!(p_netuid, *netuid);
-                debug_assert_eq!(p_rate, *rate);
-                (sum, Some(cursor))
-            } else {
-                (I96F32::saturating_from_num(0), None)
-            };
 
         // Total already claimed by all coldkeys on this (netuid, hotkey), converting each
         // coldkey's watermark to TAO-valued fund shares while we scan. Bounded: at most
@@ -469,9 +494,11 @@ fn convert_hotkey_step<T: Config>(
             return ConvertOutcome::Paused(HotkeyConvertState {
                 hotkey: hotkey.encode(),
                 done_through,
+                total_root,
                 partial: Some((
                     *netuid,
                     *rate,
+                    price,
                     claimed_iter.last_raw_key().to_vec(),
                     claimed_sum,
                 )),

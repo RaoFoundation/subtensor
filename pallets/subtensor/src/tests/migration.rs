@@ -5506,6 +5506,14 @@ fn test_migrate_seed_beta_basket_claimed_drain_bounded_resumable() {
             .count();
         assert_eq!(mid_claimed_rows as u32, CLAIMED_DRAINS_PER_PASS);
 
+        // Snapshot the first drained coldkey's watermark (priced at p=1), then move the
+        // subnet's moving price. Resumed drains must keep using the snapshotted slot price
+        // so later BasketClaimed rows stay consistent with the early ones.
+        let first_ck = U256::from(5_000u64);
+        let first_claimed_at_p1 = BasketClaimed::<Test>::get(hotkey, first_ck);
+        assert_eq!(first_claimed_at_p1, 1_000i128); // claimed=1000 * price=1
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(2.0));
+
         // Drive remaining passes (mirrors on_idle) until fully converted.
         let mut passes = 1u32;
         while seed_beta_basket_v2_in_progress::<Test>() && passes < 64 {
@@ -5524,7 +5532,14 @@ fn test_migrate_seed_beta_basket_claimed_drain_bounded_resumable() {
         for i in 0..NUM_COLDKEYS {
             let coldkey = U256::from(5_000 + i);
             assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, coldkey)), 0u128);
+            // All claimants must be valued at the snapshotted p=1, not the post-pause p=2.
+            let expected = 1_000i128 * i128::from(i + 1);
+            assert_eq!(BasketClaimed::<Test>::get(hotkey, coldkey), expected);
         }
+        assert_eq!(
+            BasketClaimed::<Test>::get(hotkey, first_ck),
+            first_claimed_at_p1
+        );
 
         // Conservation: Σ owed across every staker equals the seeded fund shares, matching the
         // same math a single-shot (unbounded) conversion would have produced.
