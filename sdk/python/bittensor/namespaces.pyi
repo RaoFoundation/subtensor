@@ -402,8 +402,8 @@ class Staking(_ReadNamespace):
     async def root_basket_owed_breakdown(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
         """A coldkey's pending root dividends, itemized per validator hotkey.
 
-        For each hotkey the coldkey stakes to, the TAO its owed basket
-        entitlement would realize if claimed now. Zero-owed validators are omitted.
+        For each hotkey the coldkey stakes to: the TAO its accrued entitlement
+        would realize if claimed now. Zero-owed validators are omitted.
         """
 
     async def root_basket_total_nav(self, *, block: Optional[int] = None) -> Balance:
@@ -412,12 +412,21 @@ class Staking(_ReadNamespace):
         Sampling this over time yields the TAO/day flowing to root stakers.
         """
 
+    async def root_baskets(self, *, block: Optional[int] = None) -> list[dict]:
+        """Basket summaries for every validator with an active basket.
+
+        The network-wide leaderboard: one `validator_basket_summary` record per
+        validator with an active fund, sorted by NAV descending. Compare
+        `lifetime_return` across validators to rank basket performance.
+        """
+
     async def root_claim_threshold(self, *, block: Optional[int] = None) -> Balance:
         """The minimum TAO payout for a root dividend claim.
 
         `claim_root` silently skips any per-validator basket redemption whose
-        estimated payout falls below this threshold; the entitlement keeps accruing
-        and pay out once they clear it. Set by root via `set_root_claim_threshold`.
+        estimated payout falls below this threshold; the entitlement keeps
+        accruing and pays out once it clears. Set by root via
+        `set_root_claim_threshold`.
         """
 
     async def stake(self, coldkey_ss58: str, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Balance:
@@ -462,14 +471,24 @@ class Staking(_ReadNamespace):
     async def validator_basket_nav(self, hotkey_ss58: str, *, block: Optional[int] = None) -> Balance:
         """A validator's basket net asset value in TAO (realizable quote)."""
 
+    async def validator_basket_summary(self, hotkey_ss58: str, *, block: Optional[int] = None) -> dict:
+        """Everything about one validator's basket, in a single call.
+
+        Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
+        and the lifetime return multiple `(nav + redeemed) / deposited`, the
+        validator's root weight vector, and the per-subnet alpha holdings each
+        valued at spot and at realizable depth. All figures are TAO (or alpha
+        for the holdings themselves).
+        """
+
     async def validator_root_weights(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
         """A validator's root dividend distribution vector (basket weights).
 
         The `(netuid, weight)` pairs its root dividends are deployed into each
         epoch, exactly as stored (u16, max-upscaled), plus each destination's
-        normalized `share` of the total. Netuid 0 means "hold as TAO / root
-        stake". An empty list means the validator has no root weights set and
-        its root dividends are recycled.
+        normalized `share` of the total.     Netuid 0 means "hold as TAO / root
+        stake". An empty list means no custom weights are set; dividends default
+        to 100% root (TAO in the basket).
         """
 
 class Subnets(_ReadNamespace):
