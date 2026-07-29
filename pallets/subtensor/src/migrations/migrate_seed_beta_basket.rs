@@ -146,6 +146,11 @@ pub type SeedBetaBasketV2Migration<T: Config> =
 ///
 /// ## Multi-block / resumable
 ///
+/// `on_runtime_upgrade` only **kicks off** the seed via [`kickoff_seed_beta_basket_v2`]
+/// (writes the cursor, no conversion). That keeps the upgrade hook idempotent for
+/// try-runtime's double-execution check. All conversion runs from `on_idle` through
+/// [`migrate_seed_beta_basket_v2`].
+///
 /// Work is chunked across blocks at two levels. Each pass converts at most
 /// [`MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS`] hotkeys, then clears at most
 /// [`MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS`] orphaned principal rows. Within the convert
@@ -163,6 +168,44 @@ pub fn migrate_seed_beta_basket_v2<T: Config>() -> Weight {
         MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS,
         MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS,
     )
+}
+
+/// Idempotent `on_runtime_upgrade` entry: ensure the multi-block seed cursor exists, but do
+/// **not** convert any hotkeys. Conversion is owned by `on_idle` via
+/// [`migrate_seed_beta_basket_v2`].
+///
+/// Running conversion inside ORU breaks try-runtime idempotency: the second ORU pass would
+/// advance the cursor further and change storage.
+pub fn kickoff_seed_beta_basket_v2<T: Config>() -> Weight {
+    let migration_name = MIGRATION_NAME.to_vec();
+    let mut weight = T::DbWeight::get().reads(1);
+
+    if HasMigrationRun::<T>::get(&migration_name) {
+        log::info!(
+            target: "runtime",
+            "Migration '{}' has already run. Skipping.",
+            String::from_utf8_lossy(&migration_name)
+        );
+        return weight;
+    }
+
+    weight.saturating_accrue(T::DbWeight::get().reads(1));
+    if SeedBetaBasketV2Migration::<T>::exists() {
+        // Cursor already present — on_idle owns progress. No-op so a second ORU matches.
+        return weight;
+    }
+
+    log::info!(
+        target: "runtime",
+        "Kicking off migration '{}' (conversion continues on_idle)",
+        String::from_utf8_lossy(&migration_name)
+    );
+    SeedBetaBasketV2Migration::<T>::put(SeedBetaBasketV2Progress::Convert {
+        after: None,
+        hotkey: None,
+    });
+    weight.saturating_accrue(T::DbWeight::get().writes(1));
+    weight
 }
 
 /// True while the multi-block seed is unfinished (cursor present). Basket deposits and claims
