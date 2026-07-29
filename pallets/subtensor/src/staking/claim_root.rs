@@ -403,10 +403,7 @@ impl<T: Config> Pallet<T> {
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists
         );
-        ensure!(
-            tao >= DefaultMinStake::<T>::get(),
-            Error::<T>::AmountTooLow
-        );
+        ensure!(tao >= DefaultMinStake::<T>::get(), Error::<T>::AmountTooLow);
         ensure!(
             Self::can_remove_balance_from_coldkey_account(&coldkey, tao.into()),
             Error::<T>::NotEnoughBalanceToStake
@@ -417,8 +414,8 @@ impl<T: Config> Pallet<T> {
 
         // Each weight slot can add at most one new holding, so pre-deploy holdings plus the
         // slot count bounds the holdings the two NAV valuations will sweep.
-        let num_holdings = (Self::get_basket_holdings(&hotkey).len() as u64)
-            .saturating_add(valid.len() as u64);
+        let num_holdings =
+            (Self::get_basket_holdings(&hotkey).len() as u64).saturating_add(valid.len() as u64);
 
         with_transaction(
             || match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &valid) {
