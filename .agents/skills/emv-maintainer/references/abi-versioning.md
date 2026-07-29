@@ -179,9 +179,10 @@ Keep function lifecycle separate from precompile availability:
 | Hard-deprecated and enabled | Keep routing the selector and return a descriptive precompile error. |
 | Disabled | Return the precompile-disabled error regardless of function lifecycle. |
 
-Use soft deprecation by default. Preserve the call, mark the Solidity function
-with `@deprecated`, and publish replacement metadata without adding
-deprecation-only work to every invocation.
+Use soft deprecation by default. Preserve the call, annotate the Rust
+precompile function with its lifecycle metadata, generate the Solidity
+`@custom:deprecated` NatSpec from that annotation, and publish replacement
+metadata without adding deprecation-only work to every invocation.
 
 Use hard deprecation only when old behavior cannot be represented honestly or
 safely, for example because:
@@ -232,19 +233,70 @@ struct PrecompileStatus {
 }
 ```
 
+### Function lifecycle annotations
+
+Declare deprecation metadata on the affected Rust precompile function with a
+repository-owned annotation. The target syntax is:
+
+```rust
+#[precompile_lifecycle::deprecated(
+    replace_with = "getStakeV2(uint16,uint16)",
+    message = "Use getStakeV2 for the current stake representation."
+)]
+#[precompile::public("getStake(uint16,uint16)")]
+```
+
+Do not use `#[precompile::deprecated]` unless the Frontier precompile macro
+explicitly supports it: that namespace belongs to the Frontier macro. Do not
+encode structured replacement metadata in Rust's built-in `#[deprecated]`
+attribute, which does not provide `replace_with` and `message` fields. The
+repository-owned annotation and its generator can be implemented in subtensor
+without changing Frontier.
+
+The annotated Rust precompile function is the authoritative source for:
+
+- whether the function is deprecated;
+- the canonical replacement signature used to derive `newSelector`;
+- migration guidance returned in `message`; and
+- the generated Solidity interface and its lifecycle NatSpec.
+
+The replacement precompile defaults to the containing precompile address.
+Allow an explicit replacement address when migration genuinely crosses
+domains. If no replacement exists, omit `replace_with`; the registry returns
+zero replacement fields. A deprecated function without a useful human message
+is incomplete metadata.
+
+Repository tooling should collect these Rust annotations and generate the
+static registry metadata and Solidity interface lifecycle data. Generate
+standards-compliant `@custom:deprecated` and, when applicable,
+`@custom:replace-with` NatSpec; an additional `@notice` may make the warning
+visible to clients that ignore custom tags. Do not duplicate the same
+lifecycle data in a manually maintained Rust match, static table, Solidity
+comment, or registry file, and do not hand-edit generated Solidity lifecycle
+annotations. Build validation must fail when annotated Rust metadata, the
+canonical replacement selector, generated Solidity and NatSpec, and public
+documentation disagree.
+
+The annotation describes function lifecycle only. It does not perform
+deprecation work on each invocation and does not control availability.
+`isDisabled` remains a dynamic lookup of the containing precompile's
+operational enablement state.
+
 Interpret `isDeprecated` as soft or hard function deprecation. Interpret
 `isDisabled` as current unavailability through a reversible operational switch.
 Use `newPrecompile` and `newSelector` for the recommended replacement; zero
 replacement fields mean that none is available. Use `message` for
 human-readable status or migration guidance.
 
-Do not infer deprecation from disablement. Do not clear deprecation when a
+An active function has no deprecation annotation and therefore returns
+`isDeprecated = false` with zero replacement fields and an empty message. Do
+not infer deprecation from disablement. Do not clear deprecation when a
 precompile is re-enabled. Do not describe the registry as callable until its
 address and implementation are released.
 
-Keep registry metadata, Solidity NatSpec, public documentation, and call
-behavior consistent. Prefer static registry queries over emitting a log on
-every deprecated call.
+Keep generated registry metadata, Solidity NatSpec, public documentation, and
+call behavior consistent. Prefer static registry queries over emitting a log
+on every deprecated call.
 
 ## Handle reversible disablement
 

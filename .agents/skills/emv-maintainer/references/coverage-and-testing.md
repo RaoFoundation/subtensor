@@ -194,6 +194,9 @@ Verify:
 6. Unrelated precompile Solidity and ABI files are byte-for-byte unchanged.
 7. The Rust macro signature, Solidity declaration, generated ABI, NatSpec, SDK
    copies, registry metadata, and public documentation agree.
+   For deprecated functions, verify that registry metadata and Solidity
+   `@custom:deprecated` NatSpec are generated from the Rust function lifecycle
+   annotation rather than duplicated manually.
 8. Every released address remains in `Precompiles::used_addresses()`.
 9. `Precompiles::execute()` recognizes the address and routes it through the
    intended availability control and compatible implementation.

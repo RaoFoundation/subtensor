@@ -33,7 +33,12 @@ For each affected released function:
 2. Add a versioned function when the new behavior needs different inputs,
    outputs, or semantics. Keep the old address and selector routed.
 3. Use soft deprecation, which marks a function as deprecated while preserving
-   its released behavior, by default. Never fabricate data or silently
+   its released behavior, by default. Declare deprecation and replacement
+   metadata on the Rust precompile function with the lifecycle annotation
+   described in [ABI versioning](references/abi-versioning.md). Treat the
+   annotated Rust function as the source of truth and generate Solidity
+   lifecycle annotations and registry metadata from it; do not maintain
+   separate hand-written lifecycle data. Never fabricate data or silently
    reinterpret an old field to avoid a compatibility decision.
 4. If hard deprecation may be necessary, stop and follow the mainnet release
    warning and lifecycle process in
@@ -66,6 +71,12 @@ For each affected released function:
   unbounded helper and truncate its result afterward.
 - Follow [ABI versioning](references/abi-versioning.md) for every released
   interface.
+- Treat repository-owned Rust function lifecycle annotations as the source of
+  truth for registry deprecation metadata, replacement selectors, migration
+  messages, and generated Solidity interfaces and `@custom:deprecated`
+  NatSpec. Do not hand-edit generated Solidity lifecycle data. Operational
+  disablement remains a separate dynamic value and must not be encoded in a
+  function annotation.
 - Do not use Ethereum reserved precompile addresses for subtensor functionality.
 - Assign new Bittensor domain precompiles sequentially from the next unused
   Bittensor address. The current proposal reserves `0x080f` through `0x0813`
