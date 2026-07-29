@@ -1,5 +1,7 @@
-import { expect, beforeAll } from "vitest";
 import { describeSuite } from "@moonwall/cli";
+import { subtensor } from "@polkadot-api/descriptors";
+import type { TypedApi } from "polkadot-api";
+import { beforeAll, expect } from "vitest";
 import {
     addNewSubnetwork,
     addStake,
@@ -31,8 +33,6 @@ import {
     tao,
     waitForBlocks,
 } from "../../utils";
-import { subtensor } from "@polkadot-api/descriptors";
-import type { TypedApi } from "polkadot-api";
 
 describeSuite({
     id: "0203_claim_root",

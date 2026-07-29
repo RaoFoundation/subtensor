@@ -1,4 +1,8 @@
-import { expect, beforeAll } from "vitest";
+import { describeSuite } from "@moonwall/cli";
+import type { KeyringPair } from "@moonwall/util";
+import { subtensor } from "@polkadot-api/descriptors";
+import type { TypedApi } from "polkadot-api";
+import { beforeAll, expect } from "vitest";
 import {
     addNewSubnetwork,
     addStake,
@@ -20,12 +24,8 @@ import {
     tao,
     waitForBlocks,
 } from "../../utils";
-import { subtensor } from "@polkadot-api/descriptors";
-import type { TypedApi } from "polkadot-api";
 import { rootRegister } from "../../utils/subnet.ts";
 import { swapHotkey } from "../../utils/swap.ts";
-import { describeSuite } from "@moonwall/cli";
-import type { KeyringPair } from "@moonwall/util";
 
 // Shared setup: creates two subnets, registers oldHotkey on both (and on root), points its
 // basket weight vector at the subnets, stakes on ROOT and both subnets, then waits for the
@@ -139,10 +139,9 @@ describeSuite({
 
                 expect(rateBefore, "oldHotkey should have a basket fund before swap").toBeGreaterThan(0n);
                 expect(sharesBefore, "oldHotkey should have fund shares before swap").toBeGreaterThan(0n);
-                expect(
-                    await getBasketRate(api, newHotkey.address),
-                    "newHotkey should have no fund before swap"
-                ).toBe(0n);
+                expect(await getBasketRate(api, newHotkey.address), "newHotkey should have no fund before swap").toBe(
+                    0n
+                );
 
                 // Swap oldHotkey → newHotkey on netuid1 ONLY
                 log(`Swapping oldHotkey → newHotkey on netuid1=${netuid1} only...`);
@@ -151,18 +150,11 @@ describeSuite({
 
                 // The fund is tied to the validator's root identity: a non-root swap must not
                 // move any of it.
-                expect(
-                    await getBasketRate(api, oldHotkey.address),
-                    "oldHotkey must retain its fund rate"
-                ).toBe(rateBefore);
-                expect(
-                    await getBasketRate(api, newHotkey.address),
-                    "newHotkey must have no fund rate"
-                ).toBe(0n);
-                expect(
-                    await getBasketShares(api, newHotkey.address),
-                    "newHotkey must have no fund shares"
-                ).toBe(0n);
+                expect(await getBasketRate(api, oldHotkey.address), "oldHotkey must retain its fund rate").toBe(
+                    rateBefore
+                );
+                expect(await getBasketRate(api, newHotkey.address), "newHotkey must have no fund rate").toBe(0n);
+                expect(await getBasketShares(api, newHotkey.address), "newHotkey must have no fund shares").toBe(0n);
 
                 log("✅ Non-root single-subnet swap doesn't transfer the basket fund");
             },
@@ -190,19 +182,15 @@ describeSuite({
                 await swapHotkey(api, oldHotkeyColdkey, oldHotkey.address, newHotkey.address);
                 log("Swap done");
 
-                expect(
-                    await getBasketRate(api, newHotkey.address),
-                    "newHotkey must have oldHotkey's fund rate"
-                ).toBe(rateBefore);
+                expect(await getBasketRate(api, newHotkey.address), "newHotkey must have oldHotkey's fund rate").toBe(
+                    rateBefore
+                );
                 expect(
                     await getBasketShares(api, newHotkey.address),
                     "newHotkey must have oldHotkey's fund shares"
                 ).toBe(sharesBefore);
                 expect(await getBasketRate(api, oldHotkey.address), "oldHotkey must have no fund left").toBe(0n);
-                expect(
-                    await getBasketShares(api, oldHotkey.address),
-                    "oldHotkey must have no shares left"
-                ).toBe(0n);
+                expect(await getBasketShares(api, oldHotkey.address), "oldHotkey must have no shares left").toBe(0n);
 
                 log("✅ Full swap correctly transferred the whole basket fund to newHotkey");
             },
@@ -229,19 +217,15 @@ describeSuite({
                 await swapHotkey(api, oldHotkeyColdkey, oldHotkey.address, newHotkey.address, 0);
                 log("Swap done");
 
-                expect(
-                    await getBasketRate(api, newHotkey.address),
-                    "newHotkey must have oldHotkey's fund rate"
-                ).toBe(rateBefore);
+                expect(await getBasketRate(api, newHotkey.address), "newHotkey must have oldHotkey's fund rate").toBe(
+                    rateBefore
+                );
                 expect(
                     await getBasketShares(api, newHotkey.address),
                     "newHotkey must have oldHotkey's fund shares"
                 ).toBe(sharesBefore);
                 expect(await getBasketRate(api, oldHotkey.address), "oldHotkey must have no fund left").toBe(0n);
-                expect(
-                    await getBasketShares(api, oldHotkey.address),
-                    "oldHotkey must have no shares left"
-                ).toBe(0n);
+                expect(await getBasketShares(api, oldHotkey.address), "oldHotkey must have no shares left").toBe(0n);
 
                 log("✅ Root swap correctly transferred the basket fund to newHotkey");
             },
