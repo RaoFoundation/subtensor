@@ -1860,6 +1860,19 @@ pub mod pallet {
         StorageValue<_, U64F64, ValueQuery, DefaultEmissionBarQuantile<T>>;
 
     #[pallet::type_value]
+    /// Default emission bar rank (N). 0 disables rank mode and the bar falls
+    /// back to the q-mass quantile. N > 0 pins theta to the Nth-largest demand
+    /// share, so the eligible set tracks rank N as the distribution shifts
+    /// instead of drifting with a fixed q.
+    pub fn DefaultEmissionBarRank<T: Config>() -> u16 {
+        0
+    }
+    #[pallet::storage]
+    /// ITEM --> Emission Bar Rank (N). When non-zero, overrides the quantile.
+    pub type EmissionBarRank<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultEmissionBarRank<T>>;
+
+    #[pallet::type_value]
     /// Default emission gate Hill exponent (h). Controls cliff sharpness at the bar.
     pub fn DefaultEmissionGateExponent<T: Config>() -> U64F64 {
         U64F64::saturating_from_num(3)

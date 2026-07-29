@@ -2036,6 +2036,22 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Sets the emission bar rank (N): when non-zero, the emission gate bar
+        /// (theta) is pinned to the Nth-largest demand share instead of the
+        /// q-mass quantile, so the eligible set tracks rank N as the demand
+        /// distribution shifts. Setting 0 restores quantile mode. Also forces a
+        /// bar recompute on the next block so the change takes effect
+        /// immediately.
+        #[pallet::call_index(102)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_bar_rank())]
+        pub fn sudo_set_emission_bar_rank(origin: OriginFor<T>, rank: u16) -> DispatchResult {
+            ensure_root(origin)?;
+
+            pallet_subtensor::Pallet::<T>::set_emission_bar_rank(rank);
+            log::debug!("set_emission_bar_rank( {rank:?} ) ");
+            Ok(())
+        }
+
         /// Sets the emission gate Hill exponent (h): cliff sharpness at the bar.
         #[pallet::call_index(101)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_gate_exponent())]
