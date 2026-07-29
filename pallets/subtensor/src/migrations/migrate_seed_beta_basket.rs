@@ -165,7 +165,9 @@ pub fn migrate_seed_beta_basket_v2<T: Config>() -> Weight {
     )
 }
 
-/// True while a prior pass left unfinished work (cursor present, flag not yet set).
+/// True while the multi-block seed is unfinished (cursor present). Basket deposits and claims
+/// must not run while this is set — see `distribute_root_alpha_to_basket` /
+/// `do_stake_into_basket` / `do_root_claim`.
 pub fn seed_beta_basket_v2_in_progress<T: Config>() -> bool {
     SeedBetaBasketV2Migration::<T>::exists()
 }
@@ -195,10 +197,17 @@ pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
                 "Running migration '{}'",
                 String::from_utf8_lossy(&migration_name)
             );
-            SeedBetaBasketV2Progress::Convert {
+            // Persist the cursor immediately so `seed_beta_basket_v2_in_progress` is true for
+            // the rest of this block (and until completion). Basket deposits/claims gate on
+            // that flag so coinbase cannot write live BasketRate/Shares that a later pass
+            // would overwrite.
+            let p = SeedBetaBasketV2Progress::Convert {
                 after: None,
                 hotkey: None,
-            }
+            };
+            SeedBetaBasketV2Migration::<T>::put(&p);
+            weight.saturating_accrue(T::DbWeight::get().writes(1));
+            p
         }
     };
 

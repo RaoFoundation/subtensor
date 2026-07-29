@@ -355,5 +355,9 @@ mod errors {
         TooManyRootClaimHotkeys,
         /// A root claim would inspect more basket-position rows than its benchmarked bound.
         TooManyRootClaimHoldings,
+        /// The multi-block `migrate_seed_beta_basket_v2` migration is still running. Basket
+        /// deposits and claims are paused until it finishes so the seed cannot overwrite
+        /// live `BasketRate` / `BasketShares` written by coinbase in intervening blocks.
+        BetaBasketSeedInProgress,
     }
 }

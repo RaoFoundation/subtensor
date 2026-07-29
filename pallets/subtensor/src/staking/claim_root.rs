@@ -167,6 +167,14 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
+        // Multi-block seed migration still converting legacy claim state: recycle rather than
+        // mint into BasketRate/Shares that a later migration pass would overwrite with the
+        // legacy conversion totals (stranding intervening escrow buys).
+        if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
+            Self::recycle_subnet_alpha(origin_netuid, root_alpha);
+            return;
+        }
+
         let valid = Self::get_valid_basket_weights(hotkey);
         let escrow = Self::get_beta_escrow_account_id();
 
@@ -415,6 +423,10 @@ impl<T: Config> Pallet<T> {
         hotkey: T::AccountId,
         tao: TaoBalance,
     ) -> Result<Weight, DispatchError> {
+        ensure!(
+            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
+            Error::<T>::BetaBasketSeedInProgress
+        );
         ensure!(
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists
@@ -715,6 +727,10 @@ impl<T: Config> Pallet<T> {
         coldkey: T::AccountId,
         hotkeys: Vec<T::AccountId>,
     ) -> Result<(), DispatchError> {
+        ensure!(
+            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
+            Error::<T>::BetaBasketSeedInProgress
+        );
         with_transaction(|| match Self::try_do_root_claim(coldkey, &hotkeys) {
             Ok(()) => TransactionOutcome::Commit(Ok(())),
             Err(err) => TransactionOutcome::Rollback(Err(err)),

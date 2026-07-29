@@ -5573,6 +5573,58 @@ fn test_migrate_seed_beta_basket_claimed_drain_bounded_resumable() {
     });
 }
 
+/// While the multi-block seed is in progress, coinbase basket deposits must recycle (not mint
+/// into BasketRate/Shares that a later pass would overwrite).
+#[test]
+fn test_migrate_seed_beta_basket_gates_live_deposits() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        migrate_seed_beta_basket_v2_limited, seed_beta_basket_v2_in_progress,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1.0));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        // Many claimants so a tight drain budget leaves the migration in progress.
+        for i in 0..8u64 {
+            RootClaimed::<Test>::insert((netuid, hotkey, U256::from(5_000 + i)), 100u128);
+        }
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        migrate_seed_beta_basket_v2_limited::<Test>(8, 8, 2);
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+
+        let shares_before = BasketShares::<Test>::get(hotkey);
+        let rate_before = BasketRate::<Test>::get(hotkey);
+        // Would mint into the basket if not gated.
+        SubtensorModule::distribute_root_alpha_to_basket(&hotkey, netuid, 1_000_000u64.into());
+        assert_eq!(
+            BasketShares::<Test>::get(hotkey),
+            shares_before,
+            "deposit must not mint shares while seed migration is in progress"
+        );
+        assert_eq!(BasketRate::<Test>::get(hotkey), rate_before);
+
+        // Finish the migration; deposits must work again afterward.
+        let mut passes = 0u32;
+        while seed_beta_basket_v2_in_progress::<Test>() && passes < 64 {
+            migrate_seed_beta_basket_v2_limited::<Test>(8, 8, 2);
+            passes = passes.saturating_add(1);
+        }
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+    });
+}
+
 /// Migration edge case: a legacy slot whose claimed watermark exceeds its gross accrual (the
 /// historical overclaim bug) must seed nothing negative — no shares, no escrow position — and
 /// the staker's owed must floor at zero rather than underflow.
