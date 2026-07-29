@@ -17,6 +17,7 @@ import {
     getTaoWeight,
     getTotalHotkeyAlpha,
     isSubtokenEnabled,
+    rootRegister,
     setRootWeights,
     startCall,
     sudoSetAdminFreezeWindow,
@@ -26,6 +27,7 @@ import {
     sudoSetSubnetMovingAlpha,
     sudoSetSubtokenEnabled,
     sudoSetTempo,
+    sudoSetWeightsSetRateLimit,
     tao,
     waitForBlocks,
 } from "../../utils";
@@ -116,6 +118,11 @@ describeSuite({
 
                 // Set threshold to 0 to allow claiming any amount (claims consult the ROOT entry)
                 await sudoSetRootClaimThreshold(api, ROOT_NETUID, 0n);
+
+                // Register the validator on root and clear the weights rate limit so the
+                // basket vector can be set immediately.
+                await rootRegister(api, owner1Coldkey, owner1HotkeyAddress);
+                await sudoSetWeightsSetRateLimit(api, ROOT_NETUID, 0);
 
                 // Add stake to ROOT subnet for the staker (makes them eligible for root dividends)
                 const rootStakeAmount = tao(100);
@@ -275,6 +282,11 @@ describeSuite({
 
                 // Set threshold to 0 to allow claiming any amount (claims consult the ROOT entry)
                 await sudoSetRootClaimThreshold(api, ROOT_NETUID, 0n);
+
+                // Register the validator on root and clear the weights rate limit so the
+                // basket vector can be set immediately.
+                await rootRegister(api, owner1Coldkey, owner1HotkeyAddress);
+                await sudoSetWeightsSetRateLimit(api, ROOT_NETUID, 0);
 
                 // Add stake to ROOT subnet for the staker
                 const rootStakeAmount = tao(100);

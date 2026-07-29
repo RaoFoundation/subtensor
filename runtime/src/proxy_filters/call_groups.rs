@@ -305,6 +305,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::move_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake_limit),
+        RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket),
         RuntimeCall::SubtensorModule(SubtensorCall::add_collateral),
         RuntimeCall::SubtensorModule(SubtensorCall::set_min_collateral),
     ]

@@ -138,7 +138,6 @@ intent_plan_test!(intent_set_hyperparameter, "set_hyperparameter");
 intent_plan_test!(intent_set_identity, "set_identity");
 intent_plan_test!(intent_set_mechanism_count, "set_mechanism_count");
 intent_plan_test!(intent_set_perpetual_lock, "set_perpetual_lock");
-intent_plan_test!(intent_set_root_claim_type, "set_root_claim_type");
 intent_plan_test!(intent_set_subnet_identity, "set_subnet_identity");
 intent_plan_test!(intent_set_take, "set_take");
 intent_plan_test!(intent_set_weights, "set_weights");
@@ -504,47 +503,6 @@ fn test_raw_call_escape_hatch_and_commitment() {
         )
         .expect("revealed commitment read");
     assert!(matches!(revealed, Value::Null));
-}
-
-#[test]
-fn test_root_claim_type_variants() {
-    let ctx = TestContext::new();
-    let netuid = ctx.owned_subnet();
-    let coldkey = ctx.alice.coldkey.ss58_address();
-
-    for (claim, subnets, expected) in [
-        ("Swap", None, "Swap"),
-        ("KeepSubnets", Some(vec![netuid]), "KeepSubnets"),
-        ("Keep", None, "Keep"),
-    ] {
-        let intent = IntentCall::set_root_claim_type(claim, subnets).expect("valid claim type");
-        let result = ctx
-            .executor()
-            .execute(&intent, &ctx.alice)
-            .expect("claim type submits");
-        assert_success(&result);
-        let stored = ctx
-            .client
-            .query(
-                "SubtensorModule",
-                "RootClaimType",
-                &[s(coldkey.clone())],
-                None,
-            )
-            .expect("claim type read");
-        assert_eq!(
-            variant_name(&stored).as_deref().or_else(|| as_str(&stored)),
-            Some(expected)
-        );
-        if expected == "KeepSubnets" {
-            assert!(value_contains_u128(&stored, u128::from(netuid)));
-        }
-    }
-}
-
-#[test]
-fn test_keep_subnets_requires_subnets() {
-    assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
 }
 
 #[test]

@@ -2803,36 +2803,36 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_increase_mult",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2195,
-        "end_line": 2233,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2193-L2233",
+        "line": 2211,
+        "end_line": 2249,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2209-L2249",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_half_life",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2153,
-        "end_line": 2189,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2151-L2189",
+        "line": 2169,
+        "end_line": 2205,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2167-L2205",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_lock_share",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2319,
-        "end_line": 2352,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2317-L2352",
+        "line": 2335,
+        "end_line": 2368,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2333-L2368",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_drain_ratio",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2362,
-        "end_line": 2401,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2360-L2401",
+        "line": 2378,
+        "end_line": 2417,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2376-L2417",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
@@ -2956,18 +2956,18 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_cut_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2239,
-        "end_line": 2257,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2237-L2257",
+        "line": 2255,
+        "end_line": 2273,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2253-L2273",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_cut_auto_lock_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2263,
-        "end_line": 2281,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2261-L2281",
+        "line": 2279,
+        "end_line": 2297,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2277-L2297",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -3348,9 +3348,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2291,
-        "end_line": 2309,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2289-L2309",
+        "line": 2307,
+        "end_line": 2325,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2305-L2325",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]

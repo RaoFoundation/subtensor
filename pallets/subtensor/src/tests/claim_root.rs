@@ -2795,9 +2795,15 @@ fn test_root_register_zero_stake_keys_shield_staked_members() {
         // Every further zero-stake registration evicts the previous zero-stake
         // key; the staked validator keeps its seat throughout.
         for pair in sybil_hotkeys.windows(2) {
-            root_register_ok(pair[1], sybil_coldkey);
+            let Some(prev) = pair.first() else {
+                continue;
+            };
+            let Some(next) = pair.get(1) else {
+                continue;
+            };
+            root_register_ok(*next, sybil_coldkey);
             assert!(
-                !Uids::<Test>::contains_key(NetUid::ROOT, pair[0]),
+                !Uids::<Test>::contains_key(NetUid::ROOT, prev),
                 "previous zero-stake key must be the one pruned"
             );
             assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));

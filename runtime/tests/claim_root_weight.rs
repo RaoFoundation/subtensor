@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic)]
+
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use node_subtensor_runtime::{
     BlockWeights, Runtime, RuntimeCall, TxExtension, check_mortality, check_nonce, sudo_wrapper,
@@ -31,10 +33,12 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
 
     let mut dispatch_info = call.get_dispatch_info();
     dispatch_info.extension_weight = extensions.weight(&call);
-    let max_extrinsic = BlockWeights::get()
+    let Some(max_extrinsic) = BlockWeights::get()
         .get(DispatchClass::Normal)
         .max_extrinsic
-        .expect("normal extrinsics have a configured maximum");
+    else {
+        panic!("normal extrinsics have a configured maximum");
+    };
 
     assert!(
         dispatch_info.total_weight().all_lte(max_extrinsic),

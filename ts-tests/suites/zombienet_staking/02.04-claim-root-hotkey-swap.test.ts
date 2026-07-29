@@ -16,6 +16,7 @@ import {
     sudoSetSubnetMovingAlpha,
     sudoSetSubtokenEnabled,
     sudoSetTempo,
+    sudoSetWeightsSetRateLimit,
     tao,
     waitForBlocks,
 } from "../../utils";
@@ -99,6 +100,7 @@ async function setupTwoSubnetsWithBasket(
     // subnets: without weights, root dividends are recycled and no fund accrues.
     await rootRegister(api, oldHotkeyColdkey, oldHotkey.address);
     log("oldHotkey registered on root");
+    await sudoSetWeightsSetRateLimit(api, ROOT_NETUID, 0);
     await setRootWeights(api, oldHotkey, [netuid1, netuid2], [32768, 32768]);
     log("Set oldHotkey root weights: 50/50 across netuid1/netuid2");
 

@@ -831,19 +831,6 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
             record([("netuid", u(netuid)), ("enabled", boolv(true))]),
         )
         .touches([netuid]),
-        "set_root_claim_type" => make(
-            SignerRole::Coldkey,
-            "SubtensorModule",
-            "set_root_claim_type",
-            record([(
-                "new_root_claim_type",
-                Value::Dict(vec![(
-                    s("KeepSubnets"),
-                    record([("subnets", list([u(netuid)]))]),
-                )]),
-            )]),
-        )
-        .touches([netuid]),
         "set_subnet_identity" => make(
             SignerRole::Coldkey,
             "SubtensorModule",

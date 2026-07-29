@@ -153,9 +153,6 @@
     "test": "intent_set_perpetual_lock"
   },
   {
-    "test": "intent_set_root_claim_type"
-  },
-  {
     "test": "intent_set_subnet_identity"
   },
   {

@@ -391,6 +391,21 @@ export async function sudoSetLockReductionInterval(api: TypedApi<typeof subtenso
     await waitForTransactionWithRetry(api, tx, alice, "sudo_set_lock_reduction_interval");
 }
 
+export async function sudoSetWeightsSetRateLimit(
+    api: TypedApi<typeof subtensor>,
+    netuid: number,
+    weightsSetRateLimit: number
+): Promise<void> {
+    const keyring = new Keyring({ type: "sr25519" });
+    const alice = keyring.addFromUri("//Alice");
+    const internalCall = api.tx.AdminUtils.sudo_set_weights_set_rate_limit({
+        netuid: netuid,
+        weights_set_rate_limit: BigInt(weightsSetRateLimit),
+    });
+    const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
+    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_weights_set_rate_limit");
+}
+
 export async function sudoSetSubnetMovingAlpha(api: TypedApi<typeof subtensor>, alpha: bigint): Promise<void> {
     const keyring = new Keyring({ type: "sr25519" });
     const alice = keyring.addFromUri("//Alice");
