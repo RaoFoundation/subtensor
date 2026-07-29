@@ -156,6 +156,7 @@ class SubtensorModule:
     TaoFlowCutoff = Item('SubtensorModule', 'TaoFlowCutoff', 'FixedI128')
     FlowNormExponent = Item('SubtensorModule', 'FlowNormExponent', 'FixedU128')
     EmissionBarQuantile = Item('SubtensorModule', 'EmissionBarQuantile', 'FixedU128')
+    EmissionBarRank = Item('SubtensorModule', 'EmissionBarRank', 'u16')
     EmissionGateExponent = Item('SubtensorModule', 'EmissionGateExponent', 'FixedU128')
     EmissionGateBar = Item('SubtensorModule', 'EmissionGateBar', 'FixedU128')
     FlowEmaSmoothingFactor = Item('SubtensorModule', 'FlowEmaSmoothingFactor', 'u64')

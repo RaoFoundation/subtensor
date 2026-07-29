@@ -189,7 +189,11 @@ mod hooks {
                 .saturating_add(migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2::<T>())
                 // Drop legacy root weight vectors and reseed every root validator with a
                 // balanced 1/n basket over every live non-root subnet.
-                .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>());
+                .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>())
+                // Kill the stale quantile-derived emission gate bar so the
+                // rank-64 bar (DefaultEmissionBarRank) applies from the first
+                // recompute after the upgrade instead of the next cadence boundary.
+                .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>());
             weight
         }
 

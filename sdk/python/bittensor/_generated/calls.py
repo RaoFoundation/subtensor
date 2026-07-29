@@ -996,6 +996,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_emission_bar_quantile', {'quantile': quantile})
 
     @staticmethod
+    def sudo_set_emission_bar_rank(rank: 'u16') -> Call:
+        'Sets the emission bar rank (N): when non-zero, the emission gate bar (theta) is pinned to the Nth-largest demand share instead of the q-mass quantile, so the eligible set tracks rank N as the demand distribution shifts. Setting 0 restores quantile mode. Also forces a bar recompute on the next block so the change takes effect immediately.'
+        return Call('AdminUtils', 'sudo_set_emission_bar_rank', {'rank': rank})
+
+    @staticmethod
     def sudo_set_emission_gate_exponent(exponent: 'FixedU128') -> Call:
         'Sets the emission gate Hill exponent (h): cliff sharpness at the bar.'
         return Call('AdminUtils', 'sudo_set_emission_gate_exponent', {'exponent': exponent})

@@ -5572,3 +5572,33 @@ fn test_migrate_seed_beta_basket_v2_after_v1_already_ran() {
         );
     });
 }
+
+#[test]
+fn test_migrate_reset_emission_gate_bar() {
+    new_test_ext(1).execute_with(|| {
+        const MIG_NAME: &[u8] = b"reset_emission_gate_bar_rank_64";
+
+        // Pre-state: a stale quantile-derived bar is in place.
+        EmissionGateBar::<Test>::put(U64F64::from_num(0.009));
+        assert!(
+            !HasMigrationRun::<Test>::get(MIG_NAME.to_vec()),
+            "migration flag should be false before run"
+        );
+
+        let w = crate::migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<Test>();
+        assert!(!w.is_zero(), "weight must be non-zero");
+
+        // The stale bar is killed so the first recompute after the upgrade
+        // rebuilds it under the rank-64 default.
+        assert_eq!(EmissionGateBar::<Test>::get(), U64F64::from_num(0));
+        assert!(
+            HasMigrationRun::<Test>::get(MIG_NAME.to_vec()),
+            "migration flag not set"
+        );
+
+        // Second run is a no-op: a freshly recomputed bar survives.
+        EmissionGateBar::<Test>::put(U64F64::from_num(0.003));
+        crate::migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<Test>();
+        assert_eq!(EmissionGateBar::<Test>::get(), U64F64::from_num(0.003));
+    });
+}
