@@ -211,6 +211,15 @@ mod hooks {
                 weight.saturating_accrue(Self::process_network_registration_queue());
             }
 
+            // Continue the multi-block beta-basket seed migration until HasMigrationRun is set.
+            if weight.all_lt(limit)
+                && migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>()
+            {
+                weight.saturating_accrue(
+                    migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2::<T>(),
+                );
+            }
+
             weight
         }
     }

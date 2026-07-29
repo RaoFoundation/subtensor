@@ -5305,6 +5305,136 @@ fn test_migrate_seed_beta_basket() {
         // Idempotent: a second run is a no-op (only reads the flag).
         let w2 = migrate_seed_beta_basket_v2::<Test>();
         assert_eq!(w2, <Test as frame_system::Config>::DbWeight::get().reads(1));
+        assert!(
+            !crate::migrations::migrate_seed_beta_basket::SeedBetaBasketV2Migration::<Test>::exists(),
+            "progress cursor must be cleared when migration finishes"
+        );
+    });
+}
+
+/// Chunked / resumable path: with a 1-hotkey-per-pass limit the migration must leave a cursor,
+/// finish across subsequent passes (as `on_idle` will), set `HasMigrationRun` only at the end,
+/// and remain idempotent afterwards.
+#[test]
+fn test_migrate_seed_beta_basket_chunked_resumable() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        SeedBetaBasketV2Migration, SeedBetaBasketV2Progress, deprecated,
+        migrate_seed_beta_basket_v2_limited, seed_beta_basket_v2_in_progress,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+
+        let owner = U256::from(1001);
+        let hotkey_a = U256::from(1002);
+        let cold_a = U256::from(1003);
+        let hotkey_b = U256::from(2002);
+        let cold_b = U256::from(2003);
+        let hotkey_c = U256::from(3002);
+        let cold_c = U256::from(3003);
+
+        let netuid_a = add_dynamic_network(&hotkey_a, &owner);
+        let netuid_b = add_dynamic_network(&hotkey_b, &U256::from(2001));
+        let netuid_c = add_dynamic_network(&hotkey_c, &U256::from(3001));
+        SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1.0));
+        SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(1.0));
+        SubnetMovingPrice::<Test>::insert(netuid_c, I96F32::from_num(1.0));
+
+        for (hot, cold) in [
+            (hotkey_a, cold_a),
+            (hotkey_b, cold_b),
+            (hotkey_c, cold_c),
+        ] {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &cold,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+            );
+        }
+
+        RootClaimable::<Test>::mutate(hotkey_a, |m| {
+            m.insert(netuid_a, I96F32::from_num(0.5));
+        });
+        RootClaimable::<Test>::mutate(hotkey_b, |m| {
+            m.insert(netuid_b, I96F32::from_num(0.5));
+        });
+        RootClaimable::<Test>::mutate(hotkey_c, |m| {
+            m.insert(netuid_c, I96F32::from_num(0.5));
+        });
+
+        // Orphaned v1 principal rows — cleared in the second phase across passes.
+        deprecated::BasketPrincipal::<Test>::insert(
+            hotkey_a,
+            netuid_a,
+            AlphaBalance::from(1u64),
+        );
+        deprecated::BasketPrincipal::<Test>::insert(
+            hotkey_b,
+            netuid_b,
+            AlphaBalance::from(1u64),
+        );
+        deprecated::BasketPrincipal::<Test>::insert(
+            hotkey_c,
+            netuid_c,
+            AlphaBalance::from(1u64),
+        );
+
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+
+        // Pass 1: convert exactly one hotkey, leave a Convert cursor.
+        let w1 = migrate_seed_beta_basket_v2_limited::<Test>(1, 1);
+        assert!(!w1.is_zero());
+        assert!(
+            !HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "must not mark complete while hotkeys remain"
+        );
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+        assert!(matches!(
+            SeedBetaBasketV2Migration::<Test>::get(),
+            Some(SeedBetaBasketV2Progress::Convert { after: Some(_) })
+        ));
+
+        // Drive remaining convert + bounded principal-clear passes (mirrors on_idle).
+        let mut passes = 1u32;
+        while seed_beta_basket_v2_in_progress::<Test>() && passes < 32 {
+            migrate_seed_beta_basket_v2_limited::<Test>(1, 1);
+            passes = passes.saturating_add(1);
+        }
+
+        assert!(
+            HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "flag set only after full completion"
+        );
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert!(SeedBetaBasketV2Migration::<Test>::get().is_none());
+
+        // All three hotkeys converted; legacy maps drained; principal cleared.
+        for (hot, netuid, cold) in [
+            (hotkey_a, netuid_a, cold_a),
+            (hotkey_b, netuid_b, cold_b),
+            (hotkey_c, netuid_c, cold_c),
+        ] {
+            assert!(RootClaimable::<Test>::get(hot).is_empty());
+            assert!(BasketShares::<Test>::get(hot) > 0);
+            assert!(!deprecated::BasketPrincipal::<Test>::contains_key(
+                hot, netuid
+            ));
+            assert_abs_diff_eq!(
+                SubtensorModule::get_basket_owed_shares(&hot, &cold),
+                BasketShares::<Test>::get(hot),
+                epsilon = 10u64,
+            );
+        }
+
+        // Idempotent after completion.
+        let w_done = migrate_seed_beta_basket_v2_limited::<Test>(1, 1);
+        assert_eq!(
+            w_done,
+            <Test as frame_system::Config>::DbWeight::get().reads(1)
+        );
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
     });
 }
 
