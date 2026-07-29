@@ -1869,6 +1869,30 @@ pub mod pallet {
     pub type EmissionGateExponent<T: Config> =
         StorageValue<_, U64F64, ValueQuery, DefaultEmissionGateExponent<T>>;
 
+    #[pallet::type_value]
+    /// Default emission conviction boost (lambda). Zero disables the
+    /// conviction adjustment and reproduces the unadjusted v4.4.0 gate.
+    pub fn DefaultEmissionConvictionBoost<T: Config>() -> U64F64 {
+        U64F64::saturating_from_num(0)
+    }
+    #[pallet::storage]
+    /// ITEM --> Emission Conviction Boost (lambda). Scales how much a subnet's
+    /// conviction-locked ratio C (total time-weighted conviction / alpha out,
+    /// capped at 1) amplifies its demand share when evaluated against the
+    /// emission gate: s_eff = s * (1 + lambda * C). Only the gate argument is
+    /// adjusted; the base emission weight and the bar computation continue to
+    /// use the raw share s, so zero-demand subnets gain nothing from locking.
+    pub type EmissionConvictionBoost<T: Config> =
+        StorageValue<_, U64F64, ValueQuery, DefaultEmissionConvictionBoost<T>>;
+
+    #[pallet::storage]
+    /// MAP ( netuid ) --> conviction-locked ratio C consumed by the emission
+    /// gate. Refreshed on the same block cadence as the gate bar (and only
+    /// while EmissionConvictionBoost > 0), so the per-block gate hot path
+    /// never iterates lock storage. A missing entry reads as zero (no boost).
+    pub type EmissionConvictionRatio<T: Config> =
+        StorageMap<_, Identity, NetUid, U64F64, ValueQuery>;
+
     #[pallet::storage]
     /// ITEM --> Emission gate bar (theta): the q-mass demand-share threshold the
     /// Hill gate is centered on. Recomputed on a fixed block cadence from the

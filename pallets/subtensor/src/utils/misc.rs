@@ -1000,6 +1000,11 @@ impl<T: Config> Pallet<T> {
         EmissionGateExponent::<T>::set(exponent);
     }
 
+    /// Sets the emission conviction boost (lambda)
+    pub fn set_emission_conviction_boost(boost: U64F64) {
+        EmissionConvictionBoost::<T>::set(boost);
+    }
+
     /// Sets TAO flow smoothing factor (alpha)
     pub fn set_tao_flow_smoothing_factor(smoothing_factor: u64) {
         FlowEmaSmoothingFactor::<T>::set(smoothing_factor);

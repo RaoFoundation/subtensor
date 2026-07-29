@@ -435,6 +435,28 @@ impl<T: Config> Pallet<T> {
             EmissionGateBar::<T>::put(theta);
             log::debug!("Emission gate bar updated: theta = {theta:?} (q = {q:?})");
         }
+
+        // Refresh conviction ratios on the same cadence as the bar, so the
+        // per-block gate application below never iterates lock storage. While
+        // the boost is disabled (the default) this is a no-op, keeping the
+        // default path zero-cost. A subnet slot reused after deregistration
+        // can read a stale ratio for at most one bar interval before this
+        // refresh overwrites it.
+        let one = U64F64::saturating_from_num(1);
+        if EmissionConvictionBoost::<T>::get() > zero {
+            for netuid in shares.keys() {
+                let alpha_out =
+                    U64F64::saturating_from_num(u64::from(SubnetAlphaOut::<T>::get(*netuid)));
+                let ratio = if alpha_out > zero {
+                    Self::get_total_conviction(*netuid)
+                        .safe_div(alpha_out)
+                        .min(one)
+                } else {
+                    zero
+                };
+                EmissionConvictionRatio::<T>::insert(*netuid, ratio);
+            }
+        }
     }
 
     /// Applies the Hill emission gate in place and renormalizes.
@@ -457,14 +479,30 @@ impl<T: Config> Pallet<T> {
             return;
         }
         let h = EmissionGateExponent::<T>::get();
+        let lambda = EmissionConvictionBoost::<T>::get();
 
         let ungated = shares.clone();
 
-        for share in shares.values_mut() {
+        for (netuid, share) in shares.iter_mut() {
             if *share <= zero {
                 continue;
             }
-            let ratio = theta.safe_div(*share);
+            // Conviction-adjusted share, used for gate evaluation only. C is
+            // the subnet's time-weighted conviction as a fraction of its alpha
+            // out, capped at 1, so a fully locked subnet counts at most
+            // (1 + lambda) times its raw demand share at the gate. Conviction
+            // matures over months and is irreversible while active, so this
+            // input is as manipulation-resistant as the moving prices the gate
+            // already consumes. C is read from the cache refreshed on the bar
+            // cadence — this hot path never iterates lock storage — and
+            // lambda = 0 (the default) reproduces the unadjusted gate.
+            let gate_share = if lambda > zero {
+                let conviction_ratio = EmissionConvictionRatio::<T>::get(*netuid).min(one);
+                share.saturating_mul(one.saturating_add(lambda.saturating_mul(conviction_ratio)))
+            } else {
+                *share
+            };
+            let ratio = theta.safe_div(gate_share);
             // For s << theta, safe_pow saturates and the gate goes to ~0;
             // for s >> theta, the ratio underflows ln and safe_pow returns 0,
             // so the gate goes to 1. Both limits are the intended behavior.

@@ -112,6 +112,7 @@ pub trait WeightInfo {
 	fn sudo_set_tao_flow_normalization_exponent() -> Weight;
 	fn sudo_set_emission_bar_quantile() -> Weight;
 	fn sudo_set_emission_gate_exponent() -> Weight;
+	fn sudo_set_emission_conviction_boost() -> Weight;
 	fn sudo_set_tao_flow_smoothing_factor() -> Weight;
 	fn sudo_set_net_tao_flow_enabled() -> Weight;
 	fn sudo_set_max_mechanism_count() -> Weight;
@@ -1335,6 +1336,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `SubtensorModule::EmissionGateExponent` (r:0 w:1)
 	/// Proof: `SubtensorModule::EmissionGateExponent` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn sudo_set_emission_gate_exponent() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_000_000 picoseconds.
+		Weight::from_parts(2_000_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::EmissionConvictionBoost` (r:0 w:1)
+	/// Proof: `SubtensorModule::EmissionConvictionBoost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_emission_conviction_boost() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
@@ -2708,6 +2719,16 @@ impl WeightInfo for () {
 	/// Storage: `SubtensorModule::EmissionGateExponent` (r:0 w:1)
 	/// Proof: `SubtensorModule::EmissionGateExponent` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn sudo_set_emission_gate_exponent() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_000_000 picoseconds.
+		Weight::from_parts(2_000_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::EmissionConvictionBoost` (r:0 w:1)
+	/// Proof: `SubtensorModule::EmissionConvictionBoost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_emission_conviction_boost() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`

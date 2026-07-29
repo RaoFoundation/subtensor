@@ -266,6 +266,65 @@ fn emission_gate_concentrates_1_to_2_price_split() {
     });
 }
 
+/// Conviction boost: of two identical below-bar subnets, the one whose alpha
+/// is conviction-locked clears more of the gate under lambda = 1, matches its
+/// unlocked twin exactly under the default lambda = 0, and never disturbs the
+/// price-driven base weight of the demand head.
+#[test]
+fn emission_gate_conviction_boost_lifts_locked_subnet() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(90);
+        let owner_coldkey = U256::from(91);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n3 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        System::set_block_number(0);
+        // n3 is the demand head; n1 and n2 sit equally below the bar.
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(0.1));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(0.1));
+        SubnetMovingPrice::<Test>::insert(n3, i96f32(1.0));
+        for n in [n1, n2, n3] {
+            MinerBurned::<Test>::insert(n, U96F32::saturating_from_num(0.0));
+        }
+
+        // n1 carries a matured owner lock worth its entire alpha out (C = 1);
+        // n2 has the same alpha out and no lock (C = 0).
+        let alpha_out = 1_000_000u64;
+        SubnetAlphaOut::<Test>::insert(n1, AlphaBalance::from(alpha_out));
+        SubnetAlphaOut::<Test>::insert(n2, AlphaBalance::from(alpha_out));
+        OwnerLock::<Test>::insert(
+            n1,
+            crate::staking::lock::LockState {
+                locked_mass: alpha_out.into(),
+                conviction: U64F64::saturating_from_num(alpha_out),
+                last_update: 0,
+            },
+        );
+
+        // Default lambda = 0: the lock changes nothing.
+        let base = SubtensorModule::get_shares(&[n1, n2, n3]);
+        let b1 = base.get(&n1).copied().unwrap().to_num::<f64>();
+        let b2 = base.get(&n2).copied().unwrap().to_num::<f64>();
+        assert_abs_diff_eq!(b1, b2, epsilon = 1e-12);
+
+        // lambda = 1: the locked subnet clears more of the gate than its twin.
+        EmissionConvictionBoost::<Test>::put(u64f64(1.0));
+        let boosted = SubtensorModule::get_shares(&[n1, n2, n3]);
+        let s1 = boosted.get(&n1).copied().unwrap().to_num::<f64>();
+        let s2 = boosted.get(&n2).copied().unwrap().to_num::<f64>();
+        let s3 = boosted.get(&n3).copied().unwrap().to_num::<f64>();
+        assert!(
+            s1 > s2,
+            "locked subnet must out-earn its unlocked twin: {s1} vs {s2}"
+        );
+        // The boost only widens the gate; the base weight stays price-driven,
+        // so the demand head keeps its dominance.
+        assert!(s3 > s1);
+        assert_abs_diff_eq!(s1 + s2 + s3, 1.0_f64, epsilon = 1e-9);
+    });
+}
+
 /// Stale theta ≫ equal shares with max h can underflow every gated product to
 /// zero; the gate must restore the ungated distribution instead of stranding
 /// the block's emission.

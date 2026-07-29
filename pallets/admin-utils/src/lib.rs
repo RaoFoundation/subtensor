@@ -2057,6 +2057,25 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Sets the emission conviction boost (lambda): how strongly a subnet's
+        /// conviction-locked ratio amplifies its demand share at the emission
+        /// gate (s_eff = s * (1 + lambda * C)). Zero disables the adjustment.
+        #[pallet::call_index(102)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_conviction_boost())]
+        pub fn sudo_set_emission_conviction_boost(
+            origin: OriginFor<T>,
+            boost: U64F64,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let eight = U64F64::saturating_from_num(8);
+            ensure!(boost <= eight, Error::<T>::InvalidValue);
+
+            pallet_subtensor::Pallet::<T>::set_emission_conviction_boost(boost);
+            log::debug!("set_emission_conviction_boost( {boost:?} ) ");
+            Ok(())
+        }
+
         /// Sets TAO flow smoothing factor (alpha)
         #[pallet::call_index(83)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_smoothing_factor())]

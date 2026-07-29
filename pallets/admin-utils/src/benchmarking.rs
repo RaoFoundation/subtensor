@@ -861,6 +861,12 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_emission_conviction_boost() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, U64F64::from_num(1));
+    }
+
+    #[benchmark]
     fn sudo_set_tao_flow_smoothing_factor() {
         #[extrinsic_call]
         _(RawOrigin::Root, u64::MAX);
