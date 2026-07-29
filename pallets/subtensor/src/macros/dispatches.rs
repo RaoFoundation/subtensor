@@ -858,7 +858,7 @@ mod dispatches {
         )]
         #[pallet::call_index(70)]
         #[pallet::weight((
-            <T as crate::pallet::Config>::WeightInfo::swap_hotkey(),
+            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(&hotkey, &netuid, false),
             DispatchClass::Normal,
             Pays::Yes
         ))]
@@ -885,7 +885,7 @@ mod dispatches {
         #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(72)]
         #[pallet::weight((
-            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake),
+            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(&hotkey, &netuid, *keep_stake),
             DispatchClass::Normal,
             Pays::Yes
         ))]

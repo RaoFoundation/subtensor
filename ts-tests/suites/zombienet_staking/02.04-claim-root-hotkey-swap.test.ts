@@ -149,9 +149,12 @@ describeSuite({
                 log("Swap done");
 
                 // The fund is tied to the validator's root identity: a non-root swap must not
-                // move any of it.
-                expect(await getBasketRate(api, oldHotkey.address), "oldHotkey must retain its fund rate").toBe(
-                    rateBefore
+                // move any of it. Rate may still grow from ongoing root dividends between the
+                // pre-swap read and swap finalization, so require retention (≥ before), not equality.
+                const rateAfter = await getBasketRate(api, oldHotkey.address);
+                expect(rateAfter, "oldHotkey must retain its fund rate").toBeGreaterThanOrEqual(rateBefore);
+                expect(await getBasketShares(api, oldHotkey.address), "oldHotkey must retain fund shares").toBe(
+                    sharesBefore
                 );
                 expect(await getBasketRate(api, newHotkey.address), "newHotkey must have no fund rate").toBe(0n);
                 expect(await getBasketShares(api, newHotkey.address), "newHotkey must have no fund shares").toBe(0n);

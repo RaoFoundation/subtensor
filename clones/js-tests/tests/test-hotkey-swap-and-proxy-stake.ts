@@ -162,9 +162,12 @@ async function exerciseHotkeySwap(netuid) {
   assert.equal((await api.query.subtensorModule.owner(oldHotkey.address)).toString(), swapColdkey.address);
   console.log("old hotkey registered:", `uid=${oldUid}`, `hotkey=${oldHotkey.address}`);
 
+  // Single-subnet swap on the working netuid. An all-subnets (`null`) swap touches root and
+  // is paused while `migrate_seed_beta_basket_v2` runs after a clone upgrade; this test only
+  // needs membership/uid migration on the subnet under exercise.
   const result = await submitAndWait(
     swapColdkey,
-    api.tx.subtensorModule.swapHotkeyV2(oldHotkey.address, newHotkey.address, null, false),
+    api.tx.subtensorModule.swapHotkeyV2(oldHotkey.address, newHotkey.address, netuid, false),
     "swap hotkey v2"
   );
   assertEvent(result.events, "subtensorModule", "HotkeySwapped");

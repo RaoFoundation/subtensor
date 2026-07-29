@@ -46,8 +46,9 @@ describeSuite({
                 const expectedStoredValue = newThreshold * (1n << 32n); // I96F32 encoding
                 expect(thresholdAfter).toBe(expectedStoredValue);
 
-                // Claims only consult the ROOT entry, so setting any other netuid is rejected
-                // rather than silently storing an inert value.
+                // Claims only consult the ROOT entry, so setting any other netuid must not
+                // write storage. `Sudo.sudo` still finalizes when the inner call fails (Sudid
+                // carries the Err), so assert the non-ROOT entry stays at its default.
                 const hotkey = generateKeyringPair("sr25519");
                 const coldkey = generateKeyringPair("sr25519");
                 await forceSetBalance(api, hotkey.address);
@@ -55,9 +56,15 @@ describeSuite({
                 const netuid = await addNewSubnetwork(api, hotkey, coldkey);
                 await startCall(api, netuid, coldkey);
 
-                await expect(sudoSetRootClaimThreshold(api, netuid, newThreshold)).rejects.toThrow();
+                const nonRootBefore = await getRootClaimThreshold(api, netuid);
+                await sudoSetRootClaimThreshold(api, netuid, newThreshold);
+                const nonRootAfter = await getRootClaimThreshold(api, netuid);
+                expect(nonRootAfter, "non-ROOT threshold must not be written").toBe(nonRootBefore);
+                expect(nonRootAfter, "non-ROOT threshold must not equal the ROOT write").not.toBe(
+                    expectedStoredValue
+                );
 
-                log("✅ ROOT threshold set; non-ROOT netuid rejected.");
+                log("✅ ROOT threshold set; non-ROOT netuid left unchanged.");
             },
         });
     },

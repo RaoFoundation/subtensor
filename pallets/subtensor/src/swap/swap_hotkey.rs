@@ -15,8 +15,13 @@ impl<T: Config> Pallet<T> {
     /// Use the generated all-subnet stake-moving benchmark for every v2 path
     /// that scans and moves stake. Preserve the previous lightweight weight for
     /// the single-subnet `keep_stake` path, which does not scan stake prefixes.
-    pub fn swap_hotkey_v2_dispatch_weight(netuid: &Option<NetUid>, keep_stake: bool) -> Weight {
-        if netuid.is_none() || !keep_stake {
+    /// Root-touching swaps also reserve weight for migrating `BasketClaimed` rows.
+    pub fn swap_hotkey_v2_dispatch_weight(
+        old_hotkey: &T::AccountId,
+        netuid: &Option<NetUid>,
+        keep_stake: bool,
+    ) -> Weight {
+        let base = if netuid.is_none() || !keep_stake {
             <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey()
         } else {
             // +1 read / +4 writes vs the pre-lineage keep_stake path: root lookup,
@@ -24,7 +29,30 @@ impl<T: Config> Pallet<T> {
             Weight::from_parts(275_300_000, 0)
                 .saturating_add(T::DbWeight::get().reads(53_u64))
                 .saturating_add(T::DbWeight::get().writes(39_u64))
+        };
+        base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
+    }
+
+    /// Pre-dispatch weight for moving `BasketClaimed` on a root-touching hotkey swap.
+    /// Counts the prefix and charges per row so the block scheduler reserves the work up
+    /// front (post-dispatch accrual alone does not expand the inclusion reservation).
+    pub fn basket_claimed_swap_weight(
+        old_hotkey: &T::AccountId,
+        netuid: &Option<NetUid>,
+    ) -> Weight {
+        let touches_root = match netuid {
+            None => true,
+            Some(n) => *n == NetUid::ROOT,
+        };
+        if !touches_root {
+            return Weight::zero();
         }
+        let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
+        // One read per scanned row + remove/insert pair per row.
+        T::DbWeight::get().reads_writes(
+            claimed_rows.saturating_mul(2).saturating_add(1),
+            claimed_rows.saturating_mul(2),
+        )
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
