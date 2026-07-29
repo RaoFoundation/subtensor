@@ -153,6 +153,15 @@ impl<T: Config> Pallet<T> {
             Some(n) => n == NetUid::ROOT,
         };
         if touches_root {
+            // The multi-block seed keeps `RootClaimable`/`RootClaimed` and any
+            // `HotkeyConvertState` keyed to the old hotkey until that hotkey finishes
+            // converting. Moving root stake/basket mid-migration would value those
+            // leftovers against zero stake under the retired key.
+            ensure!(
+                !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(
+                ),
+                Error::<T>::BetaBasketSeedInProgress
+            );
             ensure!(
                 !BasketRate::<T>::contains_key(new_hotkey)
                     && BasketShares::<T>::get(new_hotkey) == 0
