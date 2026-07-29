@@ -1099,6 +1099,12 @@ impl<T: Config> Pallet<T> {
         max_amount: TaoBalance,
         allow_partial: bool,
     ) -> Result<(), Error<T>> {
+        // Root stake changes during the multi-block basket seed break snapshotted
+        // conversion (`Σ owed == BasketShares`); pause until the seed finishes.
+        if netuid.is_root() {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // Ensure that the subnet exists.
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
@@ -1177,6 +1183,10 @@ impl<T: Config> Pallet<T> {
         max_amount: AlphaBalance,
         allow_partial: bool,
     ) -> Result<(), Error<T>> {
+        if netuid.is_root() {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // Ensure that the subnet exists.
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
@@ -1250,6 +1260,11 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         only_alpha: bool,
     ) -> Result<(), Error<T>> {
+        // `unstake_all` (not only_alpha) withdraws root stake too.
+        if !only_alpha {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // Get all netuids (filter out root)
         let subnets = Self::get_all_subnet_netuids();
 
@@ -1298,6 +1313,10 @@ impl<T: Config> Pallet<T> {
         maybe_allow_partial: Option<bool>,
         check_transfer_toggle: bool,
     ) -> Result<(), Error<T>> {
+        if origin_netuid.is_root() || destination_netuid.is_root() {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // Ensure stake transition is actually happening
         if origin_coldkey == destination_coldkey && origin_hotkey == destination_hotkey {
             ensure!(origin_netuid != destination_netuid, Error::<T>::SameNetuid);

@@ -5615,6 +5615,19 @@ fn test_migrate_seed_beta_basket_gates_live_deposits() {
         );
         assert_eq!(BasketRate::<Test>::get(hotkey), rate_before);
 
+        // Root stake add must also be rejected during the seed window.
+        assert_eq!(
+            SubtensorModule::validate_add_stake(
+                &coldkey,
+                &hotkey,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+                1_000_000u64.into(),
+                false,
+            ),
+            Err(Error::<Test>::BetaBasketSeedInProgress)
+        );
+
         // Finish the migration; deposits must work again afterward.
         let mut passes = 0u32;
         while seed_beta_basket_v2_in_progress::<Test>() && passes < 64 {

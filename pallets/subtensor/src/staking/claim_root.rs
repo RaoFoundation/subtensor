@@ -29,6 +29,18 @@ enum BasketFunding<'a, AccountId> {
 }
 
 impl<T: Config> Pallet<T> {
+    /// Reject user-facing basket / root-stake mutations while the multi-block
+    /// `migrate_seed_beta_basket_v2` cursor is still present. Dividend distribution
+    /// recycles instead of calling this (soft path); deposits, claims, swaps, and
+    /// root stake add/remove/transfer hard-error here.
+    pub(crate) fn ensure_beta_basket_seed_idle() -> Result<(), Error<T>> {
+        ensure!(
+            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
+            Error::<T>::BetaBasketSeedInProgress
+        );
+        Ok(())
+    }
+
     /// The single global escrow coldkey that custodies every validator's basket.
     ///
     /// A validator's basket (fund) holdings are positions `(validator_hotkey, this_account,
@@ -423,10 +435,7 @@ impl<T: Config> Pallet<T> {
         hotkey: T::AccountId,
         tao: TaoBalance,
     ) -> Result<Weight, DispatchError> {
-        ensure!(
-            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
-            Error::<T>::BetaBasketSeedInProgress
-        );
+        Self::ensure_beta_basket_seed_idle()?;
         ensure!(
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists
@@ -727,10 +736,7 @@ impl<T: Config> Pallet<T> {
         coldkey: T::AccountId,
         hotkeys: Vec<T::AccountId>,
     ) -> Result<(), DispatchError> {
-        ensure!(
-            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
-            Error::<T>::BetaBasketSeedInProgress
-        );
+        Self::ensure_beta_basket_seed_idle()?;
         with_transaction(|| match Self::try_do_root_claim(coldkey, &hotkeys) {
             Ok(()) => TransactionOutcome::Commit(Ok(())),
             Err(err) => TransactionOutcome::Rollback(Err(err)),
