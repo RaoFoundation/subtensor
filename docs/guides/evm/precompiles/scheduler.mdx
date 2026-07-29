@@ -7,11 +7,13 @@ description: Proposed typed EVM interface for the Scheduler pallet.
 |---|---|
 | Proposed implementation | `SchedulerPrecompile` |
 | Proposed Solidity interface | `IScheduler` |
-| Address | Not assigned |
-| Status | Proposed |
+| Reserved address | `0x000000000000000000000000000000000000080f` |
+| Status | Proposed; not yet callable |
 
-This precompile would replace raw reads of Scheduler storage and expose the
-Scheduler extrinsics through a stable EVM interface.
+This precompile would replace raw reads of Scheduler storage with a stable EVM
+interface. It lets contracts inspect whether and when runtime work is
+scheduled without decoding Scheduler storage or acquiring permission to modify
+the schedule.
 
 ## Planned views
 
@@ -26,23 +28,11 @@ Scheduler extrinsics through a stable EVM interface.
 Returning one agenda entry at a time keeps execution bounded and avoids an
 unbounded array result.
 
-## Planned operations
+## State-changing operations
 
-| Proposed function | Source extrinsic |
-|---|---|
-| `schedule` | `Scheduler.schedule` |
-| `cancel` | `Scheduler.cancel` |
-| `scheduleNamed` | `Scheduler.schedule_named` |
-| `cancelNamed` | `Scheduler.cancel_named` |
-| `scheduleAfter` | `Scheduler.schedule_after` |
-| `scheduleNamedAfter` | `Scheduler.schedule_named_after` |
-| `setRetry` | `Scheduler.set_retry` |
-| `setRetryNamed` | `Scheduler.set_retry_named` |
-| `cancelRetry` | `Scheduler.cancel_retry` |
-| `cancelRetryNamed` | `Scheduler.cancel_retry_named` |
+The runtime configures `Scheduler.ScheduleOrigin` as Root. Scheduler extrinsics
+therefore have no typed EVM operation: a precompile must not manufacture Root
+or bypass the top-level Scheduler authorization check.
 
-Scheduled payloads must use a versioned, stable EVM call description. They must
-not expose SCALE-encoded `RuntimeCall`, whose encoding can change after a
-runtime upgrade.
-
-Names and signatures on this page are provisional and do not reserve selectors.
+The address is reserved for this domain. Names and signatures on this page are
+provisional and do not reserve selectors.

@@ -7,8 +7,8 @@ description: Proposed typed EVM interface for Timestamp pallet state.
 |---|---|
 | Proposed implementation | `TimestampPrecompile` |
 | Proposed Solidity interface | `ITimestamp` |
-| Address | Not assigned |
-| Status | Proposed |
+| Reserved address | `0x0000000000000000000000000000000000000811` |
+| Status | Proposed; not yet callable |
 
 ## Planned views
 
@@ -20,6 +20,8 @@ description: Proposed typed EVM interface for Timestamp pallet state.
 `getTimestamp()` returns the same underlying time as the EVM
 `block.timestamp` value. It exists here so every storage item authorized through
 `StorageQueryPrecompile` has an explicit typed replacement.
+`wasUpdatedThisBlock` provides the Timestamp pallet's update state without
+requiring contracts to construct a storage key or decode SCALE.
 
 `Timestamp.set` is an inherent submitted by block production, not a public
 user operation. The proposed precompile therefore exposes no state-changing
@@ -28,4 +30,5 @@ timestamp function.
 See the complete classification in
 [Extrinsic coverage](/docs/guides/evm/precompiles/extrinsic-coverage).
 
-Names and signatures on this page are provisional and do not reserve selectors.
+The address is reserved for this domain. Names and signatures on this page are
+provisional and do not reserve selectors.

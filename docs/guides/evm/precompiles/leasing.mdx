@@ -32,8 +32,9 @@ Both operations are `payable`.
 | Proposed function | Source extrinsic |
 |---|---|
 | `startCall` | `SubtensorModule.start_call` |
-| `setStartCallDelay` | `AdminUtils.sudo_set_start_call_delay` |
 
-Proposed names and signatures do not reserve selectors.
+`startCall` accepts a signed subnet owner. The Root-only start-call delay
+configuration is not exposed. The proposed name and signature do not reserve a
+selector.
 
 Source: [`leasing.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/leasing.sol)

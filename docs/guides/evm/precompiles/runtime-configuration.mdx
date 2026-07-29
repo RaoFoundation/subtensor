@@ -7,24 +7,25 @@ description: Proposed typed EVM interface for global runtime configuration opera
 |---|---|
 | Proposed implementation | `RuntimeConfigurationPrecompile` |
 | Proposed Solidity interface | `IRuntimeConfiguration` |
-| Address | Not assigned |
-| Status | Proposed |
+| Reserved address | `0x0000000000000000000000000000000000000812` |
+| Status | Proposed; not yet callable |
 
-This precompile groups the small set of global AdminUtils operations that do
-not belong to a subnet, staking, Alpha, account-balance, or precompile-lifecycle
-domain.
+This domain is reserved for bounded typed views of global runtime
+configuration that do not belong to subnet, staking, Alpha, account-balance,
+or precompile-lifecycle domains.
 
-## Planned operations
+## State-changing operations
 
-| Proposed function | Source extrinsic |
-|---|---|
-| `swapAuthorities` | `AdminUtils.swap_authorities` |
-| `setTransactionRateLimit` | `AdminUtils.sudo_set_tx_rate_limit` |
-| `setEvmChainId` | `AdminUtils.sudo_set_evm_chain_id` |
-| `scheduleGrandpaChange` | `AdminUtils.schedule_grandpa_change` |
+The currently identified global configuration extrinsics are Root-only:
 
-The runtime's authorization checks remain in force. The implementation must
-define a typed, bounded authority representation and must not expose
-SCALE-encoded runtime values.
+```text
+AdminUtils.swap_authorities
+AdminUtils.sudo_set_tx_rate_limit
+AdminUtils.sudo_set_evm_chain_id
+AdminUtils.schedule_grandpa_change
+```
 
-Names and signatures on this page are provisional and do not reserve selectors.
+They are not proposed as typed EVM operations. A future view must return a
+typed, bounded representation and must not expose SCALE-encoded runtime values.
+
+The address is reserved for this domain. No function selector is reserved.

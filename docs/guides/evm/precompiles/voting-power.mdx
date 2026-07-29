@@ -28,8 +28,10 @@ getTotalVotingPower(uint16)
 |---|---|
 | `enableVotingPowerTracking` | `SubtensorModule.enable_voting_power_tracking` |
 | `disableVotingPowerTracking` | `SubtensorModule.disable_voting_power_tracking` |
-| `setVotingPowerEmaAlpha` | `SubtensorModule.sudo_set_voting_power_ema_alpha` |
 
-Proposed names and signatures do not reserve selectors.
+Both calls accept a signed subnet owner as well as Root. The precompile exposes
+only the signed path and preserves the pallet's owner checks. The Root-only EMA
+configuration call is not exposed. Proposed names and signatures do not
+reserve selectors.
 
 Source: [`votingPower.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/votingPower.sol)

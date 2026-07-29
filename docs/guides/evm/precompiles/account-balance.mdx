@@ -21,14 +21,12 @@ description: Reference for the deployed BalancePrecompile.
 | Proposed function | Source extrinsic |
 |---|---|
 | `burnBalance` | `Balances.burn` |
-| `forceUnreserve` | `Balances.force_unreserve` |
 | `upgradeAccounts` | `Balances.upgrade_accounts` |
-| `forceSetBalance` | `Balances.force_set_balance` |
-| `forceAdjustTotalIssuance` | `Balances.force_adjust_total_issuance` |
-| `setTotalIssuance` | `AdminUtils.sudo_set_total_issuance` |
 
 `upgradeAccounts` must have an explicit fixed input bound. The implementation
-must preserve all runtime authorization and issuance invariants.
+must dispatch the highest-level Balances call as the mapped signer and preserve
+all runtime authorization and issuance invariants. Force operations require
+Root and are not exposed.
 
 Proposed names and signatures do not reserve selectors.
 

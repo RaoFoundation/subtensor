@@ -6,7 +6,9 @@ description: Addresses, implementations, and reference pages for Bittensor EVM p
 Bittensor precompiles are fixed-address contracts implemented by the Subtensor
 runtime. `Deployed` means that the address is registered in the current runtime;
 it does not imply complete coverage of the underlying runtime domain.
-`Proposed` precompiles have no assigned address or released selectors.
+`Proposed` precompiles are not callable. Their documented addresses are
+reserved for those domains, while their function selectors remain provisional
+until the interfaces are implemented and released.
 
 The [extrinsic coverage audit](/docs/guides/evm/precompiles/extrinsic-coverage)
 tracks every runtime extrinsic in scope and identifies its deployed, proposed,
@@ -49,11 +51,11 @@ or intentionally non-callable EVM treatment.
 | [`AddressMappingPrecompile`](/docs/guides/evm/precompiles/address-mapping) | `IAddressMapping` | <EvmAddress address="0x000000000000000000000000000000000000080c" /><br />Deployed |
 | [`VotingPowerPrecompile`](/docs/guides/evm/precompiles/voting-power) | `IVotingPower` | <EvmAddress address="0x000000000000000000000000000000000000080d" /><br />Deployed |
 | [`BalancePrecompile`](/docs/guides/evm/precompiles/account-balance) | `IBalance` | <EvmAddress address="0x000000000000000000000000000000000000080e" /><br />Deployed |
-| [`SchedulerPrecompile`](/docs/guides/evm/precompiles/scheduler) | `IScheduler` | Address not assigned<br />Proposed |
-| [`DrandPrecompile`](/docs/guides/evm/precompiles/drand) | `IDrand` | Address not assigned<br />Proposed |
-| [`TimestampPrecompile`](/docs/guides/evm/precompiles/timestamp) | `ITimestamp` | Address not assigned<br />Proposed |
-| [`RuntimeConfigurationPrecompile`](/docs/guides/evm/precompiles/runtime-configuration) | `IRuntimeConfiguration` | Address not assigned<br />Proposed |
-| [`PrecompileRegistry`](/docs/guides/evm/precompiles/registry) | `IPrecompileRegistry` | Address not assigned<br />Proposed |
+| [`SchedulerPrecompile`](/docs/guides/evm/precompiles/scheduler) | `IScheduler` | <EvmAddress address="0x000000000000000000000000000000000000080f" /><br />Proposed · address reserved |
+| [`DrandPrecompile`](/docs/guides/evm/precompiles/drand) | `IDrand` | <EvmAddress address="0x0000000000000000000000000000000000000810" /><br />Proposed · address reserved |
+| [`TimestampPrecompile`](/docs/guides/evm/precompiles/timestamp) | `ITimestamp` | <EvmAddress address="0x0000000000000000000000000000000000000811" /><br />Proposed · address reserved |
+| [`RuntimeConfigurationPrecompile`](/docs/guides/evm/precompiles/runtime-configuration) | `IRuntimeConfiguration` | <EvmAddress address="0x0000000000000000000000000000000000000812" /><br />Proposed · address reserved |
+| [`PrecompileRegistry`](/docs/guides/evm/precompiles/registry) | `IPrecompileRegistry` | <EvmAddress address="0x0000000000000000000000000000000000000813" /><br />Proposed · address reserved |
 
 Projects that need proactive event delivery should use
 [project-scoped event relays](/docs/guides/evm/precompile-design#project-scoped-event-relays)

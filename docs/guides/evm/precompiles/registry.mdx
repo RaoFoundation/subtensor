@@ -7,11 +7,13 @@ description: Proposed registry for precompile lifecycle and availability.
 |---|---|
 | Proposed implementation | `PrecompileRegistry` |
 | Proposed Solidity interface | `IPrecompileRegistry` |
-| Address | Not assigned |
-| Status | Proposed |
+| Reserved address | `0x0000000000000000000000000000000000000813` |
+| Status | Proposed; not yet callable |
 
 The registry provides function-level lifecycle metadata and the current
-operational availability of the containing precompile.
+operational availability of the containing precompile. Contracts, deployment
+tools, and frontends can inspect whether a selector is deprecated, has a
+replacement, or is currently unavailable without attempting the affected call.
 
 ## Proposed interface
 
@@ -32,16 +34,11 @@ interface IPrecompileRegistry {
 }
 ```
 
-## Proposed operation
-
-| Proposed function | Source extrinsic |
-|---|---|
-| `setPrecompileEnabled` | `AdminUtils.sudo_toggle_evm_precompile` |
-
-This operation changes reversible availability; it does not change or erase a
-function's deprecation lifecycle. Runtime authorization remains in force.
+`AdminUtils.sudo_toggle_evm_precompile` is Root-only and is not exposed by this
+precompile. The registry reports availability but does not grant callers
+permission to change it.
 
 The lifecycle model is described in
 [Precompile design and lifecycle](/docs/guides/evm/precompile-design#discovering-status).
-The address and selector are not reserved until the interface is implemented
-and released.
+The address is reserved for this domain. The proposed selector remains
+provisional until the interface is implemented and released.

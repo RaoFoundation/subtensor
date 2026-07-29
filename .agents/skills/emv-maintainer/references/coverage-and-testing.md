@@ -57,8 +57,11 @@ precompile per storage item.
 
 ## Cover extrinsics
 
-Expose each authorized extrinsic through a typed state-changing function unless
-an explicit scope decision excludes it.
+Expose each extrinsic that accepts a non-Root signed origin through a typed
+state-changing function unless an explicit scope decision excludes it. Calls
+that accept either Root or a signed authority may expose only the signed path.
+Classify Root-only and `None`-only calls as not EVM-callable; the existence of a
+runtime extrinsic does not authorize a precompile to manufacture its origin.
 
 Preserve:
 
@@ -71,9 +74,10 @@ Preserve:
 - runtime errors and EVM failure behavior; and
 - gas and weight charging, including post-dispatch adjustment.
 
-Use `PrecompileHandleExt::try_dispatch_runtime_call` and established
-precompile patterns where they apply. Do not bypass guards or create a direct
-state-writing path that the pallet does not authorize.
+Do not count a selector as coverage merely because it is routed. Test that a
+mapped caller with the required signed authority can succeed and that a caller
+without that authority fails without changing state. A selector that always
+fails `BadOrigin` is not meaningful coverage.
 
 When an extrinsic changes, compare the old and new behavior rather than only
 their Rust signatures. Follow [ABI versioning](abi-versioning.md) when an
@@ -115,6 +119,18 @@ Expose typed functions with equivalent inputs and meaningful outputs. A
 precompile may call the same underlying helpers rather than reproduce an RPC
 transport detail. Preserve pagination, bounds, defaults, and absence semantics
 that affect callers.
+
+Do not copy a bulk runtime API into Solidity when its work or result can grow
+with chain state. Prefer one of these bounded shapes:
+
+- an indexed item view plus a bounded count;
+- a cursor and caller-supplied limit capped by a fixed runtime maximum; or
+- a fixed-size key batch whose maximum is part of the interface contract.
+
+Return the next cursor or an explicit completion indicator when callers need to
+walk the complete collection. Charge for the maximum work actually permitted.
+Apply limits before reading or constructing the collection; calling an
+unbounded runtime helper and slicing its returned vector is still unbounded.
 
 Do not expose node-only behavior that cannot execute deterministically in the
 runtime. When a public RPC composes runtime state, implement the deterministic
@@ -182,6 +198,9 @@ Verify:
 9. `Precompiles::execute()` recognizes the address and routes it through the
    intended availability control and compatible implementation.
 10. Unknown-address and unknown-selector behavior remains unchanged.
+11. Every new Bittensor domain uses the next reserved sequential address, and
+    address constants, `used_addresses()`, routing, documentation, Solidity
+    interfaces, and address-locking tests agree.
 
 Do not hand-wave generated-file churn. Inspect each changed ABI entry and
 remove unrelated regeneration changes.

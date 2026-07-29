@@ -77,6 +77,22 @@ Keep every released selector reserved permanently, including after hard
 deprecation. Route a hard-deprecated selector to its descriptive error. Never
 allow a different function to claim it.
 
+Assign a genuinely new Bittensor domain the next unused sequential Bittensor
+address. The current proposal reserves:
+
+| Address | Domain |
+|---|---|
+| `0x080f` | Scheduler |
+| `0x0810` | Drand |
+| `0x0811` | Timestamp |
+| `0x0812` | Runtime Configuration |
+| `0x0813` | Precompile Registry |
+
+A documented reservation prevents another domain from taking the address but
+does not make the precompile callable. When implementing a reserved address,
+add exact-value tests for its index and full address, routing tests through the
+precompile set, and selector tests for every function at that address.
+
 Before adding a function, calculate its selector from the canonical Solidity
 signature and compare it with the complete selector set at the address. Reject
 collisions even when the Solidity names differ.

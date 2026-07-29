@@ -51,22 +51,19 @@ use typed Drand data rather than SCALE-encoded payloads.
 | `rootRegister` | `SubtensorModule.root_register` |
 | `swapHotkey` | `SubtensorModule.swap_hotkey` |
 | `swapHotkeyV2` | `SubtensorModule.swap_hotkey_v2` |
-| `swapColdkey` | `SubtensorModule.swap_coldkey` |
-| `scheduleColdkeySwap` | `SubtensorModule.schedule_swap_coldkey` |
 | `setChildren` | `SubtensorModule.set_children` |
 | `setIdentity` | `SubtensorModule.set_identity` |
 | `tryAssociateHotkey` | `SubtensorModule.try_associate_hotkey` |
 | `associateEvmKey` | `SubtensorModule.associate_evm_key` |
-| `setPendingChildkeyCooldown` | `SubtensorModule.set_pending_childkey_cooldown` |
 | `announceColdkeySwap` | `SubtensorModule.announce_coldkey_swap` |
 | `executeAnnouncedColdkeySwap` | `SubtensorModule.swap_coldkey_announced` |
 | `disputeColdkeySwap` | `SubtensorModule.dispute_coldkey_swap` |
-| `resetColdkeySwap` | `SubtensorModule.reset_coldkey_swap` |
 | `clearColdkeySwapAnnouncement` | `SubtensorModule.clear_coldkey_swap_announcement` |
-| `setColdkeySwapAnnouncementDelay` | `AdminUtils.sudo_set_coldkey_swap_announcement_delay` |
-| `setColdkeySwapReannouncementDelay` | `AdminUtils.sudo_set_coldkey_swap_reannouncement_delay` |
 
-Runtime authorization remains in force. Proposed names and signatures do not
-reserve selectors.
+Every proposed operation accepts a non-Root signed origin. The precompile must
+dispatch the highest-level extrinsic as the mapped caller so runtime
+authorization remains in force. Root-only and deprecated compatibility calls
+are classified in the [coverage audit](./extrinsic-coverage). Proposed names
+and signatures do not reserve selectors.
 
 Source: [`neuron.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/neuron.sol)

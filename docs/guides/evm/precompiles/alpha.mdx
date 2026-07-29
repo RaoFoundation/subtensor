@@ -40,24 +40,15 @@ getCKBurn()
 
 | Proposed function | Source extrinsic |
 |---|---|
-| `setSwapFeeRate` | `Swap.set_fee_rate` |
 | `setRecycleOrBurn` | `AdminUtils.sudo_set_recycle_or_burn` |
-| `setSubnetMovingAlpha` | `AdminUtils.sudo_set_subnet_moving_alpha` |
-| `setEmaPriceHalvingPeriod` | `AdminUtils.sudo_set_ema_price_halving_period` |
-| `setCkBurn` | `AdminUtils.sudo_set_ck_burn` |
-| `setTaoFlowCutoff` | `AdminUtils.sudo_set_tao_flow_cutoff` |
-| `setTaoFlowNormalizationExponent` | `AdminUtils.sudo_set_tao_flow_normalization_exponent` |
-| `setTaoFlowSmoothingFactor` | `AdminUtils.sudo_set_tao_flow_smoothing_factor` |
-| `setNetTaoFlowEnabled` | `AdminUtils.sudo_set_net_tao_flow_enabled` |
 | `setBurnHalfLife` | `AdminUtils.sudo_set_burn_half_life` |
 | `setBurnIncreaseMultiplier` | `AdminUtils.sudo_set_burn_increase_mult` |
-| `setSubnetEmissionEnabled` | `AdminUtils.sudo_set_subnet_emission_enabled` |
-| `setEmissionBarQuantile` | `AdminUtils.sudo_set_emission_bar_quantile` |
-| `setEmissionGateExponent` | `AdminUtils.sudo_set_emission_gate_exponent` |
 
 The five deprecated `Swap` liquidity extrinsics are intentionally not proposed;
-they always return the pallet's `Deprecated` error. Runtime authorization
-remains in force for every administrative operation.
+they always return the pallet's `Deprecated` error. `Swap.set_fee_rate` and the
+remaining Alpha-related AdminUtils calls require Root and are not exposed.
+The three listed AdminUtils calls accept a signed subnet owner; only that
+signed path is exposed and runtime authorization remains in force.
 
 Proposed names and signatures do not reserve selectors.
 

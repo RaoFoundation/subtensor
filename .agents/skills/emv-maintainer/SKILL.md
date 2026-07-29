@@ -45,11 +45,33 @@ For each affected released function:
 
 ## Notes on coding precompiles
 
-- Never allow direct writing of state maps or variables to precompile callers.
 - Keep every precompile path O(1) in CPU and memory.
+- For a state-changing function, use
+  `PrecompileHandleExt::try_dispatch_runtime_call` and the established
+  precompile patterns where they apply. Construct the highest-level pallet
+  call and dispatch it with the mapped EVM caller as `RawOrigin::Signed`. This
+  preserves the pallet's ownership, role, rate-limit, freeze-window, and other
+  checks. Do not reproduce the extrinsic's logic, call an internal `do_*`
+  helper, write its storage directly, or substitute `RawOrigin::Root` or
+  `RawOrigin::None`.
+- Expose a state-changing extrinsic only when that highest-level pallet call
+  accepts a non-Root signed origin.
+- An extrinsic that accepts either a signed authority, such as a subnet owner,
+  or Root may expose its signed path. Do not expose an extrinsic that is
+  Root-only or `None`-only unless a separately approved authorization design is
+  added to the runtime. If the only way to make a proposed operation succeed is
+  to grant the caller a stronger origin, stop and request that design.
+- Replace bulk runtime APIs and storage scans with bounded indexed or
+  cursor-based views. Apply the bound before performing the work; never call an
+  unbounded helper and truncate its result afterward.
 - Follow [ABI versioning](references/abi-versioning.md) for every released
   interface.
 - Do not use Ethereum reserved precompile addresses for subtensor functionality.
+- Assign new Bittensor domain precompiles sequentially from the next unused
+  Bittensor address. The current proposal reserves `0x080f` through `0x0813`
+  for Scheduler, Drand, Timestamp, Runtime Configuration, and the Precompile
+  Registry, respectively. Add routing and tests that lock every implemented
+  address and selector before release.
 - Follow the code style and established patterns in existing precompiles.
 - Represent Substrate account IDs in EVM space as 32-byte public keys.
 - Multiply Subtensor balances by `10^9` to match EVM's 18-decimal convention,
@@ -57,7 +79,8 @@ For each affected released function:
 
 ## Step 1 - Review current precompiles vs. subtensor functionality
 
-- All extrinsics should be exposed to precompile callers for the following pallets:
+- All extrinsics that accept a non-Root signed origin should be exposed to
+  precompile callers for the following pallets:
     - subtensor
     - admin-util
     - balances
@@ -67,7 +90,13 @@ For each affected released function:
     - crowdloan
     - timestamp
     - swap
-- All runtime API RPCs for the subtensor pallet should be exposed as a callable precompile function with similar interface
+- Root-only, `None`-only, inherent, disabled, and compatibility no-op
+  extrinsics must be inventoried and explicitly classified as not callable
+  through typed EVM precompiles.
+- All deterministic runtime API RPC results for the subtensor pallet should be
+  exposed through typed precompile views. Preserve a similar interface when it
+  is already bounded; redesign bulk results as bounded indexed or cursor-based
+  views when it is not.
 
 Use [Coverage and testing](references/coverage-and-testing.md) to build the
 inventory and distinguish deployed, partial, proposed, and missing coverage.

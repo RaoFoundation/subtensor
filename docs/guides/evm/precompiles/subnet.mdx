@@ -103,50 +103,31 @@ real AdminUtils operations therefore require the proposed V2 selectors below.
 
 | Proposed function | Source extrinsic |
 |---|---|
-| `dissolveNetwork` | `SubtensorModule.dissolve_network` |
 | `setSubnetIdentity` | `SubtensorModule.set_subnet_identity` |
 | `updateSubnetSymbol` | `SubtensorModule.update_symbol` |
-| `rootDissolveNetwork` | `SubtensorModule.root_dissolve_network` |
 | `triggerEpoch` | `SubtensorModule.trigger_epoch` |
 
 ## Proposed AdminUtils operations
 
 | Proposed function | Source extrinsic |
 |---|---|
-| `setAdjustmentInterval` | `AdminUtils.sudo_set_adjustment_interval` |
-| `setAdminFreezeWindow` | `AdminUtils.sudo_set_admin_freeze_window` |
 | `setBondsPenalty` | `AdminUtils.sudo_set_bonds_penalty` |
-| `setCommitRevealVersion` | `AdminUtils.sudo_set_commit_reveal_version` |
-| `setDissolveNetworkScheduleDuration` | `AdminUtils.sudo_set_dissolve_network_schedule_duration` |
-| `setNetworkLockCostReductionInterval` | `AdminUtils.sudo_set_lock_reduction_interval` |
 | `setMaxAllowedUids` | `AdminUtils.sudo_set_max_allowed_uids` |
-| `setMaxAllowedValidators` | `AdminUtils.sudo_set_max_allowed_validators` |
 | `setMaxBurnV2` | `AdminUtils.sudo_set_max_burn` |
-| `setMaxEpochsPerBlock` | `AdminUtils.sudo_set_max_epochs_per_block` |
-| `setMaxMechanismCount` | `AdminUtils.sudo_set_max_mechanism_count` |
-| `setMaxRegistrationsPerBlock` | `AdminUtils.sudo_set_max_registrations_per_block` |
 | `setMechanismCount` | `AdminUtils.sudo_set_mechanism_count` |
 | `setMechanismEmissionSplit` | `AdminUtils.sudo_set_mechanism_emission_split` |
-| `setMinAllowedUids` | `AdminUtils.sudo_set_min_allowed_uids` |
 | `setMinBurnV2` | `AdminUtils.sudo_set_min_burn` |
-| `setMinNonImmuneUids` | `AdminUtils.sudo_set_min_non_immune_uids` |
-| `setNetworkImmunityPeriod` | `AdminUtils.sudo_set_network_immunity_period` |
-| `setNetworkMinLockCost` | `AdminUtils.sudo_set_network_min_lock_cost` |
-| `setNetworkRateLimit` | `AdminUtils.sudo_set_network_rate_limit` |
 | `setOwnerCutEnabled` | `AdminUtils.sudo_set_owner_cut_enabled` |
-| `setOwnerHyperparameterRateLimit` | `AdminUtils.sudo_set_owner_hparam_rate_limit` |
 | `setOwnerImmuneNeuronLimit` | `AdminUtils.sudo_set_owner_immune_neuron_limit` |
-| `setRaoRecycledForRegistration` | `AdminUtils.sudo_set_rao_recycled` |
-| `setSubnetOwnerHotkey` | `AdminUtils.sudo_set_sn_owner_hotkey` |
-| `setSubnetLimit` | `AdminUtils.sudo_set_subnet_limit` |
-| `setSubnetOwnerCut` | `AdminUtils.sudo_set_subnet_owner_cut` |
-| `setSubtokenEnabled` | `AdminUtils.sudo_set_subtoken_enabled` |
-| `setTargetRegistrationsPerInterval` | `AdminUtils.sudo_set_target_registrations_per_interval` |
 | `setTempo` | `AdminUtils.sudo_set_tempo` |
-| `setWeightsSetRateLimitV2` | `AdminUtils.sudo_set_weights_set_rate_limit` |
 | `trimToMaxAllowedUids` | `AdminUtils.sudo_trim_to_max_allowed_uids` |
 
-Runtime authorization remains in force. Proposed names and signatures do not
-reserve selectors.
+Each listed AdminUtils call accepts a signed subnet owner as well as Root. The
+precompile exposes only the signed path and dispatches the highest-level
+extrinsic so owner limits, freeze windows, and other runtime checks remain in
+force. Root-only calls are classified as not EVM-callable in the
+[coverage audit](./extrinsic-coverage).
+
+Proposed names and signatures do not reserve selectors.
 
 Source: [`subnet.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/subnet.sol)

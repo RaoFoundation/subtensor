@@ -23,16 +23,15 @@ public key.
 
 | Proposed function | Source extrinsic |
 |---|---|
-| `faucet` | `SubtensorModule.faucet` |
 | `transferKeepAlive` | `Balances.transfer_keep_alive` |
 | `transferAll` | `Balances.transfer_all` |
-| `forceTransfer` | `Balances.force_transfer` |
 
 The existing `transfer(bytes32)` semantically covers
 `Balances.transfer_allow_death` by taking the amount from attached EVM value.
 The proposed functions use explicit typed arguments where attached value does
-not express the complete source operation. Runtime authorization remains in
-force for `forceTransfer`.
+not express the complete source operation. They dispatch the highest-level
+Balances call as the mapped signer. `force_transfer` requires Root and the
+feature-gated development faucet is not part of the production interface.
 
 Proposed names and signatures do not reserve selectors.
 

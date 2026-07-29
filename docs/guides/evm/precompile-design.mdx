@@ -29,8 +29,9 @@ The precompile layer is designed around five goals:
    original behavior whenever that behavior can still be represented safely.
 4. **Status is discoverable.** Solidity interfaces and a registry should tell
    developers when a function is deprecated, replaced, or temporarily disabled.
-5. **The authorized Substrate API has full parity.** Every storage item and
-   extrinsic in scope has a typed precompile equivalent.
+5. **The signed, deterministic Substrate API has typed parity.** Storage and
+   runtime API results have bounded typed views, and extrinsics that accept a
+   non-Root signed origin have typed operations.
 
 ## Fixed addresses and function selectors
 
@@ -97,6 +98,21 @@ Creating a new domain address may still be appropriate when the functionality
 is genuinely a different precompile, but it should not be the default
 versioning mechanism.
 
+New Bittensor domain addresses are assigned sequentially from the next unused
+Bittensor address. The currently proposed domains reserve:
+
+| Address | Domain |
+|---|---|
+| `0x000000000000000000000000000000000000080f` | Scheduler |
+| `0x0000000000000000000000000000000000000810` | Drand |
+| `0x0000000000000000000000000000000000000811` | Timestamp |
+| `0x0000000000000000000000000000000000000812` | Runtime configuration |
+| `0x0000000000000000000000000000000000000813` | Precompile registry |
+
+An address reservation does not make a proposed precompile callable. When an
+implementation is added, routing and tests must lock the address and every
+implemented selector before release.
+
 ### Keep old semantics when possible
 
 Suppose `getStake` originally returned total stake, while a later runtime stores
@@ -124,12 +140,56 @@ the precompile implementation adapts while the Solidity interface remains
 stable. A resulting Rust compilation failure provides a safety net that raw
 storage queries do not.
 
+### Bound collection views
+
+Runtime APIs and storage collections that grow with chain state must not be
+copied into a single Solidity function returning an unbounded array. Expose an
+indexed item with a bounded count, or use a cursor and a caller-supplied limit
+that is capped by a fixed runtime maximum. A fixed-size batch of explicit keys
+is also suitable when callers already know which records they need.
+
+The bound must apply before storage is scanned or results are constructed.
+Calling an unbounded runtime helper and truncating its result afterward does
+not make the precompile bounded. Paginated views should return a next cursor or
+completion indicator and define stable ordering, missing-item behavior, and
+the maximum page size.
+
+### Preserve runtime authorization
+
+A state-changing precompile dispatches the highest-level pallet extrinsic with
+the mapped EVM caller as a signed origin. The pallet then enforces the same
+ownership, role, rate-limit, freeze-window, and validation checks that apply to
+an ordinary signed Substrate transaction.
+
+An extrinsic that permits either Root or a non-Root signer, such as a subnet
+owner, may expose its signed path. Root-only and `None`-only extrinsics are not
+exposed through typed EVM functions. A precompile must never substitute Root,
+invoke an internal state-changing helper, or reproduce the extrinsic logic to
+bypass the top-level checks.
+
+### Read-only infrastructure views
+
+Read-only precompiles let contracts inspect deterministic consensus state
+without receiving any authority to change it:
+
+- Scheduler views expose bounded task metadata so contracts can verify whether
+  and when runtime work is scheduled.
+- Drand views expose beacon configuration, stored pulses, and round ranges for
+  contract logic that depends on the runtime's randomness state.
+- Timestamp views replace raw reads of timestamp storage; `getTimestamp`
+  corresponds to the same underlying time represented by `block.timestamp`.
+- Lifecycle views let contracts and tooling discover whether a selector is
+  deprecated, replaced, or currently unavailable.
+
+These views replace raw storage decoding or off-chain RPC composition. They do
+not execute privileged extrinsics and do not provide a path to Root.
+
 ### Phasing out raw storage reads
 
 `StorageQueryPrecompile` at `0x…0807` exposes raw Substrate storage and is
 inherently brittle. The intended migration is:
 
-1. Add a typed view for every storage item in the currently authorized pallets:
+1. Add a bounded typed view for every storage item in the currently authorized pallets:
    SubtensorModule, Balances, Proxy, Scheduler, Drand, Crowdloan, Sudo,
    Multisig, Timestamp, and Swap.
 2. Soft-deprecate raw storage access after that typed coverage exists.
@@ -371,6 +431,11 @@ Every precompile change should verify:
   agree;
 - lifecycle registry metadata and NatSpec annotations agree;
 - disable and re-enable behavior is covered for the affected precompile;
+- state-changing functions dispatch the highest-level extrinsic as the mapped
+  signed caller and do not bypass its authorization checks;
+- bulk views are bounded before they read or construct results;
+- new domain addresses follow the documented sequential reservation and are
+  locked by routing tests;
 - no selector is reused.
 
 Typed views provide a compile-time safety advantage: when runtime types or
