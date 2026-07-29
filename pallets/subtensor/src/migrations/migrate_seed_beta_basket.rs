@@ -183,9 +183,7 @@ pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
                 }
 
                 // More hotkeys may remain; persist cursor and yield.
-                progress = SeedBetaBasketV2Progress::Convert {
-                    after: last_hashed,
-                };
+                progress = SeedBetaBasketV2Progress::Convert { after: last_hashed };
                 SeedBetaBasketV2Migration::<T>::put(progress);
                 weight.saturating_accrue(T::DbWeight::get().writes(1));
                 log::info!(
@@ -205,9 +203,7 @@ pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
                 ));
 
                 if let Some(next) = principal_removal.maybe_cursor {
-                    progress = SeedBetaBasketV2Progress::ClearPrincipal {
-                        cursor: Some(next),
-                    };
+                    progress = SeedBetaBasketV2Progress::ClearPrincipal { cursor: Some(next) };
                     SeedBetaBasketV2Migration::<T>::put(progress);
                     weight.saturating_accrue(T::DbWeight::get().writes(1));
                     log::info!(
@@ -244,11 +240,7 @@ fn convert_hotkey<T: Config>(
         Pallet::<T>::get_stake_for_hotkey_on_subnet(hotkey, NetUid::ROOT).saturating_sub(
             // On a v1 chain the escrow may already hold a root-slot position; it is custody,
             // not a claimant, so it is excluded from the claimant base like everywhere else.
-            Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
-                hotkey,
-                escrow,
-                NetUid::ROOT,
-            ),
+            Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, NetUid::ROOT),
         ),
     );
     weight.saturating_accrue(T::DbWeight::get().reads(2));
@@ -273,9 +265,7 @@ fn convert_hotkey<T: Config>(
             if moving > U96F32::saturating_from_num(0) {
                 moving
             } else {
-                U96F32::saturating_from_num(T::SwapInterface::current_alpha_price(
-                    (*netuid).into(),
-                ))
+                U96F32::saturating_from_num(T::SwapInterface::current_alpha_price((*netuid).into()))
             }
         };
         weight.saturating_accrue(T::DbWeight::get().reads(1));
@@ -308,8 +298,7 @@ fn convert_hotkey<T: Config>(
 
         // Unified rate contribution: the legacy alpha-rate re-denominated to shares at p_s.
         // (May be haircut below for an underbacked root slot.)
-        let mut rate_contribution: I96F32 =
-            rate.saturating_mul(I96F32::saturating_from_num(price));
+        let mut rate_contribution: I96F32 = rate.saturating_mul(I96F32::saturating_from_num(price));
 
         let existing: u64 =
             Pallet::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, *netuid)

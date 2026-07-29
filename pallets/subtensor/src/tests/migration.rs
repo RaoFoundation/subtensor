@@ -5306,7 +5306,8 @@ fn test_migrate_seed_beta_basket() {
         let w2 = migrate_seed_beta_basket_v2::<Test>();
         assert_eq!(w2, <Test as frame_system::Config>::DbWeight::get().reads(1));
         assert!(
-            !crate::migrations::migrate_seed_beta_basket::SeedBetaBasketV2Migration::<Test>::exists(),
+            !crate::migrations::migrate_seed_beta_basket::SeedBetaBasketV2Migration::<Test>::exists(
+            ),
             "progress cursor must be cleared when migration finishes"
         );
     });
@@ -5340,11 +5341,7 @@ fn test_migrate_seed_beta_basket_chunked_resumable() {
         SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(1.0));
         SubnetMovingPrice::<Test>::insert(netuid_c, I96F32::from_num(1.0));
 
-        for (hot, cold) in [
-            (hotkey_a, cold_a),
-            (hotkey_b, cold_b),
-            (hotkey_c, cold_c),
-        ] {
+        for (hot, cold) in [(hotkey_a, cold_a), (hotkey_b, cold_b), (hotkey_c, cold_c)] {
             mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
                 &hot,
                 &cold,
@@ -5364,21 +5361,9 @@ fn test_migrate_seed_beta_basket_chunked_resumable() {
         });
 
         // Orphaned v1 principal rows — cleared in the second phase across passes.
-        deprecated::BasketPrincipal::<Test>::insert(
-            hotkey_a,
-            netuid_a,
-            AlphaBalance::from(1u64),
-        );
-        deprecated::BasketPrincipal::<Test>::insert(
-            hotkey_b,
-            netuid_b,
-            AlphaBalance::from(1u64),
-        );
-        deprecated::BasketPrincipal::<Test>::insert(
-            hotkey_c,
-            netuid_c,
-            AlphaBalance::from(1u64),
-        );
+        deprecated::BasketPrincipal::<Test>::insert(hotkey_a, netuid_a, AlphaBalance::from(1u64));
+        deprecated::BasketPrincipal::<Test>::insert(hotkey_b, netuid_b, AlphaBalance::from(1u64));
+        deprecated::BasketPrincipal::<Test>::insert(hotkey_c, netuid_c, AlphaBalance::from(1u64));
 
         assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
         assert!(!seed_beta_basket_v2_in_progress::<Test>());
