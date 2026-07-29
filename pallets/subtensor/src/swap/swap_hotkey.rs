@@ -851,10 +851,15 @@ impl<T: Config> Pallet<T> {
             if netuid == NetUid::ROOT {
                 // 9. Migrate the validator's whole basket fund only for the root subnet: shares,
                 // rate, per-coldkey claimed watermarks, and every escrow holding move by value.
-                // The clean-hotkey guard above makes this a move, not a merge.
+                // The clean-hotkey guard above makes this a move, not a merge. Claimant rows are
+                // hard-bounded (and charged) inside `transfer_basket_for_new_hotkey`.
                 let num_holdings = Self::get_basket_holdings(old_hotkey).len() as u64;
-                Self::transfer_basket_for_new_hotkey(old_hotkey, new_hotkey);
-                let ops = num_holdings.saturating_mul(2).saturating_add(4);
+                let claimed_count =
+                    Self::transfer_basket_for_new_hotkey(old_hotkey, new_hotkey)? as u64;
+                let ops = num_holdings
+                    .saturating_mul(2)
+                    .saturating_add(4)
+                    .saturating_add(claimed_count.saturating_mul(2));
                 weight.saturating_accrue(T::DbWeight::get().reads_writes(ops, ops));
 
                 // Transfer AutoParentDelegationEnabled flag from old_hotkey to new_hotkey.

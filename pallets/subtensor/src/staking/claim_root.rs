@@ -870,7 +870,14 @@ impl<T: Config> Pallet<T> {
     /// Migrates a validator's entire fund to a new hotkey: shares, rate, per-coldkey watermarks,
     /// and every escrow holding, moved by value. The caller must guarantee the new hotkey is
     /// clean on root (enforced by `do_swap_hotkey`), so this is a move, not a merge.
-    pub fn transfer_basket_for_new_hotkey(old_hotkey: &T::AccountId, new_hotkey: &T::AccountId) {
+    ///
+    /// Returns the number of `BasketClaimed` rows moved so the caller can charge weight.
+    /// Rejects when the claimant prefix exceeds [`crate::MAX_ROOT_CLAIM_WORK`] — same hard
+    /// bound as `claim_root` — so a fixed-weight root swap cannot drain an unbounded map.
+    pub fn transfer_basket_for_new_hotkey(
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+    ) -> Result<u32, DispatchError> {
         let shares = BasketShares::<T>::take(old_hotkey);
         if shares != 0 {
             BasketShares::<T>::mutate(new_hotkey, |p| *p = p.saturating_add(shares));
@@ -891,9 +898,18 @@ impl<T: Config> Pallet<T> {
             BasketRedeemedTao::<T>::mutate(new_hotkey, |t| *t = t.saturating_add(redeemed));
         }
 
-        let claimed_entries: Vec<(T::AccountId, i128)> =
-            BasketClaimed::<T>::drain_prefix(old_hotkey).collect();
+        // Bound the claimant prefix before mutating: one row per historical coldkey.
+        let mut claimed_entries: Vec<(T::AccountId, i128)> = Vec::new();
+        for (coldkey, claimed) in BasketClaimed::<T>::iter_prefix(old_hotkey) {
+            ensure!(
+                (claimed_entries.len() as u32) < crate::MAX_ROOT_CLAIM_WORK,
+                Error::<T>::TooManyRootClaimHoldings
+            );
+            claimed_entries.push((coldkey, claimed));
+        }
+        let claimed_count = claimed_entries.len() as u32;
         for (coldkey, claimed) in claimed_entries {
+            BasketClaimed::<T>::remove(old_hotkey, &coldkey);
             BasketClaimed::<T>::mutate(new_hotkey, &coldkey, |c| {
                 *c = c.saturating_add(claimed);
             });
@@ -908,6 +924,8 @@ impl<T: Config> Pallet<T> {
                 new_hotkey, &escrow, netuid, alpha,
             );
         }
+
+        Ok(claimed_count)
     }
 
     /// Converts every validator's basket holding on a dissolving subnet into the fund's root
