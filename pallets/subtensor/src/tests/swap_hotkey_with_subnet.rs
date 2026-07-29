@@ -1585,16 +1585,28 @@ fn test_swap_hotkey_swap_rate_limits() {
 fn test_swap_owner_failed_interval_not_passed() {
     new_test_ext(1).execute_with(|| {
         let old_hotkey = U256::from(1);
-        let new_hotkey = U256::from(2);
+        let mid_hotkey = U256::from(2);
+        let new_hotkey = U256::from(4);
         let coldkey = U256::from(3);
 
         let netuid = add_dynamic_network(&old_hotkey, &coldkey);
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
         Owner::<Test>::insert(old_hotkey, coldkey);
+
+        // First per-subnet swap is allowed with no prior record.
+        assert_ok!(SubtensorModule::do_swap_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            &old_hotkey,
+            &mid_hotkey,
+            Some(netuid),
+            false
+        ));
+
+        // A second swap on the same subnet within the interval must fail.
         assert_err!(
             SubtensorModule::do_swap_hotkey(
                 RuntimeOrigin::signed(coldkey),
-                &old_hotkey,
+                &mid_hotkey,
                 &new_hotkey,
                 Some(netuid),
                 false

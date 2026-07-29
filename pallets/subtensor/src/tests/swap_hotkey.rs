@@ -1698,8 +1698,8 @@ fn ghsa_2026_011_subnet_swap_interval_bypassed_by_all_subnets_path() {
         // Fund the coldkey generously for both per-subnet and all-subnets swap costs.
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
 
-        // Advance the block past the interval so the FIRST per-subnet swap is allowed
-        // (LastHotkeySwapOnNetuid defaults to 0; the check is 0 + interval < block).
+        // Advance so later cooldown arithmetic has room; a first per-subnet swap is
+        // allowed with no prior LastHotkeySwapOnNetuid record (default 0 is not gated).
         // Do NOT step further afterwards: the on_finalize cleanup hook would otherwise
         // purge stale LastHotkeySwapOnNetuid rows once the interval elapses.
         step_block(20);

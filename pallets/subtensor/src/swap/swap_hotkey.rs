@@ -526,16 +526,22 @@ impl<T: Config> Pallet<T> {
         keep_stake: bool,
         prepared_stake: Option<&PreparedHotkeyStake<T::AccountId>>,
     ) -> DispatchResultWithPostInfo {
-        // 1. Ensure coldkey not swap hotkey too frequently
+        // 1. Ensure coldkey not swap hotkey too frequently on this subnet.
+        // Mirror the all-subnets path: only enforce when a prior swap was recorded.
+        // A first swap (default 0) must not be gated by chain age / interval size —
+        // otherwise young clones and fresh coldkeys fail with
+        // `HotKeySwapOnSubnetIntervalNotPassed` whenever `interval >= block`.
         let mut weight: Weight = init_weight;
         let block: u64 = Self::get_current_block_as_u64();
         let hotkey_swap_interval = T::HotkeySwapOnSubnetInterval::get();
         let last_hotkey_swap_block = LastHotkeySwapOnNetuid::<T>::get(netuid, coldkey);
 
-        ensure!(
-            last_hotkey_swap_block.saturating_add(hotkey_swap_interval) < block,
-            Error::<T>::HotKeySwapOnSubnetIntervalNotPassed
-        );
+        if last_hotkey_swap_block != 0 {
+            ensure!(
+                last_hotkey_swap_block.saturating_add(hotkey_swap_interval) < block,
+                Error::<T>::HotKeySwapOnSubnetIntervalNotPassed
+            );
+        }
         weight.saturating_accrue(T::DbWeight::get().reads_writes(3, 0));
 
         // Check that new hotkey is a non-system hotkey
