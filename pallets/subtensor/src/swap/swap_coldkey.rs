@@ -9,6 +9,13 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
+        // The multi-block seed may still hold `RootClaimed[(netuid, hotkey, old_coldkey)]`
+        // rows and mid-hotkey `BasketClaimed` writes. Moving root stake + only the new
+        // watermark would leave legacy claims on the dead coldkey.
+        ensure!(
+            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
+            Error::<T>::BetaBasketSeedInProgress
+        );
         ensure!(
             StakingHotkeys::<T>::get(new_coldkey).is_empty(),
             Error::<T>::ColdKeyAlreadyAssociated
