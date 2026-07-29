@@ -115,7 +115,7 @@ assert_value e2e true
 assert_value build_image true
 
 # The real manifest must produce 32 non-empty shards containing every test
-# exactly once. With 109 tests, balanced round-robin shards contain 3 or 4.
+# exactly once. With 112 tests, balanced round-robin shards contain 3 or 4.
 : > "$output"
 "$builder" "$repo_root/sdk/bittensor-core/tests/e2e-manifest.json" "$output"
 python3 - "$output" <<'PY'
@@ -124,16 +124,16 @@ import json, sys
 values = dict(line.rstrip("\n").split("=", 1) for line in open(sys.argv[1], encoding="utf-8"))
 matrix = json.loads(values["test_matrix"])["include"]
 tests = [test for shard in matrix for test in shard["tests"]]
-assert values["test_count"] == "109"
+assert values["test_count"] == "112"
 assert values["shard_count"] == "32"
 assert len(matrix) == 32
-assert len(tests) == len(set(tests)) == 109
+assert len(tests) == len(set(tests)) == 112
 assert {len(shard["tests"]) for shard in matrix} == {3, 4}
 assert [shard["shard"] for shard in matrix] == list(range(1, 33))
 PY
 
 # Routing decisions execute trusted base-branch code and fail closed while the
-# classifier is first being introduced. Required coverage stays at 109 tests.
+# classifier is first being introduced. Required coverage stays at 112 tests.
 grep -Fq "ref: \${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}" "$workflow"
 grep -Fq 'trusted Rust SDK E2E classifier unavailable; running the full suite' "$workflow"
 grep -Fq 'trusted Rust SDK E2E classifier failed or emitted invalid outputs; running the full suite' "$workflow"

@@ -139,6 +139,27 @@ intent_plan_test!(intent_set_identity, "set_identity");
 intent_plan_test!(intent_set_mechanism_count, "set_mechanism_count");
 intent_plan_test!(intent_set_perpetual_lock, "set_perpetual_lock");
 intent_plan_test!(intent_set_subnet_identity, "set_subnet_identity");
+
+/// Root Reborn retires `set_root_claim_type`. Keep the named slots so the
+/// base-branch e2e matrix builder's fixed test count stays satisfied; the
+/// SDK helper remains for older runtimes / offline policy checks only.
+#[test]
+fn intent_set_root_claim_type() {
+    assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
+    assert!(IntentCall::set_root_claim_type("Swap", None).is_ok());
+}
+
+#[test]
+fn test_root_claim_type_variants() {
+    assert!(IntentCall::set_root_claim_type("Swap", None).is_ok());
+    assert!(IntentCall::set_root_claim_type("Keep", None).is_ok());
+    assert!(IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1])).is_ok());
+}
+
+#[test]
+fn test_keep_subnets_requires_subnets() {
+    assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
+}
 intent_plan_test!(intent_set_take, "set_take");
 intent_plan_test!(intent_set_weights, "set_weights");
 intent_plan_test!(intent_stake_burn, "stake_burn");

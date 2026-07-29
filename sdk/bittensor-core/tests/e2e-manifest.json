@@ -153,6 +153,9 @@
     "test": "intent_set_perpetual_lock"
   },
   {
+    "test": "intent_set_root_claim_type"
+  },
+  {
     "test": "intent_set_subnet_identity"
   },
   {
@@ -238,6 +241,12 @@
   },
   {
     "test": "test_raw_call_escape_hatch_and_commitment"
+  },
+  {
+    "test": "test_root_claim_type_variants"
+  },
+  {
+    "test": "test_keep_subnets_requires_subnets"
   },
   {
     "test": "test_coldkey_swap_announcement_flow"
