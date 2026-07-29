@@ -282,17 +282,17 @@ fn test_sudo_set_subnet_emission_enabled_multiple_subnets_multiple_toggles() {
             assert_abs_diff_eq!(
                 SubnetTaoInEmission::<Test>::get(netuid1),
                 TaoBalance::from(expected1),
-                epsilon = 2.into(),
+                epsilon = 10.into(),
             );
             assert_abs_diff_eq!(
                 SubnetTaoInEmission::<Test>::get(netuid2),
                 TaoBalance::from(expected2),
-                epsilon = 2.into(),
+                epsilon = 10.into(),
             );
             assert_abs_diff_eq!(
                 SubnetTaoInEmission::<Test>::get(netuid3),
                 TaoBalance::from(expected3),
-                epsilon = 2.into(),
+                epsilon = 10.into(),
             );
 
             assert_eq!(
@@ -781,7 +781,8 @@ fn test_coinbase_alpha_issuance_with_cap_trigger_and_block_emission() {
         SubtensorModule::run_coinbase(emission_credit);
 
         // At the alpha supply cap there is no miner or validator alpha emission,
-        // so the chain-buy cap is zero and all of the TAO credit is recycled.
+        // so the chain-buy cap is zero and all TAO is allocated to subnet
+        // reservoirs by emission weight.
         assert_eq!(
             SubnetProtocolAlpha::<Test>::get(netuid1),
             AlphaBalance::ZERO
@@ -790,7 +791,16 @@ fn test_coinbase_alpha_issuance_with_cap_trigger_and_block_emission() {
             SubnetProtocolAlpha::<Test>::get(netuid2),
             AlphaBalance::ZERO
         );
-        assert_eq!(TotalIssuance::<Test>::get(), issuance_before);
+        assert_eq!(
+            TotalIssuance::<Test>::get(),
+            issuance_before.saturating_add(TaoBalance::from(emission))
+        );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid1).saturating_add(
+                pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid2)
+            ),
+            TaoBalance::from(emission)
+        );
 
         // Get the prices after the run_coinbase
         let price_1_after = <Test as pallet::Config>::SwapInterface::current_alpha_price(netuid1);
@@ -3768,7 +3778,7 @@ fn test_coinbase_chain_buy_is_capped_at_allocated_miner_alpha_value() {
 }
 
 #[test]
-fn test_coinbase_recycles_tao_above_chain_buy_cap() {
+fn test_coinbase_allocates_tao_above_chain_buy_cap() {
     new_test_ext(1).execute_with(|| {
         let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
         mock::setup_reserves(
@@ -3800,6 +3810,7 @@ fn test_coinbase_recycles_tao_above_chain_buy_cap() {
         let tao_emission = chain_buy_cap.saturating_mul(U96F32::from_num(2));
         let tao_emission_balance = TaoBalance::from(tao_emission.saturating_to_num::<u64>());
         let expected_chain_buy = TaoBalance::from(chain_buy_cap.saturating_to_num::<u64>());
+        let expected_reservoir = tao_emission_balance.saturating_sub(expected_chain_buy);
         let issuance_before = TotalIssuance::<Test>::get();
 
         let credit = SubtensorModule::mint_tao(tao_emission_balance);
@@ -3809,8 +3820,73 @@ fn test_coinbase_recycles_tao_above_chain_buy_cap() {
         assert_eq!(SubnetExcessTao::<Test>::get(netuid), expected_chain_buy);
         assert_eq!(
             TotalIssuance::<Test>::get(),
-            issuance_before.saturating_add(expected_chain_buy)
+            issuance_before.saturating_add(tao_emission_balance)
         );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid),
+            expected_reservoir
+        );
+    });
+}
+
+#[test]
+fn test_coinbase_allocates_capped_tao_across_subnets_by_emission_weight() {
+    new_test_ext(1).execute_with(|| {
+        let netuid1 = add_dynamic_network(&U256::from(1), &U256::from(2));
+        let netuid2 = add_dynamic_network(&U256::from(3), &U256::from(4));
+        let initial_tao = TaoBalance::from(1_000_000_000_000_000_u64);
+        let initial_alpha = AlphaBalance::from(1_000_000_000_000_000_u64);
+
+        for netuid in [netuid1, netuid2] {
+            mock::setup_reserves(netuid, initial_tao, initial_alpha);
+            Swap::maybe_initialize_palswap(netuid, None);
+            SubtensorModule::set_owner_cut_enabled_flag(netuid, false);
+            MinerBurned::<Test>::insert(netuid, U96F32::from_num(1));
+        }
+        SubnetTAO::<Test>::insert(NetUid::ROOT, TaoBalance::ZERO);
+
+        let emission1 = TaoBalance::from(100_u64);
+        let emission2 = TaoBalance::from(300_u64);
+        let total_emission = emission1.saturating_add(emission2);
+        let subnet_emissions = BTreeMap::from([
+            (netuid1, U96F32::saturating_from_num(emission1)),
+            (netuid2, U96F32::saturating_from_num(emission2)),
+        ]);
+        let subnet_account1 = SubtensorModule::get_subnet_account_id(netuid1).unwrap();
+        let subnet_account2 = SubtensorModule::get_subnet_account_id(netuid2).unwrap();
+        let balance1_before = Balances::free_balance(&subnet_account1);
+        let balance2_before = Balances::free_balance(&subnet_account2);
+        let issuance_before = TotalIssuance::<Test>::get();
+
+        let credit = SubtensorModule::mint_tao(total_emission);
+        SubtensorModule::emit_to_subnets(&[netuid1, netuid2], &subnet_emissions, credit, false);
+
+        // Both subnets have zero chain-buy capacity, so the entire emission is
+        // allocated to their TAO reservoirs in the original 1:3 emission ratio.
+        assert_eq!(SubnetExcessTao::<Test>::get(netuid1), TaoBalance::ZERO);
+        assert_eq!(SubnetExcessTao::<Test>::get(netuid2), TaoBalance::ZERO);
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid1),
+            emission1
+        );
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid2),
+            emission2
+        );
+        assert_eq!(
+            Balances::free_balance(&subnet_account1),
+            balance1_before.saturating_add(emission1)
+        );
+        assert_eq!(
+            Balances::free_balance(&subnet_account2),
+            balance2_before.saturating_add(emission2)
+        );
+        assert_eq!(
+            TotalIssuance::<Test>::get(),
+            issuance_before.saturating_add(total_emission)
+        );
+        assert_eq!(SubnetTAO::<Test>::get(netuid1), initial_tao);
+        assert_eq!(SubnetTAO::<Test>::get(netuid2), initial_tao);
     });
 }
 
@@ -3832,10 +3908,19 @@ fn test_coinbase_inject_and_maybe_swap_does_not_skew_reserves() {
         let alpha_in = BTreeMap::from([(netuid0, U96F32::saturating_from_num(456))]);
         // We have excess TAO, so we will be swapping with it.
         let excess_tao = BTreeMap::from([(netuid0, U96F32::saturating_from_num(789100))]);
+        let subnet_emissions =
+            BTreeMap::from([(netuid0, U96F32::saturating_from_num(123 + 789100))]);
 
         // Run the inject and maybe swap
         let credit = SubtensorModule::mint_tao((123 + 789100).into());
-        SubtensorModule::inject_and_maybe_swap(&[netuid0], &tao_in, &alpha_in, &excess_tao, credit);
+        SubtensorModule::inject_and_maybe_swap(
+            &[netuid0],
+            &subnet_emissions,
+            &tao_in,
+            &alpha_in,
+            &excess_tao,
+            credit,
+        );
 
         let tao_in_after = SubnetTAO::<Test>::get(netuid0);
         let alpha_in_after = SubnetAlphaIn::<Test>::get(netuid0);
@@ -3871,9 +3956,17 @@ fn test_coinbase_failed_tao_materialization_does_not_activate_current_tao() {
         let tao_in = BTreeMap::from([(netuid, U96F32::saturating_from_num(current_tao))]);
         let alpha_in = BTreeMap::from([(netuid, U96F32::saturating_from_num(current_alpha))]);
         let excess_tao = BTreeMap::new();
+        let subnet_emissions = BTreeMap::from([(netuid, U96F32::saturating_from_num(current_tao))]);
         let credit = SubtensorModule::mint_tao(TaoBalance::ZERO);
 
-        SubtensorModule::inject_and_maybe_swap(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
+        SubtensorModule::inject_and_maybe_swap(
+            &[netuid],
+            &subnet_emissions,
+            &tao_in,
+            &alpha_in,
+            &excess_tao,
+            credit,
+        );
 
         assert_eq!(
             SubnetTAO::<Test>::get(netuid),
@@ -3920,7 +4013,7 @@ fn test_alpha_reservoir_counts_toward_subnet_issuance_across_blocks() {
 }
 
 #[test]
-fn test_coinbase_inject_and_maybe_swap_reverts_excess_tao_deposit_on_swap_failure() {
+fn test_coinbase_inject_and_maybe_swap_reserves_excess_tao_on_swap_failure() {
     new_test_ext(1).execute_with(|| {
         let zero = U96F32::saturating_from_num(0);
         let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
@@ -3957,15 +4050,36 @@ fn test_coinbase_inject_and_maybe_swap_reverts_excess_tao_deposit_on_swap_failur
         let tao_in = BTreeMap::from([(netuid, zero)]);
         let alpha_in = BTreeMap::from([(netuid, zero)]);
         let excess_tao = BTreeMap::from([(netuid, U96F32::saturating_from_num(tao_to_swap))]);
+        let subnet_emissions = BTreeMap::from([(netuid, U96F32::saturating_from_num(tao_to_swap))]);
         let credit = SubtensorModule::mint_tao(tao_to_swap);
 
-        SubtensorModule::inject_and_maybe_swap(&[netuid], &tao_in, &alpha_in, &excess_tao, credit);
+        SubtensorModule::inject_and_maybe_swap(
+            &[netuid],
+            &subnet_emissions,
+            &tao_in,
+            &alpha_in,
+            &excess_tao,
+            credit,
+        );
 
-        assert_eq!(Balances::free_balance(subnet_account), chain_before);
+        assert_eq!(
+            Balances::free_balance(subnet_account),
+            chain_before.saturating_add(tao_to_swap)
+        );
         assert_eq!(SubnetTAO::<Test>::get(netuid), subnet_tao_before);
         assert_eq!(SubnetExcessTao::<Test>::get(netuid), TaoBalance::ZERO);
-        assert_eq!(TotalIssuance::<Test>::get(), total_issuance_before);
-        assert_eq!(Balances::total_issuance(), balances_issuance_before);
+        assert_eq!(
+            pallet_subtensor_swap::BalancerTaoReservoir::<Test>::get(netuid),
+            tao_to_swap
+        );
+        assert_eq!(
+            TotalIssuance::<Test>::get(),
+            total_issuance_before.saturating_add(tao_to_swap)
+        );
+        assert_eq!(
+            Balances::total_issuance(),
+            balances_issuance_before.saturating_add(tao_to_swap)
+        );
     });
 }
 

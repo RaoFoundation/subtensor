@@ -77,9 +77,14 @@ chain_buy_i = min(excess_tao_i, allocated_miner_alpha_i × spot_price_i)
 for miner incentive directed to owner/immune burn or recycle UIDs. Those
 withheld emissions do not support chain-buy capacity; at 100% miner burn, the
 cap is zero. If owner cut is disabled, the miner half is calculated from the
-full `alpha_out`. TAO above the cap is not reassigned or issued; the unused
-coinbase credit is recycled. Alpha bought by the chain-buy path accumulates as
-protocol-owned alpha.
+full `alpha_out`. TAO above the cap remains issued and is redistributed across
+all emitting subnets in proportion to their emission weights. The redistributed
+TAO is held in each subnet's protocol TAO reservoir, where it cannot create an
+uncapped chain buy or an unpaired spot-price change. The balancer may activate
+reservoir TAO in a later block when pool weights permit. If every emitting
+subnet reaches its chain-buy cap, the entire remainder is still issued and
+allocated in those same emission-weight proportions. Alpha bought by the
+chain-buy path accumulates as protocol-owned alpha.
 
 <RootProportionExplainer />
 

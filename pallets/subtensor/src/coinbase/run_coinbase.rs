@@ -69,6 +69,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn inject_and_maybe_swap(
         subnets_to_emit_to: &[NetUid],
+        subnet_emissions: &BTreeMap<NetUid, U96F32>,
         tao_in: &BTreeMap<NetUid, U96F32>,
         alpha_in: &BTreeMap<NetUid, U96F32>,
         excess_tao: &BTreeMap<NetUid, U96F32>,
@@ -198,10 +199,76 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // Remaining imbalance should be zero at this point. If not, log error and burn.
-        let remaining_balance = remaining_credit.peek();
-        if !remaining_balance.is_zero() {
-            // log::error!("Unspent imbalance remains: remaining_balance = {remaining_balance:?}");
+        // Chain-buy caps can leave part of the block emission unspent. Allocate
+        // that TAO across all emitting subnets in proportion to their emission
+        // weights. It is materialized into each subnet's protocol TAO reservoir
+        // rather than sent through another chain buy, which preserves the cap and
+        // avoids an unpaired liquidity injection changing the spot price.
+        Self::allocate_remaining_tao(subnets_to_emit_to, subnet_emissions, remaining_credit);
+    }
+
+    fn allocate_remaining_tao(
+        subnets_to_emit_to: &[NetUid],
+        subnet_emissions: &BTreeMap<NetUid, U96F32>,
+        credit: CreditOf<T>,
+    ) {
+        let mut remaining_credit = credit;
+        if remaining_credit.peek().is_zero() {
+            return;
+        }
+
+        let zero = asfloat!(0);
+        let recipients: Vec<(NetUid, T::AccountId, U96F32)> = subnets_to_emit_to
+            .iter()
+            .filter_map(|netuid| {
+                let weight = *subnet_emissions.get(netuid).unwrap_or(&zero);
+                if weight == zero {
+                    return None;
+                }
+                Self::get_subnet_account_id(*netuid).map(|account| (*netuid, account, weight))
+            })
+            .collect();
+        let total_weight = recipients
+            .iter()
+            .fold(zero, |total, (_, _, weight)| total.saturating_add(*weight));
+
+        if total_weight == zero {
+            log::debug!("No weighted emitting subnet is available for remaining TAO");
+            Self::recycle_credit(remaining_credit);
+            return;
+        }
+
+        let distributable = asfloat!(remaining_credit.peek());
+        let last_index = recipients.len().saturating_sub(1);
+        for (index, (netuid, account, weight)) in recipients.into_iter().enumerate() {
+            let amount: TaoBalance = if index == last_index {
+                remaining_credit.peek()
+            } else {
+                tou64!(distributable.saturating_mul(weight.safe_div(total_weight))).into()
+            };
+            if amount.is_zero() {
+                continue;
+            }
+
+            match Self::spend_tao(&account, remaining_credit, amount) {
+                Ok(remainder) => {
+                    remaining_credit = remainder;
+                    T::SwapInterface::reserve_protocol_tao(netuid, amount);
+                }
+                Err(remainder) => {
+                    remaining_credit = remainder;
+                    log::error!(
+                        "Failed to allocate remaining TAO: netuid = {netuid:?}, amount = {amount:?}"
+                    );
+                }
+            }
+        }
+
+        if !remaining_credit.peek().is_zero() {
+            log::error!(
+                "Unable to allocate all remaining TAO: remaining = {:?}",
+                remaining_credit.peek()
+            );
             Self::recycle_credit(remaining_credit);
         }
     }
@@ -299,6 +366,7 @@ impl<T: Config> Pallet<T> {
         // --- 2. Inject TAO and ALPHA to pool and swap with excess TAO.
         Self::inject_and_maybe_swap(
             subnets_to_emit_to,
+            subnet_emissions,
             &tao_in,
             &alpha_in,
             &excess_amount,

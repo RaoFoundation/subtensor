@@ -49,6 +49,9 @@ pub trait SwapHandler {
     ) -> (TaoBalance, AlphaBalance);
     fn protocol_alpha_reservoir(netuid: NetUid) -> AlphaBalance;
     fn protocol_tao_reservoir(netuid: NetUid) -> TaoBalance;
+    /// Record protocol TAO that the caller has already materialized into the
+    /// subnet account, without making it immediately price-active.
+    fn reserve_protocol_tao(netuid: NetUid, amount: TaoBalance);
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid);
     fn clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
     fn init_swap(netuid: NetUid, maybe_price: Option<U64F64>);
