@@ -74,10 +74,27 @@ DESCRIPTIONS: dict[str, str] = {
         "due to insufficient funds, the existential deposit, or frozen/reserved balance. Check "
         "the coldkey's balance with `btcli wallet balance` and reduce the amount or top up."
     ),
+    "BasketClaimedHotkeyMigrationInProgress": (
+        "A root hotkey swap left a metered `BasketClaimed` watermark drain unfinished, so "
+        "claims, direct basket deposits, and further root-touching swaps on the involved "
+        "hotkeys are paused until `on_idle` finishes moving the retired prefix. Wait a few "
+        "blocks and retry once `PendingBasketClaimedHotkeyMigration` no longer lists the key."
+    ),
+    "BasketHasNoWeights": (
+        "`stake_into_basket` (or a related basket deposit) was called against a validator "
+        "whose root weight vector filters to no usable destinations. Have the validator set "
+        "root weights with `btcli weights set-root` (or `set_root_weights`) before depositing."
+    ),
     "BeneficiaryDoesNotOwnHotkey": (
         "When ending a subnet lease, the hotkey passed for the ownership handover is not owned "
         "by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass "
         "a hotkey the beneficiary coldkey actually owns."
+    ),
+    "BetaBasketSeedInProgress": (
+        "The multi-block `migrate_seed_beta_basket_v2` seed is still running, so basket "
+        "deposits, claims, coldkey / root-touching hotkey swaps, and root stake "
+        "add/remove/transfer/swap are paused until it finishes. Wait until the migration "
+        "cursor clears (`HasMigrationRun` for the seed) and retry."
     ),
     "CallDisabled": (
         "The extrinsic has been switched off in the current runtime and cannot be dispatched. "
@@ -617,6 +634,12 @@ DESCRIPTIONS: dict[str, str] = {
         "only happens on misconfigured or freshly bootstrapped chains. Verify netuid 0 exists "
         "in `NetworksAdded`."
     ),
+    "RootStakeLocked": (
+        "A root (netuid 0) unstake was attempted before `RootStakeUnlockInterval` blocks "
+        "elapsed since the coldkey/hotkey's last root stake add or remove. Check "
+        "`LastColdkeyHotkeyStakeBlock` against the current block and wait out the hold window "
+        "(or leave the interval at 0 via sudo if the lock is not intended)."
+    ),
     "SameAutoStakeHotkeyAlreadySet": (
         "The coldkey tried to set its auto-stake destination on a subnet to the hotkey that is "
         "already configured. Read `AutoStakeDestination` for the coldkey and netuid before "
@@ -706,6 +729,16 @@ DESCRIPTIONS: dict[str, str] = {
         "MAX_TEMPO range (360-50,400 blocks). Check the tempo argument against those chain "
         "constants and pick a value inside the bounds; only root may set a tempo outside them."
     ),
+    "TooManyBasketDepositHoldings": (
+        "`stake_into_basket` would NAV-scan more basket holdings than its declared pre-dispatch "
+        "weight envelope (`MAX_STAKE_INTO_BASKET_HOLDINGS`). Reduce the validator's outstanding "
+        "escrow positions (or weight-vector breadth) before retrying the deposit."
+    ),
+    "TooManyBasketDepositSlots": (
+        "`stake_into_basket` would deploy across more root-weight slots than its declared "
+        "pre-dispatch weight envelope (`MAX_STAKE_INTO_BASKET_SLOTS`). Have the validator "
+        "narrow their root weight vector before depositing."
+    ),
     "TooManyChildren": (
         "`set_children` was called with more than 5 child hotkeys for a parent on the subnet. "
         "Trim the children list to at most 5 entries."
@@ -719,6 +752,16 @@ DESCRIPTIONS: dict[str, str] = {
         "Registrations in the current interval reached the cap of three times "
         "`TargetRegistrationsPerInterval` for the subnet. Compare `RegistrationsThisInterval` "
         "against that hyperparameter and wait for the next interval to start."
+    ),
+    "TooManyRootClaimHoldings": (
+        "`claim_root` would inspect more basket-position rows than its benchmarked bound "
+        "(`MAX_ROOT_CLAIM_WORK`). Split the claim across fewer validators / smaller baskets, "
+        "or wait until holdings shrink before retrying."
+    ),
+    "TooManyRootClaimHotkeys": (
+        "`claim_root` would inspect more validator hotkeys than its benchmarked bound "
+        "(`MAX_ROOT_CLAIM_WORK`). Claim against a smaller set of staking hotkeys, or claim "
+        "in multiple extrinsics."
     ),
     "TooManyUIDsPerMechanism": (
         "Setting max UIDs or mechanism count would make max_uids times mechanism_count exceed "

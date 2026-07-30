@@ -255,7 +255,7 @@ class SubtensorModule:
 
     @staticmethod
     def claim_root() -> Call:
-        "Claims the root emissions for a coldkey.  Redemption is fund-level: for every validator the coldkey stakes to, the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). There is no per-subnet selection — the basket is a single fund whose composition is independent of staker entitlements.  # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims."
+        "Claims the root emissions for a coldkey.  Redemption is fund-level: for every validator the coldkey stakes to, the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). There is no per-subnet selection — the basket is a single fund whose composition is independent of staker entitlements.  # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `TooManyRootClaimHotkeys`: The coldkey exceeds the benchmarked hotkey bound. * `TooManyRootClaimHoldings`: The coldkey exceeds the benchmarked basket-position bound."
         return Call('SubtensorModule', 'claim_root', {})
 
     @staticmethod
@@ -312,6 +312,11 @@ class SubtensorModule:
     def enable_voting_power_tracking(netuid: 'NetUid') -> Call:
         'Enables voting power tracking for a subnet.  This function can be called by the subnet owner or root. When enabled, voting power EMA is updated every epoch for all validators. Voting power starts at 0 and increases over epochs.  # Arguments * `origin`: The origin of the call, must be subnet owner or root. * `netuid`: The subnet to enable voting power tracking for.  # Errors * `SubnetNotExist`: If the subnet does not exist. * `NotSubnetOwner`: If the caller is not the subnet owner or root.'
         return Call('SubtensorModule', 'enable_voting_power_tracking', {'netuid': netuid})
+
+    @staticmethod
+    def faucet(block_number: 'u64', nonce: 'u64', work: 'Any') -> Call:
+        'Facility extrinsic for user to get taken from faucet It is only available when pow-faucet feature enabled Just deployed in testnet and devnet for testing purpose'
+        return Call('SubtensorModule', 'faucet', {'block_number': block_number, 'nonce': nonce, 'work': work})
 
     @staticmethod
     def increase_take(hotkey: 'AccountId32', take: 'PerU16') -> Call:
@@ -497,6 +502,11 @@ class SubtensorModule:
     def set_weights(netuid: 'NetUid', dests: 'Any', weights: 'Any', version_key: 'u64') -> Call:
         'Sets the caller weights for the incentive mechanism. The call can be made from the hotkey account so is potentially insecure, however, the damage of changing weights is minimal if caught early. This function includes all the checks that the passed weights meet the requirements. Stored weights are u16s max-upscaled by the pallet, so the largest non-zero supplied weight is stored as `u16::MAX`. The weights determine how inflation propagates outward from this peer.  # Note Input weights are relative. They do not need to sum to a particular value before submission.  # Arguments * `origin`: The caller, a hotkey who wishes to set their weights.  * `netuid`: The network uid we are setting these weights on.  * `dests`: The edge endpoint for the weight, i.e. j for w_ij.  * `weights`: Relative u16-encoded weights, max-upscaled by the pallet before storage.  * `version_key`: The network version key to check if the validator is up to date.  # Events * `WeightsSet`: On successfully setting the weights on chain.  # Errors * `MechanismDoesNotExist`: Attempting to set weights on a non-existent network.  * `NotRegistered`: Attempting to set weights from a non registered account.  * `WeightVecNotEqualSize`: Attempting to set weights with uids not of same length.  * `DuplicateUids`: Attempting to set weights with duplicate uids.  * `UidsLengthExceedUidsInSubNet`: Attempting to set weights above the max allowed uids.  * `UidVecContainInvalidOne`: Attempting to set weights with invalid uids.  * `WeightVecLengthIsLow`: Attempting to set weights with fewer weights than min.  * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.'
         return Call('SubtensorModule', 'set_weights', {'netuid': netuid, 'dests': dests, 'weights': weights, 'version_key': version_key})
+
+    @staticmethod
+    def stake_into_basket(hotkey: 'AccountId32', amount_staked: 'TaoBalance') -> Call:
+        "Stakes TAO from the caller's balance directly into a validator's basket.  The TAO is deployed across subnets per the validator's root weight vector (exactly like a dividend deposit) and the caller is credited a fund entitlement at the fund's pre-buy realizable NAV, priced against the realizable value the deposit added — the depositor bears their own entry slippage and swap fees. The credited entitlement is redeemable through [`Pallet::claim_root`] like any dividend-accrued entitlement; it does not require or affect root stake, and it does not change any staker's dividend accrual.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket to deposit into. * `amount_staked`: TAO to take from the caller's balance and deploy.  # Events * `BasketStakedIn`: On success, with the TAO taken, the realizable value added, and the entitlement credited.  # Errors * `HotKeyAccountNotExists`: The hotkey is not a registered account. * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value rounds to zero entitlement. * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`. * `BasketHasNoWeights`: The validator's weight vector filters to nothing. * `TooManyBasketDepositSlots`: Weight vector exceeds the declared weight cap. * `TooManyBasketDepositHoldings`: Basket holdings exceed the declared weight cap."
+        return Call('SubtensorModule', 'stake_into_basket', {'hotkey': hotkey, 'amount_staked': amount_staked})
 
     @staticmethod
     def start_call(netuid: 'NetUid') -> Call:
