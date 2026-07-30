@@ -15,25 +15,71 @@ pub(super) fn set_reserves<T: Config>(
     SubnetAlphaIn::<T>::insert(netuid, alpha_in);
 }
 
+/// The largest identity `is_valid_subnet_identity` accepts: 6,656 bytes across the eight fields.
+///
+/// Both registration outcomes carry the identity. Creation writes it to `SubnetIdentitiesV3`;
+/// queueing encodes it into the `NetworkRegistrationQueue` entry and again into the event. `None`
+/// measures neither.
+pub(super) fn max_subnet_identity() -> SubnetIdentityOfV3 {
+    SubnetIdentityOfV3 {
+        subnet_name: vec![b'n'; 256],
+        github_repo: vec![b'g'; 1024],
+        subnet_contact: vec![b'c'; 1024],
+        subnet_url: vec![b'u'; 1024],
+        discord: vec![b'd'; 256],
+        description: vec![b'e'; 1024],
+        logo_url: vec![b'l'; 1024],
+        additional: vec![b'a'; 1024],
+    }
+}
+
 /// Fill the chain with prunable subnets so a registration benchmark runs against a realistic
 /// `NetworksAdded` map rather than an empty one.
 ///
 /// `do_register_network` counts every entry in `NetworksAdded` on every call, and once that count
 /// reaches `SubnetLimit` it also walks `get_network_to_prune`. Registering into an empty chain
-/// measures neither. The two outcomes are mutually exclusive and neither dominates the other:
-/// below the limit the call creates a subnet (many writes), at the limit it prunes and queues
-/// instead (far more reads). Callers pick which one they are measuring via `subnets`.
+/// measures neither. Callers pick which outcome they are measuring via `subnets`: below the limit
+/// the call creates a subnet (many writes), at the limit it prunes and queues instead (far more
+/// reads). Neither dominates the other.
 ///
 /// Immunity is set to one block and `NetworkRegisteredAt` to zero so no candidate is skipped.
 /// Requires a current block above zero.
+///
+/// Every subnet is made dynamic with a funded pool, and both prices are staggered per subnet.
+///
+/// Two independent scans walk `NetworksAdded`, and a fixture of stable, empty-pool subnets makes
+/// both of them exit early on every entry:
+///
+/// - `get_network_to_prune` calls `get_moving_alpha_price`, which returns on `SubnetMechanism == 0`
+///   without reading `SubnetMovingPrice`.
+/// - `get_median_subnet_alpha_price` calls swap `current_price`, which returns on a non-dynamic
+///   mechanism, and on a dynamic one still returns before reading the TAO reserve or the balancer
+///   unless the alpha reserve is nonzero.
+///
+/// So the scans would walk 128 entries while pricing none, which is the same class of mistake as
+/// benchmarking against an empty chain. Staggering matters as well as seeding: the median builds a
+/// `BTreeMap` keyed on price, and identical reserves collapse it to a single entry.
 pub(super) fn fill_subnets<T: Config>(owner: &T::AccountId, subnets: u16) {
     NetworkImmunityPeriod::<T>::set(1);
 
     for netuid in 1..=subnets {
+        let offset = u64::from(netuid);
         let netuid = NetUid::from(netuid);
+
         Subtensor::<T>::init_new_network(netuid, 1);
         NetworkRegisteredAt::<T>::insert(netuid, 0);
         SubnetOwner::<T>::insert(netuid, owner.clone());
+        SubnetMechanism::<T>::insert(netuid, 1);
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(150_000_000_000_u64.saturating_add(offset.saturating_mul(1_000_000))),
+            AlphaBalance::from(100_000_000_000_u64),
+        );
+        SubnetMovingPrice::<T>::insert(
+            netuid,
+            I96F32::saturating_from_num(1_000_u64.saturating_add(offset))
+                .saturating_div(I96F32::saturating_from_num(1_000)),
+        );
     }
 }
 

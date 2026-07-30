@@ -308,9 +308,15 @@ mod pallet_benchmarks {
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
     }
 
-    /// The other outcome of `do_register_network`: at `SubnetLimit` the call prunes a subnet and
-    /// queues rather than creating one. Not an extrinsic; it exists so the two dispatches that can
-    /// reach this branch can charge the worst of the two.
+    /// The queueing outcome of `do_register_network`: at `SubnetLimit` the call prunes a subnet and
+    /// queues rather than creating one. Not an extrinsic; it exists so the dispatches that can reach
+    /// this branch have a worst case to charge.
+    ///
+    /// This also covers the third outcome, `wait_to_cleanup`. That path reaches the same queueing
+    /// block without running `get_network_to_prune` or `do_dissolve_network`, so at equal queue
+    /// depth it is strictly cheaper than this one. Queue depth itself is measured at neither: both
+    /// queues are decoded unconditionally on every call and neither is a `BoundedVec`, so there is
+    /// no maximum to benchmark against.
     #[benchmark]
     fn register_network_pruning() {
         let seed: u32 = 1;
@@ -326,12 +332,12 @@ mod pallet_benchmarks {
 
         #[block]
         {
-            let _ = Subtensor::<T>::do_register_network(
+            assert_ok!(Subtensor::<T>::do_register_network(
                 RawOrigin::Signed(coldkey.clone()).into(),
                 &hotkey,
                 1,
-                None,
-            );
+                Some(max_subnet_identity()),
+            ));
         }
 
         assert!(!NetworkRegistrationQueue::<T>::get().is_empty());
@@ -1481,7 +1487,7 @@ mod pallet_benchmarks {
     fn register_network_with_identity() {
         let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("Alice", 0, 1);
-        let identity: Option<SubnetIdentityOfV3> = None;
+        let identity: Option<SubnetIdentityOfV3> = Some(max_subnet_identity());
 
         Subtensor::<T>::set_network_registration_allowed(1.into(), true);
         Subtensor::<T>::set_network_rate_limit(1);
