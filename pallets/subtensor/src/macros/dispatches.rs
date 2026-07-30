@@ -1002,8 +1002,9 @@ mod dispatches {
 
         /// User register a new subnetwork
         ///
-        /// Below `SubnetLimit` this creates a subnet; at the limit it prunes one and queues
-        /// instead. The two are mutually exclusive and neither dominates, so charge the worse.
+        /// Below `SubnetLimit` this creates a subnet; at the limit it either prunes one and queues,
+        /// or queues to wait on a cleanup already in flight. The first two are mutually exclusive
+        /// and neither dominates, so charge the worse; the third is dominated by the second.
         #[pallet::call_index(59)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network()
             .max(<T as crate::pallet::Config>::WeightInfo::register_network_pruning()))]
@@ -1186,7 +1187,7 @@ mod dispatches {
 
         /// User register a new subnetwork
         ///
-        /// Same two outcomes as `register_network`, so the same worst case applies.
+        /// Same outcomes as `register_network`, so the same worst case applies.
         #[pallet::call_index(79)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network_with_identity()
             .max(<T as crate::pallet::Config>::WeightInfo::register_network_pruning()))]
