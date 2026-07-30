@@ -89,6 +89,11 @@ Inventory every public state map and value in scope. Expose its meaningful
 contents through typed view functions; never provide direct writable access to
 storage.
 
+Apply the classifications in [State exposure](state-exposure.md). Before
+changing an existing view because its shape appears incomplete or unbounded,
+check [Reviewed exceptions](exceptions.md). Treat exceptions as exact,
+human-reviewed cases rather than patterns to extend by analogy.
+
 Let a view read one or more storage items when that is required to return the
 meaningful value. Keep the mapping from source storage to typed functions
 explicit in the coverage inventory so no item disappears behind an abstract
@@ -211,8 +216,11 @@ remove unrelated regeneration changes.
 ## Validate cost and bounds
 
 Keep every precompile path bounded in CPU, memory, storage access, and output
-size. Record database reads and writes and dispatch weight through the existing
-helpers.
+size, except for the exact human-reviewed cases in
+[Reviewed exceptions](exceptions.md). Record database reads and writes and
+dispatch weight through the existing helpers. For an accepted scan exception,
+test the protocol limit that makes the scan acceptable and charge for the
+complete permitted scan.
 
 Test:
 

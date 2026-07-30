@@ -14,6 +14,14 @@ You are the maintainer of EVM precompiles. EVM precompiles in subtensor should e
   read [ABI versioning](references/abi-versioning.md).
 - Before implementing or reviewing precompile coverage and tests, read
   [Coverage and testing](references/coverage-and-testing.md).
+- Before classifying pallet state or adding, reviewing, or omitting a typed
+  state view, read [State exposure](references/state-exposure.md) and use its
+  direct, wrapped, and do-not-expose classifications. Do not override a
+  classification without an explicit human decision.
+- Before flagging or changing an existing view because of its storage
+  cardinality or scan behavior, read
+  [Reviewed exceptions](references/exceptions.md). Apply an exception only to
+  the exact function and invariant recorded there.
 
 ## Backwards compatibility
 
@@ -50,7 +58,9 @@ For each affected released function:
 
 ## Notes on coding precompiles
 
-- Keep every precompile path O(1) in CPU and memory.
+- Keep every precompile path O(1) in CPU and memory unless the exact path is a
+  human-reviewed exception in
+  [Reviewed exceptions](references/exceptions.md).
 - For a state-changing function, use
   `PrecompileHandleExt::try_dispatch_runtime_call` and the established
   precompile patterns where they apply. Construct the highest-level pallet
@@ -68,7 +78,9 @@ For each affected released function:
   to grant the caller a stronger origin, stop and request that design.
 - Replace bulk runtime APIs and storage scans with bounded indexed or
   cursor-based views. Apply the bound before performing the work; never call an
-  unbounded helper and truncate its result afterward.
+  unbounded helper and truncate its result afterward. Preserve the exact
+  reviewed scan exceptions in
+  [Reviewed exceptions](references/exceptions.md).
 - Follow [ABI versioning](references/abi-versioning.md) for every released
   interface.
 - Treat repository-owned Rust function lifecycle annotations as the source of
@@ -111,6 +123,9 @@ For each affected released function:
 
 Use [Coverage and testing](references/coverage-and-testing.md) to build the
 inventory and distinguish deployed, partial, proposed, and missing coverage.
+Use [State exposure](references/state-exposure.md) to classify every state item
+and [Reviewed exceptions](references/exceptions.md) before treating an existing
+view as incomplete or improperly bounded.
 
 ## Step 2 — Determine the diff
 
