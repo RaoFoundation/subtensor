@@ -599,7 +599,7 @@ jobs:
   clone-upgrade:
     name: clone-upgrade (${{ matrix.phase }})
     needs: [trusted-pr, changes, clone-plan, build-node-release]
-    runs-on: [self-hosted, fireactions-turbo-8]
+    runs-on: [self-hosted, fireactions-validatorbench]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
     timeout-minutes: 90
     permissions:
