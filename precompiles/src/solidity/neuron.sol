@@ -133,4 +133,109 @@ interface INeuron {
         uint16[] memory salt,
         uint64 versionKey
     ) external payable;
+
+    function setMechanismWeights(
+        uint16 netuid,
+        uint8 mecid,
+        uint16[] calldata dests,
+        uint16[] calldata weights,
+        uint64 versionKey
+    ) external;
+    function batchSetWeights(
+        uint16[] calldata netuids,
+        uint16[][] calldata dests,
+        uint16[][] calldata values,
+        uint64[] calldata versionKeys
+    ) external;
+    function commitMechanismWeights(
+        uint16 netuid,
+        uint8 mecid,
+        bytes32 commitHash
+    ) external;
+    function batchCommitWeights(
+        uint16[] calldata netuids,
+        bytes32[] calldata commitHashes
+    ) external;
+    function revealMechanismWeights(
+        uint16 netuid,
+        uint8 mecid,
+        uint16[] calldata uids,
+        uint16[] calldata values,
+        uint16[] calldata salt,
+        uint64 versionKey
+    ) external;
+    function commitCrv3MechanismWeights(
+        uint16 netuid,
+        uint8 mecid,
+        bytes calldata commit,
+        uint64 revealRound
+    ) external;
+    function batchRevealWeights(
+        uint16 netuid,
+        uint16[][] calldata uids,
+        uint16[][] calldata values,
+        uint16[][] calldata salts,
+        uint64[] calldata versionKeys
+    ) external;
+    function commitTimelockedWeights(
+        uint16 netuid,
+        bytes calldata commit,
+        uint64 revealRound,
+        uint16 commitRevealVersion
+    ) external;
+    function commitTimelockedMechanismWeights(
+        uint16 netuid,
+        uint8 mecid,
+        bytes calldata commit,
+        uint64 revealRound,
+        uint16 commitRevealVersion
+    ) external;
+    function register(
+        uint16 netuid,
+        uint64 blockNumber,
+        uint64 nonce,
+        bytes calldata work,
+        bytes32 hotkey,
+        bytes32 coldkey
+    ) external;
+    function rootRegister(bytes32 hotkey) external;
+    function swapHotkey(
+        bytes32 hotkey,
+        bytes32 newHotkey,
+        bool hasNetuid,
+        uint16 netuid
+    ) external;
+    function swapHotkeyV2(
+        bytes32 hotkey,
+        bytes32 newHotkey,
+        bool hasNetuid,
+        uint16 netuid,
+        bool keepStake
+    ) external;
+    function setChildren(
+        bytes32 hotkey,
+        uint16 netuid,
+        uint64[] calldata proportions,
+        bytes32[] calldata children
+    ) external;
+    function setIdentity(
+        string calldata name,
+        string calldata url,
+        string calldata githubRepo,
+        string calldata image,
+        string calldata discord,
+        string calldata description,
+        string calldata additional
+    ) external;
+    function tryAssociateHotkey(bytes32 hotkey) external;
+    function associateEvmKey(
+        uint16 netuid,
+        address evmKey,
+        uint64 blockNumber,
+        bytes calldata signature
+    ) external;
+    function announceColdkeySwap(bytes32 newColdkeyHash) external;
+    function executeAnnouncedColdkeySwap(bytes32 newColdkey) external;
+    function disputeColdkeySwap() external;
+    function clearColdkeySwapAnnouncement() external;
 }

@@ -1,0 +1,38 @@
+---
+title: Runtime configuration
+description: Typed EVM views for global runtime configuration.
+---
+
+| Property | Value |
+|---|---|
+| Implementation | `RuntimeConfigurationPrecompile` |
+| Solidity interface | `IRuntimeConfiguration` |
+| Address | `0x0000000000000000000000000000000000000812` |
+| Status | Deployed |
+
+This domain contains bounded typed views of global runtime
+configuration that do not belong to subnet, staking, Alpha, account-balance,
+or precompile-lifecycle domains.
+
+## Views
+
+| Function | Meaning |
+|---|---|
+| `getEvmChainId()` | Current EVM chain identifier |
+| `getTransactionRateLimit()` | Global Subtensor transaction rate limit |
+
+## State-changing operations
+
+The currently identified global configuration extrinsics are Root-only:
+
+```text
+AdminUtils.swap_authorities
+AdminUtils.sudo_set_tx_rate_limit
+AdminUtils.sudo_set_evm_chain_id
+AdminUtils.schedule_grandpa_change
+```
+
+They are not exposed as typed EVM operations. A future view must return a
+typed, bounded representation and must not expose SCALE-encoded runtime values.
+
+Source: [`runtimeConfiguration.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/runtimeConfiguration.sol)

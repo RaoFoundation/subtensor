@@ -2,9 +2,17 @@ use core::marker::PhantomData;
 
 use crate::PrecompileExt;
 use fp_evm::{ExitError, PrecompileFailure};
-use pallet_evm::{BalanceConverter, PrecompileHandle, SubstrateBalance};
+use frame_support::{
+    dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo},
+    traits::IsSubType,
+};
+use frame_system::RawOrigin;
+use pallet_evm::{AddressMapping, BalanceConverter, PrecompileHandle, SubstrateBalance};
 use precompile_utils::EvmResult;
-use sp_runtime::{SaturatedConversion, Vec};
+use sp_runtime::{
+    SaturatedConversion, Vec,
+    traits::{AsSystemOriginSigner, Dispatchable},
+};
 
 use crate::PrecompileHandleExt;
 use sp_core::U256;
@@ -18,8 +26,24 @@ where
     R: frame_system::Config
         + pallet_subtensor::Config
         + pallet_subtensor_swap::Config
-        + pallet_evm::Config,
+        + pallet_evm::Config
+        + pallet_admin_utils::Config
+        + pallet_balances::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
     R::AccountId: From<[u8; 32]>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_admin_utils::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     const INDEX: u64 = 2056;
 }
@@ -30,7 +54,24 @@ where
     R: frame_system::Config
         + pallet_subtensor::Config
         + pallet_subtensor_swap::Config
-        + pallet_evm::Config,
+        + pallet_evm::Config
+        + pallet_admin_utils::Config
+        + pallet_balances::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
+    R::AccountId: From<[u8; 32]>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_admin_utils::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     #[precompile::public("getAlphaPrice(uint16)")]
     #[precompile::view]
@@ -250,6 +291,57 @@ where
             .ok_or(ExitError::InvalidRange)?;
 
         Ok(price_eth)
+    }
+
+    #[precompile::public("setRecycleOrBurn(uint16,uint8)")]
+    fn set_recycle_or_burn(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mode: u8,
+    ) -> EvmResult<()> {
+        let recycle_or_burn = match mode {
+            0 => pallet_subtensor::RecycleOrBurnEnum::Burn,
+            1 => pallet_subtensor::RecycleOrBurnEnum::Recycle,
+            _ => {
+                return Err(PrecompileFailure::Error {
+                    exit_status: ExitError::Other("invalid recycle-or-burn mode".into()),
+                });
+            }
+        };
+        let caller = handle.caller_account_id::<R>();
+        let call = pallet_admin_utils::Call::<R>::sudo_set_recycle_or_burn {
+            netuid: NetUid::from(netuid),
+            recycle_or_burn,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+    }
+
+    #[precompile::public("setBurnHalfLife(uint16,uint16)")]
+    fn set_burn_half_life(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        burn_half_life: u16,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let call = pallet_admin_utils::Call::<R>::sudo_set_burn_half_life {
+            netuid: NetUid::from(netuid),
+            burn_half_life,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+    }
+
+    #[precompile::public("setBurnIncreaseMultiplier(uint16,uint128)")]
+    fn set_burn_increase_multiplier(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        raw_multiplier: u128,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let call = pallet_admin_utils::Call::<R>::sudo_set_burn_increase_mult {
+            netuid: NetUid::from(netuid),
+            burn_increase_mult: U64F64::from_bits(raw_multiplier),
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 }
 

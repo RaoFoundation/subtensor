@@ -559,4 +559,70 @@ interface IStaking {
         uint256 destinationNetuid,
         uint256 amount
     ) external;
+
+    function decreaseTake(bytes32 hotkey, uint16 take) external;
+    function increaseTake(bytes32 hotkey, uint16 take) external;
+    function setChildkeyTake(bytes32 hotkey, uint16 netuid, uint16 take) external;
+    function unstakeAll(bytes32 hotkey) external;
+    function unstakeAllAlpha(bytes32 hotkey) external;
+    function swapStake(
+        bytes32 hotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount
+    ) external;
+    function swapStakeLimit(
+        bytes32 hotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount,
+        uint64 limitPrice,
+        bool allowPartial
+    ) external;
+    function recycleAlpha(bytes32 hotkey, uint64 amount, uint16 netuid) external;
+    function setColdkeyAutoStakeHotkey(uint16 netuid, bytes32 hotkey) external;
+    function claimRoot(uint16[] calldata subnets) external;
+    /// claimType: 0 = swap, 1 = keep, 2 = keep only listed subnets.
+    function setRootClaimType(
+        uint8 claimType,
+        uint16[] calldata subnets
+    ) external;
+    function setRootClaimThreshold(uint16 netuid, uint64 threshold) external;
+    function addStakeBurn(
+        bytes32 hotkey,
+        uint16 netuid,
+        uint64 amount,
+        bool hasLimit,
+        uint64 limit
+    ) external;
+    function setAutoParentDelegationEnabled(
+        bytes32 hotkey,
+        bool enabled
+    ) external;
+    function transferStakeAndHotkey(
+        bytes32 destinationColdkey,
+        bytes32 originHotkey,
+        bytes32 destinationHotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount
+    ) external;
+    function addCollateral(
+        uint16 netuid,
+        bytes32 hotkey,
+        uint64 alpha,
+        uint64 limitPrice
+    ) external;
+    function setMinCollateral(
+        uint16 netuid,
+        bytes32 hotkey,
+        uint64 minLocked
+    ) external;
+    function setMinChildkeyTakePerSubnet(uint16 netuid, uint16 take) external;
+    function setCollateralLockShare(uint16 netuid, uint16 lockShare) external;
+    /// Raw U64F64 bits.
+    function setCollateralDrainRatio(
+        uint16 netuid,
+        uint128 rawRatio
+    ) external;
 }

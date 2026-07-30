@@ -5,11 +5,14 @@ use frame_support::traits::ConstU32;
 use frame_support::traits::IsSubType;
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, PrecompileHandle};
-use precompile_utils::{EvmResult, prelude::BoundedString};
+use precompile_utils::{
+    EvmResult,
+    prelude::{BoundedString, BoundedVec},
+};
 use sp_core::H256;
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
-use sp_std::vec;
-use subtensor_runtime_common::{NetUid, Token};
+use sp_std::{vec, vec::Vec};
+use subtensor_runtime_common::{NetUid, TaoBalance, Token};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
@@ -891,6 +894,243 @@ where
         handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::DissolveCleanupQueue::<R>::get().contains(&NetUid::from(netuid)))
     }
+
+    #[precompile::public(
+        "setSubnetIdentity(uint16,string,string,string,string,string,string,string,string)"
+    )]
+    #[allow(clippy::too_many_arguments)]
+    fn set_subnet_identity(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        subnet_name: BoundedString<ConstU32<256>>,
+        github_repo: BoundedString<ConstU32<1024>>,
+        subnet_contact: BoundedString<ConstU32<1024>>,
+        subnet_url: BoundedString<ConstU32<1024>>,
+        discord: BoundedString<ConstU32<256>>,
+        description: BoundedString<ConstU32<1024>>,
+        logo_url: BoundedString<ConstU32<1024>>,
+        additional: BoundedString<ConstU32<1024>>,
+    ) -> EvmResult<()> {
+        let call = pallet_subtensor::Call::<R>::set_subnet_identity {
+            netuid: NetUid::from(netuid),
+            subnet_name: subnet_name.into(),
+            github_repo: github_repo.into(),
+            subnet_contact: subnet_contact.into(),
+            subnet_url: subnet_url.into(),
+            discord: discord.into(),
+            description: description.into(),
+            logo_url: logo_url.into(),
+            additional: additional.into(),
+        };
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
+    #[precompile::public("updateSubnetSymbol(uint16,string)")]
+    fn update_subnet_symbol(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        symbol: BoundedString<ConstU32<16>>,
+    ) -> EvmResult<()> {
+        let call = pallet_subtensor::Call::<R>::update_symbol {
+            netuid: NetUid::from(netuid),
+            symbol: symbol.into(),
+        };
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
+    #[precompile::public("triggerEpoch(uint16)")]
+    fn trigger_epoch(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<()> {
+        let call = pallet_subtensor::Call::<R>::trigger_epoch {
+            netuid: NetUid::from(netuid),
+        };
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
+    #[precompile::public("setBondsPenalty(uint16,uint16)")]
+    fn set_bonds_penalty(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        bonds_penalty: u16,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_bonds_penalty {
+                netuid: netuid.into(),
+                bonds_penalty,
+            },
+        )
+    }
+
+    #[precompile::public("setMaxAllowedUids(uint16,uint16)")]
+    fn set_max_allowed_uids(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        max_allowed_uids: u16,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_max_allowed_uids {
+                netuid: netuid.into(),
+                max_allowed_uids,
+            },
+        )
+    }
+
+    #[precompile::public("setMaxBurnV2(uint16,uint64)")]
+    fn set_max_burn_v2(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        max_burn: u64,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_max_burn {
+                netuid: netuid.into(),
+                max_burn: TaoBalance::from(max_burn),
+            },
+        )
+    }
+
+    #[precompile::public("setMechanismCount(uint16,uint8)")]
+    fn set_mechanism_count(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mechanism_count: u8,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_mechanism_count {
+                netuid: netuid.into(),
+                mechanism_count: mechanism_count.into(),
+            },
+        )
+    }
+
+    #[precompile::public("setMechanismEmissionSplit(uint16,bool,uint16[])")]
+    fn set_mechanism_emission_split(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        has_split: bool,
+        split: BoundedVec<u16, ConstU32<256>>,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_mechanism_emission_split {
+                netuid: netuid.into(),
+                maybe_split: has_split.then(|| Vec::<u16>::from(split)),
+            },
+        )
+    }
+
+    #[precompile::public("setMinBurnV2(uint16,uint64)")]
+    fn set_min_burn_v2(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        min_burn: u64,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_min_burn {
+                netuid: netuid.into(),
+                min_burn: TaoBalance::from(min_burn),
+            },
+        )
+    }
+
+    #[precompile::public("setOwnerCutEnabled(uint16,bool)")]
+    fn set_owner_cut_enabled(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        enabled: bool,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_owner_cut_enabled {
+                netuid: netuid.into(),
+                enabled,
+            },
+        )
+    }
+
+    #[precompile::public("setOwnerImmuneNeuronLimit(uint16,uint16)")]
+    fn set_owner_immune_neuron_limit(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        immune_neurons: u16,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_owner_immune_neuron_limit {
+                netuid: netuid.into(),
+                immune_neurons,
+            },
+        )
+    }
+
+    #[precompile::public("setTempo(uint16,uint16)")]
+    fn set_tempo(handle: &mut impl PrecompileHandle, netuid: u16, tempo: u16) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_tempo {
+                netuid: netuid.into(),
+                tempo,
+            },
+        )
+    }
+
+    #[precompile::public("trimToMaxAllowedUids(uint16,uint16)")]
+    fn trim_to_max_allowed_uids(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        max_n: u16,
+    ) -> EvmResult<()> {
+        dispatch_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_trim_to_max_allowed_uids {
+                netuid: netuid.into(),
+                max_n,
+            },
+        )
+    }
+}
+
+fn dispatch_admin<R>(
+    handle: &mut impl PrecompileHandle,
+    call: pallet_admin_utils::Call<R>,
+) -> EvmResult<()>
+where
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_evm::Config
+        + pallet_subtensor::Config
+        + pallet_admin_utils::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
+    R::AccountId: From<[u8; 32]>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_admin_utils::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
+{
+    let caller = handle.caller_account_id::<R>();
+    handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
 }
 
 #[cfg(test)]
@@ -904,8 +1144,8 @@ mod tests {
     use super::*;
     use crate::PrecompileExt;
     use crate::mock::{
-        AccountId, Runtime, addr_from_index, assert_static_call, mapped_account, new_test_ext,
-        precompiles, selector_u32,
+        AccountId, Runtime, addr_from_index, assert_static_call, execute_precompile,
+        mapped_account, new_test_ext, precompiles, selector_u32,
     };
     use precompile_utils::solidity::encode_with_selector;
     use precompile_utils::testing::PrecompileTesterExt;
@@ -1482,6 +1722,35 @@ mod tests {
                 ),
                 U256::one(),
             );
+        });
+    }
+
+    #[test]
+    fn added_admin_call_preserves_subnet_owner_authorization() {
+        new_test_ext().execute_with(|| {
+            let owner = addr_from_index(0x5010);
+            let non_owner = addr_from_index(0x5011);
+            let netuid = setup_owner_subnet(owner);
+            let address = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+            let input = encode_with_selector(
+                selector_u32("setBondsPenalty(uint16,uint16)"),
+                (TEST_NETUID_U16, 123u16),
+            );
+
+            precompiles::<SubnetPrecompile<Runtime>>()
+                .prepare_test(owner, address, input.clone())
+                .execute_returns(());
+            assert_eq!(pallet_subtensor::BondsPenalty::<Runtime>::get(netuid), 123);
+
+            let rejected = execute_precompile(
+                &precompiles::<SubnetPrecompile<Runtime>>(),
+                address,
+                non_owner,
+                input,
+                U256::zero(),
+            );
+            assert!(matches!(rejected, Some(Err(_))));
+            assert_eq!(pallet_subtensor::BondsPenalty::<Runtime>::get(netuid), 123);
         });
     }
 }

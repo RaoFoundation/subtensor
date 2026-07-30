@@ -291,4 +291,86 @@ where
 
         Ok(result)
     }
+
+    #[precompile::public("announce(bytes32,bytes32)")]
+    pub fn announce(
+        handle: &mut impl PrecompileHandle,
+        real: H256,
+        call_hash: H256,
+    ) -> EvmResult<()> {
+        let account_id = handle.caller_account_id::<R>();
+        let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
+            .map_err(|_| PrecompileFailure::Error {
+                exit_status: ExitError::Other(
+                    "runtime call hash is not compatible with bytes32".into(),
+                ),
+            })?;
+        let call = pallet_proxy::Call::<R>::announce {
+            real: <<R as frame_system::Config>::Lookup as StaticLookup>::Source::from(
+                real.0.into(),
+            ),
+            call_hash,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
+    }
+
+    #[precompile::public("removeAnnouncement(bytes32,bytes32)")]
+    pub fn remove_announcement(
+        handle: &mut impl PrecompileHandle,
+        real: H256,
+        call_hash: H256,
+    ) -> EvmResult<()> {
+        let account_id = handle.caller_account_id::<R>();
+        let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
+            .map_err(|_| PrecompileFailure::Error {
+                exit_status: ExitError::Other(
+                    "runtime call hash is not compatible with bytes32".into(),
+                ),
+            })?;
+        let call = pallet_proxy::Call::<R>::remove_announcement {
+            real: <<R as frame_system::Config>::Lookup as StaticLookup>::Source::from(
+                real.0.into(),
+            ),
+            call_hash,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
+    }
+
+    #[precompile::public("rejectAnnouncement(bytes32,bytes32)")]
+    pub fn reject_announcement(
+        handle: &mut impl PrecompileHandle,
+        delegate: H256,
+        call_hash: H256,
+    ) -> EvmResult<()> {
+        let account_id = handle.caller_account_id::<R>();
+        let call_hash = DecodeLimit::decode_all_with_depth_limit(1, &mut &call_hash.as_bytes()[..])
+            .map_err(|_| PrecompileFailure::Error {
+                exit_status: ExitError::Other(
+                    "runtime call hash is not compatible with bytes32".into(),
+                ),
+            })?;
+        let call = pallet_proxy::Call::<R>::reject_announcement {
+            delegate: <<R as frame_system::Config>::Lookup as StaticLookup>::Source::from(
+                delegate.0.into(),
+            ),
+            call_hash,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
+    }
+
+    #[precompile::public("setRealPaysFee(bytes32,bool)")]
+    pub fn set_real_pays_fee(
+        handle: &mut impl PrecompileHandle,
+        delegate: H256,
+        pays_fee: bool,
+    ) -> EvmResult<()> {
+        let account_id = handle.caller_account_id::<R>();
+        let call = pallet_proxy::Call::<R>::set_real_pays_fee {
+            delegate: <<R as frame_system::Config>::Lookup as StaticLookup>::Source::from(
+                delegate.0.into(),
+            ),
+            pays_fee,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
+    }
 }

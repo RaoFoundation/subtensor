@@ -173,5 +173,77 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "real",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "callHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "announce",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "delegate",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "callHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "rejectAnnouncement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "real",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "callHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "removeAnnouncement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "delegate",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "paysFee",
+        "type": "bool"
+      }
+    ],
+    "name": "setRealPaysFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ]

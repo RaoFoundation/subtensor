@@ -203,6 +203,16 @@ pub mod pallet {
         VotingPower,
         /// Account balance precompile
         AccountBalance,
+        /// Scheduler metadata precompile
+        Scheduler,
+        /// Drand metadata precompile
+        Drand,
+        /// Timestamp metadata precompile
+        Timestamp,
+        /// Global runtime configuration metadata precompile
+        RuntimeConfiguration,
+        /// Precompile lifecycle and availability registry
+        PrecompileRegistry,
     }
 
     #[pallet::type_value]

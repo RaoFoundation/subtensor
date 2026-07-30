@@ -1,0 +1,54 @@
+---
+title: Alpha
+description: Reference for the deployed AlphaPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `AlphaPrecompile` |
+| Solidity interface | `IAlpha` |
+| Address | `0x0000000000000000000000000000000000000808` |
+| Status | Deployed |
+
+Provides typed views of subnet pools, prices, issuance, emissions, and simulated
+swaps. All functions are `view`.
+
+## Functions
+
+```text
+getAlphaPrice(uint16)
+getMovingAlphaPrice(uint16)
+getTaoInPool(uint16)
+getAlphaInPool(uint16)
+getAlphaOutPool(uint16)
+getAlphaIssuance(uint16)
+getTaoWeight()
+simSwapTaoForAlpha(uint16,uint64)
+simSwapAlphaForTao(uint16,uint64)
+getSubnetMechanism(uint16)
+getRootNetuid()
+getEMAPriceHalvingBlocks(uint16)
+getSubnetVolume(uint16)
+getTaoInEmission(uint16)
+getAlphaInEmission(uint16)
+getAlphaOutEmission(uint16)
+getSumAlphaPrice()
+getCKBurn()
+```
+
+## Added operations
+
+| Function | Source extrinsic |
+|---|---|
+| `setRecycleOrBurn` | `AdminUtils.sudo_set_recycle_or_burn` |
+| `setBurnHalfLife` | `AdminUtils.sudo_set_burn_half_life` |
+| `setBurnIncreaseMultiplier` | `AdminUtils.sudo_set_burn_increase_mult` |
+
+The five deprecated `Swap` liquidity extrinsics are intentionally not proposed;
+they always return the pallet's `Deprecated` error. `Swap.set_fee_rate` and the
+remaining Alpha-related AdminUtils calls require Root and are not exposed.
+The three listed AdminUtils calls accept a signed subnet owner; only that
+signed path is exposed and runtime authorization remains in force.
+
+
+Source: [`alpha.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/alpha.sol)

@@ -1,0 +1,36 @@
+---
+title: Voting power
+description: Reference for the deployed VotingPowerPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `VotingPowerPrecompile` |
+| Solidity interface | `IVotingPower` |
+| Address | `0x000000000000000000000000000000000000080d` |
+| Status | Deployed |
+
+All functions are `view`.
+
+## Functions
+
+```text
+getVotingPower(uint16,bytes32)
+isVotingPowerTrackingEnabled(uint16)
+getVotingPowerDisableAtBlock(uint16)
+getVotingPowerEmaAlpha(uint16)
+getTotalVotingPower(uint16)
+```
+
+## Added operations
+
+| Function | Source extrinsic |
+|---|---|
+| `enableVotingPowerTracking` | `SubtensorModule.enable_voting_power_tracking` |
+| `disableVotingPowerTracking` | `SubtensorModule.disable_voting_power_tracking` |
+
+Both calls accept a signed subnet owner as well as Root. The precompile exposes
+only the signed path and preserves the pallet's owner checks. The Root-only EMA
+configuration call is not exposed.
+
+Source: [`votingPower.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/votingPower.sol)

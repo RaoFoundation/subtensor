@@ -1,0 +1,32 @@
+---
+title: Account balance
+description: Reference for the deployed BalancePrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `BalancePrecompile` |
+| Solidity interface | `IBalance` |
+| Address | `0x000000000000000000000000000000000000080e` |
+| Status | Deployed |
+
+## Functions
+
+| Function | Mutability |
+|---|---|
+| `getFreeBalance(bytes32)` | `view` |
+
+## Added operations
+
+| Function | Source extrinsic |
+|---|---|
+| `burnBalance` | `Balances.burn` |
+| `upgradeAccounts` | `Balances.upgrade_accounts` |
+
+`upgradeAccounts` has an explicit input bound of 64 accounts. Both operations
+dispatch the highest-level Balances call as the mapped signer and preserve all
+runtime authorization and issuance invariants. Force operations require Root
+and are not exposed.
+
+
+Source: [`balance.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/balance.sol)

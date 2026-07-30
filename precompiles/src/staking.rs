@@ -46,10 +46,13 @@ use pallet_subtensor_proxy as pallet_proxy;
 use precompile_utils::EvmResult;
 use precompile_utils::prelude::{Address, BoundedVec, revert};
 use sp_core::{H160, H256, U256};
-use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto};
+use sp_runtime::{
+    PerU16,
+    traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto},
+};
 use sp_std::vec;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, Token};
+use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance, Token};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
@@ -103,6 +106,7 @@ where
         + pallet_balances::Config
         + pallet_evm::Config
         + pallet_subtensor::Config
+        + pallet_admin_utils::Config
         + pallet_proxy::Config<ProxyType = ProxyType>
         + pallet_shield::Config
         + pallet_subtensor_proxy::Config
@@ -112,6 +116,7 @@ where
     R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
     <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
     <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
+        + From<pallet_admin_utils::Call<R>>
         + From<pallet_proxy::Call<R>>
         + GetDispatchInfo
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
@@ -132,6 +137,7 @@ where
         + pallet_balances::Config
         + pallet_evm::Config
         + pallet_subtensor::Config
+        + pallet_admin_utils::Config
         + pallet_proxy::Config<ProxyType = ProxyType>
         + pallet_shield::Config
         + pallet_subtensor_proxy::Config
@@ -141,6 +147,7 @@ where
     R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
     <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
     <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
+        + From<pallet_admin_utils::Call<R>>
         + From<pallet_proxy::Call<R>>
         + GetDispatchInfo
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
@@ -977,6 +984,391 @@ where
 
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(source_id))
     }
+
+    #[precompile::public("decreaseTake(bytes32,uint16)")]
+    fn decrease_take(handle: &mut impl PrecompileHandle, hotkey: H256, take: u16) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::decrease_take {
+                hotkey: hotkey.0.into(),
+                take: PerU16::from_parts(take),
+            },
+        )
+    }
+
+    #[precompile::public("increaseTake(bytes32,uint16)")]
+    fn increase_take(handle: &mut impl PrecompileHandle, hotkey: H256, take: u16) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::increase_take {
+                hotkey: hotkey.0.into(),
+                take: PerU16::from_parts(take),
+            },
+        )
+    }
+
+    #[precompile::public("setChildkeyTake(bytes32,uint16,uint16)")]
+    fn set_childkey_take(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+        take: u16,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::set_childkey_take {
+                hotkey: hotkey.0.into(),
+                netuid: netuid.into(),
+                take: PerU16::from_parts(take),
+            },
+        )
+    }
+
+    #[precompile::public("unstakeAll(bytes32)")]
+    fn unstake_all(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::unstake_all {
+                hotkey: hotkey.0.into(),
+            },
+        )
+    }
+
+    #[precompile::public("unstakeAllAlpha(bytes32)")]
+    fn unstake_all_alpha(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::unstake_all_alpha {
+                hotkey: hotkey.0.into(),
+            },
+        )
+    }
+
+    #[precompile::public("swapStake(bytes32,uint16,uint16,uint64)")]
+    fn swap_stake(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        alpha_amount: u64,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::swap_stake {
+                hotkey: hotkey.0.into(),
+                origin_netuid: origin_netuid.into(),
+                destination_netuid: destination_netuid.into(),
+                alpha_amount: AlphaBalance::from(alpha_amount),
+            },
+        )
+    }
+
+    #[precompile::public("swapStakeLimit(bytes32,uint16,uint16,uint64,uint64,bool)")]
+    fn swap_stake_limit(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        alpha_amount: u64,
+        limit_price: u64,
+        allow_partial: bool,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::swap_stake_limit {
+                hotkey: hotkey.0.into(),
+                origin_netuid: origin_netuid.into(),
+                destination_netuid: destination_netuid.into(),
+                alpha_amount: AlphaBalance::from(alpha_amount),
+                limit_price: TaoBalance::from(limit_price),
+                allow_partial,
+            },
+        )
+    }
+
+    #[precompile::public("recycleAlpha(bytes32,uint64,uint16)")]
+    fn recycle_alpha(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        amount: u64,
+        netuid: u16,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::recycle_alpha {
+                hotkey: hotkey.0.into(),
+                amount: AlphaBalance::from(amount),
+                netuid: netuid.into(),
+            },
+        )
+    }
+
+    #[precompile::public("setColdkeyAutoStakeHotkey(uint16,bytes32)")]
+    fn set_coldkey_auto_stake_hotkey(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::set_coldkey_auto_stake_hotkey {
+                netuid: netuid.into(),
+                hotkey: hotkey.0.into(),
+            },
+        )
+    }
+
+    #[precompile::public("claimRoot(uint16[])")]
+    fn claim_root(
+        handle: &mut impl PrecompileHandle,
+        subnets: BoundedVec<u16, ConstU32<5>>,
+    ) -> EvmResult<()> {
+        let subnets = Vec::<u16>::from(subnets)
+            .into_iter()
+            .map(NetUid::from)
+            .collect::<BTreeSet<_>>();
+        dispatch_subtensor(handle, pallet_subtensor::Call::<R>::claim_root { subnets })
+    }
+
+    #[precompile::public("setRootClaimType(uint8,uint16[])")]
+    fn set_root_claim_type(
+        handle: &mut impl PrecompileHandle,
+        claim_type: u8,
+        subnets: BoundedVec<u16, ConstU32<5>>,
+    ) -> EvmResult<()> {
+        let subnets = Vec::<u16>::from(subnets)
+            .into_iter()
+            .map(NetUid::from)
+            .collect::<BTreeSet<_>>();
+        let new_root_claim_type = match claim_type {
+            0 => pallet_subtensor::RootClaimTypeEnum::Swap,
+            1 => pallet_subtensor::RootClaimTypeEnum::Keep,
+            2 => pallet_subtensor::RootClaimTypeEnum::KeepSubnets { subnets },
+            _ => return Err(revert("invalid root claim type")),
+        };
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::set_root_claim_type {
+                new_root_claim_type,
+            },
+        )
+    }
+
+    #[precompile::public("setRootClaimThreshold(uint16,uint64)")]
+    fn set_root_claim_threshold(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        new_value: u64,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::sudo_set_root_claim_threshold {
+                netuid: netuid.into(),
+                new_value,
+            },
+        )
+    }
+
+    #[precompile::public("addStakeBurn(bytes32,uint16,uint64,bool,uint64)")]
+    fn add_stake_burn(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+        amount: u64,
+        has_limit: bool,
+        limit: u64,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::add_stake_burn {
+                hotkey: hotkey.0.into(),
+                netuid: netuid.into(),
+                amount: TaoBalance::from(amount),
+                limit: has_limit.then_some(TaoBalance::from(limit)),
+            },
+        )
+    }
+
+    #[precompile::public("setAutoParentDelegationEnabled(bytes32,bool)")]
+    fn set_auto_parent_delegation_enabled(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        enabled: bool,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::set_auto_parent_delegation_enabled {
+                hotkey: hotkey.0.into(),
+                enabled,
+            },
+        )
+    }
+
+    #[precompile::public("transferStakeAndHotkey(bytes32,bytes32,bytes32,uint16,uint16,uint64)")]
+    fn transfer_stake_and_hotkey(
+        handle: &mut impl PrecompileHandle,
+        destination_coldkey: H256,
+        origin_hotkey: H256,
+        destination_hotkey: H256,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        alpha_amount: u64,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::transfer_stake_and_hotkey {
+                destination_coldkey: destination_coldkey.0.into(),
+                origin_hotkey: origin_hotkey.0.into(),
+                destination_hotkey: destination_hotkey.0.into(),
+                origin_netuid: origin_netuid.into(),
+                destination_netuid: destination_netuid.into(),
+                alpha_amount: AlphaBalance::from(alpha_amount),
+            },
+        )
+    }
+
+    #[precompile::public("addCollateral(uint16,bytes32,uint64,uint64)")]
+    fn add_collateral(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+        alpha: u64,
+        limit_price: u64,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::add_collateral {
+                netuid: netuid.into(),
+                hotkey: hotkey.0.into(),
+                alpha: AlphaBalance::from(alpha),
+                limit_price: TaoBalance::from(limit_price),
+            },
+        )
+    }
+
+    #[precompile::public("setMinCollateral(uint16,bytes32,uint64)")]
+    fn set_min_collateral(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+        min_locked: u64,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::set_min_collateral {
+                netuid: netuid.into(),
+                hotkey: hotkey.0.into(),
+                min_locked: AlphaBalance::from(min_locked),
+            },
+        )
+    }
+
+    #[precompile::public("setMinChildkeyTakePerSubnet(uint16,uint16)")]
+    fn set_min_childkey_take_per_subnet(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        take: u16,
+    ) -> EvmResult<()> {
+        dispatch_staking_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_min_childkey_take_per_subnet {
+                netuid: netuid.into(),
+                take: PerU16::from_parts(take),
+            },
+        )
+    }
+
+    #[precompile::public("setCollateralLockShare(uint16,uint16)")]
+    fn set_collateral_lock_share(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        lock_share: u16,
+    ) -> EvmResult<()> {
+        dispatch_staking_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_collateral_lock_share {
+                netuid: netuid.into(),
+                lock_share,
+            },
+        )
+    }
+
+    #[precompile::public("setCollateralDrainRatio(uint16,uint128)")]
+    fn set_collateral_drain_ratio(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        raw_ratio: u128,
+    ) -> EvmResult<()> {
+        dispatch_staking_admin(
+            handle,
+            pallet_admin_utils::Call::<R>::sudo_set_collateral_drain_ratio {
+                netuid: netuid.into(),
+                drain_ratio: U64F64::from_bits(raw_ratio),
+            },
+        )
+    }
+}
+
+fn dispatch_subtensor<R>(
+    handle: &mut impl PrecompileHandle,
+    call: pallet_subtensor::Call<R>,
+) -> EvmResult<()>
+where
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_evm::Config
+        + pallet_subtensor::Config
+        + pallet_admin_utils::Config
+        + pallet_proxy::Config<ProxyType = ProxyType>
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
+    R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
+{
+    let caller = handle.caller_account_id::<R>();
+    handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+}
+
+fn dispatch_staking_admin<R>(
+    handle: &mut impl PrecompileHandle,
+    call: pallet_admin_utils::Call<R>,
+) -> EvmResult<()>
+where
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_evm::Config
+        + pallet_subtensor::Config
+        + pallet_admin_utils::Config
+        + pallet_proxy::Config<ProxyType = ProxyType>
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
+    R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_admin_utils::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
+{
+    let caller = handle.caller_account_id::<R>();
+    handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
 }
 
 // Deprecated, exists for backward compatibility.

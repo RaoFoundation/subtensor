@@ -56,6 +56,7 @@ interface ILeasing {
      * @param hotkey The hotkey of beneficiary, it must be owned by the beneficiary coldkey.
      */
     function terminateLease(uint32 leaseId, bytes32 hotkey) external payable;
+    function startCall(uint16 netuid) external;
 }
 
 struct LeaseInfo {

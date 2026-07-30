@@ -1,0 +1,33 @@
+---
+title: Timestamp
+description: Typed EVM interface for Timestamp pallet state.
+---
+
+| Property | Value |
+|---|---|
+| Implementation | `TimestampPrecompile` |
+| Solidity interface | `ITimestamp` |
+| Address | `0x0000000000000000000000000000000000000811` |
+| Status | Deployed |
+
+## Views
+
+| Function | Replaces |
+|---|---|
+| `getTimestamp()` | `Timestamp.Now` |
+| `wasUpdatedThisBlock()` | `Timestamp.DidUpdate` |
+
+`getTimestamp()` returns the same underlying time as the EVM
+`block.timestamp` value. It exists here so every storage item authorized through
+`StorageQueryPrecompile` has an explicit typed replacement.
+`wasUpdatedThisBlock` provides the Timestamp pallet's update state without
+requiring contracts to construct a storage key or decode SCALE.
+
+`Timestamp.set` is an inherent submitted by block production, not a public
+user operation. The precompile therefore exposes no state-changing
+timestamp function.
+
+See the complete classification in
+[Extrinsic coverage](/docs/guides/evm/precompiles/extrinsic-coverage).
+
+Source: [`timestamp.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/timestamp.sol)

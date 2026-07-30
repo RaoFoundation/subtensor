@@ -98,4 +98,13 @@ interface IAlpha {
     /// @dev Returns the CK burn rate.
     /// @return The CK burn rate.
     function getCKBurn() external view returns (uint256);
+
+    /// mode: 0 = burn, 1 = recycle.
+    function setRecycleOrBurn(uint16 netuid, uint8 mode) external;
+    function setBurnHalfLife(uint16 netuid, uint16 burnHalfLife) external;
+    /// Raw U64F64 bits.
+    function setBurnIncreaseMultiplier(
+        uint16 netuid,
+        uint128 rawMultiplier
+    ) external;
 }

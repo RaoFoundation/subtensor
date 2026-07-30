@@ -232,4 +232,35 @@ interface ISubnet {
         uint16 netuid,
         uint64 commitRevealWeightsInterval
     ) external payable;
+
+    function setSubnetIdentity(
+        uint16 netuid,
+        string calldata subnetName,
+        string calldata githubRepo,
+        string calldata subnetContact,
+        string calldata subnetUrl,
+        string calldata discord,
+        string calldata description,
+        string calldata logoUrl,
+        string calldata additional
+    ) external;
+    function updateSubnetSymbol(uint16 netuid, string calldata symbol) external;
+    function triggerEpoch(uint16 netuid) external;
+    function setBondsPenalty(uint16 netuid, uint16 bondsPenalty) external;
+    function setMaxAllowedUids(uint16 netuid, uint16 maxAllowedUids) external;
+    function setMaxBurnV2(uint16 netuid, uint64 maxBurn) external;
+    function setMechanismCount(uint16 netuid, uint8 mechanismCount) external;
+    function setMechanismEmissionSplit(
+        uint16 netuid,
+        bool hasSplit,
+        uint16[] calldata split
+    ) external;
+    function setMinBurnV2(uint16 netuid, uint64 minBurn) external;
+    function setOwnerCutEnabled(uint16 netuid, bool enabled) external;
+    function setOwnerImmuneNeuronLimit(
+        uint16 netuid,
+        uint16 immuneNeurons
+    ) external;
+    function setTempo(uint16 netuid, uint16 tempo) external;
+    function trimToMaxAllowedUids(uint16 netuid, uint16 maxUids) external;
 }

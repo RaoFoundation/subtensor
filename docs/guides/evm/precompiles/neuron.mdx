@@ -1,0 +1,78 @@
+---
+title: Neuron
+description: Reference for the deployed NeuronPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `NeuronPrecompile` |
+| Solidity interface | `INeuron` |
+| Address | `0x0000000000000000000000000000000000000804` |
+| Status | Deployed |
+
+Registers neurons, publishes serving endpoints, and submits weights. Every
+function is `payable`.
+
+## Functions
+
+```text
+burnedRegister(uint16,bytes32)
+registerLimit(uint16,bytes32,uint64)
+serveAxon(uint16,uint32,uint128,uint16,uint8,uint8,uint8,uint8)
+serveAxonTls(uint16,uint32,uint128,uint16,uint8,uint8,uint8,uint8,bytes)
+servePrometheus(uint16,uint32,uint128,uint16,uint8)
+setWeights(uint16,uint16[],uint16[],uint64)
+commitWeights(uint16,bytes32)
+revealWeights(uint16,uint16[],uint16[],uint16[],uint64)
+```
+
+## Added weight operations
+
+| Function | Source extrinsic |
+|---|---|
+| `setMechanismWeights` | `SubtensorModule.set_mechanism_weights` |
+| `batchSetWeights` | `SubtensorModule.batch_set_weights` |
+| `commitMechanismWeights` | `SubtensorModule.commit_mechanism_weights` |
+| `batchCommitWeights` | `SubtensorModule.batch_commit_weights` |
+| `revealMechanismWeights` | `SubtensorModule.reveal_mechanism_weights` |
+| `commitCrv3MechanismWeights` | `SubtensorModule.commit_crv3_mechanism_weights` |
+| `batchRevealWeights` | `SubtensorModule.batch_reveal_weights` |
+| `commitTimelockedWeights` | `SubtensorModule.commit_timelocked_weights` |
+| `commitTimelockedMechanismWeights` | `SubtensorModule.commit_timelocked_mechanism_weights` |
+
+Batch calls accept at most 16 outer items and at most 4,096 weight entries per
+inner array. Timelocked commits and registration work are bounded to 5,000 and
+64 bytes respectively; none of these functions accepts SCALE-encoded runtime
+calls.
+
+## Added registration and key operations
+
+| Function | Source extrinsic |
+|---|---|
+| `register` | `SubtensorModule.register` |
+| `rootRegister` | `SubtensorModule.root_register` |
+| `swapHotkey` | `SubtensorModule.swap_hotkey` |
+| `swapHotkeyV2` | `SubtensorModule.swap_hotkey_v2` |
+| `setChildren` | `SubtensorModule.set_children` |
+| `setIdentity` | `SubtensorModule.set_identity` |
+| `tryAssociateHotkey` | `SubtensorModule.try_associate_hotkey` |
+| `associateEvmKey` | `SubtensorModule.associate_evm_key` |
+| `announceColdkeySwap` | `SubtensorModule.announce_coldkey_swap` |
+| `executeAnnouncedColdkeySwap` | `SubtensorModule.swap_coldkey_announced` |
+| `disputeColdkeySwap` | `SubtensorModule.dispute_coldkey_swap` |
+| `clearColdkeySwapAnnouncement` | `SubtensorModule.clear_coldkey_swap_announcement` |
+
+Every added operation accepts a non-Root signed origin. The precompile
+dispatches the highest-level extrinsic as the mapped caller so runtime
+authorization remains in force. Root-only and deprecated compatibility calls
+are classified in the [coverage audit](./extrinsic-coverage).
+
+## Proposed bulk runtime API
+
+`NeuronInfoRuntimeApi.get_neurons` remains proposed. Its current result can
+grow with subnet size, so no Solidity selector is assigned in this change.
+Before implementation, it needs a bounded cursor-based or indexed interface
+with a stable typed result. Existing single-neuron and per-field views remain
+available through the deployed Neuron and Metagraph precompiles.
+
+Source: [`neuron.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/neuron.sol)

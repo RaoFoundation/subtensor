@@ -177,6 +177,15 @@ where
 
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(who))
     }
+
+    #[precompile::public("startCall(uint16)")]
+    fn start_call(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<()> {
+        let who = handle.caller_account_id::<R>();
+        let call = pallet_subtensor::Call::<R>::start_call {
+            netuid: NetUid::from(netuid),
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(who))
+    }
 }
 
 #[derive(Codec)]

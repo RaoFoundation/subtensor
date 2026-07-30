@@ -1,0 +1,47 @@
+---
+title: Proxy
+description: Reference for the deployed ProxyPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `ProxyPrecompile` |
+| Solidity interface | `IProxy` |
+| Address | `0x000000000000000000000000000000000000080b` |
+| Status | Deployed |
+
+## Functions
+
+| Function | Mutability |
+|---|---|
+| `createPureProxy(uint8,uint32,uint16)` | nonpayable |
+| `proxyCall(bytes32,uint8[],uint8[])` | nonpayable |
+| `killPureProxy(bytes32,uint8,uint16,uint32,uint32)` | nonpayable |
+| `addProxy(bytes32,uint8,uint32)` | nonpayable |
+| `removeProxy(bytes32,uint8,uint32)` | nonpayable |
+| `removeProxies()` | nonpayable |
+| `pokeDeposit()` | nonpayable |
+| `getProxies(bytes32)` | `view` |
+
+## Added operations
+
+| Function | Source extrinsic |
+|---|---|
+| `announce` | `Proxy.announce` |
+| `removeAnnouncement` | `Proxy.remove_announcement` |
+| `rejectAnnouncement` | `Proxy.reject_announcement` |
+| `setRealPaysFee` | `Proxy.set_real_pays_fee` |
+
+## Proposed operation
+
+| Function | Source extrinsic |
+|---|---|
+| `proxyAnnounced` | `Proxy.proxy_announced` |
+
+`proxyAnnounced` must use the same versioned, stable EVM call description as
+other typed proxy execution. A new interface must not introduce another
+dependency on SCALE-encoded `RuntimeCall`.
+
+No selector is reserved for `proxyAnnounced`.
+
+Source: [`proxy.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/proxy.sol)

@@ -49,4 +49,9 @@ interface IProxy {
     function getProxies(
         bytes32 account
     ) external view returns (ProxyInfo[] memory);
+
+    function announce(bytes32 real, bytes32 callHash) external;
+    function removeAnnouncement(bytes32 real, bytes32 callHash) external;
+    function rejectAnnouncement(bytes32 delegate, bytes32 callHash) external;
+    function setRealPaysFee(bytes32 delegate, bool paysFee) external;
 }
