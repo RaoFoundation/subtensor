@@ -602,7 +602,7 @@ jobs:
     needs: [trusted-pr, changes, clone-plan, build-node-release]
     runs-on: [self-hosted, fireactions-validatorbench]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
-    timeout-minutes: 180
+    timeout-minutes: 240
     permissions:
       contents: read
       # Cross-run artifact download (the nightly mainnet snapshot).

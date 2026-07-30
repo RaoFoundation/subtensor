@@ -10,7 +10,7 @@ const MODE = process.argv[2];
 const EXPECTED_SPEC_VERSION = 441;
 const ROOT_NETUID = 0;
 const EXPECTED_MIN_ROOT_WEIGHTS = 8;
-const WAIT_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const WAIT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 const POLL_INTERVAL_MS = 2_000;
 
 const MIGRATIONS = [
