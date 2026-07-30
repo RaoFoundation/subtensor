@@ -191,6 +191,8 @@ mod hooks {
                 // Drop legacy root weight vectors and reseed every root validator with a
                 // balanced 1/n basket over every live non-root subnet.
                 .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>())
+                // Floor root basket curation at MIN_ROOT_BASKET_WEIGHTS destinations.
+                .saturating_add(migrations::migrate_set_root_min_allowed_weights::migrate_set_root_min_allowed_weights::<T>())
                 // Kill the stale quantile-derived emission gate bar so the
                 // rank-32 bar (DefaultEmissionBarRank) applies from the first
                 // recompute after the upgrade instead of the next cadence boundary.

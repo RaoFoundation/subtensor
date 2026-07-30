@@ -935,6 +935,13 @@ impl<T: Config> Pallet<T> {
             );
         }
 
+        // --- 8.5 At least MIN_ROOT_BASKET_WEIGHTS positive entries (softened when fewer
+        // destinations exist than the floor — e.g. young chains / unit tests).
+        let nonzero = values.iter().filter(|w| **w > 0).count();
+        let available = Self::get_all_subnet_netuids().len();
+        let required = (crate::MIN_ROOT_BASKET_WEIGHTS as usize).min(available);
+        ensure!(nonzero >= required, Error::<T>::WeightVecLengthIsLow);
+
         // --- 9. Max-upscale the weights.
         let max_upscaled_weights: Vec<u16> = vec_u16_max_upscale_to_u16(&values);
 

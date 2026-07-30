@@ -22,7 +22,7 @@ position instead of leaving dust (`AmountTooLow`).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L611-L620), [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L613-L622), [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1470-L1488) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("remove_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.remove_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L613`](/code/pallets/subtensor/src/macros/dispatches.rs#L611-L620):
+`SubtensorModule.remove_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L615`](/code/pallets/subtensor/src/macros/dispatches.rs#L613-L622):
 
 ```rust
 #[pallet::call_index(3)]
@@ -96,7 +96,7 @@ pub fn remove_stake(
 
 Delegates to [`do_remove_stake`](/code/pallets/subtensor/src/staking/remove_stake.rs#L35).
 
-`SubtensorModule.remove_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1470`](/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486):
+`SubtensorModule.remove_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1472`](/code/pallets/subtensor/src/macros/dispatches.rs#L1470-L1488):
 
 ```rust
 #[pallet::call_index(89)]

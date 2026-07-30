@@ -21,7 +21,7 @@ period ends. Use `root_register` instead for the root network
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L839-L847) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L841-L849) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("burned_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.burned_register` — [`pallets/subtensor/src/macros/dispatches.rs#L841`](/code/pallets/subtensor/src/macros/dispatches.rs#L839-L847):
+`SubtensorModule.burned_register` — [`pallets/subtensor/src/macros/dispatches.rs#L843`](/code/pallets/subtensor/src/macros/dispatches.rs#L841-L849):
 
 ```rust
 #[pallet::call_index(7)]

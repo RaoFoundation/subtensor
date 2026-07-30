@@ -303,7 +303,7 @@ fn test_root_basket_accrues_per_weights() {
 }
 
 #[test]
-fn test_root_basket_defaults_to_root_without_weights() {
+fn test_root_basket_defaults_to_all_subnets_without_weights() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -327,8 +327,7 @@ fn test_root_basket_defaults_to_root_without_weights() {
             10_000_000u64.into(),
         );
 
-        // No root weights set for the validator: default is 100% root (TAO in the basket).
-        let ts_before = TotalStake::<Test>::get().to_u64();
+        // No root weights set: default is balanced 1/n over every live non-root subnet.
         SubtensorModule::distribute_emission(
             netuid,
             AlphaBalance::ZERO,
@@ -336,22 +335,17 @@ fn test_root_basket_defaults_to_root_without_weights() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
-        let ts_after = TotalStake::<Test>::get().to_u64();
 
-        let escrow_root = escrow_alpha(&hotkey, NetUid::ROOT);
         let shares = fund_shares(&hotkey);
-        assert!(escrow_root > 0, "escrow must hold root stake");
         assert!(shares > 0, "fund shares must be minted");
         assert!(has_fund(&hotkey));
-        assert_eq!(escrow_alpha(&hotkey, netuid), 0, "no subnet alpha bought");
-        assert_abs_diff_eq!(escrow_root, shares, epsilon = 10u64);
+        assert!(
+            escrow_alpha(&hotkey, netuid) > 0,
+            "default 1/n must buy the only live subnet"
+        );
         assert!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey) > 0,
             "staker must accrue fund shares"
-        );
-        assert_eq!(
-            ts_before, ts_after,
-            "root deposit must be TotalStake-neutral"
         );
     });
 }
@@ -1153,6 +1147,43 @@ fn test_root_basket_splits_across_multiple_subnets() {
     });
 }
 
+#[test]
+fn test_set_root_weights_rejects_below_min_length() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        // Create enough subnets that the floor is the full MIN_ROOT_BASKET_WEIGHTS.
+        let mut dests = Vec::new();
+        for i in 0..crate::MIN_ROOT_BASKET_WEIGHTS {
+            let hk = U256::from(2000u64 + u64::from(i));
+            let ck = U256::from(3000u64 + u64::from(i));
+            let netuid = add_dynamic_network(&hk, &ck);
+            dests.push(u16::from(netuid));
+        }
+
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
+        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        assert_noop!(
+            SubtensorModule::set_root_weights(
+                RuntimeOrigin::signed(hotkey),
+                dests[..3].to_vec(),
+                vec![u16::MAX; 3],
+                0,
+            ),
+            Error::<Test>::WeightVecLengthIsLow
+        );
+    });
+}
+
 /// The `set_root_weights` extrinsic stores the validator's vector under the root weights index.
 #[test]
 fn test_set_root_weights_stores_vector() {
@@ -1174,15 +1205,17 @@ fn test_set_root_weights_stores_vector() {
             2_000_000u64.into(),
         );
 
+        // With root + one subnet available, the floor softens to 2 positive weights.
         assert_ok!(SubtensorModule::set_root_weights(
             RuntimeOrigin::signed(hotkey),
-            vec![u16::from(netuid)],
-            vec![u16::MAX],
+            vec![u16::from(NetUid::ROOT), u16::from(netuid)],
+            vec![1, u16::MAX],
             0,
         ));
 
         let stored = Weights::<Test>::get(NetUidStorageIndex::ROOT, 0u16);
-        assert_eq!(stored, vec![(u16::from(netuid), u16::MAX)]);
+        assert_eq!(stored.len(), 2);
+        assert!(stored.iter().any(|(d, _)| *d == u16::from(netuid)));
     });
 }
 
@@ -2770,14 +2803,15 @@ fn test_become_root_validator_fund_journey() {
             TaoBalance::from(2_000_000_000u64),
         ));
 
-        // --- Step 3: curate the basket — route 100% of dividends into the subnet.
+        // --- Step 3: curate the basket — route dividends into the subnet (plus a
+        // dust root slot so the min-weight floor softens to available dests = 2).
         // Registration stamps `LastUpdate`, so on-chain the first weight-set
         // waits out the rate limit; zero it here to stay in one block.
         SubtensorModule::set_weights_set_rate_limit(NetUid::ROOT, 0);
         assert_ok!(SubtensorModule::set_root_weights(
             RuntimeOrigin::signed(validator_hotkey),
-            vec![u16::from(netuid)],
-            vec![u16::MAX],
+            vec![u16::from(NetUid::ROOT), u16::from(netuid)],
+            vec![1, u16::MAX],
             0,
         ));
 

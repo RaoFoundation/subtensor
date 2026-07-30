@@ -49,31 +49,16 @@ pub fn migrate_clear_root_basket_weights<T: Config>() -> Weight {
         );
     }
 
-    // Destinations: every live non-root subnet, sorted for a deterministic stored vector.
-    let mut dests: Vec<u16> = Pallet::<T>::get_all_subnet_netuids()
-        .into_iter()
-        .filter(|netuid| !netuid.is_root())
-        .map(u16::from)
-        .collect();
-    dests.sort_unstable();
+    // Same balanced 1/n the runtime uses when a validator has no stored vector.
+    let balanced = Pallet::<T>::default_balanced_basket_weights();
     total_weight = total_weight
-        .saturating_add(T::DbWeight::get().reads((dests.len() as u64).saturating_add(1)));
-
-    let balanced: Vec<(u16, u16)> = if dests.is_empty() {
-        // No productive subnets yet — leave empty so the runtime default (100% root) applies.
-        Vec::new()
-    } else {
-        // Equal relative weights, max-upscaled like `set_root_weights` (all `u16::MAX`).
-        dests.into_iter().map(|netuid| (netuid, u16::MAX)).collect()
-    };
+        .saturating_add(T::DbWeight::get().reads((balanced.len() as u64).saturating_add(1)));
 
     let mut seeded: u64 = 0;
-    if !balanced.is_empty() {
-        for (uid, _hotkey) in Keys::<T>::iter_prefix(NetUid::ROOT) {
-            Weights::<T>::insert(NetUidStorageIndex::ROOT, uid, balanced.clone());
-            seeded = seeded.saturating_add(1);
-            total_weight = total_weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
-        }
+    for (uid, _hotkey) in Keys::<T>::iter_prefix(NetUid::ROOT) {
+        Weights::<T>::insert(NetUidStorageIndex::ROOT, uid, balanced.clone());
+        seeded = seeded.saturating_add(1);
+        total_weight = total_weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
     }
 
     log::info!(

@@ -16,14 +16,15 @@ of subnet exposure. Weights are relative; they are max-upscaled and
 quantized to u16 before submission, and zero weights are dropped. Signed
 by the hotkey, which must be registered on the root network and hold the
 minimum stake to set weights; the root weights rate limit applies, and
-every destination must be netuid 0 or an existing subnet. Validators
-with no stored root weights default to 100% root (TAO in the basket);
-set this vector to customize subnet allocation. Read it back with the
-`validator_root_weights` read.
+every destination must be netuid 0 or an existing subnet. At least 8
+positive destinations are required (softened when fewer networks exist).
+Validators with no stored root weights default to a balanced 1/n over
+every live non-root subnet; set this vector to customize allocation.
+Read it back with the `validator_root_weights` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L91-L100) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L93-L102) |
 
 ## Parameters
 
@@ -72,7 +73,7 @@ result = sub.execute_tool("set_root_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L93`](/code/pallets/subtensor/src/macros/dispatches.rs#L91-L100):
+`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L95`](/code/pallets/subtensor/src/macros/dispatches.rs#L93-L102):
 
 ```rust
 #[pallet::call_index(146)]

@@ -67,20 +67,37 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
+    /// Balanced `1/n` basket vector over every live non-root subnet (equal `u16::MAX`
+    /// entries, sorted). Same seed the upgrade migration writes. When no productive
+    /// subnets exist yet, falls back to 100% root (TAO cash slot).
+    pub fn default_balanced_basket_weights() -> Vec<(u16, u16)> {
+        let mut dests: Vec<u16> = Self::get_all_subnet_netuids()
+            .into_iter()
+            .filter(|netuid| !netuid.is_root())
+            .map(u16::from)
+            .collect();
+        dests.sort_unstable();
+        if dests.is_empty() {
+            vec![(u16::from(NetUid::ROOT), u16::MAX)]
+        } else {
+            dests.into_iter().map(|netuid| (netuid, u16::MAX)).collect()
+        }
+    }
+
     /// The validator's usable basket weight vector: entries pointing at root (the fund's
     /// TAO/cash slot) or an existing subnet, zero weights dropped. The vector follows the
     /// validator's root uid (so it survives hotkey swaps automatically) and reuses the
-    /// existing root weights plumbing. An empty stored vector means "non-specific": deploy
-    /// 100% to root (TAO in the fund's root slot) so stakers accrue by default. Returns an
-    /// empty vector only when explicit weights filter to nothing. Every returned weight is
-    /// positive, so a non-empty vector always has a positive weight sum.
+    /// existing root weights plumbing. An empty / missing stored vector means "non-specific":
+    /// deploy balanced `1/n` across every live non-root subnet (same as the upgrade seed).
+    /// Returns an empty vector only when explicit weights filter to nothing. Every returned
+    /// weight is positive, so a non-empty vector always has a positive weight sum.
     pub fn get_valid_basket_weights(hotkey: &T::AccountId) -> Vec<(NetUid, u64)> {
         let maybe_uid = Uids::<T>::try_get(NetUid::ROOT, hotkey).ok();
         let stored_weights = maybe_uid
             .map(|uid| Weights::<T>::get(NetUidStorageIndex::ROOT, uid))
             .unwrap_or_default();
         let weights = if stored_weights.is_empty() {
-            vec![(u16::from(NetUid::ROOT), u16::MAX)]
+            Self::default_balanced_basket_weights()
         } else {
             stored_weights
         };
@@ -162,9 +179,9 @@ impl<T: Config> Pallet<T> {
     ///
     /// The whole operation is transactional: if any swap fails (or the deposit is dust), it is
     /// rolled back and the original alpha is recycled. Validators with no stored root weights
-    /// default to 100% root (TAO in the fund's root slot). Dividends are recycled only when
-    /// explicit weights filter to nothing, or when the validator has no root stake to apportion
-    /// against.
+    /// default to a balanced `1/n` over every live non-root subnet. Dividends are recycled only
+    /// when explicit weights filter to nothing, or when the validator has no root stake to
+    /// apportion against.
     ///
     /// Protocol-flow accounting is symmetric with redemption: the origin sell is booked as an
     /// outflow on the origin subnet and each redistribution buy as an inflow on its dest subnet,

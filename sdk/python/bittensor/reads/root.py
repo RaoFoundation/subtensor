@@ -218,7 +218,7 @@ async def validator_root_weights(view, hotkey_ss58: str) -> list[dict]:
     epoch, exactly as stored (u16, max-upscaled), plus each destination's
     normalized `share` of the total.     Netuid 0 means "hold as TAO / root
     stake". An empty list means no custom weights are set; dividends default
-    to 100% root (TAO in the basket).
+    to a balanced 1/n over every live non-root subnet.
     """
     rows = await view.runtime(api.BetaBasketRuntimeApi.get_validator_weights, [hotkey_ss58])
     pairs = [(int(netuid), int(weight)) for netuid, weight in rows or []]

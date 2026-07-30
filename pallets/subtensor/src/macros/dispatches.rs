@@ -82,6 +82,8 @@ mod dispatches {
         /// --- Sets a root validator's basket distribution vector `w` on the root subnet
         /// (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the
         /// validator's root dividends to deploy into each subnet's alpha basket.
+        /// Requires at least [`crate::MIN_ROOT_BASKET_WEIGHTS`] positive destinations
+        /// (softened when fewer networks exist).
         ///
         /// # Args:
         /// * `origin`: the root validator hotkey.

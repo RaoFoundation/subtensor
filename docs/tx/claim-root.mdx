@@ -19,7 +19,7 @@ read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1915-L1930) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1917-L1932) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1921`](/code/pallets/subtensor/src/macros/dispatches.rs#L1915-L1930):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1923`](/code/pallets/subtensor/src/macros/dispatches.rs#L1917-L1932):
 
 ```rust
 #[pallet::call_index(121)]
@@ -85,6 +85,6 @@ pub fn claim_root(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
 }
 ```
 
-Delegates to [`root_claim_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L707), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L725), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L754).
+Delegates to [`root_claim_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L724), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L742), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L771).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -69,6 +69,10 @@ pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 /// work may exceed this; post-dispatch refunds the measured weight.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 
+/// Minimum number of positive destination weights required by `set_root_weights`. Softened
+/// to the number of available destinations when fewer networks exist than this floor.
+pub const MIN_ROOT_BASKET_WEIGHTS: u16 = 8;
+
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
     for SubtensorDustRemoval<T>

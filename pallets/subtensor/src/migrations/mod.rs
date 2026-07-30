@@ -66,6 +66,7 @@ pub mod migrate_set_min_burn;
 pub mod migrate_set_min_difficulty;
 pub mod migrate_set_nominator_min_stake;
 pub mod migrate_set_registration_enable;
+pub mod migrate_set_root_min_allowed_weights;
 pub mod migrate_set_subtoken_enabled;
 pub mod migrate_stake_threshold;
 pub mod migrate_subnet_balances;

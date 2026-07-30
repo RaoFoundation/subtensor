@@ -60,9 +60,11 @@ stake; a claim pays it out as TAO staked back to root.
   each deposit bears its own swap slippage.
 - **Claims are proportional.** A claim redeems the staker's owed fraction of
   every holding pro-rata, preserving fund composition.
-- **Default is 100% root.** A weight on netuid 0 holds that slice as TAO.
-  A validator with no custom weights still accrues — dividends land in the
-  fund's root slot. Set the vector only when you want subnet exposure.
+- **Default is balanced 1/n over every live subnet.** A validator with no
+  custom weights still accrues — dividends deploy equally across non-root
+  subnets. Weight netuid 0 to hold a slice as TAO instead of subnet alpha.
+  `set_root_weights` requires at least 8 positive destinations (softened
+  when fewer networks exist).
 
 Root validators are transparent fund managers: weight vectors are public,
 fund NAV and lifetime return are queryable, and the scoreboard is who made

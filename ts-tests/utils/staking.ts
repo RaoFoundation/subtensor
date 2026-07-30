@@ -296,15 +296,33 @@ export async function getRootClaimed(
 
 /// Sets a root validator's beta-basket weight vector (the distribution its root dividends are
 /// deployed into). Signed by the validator hotkey; requires a root UID.
+/// Pads with other live netuids at weight 1 when needed to satisfy MIN_ROOT_BASKET_WEIGHTS (8),
+/// softened to the number of available destinations.
 export async function setRootWeights(
     api: TypedApi<typeof subtensor>,
     hotkey: KeyringPair,
     dests: number[],
     weights: number[]
 ): Promise<void> {
+    const MIN_ROOT_BASKET_WEIGHTS = 8;
+    const paddedDests = [...dests];
+    const paddedWeights = [...weights];
+    const totalNetworks = Number(await api.query.SubtensorModule.TotalNetworks.getValue());
+    const required = Math.min(MIN_ROOT_BASKET_WEIGHTS, totalNetworks);
+    for (let netuid = 0; paddedDests.length < required && netuid < 4096; netuid++) {
+        if (paddedDests.includes(netuid)) {
+            continue;
+        }
+        const exists = await api.query.SubtensorModule.NetworksAdded.getValue(netuid);
+        if (!exists) {
+            continue;
+        }
+        paddedDests.push(netuid);
+        paddedWeights.push(1);
+    }
     const tx = api.tx.SubtensorModule.set_root_weights({
-        dests: dests,
-        weights: weights,
+        dests: paddedDests,
+        weights: paddedWeights,
         version_key: 0n,
     });
     await waitForTransactionWithRetry(api, tx, hotkey, "set_root_weights");
