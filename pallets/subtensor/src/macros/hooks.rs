@@ -184,11 +184,10 @@ mod hooks {
                 .saturating_add(migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<T>())
                 // Backfill ColdkeyCollateralHotkeys from standing MinerCollateral rows.
                 .saturating_add(migrations::migrate_coldkey_collateral_hotkeys::migrate_coldkey_collateral_hotkeys::<T>())
-                // Seed the unified beta-basket fund from legacy per-subnet claim state, run to
-                // completion in this (deliberately over-weight) upgrade block so the cutover is
-                // atomic. Guarded by HasMigrationRun, so a second pass is a no-op. Fresh key so
-                // chains that ran the superseded per-slot v1 seed still convert.
-                .saturating_add(migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2::<T>())
+                // Kick off the unified beta-basket seed (cursor only — conversion is on_idle
+                // so ORU stays idempotent for try-runtime). Fresh key so chains that ran the
+                // superseded per-slot v1 seed still convert.
+                .saturating_add(migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2::<T>())
                 // Drop legacy root weight vectors (no reseed: an empty vector means
                 // dividends accrue 100% into the fund's root / TAO cash slot).
                 .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>())
@@ -213,6 +212,18 @@ mod hooks {
 
             if weight.all_lt(limit) {
                 weight.saturating_accrue(Self::process_network_registration_queue());
+            }
+
+            // Continue the multi-block beta-basket seed migration until HasMigrationRun is set.
+            // Always call it while the cursor exists: its adaptive limits normally respect the
+            // remaining weight, but it deliberately performs one overweight item when needed
+            // so an individually oversized row/hotkey cannot stall the migration forever.
+            if migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
+                weight.saturating_accrue(
+                    migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2_with_limit::<
+                        T,
+                    >(limit.saturating_sub(weight)),
+                );
             }
 
             weight

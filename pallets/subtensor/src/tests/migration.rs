@@ -5562,6 +5562,207 @@ fn test_migrate_seed_beta_basket_claimed_drain_bounded_resumable() {
     });
 }
 
+/// Adaptive production entrypoint must scale work to the remaining on_idle weight while always
+/// making progress. In particular, a zero remaining budget must still execute one indivisible
+/// row/hotkey iteration instead of persisting the same cursor forever.
+#[test]
+fn test_migrate_seed_beta_basket_adaptive_budget_and_overweight_progress() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS, MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS,
+        MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS, migrate_seed_beta_basket_v2_with_limit,
+        seed_beta_basket_v2_in_progress,
+    };
+    use frame_support::weights::Weight;
+
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+        const NUM_COLDKEYS: u64 = 200;
+
+        assert_eq!(MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS, u32::MAX);
+        assert_eq!(MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS, u32::MAX);
+        assert_eq!(MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS, u32::MAX);
+
+        let owner = U256::from(7_001);
+        let hotkey = U256::from(7_002);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1.0));
+
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(8_000 + i);
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+            );
+            RootClaimed::<Test>::insert((netuid, hotkey, coldkey), 1_000u128);
+        }
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        // Zero remaining weight still processes one claimed row and persists a later cursor.
+        let overweight = migrate_seed_beta_basket_v2_with_limit::<Test>(Weight::zero());
+        assert!(
+            !overweight.is_zero(),
+            "one overweight iteration must be reported, not clamped to zero"
+        );
+        assert!(
+            seed_beta_basket_v2_in_progress::<Test>(),
+            "200 claimed rows cannot finish in the fail-open single-item pass"
+        );
+        let remaining_after_zero = (0..NUM_COLDKEYS)
+            .filter(|i| RootClaimed::<Test>::get((netuid, hotkey, U256::from(8_000 + i))) != 0)
+            .count();
+        assert_eq!(
+            remaining_after_zero as u64,
+            NUM_COLDKEYS - 1,
+            "zero-budget pass must advance by exactly one claimed row"
+        );
+
+        // A real remaining-weight budget processes a larger adaptive batch, but not the
+        // type-level ceiling or the entire fixture.
+        let adaptive_limit = Weight::from_parts(20_000_000_000, u64::MAX);
+        let adaptive = migrate_seed_beta_basket_v2_with_limit::<Test>(adaptive_limit);
+        assert!(!adaptive.is_zero());
+        assert!(
+            adaptive.all_lte(adaptive_limit),
+            "a multi-item pass should stay inside its available weight"
+        );
+        let remaining_after_adaptive = (0..NUM_COLDKEYS)
+            .filter(|i| RootClaimed::<Test>::get((netuid, hotkey, U256::from(8_000 + i))) != 0)
+            .count();
+        assert!(
+            remaining_after_adaptive < remaining_after_zero,
+            "adaptive pass must advance beyond the fail-open item"
+        );
+        assert!(
+            remaining_after_adaptive > 0,
+            "finite adaptive budget should leave part of this fixture for another pass"
+        );
+
+        let mut passes = 0u32;
+        while seed_beta_basket_v2_in_progress::<Test>() && passes < 32 {
+            migrate_seed_beta_basket_v2_with_limit::<Test>(Weight::MAX);
+            passes = passes.saturating_add(1);
+        }
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(8_000 + i);
+            assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, coldkey)), 0);
+            assert_eq!(BasketClaimed::<Test>::get(hotkey, coldkey), 1_000);
+        }
+    });
+}
+
+/// Every active phase is fail-open for one indivisible item. Even with no remaining weight, a
+/// hotkey conversion or principal-clear iteration advances instead of persisting the same cursor
+/// forever. Claimed-row progress under the same condition is covered by the adaptive test above.
+#[test]
+fn test_migrate_seed_beta_basket_zero_budget_advances_each_phase() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        deprecated, migrate_seed_beta_basket_v2_with_limit, seed_beta_basket_v2_in_progress,
+    };
+    use frame_support::weights::Weight;
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(8_901);
+        let hotkey = U256::from(8_902);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        let used = migrate_seed_beta_basket_v2_with_limit::<Test>(Weight::zero());
+        assert!(!used.is_zero());
+        assert!(
+            RootClaimable::<Test>::get(hotkey).is_empty(),
+            "zero-budget pass must still complete one indivisible hotkey"
+        );
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+    });
+
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(8_903);
+        deprecated::BasketPrincipal::<Test>::insert(
+            hotkey,
+            NetUid::from(1),
+            AlphaBalance::from(10u64),
+        );
+        deprecated::BasketPrincipal::<Test>::insert(
+            hotkey,
+            NetUid::from(2),
+            AlphaBalance::from(20u64),
+        );
+
+        let used = migrate_seed_beta_basket_v2_with_limit::<Test>(Weight::zero());
+        assert!(!used.is_zero());
+        assert!(
+            deprecated::BasketPrincipal::<Test>::iter().count() < 2,
+            "zero-budget pass must still advance principal cleanup"
+        );
+        assert!(
+            seed_beta_basket_v2_in_progress::<Test>()
+                || HasMigrationRun::<Test>::get(b"migrate_seed_beta_basket_v2".to_vec())
+        );
+    });
+}
+
+/// Repeated coldkeys across subnet slots are aggregated in memory and flushed once per bounded
+/// pass. This lets the adaptive migration finish work that would exceed the limit if every
+/// RootClaimed row independently mutated BasketClaimed.
+#[test]
+fn test_migrate_seed_beta_basket_batches_repeated_coldkey_writes() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2_with_limit;
+    use frame_support::weights::Weight;
+
+    new_test_ext(1).execute_with(|| {
+        const NUM_COLDKEYS: u64 = 50;
+
+        let owner = U256::from(9_001);
+        let hotkey = U256::from(9_002);
+        let netuid_a = add_dynamic_network(&hotkey, &owner);
+        let netuid_b = add_dynamic_network(&hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1.0));
+        SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(1.0));
+
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(10_000 + i);
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+            );
+            RootClaimed::<Test>::insert((netuid_a, hotkey, coldkey), 1_000u128);
+            RootClaimed::<Test>::insert((netuid_b, hotkey, coldkey), 1_000u128);
+        }
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid_a, I96F32::from_num(0.5));
+            claimable.insert(netuid_b, I96F32::from_num(0.5));
+        });
+
+        // One independent BasketClaimed mutation per row would cost 25B ref-time for the
+        // 100 rows alone. Aggregating the 50 repeated coldkeys lets the whole migration,
+        // including its other storage work, finish below this 22B limit.
+        let limit = Weight::from_parts(22_000_000_000, u64::MAX);
+        let used = migrate_seed_beta_basket_v2_with_limit::<Test>(limit);
+        assert!(used.all_lte(limit));
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(10_000 + i);
+            assert_eq!(RootClaimed::<Test>::get((netuid_a, hotkey, coldkey)), 0);
+            assert_eq!(RootClaimed::<Test>::get((netuid_b, hotkey, coldkey)), 0);
+            assert_eq!(BasketClaimed::<Test>::get(hotkey, coldkey), 2_000);
+        }
+    });
+}
+
 /// While the multi-block seed is in progress, coinbase basket deposits must recycle (not mint
 /// into BasketRate/Shares that a later pass would overwrite).
 #[test]

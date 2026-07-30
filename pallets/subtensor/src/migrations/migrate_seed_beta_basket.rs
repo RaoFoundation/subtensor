@@ -5,10 +5,25 @@ use frame_support::storage_alias;
 use frame_support::weights::Weight;
 use scale_info::TypeInfo;
 use scale_info::prelude::string::String;
+use sp_std::collections::btree_map::BTreeMap;
 use sp_std::vec::Vec;
 use substrate_fixed::types::{I96F32, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUid};
 use subtensor_swap_interface::SwapHandler;
+
+/// Absolute API ceiling on how many `RootClaimable` hotkeys may be converted in one pass.
+/// Normal throughput is lower and is derived from the remaining `on_idle` weight.
+pub const MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS: u32 = u32::MAX;
+
+/// Absolute API ceiling on orphaned `BasketPrincipal` entries cleared in one pass.
+/// `StorageDoubleMap::clear` accepts a `u32` limit; the adaptive weight meter remains the
+/// effective per-block bound.
+pub const MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS: u32 = u32::MAX;
+
+/// Absolute API ceiling on `RootClaimed` rows drained while converting hotkeys. A single subnet
+/// slot's `(netuid, hotkey)` prefix can hold one row per historical claimant coldkey, which is
+/// unbounded in principle. Normal throughput is derived from the remaining `on_idle` weight.
+pub const MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS: u32 = u32::MAX;
 
 const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
 
@@ -31,9 +46,8 @@ pub mod deprecated {
 }
 
 /// Resumable state for a hotkey whose conversion was paused mid-way because the per-pass
-/// `RootClaimed` drain budget ran out before every subnet slot finished draining. Production
-/// runs the seed unbounded in a single `on_runtime_upgrade` pass, so this only pauses in
-/// tests exercising [`migrate_seed_beta_basket_v2_limited`] with small budgets.
+/// `RootClaimed` drain budget ([`MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS`]) ran out before
+/// every subnet slot finished draining.
 ///
 /// `RootClaimable[hotkey]` is left untouched in storage for as long as this state exists; it is
 /// only `remove`d once every slot has been fully processed, so an interrupted conversion never
@@ -66,12 +80,9 @@ pub struct HotkeyConvertState {
     pub seeded_slots: u64,
 }
 
-/// Persistent cursor for the `migrate_seed_beta_basket_v2` migration.
+/// Persistent cursor for the multi-block `migrate_seed_beta_basket_v2` migration.
 ///
 /// Present only while the migration is in progress. Cleared when `HasMigrationRun` is set.
-/// Production runs the seed to completion inside a single `on_runtime_upgrade` pass, so the
-/// cursor exists only transiently within that pass; a chunked (multi-pass) run only happens
-/// in tests via [`migrate_seed_beta_basket_v2_limited`].
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
 pub enum SeedBetaBasketV2Progress {
     /// Convert legacy per-hotkey claim state. `after` is the hashed key of the last completed
@@ -131,45 +142,172 @@ pub type SeedBetaBasketV2Migration<T: Config> =
 ///   so shares are never unbacked.
 /// * orphaned `BasketPrincipal` entries are cleared.
 ///
-/// ## One-shot in `on_runtime_upgrade`
+/// ## Multi-block / resumable
 ///
-/// The whole seed runs to completion inside the runtime-upgrade block: conversion and the
-/// principal clear execute with unbounded per-pass limits, so `HasMigrationRun` is set (and
-/// the cursor killed) before the block finishes. The upgrade block is deliberately over-weight
-/// — a solo chain can absorb one long block (precedent: `migrate_rao`) — and this keeps the
-/// legacy → fund cutover atomic: no window where coinbase, claims, or swaps interleave with
-/// half-converted state, and no multi-day `on_idle` trickle during which user-facing basket
-/// operations would have to stay gated.
+/// `on_runtime_upgrade` only **kicks off** the seed via [`kickoff_seed_beta_basket_v2`]
+/// (writes the cursor, no conversion). That keeps the upgrade hook idempotent for
+/// try-runtime's double-execution check. All conversion runs from `on_idle` through
+/// [`migrate_seed_beta_basket_v2`].
 ///
-/// The hook stays idempotent for try-runtime's double-execution check because the first pass
-/// completes everything and sets `HasMigrationRun`; a second pass short-circuits on that flag
-/// without touching storage.
-///
-/// The chunked/resumable machinery underneath ([`migrate_seed_beta_basket_v2_limited`], the
-/// [`SeedBetaBasketV2Migration`] cursor and [`HotkeyConvertState`]) is retained as the engine
-/// and for tests, and doubles as a safety net: if a run were ever interrupted, the persisted
-/// cursor gates basket operations (`seed_beta_basket_v2_in_progress`) and a re-run resumes
-/// exactly where it stopped instead of double-converting.
+/// Work is chunked across blocks at two levels. Each pass converts at most
+/// [`MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS`] hotkeys, then clears at most
+/// [`MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS`] orphaned principal rows. Within the convert
+/// phase, a single pass also drains at most [`MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS`]
+/// `RootClaimed` rows in total: a hotkey with many claimant coldkeys on one subnet slot is
+/// converted across several passes rather than draining its whole (unbounded) prefix at once.
+/// While a hotkey is only partially converted, `RootClaimable[hotkey]` is left untouched in
+/// storage and the in-flight state (completed slots, the in-progress slot's drain cursor, and
+/// accumulators) is persisted in [`SeedBetaBasketV2Migration`]'s `Convert::hotkey`. Progress is
+/// continued from `on_idle` until finished. `HasMigrationRun` is set only when both phases
+/// complete.
 pub fn migrate_seed_beta_basket_v2<T: Config>() -> Weight {
-    migrate_seed_beta_basket_v2_limited::<T>(u32::MAX, u32::MAX, u32::MAX)
+    migrate_seed_beta_basket_v2_with_limit::<T>(Weight::MAX)
 }
 
-/// True while the seed is unfinished (cursor present). Basket deposits and claims must not
-/// run while this is set — see `distribute_root_alpha_to_basket` / `do_stake_into_basket` /
-/// `do_root_claim`. With the one-shot upgrade this is never observable on a healthy chain
-/// (the cursor lives and dies inside the upgrade block); it remains as a guard against an
-/// interrupted or partially-applied seed.
+/// Continue the seed using limits derived from the weight still available to `on_idle`.
+///
+/// Fixed pass overhead is reserved first. Each work type gets a ceiling derived from the full
+/// remaining budget, while the conversion loop uses one shared meter to stop before their
+/// combined reported weight reaches `limit`. This lets hotkeys consume capacity unused by
+/// claimed rows (and vice versa) without allowing their independent ceilings to add up to an
+/// overweight pass. Emergency item ceilings remain as a final guard against a bad weight
+/// configuration.
+///
+/// Progress is deliberately fail-open: every active phase receives a minimum item budget of
+/// one even if `limit` is zero or one iteration is individually overweight. In that exceptional
+/// case the returned weight may exceed `limit`, but the cursor advances instead of retrying the
+/// same oversized item forever.
+pub fn migrate_seed_beta_basket_v2_with_limit<T: Config>(limit: Weight) -> Weight {
+    let overhead = adaptive_pass_overhead::<T>();
+    let work_budget = limit.saturating_sub(overhead);
+
+    let hotkeys = affordable_items(work_budget, hotkey_attempt_weight::<T>())
+        .max(1)
+        .min(u64::from(MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS)) as u32;
+    let claimed = affordable_items(work_budget, claimed_row_base_weight::<T>())
+        .max(1)
+        .min(u64::from(MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS)) as u32;
+    let principal = affordable_items(work_budget, principal_clear_item_weight::<T>())
+        .max(1)
+        .min(u64::from(MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS)) as u32;
+
+    migrate_seed_beta_basket_v2_inner::<T>(hotkeys, principal, claimed, Some(limit))
+}
+
+fn adaptive_pass_overhead<T: Config>() -> Weight {
+    // HasMigrationRun + cursor + escrow reads, plus enough writes to persist progress or finish.
+    T::DbWeight::get().reads_writes(3, 2)
+}
+
+fn claimed_row_base_weight<T: Config>() -> Weight {
+    // Iterate/read and remove one RootClaimed row.
+    T::DbWeight::get().reads_writes(1, 1)
+}
+
+fn claimed_coldkey_flush_weight<T: Config>() -> Weight {
+    // Mutate one aggregated BasketClaimed watermark.
+    T::DbWeight::get().reads_writes(1, 1)
+}
+
+fn claimed_row_worst_case_weight<T: Config>() -> Weight {
+    // A row plus the first BasketClaimed update for its coldkey in this bounded pass.
+    claimed_row_base_weight::<T>().saturating_add(claimed_coldkey_flush_weight::<T>())
+}
+
+fn hotkey_attempt_weight<T: Config>() -> Weight {
+    // Conservative fixed storage envelope; per-slot operations are charged as they occur.
+    T::DbWeight::get().reads_writes(4, 4)
+}
+
+fn principal_clear_item_weight<T: Config>() -> Weight {
+    T::DbWeight::get().reads_writes(1, 1)
+}
+
+fn affordable_items(budget: Weight, per_item: Weight) -> u64 {
+    let by_ref_time = if per_item.ref_time() == 0 {
+        u64::MAX
+    } else {
+        budget.ref_time() / per_item.ref_time()
+    };
+    let by_proof_size = if per_item.proof_size() == 0 {
+        u64::MAX
+    } else {
+        budget.proof_size() / per_item.proof_size()
+    };
+    by_ref_time.min(by_proof_size)
+}
+
+fn next_item_fits<T: Config>(used: Weight, item: Weight, limit: Weight) -> bool {
+    // Keep room to persist a cursor, or to kill it and mark completion.
+    used.saturating_add(item)
+        .saturating_add(T::DbWeight::get().writes(2))
+        .all_lte(limit)
+}
+
+/// Idempotent `on_runtime_upgrade` entry: ensure the multi-block seed cursor exists, but do
+/// **not** convert any hotkeys. Conversion is owned by `on_idle` via
+/// [`migrate_seed_beta_basket_v2`].
+///
+/// Running conversion inside ORU breaks try-runtime idempotency: the second ORU pass would
+/// advance the cursor further and change storage.
+pub fn kickoff_seed_beta_basket_v2<T: Config>() -> Weight {
+    let migration_name = MIGRATION_NAME.to_vec();
+    let mut weight = T::DbWeight::get().reads(1);
+
+    if HasMigrationRun::<T>::get(&migration_name) {
+        log::info!(
+            target: "runtime",
+            "Migration '{}' has already run. Skipping.",
+            String::from_utf8_lossy(&migration_name)
+        );
+        return weight;
+    }
+
+    weight.saturating_accrue(T::DbWeight::get().reads(1));
+    if SeedBetaBasketV2Migration::<T>::exists() {
+        // Cursor already present — on_idle owns progress. No-op so a second ORU matches.
+        return weight;
+    }
+
+    log::info!(
+        target: "runtime",
+        "Kicking off migration '{}' (conversion continues on_idle)",
+        String::from_utf8_lossy(&migration_name)
+    );
+    SeedBetaBasketV2Migration::<T>::put(SeedBetaBasketV2Progress::Convert {
+        after: None,
+        hotkey: None,
+    });
+    weight.saturating_accrue(T::DbWeight::get().writes(1));
+    weight
+}
+
+/// True while the multi-block seed is unfinished (cursor present). Basket deposits and claims
+/// must not run while this is set — see `distribute_root_alpha_to_basket` /
+/// `do_stake_into_basket` / `do_root_claim`.
 pub fn seed_beta_basket_v2_in_progress<T: Config>() -> bool {
     SeedBetaBasketV2Migration::<T>::exists()
 }
 
-/// Chunked engine behind [`migrate_seed_beta_basket_v2`]. Production calls it once with
-/// unbounded limits so a single pass completes the seed; tests drive it with small explicit
-/// limits to exercise the pause/resume machinery.
+/// Same as [`migrate_seed_beta_basket_v2`] but with explicit per-pass limits (for tests).
 pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
     hotkeys_per_pass: u32,
     principal_clear_per_pass: u32,
     claimed_drains_per_pass: u32,
+) -> Weight {
+    migrate_seed_beta_basket_v2_inner::<T>(
+        hotkeys_per_pass,
+        principal_clear_per_pass,
+        claimed_drains_per_pass,
+        None,
+    )
+}
+
+fn migrate_seed_beta_basket_v2_inner<T: Config>(
+    hotkeys_per_pass: u32,
+    principal_clear_per_pass: u32,
+    claimed_drains_per_pass: u32,
+    adaptive_limit: Option<Weight>,
 ) -> Weight {
     let migration_name = MIGRATION_NAME.to_vec();
     let mut weight = T::DbWeight::get().reads(1);
@@ -208,6 +346,7 @@ pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
     weight.saturating_accrue(T::DbWeight::get().reads(1));
 
     let mut seeded_slots: u64 = 0;
+    let mut made_progress = false;
 
     'phases: loop {
         match progress {
@@ -249,6 +388,23 @@ pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
                             );
                             return weight;
                         }
+                        if made_progress
+                            && adaptive_limit.is_some_and(|limit| {
+                                !next_item_fits::<T>(weight, hotkey_attempt_weight::<T>(), limit)
+                            })
+                        {
+                            progress = SeedBetaBasketV2Progress::Convert {
+                                after,
+                                hotkey: None,
+                            };
+                            SeedBetaBasketV2Migration::<T>::put(progress);
+                            weight.saturating_accrue(T::DbWeight::get().writes(1));
+                            log::info!(
+                                "Migration 'migrate_seed_beta_basket_v2' paused after converting {} hotkey(s) at its adaptive weight limit; will resume on_idle.",
+                                hotkeys_done_this_pass
+                            );
+                            return weight;
+                        }
 
                         let mut keys_iter = match after {
                             Some(ref raw) => RootClaimable::<T>::iter_keys_from(raw.clone()),
@@ -274,10 +430,13 @@ pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
                         resume_state,
                         &mut claimed_budget,
                         &mut weight,
+                        adaptive_limit,
+                        &mut made_progress,
                     ) {
                         ConvertOutcome::Done(slots) => {
                             seeded_slots = seeded_slots.saturating_add(slots);
                             hotkeys_done_this_pass = hotkeys_done_this_pass.saturating_add(1);
+                            made_progress = true;
 
                             if hotkeys_done_this_pass >= hotkeys_per_pass || claimed_budget == 0 {
                                 progress = SeedBetaBasketV2Progress::Convert {
@@ -302,7 +461,7 @@ pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
                             SeedBetaBasketV2Migration::<T>::put(progress);
                             weight.saturating_accrue(T::DbWeight::get().writes(1));
                             log::info!(
-                                "Migration 'migrate_seed_beta_basket_v2' paused mid-hotkey after exhausting its {} RootClaimed-row drain budget; will resume on the next pass.",
+                                "Migration 'migrate_seed_beta_basket_v2' paused mid-hotkey after reaching its {} RootClaimed-row/adaptive weight budget; will resume on_idle.",
                                 claimed_drains_per_pass
                             );
                             return weight;
@@ -311,10 +470,29 @@ pub fn migrate_seed_beta_basket_v2_limited<T: Config>(
                 }
             }
             SeedBetaBasketV2Progress::ClearPrincipal { cursor } => {
-                let principal_removal = deprecated::BasketPrincipal::<T>::clear(
-                    principal_clear_per_pass,
-                    cursor.as_deref(),
-                );
+                let mut clear_limit = principal_clear_per_pass;
+                if let Some(limit) = adaptive_limit {
+                    let remaining = limit
+                        .saturating_sub(weight)
+                        .saturating_sub(T::DbWeight::get().writes(2));
+                    let affordable =
+                        affordable_items(remaining, principal_clear_item_weight::<T>());
+                    if affordable == 0 && made_progress {
+                        SeedBetaBasketV2Migration::<T>::put(
+                            SeedBetaBasketV2Progress::ClearPrincipal { cursor },
+                        );
+                        weight.saturating_accrue(T::DbWeight::get().writes(1));
+                        log::info!(
+                            "Migration 'migrate_seed_beta_basket_v2' paused before principal cleanup at its adaptive weight limit; will resume on_idle."
+                        );
+                        return weight;
+                    }
+                    clear_limit =
+                        clear_limit.min(affordable.max(1).min(u64::from(u32::MAX)) as u32);
+                }
+
+                let principal_removal =
+                    deprecated::BasketPrincipal::<T>::clear(clear_limit, cursor.as_deref());
                 weight.saturating_accrue(T::DbWeight::get().reads_writes(
                     principal_removal.loops as u64,
                     principal_removal.backend as u64,
@@ -361,14 +539,18 @@ enum ConvertOutcome {
 /// and shared across every hotkey processed in the pass. `RootClaimable[hotkey]` is only
 /// `remove`d once every subnet slot has been fully processed — never on a paused/resumed call.
 ///
-/// Per-slot conversion math matches the original one-shot migration body exactly; only the
-/// draining of `RootClaimed` is now bounded and resumable.
+/// Per-slot conversion math matches the original one-shot migration body exactly. Claimed-share
+/// increments are aggregated by coldkey in memory for this bounded call and flushed before any
+/// cursor is persisted, avoiding repeated `BasketClaimed` reads/writes when the same coldkey has
+/// legacy watermarks across many subnet slots.
 fn convert_hotkey_step<T: Config>(
     hotkey: &T::AccountId,
     escrow: &T::AccountId,
     resume: Option<HotkeyConvertState>,
     claimed_budget: &mut u32,
     weight: &mut Weight,
+    adaptive_limit: Option<Weight>,
+    made_progress: &mut bool,
 ) -> ConvertOutcome {
     // Peeked, not taken: the legacy entry must survive until conversion fully completes.
     let claimable = RootClaimable::<T>::get(hotkey);
@@ -424,6 +606,8 @@ fn convert_hotkey_step<T: Config>(
             Some(d) => **netuid > d,
             None => true,
         });
+    let mut drained_row_this_step = false;
+    let mut claimed_increments: BTreeMap<T::AccountId, i128> = BTreeMap::new();
 
     for (netuid, rate) in slots {
         // Resume the in-progress slot's partial drain (and its snapshotted price), if this is
@@ -470,6 +654,14 @@ fn convert_hotkey_step<T: Config>(
                 budget_exhausted = true;
                 break;
             }
+            if drained_row_this_step
+                && adaptive_limit.is_some_and(|limit| {
+                    !next_item_fits::<T>(*weight, claimed_row_worst_case_weight::<T>(), limit)
+                })
+            {
+                budget_exhausted = true;
+                break;
+            }
             let Some((coldkey, claimed)) = claimed_iter.next() else {
                 break;
             };
@@ -478,21 +670,27 @@ fn convert_hotkey_step<T: Config>(
             let claimed_shares: i128 = U96F32::saturating_from_num(claimed)
                 .saturating_mul(price)
                 .saturating_to_num::<i128>();
-            // Write the watermark incrementally — never accumulate claimants in the cursor
-            // value (that map grows without bound across resumes and would also make the
-            // hotkey-completion flush unbounded). Bounded by `claimed_budget` per pass.
-            if claimed_shares != 0 {
-                BasketClaimed::<T>::mutate(hotkey, &coldkey, |c| {
-                    *c = c.saturating_add(claimed_shares);
-                });
-                weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
-            }
+            let first_for_coldkey = !claimed_increments.contains_key(&coldkey);
+            claimed_increments
+                .entry(coldkey.clone())
+                .and_modify(|increment| {
+                    *increment = increment.saturating_add(claimed_shares);
+                })
+                .or_insert(claimed_shares);
             RootClaimed::<T>::remove((*netuid, hotkey, &coldkey));
-            weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
+            weight.saturating_accrue(if first_for_coldkey {
+                // Reserve the later BasketClaimed flush on the first row for this coldkey.
+                claimed_row_worst_case_weight::<T>()
+            } else {
+                claimed_row_base_weight::<T>()
+            });
             *claimed_budget = claimed_budget.saturating_sub(1);
+            *made_progress = true;
+            drained_row_this_step = true;
         }
 
         if budget_exhausted {
+            flush_claimed_increments::<T>(hotkey, &mut claimed_increments);
             return ConvertOutcome::Paused(HotkeyConvertState {
                 hotkey: hotkey.encode(),
                 done_through,
@@ -574,6 +772,8 @@ fn convert_hotkey_step<T: Config>(
         done_through = Some(*netuid);
     }
 
+    flush_claimed_increments::<T>(hotkey, &mut claimed_increments);
+
     // Every subnet slot converted — only now is it safe to drop the legacy claimable entry.
     RootClaimable::<T>::remove(hotkey);
     weight.saturating_accrue(T::DbWeight::get().writes(1));
@@ -588,4 +788,19 @@ fn convert_hotkey_step<T: Config>(
     }
 
     ConvertOutcome::Done(seeded_slots)
+}
+
+/// Flush the bounded in-memory aggregation. Its read/write weight was reserved when each
+/// coldkey first entered the map, so callers must not charge it again here.
+fn flush_claimed_increments<T: Config>(
+    hotkey: &T::AccountId,
+    increments: &mut BTreeMap<T::AccountId, i128>,
+) {
+    for (coldkey, increment) in sp_std::mem::take(increments) {
+        if increment != 0 {
+            BasketClaimed::<T>::mutate(hotkey, &coldkey, |claimed| {
+                *claimed = claimed.saturating_add(increment);
+            });
+        }
+    }
 }
