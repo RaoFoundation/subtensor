@@ -592,7 +592,8 @@ jobs:
   # label is set). Auto-skips (via the `build-node-release` need) when the PR touches
   # nothing runtime-relevant.
   #
-  # Interval sealing advances runtime time by one 12-second slot every 250ms.
+  # The pristine migration diagnostic uses normal 12-second sealing; the
+  # remaining regression shard advances one 12-second slot every 250ms.
   # With a trusted snapshot available, the pristine issuance invariant and
   # the state-mutating remaining regressions restore independent copies and
   # run in parallel. A live scrape retains the combined sequential path.
@@ -601,7 +602,7 @@ jobs:
     needs: [trusted-pr, changes, clone-plan, build-node-release]
     runs-on: [self-hosted, fireactions-validatorbench]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     permissions:
       contents: read
       # Cross-run artifact download (the nightly mainnet snapshot).
@@ -729,10 +730,14 @@ jobs:
         run: ./clones/scripts/run-clone-regression-phase.sh "${{ matrix.phase }}"
 
       - name: Dump clone node and harness logs
-        if: failure()
+        if: always()
         run: |
           echo "===== clone-node.log (last 200 lines) ====="
           tail -n 200 clone-node.log 2>/dev/null || echo "(missing)"
+          echo "===== migration runtime log lines ====="
+          grep -E \
+            "migrate_seed_beta_basket_v2|clear_root_basket_weights_v2|set_root_min_allowed_weights_8|reset_emission_gate_bar_rank_32" \
+            clone-node.log 2>/dev/null || echo "(missing)"
           for f in clones/js-tests/temp/*.log; do
             [ -f "$f" ] || continue
             echo "===== $f ====="

@@ -28,6 +28,10 @@ if [[ -n "${MOCK_NPM_FAIL:-}" && "$*" == *"$MOCK_NPM_FAIL"* ]]; then
   exit 1
 fi
 EOF
+cat > "$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+printf 'npx %s cwd=%s\n' "$*" "$PWD" >> "$HARNESS_LOG"
+EOF
 cat > "$tmp/bin/sleep" <<'EOF'
 #!/usr/bin/env bash
 printf 'sleep %s\n' "$*" >> "$HARNESS_LOG"
@@ -36,7 +40,7 @@ cat > "$tmp/bin/uv" <<'EOF'
 #!/usr/bin/env bash
 printf 'uv %s cwd=%s\n' "$*" "$PWD" >> "$HARNESS_LOG"
 EOF
-chmod +x "$tmp/bin/npm" "$tmp/bin/sleep" "$tmp/bin/uv" "$tmp/repo/clones/scripts/run-clone-regression-phase.sh"
+chmod +x "$tmp/bin/npm" "$tmp/bin/npx" "$tmp/bin/sleep" "$tmp/bin/uv" "$tmp/repo/clones/scripts/run-clone-regression-phase.sh"
 
 export PATH="$tmp/bin:$PATH"
 export HARNESS_LOG="$tmp/harness.log"
@@ -51,9 +55,12 @@ run_phase() {
 }
 
 run_phase pristine
-grep -Fq 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG"
+grep -Fq 'start-local-clone-and-wait.sh normal' "$HARNESS_LOG"
+grep -Fq 'npx tsx tests/test-mainnet-migration-completion.ts before' "$HARNESS_LOG"
 grep -Fq 'npm run runtime:update:alice' "$HARNESS_LOG"
+grep -Fq 'npx tsx tests/test-mainnet-migration-completion.ts upgraded' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG"
+grep -Fq 'npx tsx tests/test-mainnet-migration-completion.ts after' "$HARNESS_LOG"
 grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"
 if grep -Fq 'npm test' "$HARNESS_LOG"; then
   echo "pristine phase unexpectedly ran remaining smoke tests" >&2
@@ -61,11 +68,13 @@ if grep -Fq 'npm test' "$HARNESS_LOG"; then
 fi
 
 run_phase remaining
+grep -Fq 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG"
 grep -Fq 'npm test phase=' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=remaining' "$HARNESS_LOG"
 
 run_phase combined
-[[ $(grep -Fc 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG") -eq 2 ]]
+[[ $(grep -Fc 'start-local-clone-and-wait.sh normal' "$HARNESS_LOG") -eq 1 ]]
+[[ $(grep -Fc 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG") -eq 1 ]]
 grep -Fq "local-clone-checkpoint.sh restore $checkpoint" "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=remaining' "$HARNESS_LOG"

@@ -14,6 +14,7 @@ Usage: start-local-clone-and-wait.sh MODE
 
 Modes:
   accelerated   Seal every 250ms and require 20 blocks of advancement
+  normal        Seal every 12s and require 2 blocks of advancement
   manual        Use manual sealing and require RPC health only
   node-default  Preserve the node's default sealing and require RPC health only
 EOF
@@ -27,6 +28,9 @@ cd "$REPO_ROOT"
 case "$mode" in
   accelerated)
     nohup ./clones/scripts/start-local-clone.sh --sealing 250 > "$log_file" 2>&1 &
+    ;;
+  normal)
+    nohup ./clones/scripts/start-local-clone.sh --sealing 12000 > "$log_file" 2>&1 &
     ;;
   manual)
     nohup ./clones/scripts/start-local-clone.sh --sealing manual > "$log_file" 2>&1 &
@@ -65,7 +69,7 @@ for ((attempt = 1; attempt <= ready_attempts; attempt++)); do
 done
 [[ "$ready" == true ]] || exit 1
 
-if [[ "$mode" != accelerated ]]; then
+if [[ "$mode" != accelerated && "$mode" != normal ]]; then
   echo "Clone node is healthy."
   trap - EXIT
   exit 0
@@ -79,9 +83,11 @@ height() {
 
 first=$(height)
 deadline=$(($(date +%s) + advance_timeout_seconds))
+required_blocks=20
+[[ "$mode" == normal ]] && required_blocks=2
 while (( $(date +%s) < deadline )); do
   current=$(height)
-  if (( current >= first + 20 )); then
+  if (( current >= first + required_blocks )); then
     echo "Clone advanced from block $first to $current."
     trap - EXIT
     exit 0

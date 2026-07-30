@@ -28,13 +28,20 @@ cleanup() {
 trap cleanup EXIT
 
 start_clone() {
-  "$SCRIPT_DIR/start-local-clone-and-wait.sh" accelerated
+  "$SCRIPT_DIR/start-local-clone-and-wait.sh" "${1:-accelerated}"
 }
 
 upgrade_runtime() {
   (
     cd "$JS_TESTS"
     npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
+  )
+}
+
+migration_probe() {
+  (
+    cd "$JS_TESTS"
+    npx tsx tests/test-mainnet-migration-completion.ts "$1"
   )
 }
 
@@ -49,9 +56,12 @@ run_regressions() {
 }
 
 run_pristine() {
-  start_clone
+  start_clone normal
+  migration_probe before
   upgrade_runtime
+  migration_probe upgraded
   run_regressions pristine
+  migration_probe after
 }
 
 run_sdk_metadata_drift() {
