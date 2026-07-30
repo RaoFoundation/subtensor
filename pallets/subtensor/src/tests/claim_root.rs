@@ -4,8 +4,8 @@ use crate::tests::mock::*;
 use crate::{
     BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
     Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
-    StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice,
-    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow,
+    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
