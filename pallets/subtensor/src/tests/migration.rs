@@ -5906,7 +5906,7 @@ fn test_migrate_seed_beta_basket_v2_after_v1_already_ran() {
 #[test]
 fn test_migrate_reset_emission_gate_bar() {
     new_test_ext(1).execute_with(|| {
-        const MIG_NAME: &[u8] = b"reset_emission_gate_bar_rank_64";
+        const MIG_NAME: &[u8] = b"reset_emission_gate_bar_rank_32";
 
         // Pre-state: a stale quantile-derived bar is in place.
         EmissionGateBar::<Test>::put(U64F64::from_num(0.009));
@@ -5919,7 +5919,7 @@ fn test_migrate_reset_emission_gate_bar() {
         assert!(!w.is_zero(), "weight must be non-zero");
 
         // The stale bar is killed so the first recompute after the upgrade
-        // rebuilds it under the rank-64 default.
+        // rebuilds it under the rank-32 default.
         assert_eq!(EmissionGateBar::<Test>::get(), U64F64::from_num(0));
         assert!(
             HasMigrationRun::<Test>::get(MIG_NAME.to_vec()),

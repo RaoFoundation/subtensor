@@ -6,9 +6,9 @@ use scale_info::prelude::string::String;
 /// Kills the emission gate bar so it is recomputed on the first block after
 /// the upgrade. Without this, the stale quantile-derived theta would keep
 /// gating emissions for up to EMISSION_BAR_UPDATE_INTERVAL blocks before the
-/// new rank-64 bar (DefaultEmissionBarRank) takes effect.
+/// new rank-32 bar (DefaultEmissionBarRank) takes effect.
 pub fn migrate_reset_emission_gate_bar<T: Config>() -> Weight {
-    let mig_name: Vec<u8> = b"reset_emission_gate_bar_rank_64".to_vec();
+    let mig_name: Vec<u8> = b"reset_emission_gate_bar_rank_32".to_vec();
 
     // 1 read: HasMigrationRun flag
     let mut total_weight = T::DbWeight::get().reads(1);

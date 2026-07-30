@@ -1832,7 +1832,9 @@ pub mod pallet {
     /// shifts instead of drifting with a fixed q. 0 disables rank mode and
     /// the bar falls back to the q-mass quantile.
     pub fn DefaultEmissionBarRank<T: Config>() -> u16 {
-        64
+        // Near the pre-upgrade q=0.75 crossing (~rank 28 on current demand) so the
+        // upgrade does not shift the emission curve; rank mode then tracks N=32.
+        32
     }
     #[pallet::storage]
     /// ITEM --> Emission Bar Rank (N). When non-zero, overrides the quantile.

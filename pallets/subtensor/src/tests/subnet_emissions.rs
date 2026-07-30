@@ -350,11 +350,11 @@ fn emission_gate_bar_update_cadence() {
     });
 }
 
-/// The upgrade-active default: rank mode at N = 64.
+/// The upgrade-active default: rank mode at N = 32.
 #[test]
-fn emission_bar_rank_default_is_64() {
+fn emission_bar_rank_default_is_32() {
     new_test_ext(1).execute_with(|| {
-        assert_eq!(EmissionBarRank::<Test>::get(), 64);
+        assert_eq!(EmissionBarRank::<Test>::get(), 32);
     });
 }
 
@@ -442,7 +442,7 @@ fn emission_bar_rank_ties_at_bar() {
     });
 }
 
-/// The mainnet-default path: rank 64 with fewer than 64 subnets falls back to
+/// The mainnet-default path: rank 32 with fewer than 32 subnets falls back to
 /// the smallest positive share, so every subnet passes at or above the gate
 /// midpoint and no emission is stranded.
 #[test]
@@ -454,8 +454,8 @@ fn emission_bar_rank_fewer_subnets_than_rank_falls_back_to_smallest() {
             .map(|_| add_dynamic_network(&owner_hotkey, &owner_coldkey))
             .collect();
 
-        // Deliberately no EmissionBarRank override: exercise the default (64).
-        assert_eq!(EmissionBarRank::<Test>::get(), 64);
+        // Deliberately no EmissionBarRank override: exercise the default (32).
+        assert_eq!(EmissionBarRank::<Test>::get(), 32);
 
         System::set_block_number(0);
         for (n, price) in nets.iter().zip([5.0, 3.0, 2.0]) {
