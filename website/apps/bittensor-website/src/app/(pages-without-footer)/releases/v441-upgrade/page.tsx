@@ -878,8 +878,8 @@ const page = () => {
               (call index 146) takes relative weights over netuid 0 and existing subnets — at
               least 8 positive destinations (softened when fewer networks exist),
               rate-limited like other weight calls. A validator that never sets a vector
-              still accrues: the chain defaults to a balanced 1/n allocation across every
-              live subnet.
+              still accrues: dividends land 100% in the fund&apos;s root slot as plain TAO
+              until it curates.
             </li>
             <li>
               <strong>Each epoch, the dividend is deployed.</strong> The validator&apos;s
@@ -938,9 +938,9 @@ btcli subnets register --netuid 0 -w my_coldkey -H my_hotkey  # register; no pri
           </pre>
           <p>
             Then set your distribution vector with your hotkey. A validator with no custom
-            weights still accrues — dividends default to a balanced 1/n allocation across
-            every live subnet. Set the vector to express a view, or weight netuid 0 to hold
-            TAO instead.
+            weights still accrues — dividends accumulate 100% as TAO in the fund&apos;s
+            root slot. Set the vector to deploy into subnets, or weight netuid 0 to keep
+            part of a curated basket in TAO.
           </p>
           <pre className={styles.code_block}>
             {`btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet
@@ -1055,8 +1055,9 @@ betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
           </p>
           <p>
             <strong>Root validators:</strong> set your root weights with{' '}
-            <code>btcli root set-weights</code> to curate subnet exposure (the default is a
-            balanced 1/n across all live subnets). <strong>Stakers:</strong> use{' '}
+            <code>btcli root set-weights</code> to curate subnet exposure (without a
+            vector, dividends accrue 100% as TAO in the fund&apos;s root slot).{' '}
+            <strong>Stakers:</strong> use{' '}
             <code>btcli root subscribe</code> and <code>btcli root claim</code> — list shows
             staked and accrued τ; claim realizes yield and optionally withdraws. The retired{' '}
             <code>btcli stake set-claim</code> / <code>process-claim</code> commands are

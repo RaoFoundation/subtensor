@@ -2018,6 +2018,70 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn claim_root_scan(h: Linear<1, { crate::MAX_ROOT_CLAIM_WORK }>) {
+        // Scan-only claim: `h` validator hotkeys, one holding each, where the holding is
+        // above the dust threshold (no consolidation) but the claimant's marked payout is
+        // below the claim threshold, so every fund is valued (one sim-swap per row) and
+        // skipped without redeeming. Measures the per-row scan cost charged for holdings
+        // a claim walks but does not touch.
+        let coldkey: T::AccountId = whitelisted_caller();
+        let owner_coldkey: T::AccountId = account("scan_owner_cold", 0, 0);
+        let owner_hotkey: T::AccountId = account("scan_owner_hot", 0, 1);
+        let netuid = Subtensor::<T>::get_next_netuid();
+
+        let lock_cost = Subtensor::<T>::get_network_lock_cost();
+        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.into());
+
+        assert_ok!(Subtensor::<T>::register_network(
+            RawOrigin::Signed(owner_coldkey).into(),
+            owner_hotkey
+        ));
+        SubtokenEnabled::<T>::insert(netuid, true);
+        SubnetMechanism::<T>::insert(netuid, 1);
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(100_000_000_000_000_u64),
+            AlphaBalance::from(100_000_000_000_000_u64),
+        );
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(500_000));
+
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+        // Well above the 500k-rao dust threshold, so consolidation leaves the row alone.
+        let holding_alpha = AlphaBalance::from(100_000_000_u64);
+        let mut hotkeys: Vec<T::AccountId> = Vec::new();
+        for i in 0..h {
+            let hotkey: T::AccountId = account("scan_hot", i, 1);
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                AlphaBalance::from(1_u64),
+            );
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                netuid,
+                holding_alpha,
+            );
+            // Outstanding shares dwarf the claimant's single owed share, so the marked
+            // payout floors below the threshold and the claim no-ops after the scan.
+            BasketShares::<T>::insert(&hotkey, 1_000_000_000_u64);
+            BasketRate::<T>::insert(&hotkey, I96F32::from_num(1));
+            hotkeys.push(hotkey);
+        }
+
+        #[block]
+        {
+            let outcome = Subtensor::<T>::do_root_claim(coldkey.clone(), hotkeys.clone())
+                .expect("scan claim must succeed");
+            assert!(outcome.tao == 0, "scan benchmark must not redeem");
+        }
+
+        let first_hotkey: T::AccountId = account("scan_hot", 0, 1);
+        assert_eq!(BasketShares::<T>::get(first_hotkey), 1_000_000_000_u64);
+    }
+
+    #[benchmark]
     fn sudo_set_root_claim_threshold() {
         #[extrinsic_call]
         _(RawOrigin::Root, NetUid::ROOT, 100);

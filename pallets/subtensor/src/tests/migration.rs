@@ -2873,18 +2873,18 @@ fn test_migrate_kappa_map_to_default() {
 #[test]
 fn test_migrate_clear_root_basket_weights() {
     new_test_ext(1).execute_with(|| {
-        const MIG_NAME: &[u8] = b"seed_balanced_root_basket_weights";
+        const MIG_NAME: &[u8] = b"clear_root_basket_weights_v2";
         let root = NetUidStorageIndex::ROOT;
         let subnet_idx = NetUidStorageIndex::from(NetUid::from(1u16));
 
-        // Two live non-root subnets. Migration seeds 1/n over that set (excludes root).
+        // Two live non-root subnets so root vectors have real destinations to point at.
         let hotkey_a = U256::from(1);
         let hotkey_b = U256::from(2);
         let netuid_a = add_dynamic_network(&hotkey_a, &U256::from(10));
         let netuid_b = add_dynamic_network(&hotkey_b, &U256::from(11));
         assert!(!netuid_a.is_root() && !netuid_b.is_root());
 
-        // Root uid map entries the migration iterates (bypass root_register).
+        // Root uid map entries (bypass root_register).
         let uid_a = 0u16;
         let uid_b = 1u16;
         Uids::<Test>::insert(NetUid::ROOT, hotkey_a, uid_a);
@@ -2892,9 +2892,13 @@ fn test_migrate_clear_root_basket_weights() {
         Uids::<Test>::insert(NetUid::ROOT, hotkey_b, uid_b);
         Keys::<Test>::insert(NetUid::ROOT, uid_b, hotkey_b);
 
-        // Legacy uneven root vectors — must be wiped.
+        // Legacy root vectors (including a superseded balanced 1/n seed) — must be wiped.
         Weights::<Test>::insert(root, uid_a, vec![(1u16, u16::MAX), (2u16, 32768)]);
-        Weights::<Test>::insert(root, uid_b, vec![(0u16, u16::MAX)]);
+        Weights::<Test>::insert(
+            root,
+            uid_b,
+            vec![(u16::from(netuid_a), u16::MAX), (u16::from(netuid_b), u16::MAX)],
+        );
         // Non-root subnet weights must be left alone.
         Weights::<Test>::insert(subnet_idx, 0u16, vec![(1u16, 1000)]);
 
@@ -2904,36 +2908,21 @@ fn test_migrate_clear_root_basket_weights() {
         assert!(!w.is_zero());
         assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
 
-        let expected: Vec<(u16, u16)> = {
-            let mut dests: Vec<u16> = SubtensorModule::get_all_subnet_netuids()
-                .into_iter()
-                .filter(|n| !n.is_root())
-                .map(u16::from)
-                .collect();
-            dests.sort_unstable();
-            dests.into_iter().map(|n| (n, u16::MAX)).collect()
-        };
-        assert!(
-            expected.contains(&(u16::from(netuid_a), u16::MAX))
-                && expected.contains(&(u16::from(netuid_b), u16::MAX)),
-            "seed must include the live subnets"
-        );
-        assert_eq!(Weights::<Test>::get(root, uid_a), expected);
-        assert_eq!(Weights::<Test>::get(root, uid_b), expected);
-        assert!(
-            !expected.iter().any(|(n, _)| *n == 0),
-            "balanced seed must exclude netuid 0"
-        );
+        // Clear-only: no vector is seeded in place of the wiped ones — an empty stored
+        // vector means dividends accrue 100% into the fund's root (TAO cash) slot.
+        assert!(Weights::<Test>::get(root, uid_a).is_empty());
+        assert!(Weights::<Test>::get(root, uid_b).is_empty());
         assert_eq!(
             Weights::<Test>::get(subnet_idx, 0u16),
             vec![(1u16, 1000)],
             "subnet weights must be untouched"
         );
 
-        // Idempotent.
-        let before = Weights::<Test>::get(root, uid_a);
+        // Idempotent: a vector set after the migration ran survives a re-run.
+        let curated = vec![(u16::from(netuid_a), u16::MAX)];
+        Weights::<Test>::insert(root, uid_a, curated.clone());
         let w2 = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
-        assert_eq!(Weights::<Test>::get(root, uid_a), before);
+        assert_eq!(Weights::<Test>::get(root, uid_a), curated);
         assert!(w2.ref_time() <= w.ref_time());
     });
 }
@@ -5314,8 +5303,8 @@ fn test_migrate_seed_beta_basket() {
 }
 
 /// Chunked / resumable path: with a 1-hotkey-per-pass limit the migration must leave a cursor,
-/// finish across subsequent passes (as `on_idle` will), set `HasMigrationRun` only at the end,
-/// and remain idempotent afterwards.
+/// finish across subsequent passes (as a re-run after an interrupted one-shot would), set
+/// `HasMigrationRun` only at the end, and remain idempotent afterwards.
 #[test]
 fn test_migrate_seed_beta_basket_chunked_resumable() {
     use crate::migrations::migrate_seed_beta_basket::{
@@ -5384,7 +5373,7 @@ fn test_migrate_seed_beta_basket_chunked_resumable() {
             })
         ));
 
-        // Drive remaining convert + bounded principal-clear passes (mirrors on_idle).
+        // Drive remaining convert + bounded principal-clear passes (mirrors an interrupted-run resume).
         let mut passes = 1u32;
         while seed_beta_basket_v2_in_progress::<Test>() && passes < 32 {
             migrate_seed_beta_basket_v2_limited::<Test>(1, 1, 10);
@@ -5514,7 +5503,7 @@ fn test_migrate_seed_beta_basket_claimed_drain_bounded_resumable() {
         assert_eq!(first_claimed_at_p1, 1_000i128); // claimed=1000 * price=1
         SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(2.0));
 
-        // Drive remaining passes (mirrors on_idle) until fully converted.
+        // Drive remaining passes (mirrors an interrupted-run resume) until fully converted.
         let mut passes = 1u32;
         while seed_beta_basket_v2_in_progress::<Test>() && passes < 64 {
             migrate_seed_beta_basket_v2_limited::<Test>(8, 8, CLAIMED_DRAINS_PER_PASS);

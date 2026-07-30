@@ -64,11 +64,13 @@ stake; a claim pays it out as TAO staked back to root.
   each deposit bears its own swap slippage.
 - **Claims are proportional.** A claim redeems the staker's owed fraction of
   every holding pro-rata, preserving fund composition.
-- **Default is balanced 1/n over every live subnet.** A validator with no
-  custom weights still accrues — dividends deploy equally across non-root
-  subnets. Weight netuid 0 to hold a slice as TAO instead of subnet alpha.
+- **Default is 100% TAO (the root slot).** A validator with no custom
+  weights still accrues — dividends land in the fund's root cash slot as
+  plain TAO, with no forced subnet exposure and a single holding to claim
+  against. Deploying into subnets is an explicit act of curation:
   `set_root_weights` requires at least 8 positive destinations (softened
-  when fewer networks exist).
+  when fewer networks exist), and netuid 0 remains a valid destination to
+  keep part of a curated basket in TAO.
 
 Root validators are transparent fund managers: weight vectors are public,
 fund NAV and lifetime return are queryable, and the scoreboard is who made
@@ -184,6 +186,16 @@ root-stakes to.
 - **Owed is a live quote.** [`root-basket-owed`](/docs/query/root-basket-owed)
   marks your entitlement at current pool prices, so the number moves with the
   market — a claim realizes whatever the pools pay at execution time.
+- **Orphaned dust self-consolidates, and fees follow real work.** Any basket
+  holding on a subnet the validator's current weight vector no longer points
+  at, worth less than the claim threshold, is folded into the fund's root
+  (TAO) slot as a side effect of the next claim, deleting the holding.
+  Curated positions are exempt — a deliberate small holding keeps compounding
+  instead of being flattened to TAO. The transaction fee is charged by what
+  the claim actually did: redeemed and consolidated holdings pay full weight,
+  holdings merely scanned pay a small per-row cost — so a fund littered with
+  stale dust positions gets cheaper to claim after its first claim, not more
+  expensive forever.
 
 ### What existing root stakers should know
 

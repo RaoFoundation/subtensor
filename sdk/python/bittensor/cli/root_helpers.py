@@ -497,7 +497,7 @@ def render_validator_detail(
         )
     else:
         app_ctx.output.message(
-            f"no custom root weights on {hotkey}: dividends default to balanced 1/n over all subnets"
+            f"no custom root weights on {hotkey}: dividends accrue 100% as TAO in the fund's root slot"
         )
 
     if holdings:

@@ -45,6 +45,7 @@
     "associate-hotkey",
     "burned-register",
     "claim-root",
+    "claim-root-with-hotkey",
     "clear-coldkey-swap-announcement",
     "commit-weights",
     "decrease-take",

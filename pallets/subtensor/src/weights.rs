@@ -89,6 +89,7 @@ pub trait WeightInfo {
 	fn set_coldkey_auto_stake_hotkey() -> Weight;
 	fn set_root_claim_type() -> Weight;
 	fn claim_root(h: u32, ) -> Weight;
+	fn claim_root_scan(h: u32, ) -> Weight;
 	fn sudo_set_num_root_claims() -> Weight;
 	fn sudo_set_root_claim_threshold() -> Weight;
 	fn set_auto_parent_delegation_enabled() -> Weight;
@@ -2748,6 +2749,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(70_000_000, 7909)
 			.saturating_add(T::DbWeight::get().reads(17_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_mul(h.into())
+	}
+	/// Per holding row a claim scans without redeeming: one `sim_swap` valuation plus
+	/// stake reads (no swap execution, no writes).
+	fn claim_root_scan(h: u32, ) -> Weight {
+		// Minimum execution time: 6_000_000 picoseconds.
+		Weight::from_parts(6_000_000, 1000)
+			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_mul(h.into())
 	}
 	/// Storage: `SubtensorModule::NumRootClaim` (r:0 w:1)
@@ -6363,6 +6372,14 @@ impl WeightInfo for () {
 		Weight::from_parts(70_000_000, 7909)
 			.saturating_add(RocksDbWeight::get().reads(17_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_mul(h.into())
+	}
+	/// Per holding row a claim scans without redeeming: one `sim_swap` valuation plus
+	/// stake reads (no swap execution, no writes).
+	fn claim_root_scan(h: u32, ) -> Weight {
+		// Minimum execution time: 6_000_000 picoseconds.
+		Weight::from_parts(6_000_000, 1000)
+			.saturating_add(RocksDbWeight::get().reads(3_u64))
 			.saturating_mul(h.into())
 	}
 	/// Storage: `SubtensorModule::NumRootClaim` (r:0 w:1)

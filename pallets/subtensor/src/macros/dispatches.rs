@@ -1930,11 +1930,12 @@ mod dispatches {
             let coldkey: T::AccountId = ensure_signed(origin)?;
             let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
-            let (hotkeys, work) = Self::root_claim_work(&coldkey);
-            Self::do_root_claim(coldkey.clone(), hotkeys)?;
+            let hotkeys = StakingHotkeys::<T>::get(&coldkey);
+            let hotkey_count = hotkeys.len() as u32;
+            let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = <T as crate::pallet::Config>::WeightInfo::claim_root(work);
+            let weight = Self::root_claim_actual_weight(hotkey_count, &outcome);
             Ok((Some(weight), Pays::Yes).into())
         }
 
@@ -1960,11 +1961,10 @@ mod dispatches {
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
 
-            let work = Self::root_claim_work_for_hotkeys(core::slice::from_ref(&hotkey));
-            Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
+            let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = <T as crate::pallet::Config>::WeightInfo::claim_root(work);
+            let weight = Self::root_claim_actual_weight(1, &outcome);
             Ok((Some(weight), Pays::Yes).into())
         }
 

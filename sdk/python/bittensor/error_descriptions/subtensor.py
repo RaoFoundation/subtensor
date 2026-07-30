@@ -85,7 +85,8 @@ DESCRIPTIONS: dict[str, str] = {
         "a hotkey the beneficiary coldkey actually owns."
     ),
     "BetaBasketSeedInProgress": (
-        "The multi-block `migrate_seed_beta_basket_v2` seed is still running, so basket "
+        "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "
+        "inside the upgrade block, so this only appears if that run was interrupted). Basket "
         "deposits, claims, coldkey / root-touching hotkey swaps, and root stake "
         "add/remove/transfer/swap are paused until it finishes. Wait until the migration "
         "cursor clears (`HasMigrationRun` for the seed) and retry."

@@ -518,7 +518,7 @@
     },
     "BetaBasketSeedInProgress": {
       "code": "too_early",
-      "description": "The multi-block `migrate_seed_beta_basket_v2` seed is still running, so basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes. Wait until the migration cursor clears (`HasMigrationRun` for the seed) and retry.",
+      "description": "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes inside the upgrade block, so this only appears if that run was interrupted). Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes. Wait until the migration cursor clears (`HasMigrationRun` for the seed) and retry.",
       "docs_url": "/docs/errors/chain/BetaBasketSeedInProgress",
       "markdown_url": "/llms.mdx/docs/errors/chain/BetaBasketSeedInProgress/content.md",
       "pallets": [
@@ -528,8 +528,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 358,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L358",
+          "line": 359,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L359",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

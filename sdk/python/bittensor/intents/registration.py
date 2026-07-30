@@ -232,6 +232,13 @@ class ClaimRootWithHotkey(Intent):
     same validator. Other validators' accrued yield is left untouched.
     Claims whose estimated payout is below the chain's claim threshold
     (see ``root_claim_threshold``) are silently skipped and keep accruing.
+    Orphaned dust holdings in the basket (subnets outside the validator's
+    current weight vector, worth less than the same threshold) are
+    consolidated into the fund's root (TAO) slot as a side effect, so the
+    per-holding claim fee shrinks over time; curated positions are left to
+    compound. The transaction fee is charged by work actually done:
+    holdings redeemed pay full weight, holdings merely scanned pay a small
+    per-row cost.
     Preview per-validator payouts with ``root_basket_owed_breakdown``.
     """
 

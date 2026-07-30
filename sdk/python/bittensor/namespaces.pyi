@@ -395,15 +395,18 @@ class Staking(_ReadNamespace):
         Marks the coldkey's accrued basket entitlement across every validator it
         root-stakes to at current pool prices (the same slippage-aware valuation
         the chain uses to size redemptions). This is the "pending TAO" figure
-        behind `claim_root`; per-validator amounts below the claim threshold are
-        still included here even though a claim would skip them.
+        behind coldkey-wide `claim_root`; for a per-validator breakdown use
+        `root_basket_owed_breakdown` before `claim_root_with_hotkey`.
+        Per-validator amounts below the claim threshold are still included here
+        even though a claim would skip them.
         """
 
     async def root_basket_owed_breakdown(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
         """A coldkey's pending root dividends, itemized per validator hotkey.
 
         For each hotkey the coldkey stakes to: the TAO its accrued entitlement
-        would realize if claimed now. Zero-owed validators are omitted.
+        would realize if claimed now with `claim_root_with_hotkey`. Zero-owed
+        validators are omitted. Use this to pick a validator before claiming.
         """
 
     async def root_basket_total_nav(self, *, block: Optional[int] = None) -> Balance:
@@ -423,9 +426,9 @@ class Staking(_ReadNamespace):
     async def root_claim_threshold(self, *, block: Optional[int] = None) -> Balance:
         """The minimum TAO payout for a root dividend claim.
 
-        `claim_root` silently skips any per-validator basket redemption whose
-        estimated payout falls below this threshold; the entitlement keeps
-        accruing and pays out once it clears. Set by root via
+        `claim_root` and `claim_root_with_hotkey` silently skip any per-validator
+        basket redemption whose estimated payout falls below this threshold; the
+        entitlement keeps accruing and pays out once it clears. Set by root via
         `set_root_claim_threshold`.
         """
 
@@ -487,8 +490,8 @@ class Staking(_ReadNamespace):
         The `(netuid, weight)` pairs its root dividends are deployed into each
         epoch, exactly as stored (u16, max-upscaled), plus each destination's
         normalized `share` of the total.     Netuid 0 means "hold as TAO / root
-        stake". An empty list means no custom weights are set; dividends default
-        to a balanced 1/n over every live non-root subnet.
+        stake". An empty list means no custom weights are set; dividends accrue
+        100% into the fund's root (TAO cash) slot.
         """
 
 class Subnets(_ReadNamespace):

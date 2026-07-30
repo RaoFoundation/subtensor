@@ -56,9 +56,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2486,
-        "end_line": 2494,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2484-L2494",
+        "line": 2523,
+        "end_line": 2531,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2521-L2531",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -300,9 +300,9 @@
         "pallet": "SubtensorModule",
         "call": "announce_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2022,
-        "end_line": 2048,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2020-L2048",
+        "line": 2059,
+        "end_line": 2085,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2057-L2085",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -494,8 +494,8 @@
   },
   {
     "name": "claim_root",
-    "summary": "Redeem your accrued root dividends (basket shares) as root stake.",
-    "description": "Redeem your accrued root dividends (basket shares) as root stake.\n\nRoot dividends accrue as shares of each validator's basket \u2014 an\nescrowed index fund of subnet alpha the chain builds from the validator's\nroot dividends per its root weights (see `set_root_weights`). This call\nredeems the signing coldkey's owed shares across every validator it\nroot-stakes to, in one transaction with no parameters: each basket pays\nout pro-rata (subnet alpha holdings are sold to TAO at the current pool\nprice) and the proceeds are staked back to root on the same validator.\nClaims whose estimated payout is below the chain's claim threshold\n(see `root_claim_threshold`) are silently skipped and keep accruing;\nthere is no deadline. Preview the payout with the `root_basket_owed`\nread.",
+    "summary": "Redeem accrued root dividends across every validator for the coldkey.",
+    "description": "Redeem accrued root dividends across every validator for the coldkey.\n\nRoot dividends accrue as shares of each validator's basket \u2014 an\nescrowed index fund of subnet alpha the chain builds from the validator's\nroot dividends per its root weights (see `set_root_weights`). This call\nredeems the signing coldkey's owed shares on every validator it\nroot-stakes to. The `subnets` argument is retained for call-data\ncompatibility with pre-basket clients and is ignored \u2014 baskets have no\nper-subnet claim selection.\n\nPrefer :class:`ClaimRootWithHotkey` to claim a single validator.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -508,7 +508,15 @@
     "docs_url": "/docs/tx/claim-root",
     "input_schema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "subnets": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Ignored (kept for old-client call-data compatibility). Pass any non-empty netuid list; baskets claim fund-level."
+        }
+      },
       "required": [],
       "additionalProperties": false
     },
@@ -520,9 +528,51 @@
         "pallet": "SubtensorModule",
         "call": "claim_root",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1923,
-        "end_line": 1932,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1917-L1932",
+        "line": 1926,
+        "end_line": 1940,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1940",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "claim_root_with_hotkey",
+    "summary": "Redeem accrued root dividends (basket shares) for one validator.",
+    "description": "Redeem accrued root dividends (basket shares) for one validator.\n\nRedeems the signing coldkey's owed shares on the given validator only:\nthat basket pays out pro-rata (subnet alpha holdings are sold to TAO at\nthe current pool price) and the proceeds are staked back to root on the\nsame validator. Other validators' accrued yield is left untouched.\nClaims whose estimated payout is below the chain's claim threshold\n(see `root_claim_threshold`) are silently skipped and keep accruing.\nOrphaned dust holdings in the basket (subnets outside the validator's\ncurrent weight vector, worth less than the same threshold) are\nconsolidated into the fund's root (TAO) slot as a side effect, so the\nper-holding claim fee shrinks over time; curated positions are left to\ncompound. The transaction fee is charged by work actually done:\nholdings redeemed pay full weight, holdings merely scanned pay a small\nper-row cost.\nPreview per-validator payouts with `root_basket_owed_breakdown`.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "claim_root_with_hotkey"
+      ]
+    ],
+    "docs_url": "/docs/tx/claim-root-with-hotkey",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Validator whose accrued basket yield to claim."
+        }
+      },
+      "required": [
+        "hotkey_ss58"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx claim-root-with-hotkey --hotkey <ss58|name>",
+    "python_class": "ClaimRootWithHotkey",
+    "markdown_url": "/llms.mdx/docs/tx/claim-root-with-hotkey/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "claim_root_with_hotkey",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1958,
+        "end_line": 1969,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1954-L1969",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -555,9 +605,9 @@
         "pallet": "SubtensorModule",
         "call": "clear_coldkey_swap_announcement",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2221,
-        "end_line": 2236,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2219-L2236",
+        "line": 2258,
+        "end_line": 2273,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2256-L2273",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -904,9 +954,9 @@
         "pallet": "SubtensorModule",
         "call": "dispute_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2091,
-        "end_line": 2108,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2089-L2108",
+        "line": 2128,
+        "end_line": 2145,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2126-L2145",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1308,9 +1358,9 @@
         "pallet": "SubtensorModule",
         "call": "lock_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2293,
-        "end_line": 2301,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2291-L2301",
+        "line": 2330,
+        "end_line": 2338,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2328-L2338",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1355,9 +1405,9 @@
         "pallet": "SubtensorModule",
         "call": "move_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2317,
-        "end_line": 2324,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2315-L2324",
+        "line": 2354,
+        "end_line": 2361,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2352-L2361",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3138,9 +3188,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2521,
-        "end_line": 2528,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2519-L2528",
+        "line": 2558,
+        "end_line": 2565,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2556-L2565",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3185,9 +3235,9 @@
         "pallet": "SubtensorModule",
         "call": "set_perpetual_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2333,
-        "end_line": 2340,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2331-L2340",
+        "line": 2370,
+        "end_line": 2377,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2368-L2377",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3195,7 +3245,7 @@
   {
     "name": "set_root_claim_threshold",
     "summary": "Set the minimum TAO payout for a root dividend claim (root only).",
-    "description": "Set the minimum TAO payout for a root dividend claim (root only).\n\n`claim_root` silently skips any per-validator basket redemption whose\nestimated payout falls below this threshold \u2014 the shares keep accruing\nand pay out once they clear it. The threshold exists so dust claims\ncannot grind the chain with tiny swaps; the default is 500,000 rao\n(0.0005 TAO) and the chain caps it at 10,000,000 rao (0.01 TAO).\n\nRequires the chain sudo key: `Executor` wraps the built call in\n`Sudo.sudo` because `origin` is `root`, and when root is a multisig\nthat `Sudo.sudo` call is what the multisig must dispatch. Verify the\neffect afterwards with the `root_claim_threshold` read.",
+    "description": "Set the minimum TAO payout for a root dividend claim (root only).\n\n`claim_root` and `claim_root_with_hotkey` silently skip any\nper-validator basket redemption whose estimated payout falls below this\nthreshold \u2014 the shares keep accruing and pay out once they clear it. The\nthreshold exists so dust claims cannot grind the chain with tiny swaps;\nthe default is 500,000 rao (0.0005 TAO) and the chain caps it at\n10,000,000 rao (0.01 TAO).\n\nRequires the chain sudo key: `Executor` wraps the built call in\n`Sudo.sudo` because `origin` is `root`, and when root is a multisig\nthat `Sudo.sudo` call is what the multisig must dispatch. Verify the\neffect afterwards with the `root_claim_threshold` read.",
     "signer": "coldkey",
     "origin": "root",
     "verify": "root_claim_threshold",
@@ -3240,9 +3290,9 @@
         "pallet": "SubtensorModule",
         "call": "sudo_set_root_claim_threshold",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1985,
-        "end_line": 2004,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1983-L2004",
+        "line": 2022,
+        "end_line": 2041,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2020-L2041",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3250,7 +3300,7 @@
   {
     "name": "set_root_weights",
     "summary": "Set how your root dividends are deployed across subnets (basket weights).",
-    "description": "Set how your root dividends are deployed across subnets (basket weights).\n\nDeclares the root validator's dividend distribution vector: each epoch\nthe chain sells the validator's root alpha dividend for TAO and splits it\nacross the listed subnets in proportion to these weights, buying each\nsubnet's alpha into the validator's basket \u2014 the escrowed\nper-validator index fund that root stakers redeem with `claim_root`.\nNetuid 0 is a valid destination: that share is held as TAO (root stake)\ninstead of subnet alpha, letting a validator keep part of the basket out\nof subnet exposure. Weights are relative; they are max-upscaled and\nquantized to u16 before submission, and zero weights are dropped. Signed\nby the hotkey, which must be registered on the root network and hold the\nminimum stake to set weights; the root weights rate limit applies, and\nevery destination must be netuid 0 or an existing subnet. At least 8\npositive destinations are required (softened when fewer networks exist).\nValidators with no stored root weights default to a balanced 1/n over\nevery live non-root subnet; set this vector to customize allocation.\nRead it back with the `validator_root_weights` read.",
+    "description": "Set how your root dividends are deployed across subnets (basket weights).\n\nDeclares the root validator's dividend distribution vector: each epoch\nthe chain sells the validator's root alpha dividend for TAO and splits it\nacross the listed subnets in proportion to these weights, buying each\nsubnet's alpha into the validator's basket \u2014 the escrowed\nper-validator index fund that root stakers redeem with\n`claim_root_with_hotkey` (or coldkey-wide `claim_root`).\nNetuid 0 is a valid destination: that share is held as TAO (root stake)\ninstead of subnet alpha, letting a validator keep part of the basket out\nof subnet exposure. Weights are relative; they are max-upscaled and\nquantized to u16 before submission, and zero weights are dropped. Signed\nby the hotkey, which must be registered on the root network and hold the\nminimum stake to set weights; the root weights rate limit applies, and\nevery destination must be netuid 0 or an existing subnet. At least 8\npositive destinations are required (softened when fewer networks exist).\nValidators with no stored root weights accrue dividends 100% into the\nfund's root (TAO cash) slot; set this vector to deploy into subnets.\nRead it back with the `validator_root_weights` read.",
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,
@@ -3628,9 +3678,9 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_burn",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2205,
-        "end_line": 2213,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2203-L2213",
+        "line": 2242,
+        "end_line": 2250,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2240-L2250",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3712,9 +3762,9 @@
         "pallet": "SubtensorModule",
         "call": "swap_coldkey_announced",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2060,
-        "end_line": 2080,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2058-L2080",
+        "line": 2097,
+        "end_line": 2117,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2095-L2117",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4081,9 +4131,9 @@
         "pallet": "SubtensorModule",
         "call": "transfer_stake_and_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2428,
-        "end_line": 2446,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2426-L2446",
+        "line": 2465,
+        "end_line": 2483,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2463-L2483",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

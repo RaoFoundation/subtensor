@@ -1,6 +1,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use crate::tests::mock::*;
+use crate::weights::WeightInfo;
 use crate::{
     BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
     Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
@@ -307,7 +308,7 @@ fn test_root_basket_accrues_per_weights() {
 }
 
 #[test]
-fn test_root_basket_defaults_to_all_subnets_without_weights() {
+fn test_root_basket_defaults_to_root_without_weights() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -331,7 +332,8 @@ fn test_root_basket_defaults_to_all_subnets_without_weights() {
             10_000_000u64.into(),
         );
 
-        // No root weights set: default is balanced 1/n over every live non-root subnet.
+        // No root weights set for the validator: default is 100% root (TAO in the basket).
+        let ts_before = TotalStake::<Test>::get().to_u64();
         SubtensorModule::distribute_emission(
             netuid,
             AlphaBalance::ZERO,
@@ -339,17 +341,22 @@ fn test_root_basket_defaults_to_all_subnets_without_weights() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        let ts_after = TotalStake::<Test>::get().to_u64();
 
+        let escrow_root = escrow_alpha(&hotkey, NetUid::ROOT);
         let shares = fund_shares(&hotkey);
+        assert!(escrow_root > 0, "escrow must hold root stake");
         assert!(shares > 0, "fund shares must be minted");
         assert!(has_fund(&hotkey));
-        assert!(
-            escrow_alpha(&hotkey, netuid) > 0,
-            "default 1/n must buy the only live subnet"
-        );
+        assert_eq!(escrow_alpha(&hotkey, netuid), 0, "no subnet alpha bought");
+        assert_abs_diff_eq!(escrow_root, shares, epsilon = 10u64);
         assert!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey) > 0,
             "staker must accrue fund shares"
+        );
+        assert_eq!(
+            ts_before, ts_after,
+            "root deposit must be TotalStake-neutral"
         );
     });
 }
@@ -506,6 +513,185 @@ fn test_root_basket_records_symmetric_protocol_flow() {
 // =============================================================================
 // Beta basket: claiming (pro-rata fund redemption, swapped to root TAO)
 // =============================================================================
+
+/// A claim consolidates dust holdings (realizable value below the claim threshold) into
+/// the fund's root slot, deleting the holding row, before redeeming. Dust rows otherwise
+/// persist forever: their pro-rata takes floor to zero, yet every claim pays weight per row.
+#[test]
+fn test_root_claim_consolidates_dust_holdings() {
+    new_test_ext(1).execute_with(|| {
+        let owner_a = U256::from(1001);
+        let owner_b = U256::from(1004);
+        let owner_c = U256::from(1006);
+        let hotkey = U256::from(1002);
+        let hotkey_b = U256::from(1005);
+        let hotkey_c = U256::from(1007);
+        let coldkey = U256::from(1003);
+        let netuid_a = add_dynamic_network(&hotkey, &owner_a);
+        let netuid_b = add_dynamic_network(&hotkey_b, &owner_b);
+        let netuid_c = add_dynamic_network(&hotkey_c, &owner_c);
+        remove_owner_registration_stake(netuid_a);
+        fund_pool(netuid_a);
+        fund_pool(netuid_b);
+        fund_pool(netuid_c);
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        // Dust bar: holdings realizing below 10_000 rao consolidate. The claim payout
+        // (~1e6 rao) clears the same threshold, so the claim itself still pays out.
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(10_000));
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner_a,
+            netuid_a,
+            10_000_000u64.into(),
+        );
+
+        // Curated basket: everything into B.
+        set_root_weights_direct(&hotkey, 0, &[(netuid_b, u16::MAX)]);
+        SubtensorModule::distribute_emission(
+            netuid_a,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            1_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+        assert!(escrow_alpha(&hotkey, netuid_b) > 0, "fund must hold B alpha");
+
+        // Plant a dust holding on C (e.g. left behind by an earlier, wider weight vector).
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid_c,
+            1_000u64.into(),
+        );
+
+        let stake_before = root_stake_of(&hotkey, &coldkey);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
+
+        assert_eq!(
+            escrow_alpha(&hotkey, netuid_c),
+            0,
+            "dust holding must be consolidated away"
+        );
+        assert!(
+            root_stake_of(&hotkey, &coldkey) > stake_before,
+            "claim must still pay out"
+        );
+    });
+}
+
+/// A below-threshold claim is a no-op for redemption but still consolidates orphaned dust
+/// (leaving curated holdings alone) and is charged as a scan (plus the swept row), not as
+/// a full per-row claim.
+#[test]
+fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
+    new_test_ext(1).execute_with(|| {
+        let owner_a = U256::from(1001);
+        let owner_b = U256::from(1004);
+        let owner_c = U256::from(1006);
+        let hotkey = U256::from(1002);
+        let hotkey_b = U256::from(1005);
+        let hotkey_c = U256::from(1007);
+        let coldkey = U256::from(1003);
+        let netuid_a = add_dynamic_network(&hotkey, &owner_a);
+        let netuid_b = add_dynamic_network(&hotkey_b, &owner_b);
+        let netuid_c = add_dynamic_network(&hotkey_c, &owner_c);
+        remove_owner_registration_stake(netuid_a);
+        fund_pool(netuid_a);
+        fund_pool(netuid_b);
+        fund_pool(netuid_c);
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner_a,
+            netuid_a,
+            10_000_000u64.into(),
+        );
+
+        set_root_weights_direct(&hotkey, 0, &[(netuid_b, u16::MAX)]);
+        SubtensorModule::distribute_emission(
+            netuid_a,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            1_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+        assert!(escrow_alpha(&hotkey, netuid_b) > 0, "fund must hold B alpha");
+        assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), 0);
+
+        // Plant an orphaned dust holding on C (not in the weight vector).
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid_c,
+            1_000u64.into(),
+        );
+
+        // Threshold above the whole fund NAV: the claim no-ops. The orphaned C dust is
+        // consolidated; the curated B holding — also below the bar — must stay.
+        RootClaimableThreshold::<Test>::insert(
+            NetUid::ROOT,
+            I96F32::from_num(MAX_ROOT_CLAIM_THRESHOLD),
+        );
+
+        let shares_before = fund_shares(&hotkey);
+        let stake_before = root_stake_of(&hotkey, &coldkey);
+        let b_before = escrow_alpha(&hotkey, netuid_b);
+
+        let post = SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey)
+            .expect("no-op claim succeeds");
+
+        // No redemption happened...
+        assert_eq!(fund_shares(&hotkey), shares_before, "shares untouched");
+        assert_eq!(
+            root_stake_of(&hotkey, &coldkey),
+            stake_before,
+            "no payout below threshold"
+        );
+        // ...the orphaned dust was consolidated into the root slot, the curated holding kept.
+        assert_eq!(escrow_alpha(&hotkey, netuid_c), 0, "orphaned C dust swept");
+        assert_eq!(
+            escrow_alpha(&hotkey, netuid_b),
+            b_before,
+            "curated B holding must not be swept"
+        );
+        assert!(
+            escrow_alpha(&hotkey, NetUid::ROOT) > 0,
+            "swept value held as the fund's root (TAO) slot"
+        );
+
+        // Charged as one active unit (the swept row) plus a two-row scan (B + the new root
+        // slot) — not the full per-row claim weight.
+        let actual = post
+            .actual_weight
+            .expect("claim reports benchmark-derived actual weight");
+        let expected = <Test as crate::Config>::WeightInfo::claim_root(1).saturating_add(
+            <Test as crate::Config>::WeightInfo::claim_root_scan(2),
+        );
+        assert_eq!(actual, expected);
+    });
+}
 
 #[test]
 fn test_root_basket_claim_swaps_to_root() {
@@ -2484,7 +2670,9 @@ fn test_root_basket_dust_deposit_recycled() {
 }
 
 /// A claim below the dust threshold is a complete no-op: nothing is consumed, and the full
-/// amount remains claimable once the threshold permits.
+/// amount remains claimable once the threshold permits. The fund's holding here is CURATED
+/// (the weight vector points at it), so the dust sweep must leave it alone even though its
+/// value is below the threshold — deliberate positions compound, only orphaned dust sweeps.
 #[test]
 fn test_root_basket_threshold_skip_consumes_nothing() {
     new_test_ext(1).execute_with(|| {
@@ -2526,16 +2714,22 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
         let escrow_before = escrow_alpha(&hotkey, netuid);
         let root_before = root_stake_of(&hotkey, &coldkey);
         assert!(owed_before > 0);
+        assert!(escrow_before > 0);
 
-        // Below threshold: skipped, nothing consumed.
+        // Below threshold: skipped, nothing consumed. The holding is curated, so the dust
+        // sweep exempts it despite its sub-threshold value.
         assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
         assert_eq!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
             owed_before
         );
         assert_eq!(fund_shares(&hotkey), shares_before);
-        assert_eq!(escrow_alpha(&hotkey, netuid), escrow_before);
         assert_eq!(root_stake_of(&hotkey, &coldkey), root_before);
+        assert_eq!(
+            escrow_alpha(&hotkey, netuid),
+            escrow_before,
+            "curated holding must not be swept"
+        );
 
         // Lower the threshold: the full amount pays out.
         zero_claim_threshold();

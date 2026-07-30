@@ -1,10 +1,12 @@
 use super::*;
+use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::{Weight, WeightMeter};
 use sp_core::Get;
 use sp_runtime::DispatchError;
 use sp_runtime::traits::AccountIdConversion;
 use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{NetUidStorageIndex, clear_prefix_with_meter};
 use subtensor_swap_interface::SwapHandler;
@@ -28,11 +30,36 @@ enum BasketFunding<'a, AccountId> {
     User(&'a AccountId),
 }
 
+/// Work actually performed by a fund-level root claim, used to size post-dispatch weight
+/// (and aggregated across hotkeys for coldkey-wide claims).
+#[derive(Default, Clone, Copy)]
+pub struct RootClaimOutcome {
+    /// TAO realized and staked back to root for the staker.
+    pub tao: u64,
+    /// Escrow holding rows scanned (each is a sim-swap valuation plus reads).
+    pub rows: u32,
+    /// Holdings actually redeemed (pro-rata take > 0: a swap plus stake writes).
+    pub realized: u32,
+    /// Dust holdings consolidated into the root slot (one swap each).
+    pub swept: u32,
+}
+
+impl RootClaimOutcome {
+    fn accumulate(&mut self, other: Self) {
+        self.tao = self.tao.saturating_add(other.tao);
+        self.rows = self.rows.saturating_add(other.rows);
+        self.realized = self.realized.saturating_add(other.realized);
+        self.swept = self.swept.saturating_add(other.swept);
+    }
+}
+
 impl<T: Config> Pallet<T> {
-    /// Reject user-facing basket / root-stake mutations while the multi-block
-    /// `migrate_seed_beta_basket_v2` cursor is still present. Dividend distribution
-    /// recycles instead of calling this (soft path); deposits, claims, swaps, and
-    /// root stake add/remove/transfer hard-error here.
+    /// Reject user-facing basket / root-stake mutations while the
+    /// `migrate_seed_beta_basket_v2` cursor is still present. The seed runs to completion
+    /// inside the upgrade block, so this never fires on a healthy chain; it guards an
+    /// interrupted or partially-applied seed. Dividend distribution recycles instead of
+    /// calling this (soft path); deposits, claims, swaps, and root stake
+    /// add/remove/transfer hard-error here.
     pub(crate) fn ensure_beta_basket_seed_idle() -> Result<(), Error<T>> {
         ensure!(
             !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
@@ -67,37 +94,22 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
-    /// Balanced `1/n` basket vector over every live non-root subnet (equal `u16::MAX`
-    /// entries, sorted). Same seed the upgrade migration writes. When no productive
-    /// subnets exist yet, falls back to 100% root (TAO cash slot).
-    pub fn default_balanced_basket_weights() -> Vec<(u16, u16)> {
-        let mut dests: Vec<u16> = Self::get_all_subnet_netuids()
-            .into_iter()
-            .filter(|netuid| !netuid.is_root())
-            .map(u16::from)
-            .collect();
-        dests.sort_unstable();
-        if dests.is_empty() {
-            vec![(u16::from(NetUid::ROOT), u16::MAX)]
-        } else {
-            dests.into_iter().map(|netuid| (netuid, u16::MAX)).collect()
-        }
-    }
-
     /// The validator's usable basket weight vector: entries pointing at root (the fund's
     /// TAO/cash slot) or an existing subnet, zero weights dropped. The vector follows the
     /// validator's root uid (so it survives hotkey swaps automatically) and reuses the
     /// existing root weights plumbing. An empty / missing stored vector means "non-specific":
-    /// deploy balanced `1/n` across every live non-root subnet (same as the upgrade seed).
-    /// Returns an empty vector only when explicit weights filter to nothing. Every returned
-    /// weight is positive, so a non-empty vector always has a positive weight sum.
+    /// dividends accrue 100% into the fund's root (TAO cash) slot — one holding row, no
+    /// swaps, no forced subnet exposure — until the validator curates with
+    /// `set_root_weights`. Returns an empty vector only when explicit weights filter to
+    /// nothing. Every returned weight is positive, so a non-empty vector always has a
+    /// positive weight sum.
     pub fn get_valid_basket_weights(hotkey: &T::AccountId) -> Vec<(NetUid, u64)> {
         let maybe_uid = Uids::<T>::try_get(NetUid::ROOT, hotkey).ok();
         let stored_weights = maybe_uid
             .map(|uid| Weights::<T>::get(NetUidStorageIndex::ROOT, uid))
             .unwrap_or_default();
         let weights = if stored_weights.is_empty() {
-            Self::default_balanced_basket_weights()
+            vec![(u16::from(NetUid::ROOT), u16::MAX)]
         } else {
             stored_weights
         };
@@ -179,7 +191,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// The whole operation is transactional: if any swap fails (or the deposit is dust), it is
     /// rolled back and the original alpha is recycled. Validators with no stored root weights
-    /// default to a balanced `1/n` over every live non-root subnet. Dividends are recycled only
+    /// deposit 100% into the fund's root (TAO cash) slot. Dividends are recycled only
     /// when explicit weights filter to nothing, or when the validator has no root stake to
     /// apportion against.
     ///
@@ -196,9 +208,10 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        // Multi-block seed migration still converting legacy claim state: recycle rather than
-        // mint into BasketRate/Shares that a later migration pass would overwrite with the
-        // legacy conversion totals (stranding intervening escrow buys).
+        // Seed migration still converting legacy claim state (only possible if the one-shot
+        // upgrade run was interrupted): recycle rather than mint into BasketRate/Shares that
+        // a later migration pass would overwrite with the legacy conversion totals
+        // (stranding intervening escrow buys).
         if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
             Self::recycle_subnet_alpha(origin_netuid, root_alpha);
             return;
@@ -588,28 +601,47 @@ impl<T: Config> Pallet<T> {
     /// composition, claims and (future) validator-directed rebalancing never interfere. All
     /// realized TAO is staked on root for the staker.
     ///
-    /// Returns the TAO realized and staked for the staker (zero for every no-op path).
+    /// Before redeeming, the fund's orphaned dust holdings (subnets outside the
+    /// validator's current weight vector) are consolidated into its root slot (see
+    /// [`Self::consolidate_dust_basket_holdings`]); consolidation commits even when the
+    /// redemption below no-ops or rolls back, so stale holding rows — and with them every
+    /// staker's per-row claim weight — decay instead of persisting forever.
+    ///
+    /// Returns a [`RootClaimOutcome`]: the TAO realized (zero for every no-op path) plus
+    /// the work counters the dispatcher charges weight from.
     pub fn root_claim_for_hotkey(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
         ignore_minimum_condition: bool,
-    ) -> Result<u64, DispatchError> {
+    ) -> Result<RootClaimOutcome, DispatchError> {
+        let mut outcome = RootClaimOutcome::default();
+
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {
-            return Ok(0); // no-op
+            return Ok(outcome); // no-op
         }
 
         let shares_total: u64 = BasketShares::<T>::get(hotkey);
         // Nothing realizable yet (fund drained); leave the watermark untouched so the claim can
         // pay out once the fund has value again.
         if shares_total == 0 {
-            return Ok(0);
+            return Ok(outcome);
         }
         // A claim can never redeem more than the outstanding fund.
         let owed_shares = owed_shares.min(shares_total);
 
+        // Consolidate dust holdings first, outside the redemption transaction, so the
+        // cleanup sticks regardless of how the claim itself resolves.
+        outcome.swept = Self::consolidate_dust_basket_holdings(hotkey);
+
+        let holdings = Self::get_basket_holdings(hotkey);
+        outcome.rows = holdings.len() as u32;
+
         // Dust check against the estimated payout (owed fraction of the marked NAV).
-        let nav = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+        // Same valuation as `get_validator_basket_nav_tao`, reusing the holdings read.
+        let nav: u64 = holdings.iter().fold(0u64, |acc, (netuid, alpha)| {
+            acc.saturating_add(Self::realizable_tao_for_alpha(*netuid, alpha.to_u64()))
+        });
         let estimated_payout: u64 = Self::basket_payout_from(owed_shares, nav, shares_total);
         if !ignore_minimum_condition
             && I96F32::saturating_from_num(estimated_payout)
@@ -618,16 +650,18 @@ impl<T: Config> Pallet<T> {
             log::debug!(
                 "root claim skipped (below threshold): payout={estimated_payout:?} h={hotkey:?} c={coldkey:?}"
             );
-            return Ok(0); // no-op
+            return Ok(outcome); // no-op
         }
         if estimated_payout == 0 {
-            return Ok(0);
+            return Ok(outcome);
         }
 
         let escrow = Self::get_beta_escrow_account_id();
-        let holdings = Self::get_basket_holdings(hotkey);
 
-        with_transaction(|| {
+        // Redeemed slots are counted outside the transaction: a rolled-back redemption
+        // still executed its swaps, so the work is charged either way.
+        let realized = &mut outcome.realized;
+        outcome.tao = with_transaction(|| {
             // TAO credited to the staker's root stake, split by source: the root-slot portion is
             // a stake reassignment (no new TAO on root), while subnet sells realize new TAO that
             // must also be credited to the root reserves.
@@ -640,6 +674,7 @@ impl<T: Config> Pallet<T> {
                 if take == 0 {
                     continue;
                 }
+                *realized = realized.saturating_add(1);
 
                 Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                     hotkey,
@@ -711,47 +746,82 @@ impl<T: Config> Pallet<T> {
             });
 
             TransactionOutcome::Commit(Ok::<u64, DispatchError>(total_tao))
-        })
+        })?;
+
+        Ok(outcome)
     }
 
-    /// Returns the hotkey set and benchmark work parameter for a coldkey-wide root claim.
-    pub(crate) fn root_claim_work(coldkey: &T::AccountId) -> (Vec<T::AccountId>, u32) {
-        let hotkeys = StakingHotkeys::<T>::get(coldkey);
-        let work = Self::root_claim_work_for_hotkeys(&hotkeys);
-        (hotkeys, work)
-    }
-
-    /// Benchmark work parameter for claiming the given validator hotkeys.
+    /// Consolidates a fund's *orphaned* dust holdings into its root (TAO cash) slot: every
+    /// holding on a subnet the validator's current weight vector does not point at, whose
+    /// realizable value is below `RootClaimableThreshold`, is sold in full and held as
+    /// escrow root stake, deleting the holding row. Without this, dust rows live forever —
+    /// a claim's pro-rata take floors to zero whenever `slot_alpha < P / owed`, so tiny
+    /// holdings are never redeemed, yet every claim charges weight per holding row.
     ///
-    /// The benchmark uses one hotkey with one basket position per work unit. Charging
-    /// `max(hotkeys, holdings)` therefore covers callers with many empty hotkeys, callers
-    /// with many holdings on one hotkey, and mixtures of the two. Counts are unbounded —
-    /// fat baskets may exceed [`crate::MAX_ROOT_CLAIM_WORK`]; the extrinsic pays the
-    /// resulting weight rather than hard-failing.
-    pub(crate) fn root_claim_work_for_hotkeys(hotkeys: &[T::AccountId]) -> u32 {
-        let escrow = Self::get_beta_escrow_account_id();
-        let mut holding_rows = 0_u32;
-
-        for hotkey in hotkeys {
-            for _ in Alpha::<T>::iter_prefix((hotkey, &escrow))
-                .map(|_| ())
-                .chain(AlphaV2::<T>::iter_prefix((hotkey, &escrow)).map(|_| ()))
-            {
-                holding_rows = holding_rows.saturating_add(1);
-            }
+    /// Curated destinations are exempt: dividend deployment re-buys them every epoch, and a
+    /// deliberate position must be allowed to compound past the threshold instead of being
+    /// flattened to TAO on every claim. A curated dust row keeps charging the (cheap)
+    /// per-row scan weight — the honest price of keeping it on the books.
+    ///
+    /// Consolidation is NAV-continuous (minus slippage on a sub-threshold amount) and
+    /// touches no shares or watermarks. Best-effort per holding: a failed swap leaves the
+    /// row for a later attempt. Returns the number of holdings converted.
+    pub(crate) fn consolidate_dust_basket_holdings(hotkey: &T::AccountId) -> u32 {
+        let threshold: u64 =
+            RootClaimableThreshold::<T>::get(NetUid::ROOT).saturating_to_num::<u64>();
+        if threshold == 0 {
+            return 0;
         }
 
-        let hotkey_count = hotkeys.len() as u32;
-        hotkey_count.max(holding_rows).max(1)
+        let curated: BTreeSet<NetUid> = Self::get_valid_basket_weights(hotkey)
+            .into_iter()
+            .map(|(netuid, _)| netuid)
+            .collect();
+
+        let escrow = Self::get_beta_escrow_account_id();
+        let mut swept: u32 = 0;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            if netuid.is_root() || curated.contains(&netuid) {
+                continue;
+            }
+            if Self::realizable_tao_for_alpha(netuid, alpha.to_u64()) < threshold
+                && Self::convert_basket_holding_to_root(hotkey, &escrow, netuid)
+            {
+                swept = swept.saturating_add(1);
+            }
+        }
+        swept
+    }
+
+    /// Actual post-dispatch weight of a root claim: full benchmark units for the slots
+    /// that did real work (redeemed or swept — a swap plus stake writes each, floored at
+    /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row
+    /// scan cost for holdings that were only valued. This is what lets a fund's claim fee
+    /// decay as dust rows are consolidated, and makes a below-threshold no-op cost a scan
+    /// instead of a full claim. Counts are unbounded — fat baskets may exceed
+    /// [`crate::MAX_ROOT_CLAIM_WORK`]; the extrinsic pays the resulting weight rather
+    /// than hard-failing.
+    pub(crate) fn root_claim_actual_weight(
+        hotkey_count: u32,
+        outcome: &RootClaimOutcome,
+    ) -> Weight {
+        let active = hotkey_count
+            .max(outcome.realized.saturating_add(outcome.swept))
+            .max(1);
+        let scanned = outcome.rows.saturating_sub(outcome.realized);
+        <T as crate::pallet::Config>::WeightInfo::claim_root(active)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                scanned,
+            ))
     }
 
     pub fn do_root_claim(
         coldkey: T::AccountId,
         hotkeys: Vec<T::AccountId>,
-    ) -> Result<(), DispatchError> {
+    ) -> Result<RootClaimOutcome, DispatchError> {
         Self::ensure_beta_basket_seed_idle()?;
         with_transaction(|| match Self::try_do_root_claim(coldkey, &hotkeys) {
-            Ok(()) => TransactionOutcome::Commit(Ok(())),
+            Ok(outcome) => TransactionOutcome::Commit(Ok(outcome)),
             Err(err) => TransactionOutcome::Rollback(Err(err)),
         })
     }
@@ -759,19 +829,19 @@ impl<T: Config> Pallet<T> {
     fn try_do_root_claim(
         coldkey: T::AccountId,
         hotkeys: &[T::AccountId],
-    ) -> Result<(), DispatchError> {
-        let mut total_tao: u64 = 0;
+    ) -> Result<RootClaimOutcome, DispatchError> {
+        let mut total = RootClaimOutcome::default();
         for hotkey in hotkeys {
-            let realized = Self::root_claim_for_hotkey(hotkey, &coldkey, false)?;
-            total_tao = total_tao.saturating_add(realized);
+            let outcome = Self::root_claim_for_hotkey(hotkey, &coldkey, false)?;
+            total.accumulate(outcome);
         }
 
         Self::deposit_event(Event::RootClaimed {
             coldkey,
-            tao: total_tao.into(),
+            tao: total.tao.into(),
         });
 
-        Ok(())
+        Ok(total)
     }
 
     pub fn maybe_add_coldkey_index(coldkey: &T::AccountId) {
@@ -979,18 +1049,20 @@ impl<T: Config> Pallet<T> {
         (true, None)
     }
 
+    /// Returns `true` when the holding was converted (false: nothing held, or the
+    /// conversion rolled back on a failed swap).
     fn convert_basket_holding_to_root(
         hotkey: &T::AccountId,
         escrow: &T::AccountId,
         netuid: NetUid,
-    ) {
+    ) -> bool {
         let holding_alpha =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid);
         if holding_alpha.is_zero() {
-            return;
+            return false;
         }
 
-        let _ = with_transaction(|| {
+        with_transaction(|| {
             Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                 hotkey,
                 escrow,
@@ -1022,7 +1094,8 @@ impl<T: Config> Pallet<T> {
             });
 
             TransactionOutcome::Commit(Ok::<(), DispatchError>(()))
-        });
+        })
+        .is_ok()
     }
 
     /// Sells basket `alpha` on `netuid` for TAO and lands it in the root subnet account, booking
