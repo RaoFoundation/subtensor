@@ -64,10 +64,9 @@ stake; a claim pays it out as TAO staked back to root.
   each deposit bears its own swap slippage.
 - **Claims are proportional.** A claim redeems the staker's owed fraction of
   every holding pro-rata, preserving fund composition.
-- **Default is 100% TAO (the root slot).** A validator with no custom
-  weights still accrues — dividends land in the fund's root cash slot as
-  plain TAO, with no forced subnet exposure and a single holding to claim
-  against. Deploying into subnets is an explicit act of curation:
+- **Default is balanced 1/n over every live subnet.** A validator with no
+  custom weights still accrues — dividends deploy equally across non-root
+  subnets. Weight netuid 0 to hold a slice as TAO instead of subnet alpha.
   `set_root_weights` requires at least 8 positive destinations (softened
   when fewer networks exist), and netuid 0 remains a valid destination to
   keep part of a curated basket in TAO.
@@ -107,8 +106,7 @@ Steps to a working fund:
    gates weight-setting: the hotkey must clear the minimum stake to set
    weights.
 3. **Curate** your basket weights (next section). Until you set a vector,
-   dividends accrue 100% as TAO in the fund's root slot — safe, just
-   unopinionated.
+   dividends deploy balanced 1/n across every live non-root subnet.
 4. **Earn.** Registration marks the hotkey as a delegate with the default
    18% take; your dividends deploy into the basket each epoch and your
    stakers accrue the rest pro-rata.

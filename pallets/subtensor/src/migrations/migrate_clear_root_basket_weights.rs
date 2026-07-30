@@ -9,15 +9,14 @@ use subtensor_runtime_common::NetUidStorageIndex;
 ///
 /// Legacy `set_root_weights` / root-network weight vectors reused `Weights[ROOT]` and
 /// are not meaningful basket curation; wiping them avoids carrying old subnet-score
-/// vectors into Root Reborn. No vector is seeded in their place: a validator with no
-/// stored vector accrues 100% into the fund's root (TAO cash) slot until it curates
-/// with `set_root_weights`. A balanced 1/n-over-all-subnets seed was considered and
-/// rejected — it creates one escrow holding row per subnet, and claim weight is charged
-/// per holding row, so an uncurated fund would tax every staker's claims indefinitely.
+/// vectors into Root Reborn. No vector is seeded in their place: an empty stored vector
+/// is resolved at runtime to a balanced `1/n` over every live non-root subnet (see
+/// [`crate::Pallet::default_balanced_basket_weights`]), so new subnets join the default
+/// index automatically without rewriting storage.
 ///
 /// Uses a fresh `HasMigrationRun` key (`clear_root_basket_weights_v2`) so environments
 /// that ran the superseded balanced-seed variant (`seed_balanced_root_basket_weights`)
-/// get their seeded 1/n vectors wiped too.
+/// get their seeded (and now-stale) 1/n vectors wiped too.
 pub fn migrate_clear_root_basket_weights<T: Config>() -> Weight {
     let mig_name: Vec<u8> = b"clear_root_basket_weights_v2".to_vec();
     let mig_name_str = String::from_utf8_lossy(&mig_name);

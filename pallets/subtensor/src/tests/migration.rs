@@ -2909,7 +2909,7 @@ fn test_migrate_clear_root_basket_weights() {
         assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
 
         // Clear-only: no vector is seeded in place of the wiped ones — an empty stored
-        // vector means dividends accrue 100% into the fund's root (TAO cash) slot.
+        // vector resolves at runtime to balanced 1/n over every live non-root subnet.
         assert!(Weights::<Test>::get(root, uid_a).is_empty());
         assert!(Weights::<Test>::get(root, uid_b).is_empty());
         assert_eq!(

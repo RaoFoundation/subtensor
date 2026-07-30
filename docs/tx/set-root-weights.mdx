@@ -19,8 +19,8 @@ by the hotkey, which must be registered on the root network and hold the
 minimum stake to set weights; the root weights rate limit applies, and
 every destination must be netuid 0 or an existing subnet. At least 8
 positive destinations are required (softened when fewer networks exist).
-Validators with no stored root weights accrue dividends 100% into the
-fund's root (TAO cash) slot; set this vector to deploy into subnets.
+Validators with no stored root weights default to a balanced 1/n over
+every live non-root subnet; set this vector to curate a different basket.
 Read it back with the `validator_root_weights` read.
 
 | Signer | Origin | Pallet | Wraps |
