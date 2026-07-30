@@ -307,7 +307,7 @@ fn test_root_basket_accrues_per_weights() {
 }
 
 #[test]
-fn test_root_basket_defaults_to_root_without_weights() {
+fn test_root_basket_defaults_to_all_subnets_without_weights() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -331,8 +331,7 @@ fn test_root_basket_defaults_to_root_without_weights() {
             10_000_000u64.into(),
         );
 
-        // No root weights set for the validator: default is 100% root (TAO in the basket).
-        let ts_before = TotalStake::<Test>::get().to_u64();
+        // No root weights set: default is balanced 1/n over every live non-root subnet.
         SubtensorModule::distribute_emission(
             netuid,
             AlphaBalance::ZERO,
@@ -340,22 +339,17 @@ fn test_root_basket_defaults_to_root_without_weights() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
-        let ts_after = TotalStake::<Test>::get().to_u64();
 
-        let escrow_root = escrow_alpha(&hotkey, NetUid::ROOT);
         let shares = fund_shares(&hotkey);
-        assert!(escrow_root > 0, "escrow must hold root stake");
         assert!(shares > 0, "fund shares must be minted");
         assert!(has_fund(&hotkey));
-        assert_eq!(escrow_alpha(&hotkey, netuid), 0, "no subnet alpha bought");
-        assert_abs_diff_eq!(escrow_root, shares, epsilon = 10u64);
+        assert!(
+            escrow_alpha(&hotkey, netuid) > 0,
+            "default 1/n must buy the only live subnet"
+        );
         assert!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey) > 0,
             "staker must accrue fund shares"
-        );
-        assert_eq!(
-            ts_before, ts_after,
-            "root deposit must be TotalStake-neutral"
         );
     });
 }
@@ -2923,6 +2917,89 @@ fn test_root_basket_zero_realized_claim_burns_nothing() {
         assert_eq!(escrow_alpha(&hotkey, netuid), escrow_before);
         assert_eq!(root_stake_of(&hotkey, &coldkey), root_before);
         assert_eq!(BasketClaimed::<Test>::get(hotkey, coldkey), 0);
+    });
+}
+
+/// A mixed claim — one holding pays, another valuable holding floors to take == 0 — must not
+/// settle. Burning all owed shares would hand the unsliced holding to remaining shareholders
+/// (99/100 of a 1-alpha position → floor 0; the leftover 1-share holder then owns it whole).
+#[test]
+fn test_root_basket_mixed_forfeit_claim_burns_nothing() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let alice = U256::from(1003);
+        let bob = U256::from(1004);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+        remove_owner_registration_stake(netuid);
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        // High-price pool: 1 alpha realizes meaningful TAO.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(100_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+
+        // Alice 99 / Bob 1 of root stake; rate = 1 ⇒ owed shares match stake units.
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            99u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &bob,
+            NetUid::ROOT,
+            1u64.into(),
+        );
+
+        // Curated destination so dust consolidation will not flatten the 1-alpha row.
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        // Paying root-slot cash + one atomic unit of expensive curated alpha.
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            1u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 100u64);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+
+        let alice_owed = SubtensorModule::get_basket_owed_shares(&hotkey, &alice);
+        assert_eq!(alice_owed, 99, "alice owed = {alice_owed}");
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), 1);
+
+        // Alice's alpha take floors: floor(1 * 99 / 100) = 0; root take is positive.
+        assert_eq!(SubtensorModule::mul_div_u64(1, 99, 100), 0);
+        assert!(SubtensorModule::mul_div_u64(1_000_000, 99, 100) > 0);
+
+        let shares_before = fund_shares(&hotkey);
+        let alpha_before = escrow_alpha(&hotkey, netuid);
+        let alice_root_before = root_stake_of(&hotkey, &alice);
+
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
+
+        // Complete no-op: Alice must not burn shares for a bag that forfeits valuable alpha.
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &alice),
+            alice_owed
+        );
+        assert_eq!(fund_shares(&hotkey), shares_before);
+        assert_eq!(escrow_alpha(&hotkey, netuid), alpha_before);
+        assert_eq!(root_stake_of(&hotkey, &alice), alice_root_before);
+        assert_eq!(BasketClaimed::<Test>::get(hotkey, alice), 0);
     });
 }
 

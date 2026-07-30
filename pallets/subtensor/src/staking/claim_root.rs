@@ -93,22 +93,37 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
+    /// Balanced `1/n` basket vector over every live non-root subnet (equal `u16::MAX`
+    /// entries, sorted). Applied whenever a validator has no stored root weights. When no
+    /// productive subnets exist yet, falls back to 100% root (TAO cash slot).
+    pub fn default_balanced_basket_weights() -> Vec<(u16, u16)> {
+        let mut dests: Vec<u16> = Self::get_all_subnet_netuids()
+            .into_iter()
+            .filter(|netuid| !netuid.is_root())
+            .map(u16::from)
+            .collect();
+        dests.sort_unstable();
+        if dests.is_empty() {
+            vec![(u16::from(NetUid::ROOT), u16::MAX)]
+        } else {
+            dests.into_iter().map(|netuid| (netuid, u16::MAX)).collect()
+        }
+    }
+
     /// The validator's usable basket weight vector: entries pointing at root (the fund's
     /// TAO/cash slot) or an existing subnet, zero weights dropped. The vector follows the
     /// validator's root uid (so it survives hotkey swaps automatically) and reuses the
     /// existing root weights plumbing. An empty / missing stored vector means "non-specific":
-    /// dividends accrue 100% into the fund's root (TAO cash) slot — one holding row, no
-    /// swaps, no forced subnet exposure — until the validator curates with
-    /// `set_root_weights`. Returns an empty vector only when explicit weights filter to
-    /// nothing. Every returned weight is positive, so a non-empty vector always has a
-    /// positive weight sum.
+    /// deploy balanced `1/n` across every live non-root subnet. Returns an empty vector only
+    /// when explicit weights filter to nothing. Every returned weight is positive, so a
+    /// non-empty vector always has a positive weight sum.
     pub fn get_valid_basket_weights(hotkey: &T::AccountId) -> Vec<(NetUid, u64)> {
         let maybe_uid = Uids::<T>::try_get(NetUid::ROOT, hotkey).ok();
         let stored_weights = maybe_uid
             .map(|uid| Weights::<T>::get(NetUidStorageIndex::ROOT, uid))
             .unwrap_or_default();
         let weights = if stored_weights.is_empty() {
-            vec![(u16::from(NetUid::ROOT), u16::MAX)]
+            Self::default_balanced_basket_weights()
         } else {
             stored_weights
         };
@@ -190,7 +205,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// The whole operation is transactional: if any swap fails (or the deposit is dust), it is
     /// rolled back and the original alpha is recycled. Validators with no stored root weights
-    /// deposit 100% into the fund's root (TAO cash) slot. Dividends are recycled only
+    /// default to a balanced `1/n` over every live non-root subnet. Dividends are recycled only
     /// when explicit weights filter to nothing, or when the validator has no root stake to
     /// apportion against.
     ///
@@ -652,6 +667,23 @@ impl<T: Config> Pallet<T> {
         }
         if estimated_payout == 0 {
             return Ok(outcome);
+        }
+
+        // A claim that pays on some holdings but floors a valuable holding to take == 0 must
+        // not settle: burning all owed shares would forfeit that holding to remaining
+        // shareholders (e.g. 99/100 of a 1-alpha position → floor 0, then the leftover
+        // 1-share holder owns the whole unit). Same posture as the all-zero-take rollback
+        // below — leave the watermark untouched. Worthless rows (realizable 0) are ignored.
+        for (netuid, slot_alpha) in holdings.iter() {
+            let alpha = slot_alpha.to_u64();
+            if alpha == 0 {
+                continue;
+            }
+            if Self::mul_div_u64(alpha, owed_shares, shares_total) == 0
+                && Self::realizable_tao_for_alpha(*netuid, alpha) > 0
+            {
+                return Ok(outcome);
+            }
         }
 
         let escrow = Self::get_beta_escrow_account_id();
