@@ -528,8 +528,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 362,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L362",
+          "line": 358,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L358",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -5075,42 +5075,6 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooManyReserves/content.md",
       "pallets": [
         "Balances"
-      ]
-    },
-    "TooManyRootClaimHoldings": {
-      "code": "limit_exceeded",
-      "description": "`claim_root` would inspect more basket-position rows than its benchmarked bound (`MAX_ROOT_CLAIM_WORK`). Split the claim across fewer validators / smaller baskets, or wait until holdings shrink before retrying.",
-      "docs_url": "/docs/errors/chain/TooManyRootClaimHoldings",
-      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyRootClaimHoldings/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 357,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L357",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "TooManyRootClaimHotkeys": {
-      "code": "limit_exceeded",
-      "description": "`claim_root` would inspect more validator hotkeys than its benchmarked bound (`MAX_ROOT_CLAIM_WORK`). Claim against a smaller set of staking hotkeys, or claim in multiple extrinsics.",
-      "docs_url": "/docs/errors/chain/TooManyRootClaimHotkeys",
-      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyRootClaimHotkeys/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 355,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L355",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
       ]
     },
     "TooManySignatories": {

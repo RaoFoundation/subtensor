@@ -19,7 +19,7 @@ read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1919-L1932) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1915-L1930) |
 
 ## Parameters
 
@@ -64,17 +64,19 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1923`](/code/pallets/subtensor/src/macros/dispatches.rs#L1919-L1932):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1921`](/code/pallets/subtensor/src/macros/dispatches.rs#L1915-L1930):
 
 ```rust
 #[pallet::call_index(121)]
+// Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]; actual work
+// is measured and refunded post-dispatch (fat coldkeys may exceed the reservation).
 #[pallet::weight(
     <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
 )]
 pub fn claim_root(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
 
-    let (hotkeys, work) = Self::bounded_root_claim_work(&coldkey)?;
+    let (hotkeys, work) = Self::root_claim_work(&coldkey);
     Self::do_root_claim(coldkey.clone(), hotkeys)?;
     Self::maybe_add_coldkey_index(&coldkey);
 
@@ -83,6 +85,6 @@ pub fn claim_root(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
 }
 ```
 
-Delegates to [`bounded_root_claim_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L705), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L735), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L764).
+Delegates to [`root_claim_work`](/code/pallets/subtensor/src/staking/claim_root.rs#L707), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L725), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L754).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

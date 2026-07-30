@@ -697,21 +697,14 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Returns the bounded hotkey set and benchmark work parameter for a root claim.
+    /// Returns the hotkey set and benchmark work parameter for a root claim.
     ///
-    /// The benchmark uses one hotkey with one basket position per work unit. Bounding both
-    /// independent dimensions by the same parameter therefore covers callers with many empty
-    /// hotkeys, callers with many holdings on one hotkey, and mixtures of the two.
-    pub(crate) fn bounded_root_claim_work(
-        coldkey: &T::AccountId,
-    ) -> Result<(Vec<T::AccountId>, u32), DispatchError> {
-        let hotkey_count = StakingHotkeys::<T>::decode_len(coldkey).unwrap_or_default();
-        ensure!(
-            hotkey_count <= crate::MAX_ROOT_CLAIM_WORK as usize,
-            Error::<T>::TooManyRootClaimHotkeys
-        );
-        let hotkey_count = hotkey_count as u32;
-
+    /// The benchmark uses one hotkey with one basket position per work unit. Charging
+    /// `max(hotkeys, holdings)` therefore covers callers with many empty hotkeys, callers
+    /// with many holdings on one hotkey, and mixtures of the two. Counts are unbounded —
+    /// popular coldkeys may exceed [`crate::MAX_ROOT_CLAIM_WORK`]; the extrinsic pays the
+    /// resulting weight rather than hard-failing.
+    pub(crate) fn root_claim_work(coldkey: &T::AccountId) -> (Vec<T::AccountId>, u32) {
         let hotkeys = StakingHotkeys::<T>::get(coldkey);
         let escrow = Self::get_beta_escrow_account_id();
         let mut holding_rows = 0_u32;
@@ -722,14 +715,11 @@ impl<T: Config> Pallet<T> {
                 .chain(AlphaV2::<T>::iter_prefix((hotkey, &escrow)).map(|_| ()))
             {
                 holding_rows = holding_rows.saturating_add(1);
-                ensure!(
-                    holding_rows <= crate::MAX_ROOT_CLAIM_WORK,
-                    Error::<T>::TooManyRootClaimHoldings
-                );
             }
         }
 
-        Ok((hotkeys, hotkey_count.max(holding_rows).max(1)))
+        let hotkey_count = hotkeys.len() as u32;
+        (hotkeys, hotkey_count.max(holding_rows).max(1))
     }
 
     pub fn do_root_claim(

@@ -1912,18 +1912,16 @@ mod dispatches {
         ///
         /// # Events
         /// * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.
-        ///
-        /// # Errors
-        /// * `TooManyRootClaimHotkeys`: The coldkey exceeds the benchmarked hotkey bound.
-        /// * `TooManyRootClaimHoldings`: The coldkey exceeds the benchmarked basket-position bound.
         #[pallet::call_index(121)]
+        // Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]; actual work
+        // is measured and refunded post-dispatch (fat coldkeys may exceed the reservation).
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
         )]
         pub fn claim_root(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
 
-            let (hotkeys, work) = Self::bounded_root_claim_work(&coldkey)?;
+            let (hotkeys, work) = Self::root_claim_work(&coldkey);
             Self::do_root_claim(coldkey.clone(), hotkeys)?;
             Self::maybe_add_coldkey_index(&coldkey);
 

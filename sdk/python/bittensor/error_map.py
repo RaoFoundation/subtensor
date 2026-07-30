@@ -218,8 +218,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "BasketHasNoWeights": _C.INVALID_ARGUMENT,
     "BetaBasketSeedInProgress": _C.TOO_EARLY,
     "RootStakeLocked": _C.TOO_EARLY,
-    "TooManyRootClaimHotkeys": _C.LIMIT_EXCEEDED,
-    "TooManyRootClaimHoldings": _C.LIMIT_EXCEEDED,
     "TooManyUIDsPerMechanism": _C.LIMIT_EXCEEDED,
     "VotingPowerTrackingNotEnabled": _C.DISABLED,
     "InvalidVotingPowerEmaAlpha": _C.INVALID_ARGUMENT,

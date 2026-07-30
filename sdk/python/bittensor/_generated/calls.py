@@ -255,7 +255,7 @@ class SubtensorModule:
 
     @staticmethod
     def claim_root() -> Call:
-        "Claims the root emissions for a coldkey.  Redemption is fund-level: for every validator the coldkey stakes to, the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). There is no per-subnet selection — the basket is a single fund whose composition is independent of staker entitlements.  # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `TooManyRootClaimHotkeys`: The coldkey exceeds the benchmarked hotkey bound. * `TooManyRootClaimHoldings`: The coldkey exceeds the benchmarked basket-position bound."
+        "Claims the root emissions for a coldkey.  Redemption is fund-level: for every validator the coldkey stakes to, the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). There is no per-subnet selection — the basket is a single fund whose composition is independent of staker entitlements.  # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey."
         return Call('SubtensorModule', 'claim_root', {})
 
     @staticmethod

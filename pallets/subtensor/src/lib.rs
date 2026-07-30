@@ -65,8 +65,8 @@ pub const ALPHA_MAP_BATCH_SIZE: usize = 30;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Maximum number of validator hotkeys or raw basket-position rows one `claim_root` call may
-/// inspect.
+/// Declared pre-dispatch weight envelope for `claim_root` (benchmark upper bound). Actual
+/// work may exceed this; post-dispatch refunds the measured weight.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);

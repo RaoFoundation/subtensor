@@ -737,16 +737,6 @@ DESCRIPTIONS: dict[str, str] = {
         "`TargetRegistrationsPerInterval` for the subnet. Compare `RegistrationsThisInterval` "
         "against that hyperparameter and wait for the next interval to start."
     ),
-    "TooManyRootClaimHoldings": (
-        "`claim_root` would inspect more basket-position rows than its benchmarked bound "
-        "(`MAX_ROOT_CLAIM_WORK`). Split the claim across fewer validators / smaller baskets, "
-        "or wait until holdings shrink before retrying."
-    ),
-    "TooManyRootClaimHotkeys": (
-        "`claim_root` would inspect more validator hotkeys than its benchmarked bound "
-        "(`MAX_ROOT_CLAIM_WORK`). Claim against a smaller set of staking hotkeys, or claim "
-        "in multiple extrinsics."
-    ),
     "TooManyUIDsPerMechanism": (
         "Setting max UIDs or mechanism count would make max_uids times mechanism_count exceed "
         "the chain default of 256 UIDs per subnet. Check `MaxAllowedUids` and the subnet's "
