@@ -503,7 +503,7 @@ fn set_emission_bar_rank_updates_and_forces_recompute() {
             MinerBurned::<Test>::insert(n, U96F32::saturating_from_num(0.0));
         }
 
-        // Establish a bar under the default rank (64 → smallest share, 0.2).
+        // Establish a bar under the default rank (32 → smallest share, 0.2).
         let _ = SubtensorModule::get_shares(&nets);
         assert_abs_diff_eq!(
             EmissionGateBar::<Test>::get().to_num::<f64>(),
