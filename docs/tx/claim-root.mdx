@@ -17,7 +17,7 @@ Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1940) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1918-L1938) |
 
 ## Parameters
 
@@ -64,7 +64,7 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1926`](/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1940):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1924`](/code/pallets/subtensor/src/macros/dispatches.rs#L1918-L1938):
 
 ```rust
 #[pallet::call_index(121)]

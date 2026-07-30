@@ -19,7 +19,7 @@ perpetual and ownership never transfers.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register_leased_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1697-L1705) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register_leased_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1695-L1703) |
 
 ## Parameters
 
@@ -69,7 +69,7 @@ result = sub.execute_tool("register_leased_network", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.register_leased_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1699`](/code/pallets/subtensor/src/macros/dispatches.rs#L1697-L1705):
+`SubtensorModule.register_leased_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1697`](/code/pallets/subtensor/src/macros/dispatches.rs#L1695-L1703):
 
 ```rust
 #[pallet::call_index(110)]

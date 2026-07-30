@@ -323,7 +323,6 @@ export async function setRootWeights(
     const tx = api.tx.SubtensorModule.set_root_weights({
         dests: paddedDests,
         weights: paddedWeights,
-        version_key: 0n,
     });
     await waitForTransactionWithRetry(api, tx, hotkey, "set_root_weights");
 }

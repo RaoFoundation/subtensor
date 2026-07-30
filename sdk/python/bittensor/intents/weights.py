@@ -475,7 +475,6 @@ class SetRootWeights(Intent):
             "normalized and quantized before submission."
         },
     )
-    version_key: int = field(default=0, metadata={"help": VERSION_KEY_HELP})
 
     def __post_init__(self):
         self.netuids, self.weights = _as_pairs(self.netuids, self.weights)
@@ -489,7 +488,6 @@ class SetRootWeights(Intent):
             calls.SubtensorModule.set_root_weights(
                 dests=dests,
                 weights=values,
-                version_key=self.version_key,
             )
         )
 

@@ -237,7 +237,6 @@ fn test_set_root_weights_rejects_unregistered_hotkey() {
                 RuntimeOrigin::signed(hotkey),
                 vec![u16::from(netuid)],
                 vec![u16::MAX],
-                0,
             ),
             Error::<Test>::HotKeyNotRegisteredInSubNet
         );
@@ -1450,9 +1449,47 @@ fn test_set_root_weights_rejects_below_min_length() {
                 RuntimeOrigin::signed(hotkey),
                 dests[..3].to_vec(),
                 vec![u16::MAX; 3],
-                0,
             ),
             Error::<Test>::WeightVecLengthIsLow
+        );
+    });
+}
+
+/// Oversized destination vectors must be rejected before the duplicate/validity scans so a
+/// unique u16 payload cannot burn unbounded CPU or storage reads.
+#[test]
+fn test_set_root_weights_rejects_len_above_network_ceiling() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let owner = U256::from(1001);
+        let _netuid = add_dynamic_network(&hotkey, &owner);
+
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
+        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        let available = SubtensorModule::get_all_subnet_netuids().len();
+        assert!(available > 0);
+        // One past the NetworksAdded ceiling — unique u16s so the old O(n²) path would
+        // have scanned fully before validity failed.
+        let dests: Vec<u16> = (0..=available as u16).collect();
+        let values = vec![1u16; dests.len()];
+
+        assert_noop!(
+            SubtensorModule::set_root_weights(
+                RuntimeOrigin::signed(hotkey),
+                dests,
+                values,
+            ),
+            Error::<Test>::UidsLengthExceedUidsInSubNet
         );
     });
 }
@@ -1483,7 +1520,6 @@ fn test_set_root_weights_stores_vector() {
             RuntimeOrigin::signed(hotkey),
             vec![u16::from(NetUid::ROOT), u16::from(netuid)],
             vec![1, u16::MAX],
-            0,
         ));
 
         let stored = Weights::<Test>::get(NetUidStorageIndex::ROOT, 0u16);
@@ -1519,7 +1555,6 @@ fn test_set_root_weights_accepts_root_destination() {
             RuntimeOrigin::signed(hotkey),
             vec![u16::from(NetUid::ROOT), u16::from(netuid)],
             vec![u16::MAX, u16::MAX],
-            0,
         ));
 
         let stored = Weights::<Test>::get(NetUidStorageIndex::ROOT, 0u16);
@@ -3091,7 +3126,6 @@ fn test_become_root_validator_fund_journey() {
             RuntimeOrigin::signed(validator_hotkey),
             vec![u16::from(NetUid::ROOT), u16::from(netuid)],
             vec![1, u16::MAX],
-            0,
         ));
 
         // --- Step 4: a delegator subscribes to the fund.

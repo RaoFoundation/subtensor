@@ -1066,7 +1066,9 @@ betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
           <p>
             <strong>Indexers and integrators:</strong> regenerate metadata for new{' '}
             <code>claim_root_with_hotkey</code> (148) and <code>set_root_weights</code>{' '}
-            (146); <code>claim_root</code> (121) keeps its <code>subnets</code> arg (ignored).
+            (146 — same name as the retired call-index-8 emission vote, new args and
+            semantics); <code>claim_root</code> (121) keeps its <code>subnets</code> arg
+            (ignored).
             Drop the retired 122/123 calls, and add the <code>RootWeightsSet</code>,{' '}
             <code>BasketDeposited</code>, <code>BasketClaimed</code>, <code>RootClaimed</code>
             , and <code>BasketHoldingConverted</code> events plus the{' '}

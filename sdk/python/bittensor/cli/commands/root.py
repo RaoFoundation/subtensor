@@ -284,9 +284,6 @@ def root_set_weights(
         help="Comma-separated netuid:weight pairs (e.g. '0:0.2,4:0.3,8:0.5'). "
         "Netuid 0 holds that share as TAO instead of subnet alpha.",
     ),
-    version_key: int = typer.Option(
-        0, "--version-key", help=SetRootWeights.field_help("version_key")
-    ),
 ):
     """Set how your root dividends are deployed (validator fund weights)."""
     app_ctx: AppContext = ctx_of(ctx)
@@ -295,7 +292,6 @@ def root_set_weights(
         SetRootWeights(
             netuids=sorted(pairs),
             weights=[pairs[netuid] for netuid in sorted(pairs)],
-            version_key=version_key,
         )
     )
 

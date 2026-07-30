@@ -89,16 +89,14 @@ mod dispatches {
         /// * `origin`: the root validator hotkey.
         /// * `dests` (Vec<u16>): destination subnet netuids.
         /// * `weights` (Vec<u16>): per-subnet weights (normalized on use).
-        /// * `version_key` (u64): the network version key.
         #[pallet::call_index(146)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]
         pub fn set_root_weights(
             origin: OriginFor<T>,
             dests: Vec<u16>,
             weights: Vec<u16>,
-            version_key: u64,
         ) -> DispatchResult {
-            Self::do_set_root_weights(origin, dests, weights, version_key)
+            Self::do_set_root_weights(origin, dests, weights)
         }
 
         /// Sets the caller weights for the incentive mechanism for mechanisms. The call

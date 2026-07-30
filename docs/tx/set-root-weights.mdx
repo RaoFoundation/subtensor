@@ -25,7 +25,7 @@ Read it back with the `validator_root_weights` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L93-L102) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L92-L100) |
 
 ## Parameters
 
@@ -33,7 +33,6 @@ Read it back with the `validator_root_weights` read.
 | --- | --- | --- | --- |
 | `netuids` | array of integer | no | Destination subnets, as a list parallel to weights (0 = hold as TAO / root stake). Omit when weights is given as a netuid-to-weight mapping. |
 | `weights` | array of number | no | Relative weight per destination subnet: either a JSON object mapping netuid to weight, or a list parallel to netuids. Values are normalized and quantized before submission. |
-| `version_key` | integer | no | Weights version key checked against the subnet's required version. Leave 0 unless the subnet owner requires a specific value. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -74,7 +73,7 @@ result = sub.execute_tool("set_root_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L95`](/code/pallets/subtensor/src/macros/dispatches.rs#L93-L102):
+`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L94`](/code/pallets/subtensor/src/macros/dispatches.rs#L92-L100):
 
 ```rust
 #[pallet::call_index(146)]
@@ -83,9 +82,8 @@ pub fn set_root_weights(
     origin: OriginFor<T>,
     dests: Vec<u16>,
     weights: Vec<u16>,
-    version_key: u64,
 ) -> DispatchResult {
-    Self::do_set_root_weights(origin, dests, weights, version_key)
+    Self::do_set_root_weights(origin, dests, weights)
 }
 ```
 

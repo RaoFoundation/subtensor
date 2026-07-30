@@ -93,9 +93,6 @@ def set_root_weights(
         "Weights are relative and normalized before submission; netuid 0 means "
         "hold that share as TAO (root stake) instead of subnet alpha.",
     ),
-    version_key: int = typer.Option(
-        0, "--version-key", help=SetRootWeights.field_help("version_key")
-    ),
 ):
     """Deprecated: use ``btcli root set-weights``."""
     app_ctx: AppContext = ctx_of(ctx)
@@ -105,7 +102,6 @@ def set_root_weights(
         SetRootWeights(
             netuids=sorted(pairs),
             weights=[pairs[netuid] for netuid in sorted(pairs)],
-            version_key=version_key,
         )
     )
 

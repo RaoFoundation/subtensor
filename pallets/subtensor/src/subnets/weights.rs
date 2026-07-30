@@ -9,7 +9,7 @@ use sp_runtime::{
     BoundedVec,
     traits::{BlakeTwo256, Hash},
 };
-use sp_std::{collections::vec_deque::VecDeque, vec};
+use sp_std::{collections::btree_set::BTreeSet, collections::vec_deque::VecDeque, vec};
 use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex};
 
 impl<T: Config> Pallet<T> {
@@ -882,7 +882,6 @@ impl<T: Config> Pallet<T> {
         origin: OriginFor<T>,
         dests: Vec<u16>,
         values: Vec<u16>,
-        version_key: u64,
     ) -> dispatch::DispatchResult {
         // --- 1. Signed by the root validator hotkey.
         let hotkey = ensure_signed(origin)?;
@@ -894,22 +893,27 @@ impl<T: Config> Pallet<T> {
             Error::<T>::WeightVecNotEqualSize
         );
 
-        // --- 3. Caller must be a registered root validator.
+        // --- 3. Cap vector length before any further O(n) work. Every destination is a netuid,
+        // so the vector cannot exceed the number of existing networks. Without this, a huge
+        // unique-uid payload could burn CPU (and many storage reads) before validity fails.
+        // Bound by the NetworksAdded set (not TotalNetworks) so the cap matches what the
+        // validity loop below will accept.
+        let available = Self::get_all_subnet_netuids().len();
+        ensure!(
+            dests.len() <= available,
+            Error::<T>::UidsLengthExceedUidsInSubNet
+        );
+
+        // --- 4. Caller must be a registered root validator.
         ensure!(
             Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
             Error::<T>::HotKeyNotRegisteredInSubNet
         );
 
-        // --- 4. Must hold enough stake to set weights.
+        // --- 5. Must hold enough stake to set weights.
         ensure!(
             Self::check_weights_min_stake(&hotkey, NetUid::ROOT),
             Error::<T>::NotEnoughStakeToSetWeights
-        );
-
-        // --- 5. Version key must be current.
-        ensure!(
-            Self::check_version_key(NetUid::ROOT, version_key),
-            Error::<T>::IncorrectWeightVersionKey
         );
 
         // --- 6. Rate limit on the root weights index.
@@ -938,7 +942,6 @@ impl<T: Config> Pallet<T> {
         // --- 8.5 At least MIN_ROOT_BASKET_WEIGHTS positive entries (softened when fewer
         // destinations exist than the floor — e.g. young chains / unit tests).
         let nonzero = values.iter().filter(|w| **w > 0).count();
-        let available = Self::get_all_subnet_netuids().len();
         let required = (crate::MIN_ROOT_BASKET_WEIGHTS as usize).min(available);
         ensure!(nonzero >= required, Error::<T>::WeightVecLengthIsLow);
 
@@ -1152,13 +1155,15 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Returns true if the items contain duplicates.
+    ///
+    /// O(n log n) via [`BTreeSet`] — the previous Vec/`contains` scan was O(n²) and let a
+    /// large unique payload burn quadratic CPU before later validation failed.
     pub fn has_duplicate_uids(items: &[u16]) -> bool {
-        let mut parsed: Vec<u16> = Vec::new();
+        let mut seen = BTreeSet::new();
         for item in items {
-            if parsed.contains(item) {
+            if !seen.insert(item) {
                 return true;
             }
-            parsed.push(*item);
         }
         false
     }

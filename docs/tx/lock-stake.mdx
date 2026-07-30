@@ -21,7 +21,7 @@ persists is controlled per coldkey per subnet with
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.lock_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L2328-L2338) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.lock_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L2326-L2336) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("lock_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.lock_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L2330`](/code/pallets/subtensor/src/macros/dispatches.rs#L2328-L2338):
+`SubtensorModule.lock_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L2328`](/code/pallets/subtensor/src/macros/dispatches.rs#L2326-L2336):
 
 ```rust
 #[pallet::call_index(136)]
