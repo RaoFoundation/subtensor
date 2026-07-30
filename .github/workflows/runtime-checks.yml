@@ -720,7 +720,15 @@ jobs:
 
       - name: Install clone test dependencies
         working-directory: clones/js-tests
-        run: npm ci
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            echo "::warning::npm ci attempt ${attempt} failed; retrying"
+            sleep 15
+          done
+          exit 1
 
       - name: Run clone regression phase
         env:
