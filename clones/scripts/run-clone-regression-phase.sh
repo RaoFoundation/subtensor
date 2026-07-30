@@ -19,10 +19,19 @@ run_sdk_drift=${RUN_SDK_DRIFT:-false}
   echo "RUN_SDK_DRIFT must be true or false" >&2
   exit 2
 }
+keep_clone_running=${KEEP_CLONE_RUNNING:-false}
+[[ "$keep_clone_running" == true || "$keep_clone_running" == false ]] || {
+  echo "KEEP_CLONE_RUNNING must be true or false" >&2
+  exit 2
+}
 
 cleanup() {
   local status=$?
-  "$SCRIPT_DIR/stop-local-clone.sh" || true
+  if [[ "$keep_clone_running" == true ]]; then
+    echo "Leaving local clone running (KEEP_CLONE_RUNNING=true)."
+  else
+    "$SCRIPT_DIR/stop-local-clone.sh" || true
+  fi
   exit "$status"
 }
 trap cleanup EXIT

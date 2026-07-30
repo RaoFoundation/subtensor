@@ -104,8 +104,22 @@ if MOCK_NPM_FAIL=test:clone-regressions \
 fi
 grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"
 
+: > "$HARNESS_LOG"
+KEEP_CLONE_RUNNING=true RUN_SDK_DRIFT=false \
+  "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" pristine
+if grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"; then
+  echo "KEEP_CLONE_RUNNING=true unexpectedly stopped the clone" >&2
+  exit 1
+fi
+
 if "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" invalid >/dev/null 2>&1; then
   echo "invalid clone phase was accepted" >&2
+  exit 1
+fi
+
+if KEEP_CLONE_RUNNING=invalid \
+  "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" pristine >/dev/null 2>&1; then
+  echo "invalid KEEP_CLONE_RUNNING value was accepted" >&2
   exit 1
 fi
 

@@ -34,11 +34,23 @@ interface MigrationSnapshot {
   upgradeBlock?: number;
   upgradeTimestampMs?: string;
   upgradedObservedAtMs?: number;
+  completion?: MigrationCompletion;
+}
+
+type MigrationPhase = "convert" | "clear_claimed" | "clear_principal";
+
+interface MigrationCompletion {
+  block: number;
+  hash: string;
+  migrationBlocks: number;
+  phaseBlocks: Record<MigrationPhase, number>;
+  chainElapsedMs: string;
 }
 
 interface SerializedSourceAudit {
   hotkeys: string[];
   nonzeroRateHotkeys: string[];
+  valuedRateHotkeys: string[];
   claimedPairs: string[];
   slotCounts: Array<[string, string]>;
   claimedRowCounts: Array<[string, string]>;
@@ -51,6 +63,7 @@ interface SerializedSourceAudit {
 interface SourceAudit {
   hotkeys: Set<string>;
   nonzeroRateHotkeys: Set<string>;
+  valuedRateHotkeys: Set<string>;
   claimedPairs: Set<string>;
   slotCounts: Map<string, bigint>;
   claimedRowCounts: Map<string, bigint>;
@@ -212,12 +225,35 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   let previousEpochIndex = new Map<string, bigint>();
   let sawDeferredRootDividend = false;
   let dissolutionBaseline: DissolutionState | undefined;
+  let currentPhase: MigrationPhase | undefined;
+  let currentPhaseStartBlock = snapshot.upgradeBlock!;
+  const phaseBlocks: Record<MigrationPhase, number> = {
+    convert: 0,
+    clear_claimed: 0,
+    clear_principal: 0,
+  };
 
   while (Date.now() < deadline) {
     const header = await api.rpc.chain.getHeader();
     const block = header.number.toNumber();
     const cursorExists = await storageExistsAt(api, cursorKey, header.hash);
     if (cursorExists) {
+      const phase = await readMigrationPhaseAt(api, cursorKey, header.hash);
+      if (currentPhase === undefined) {
+        currentPhase = phase;
+        assert.equal(phase, "convert", "migration did not begin in the convert phase");
+      } else if (phase !== currentPhase) {
+        phaseBlocks[currentPhase] += block - currentPhaseStartBlock;
+        console.log(
+          "migration phase transition:",
+          `from=${currentPhase}`,
+          `to=${phase}`,
+          `block=${block}`,
+          `completed_phase_blocks=${phaseBlocks[currentPhase]}`
+        );
+        currentPhase = phase;
+        currentPhaseStartBlock = block;
+      }
       sawCursor = true;
       lastCursorBlock = block;
       const dissolutionNow = await readDissolutionState(api, header.hash);
@@ -287,6 +323,47 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     : await findRecentCompletionBlock(api, cursorKey, observedCompletionBlock);
   const completionHash = await api.rpc.chain.getBlockHash(completionBlock);
   const completed = await api.at(completionHash);
+  const migrationBlocks = completionBlock - snapshot.upgradeBlock!;
+  const upgradeTimestamp = BigInt(snapshot.upgradeTimestampMs!);
+  const completionTimestamp = codecToBigInt(await completed.query.timestamp.now());
+  const chainElapsedMs = completionTimestamp - upgradeTimestamp;
+  assert.equal(
+    chainElapsedMs,
+    BigInt(migrationBlocks * EXPECTED_BLOCK_TIME_MS),
+    `clone did not preserve 12-second mainnet cadence: elapsed_ms=${chainElapsedMs} blocks=${migrationBlocks}`
+  );
+  const normalCadenceSeconds = migrationBlocks * 12;
+  const observedWallMs = Date.now() - snapshot.upgradedObservedAtMs!;
+  if (currentPhase !== undefined) {
+    phaseBlocks[currentPhase] += completionBlock - currentPhaseStartBlock;
+  }
+  assert.equal(
+    phaseBlocks.convert + phaseBlocks.clear_claimed + phaseBlocks.clear_principal,
+    migrationBlocks,
+    "per-phase block counts do not sum to the total migration blocks"
+  );
+  snapshot.completion = {
+    block: completionBlock,
+    hash: completionHash.toHex(),
+    migrationBlocks,
+    phaseBlocks,
+    chainElapsedMs: chainElapsedMs.toString(),
+  };
+  fs.writeFileSync(SNAPSHOT_URL, `${JSON.stringify(snapshot, null, 2)}\n`);
+  console.log(
+    "migration completion:",
+    `upgrade_block=${snapshot.upgradeBlock}`,
+    `completion_block=${completionBlock}`,
+    `completion_hash=${completionHash.toHex()}`,
+    `migration_blocks=${migrationBlocks}`,
+    `chain_elapsed_ms=${chainElapsedMs}`,
+    `block_time_ms=${EXPECTED_BLOCK_TIME_MS}`,
+    `normal_12s_estimate_seconds=${normalCadenceSeconds}`,
+    `observed_wall_ms=${observedWallMs}`,
+    `convert_blocks=${phaseBlocks.convert}`,
+    `clear_claimed_blocks=${phaseBlocks.clear_claimed}`,
+    `clear_principal_blocks=${phaseBlocks.clear_principal}`
+  );
 
   for (const migration of MIGRATIONS) {
     const ran = await completed.query.subtensorModule.hasMigrationRun([...Buffer.from(migration)]);
@@ -312,11 +389,31 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   const source = deserializeSourceAudit(snapshot.source);
   const destination = await auditDestinationState(completed);
 
-  assertSetEqual(
+  assertSetSubset(
     destination.rateByHotkey.keys(),
     source.nonzeroRateHotkeys,
-    "BasketRate hotkeys do not exactly match nonzero RootClaimable hotkeys"
+    "BasketRate contains a hotkey absent from nonzero RootClaimable"
   );
+  assertSetSubset(
+    source.valuedRateHotkeys,
+    destination.rateByHotkey.keys(),
+    "a RootClaimable hotkey with a positive conversion price is missing from BasketRate"
+  );
+  const zeroValueSourceHotkeys = [...source.nonzeroRateHotkeys].filter(
+    (hotkey) => !destination.rateByHotkey.has(hotkey)
+  );
+  for (const hotkey of zeroValueSourceHotkeys) {
+    assert.equal(
+      destination.sharesByHotkey.has(hotkey),
+      false,
+      `source hotkey without BasketRate unexpectedly has BasketShares: ${hotkey}`
+    );
+    assert.equal(
+      destination.claimedSumByHotkey.has(hotkey),
+      false,
+      `source hotkey without BasketRate unexpectedly has BasketClaimed: ${hotkey}`
+    );
+  }
   assertSetSubset(
     destination.sharesByHotkey.keys(),
     source.hotkeys,
@@ -378,32 +475,11 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     "root MinAllowedWeights was not migrated to the basket minimum"
   );
 
-  const migrationBlocks = completionBlock - snapshot.upgradeBlock!;
-  const upgradeTimestamp = BigInt(snapshot.upgradeTimestampMs!);
-  const completionTimestamp = codecToBigInt(await completed.query.timestamp.now());
-  const chainElapsedMs = completionTimestamp - upgradeTimestamp;
-  assert.equal(
-    chainElapsedMs,
-    BigInt(migrationBlocks * EXPECTED_BLOCK_TIME_MS),
-    `clone did not preserve 12-second mainnet cadence: elapsed_ms=${chainElapsedMs} blocks=${migrationBlocks}`
-  );
-  const normalCadenceSeconds = migrationBlocks * 12;
-  const observedWallMs = Date.now() - snapshot.upgradedObservedAtMs!;
-  console.log(
-    "migration completion:",
-    `upgrade_block=${snapshot.upgradeBlock}`,
-    `completion_block=${completionBlock}`,
-    `completion_hash=${completionHash.toHex()}`,
-    `migration_blocks=${migrationBlocks}`,
-    `chain_elapsed_ms=${chainElapsedMs}`,
-    `block_time_ms=${EXPECTED_BLOCK_TIME_MS}`,
-    `normal_12s_estimate_seconds=${normalCadenceSeconds}`,
-    `observed_wall_ms=${observedWallMs}`
-  );
   console.log(
     "migration source audit:",
     `RootClaimable_entries=${source.claimableEntries}`,
     `RootClaimable_slots=${source.claimableSlots}`,
+    `RootClaimable_TAO_valued_hotkeys=${source.valuedRateHotkeys.size}`,
     `RootClaimed_entries=${source.claimedEntries}`,
     `RootClaimed_zero_entries=${source.zeroClaimedEntries}`,
     `RootClaimed_unique_pairs=${source.claimedPairs.size}`
@@ -413,6 +489,7 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     `BasketRate_entries=${destination.rateByHotkey.size}`,
     `BasketShares_entries=${destination.sharesByHotkey.size}`,
     `BasketClaimed_entries=${destination.claimedPairs.size}`,
+    `zero_value_source_hotkeys=${zeroValueSourceHotkeys.length}`,
     `conserved_funds=${conservedFunds}`,
     `worst_conservation_ppm=${worstConservationPpm}`,
     `worst_conservation_hotkey=${worstConservationHotkey || "none"}`
@@ -420,7 +497,7 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   console.log(
     "migration invariants: ok",
     "legacy RootClaimable/RootClaimed/BasketPrincipal empty;",
-    "all nonzero source-rate hotkeys transferred to BasketRate;",
+    "all TAO-valued source rates transferred; omitted zero-valued sources have zero destinations;",
     "all destination shares/claims trace to legacy source keys;",
     "every basket conserved within fixed-point rounding tolerance;",
     "dissolution cleanup remained paused through the completion block;",
@@ -563,6 +640,7 @@ async function findExactCompletionBlock(
 async function auditSourceState(before): Promise<SourceAudit> {
   const hotkeys = new Set<string>();
   const nonzeroRateHotkeys = new Set<string>();
+  const nonzeroRateSlots = new Map<string, Set<number>>();
   const claimedPairs = new Set<string>();
   const slotCounts = new Map<string, bigint>();
   const claimedRowCounts = new Map<string, bigint>();
@@ -589,10 +667,15 @@ async function auditSourceState(before): Promise<SourceAudit> {
       claimableEntries += 1n;
       let slots = 0n;
       let hasNonzeroRate = false;
-      for (const [, rate] of claimable.entries()) {
+      for (const [netuid, rate] of claimable.entries()) {
         const raw = codecToBigInt(rate);
         assert.equal(raw >= 0n, true, `legacy RootClaimable rate is negative for ${hotkey}`);
-        hasNonzeroRate ||= raw !== 0n;
+        if (raw !== 0n) {
+          hasNonzeroRate = true;
+          const netuids = nonzeroRateSlots.get(hotkey) ?? new Set<number>();
+          netuids.add(Number(netuid.toString()));
+          nonzeroRateSlots.set(hotkey, netuids);
+        }
         slots += 1n;
       }
       if (hasNonzeroRate) {
@@ -647,9 +730,20 @@ async function auditSourceState(before): Promise<SourceAudit> {
     }
   }
 
+  const positivePriceNetuids = await findPositiveConversionPriceNetuids(
+    before,
+    new Set([...nonzeroRateSlots.values()].flatMap((netuids) => [...netuids]))
+  );
+  const valuedRateHotkeys = new Set(
+    [...nonzeroRateSlots]
+      .filter(([, netuids]) => [...netuids].some((netuid) => positivePriceNetuids.has(netuid)))
+      .map(([hotkey]) => hotkey)
+  );
+
   return {
     hotkeys,
     nonzeroRateHotkeys,
+    valuedRateHotkeys,
     claimedPairs,
     slotCounts,
     claimedRowCounts,
@@ -658,6 +752,42 @@ async function auditSourceState(before): Promise<SourceAudit> {
     claimedEntries,
     zeroClaimedEntries,
   };
+}
+
+async function findPositiveConversionPriceNetuids(
+  before,
+  netuids: Set<number>
+): Promise<Set<number>> {
+  const result = new Set<number>();
+  const all = [...netuids];
+
+  for (let offset = 0; offset < all.length; offset += QUERY_MULTI_PAGE_SIZE) {
+    const page = all.slice(offset, offset + QUERY_MULTI_PAGE_SIZE);
+    const [mechanisms, movingPrices, alphaReserves, taoReserves] = await Promise.all([
+      before.query.subtensorModule.subnetMechanism.multi(page),
+      before.query.subtensorModule.subnetMovingPrice.multi(page),
+      before.query.subtensorModule.subnetAlphaIn.multi(page),
+      before.query.subtensorModule.subnetTAO.multi(page),
+    ]);
+
+    for (let index = 0; index < page.length; index++) {
+      const netuid = page[index];
+      const isRootOrStable = netuid === ROOT_NETUID || codecToBigInt(mechanisms[index]) === 0n;
+      const movingPriceIsPositive = codecToBigInt(movingPrices[index]) > 0n;
+      const spotPriceIsPositive =
+        codecToBigInt(alphaReserves[index]) > 0n && codecToBigInt(taoReserves[index]) > 0n;
+      if (isRootOrStable || movingPriceIsPositive || spotPriceIsPositive) {
+        result.add(netuid);
+      }
+    }
+  }
+
+  console.log(
+    "source conversion-price audit:",
+    `nonzero_rate_netuids=${all.length}`,
+    `positive_price_netuids=${result.size}`
+  );
+  return result;
 }
 
 async function auditDestinationState(completed): Promise<DestinationAudit> {
@@ -742,6 +872,7 @@ function serializeSourceAudit(source: SourceAudit): SerializedSourceAudit {
   return {
     hotkeys: [...source.hotkeys],
     nonzeroRateHotkeys: [...source.nonzeroRateHotkeys],
+    valuedRateHotkeys: [...source.valuedRateHotkeys],
     claimedPairs: [...source.claimedPairs],
     slotCounts: [...source.slotCounts].map(([key, value]) => [key, value.toString()]),
     claimedRowCounts: [...source.claimedRowCounts].map(([key, value]) => [key, value.toString()]),
@@ -757,6 +888,7 @@ function deserializeSourceAudit(source: SerializedSourceAudit): SourceAudit {
   return {
     hotkeys: new Set(source.hotkeys),
     nonzeroRateHotkeys: new Set(source.nonzeroRateHotkeys),
+    valuedRateHotkeys: new Set(source.valuedRateHotkeys),
     claimedPairs: new Set(source.claimedPairs),
     slotCounts: new Map(source.slotCounts.map(([key, value]) => [key, BigInt(value)])),
     claimedRowCounts: new Map(source.claimedRowCounts.map(([key, value]) => [key, BigInt(value)])),
@@ -784,6 +916,23 @@ async function storageQueryHasAny(query): Promise<boolean> {
 async function storageExistsAt(api: ApiPromise, key: string, atHash): Promise<boolean> {
   const value = (await api.rpc.state.getStorage(key, atHash)) as unknown as { isSome: boolean };
   return value.isSome;
+}
+
+async function readMigrationPhaseAt(
+  api: ApiPromise,
+  key: string,
+  atHash
+): Promise<MigrationPhase> {
+  const hex = await storageHexAt(api, key, atHash);
+  assert.notEqual(hex, null, "migration cursor disappeared while reading its phase");
+  const variant = Number.parseInt(hex!.slice(2, 4), 16);
+  const phases: MigrationPhase[] = ["convert", "clear_claimed", "clear_principal"];
+  assert.equal(
+    variant < phases.length,
+    true,
+    `unknown SeedBetaBasketV2Progress variant ${variant}`
+  );
+  return phases[variant];
 }
 
 async function readDissolutionState(api: ApiPromise, atHash): Promise<DissolutionState> {
