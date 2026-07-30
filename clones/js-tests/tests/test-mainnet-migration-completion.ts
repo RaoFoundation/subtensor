@@ -12,6 +12,7 @@ const ROOT_NETUID = 0;
 const EXPECTED_MIN_ROOT_WEIGHTS = 8;
 const EXPECTED_BLOCK_TIME_MS = 12_000;
 const WAIT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+const POST_MIGRATION_DIVIDEND_TIMEOUT_MS = 30 * 60 * 1000;
 const POLL_INTERVAL_MS = 2_000;
 const PAGE_SIZE = 1_000;
 const QUERY_MULTI_PAGE_SIZE = 1_000;
@@ -64,6 +65,11 @@ interface DestinationAudit {
   sharesByHotkey: Map<string, bigint>;
   claimedSumByHotkey: Map<string, bigint>;
   claimedPairs: Set<string>;
+}
+
+interface DissolutionState {
+  queue: string | null;
+  status: string | null;
 }
 
 const logger = createTempLogger("test-mainnet-migration-completion.log");
@@ -201,6 +207,11 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   let observedCompletionBlock = -1;
   let lastCursorBlock = -1;
   let sawCursor = false;
+  let lastDeferredAuditBlock = -1;
+  let previousPendingRoot = new Map<string, bigint>();
+  let previousEpochIndex = new Map<string, bigint>();
+  let sawDeferredRootDividend = false;
+  let dissolutionBaseline: DissolutionState | undefined;
 
   while (Date.now() < deadline) {
     const header = await api.rpc.chain.getHeader();
@@ -209,7 +220,47 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     if (cursorExists) {
       sawCursor = true;
       lastCursorBlock = block;
+      const dissolutionNow = await readDissolutionState(api, header.hash);
+      if (dissolutionBaseline === undefined) {
+        dissolutionBaseline = dissolutionNow;
+      } else {
+        assert.deepEqual(
+          dissolutionNow,
+          dissolutionBaseline,
+          `dissolution cleanup advanced while basket seed was running at block ${block}`
+        );
+      }
+      if (block !== lastDeferredAuditBlock) {
+        const at = await api.at(header.hash);
+        const pendingRoot = await fetchStorageMap(at.query.subtensorModule.pendingRootAlphaDivs);
+        const epochIndex = await fetchStorageMap(at.query.subtensorModule.subnetEpochIndex);
+        if (lastDeferredAuditBlock !== -1) {
+          for (const [netuid, previousPending] of previousPendingRoot) {
+            const currentPending = pendingRoot.get(netuid) ?? 0n;
+            assert.equal(
+              currentPending >= previousPending,
+              true,
+              `PendingRootAlphaDivs decreased during basket seed for netuid ${netuid}: ` +
+                `before=${previousPending} after=${currentPending}`
+            );
+            if (
+              previousPending > 0n &&
+              (epochIndex.get(netuid) ?? 0n) > (previousEpochIndex.get(netuid) ?? 0n)
+            ) {
+              sawDeferredRootDividend = true;
+            }
+          }
+        }
+        previousPendingRoot = pendingRoot;
+        previousEpochIndex = epochIndex;
+        lastDeferredAuditBlock = block;
+      }
     } else if (sawCursor) {
+      assert.deepEqual(
+        await readDissolutionState(api, header.hash),
+        dissolutionBaseline,
+        `dissolution cleanup advanced in the basket seed completion block ${block}`
+      );
       observedCompletionBlock = block;
       break;
     } else if (
@@ -372,9 +423,104 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     "all nonzero source-rate hotkeys transferred to BasketRate;",
     "all destination shares/claims trace to legacy source keys;",
     "every basket conserved within fixed-point rounding tolerance;",
+    "dissolution cleanup remained paused through the completion block;",
     "root weights empty;",
     `MinAllowedWeights[root]=${EXPECTED_MIN_ROOT_WEIGHTS};`,
     "all HasMigrationRun flags set"
+  );
+
+  await assertDeferredRootDividendsReleased(
+    api,
+    completed,
+    completionBlock,
+    sawDeferredRootDividend
+  );
+}
+
+async function assertDeferredRootDividendsReleased(
+  api: ApiPromise,
+  completed,
+  completionBlock: number,
+  sawDeferredRootDividend: boolean
+) {
+  assert.equal(
+    sawDeferredRootDividend,
+    true,
+    "mainnet clone did not observe a due epoch with nonzero deferred root alpha during migration"
+  );
+
+  const pendingAtCompletion = await fetchStorageMap(
+    completed.query.subtensorModule.pendingRootAlphaDivs
+  );
+  const epochAtCompletion = await fetchStorageMap(completed.query.subtensorModule.subnetEpochIndex);
+  const depositedAtCompletion = sumMapValues(
+    await fetchStorageMap(completed.query.subtensorModule.basketDepositedTao)
+  );
+  const candidates = new Map(
+    [...pendingAtCompletion].filter(([, pending]) => pending > 0n)
+  );
+  assert.equal(
+    candidates.size > 0,
+    true,
+    "no deferred PendingRootAlphaDivs remained at migration completion"
+  );
+
+  const deadline = Date.now() + POST_MIGRATION_DIVIDEND_TIMEOUT_MS;
+  let lastBlock = completionBlock;
+  while (Date.now() < deadline) {
+    const header = await api.rpc.chain.getHeader();
+    const block = header.number.toNumber();
+    if (block <= lastBlock) {
+      await delay(POLL_INTERVAL_MS);
+      continue;
+    }
+    lastBlock = block;
+    const at = await api.at(header.hash);
+    const pendingNow = await fetchStorageMap(at.query.subtensorModule.pendingRootAlphaDivs);
+    const epochNow = await fetchStorageMap(at.query.subtensorModule.subnetEpochIndex);
+
+    for (const [netuid, pendingBefore] of candidates) {
+      const pendingAfter = pendingNow.get(netuid) ?? 0n;
+      const epochAdvanced =
+        (epochNow.get(netuid) ?? 0n) > (epochAtCompletion.get(netuid) ?? 0n);
+      if (!epochAdvanced || pendingAfter >= pendingBefore) {
+        continue;
+      }
+
+      const distributed = await at.query.subtensorModule.rootAlphaDividendsPerSubnet.entries(netuid);
+      const distributedRootAlpha = distributed.reduce(
+        (total, [, value]) => total + codecToBigInt(value),
+        0n
+      );
+      const depositedNow = sumMapValues(
+        await fetchStorageMap(at.query.subtensorModule.basketDepositedTao)
+      );
+      assert.equal(
+        distributedRootAlpha > 0n,
+        true,
+        `deferred root alpha drained for netuid ${netuid} without recorded root dividends`
+      );
+      assert.equal(
+        depositedNow > depositedAtCompletion,
+        true,
+        `deferred root alpha drained for netuid ${netuid} without increasing basket deposits`
+      );
+      console.log(
+        "deferred root dividends: ok",
+        `netuid=${netuid}`,
+        `completion_pending=${pendingBefore}`,
+        `post_epoch_pending=${pendingAfter}`,
+        `distributed_root_alpha=${distributedRootAlpha}`,
+        `basket_deposited_delta=${depositedNow - depositedAtCompletion}`,
+        `release_block=${block}`
+      );
+      return;
+    }
+    await delay(POLL_INTERVAL_MS);
+  }
+
+  assert.fail(
+    `deferred root dividends were not released within ${POST_MIGRATION_DIVIDEND_TIMEOUT_MS}ms`
   );
 }
 
@@ -640,6 +786,21 @@ async function storageExistsAt(api: ApiPromise, key: string, atHash): Promise<bo
   return value.isSome;
 }
 
+async function readDissolutionState(api: ApiPromise, atHash): Promise<DissolutionState> {
+  return {
+    queue: await storageHexAt(api, storagePrefix("DissolveCleanupQueue"), atHash),
+    status: await storageHexAt(api, storagePrefix("CurrentDissolveCleanupStatus"), atHash),
+  };
+}
+
+async function storageHexAt(api: ApiPromise, key: string, atHash): Promise<string | null> {
+  const value = (await api.rpc.state.getStorage(key, atHash)) as unknown as {
+    isSome: boolean;
+    unwrap(): { toHex(): string };
+  };
+  return value.isSome ? value.unwrap().toHex() : null;
+}
+
 function codecToBigInt(codec): bigint {
   if (typeof codec.toBigInt === "function") {
     return codec.toBigInt();
@@ -653,6 +814,14 @@ function codecToBigInt(codec): bigint {
 
 function incrementBigIntMap(map: Map<string, bigint>, key: string) {
   map.set(key, (map.get(key) ?? 0n) + 1n);
+}
+
+function sumMapValues(map: Map<string, bigint>): bigint {
+  let total = 0n;
+  for (const value of map.values()) {
+    total += value;
+  }
+  return total;
 }
 
 function pairKey(hotkey: string, coldkey: string): string {

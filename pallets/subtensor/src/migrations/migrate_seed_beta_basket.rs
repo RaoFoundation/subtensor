@@ -93,6 +93,11 @@ pub enum SeedBetaBasketV2Progress {
         after: Option<Vec<u8>>,
         hotkey: Option<HotkeyConvertState>,
     },
+    /// Bounded clear of legacy `RootClaimed` rows that had no matching
+    /// `RootClaimable[hotkey][netuid]` slot. Such watermarks are inert because there is no
+    /// corresponding accrual rate to convert, but they must still be removed before the
+    /// migration can declare the legacy maps fully drained.
+    ClearClaimed { cursor: Option<Vec<u8>> },
     /// Bounded clear of orphaned v1 `BasketPrincipal` entries.
     ClearPrincipal { cursor: Option<Vec<u8>> },
 }
@@ -151,15 +156,16 @@ pub type SeedBetaBasketV2Migration<T: Config> =
 ///
 /// Work is chunked across blocks at two levels. Each pass converts at most
 /// [`MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS`] hotkeys, then clears at most
+/// [`MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS`] orphaned `RootClaimed` rows and
 /// [`MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS`] orphaned principal rows. Within the convert
-/// phase, a single pass also drains at most [`MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS`]
-/// `RootClaimed` rows in total: a hotkey with many claimant coldkeys on one subnet slot is
-/// converted across several passes rather than draining its whole (unbounded) prefix at once.
+/// phase, the same claimed-row limit bounds how many matching `RootClaimed` rows are drained: a
+/// hotkey with many claimant coldkeys on one subnet slot is converted across several passes
+/// rather than draining its whole (unbounded) prefix at once.
 /// While a hotkey is only partially converted, `RootClaimable[hotkey]` is left untouched in
 /// storage and the in-flight state (completed slots, the in-progress slot's drain cursor, and
 /// accumulators) is persisted in [`SeedBetaBasketV2Migration`]'s `Convert::hotkey`. Progress is
-/// continued from `on_idle` until finished. `HasMigrationRun` is set only when both phases
-/// complete.
+/// continued from `on_idle` until finished. `HasMigrationRun` is set only when every phase
+/// completes.
 pub fn migrate_seed_beta_basket_v2<T: Config>() -> Weight {
     migrate_seed_beta_basket_v2_with_limit::<T>(Weight::MAX)
 }
@@ -364,14 +370,13 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                             Ok(hk) => hk,
                             Err(_) => {
                                 // Cannot happen in practice (we only ever encode a valid
-                                // `T::AccountId` into this field), but never stall the upgrade
-                                // over a corrupt cursor: drop it and move on to principal clear.
+                                // `T::AccountId` into this field). Fail closed if storage is
+                                // corrupt: preserve the cursor and all legacy state for explicit
+                                // operator recovery rather than silently declaring completion.
                                 log::error!(
-                                    "Migration 'migrate_seed_beta_basket_v2' found an undecodable hotkey cursor; dropping it and moving to principal clear."
+                                    "Migration 'migrate_seed_beta_basket_v2' found an undecodable hotkey cursor; preserving it and stopping this pass."
                                 );
-                                progress =
-                                    SeedBetaBasketV2Progress::ClearPrincipal { cursor: None };
-                                continue 'phases;
+                                return weight;
                             }
                         }
                     } else {
@@ -417,8 +422,7 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                                 hk
                             }
                             None => {
-                                progress =
-                                    SeedBetaBasketV2Progress::ClearPrincipal { cursor: None };
+                                progress = SeedBetaBasketV2Progress::ClearClaimed { cursor: None };
                                 continue 'phases;
                             }
                         }
@@ -468,6 +472,48 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                         }
                     }
                 }
+            }
+            SeedBetaBasketV2Progress::ClearClaimed { cursor } => {
+                let mut clear_limit = claimed_drains_per_pass;
+                if let Some(limit) = adaptive_limit {
+                    let remaining = limit
+                        .saturating_sub(weight)
+                        .saturating_sub(T::DbWeight::get().writes(2));
+                    let affordable = affordable_items(remaining, claimed_row_base_weight::<T>());
+                    if affordable == 0 && made_progress {
+                        SeedBetaBasketV2Migration::<T>::put(
+                            SeedBetaBasketV2Progress::ClearClaimed { cursor },
+                        );
+                        weight.saturating_accrue(T::DbWeight::get().writes(1));
+                        log::info!(
+                            "Migration 'migrate_seed_beta_basket_v2' paused before orphaned RootClaimed cleanup at its adaptive weight limit; will resume on_idle."
+                        );
+                        return weight;
+                    }
+                    clear_limit =
+                        clear_limit.min(affordable.max(1).min(u64::from(u32::MAX)) as u32);
+                }
+
+                let claimed_removal = RootClaimed::<T>::clear(clear_limit, cursor.as_deref());
+                weight.saturating_accrue(
+                    T::DbWeight::get()
+                        .reads_writes(claimed_removal.loops as u64, claimed_removal.backend as u64),
+                );
+                made_progress |= claimed_removal.backend != 0;
+
+                if let Some(next) = claimed_removal.maybe_cursor {
+                    progress = SeedBetaBasketV2Progress::ClearClaimed { cursor: Some(next) };
+                    SeedBetaBasketV2Migration::<T>::put(progress);
+                    weight.saturating_accrue(T::DbWeight::get().writes(1));
+                    log::info!(
+                        "Migration 'migrate_seed_beta_basket_v2' paused after clearing {} orphaned RootClaimed entries; will resume on the next pass.",
+                        claimed_removal.backend
+                    );
+                    return weight;
+                }
+
+                progress = SeedBetaBasketV2Progress::ClearPrincipal { cursor: None };
+                continue 'phases;
             }
             SeedBetaBasketV2Progress::ClearPrincipal { cursor } => {
                 let mut clear_limit = principal_clear_per_pass;

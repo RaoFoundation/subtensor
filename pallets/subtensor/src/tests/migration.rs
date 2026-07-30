@@ -16,7 +16,7 @@ use frame_support::{
     StorageHasher, Twox64Concat, assert_ok,
     storage::unhashed::{get, get_raw, put, put_raw},
     storage_alias,
-    traits::{Currency, StorageInstance, StoredMap, fungible::Inspect},
+    traits::{Currency, Hooks, StorageInstance, StoredMap, fungible::Inspect},
     weights::Weight,
 };
 use safe_math::SafeDiv;
@@ -5558,6 +5558,172 @@ fn test_migrate_seed_beta_basket_claimed_drain_bounded_resumable() {
         assert_eq!(
             w_done,
             <Test as frame_system::Config>::DbWeight::get().reads(1)
+        );
+    });
+}
+
+/// Mainnet can contain `RootClaimed` watermarks whose `(hotkey, netuid)` no longer has a
+/// corresponding `RootClaimable` rate. They carry no convertible entitlement, but the
+/// migration must clear them in bounded passes before declaring the legacy maps fully drained.
+#[test]
+fn test_migrate_seed_beta_basket_clears_orphaned_claimed_rows_bounded() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        SeedBetaBasketV2Migration, SeedBetaBasketV2Progress, migrate_seed_beta_basket_v2_limited,
+        seed_beta_basket_v2_in_progress,
+    };
+
+    const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+    const ORPHAN_ROWS: u64 = 5;
+    const CLAIMED_DRAINS_PER_PASS: u32 = 2;
+    let netuid = NetUid::from(123);
+    let hotkey = U256::from(11_001);
+
+    let mut ext = new_test_ext(1);
+    ext.execute_with(|| {
+        for i in 0..ORPHAN_ROWS {
+            RootClaimed::<Test>::insert((netuid, hotkey, U256::from(12_000 + i)), 1_000u128);
+        }
+    });
+    ext.commit_all().expect("fixture storage commits");
+
+    ext.execute_with(|| {
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+
+        migrate_seed_beta_basket_v2_limited::<Test>(8, 8, CLAIMED_DRAINS_PER_PASS);
+
+        assert!(
+            !HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "must not declare completion while orphaned RootClaimed rows remain"
+        );
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+        assert!(matches!(
+            SeedBetaBasketV2Migration::<Test>::get(),
+            Some(SeedBetaBasketV2Progress::ClearClaimed { cursor: Some(_) })
+        ));
+        assert_eq!(
+            RootClaimed::<Test>::iter().count(),
+            ORPHAN_ROWS as usize - CLAIMED_DRAINS_PER_PASS as usize
+        );
+    });
+    ext.commit_all().expect("first clear pass commits");
+
+    for _ in 1..16 {
+        let in_progress = ext.execute_with(|| {
+            if seed_beta_basket_v2_in_progress::<Test>() {
+                migrate_seed_beta_basket_v2_limited::<Test>(8, 8, CLAIMED_DRAINS_PER_PASS);
+            }
+            seed_beta_basket_v2_in_progress::<Test>()
+        });
+        ext.commit_all().expect("resumed clear pass commits");
+        if !in_progress {
+            break;
+        }
+    }
+
+    ext.execute_with(|| {
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert_eq!(RootClaimed::<Test>::iter().count(), 0);
+        assert_eq!(
+            BasketClaimed::<Test>::iter_prefix(hotkey).count(),
+            0,
+            "an orphaned watermark has no corresponding rate and must not mint a basket claim"
+        );
+    });
+}
+
+#[test]
+fn test_migrate_seed_beta_basket_corrupt_hotkey_cursor_fails_closed() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        HotkeyConvertState, SeedBetaBasketV2Migration, SeedBetaBasketV2Progress,
+        migrate_seed_beta_basket_v2_limited,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(13_001);
+        let netuid = NetUid::from(1);
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        let corrupt_progress = SeedBetaBasketV2Progress::Convert {
+            after: None,
+            hotkey: Some(HotkeyConvertState {
+                hotkey: vec![0xff],
+                done_through: None,
+                total_root: I96F32::from_num(0),
+                partial: None,
+                fund_rate: I96F32::from_num(0),
+                fund_shares: 0,
+                seeded_slots: 0,
+            }),
+        };
+        SeedBetaBasketV2Migration::<Test>::put(&corrupt_progress);
+
+        migrate_seed_beta_basket_v2_limited::<Test>(8, 8, 8);
+
+        assert_eq!(
+            SeedBetaBasketV2Migration::<Test>::get(),
+            Some(corrupt_progress),
+            "an undecodable cursor must remain available for operator recovery"
+        );
+        assert!(!HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+        assert!(
+            !RootClaimable::<Test>::get(hotkey).is_empty(),
+            "fail-closed recovery must not discard unconverted legacy state"
+        );
+    });
+}
+
+#[test]
+fn test_migrate_seed_beta_basket_pauses_dissolution_cleanup_until_complete() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        kickoff_seed_beta_basket_v2, seed_beta_basket_v2_in_progress,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(14_001);
+        let hotkey = U256::from(14_002);
+        let coldkey = U256::from(14_003);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid, I96F32::from_num(0.5));
+        });
+        RootClaimed::<Test>::insert((netuid, hotkey, coldkey), 100u128);
+
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&netuid));
+        assert!(!RootClaimable::<Test>::get(hotkey).is_empty());
+        kickoff_seed_beta_basket_v2::<Test>();
+
+        // A zero idle budget still advances one migration item, but dissolution must not touch
+        // its source maps first.
+        SubtensorModule::on_idle(1, Weight::zero());
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&netuid));
+        assert_eq!(CurrentDissolveCleanupStatus::<Test>::get(), None);
+        assert!(
+            !RootClaimable::<Test>::get(hotkey).is_empty(),
+            "the partially converted hotkey must remain intact for migration resume"
+        );
+        assert_eq!(
+            RootClaimed::<Test>::get((netuid, hotkey, coldkey)),
+            0,
+            "the migration must receive the idle budget and advance its claimed-row cursor"
+        );
+
+        // The block that begins with the cursor still gives the migration exclusive ownership.
+        SubtensorModule::on_idle(2, Weight::MAX);
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&netuid));
+
+        // Cleanup resumes on the first later idle block.
+        SubtensorModule::on_idle(3, Weight::MAX);
+        assert!(
+            !DissolveCleanupQueue::<Test>::get().contains(&netuid)
+                || CurrentDissolveCleanupStatus::<Test>::get().is_some()
         );
     });
 }

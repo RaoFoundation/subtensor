@@ -389,6 +389,8 @@ impl<T: Config> Pallet<T> {
         // by setting `PendingEpochAt`.
         let max_epochs_per_block = Self::get_max_epochs_per_block() as u32;
         let mut epochs_run_this_block: u32 = 0;
+        let seed_in_progress =
+            crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
 
         for &netuid in subnets.iter() {
             // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
@@ -430,9 +432,16 @@ impl<T: Config> Pallet<T> {
                 let pending_validator_alpha = PendingValidatorEmission::<T>::get(netuid);
                 PendingValidatorEmission::<T>::insert(netuid, AlphaBalance::ZERO);
 
-                // Get and drain the pending Alpha for root divs.
-                let pending_root_alpha = PendingRootAlphaDivs::<T>::get(netuid);
-                PendingRootAlphaDivs::<T>::insert(netuid, AlphaBalance::ZERO);
+                // Do not distribute root dividends while the basket seed owns its destination
+                // maps. Leave them pending so the first epoch after completion distributes the
+                // full accumulated amount; other epoch emissions can proceed normally.
+                let pending_root_alpha = if seed_in_progress {
+                    AlphaBalance::ZERO
+                } else {
+                    let pending = PendingRootAlphaDivs::<T>::get(netuid);
+                    PendingRootAlphaDivs::<T>::insert(netuid, AlphaBalance::ZERO);
+                    pending
+                };
 
                 // Get and drain the pending owner cut.
                 let owner_cut = PendingOwnerCut::<T>::get(netuid);

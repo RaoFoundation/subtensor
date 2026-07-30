@@ -55,10 +55,9 @@ impl RootClaimOutcome {
 
 impl<T: Config> Pallet<T> {
     /// Reject user-facing basket / root-stake mutations while the
-    /// `migrate_seed_beta_basket_v2` cursor is still present. The seed runs to completion
-    /// inside the upgrade block, so this never fires on a healthy chain; it guards an
-    /// interrupted or partially-applied seed. Dividend distribution recycles instead of
-    /// calling this (soft path); deposits, claims, swaps, and root stake
+    /// `migrate_seed_beta_basket_v2` cursor is still present. Dividend production normally
+    /// remains in `PendingRootAlphaDivs` until the seed completes; direct calls into the
+    /// distribution soft path recycle defensively. Deposits, claims, swaps, and root stake
     /// add/remove/transfer hard-error here.
     pub(crate) fn ensure_beta_basket_seed_idle() -> Result<(), Error<T>> {
         ensure!(
@@ -208,10 +207,9 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        // Seed migration still converting legacy claim state (only possible if the one-shot
-        // upgrade run was interrupted): recycle rather than mint into BasketRate/Shares that
-        // a later migration pass would overwrite with the legacy conversion totals
-        // (stranding intervening escrow buys).
+        // Seed migration still converting legacy claim state. Coinbase normally leaves this
+        // alpha in PendingRootAlphaDivs until completion; recycle a direct call defensively
+        // rather than writing BasketRate/Shares that a later pass would overwrite.
         if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
             Self::recycle_subnet_alpha(origin_netuid, root_alpha);
             return;

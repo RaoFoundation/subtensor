@@ -208,7 +208,17 @@ mod hooks {
         }
 
         fn on_idle(_block: BlockNumberFor<T>, limit: Weight) -> Weight {
-            let mut weight = Self::remove_data_for_dissolved_networks(limit);
+            let seed_in_progress =
+                migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
+
+            // Dissolution removes RootClaimable/RootClaimed state that the seed still needs.
+            // Give the migration exclusive ownership of those legacy maps until it completes;
+            // queued dissolutions resume on the first subsequent idle block.
+            let mut weight = if seed_in_progress {
+                Weight::zero()
+            } else {
+                Self::remove_data_for_dissolved_networks(limit)
+            };
 
             if weight.all_lt(limit) {
                 weight.saturating_accrue(Self::process_network_registration_queue());
@@ -218,7 +228,7 @@ mod hooks {
             // Always call it while the cursor exists: its adaptive limits normally respect the
             // remaining weight, but it deliberately performs one overweight item when needed
             // so an individually oversized row/hotkey cannot stall the migration forever.
-            if migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
+            if seed_in_progress {
                 weight.saturating_accrue(
                     migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2_with_limit::<
                         T,

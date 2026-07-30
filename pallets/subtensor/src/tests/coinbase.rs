@@ -3962,6 +3962,48 @@ fn test_coinbase_drain_pending_gets_counters_and_resets_them() {
 }
 
 #[test]
+fn test_coinbase_defers_root_dividends_while_basket_seed_is_in_progress() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        kickoff_seed_beta_basket_v2, migrate_seed_beta_basket_v2,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        Tempo::<Test>::insert(netuid, 100);
+        LastEpochBlock::<Test>::insert(netuid, 0);
+        let pending_root = AlphaBalance::from(12_222_222);
+        PendingRootAlphaDivs::<Test>::insert(netuid, pending_root);
+        kickoff_seed_beta_basket_v2::<Test>();
+
+        let during_seed = SubtensorModule::drain_pending(&[netuid], 102);
+        assert_eq!(during_seed.len(), 1);
+        assert_eq!(
+            during_seed[&netuid].2,
+            AlphaBalance::ZERO,
+            "an epoch may run, but its root dividend must not reach basket distribution"
+        );
+        assert_eq!(
+            PendingRootAlphaDivs::<Test>::get(netuid),
+            pending_root,
+            "root dividends must remain deferred in their existing pending ledger"
+        );
+
+        migrate_seed_beta_basket_v2::<Test>();
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+        assert!(SubtensorModule::should_run_epoch(netuid, 203));
+
+        let after_seed = SubtensorModule::drain_pending(&[netuid], 203);
+        assert_eq!(after_seed[&netuid].2, pending_root);
+        assert_eq!(
+            PendingRootAlphaDivs::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+#[test]
 fn test_coinbase_emit_to_subnets_with_no_root_sell() {
     new_test_ext(1).execute_with(|| {
         let zero = U96F32::saturating_from_num(0);
