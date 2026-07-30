@@ -10,24 +10,12 @@ use std::collections::BTreeSet;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
 #[test]
-fn post_dispatch_extensions_refund_before_fee_and_block_reclaim() {
+fn weight_reclaim_is_the_final_transaction_extension() {
     let identifiers = <TxExtension as TransactionExtension<RuntimeCall>>::metadata()
         .into_iter()
         .map(|metadata| metadata.identifier)
         .collect::<Vec<_>>();
 
-    let Some(subtensor) = identifiers
-        .iter()
-        .position(|identifier| *identifier == "SubtensorTransactionExtension")
-    else {
-        panic!("Subtensor transaction extension is configured");
-    };
-    let Some(payment) = identifiers
-        .iter()
-        .position(|identifier| *identifier == "ChargeTransactionPayment")
-    else {
-        panic!("transaction-payment extension is configured");
-    };
     let Some(reclaim) = identifiers
         .iter()
         .position(|identifier| *identifier == "WeightReclaim")
@@ -35,8 +23,6 @@ fn post_dispatch_extensions_refund_before_fee_and_block_reclaim() {
         panic!("final weight-reclaim extension is configured");
     };
 
-    assert!(subtensor < payment);
-    assert!(payment < reclaim);
     assert_eq!(reclaim, identifiers.len() - 1);
 }
 
@@ -92,6 +78,39 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
         "claim_root total weight {:?} exceeds normal max extrinsic {max_extrinsic:?}",
         dispatch_info.total_weight()
     );
+}
+
+#[test]
+fn nested_variable_work_calls_keep_the_maximum_declaration() {
+    let maximum_dispatch_weight = pallet_subtensor::Pallet::<Runtime>::max_normal_dispatch_weight();
+    let calls = [
+        RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root {
+            subnets: BTreeSet::from([NetUid::from(1)]),
+        }),
+        RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_coldkey {
+            old_coldkey: sp_runtime::AccountId32::new([1; 32]),
+            new_coldkey: sp_runtime::AccountId32::new([2; 32]),
+            swap_cost: TaoBalance::new(0),
+        }),
+        RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_coldkey_announced {
+            new_coldkey: sp_runtime::AccountId32::new([3; 32]),
+        }),
+    ];
+
+    for inner_call in calls {
+        assert!(
+            maximum_dispatch_weight.all_lte(inner_call.get_dispatch_info().call_weight),
+            "state-dependent call must carry its reserve in dispatch metadata"
+        );
+
+        let wrapper = RuntimeCall::Utility(pallet_subtensor_utility::Call::batch {
+            calls: vec![inner_call],
+        });
+        assert!(
+            maximum_dispatch_weight.all_lte(wrapper.get_dispatch_info().call_weight),
+            "utility must inherit the inner call's maximum declaration"
+        );
+    }
 }
 
 #[test]

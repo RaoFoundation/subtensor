@@ -29,18 +29,17 @@ impl<T: Config> Pallet<T> {
         max_extrinsic.saturating_sub(T::MaxTransactionExtensionWeight::get())
     }
 
-    /// Expose the call-instance benchmark model in dispatch metadata.
+    /// Declare the maximum admissible weight for state-dependent dispatches.
     ///
-    /// Top-level signed transactions lift this to the maximum admissible
-    /// reserve in [`crate::SubtensorTransactionExtension`]. Nested callers do not run
-    /// signed transaction extensions, so they retain this composable bound
-    /// instead of inheriting a whole-extrinsic ceiling they cannot fit.
-    pub fn precharge_maximum(benchmark_model: Weight) -> Weight {
-        benchmark_model
+    /// The declaration belongs to the call rather than a signed transaction
+    /// extension so wrappers inherit it when dispatching this call internally.
+    /// FRAME can then safely refund the measured post-dispatch weight without
+    /// capping nested accounting at a smaller benchmark-model declaration.
+    pub fn precharge_maximum(_benchmark_model: Weight) -> Weight {
+        Self::max_normal_dispatch_weight()
     }
 
-    /// Report the benchmark model for nested callers; top-level transactions
-    /// add the maximum reserve through the transaction extension.
+    /// Reserve the maximum dispatch weight and refund the measured result.
     pub fn swap_hotkey_v2_dispatch_weight(_netuid: &Option<NetUid>, _keep_stake: bool) -> Weight {
         Self::precharge_maximum(<T as Config>::WeightInfo::swap_hotkey_v2())
     }

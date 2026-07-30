@@ -1480,8 +1480,6 @@ pub type CustomTxExtension = (
     pallet_shield::CheckShieldedTxValidity<Runtime>,
     pallet_subtensor::SubtensorTransactionExtension<Runtime>,
     pallet_drand::drand_priority::DrandPriority<Runtime>,
-    // Payment must run after Subtensor's post-dispatch reserve refund so fee
-    // calculation sees the uncapped, state-dependent call weight.
     ChargeTransactionPaymentWrapper<Runtime>,
 );
 pub type TxExtension = (
@@ -1540,7 +1538,7 @@ impl Get<Weight> for MaxSubtensorTransactionExtensionWeight {
 
         // FRAME's pallet dispatch extensions are accrued to the call weight by
         // `GetDispatchInfo`. SubtensorTransactionExtension mirrors that same
-        // guard set in the signed transaction extension tuple. Reserve the
+        // guard set in the signed transaction extension tuple. Account for the
         // call-independent maximum once for each layer.
         non_subtensor_extension_weight
             .saturating_add(maximum_subtensor_extension_weight)

@@ -106,56 +106,6 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
             .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
     }
 
-    fn reserves_maximum_dispatch_weight(call: &CallOf<T>) -> bool
-    where
-        CallOf<T>: IsSubType<Call<T>>,
-    {
-        let Some(call) = call.is_sub_type() else {
-            return false;
-        };
-        matches!(
-            call,
-            Call::set_weights { .. }
-                | Call::set_mechanism_weights { .. }
-                | Call::batch_set_weights { .. }
-                | Call::commit_weights { .. }
-                | Call::commit_mechanism_weights { .. }
-                | Call::batch_commit_weights { .. }
-                | Call::reveal_weights { .. }
-                | Call::reveal_mechanism_weights { .. }
-                | Call::commit_crv3_mechanism_weights { .. }
-                | Call::batch_reveal_weights { .. }
-                | Call::serve_axon_tls { .. }
-                | Call::swap_hotkey { .. }
-                | Call::swap_hotkey_v2 { .. }
-                | Call::swap_coldkey { .. }
-                | Call::set_children { .. }
-                | Call::set_identity { .. }
-                | Call::set_subnet_identity { .. }
-                | Call::register_network_with_identity { .. }
-                | Call::unstake_all { .. }
-                | Call::unstake_all_alpha { .. }
-                | Call::commit_timelocked_weights { .. }
-                | Call::set_coldkey_auto_stake_hotkey { .. }
-                | Call::commit_timelocked_mechanism_weights { .. }
-                | Call::claim_root { .. }
-                | Call::set_root_claim_type { .. }
-                | Call::swap_coldkey_announced { .. }
-        )
-    }
-
-    fn maximum_dispatch_reserve(call: &CallOf<T>) -> Weight
-    where
-        CallOf<T>: GetDispatchInfo + IsSubType<Call<T>>,
-    {
-        if Self::reserves_maximum_dispatch_weight(call) {
-            crate::Pallet::<T>::max_normal_dispatch_weight()
-                .saturating_sub(call.get_dispatch_info().call_weight)
-        } else {
-            Weight::zero()
-        }
-    }
-
     fn check(origin: &OriginOf<T>, call: &CallOf<T>) -> Result<(), Error<T>>
     where
         T: pallet_shield::Config,
@@ -202,11 +152,11 @@ where
     const IDENTIFIER: &'static str = "SubtensorTransactionExtension";
 
     type Implicit = ();
-    type Val = Weight;
-    type Pre = Weight;
+    type Val = ();
+    type Pre = ();
 
     fn weight(&self, call: &CallOf<T>) -> Weight {
-        Self::validation_weight(call).saturating_add(Self::maximum_dispatch_reserve(call))
+        Self::validation_weight(call)
     }
 
     fn validate(
@@ -220,42 +170,19 @@ where
         _source: TransactionSource,
     ) -> ValidateResult<Self::Val, CallOf<T>> {
         Self::check(&origin, call)
-            .map(|()| {
-                (
-                    Default::default(),
-                    Self::maximum_dispatch_reserve(call),
-                    origin,
-                )
-            })
+            .map(|()| (Default::default(), (), origin))
             .map_err(|error| TransactionValidityError::from(CustomTransactionError::from(error)))
     }
 
     fn prepare(
         self,
-        reserve: Self::Val,
+        _val: Self::Val,
         _origin: &OriginOf<T>,
         _call: &CallOf<T>,
         _info: &DispatchInfoOf<CallOf<T>>,
         _len: usize,
     ) -> Result<Self::Pre, TransactionValidityError> {
-        Ok(reserve)
-    }
-
-    fn post_dispatch_details(
-        reserve: Self::Pre,
-        _info: &DispatchInfoOf<CallOf<T>>,
-        _post_info: &PostDispatchInfo,
-        _len: usize,
-        _result: &sp_runtime::DispatchResult,
-    ) -> Result<Weight, TransactionValidityError> {
-        // FRAME adds the complete extension precharge to the raw call-reported
-        // weight before running transaction-extension post-dispatch hooks. The
-        // state-dependent call overage is therefore already present in
-        // `post_info.actual_weight`; refunding less than the full reserve would
-        // charge that overage twice. Runtime ordering must keep transaction
-        // payment after this extension and WeightReclaim last so neither
-        // consumer caps the aggregate before this refund is applied.
-        Ok(reserve)
+        Ok(())
     }
 }
 
@@ -270,8 +197,7 @@ mod tests {
     };
     use frame_support::{
         assert_ok,
-        dispatch::{DispatchExtension, GetDispatchInfo, Pays, PostDispatchInfo},
-        weights::Weight,
+        dispatch::{DispatchExtension, GetDispatchInfo, Pays},
     };
     use frame_system::RawOrigin;
     use sp_core::U256;
@@ -407,16 +333,14 @@ mod tests {
             for call in calls {
                 assert_eq!(
                     TransactionExtension::weight(&extension, &call),
-                    expected_transaction_extension_weight(&call).saturating_add(
-                        SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call)
-                    )
+                    expected_transaction_extension_weight(&call)
                 );
             }
         });
     }
 
     #[test]
-    fn dynamic_call_and_extension_reserve_the_maximum_dispatch_weight() {
+    fn dynamic_call_declares_the_maximum_dispatch_weight() {
         new_test_ext(1).execute_with(|| {
             let call = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
                 netuid: NetUid::from(1),
@@ -425,103 +349,15 @@ mod tests {
                 version_key: 0,
             });
             let call_weight = call.get_dispatch_info().call_weight;
-            let reserve = SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call);
 
-            assert_eq!(
-                call_weight.saturating_add(reserve),
-                SubtensorModule::max_normal_dispatch_weight()
+            assert!(
+                SubtensorModule::max_normal_dispatch_weight().all_lte(call_weight),
+                "dispatch metadata must include the maximum declaration"
             );
             assert_eq!(
                 TransactionExtension::weight(&SubtensorTransactionExtension::<Test>::new(), &call),
-                expected_transaction_extension_weight(&call).saturating_add(reserve)
+                expected_transaction_extension_weight(&call)
             );
-        });
-    }
-
-    #[test]
-    fn fixed_weight_call_has_no_maximum_dispatch_reserve() {
-        new_test_ext(1).execute_with(|| {
-            let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
-
-            assert_eq!(
-                SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call),
-                Weight::zero()
-            );
-        });
-    }
-
-    #[test]
-    fn maximum_dispatch_reserve_refund_preserves_state_dependent_call_weight() {
-        new_test_ext(1).execute_with(|| {
-            let call = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
-                netuid: NetUid::from(1),
-                dests: vec![0],
-                weights: vec![1],
-                version_key: 0,
-            });
-            let reserve = SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call);
-            let declared_call_weight = call.get_dispatch_info().call_weight;
-            let other_extension_weight = Weight::from_parts(17, 19);
-            let info = frame_support::dispatch::DispatchInfo {
-                call_weight: declared_call_weight,
-                extension_weight: reserve.saturating_add(other_extension_weight),
-                ..call.get_dispatch_info()
-            };
-
-            // `set_extension_weight` adds the complete extension precharge to
-            // the raw weight reported by the call. The reserve must therefore
-            // be refunded in full: retaining the call's excess over its
-            // declaration happens automatically because that raw excess is
-            // still present and has not yet been capped.
-            for actual_call_weight in [
-                declared_call_weight / 2,
-                declared_call_weight,
-                declared_call_weight.saturating_add(reserve / 2),
-            ] {
-                let mut post_info = PostDispatchInfo {
-                    actual_weight: Some(actual_call_weight.saturating_add(info.extension_weight)),
-                    ..Default::default()
-                };
-
-                assert_ok!(<SubtensorTransactionExtension<Test> as TransactionExtension<
-                    RuntimeCall,
-                >>::post_dispatch(
-                    reserve, &info, &mut post_info, 0, &Ok(())
-                ));
-
-                assert_eq!(
-                    post_info.actual_weight,
-                    Some(actual_call_weight.saturating_add(other_extension_weight))
-                );
-            }
-        });
-    }
-
-    #[test]
-    fn maximum_dispatch_reserve_is_refunded_after_failure() {
-        new_test_ext(1).execute_with(|| {
-            let call = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
-                netuid: NetUid::from(1),
-                dests: vec![0],
-                weights: vec![1],
-                version_key: 0,
-            });
-            let reserve = SubtensorTransactionExtension::<Test>::maximum_dispatch_reserve(&call);
-            let info = call.get_dispatch_info();
-            let post_info = PostDispatchInfo::default();
-
-            let refunded = <SubtensorTransactionExtension<Test> as TransactionExtension<
-                RuntimeCall,
-            >>::post_dispatch_details(
-                reserve,
-                &info,
-                &post_info,
-                0,
-                &Err(sp_runtime::DispatchError::Other("expected failure")),
-            )
-            .unwrap();
-
-            assert_eq!(refunded, reserve);
         });
     }
 }
