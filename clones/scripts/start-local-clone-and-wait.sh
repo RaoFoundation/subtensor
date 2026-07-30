@@ -30,7 +30,13 @@ case "$mode" in
     nohup ./clones/scripts/start-local-clone.sh --sealing 250 > "$log_file" 2>&1 &
     ;;
   normal)
-    nohup ./clones/scripts/start-local-clone.sh --sealing 12000 > "$log_file" 2>&1 &
+    # The exhaustive post-migration audit pins the exact completion block while the
+    # 12-second chain keeps advancing. Retain enough historical state for that scan;
+    # the restored clone database uses numeric pruning, so increasing its window is valid.
+    nohup ./clones/scripts/start-local-clone.sh \
+      --sealing 12000 \
+      --state-pruning 10000 \
+      > "$log_file" 2>&1 &
     ;;
   manual)
     nohup ./clones/scripts/start-local-clone.sh --sealing manual > "$log_file" 2>&1 &
