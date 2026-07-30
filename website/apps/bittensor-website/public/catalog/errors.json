@@ -480,24 +480,6 @@
         }
       ]
     },
-    "BasketClaimedHotkeyMigrationInProgress": {
-      "code": "too_early",
-      "description": "A root hotkey swap left a metered `BasketClaimed` watermark drain unfinished, so claims, direct basket deposits, and further root-touching swaps on the involved hotkeys are paused until `on_idle` finishes moving the retired prefix. Wait a few blocks and retry once `PendingBasketClaimedHotkeyMigration` no longer lists the key.",
-      "docs_url": "/docs/errors/chain/BasketClaimedHotkeyMigrationInProgress",
-      "markdown_url": "/llms.mdx/docs/errors/chain/BasketClaimedHotkeyMigrationInProgress/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 366,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L366",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
     "BasketHasNoWeights": {
       "code": "invalid_argument",
       "description": "`stake_into_basket` (or a related basket deposit) was called against a validator whose root weight vector filters to no usable destinations. Have the validator set root weights with `btcli weights set-root` (or `set_root_weights`) before depositing.",
@@ -4957,42 +4939,6 @@
           "line": 779,
           "url": "/code/pallets/proxy/src/lib.rs#L779",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
-        }
-      ]
-    },
-    "TooManyBasketDepositHoldings": {
-      "code": "limit_exceeded",
-      "description": "`stake_into_basket` would NAV-scan more basket holdings than its declared pre-dispatch weight envelope (`MAX_STAKE_INTO_BASKET_HOLDINGS`). Reduce the validator's outstanding escrow positions (or weight-vector breadth) before retrying the deposit.",
-      "docs_url": "/docs/errors/chain/TooManyBasketDepositHoldings",
-      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyBasketDepositHoldings/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 372,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L372",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "TooManyBasketDepositSlots": {
-      "code": "limit_exceeded",
-      "description": "`stake_into_basket` would deploy across more root-weight slots than its declared pre-dispatch weight envelope (`MAX_STAKE_INTO_BASKET_SLOTS`). Have the validator narrow their root weight vector before depositing.",
-      "docs_url": "/docs/errors/chain/TooManyBasketDepositSlots",
-      "markdown_url": "/llms.mdx/docs/errors/chain/TooManyBasketDepositSlots/content.md",
-      "pallets": [
-        "SubtensorModule"
-      ],
-      "sources": [
-        {
-          "pallet": "SubtensorModule",
-          "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 369,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L369",
-          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
     },

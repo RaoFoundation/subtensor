@@ -41,19 +41,6 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Reject claims / deposits / root-touching swaps on a hotkey while a post-swap
-    /// `BasketClaimed` drain is still moving watermarks onto its successor (or off it).
-    pub(crate) fn ensure_basket_claimed_hotkey_migration_idle(
-        hotkey: &T::AccountId,
-    ) -> Result<(), Error<T>> {
-        ensure!(
-            !PendingBasketClaimedHotkeyMigration::<T>::contains_key(hotkey)
-                && !PendingBasketClaimedHotkeyMigrationByNew::<T>::contains_key(hotkey),
-            Error::<T>::BasketClaimedHotkeyMigrationInProgress
-        );
-        Ok(())
-    }
-
     /// The single global escrow coldkey that custodies every validator's basket.
     ///
     /// A validator's basket (fund) holdings are positions `(validator_hotkey, this_account,
@@ -449,7 +436,6 @@ impl<T: Config> Pallet<T> {
         tao: TaoBalance,
     ) -> Result<Weight, DispatchError> {
         Self::ensure_beta_basket_seed_idle()?;
-        Self::ensure_basket_claimed_hotkey_migration_idle(&hotkey)?;
         ensure!(
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists
@@ -462,20 +448,11 @@ impl<T: Config> Pallet<T> {
 
         let valid = Self::get_valid_basket_weights(&hotkey);
         ensure!(!valid.is_empty(), Error::<T>::BasketHasNoWeights);
-        ensure!(
-            (valid.len() as u32) <= crate::MAX_STAKE_INTO_BASKET_SLOTS,
-            Error::<T>::TooManyBasketDepositSlots
-        );
 
         // Each weight slot can add at most one new holding, so pre-deploy holdings plus the
-        // slot count bounds the holdings the two NAV valuations will sweep. Reject above the
-        // declared pre-dispatch weight envelope so Substrate cannot undercharge the block.
-        let existing_holdings = Self::get_basket_holdings(&hotkey).len() as u64;
-        let num_holdings = existing_holdings.saturating_add(valid.len() as u64);
-        ensure!(
-            num_holdings <= crate::MAX_STAKE_INTO_BASKET_HOLDINGS as u64,
-            Error::<T>::TooManyBasketDepositHoldings
-        );
+        // slot count bounds the holdings the two NAV valuations will sweep.
+        let num_holdings =
+            (Self::get_basket_holdings(&hotkey).len() as u64).saturating_add(valid.len() as u64);
 
         with_transaction(
             || match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &valid) {
@@ -772,7 +749,6 @@ impl<T: Config> Pallet<T> {
     ) -> Result<(), DispatchError> {
         let mut total_tao: u64 = 0;
         for hotkey in hotkeys {
-            Self::ensure_basket_claimed_hotkey_migration_idle(hotkey)?;
             let realized = Self::root_claim_for_hotkey(hotkey, &coldkey, false)?;
             total_tao = total_tao.saturating_add(realized);
         }
@@ -897,13 +873,14 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Migrates a validator's entire fund to a new hotkey: shares, rate, and every escrow
-    /// holding move by value immediately. `BasketClaimed` drains at most
-    /// [`crate::MAX_ROOT_CLAIM_WORK`] rows here; any remainder is queued on
-    /// [`PendingBasketClaimedHotkeyMigration`] and finished from `on_idle`.
+    /// Migrates a validator's entire fund to a new hotkey: shares, rate, per-coldkey watermarks,
+    /// and every escrow holding, moved by value. The caller must guarantee the new hotkey is
+    /// clean on root (enforced by `do_swap_hotkey`), so this is a move, not a merge.
     ///
-    /// The caller must guarantee the new hotkey is clean on root (enforced by
-    /// `do_swap_hotkey`), so this is a move, not a merge. Returns rows moved in this call.
+    /// Returns the number of `BasketClaimed` rows moved so the caller can charge weight.
+    /// Claimant rows are unbounded (same class of work as moving stake coldkeys): a popular
+    /// root validator must still be able to hotkey-swap; the extrinsic pays the resulting
+    /// weight rather than hard-failing above [`crate::MAX_ROOT_CLAIM_WORK`].
     pub fn transfer_basket_for_new_hotkey(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
@@ -928,6 +905,17 @@ impl<T: Config> Pallet<T> {
             BasketRedeemedTao::<T>::mutate(new_hotkey, |t| *t = t.saturating_add(redeemed));
         }
 
+        // One row per historical coldkey — may be large; weight is charged by the caller.
+        let claimed_entries: Vec<(T::AccountId, i128)> =
+            BasketClaimed::<T>::iter_prefix(old_hotkey).collect();
+        let claimed_count = claimed_entries.len() as u32;
+        for (coldkey, claimed) in claimed_entries {
+            BasketClaimed::<T>::remove(old_hotkey, &coldkey);
+            BasketClaimed::<T>::mutate(new_hotkey, &coldkey, |c| {
+                *c = c.saturating_add(claimed);
+            });
+        }
+
         let escrow = Self::get_beta_escrow_account_id();
         for (netuid, alpha) in Self::get_basket_holdings(old_hotkey) {
             Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
@@ -938,116 +926,7 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        let (done, cursor, claimed_count) = Self::migrate_basket_claimed_rows(
-            old_hotkey,
-            new_hotkey,
-            None,
-            crate::MAX_ROOT_CLAIM_WORK,
-        );
-        if done {
-            PendingBasketClaimedHotkeyMigration::<T>::remove(old_hotkey);
-            PendingBasketClaimedHotkeyMigrationByNew::<T>::remove(new_hotkey);
-        } else {
-            PendingBasketClaimedHotkeyMigration::<T>::insert(
-                old_hotkey,
-                (new_hotkey.clone(), cursor),
-            );
-            PendingBasketClaimedHotkeyMigrationByNew::<T>::insert(new_hotkey, old_hotkey);
-        }
-
         claimed_count
-    }
-
-    /// Moves up to `max_rows` `BasketClaimed` entries from `old_hotkey` onto `new_hotkey`.
-    /// Returns `(done, next_cursor, rows_moved)`. Cursor is the hashed key of the last
-    /// completed row for `iter_prefix_from` resume.
-    pub fn migrate_basket_claimed_rows(
-        old_hotkey: &T::AccountId,
-        new_hotkey: &T::AccountId,
-        last_key: Option<Vec<u8>>,
-        max_rows: u32,
-    ) -> (bool, Option<Vec<u8>>, u32) {
-        if max_rows == 0 {
-            return (false, last_key, 0);
-        }
-
-        let mut claimed_iter = match &last_key {
-            Some(cursor) => BasketClaimed::<T>::iter_prefix_from(old_hotkey, cursor.clone()),
-            None => BasketClaimed::<T>::iter_prefix(old_hotkey),
-        };
-
-        let mut cursor = last_key;
-        let mut moved = 0u32;
-        loop {
-            if moved >= max_rows {
-                return (false, cursor, moved);
-            }
-            let Some((coldkey, claimed)) = claimed_iter.next() else {
-                return (true, None, moved);
-            };
-
-            BasketClaimed::<T>::remove(old_hotkey, &coldkey);
-            if claimed != 0 {
-                BasketClaimed::<T>::mutate(new_hotkey, &coldkey, |c| {
-                    *c = c.saturating_add(claimed);
-                });
-            }
-            cursor = Some(BasketClaimed::<T>::hashed_key_for(old_hotkey, &coldkey));
-            moved = moved.saturating_add(1);
-        }
-    }
-
-    /// Continue any pending post-swap `BasketClaimed` drains under the remaining `on_idle`
-    /// weight budget. Processes one retired hotkey per call to keep the scan bounded.
-    pub fn process_pending_basket_claimed_hotkey_migrations(limit: Weight) -> Weight {
-        let mut meter = WeightMeter::with_limit(limit);
-        let probe = T::DbWeight::get().reads(1);
-        if !meter.can_consume(probe) {
-            return meter.consumed();
-        }
-        meter.consume(probe);
-
-        let Some((old_hotkey, (new_hotkey, cursor))) =
-            PendingBasketClaimedHotkeyMigration::<T>::iter().next()
-        else {
-            return meter.consumed();
-        };
-
-        let per_row = T::DbWeight::get().reads_writes(2, 2);
-        let finish_writes = T::DbWeight::get().writes(2);
-        let max_rows = meter
-            .remaining()
-            .ref_time()
-            .saturating_sub(finish_writes.ref_time())
-            .checked_div(per_row.ref_time().max(1))
-            .unwrap_or(0)
-            .min(crate::MAX_ROOT_CLAIM_WORK as u64) as u32;
-
-        let (done, next_cursor, moved) =
-            Self::migrate_basket_claimed_rows(&old_hotkey, &new_hotkey, cursor, max_rows);
-        let row_weight = per_row.saturating_mul(moved as u64);
-        if meter.can_consume(row_weight) {
-            meter.consume(row_weight);
-        }
-
-        if done {
-            PendingBasketClaimedHotkeyMigration::<T>::remove(&old_hotkey);
-            PendingBasketClaimedHotkeyMigrationByNew::<T>::remove(&new_hotkey);
-            if meter.can_consume(finish_writes) {
-                meter.consume(finish_writes);
-            }
-        } else if moved > 0 {
-            let update = T::DbWeight::get().writes(1);
-            PendingBasketClaimedHotkeyMigration::<T>::insert(
-                &old_hotkey,
-                (new_hotkey, next_cursor),
-            );
-            if meter.can_consume(update) {
-                meter.consume(update);
-            }
-        }
-
-        meter.consumed()
     }
 
     /// Converts validators' basket holdings on a dissolving subnet into each fund's root

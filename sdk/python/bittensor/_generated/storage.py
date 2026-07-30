@@ -293,8 +293,6 @@ class SubtensorModule:
     BasketClaimed = Item('SubtensorModule', 'BasketClaimed', 'i128')
     BasketDepositedTao = Item('SubtensorModule', 'BasketDepositedTao', 'TaoBalance')
     BasketRedeemedTao = Item('SubtensorModule', 'BasketRedeemedTao', 'TaoBalance')
-    PendingBasketClaimedHotkeyMigration = Item('SubtensorModule', 'PendingBasketClaimedHotkeyMigration', '(AccountId32, Option<Vec<u8>>)')
-    PendingBasketClaimedHotkeyMigrationByNew = Item('SubtensorModule', 'PendingBasketClaimedHotkeyMigrationByNew', 'AccountId32')
     StakingColdkeysByIndex = Item('SubtensorModule', 'StakingColdkeysByIndex', 'AccountId32')
     StakingColdkeys = Item('SubtensorModule', 'StakingColdkeys', 'u64')
     NumStakingColdkeys = Item('SubtensorModule', 'NumStakingColdkeys', 'u64')

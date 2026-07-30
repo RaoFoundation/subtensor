@@ -74,12 +74,6 @@ DESCRIPTIONS: dict[str, str] = {
         "due to insufficient funds, the existential deposit, or frozen/reserved balance. Check "
         "the coldkey's balance with `btcli wallet balance` and reduce the amount or top up."
     ),
-    "BasketClaimedHotkeyMigrationInProgress": (
-        "A root hotkey swap left a metered `BasketClaimed` watermark drain unfinished, so "
-        "claims, direct basket deposits, and further root-touching swaps on the involved "
-        "hotkeys are paused until `on_idle` finishes moving the retired prefix. Wait a few "
-        "blocks and retry once `PendingBasketClaimedHotkeyMigration` no longer lists the key."
-    ),
     "BasketHasNoWeights": (
         "`stake_into_basket` (or a related basket deposit) was called against a validator "
         "whose root weight vector filters to no usable destinations. Have the validator set "
@@ -728,16 +722,6 @@ DESCRIPTIONS: dict[str, str] = {
         "The subnet owner gave `sudo_set_tempo` a tempo outside the allowed MIN_TEMPO to "
         "MAX_TEMPO range (360-50,400 blocks). Check the tempo argument against those chain "
         "constants and pick a value inside the bounds; only root may set a tempo outside them."
-    ),
-    "TooManyBasketDepositHoldings": (
-        "`stake_into_basket` would NAV-scan more basket holdings than its declared pre-dispatch "
-        "weight envelope (`MAX_STAKE_INTO_BASKET_HOLDINGS`). Reduce the validator's outstanding "
-        "escrow positions (or weight-vector breadth) before retrying the deposit."
-    ),
-    "TooManyBasketDepositSlots": (
-        "`stake_into_basket` would deploy across more root-weight slots than its declared "
-        "pre-dispatch weight envelope (`MAX_STAKE_INTO_BASKET_SLOTS`). Have the validator "
-        "narrow their root weight vector before depositing."
     ),
     "TooManyChildren": (
         "`set_children` was called with more than 5 child hotkeys for a parent on the subnet. "

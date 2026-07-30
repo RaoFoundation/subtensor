@@ -23,7 +23,7 @@ an unauthorized one with `dispute_coldkey_swap`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap`](/code/pallets/subtensor/src/macros/dispatches.rs#L2028-L2056) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.announce_coldkey_swap`](/code/pallets/subtensor/src/macros/dispatches.rs#L2020-L2048) |
 
 ## Parameters
 
@@ -72,7 +72,7 @@ result = sub.execute_tool("announce_coldkey_swap", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.announce_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2030`](/code/pallets/subtensor/src/macros/dispatches.rs#L2028-L2056):
+`SubtensorModule.announce_coldkey_swap` — [`pallets/subtensor/src/macros/dispatches.rs#L2022`](/code/pallets/subtensor/src/macros/dispatches.rs#L2020-L2048):
 
 ```rust
 #[pallet::call_index(125)]
@@ -106,6 +106,6 @@ pub fn announce_coldkey_swap(
 }
 ```
 
-Delegates to [`get_key_swap_cost`](/code/pallets/subtensor/src/utils/misc.rs#L827), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L80).
+Delegates to [`get_key_swap_cost`](/code/pallets/subtensor/src/utils/misc.rs#L827), [`charge_swap_cost`](/code/pallets/subtensor/src/swap/swap_coldkey.rs#L72).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
