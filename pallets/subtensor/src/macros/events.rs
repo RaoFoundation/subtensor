@@ -745,5 +745,41 @@ mod events {
             /// The new floor; zero clears it.
             min_locked: AlphaBalance,
         },
+
+        /// A subnet owner matched a challenger's price and kept the subnet out of the pruning
+        /// candidate set.
+        SubnetFirstRefusalExercised {
+            /// Subnet identifier.
+            netuid: NetUid,
+            /// The owner coldkey that paid.
+            owner: T::AccountId,
+            /// TAO recycled to match the challenger's lock.
+            paid: TaoBalance,
+            /// Block before which the subnet cannot be pruned.
+            immune_until: u64,
+        },
+
+        /// A queued network registration was withdrawn and its lock returned.
+        NetworkRegistrationCancelled {
+            /// The coldkey that registered, and that the lock is returned to.
+            coldkey: T::AccountId,
+            /// The hotkey the withdrawn registration named.
+            hotkey: T::AccountId,
+            /// The lock that is released.
+            lock_amount: TaoBalance,
+            /// Which lock, since one coldkey can hold several.
+            lock_id: u32,
+        },
+
+        /// A registration came for this subnet's slot, opening the owner's right of first
+        /// refusal. The owner keeps the subnet by matching `offer` before `expires_at`.
+        SubnetChallenged {
+            /// Subnet identifier.
+            netuid: NetUid,
+            /// The price the challenger locked, and the figure the owner must match.
+            offer: TaoBalance,
+            /// Last block on which the owner can still answer.
+            expires_at: u64,
+        },
     }
 }

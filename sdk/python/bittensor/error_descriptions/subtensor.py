@@ -516,6 +516,13 @@ DESCRIPTIONS: dict[str, str] = {
         "root-claimed history, so root accounting cannot merge safely. Check `RootClaimable` "
         "and root-subnet stake for the new hotkey; claim or clear them, or use a fresh hotkey."
     ),
+    "NoChallengeToAnswer": (
+        "`exercise_first_refusal` was called but no registration is waiting on that subnet's "
+        "owner. Either no challenger has ever reached it, the window in which the owner could "
+        "have answered has already closed, or the challenger who opened the window has since "
+        "left the registration queue. Read `SubnetRefusalWindow` for the netuid to see whether "
+        "a window is open and when it expires."
+    ),
     "NoExistingLock": (
         "move_lock was called but no conviction lock exists for the signing coldkey on that "
         "subnet. Check the lock storage for the coldkey and netuid, and create a lock before "
@@ -525,6 +532,12 @@ DESCRIPTIONS: dict[str, str] = {
         "Registration could not obtain a uid: the subnet's `MaxAllowedUids` is 0, or the subnet "
         "is full and every neuron is immune from pruning. Check `SubnetworkN` versus "
         "`MaxAllowedUids` for the netuid and retry after immunity periods expire."
+    ),
+    "NoQueuedRegistration": (
+        "`cancel_network_registration` was called with a lock id the signing coldkey does not "
+        "hold a queued registration under. Either the registration was already served or "
+        "cancelled, or the lock belongs to a different coldkey. Read `NetworkRegistrationQueue` "
+        "and cancel using the `lock_id` of an entry whose `coldkey` is the signer."
     ),
     "NoWeightsCommitFound": (
         "A weights reveal was submitted but no pending (non-expired) commit exists for the "
@@ -686,6 +699,12 @@ DESCRIPTIONS: dict[str, str] = {
         "e.g. via `add_stake_burn`) was repeated within its rate-limit window. Wait for the "
         "window to pass before retrying the buyback."
     ),
+    "SubnetChallengeInProgress": (
+        "`register_network` reached a subnet that already has a registration waiting on its "
+        "owner. At most one challenge stands against a given subnet, so this registration is "
+        "refused rather than queued behind the one already there. Retry once the window in "
+        "`SubnetRefusalWindow` expires or the owner answers it."
+    ),
     "SubnetLimitReached": (
         "`register_network` failed because the subnet count is at the network limit and no "
         "existing subnet is eligible to be pruned. Check the number of registered subnets "
@@ -729,6 +748,11 @@ DESCRIPTIONS: dict[str, str] = {
         "Registrations in the current interval reached the cap of three times "
         "`TargetRegistrationsPerInterval` for the subnet. Compare `RegistrationsThisInterval` "
         "against that hyperparameter and wait for the next interval to start."
+    ),
+    "TooManyRootClaimHotkeys": (
+        "`claim_root` was called by a coldkey staking to more hotkeys than one claim is allowed "
+        "to fan out over. Claim over a smaller set of subnets so fewer hotkeys are touched per "
+        "call, and repeat the call for the rest."
     ),
     "TooManyUIDsPerMechanism": (
         "Setting max UIDs or mechanism count would make max_uids times mechanism_count exceed "

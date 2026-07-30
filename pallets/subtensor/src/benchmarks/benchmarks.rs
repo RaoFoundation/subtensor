@@ -10,6 +10,7 @@
 use crate::Pallet as Subtensor;
 use crate::staking::lock::LockState;
 use crate::subnets::mechanism::GLOBAL_MAX_SUBNET_COUNT;
+use crate::subnets::subnet::{NetworkRegistrationInfo, RefusalWindow};
 use crate::*;
 use codec::{Compact, Encode};
 use frame_benchmarking::v2::*;
@@ -1939,6 +1940,97 @@ mod pallet_benchmarks {
         _(RawOrigin::Signed(coldkey), netuid, new_symbol.clone());
 
         assert_eq!(TokenSymbol::<T>::get(netuid), new_symbol);
+    }
+
+    /// Answering a challenge has to prove the challenger is still queued, so the queue is filled
+    /// to its bound and the matching entry put last, which is the worst case for that scan. The
+    /// bound is one queued challenge per subnet that can have a window open at once.
+    #[benchmark]
+    fn exercise_first_refusal() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        SubnetOwner::<T>::insert(netuid, coldkey.clone());
+        NetworkImmunityPeriod::<T>::set(1);
+
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        let offer = TaoBalance::from(1_000_000_u64);
+        add_balance_to_coldkey_account::<T>(&coldkey, offer.saturating_mul(2.into()));
+        TotalIssuance::<T>::mutate(|total| *total = total.saturating_add(offer));
+
+        let challenger_lock_id = u32::from(Subtensor::<T>::get_max_subnets());
+        NetworkRegistrationQueue::<T>::set(
+            (0..=challenger_lock_id)
+                .map(|lock_id| NetworkRegistrationInfo::<T::AccountId> {
+                    coldkey: account("Challenger", 0, lock_id),
+                    hotkey: account("ChallengerHotkey", 0, lock_id),
+                    mechid: 1,
+                    identity: Some(max_subnet_identity()),
+                    lock_amount: offer,
+                    median_subnet_alpha_price: U64F64::saturating_from_num(1),
+                    registration_block: 1,
+                    lock_id,
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        SubnetRefusalWindow::<T>::insert(
+            netuid,
+            RefusalWindow {
+                offer,
+                expires_at: u64::MAX,
+                challenger_lock_id,
+                immunity_period: 1,
+            },
+        );
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey), netuid);
+
+        assert!(!SubnetRefusalWindow::<T>::contains_key(netuid));
+        assert!(NetworkImmuneUntil::<T>::get(netuid) > 1);
+    }
+
+    /// Cancelling scans the queue for the caller's entry and writes back what is left, so the queue
+    /// is filled to its bound and the caller's entry put last, the worst case for both.
+    #[benchmark]
+    fn cancel_network_registration() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let lock_amount = TaoBalance::from(1_000_000_u64);
+        add_balance_to_coldkey_account::<T>(&coldkey, lock_amount.saturating_mul(2.into()));
+
+        let lock_id = u32::from(Subtensor::<T>::get_max_subnets());
+        NetworkRegistrationQueue::<T>::set(
+            (0..=lock_id)
+                .map(|id| NetworkRegistrationInfo::<T::AccountId> {
+                    coldkey: if id == lock_id {
+                        coldkey.clone()
+                    } else {
+                        account("Queued", 0, id)
+                    },
+                    hotkey: account("QueuedHotkey", 0, id),
+                    mechid: 1,
+                    identity: Some(max_subnet_identity()),
+                    lock_amount,
+                    median_subnet_alpha_price: U64F64::saturating_from_num(1),
+                    registration_block: 1,
+                    lock_id: id,
+                })
+                .collect::<Vec<_>>(),
+        );
+        assert_ok!(Subtensor::<T>::lock_network_registration_cost(
+            &coldkey,
+            lock_amount.into(),
+            lock_id
+        ));
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey), lock_id);
+
+        assert_eq!(
+            NetworkRegistrationQueue::<T>::get().len(),
+            usize::from(Subtensor::<T>::get_max_subnets())
+        );
     }
 
     #[benchmark]

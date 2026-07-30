@@ -15,6 +15,20 @@ pub(super) fn set_reserves<T: Config>(
     SubnetAlphaIn::<T>::insert(netuid, alpha_in);
 }
 
+/// A refusal window that closed at block zero, so the candidate is evictable at any later block.
+///
+/// The at-limit benchmark uses this because clearing a lapsed window and then evicting is the
+/// heaviest way step 5 can go. Opening a fresh window instead does strictly less work, and being
+/// refused for a live one does less still.
+pub(super) fn lapsed_refusal_window() -> RefusalWindow {
+    RefusalWindow {
+        offer: TaoBalance::from(0u64),
+        expires_at: 0,
+        challenger_lock_id: 0,
+        immunity_period: 0,
+    }
+}
+
 /// The largest identity `is_valid_subnet_identity` accepts: 6,656 bytes across the eight fields.
 ///
 /// Both registration outcomes carry the identity. Creation writes it to `SubnetIdentitiesV3`;
@@ -80,7 +94,12 @@ pub(super) fn fill_subnets<T: Config>(owner: &T::AccountId, subnets: u16) {
             I96F32::saturating_from_num(1_000_u64.saturating_add(offset))
                 .saturating_div(I96F32::saturating_from_num(1_000)),
         );
+        SubnetRefusalWindow::<T>::insert(netuid, lapsed_refusal_window());
     }
+
+    let price = Subtensor::<T>::get_network_lock_cost();
+    add_balance_to_coldkey_account::<T>(owner, price.saturating_mul(2.into()));
+    TotalIssuance::<T>::mutate(|total| *total = total.saturating_add(price));
 }
 
 /// One below `SubnetLimit`: the registration still creates a subnet, but pays the full count.

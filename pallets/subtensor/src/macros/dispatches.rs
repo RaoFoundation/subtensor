@@ -1679,7 +1679,16 @@ mod dispatches {
         ///
         /// * `end_block`: The block at which the lease will end. If not defined, the lease is perpetual.
         #[pallet::call_index(110)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get()))]
+        // `do_register_network` may walk every subnet looking for a pruning candidate, and that
+        // scan is charged whether the leased registration then succeeds or fails. The lease
+        // benchmark cannot reach it, because a registration that prunes or opens a refusal window
+        // is queued rather than completed and the benchmark asserts the subnet exists afterwards,
+        // so take the heaviest measured path instead of leaving the scan uncharged.
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::register_leased_network(T::MaxContributors::get())
+                .max(<T as crate::pallet::Config>::WeightInfo::register_network())
+                .max(<T as crate::pallet::Config>::WeightInfo::register_network_pruning())
+        )]
         pub fn register_leased_network(
             origin: OriginFor<T>,
             emissions_share: Percent,
@@ -2515,6 +2524,68 @@ mod dispatches {
             min_locked: AlphaBalance,
         ) -> DispatchResult {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
+        }
+
+        /// Keeps this subnet by matching the price a challenger offered for its slot.
+        ///
+        /// Reaching the subnet limit no longer evicts the lowest-priced pruning candidate
+        /// outright. It records the arriving registration's lock against that subnet as an offer,
+        /// gives the owner `FIRST_REFUSAL_WINDOW` blocks to answer, and queues the registration
+        /// meanwhile. This call is the answer: it charges the recorded offer and restores a full
+        /// `NetworkImmunityPeriod`. Let the window lapse and the next registration to reach the
+        /// limit takes the slot.
+        ///
+        /// The owner never names a price, only matches one, so first refusal cannot cost more than
+        /// a challenger just signed a transaction to pay for the same slot. Answering moves
+        /// `NetworkLastLockCost` exactly as a completed registration does.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the subnet's owner coldkey.
+        /// * `netuid`: The subnet to keep.
+        ///
+        /// # Errors
+        /// * `SubnetNotExists`: The subnet does not exist.
+        /// * `BadOrigin`: The signer does not own the subnet.
+        /// * `NoChallengeToAnswer`: No registration is waiting on this subnet, the window has
+        ///   already closed, or the challenger who opened it has since left the queue.
+        /// * `InsufficientTaoBalance`: The owner cannot match the offer without dropping below the
+        ///   existential deposit.
+        ///
+        /// # Events
+        /// Emits `SubnetFirstRefusalExercised`.
+        #[pallet::call_index(146)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::exercise_first_refusal())]
+        pub fn exercise_first_refusal(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+            Self::do_exercise_first_refusal(origin, netuid)
+        }
+
+        /// Withdraws a queued network registration and returns the TAO it locked.
+        ///
+        /// A registration that arrives with no slot free is parked in `NetworkRegistrationQueue`
+        /// with its lock cost locked rather than spent, and is served when a slot reaches it. This
+        /// call is the way back out. It removes the entry and releases the lock, so a registrant
+        /// who no longer wants to wait is not holding funds against a slot indefinitely.
+        ///
+        /// `lock_id` identifies which registration, since one coldkey can hold several. It is the
+        /// `lock_id` field of the entry in `NetworkRegistrationQueue`.
+        ///
+        /// Withdrawing retracts any right of first refusal the entry had opened: the owner it was
+        /// challenging has nothing left to match, and their subnet is not evicted for having
+        /// declined an offer that withdrew itself.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the coldkey that submitted the queued registration.
+        /// * `lock_id`: The lock held by the registration to withdraw.
+        ///
+        /// # Errors
+        /// * `NoQueuedRegistration`: This coldkey holds no queued registration under that lock id.
+        ///
+        /// # Events
+        /// Emits `NetworkRegistrationCancelled`.
+        #[pallet::call_index(147)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::cancel_network_registration())]
+        pub fn cancel_network_registration(origin: OriginFor<T>, lock_id: u32) -> DispatchResult {
+            Self::do_cancel_network_registration(origin, lock_id)
         }
     }
 }

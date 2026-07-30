@@ -6,6 +6,33 @@ use sp_runtime::{SaturatedConversion, traits::AccountIdConversion};
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
+/// An open right of first refusal on one subnet's slot.
+#[crate::freeze_struct("a8515705edf1d14b")]
+#[derive(Encode, Decode, Default, TypeInfo, Clone, PartialEq, Eq, Debug)]
+pub struct RefusalWindow {
+    /// What the challenger locked, which is exactly what the owner matches.
+    pub offer: TaoBalance,
+    /// Last block on which the owner can answer.
+    pub expires_at: u64,
+    /// The challenger's registration lock. The window is live only while that entry is still in
+    /// `NetworkRegistrationQueue`, which ties the right to a real challenger.
+    pub challenger_lock_id: u32,
+    /// The immunity being bought, snapshotted so that governance lowering
+    /// `NetworkImmunityPeriod` mid-window cannot turn a paid answer into nothing.
+    pub immunity_period: u64,
+}
+
+/// Where a subnet stands with respect to being evicted for a new registration.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RefusalState {
+    /// Nobody is currently challenging this subnet. The next registration opens a window.
+    Unchallenged,
+    /// A challenger is queued and the owner's window is still open. The slot is spoken for.
+    Live,
+    /// The owner had their window and let it close. The slot can be taken.
+    Lapsed,
+}
+
 /// Data structure for a pending network registration in the execution queue.
 #[crate::freeze_struct("c47fe93995c89025")]
 #[derive(Encode, Decode, Default, TypeInfo, Clone, PartialEq, Eq, Debug)]
@@ -191,10 +218,18 @@ impl<T: Config> Pallet<T> {
             .count() as u16;
 
         let cleanup_queue_len = DissolveCleanupQueue::<T>::get().len();
-        let registration_queue_len = NetworkRegistrationQueue::<T>::get().len();
+        let registration_queue = NetworkRegistrationQueue::<T>::get();
+        let registration_queue_len = registration_queue.len();
+
+        // Quoted before step 5, so a first refusal exercised there moves the price for the next
+        // registration and not for this one. This registrant pays what they could see when they
+        // signed, and the owner answering them matches that same figure.
+        let lock_amount = Self::get_network_lock_cost();
+        log::debug!("network lock_amount: {lock_amount:?}");
 
         let mut prune_netuid: Option<NetUid> = None;
         let mut wait_to_cleanup = false;
+        let mut challenge_netuid: Option<NetUid> = None;
 
         if current_count.saturating_add(cleanup_queue_len.saturated_into::<u16>()) >= subnet_limit {
             // no netuid available now, but enough netuids in the cleanup queue
@@ -202,15 +237,36 @@ impl<T: Config> Pallet<T> {
             if cleanup_queue_len > registration_queue_len {
                 wait_to_cleanup = true;
             } else if let Some(netuid) = Self::get_network_to_prune() {
-                prune_netuid = Some(netuid);
+                match Self::refusal_state(netuid, current_block, &registration_queue) {
+                    // The window closed unanswered, so the eviction it held off proceeds. Cleared
+                    // here and not left to the teardown: `do_dissolve_network` only queues the
+                    // subnet, and the entry survives until `remove_network_parameters` runs some
+                    // blocks later, by which point the netuid may have been reissued.
+                    RefusalState::Lapsed => {
+                        SubnetRefusalWindow::<T>::remove(netuid);
+                        prune_netuid = Some(netuid);
+                    }
+                    // A second challenger is refused, not queued behind the first, because
+                    // `NetworkRegistrationQueue` is unbounded, decoded by every registration, and
+                    // has no teardown in flight to drain it while a window stands. One subnet
+                    // therefore holds at most one challenger, and since answering and lapsing both
+                    // take a subnet out of the eviction pool, the queue stays bounded overall.
+                    RefusalState::Live => {
+                        return Err(Error::<T>::SubnetChallengeInProgress.into());
+                    }
+                    // A zero `NetworkImmunityPeriod` switches immunity off protocol-wide, so there
+                    // is nothing to buy and a window would only park the registration for a day.
+                    RefusalState::Unchallenged if Self::get_network_immunity_period() == 0 => {
+                        prune_netuid = Some(netuid);
+                    }
+                    RefusalState::Unchallenged => challenge_netuid = Some(netuid),
+                }
             } else {
                 return Err(Error::<T>::SubnetLimitReached.into());
             }
         }
 
-        // --- 6. Calculate and lock the required tokens.
-        let lock_amount = Self::get_network_lock_cost();
-        log::debug!("network lock_amount: {lock_amount:?}");
+        // --- 6. Check the registrant can cover the quoted price.
         ensure!(
             Self::can_remove_balance_from_coldkey_account(&coldkey, lock_amount.into()),
             Error::<T>::CannotAffordLockCost
@@ -222,12 +278,32 @@ impl<T: Config> Pallet<T> {
         }
 
         // can't get a netuid to register, so queue the registration
-        if wait_to_cleanup || prune_netuid.is_some() {
+        if wait_to_cleanup || prune_netuid.is_some() || challenge_netuid.is_some() {
             let lock_id = NetworkRegistrationLockId::<T>::get();
             ensure!(lock_id != u32::MAX, Error::<T>::LockIdOverFlow);
 
             Self::lock_network_registration_cost(&coldkey, lock_amount.into(), lock_id)?;
             NetworkRegistrationLockId::<T>::set(lock_id.saturating_add(1));
+
+            // Opened here rather than during the scan so the window can name the lock it belongs
+            // to. That link is what lets the owner's right expire with its challenger.
+            if let Some(netuid) = challenge_netuid {
+                let expires_at = current_block.saturating_add(Self::FIRST_REFUSAL_WINDOW);
+                SubnetRefusalWindow::<T>::insert(
+                    netuid,
+                    RefusalWindow {
+                        offer: lock_amount,
+                        expires_at,
+                        challenger_lock_id: lock_id,
+                        immunity_period: Self::get_network_immunity_period(),
+                    },
+                );
+                Self::deposit_event(Event::SubnetChallenged {
+                    netuid,
+                    offer: lock_amount,
+                    expires_at,
+                });
+            }
 
             let median_subnet_alpha_price = Self::get_median_subnet_alpha_price();
             let info = NetworkRegistrationInfo::<T::AccountId> {
@@ -265,6 +341,152 @@ impl<T: Config> Pallet<T> {
         )
         .map(|_| ())
         .map_err(|e| e.error)
+    }
+
+    /// How long an owner has to answer a challenge before the slot is taken. At 12 second blocks
+    /// this is roughly a day: long enough not to require watching every block, short enough that a
+    /// registration is not parked behind an owner who has walked away.
+    pub const FIRST_REFUSAL_WINDOW: u64 = 7_200;
+
+    /// Matches the price a challenger offered for this subnet's slot and keeps the subnet.
+    /// See `exercise_first_refusal` for the full contract.
+    pub fn do_exercise_first_refusal(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        let coldkey = Self::ensure_subnet_owner(origin, netuid)?;
+
+        let window =
+            SubnetRefusalWindow::<T>::get(netuid).ok_or(Error::<T>::NoChallengeToAnswer)?;
+        let current_block = Self::get_current_block_as_u64();
+        ensure!(
+            current_block <= window.expires_at,
+            Error::<T>::NoChallengeToAnswer
+        );
+
+        // If the challenger has left the queue, whether served from some other slot that came free
+        // or withdrawn, nothing is threatening this subnet, so the owner is stopped from burning
+        // the offer for immunity nobody was contesting.
+        ensure!(
+            Self::challenger_is_queued(window.challenger_lock_id),
+            Error::<T>::NoChallengeToAnswer
+        );
+
+        let offer = window.offer;
+
+        // Recycled, not added to the subnet's own reserve. A registration lock is retained in
+        // `SubnetTAO` and paid back out to alpha holders pro rata on dissolution, so routing this
+        // payment the same way would return it to an owner who is usually the largest of those
+        // holders. `recycle_tao` is the one path with no route back to the payer, and it checks the
+        // balance against the existential deposit.
+        Self::recycle_tao(&coldkey, offer.into())?;
+
+        // Only the window is cleared. The challenger's registration was for a slot, not for this
+        // subnet, so matching the offer ends the challenge and leaves them queued for the next slot
+        // to come free, at the price they locked. `cancel_network_registration` is theirs to call
+        // if they would rather have the lock back than the place in line.
+        SubnetRefusalWindow::<T>::remove(netuid);
+        // The immunity promised when the window opened, not whatever the parameter says now.
+        NetworkImmuneUntil::<T>::insert(
+            netuid,
+            current_block.saturating_add(window.immunity_period),
+        );
+
+        // Answering is the same demand for a scarce slot as a registration that lands, so it moves
+        // the price the same way. Otherwise an incumbent could hold a slot at `NetworkMinLockCost`
+        // forever and a newcomer willing to pay more could not make that cost anything.
+        //
+        // Clamped upward for the same reason the queued path is: `offer` can be a full
+        // `FIRST_REFUSAL_WINDOW` old, and registrations landing elsewhere meanwhile may have moved
+        // the price up. The owner still pays only what they were shown; what is refused is letting
+        // a stale figure drag the accumulator back down.
+        Self::set_network_last_lock(offer.max(Self::get_network_last_lock()));
+        Self::set_network_last_lock_block(current_block);
+
+        Self::deposit_event(Event::SubnetFirstRefusalExercised {
+            netuid,
+            owner: coldkey,
+            paid: offer,
+            immune_until: NetworkImmuneUntil::<T>::get(netuid),
+        });
+
+        Ok(())
+    }
+
+    /// Withdraws a queued registration and returns its lock.
+    /// See `cancel_network_registration` for the full contract.
+    pub fn do_cancel_network_registration(origin: OriginFor<T>, lock_id: u32) -> DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+
+        // Matched on the lock rather than the coldkey: one coldkey can hold several queued
+        // registrations, and each has its own lock to return.
+        let info = NetworkRegistrationQueue::<T>::try_mutate(|queue| {
+            let index = queue
+                .iter()
+                .position(|entry| entry.lock_id == lock_id && entry.coldkey == coldkey)
+                .ok_or(Error::<T>::NoQueuedRegistration)?;
+            Ok::<_, Error<T>>(queue.remove(index))
+        })?;
+
+        Self::unlock_network_registration_cost(&coldkey, lock_id)?;
+
+        // Any refusal window this entry was challenging is left alone. `refusal_state` reads the
+        // queue, so a window whose challenger has gone reports as unchallenged and is cleared by
+        // the next registration to look at it. Withdrawing an offer retracts the threat behind it;
+        // it does not evict the subnet the offer was aimed at.
+        Self::deposit_event(Event::NetworkRegistrationCancelled {
+            coldkey,
+            hotkey: info.hotkey,
+            lock_amount: info.lock_amount,
+            lock_id,
+        });
+
+        Ok(())
+    }
+
+    /// Whether a queued registration is still holding a given lock.
+    ///
+    /// The queue is passed in by callers that have already read it so the read is not paid twice.
+    fn challenger_is_queued_in(
+        queue: &[NetworkRegistrationInfo<T::AccountId>],
+        lock_id: u32,
+    ) -> bool {
+        queue.iter().any(|entry| entry.lock_id == lock_id)
+    }
+
+    fn challenger_is_queued(lock_id: u32) -> bool {
+        Self::challenger_is_queued_in(&NetworkRegistrationQueue::<T>::get(), lock_id)
+    }
+
+    /// Where the candidate stands: nobody challenging it, a live challenge the owner may answer,
+    /// or a window the owner has already let close.
+    ///
+    /// A window whose challenger has left the queue is cleared and reported as `Unchallenged`, not
+    /// as `Lapsed`: the owner never had a real challenge to answer, so the next registration opens
+    /// a fresh window at its own price instead of evicting on the strength of one that dissolved.
+    /// The clearing is not redundant with the teardown, which only queues the subnet and leaves its
+    /// storage in place until `remove_network_parameters` runs some blocks later.
+    fn refusal_state(
+        netuid: NetUid,
+        current_block: u64,
+        queue: &[NetworkRegistrationInfo<T::AccountId>],
+    ) -> RefusalState {
+        let Some(window) = SubnetRefusalWindow::<T>::get(netuid) else {
+            return RefusalState::Unchallenged;
+        };
+
+        // Tested before expiry, and the order matters. A challenger who has left ends the challenge
+        // outright, so there is nothing remaining for the deadline to have lapsed. Checking expiry
+        // first would evict a subnet whose challenger was served elsewhere, for declining an offer
+        // that withdrew itself.
+        if !Self::challenger_is_queued_in(queue, window.challenger_lock_id) {
+            SubnetRefusalWindow::<T>::remove(netuid);
+            return RefusalState::Unchallenged;
+        }
+
+        if current_block > window.expires_at {
+            return RefusalState::Lapsed;
+        }
+
+        RefusalState::Live
     }
 
     pub fn set_new_network_state(
@@ -331,7 +553,17 @@ impl<T: Config> Pallet<T> {
         log::debug!("actual_tao_lock_amount: {actual_tao_lock_amount:?}");
 
         // --- 3. Set the lock amount for use to determine pricing.
-        Self::set_network_last_lock(actual_tao_lock_amount);
+        //
+        // A queued registration settles at the price it locked, which may be far behind the market
+        // by the time a slot reaches it, and must not drag the accumulator back down to that: a
+        // refusal exercised while it waited raised the price deliberately. Registrations that
+        // create a subnet directly carry no lock id and are always current.
+        let last_lock = if lock_id.is_some() {
+            actual_tao_lock_amount.max(Self::get_network_last_lock())
+        } else {
+            actual_tao_lock_amount
+        };
+        Self::set_network_last_lock(last_lock);
         Self::set_network_last_lock_block(current_block);
         weight.saturating_accrue(db_weight.reads(1));
         weight.saturating_accrue(db_weight.writes(2));

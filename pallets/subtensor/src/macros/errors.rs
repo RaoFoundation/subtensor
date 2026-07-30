@@ -348,5 +348,15 @@ mod errors {
         ColdkeyCollateralPositionsFull,
         /// The coldkey has too many staking hotkeys for a single manual root claim.
         TooManyRootClaimHotkeys,
+        /// No registration is currently waiting on this subnet's owner, or the window in which
+        /// the owner could have answered one has already closed.
+        NoChallengeToAnswer,
+        /// A registration is already waiting on this subnet's owner to decide. At most one
+        /// challenge stands against a given subnet, so this registration is refused rather than
+        /// queued behind it. Retry once the window closes or the owner answers.
+        SubnetChallengeInProgress,
+        /// This coldkey holds no queued network registration under the given lock id. Either it
+        /// was already served or cancelled, or the lock belongs to somebody else.
+        NoQueuedRegistration,
     }
 }

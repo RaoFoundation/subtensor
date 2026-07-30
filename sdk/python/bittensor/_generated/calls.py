@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 440
+Spec version: 441
 """
 from typing import Any, NamedTuple
 
@@ -256,8 +256,13 @@ class SubtensorModule:
         return Call('SubtensorModule', 'burned_register', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
+    def cancel_network_registration(lock_id: 'u32') -> Call:
+        'Withdraws a queued network registration and returns the TAO it locked.  A registration that arrives with no slot free is parked in `NetworkRegistrationQueue` with its lock cost locked rather than spent, and is served when a slot reaches it. This call is the way back out. It removes the entry and releases the lock, so a registrant who no longer wants to wait is not holding funds against a slot indefinitely.  `lock_id` identifies which registration, since one coldkey can hold several. It is the `lock_id` field of the entry in `NetworkRegistrationQueue`.  Withdrawing retracts any right of first refusal the entry had opened: the owner it was challenging has nothing left to match, and their subnet is not evicted for having declined an offer that withdrew itself.  # Arguments * `origin`: Signed by the coldkey that submitted the queued registration. * `lock_id`: The lock held by the registration to withdraw.  # Errors * `NoQueuedRegistration`: This coldkey holds no queued registration under that lock id.  # Events Emits `NetworkRegistrationCancelled`.'
+        return Call('SubtensorModule', 'cancel_network_registration', {'lock_id': lock_id})
+
+    @staticmethod
     def claim_root(subnets: 'BTreeSet') -> Call:
-        "Claims the root emissions for a coldkey. # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims."
+        "Claims the root emissions for a coldkey. # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.  # Errors * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims. * `TooManyRootClaimHotkeys`: The coldkey's hotkey fanout exceeds one claim's bound."
         return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
 
     @staticmethod
@@ -316,6 +321,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'enable_voting_power_tracking', {'netuid': netuid})
 
     @staticmethod
+    def exercise_first_refusal(netuid: 'NetUid') -> Call:
+        "Keeps this subnet by matching the price a challenger offered for its slot.  Reaching the subnet limit no longer evicts the lowest-priced pruning candidate outright. It records the arriving registration's lock against that subnet as an offer, gives the owner `FIRST_REFUSAL_WINDOW` blocks to answer, and queues the registration meanwhile. This call is the answer: it charges the recorded offer and restores a full `NetworkImmunityPeriod`. Let the window lapse and the next registration to reach the limit takes the slot.  The owner never names a price, only matches one, so first refusal cannot cost more than a challenger just signed a transaction to pay for the same slot. Answering moves `NetworkLastLockCost` exactly as a completed registration does.  # Arguments * `origin`: Signed by the subnet's owner coldkey. * `netuid`: The subnet to keep.  # Errors * `SubnetNotExists`: The subnet does not exist. * `BadOrigin`: The signer does not own the subnet. * `NoChallengeToAnswer`: No registration is waiting on this subnet, the window has already closed, or the challenger who opened it has since left the queue. * `InsufficientTaoBalance`: The owner cannot match the offer without dropping below the existential deposit.  # Events Emits `SubnetFirstRefusalExercised`."
+        return Call('SubtensorModule', 'exercise_first_refusal', {'netuid': netuid})
+
+    @staticmethod
     def increase_take(hotkey: 'AccountId32', take: 'PerU16') -> Call:
         "Allows delegates to increase its take value. This call is rate-limited.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).  * `take`: The new stake proportion that this hotkey takes from delegations. The new value can be between 0 and 11_796 parts and should be strictly greater than the previous value. T is the new value (rational number), the the parameter is calculated as [65535 * T]. For example, 1% would be [0.01 * 65535] = [655.35] = 655  # Events * `TakeIncreased`: On successfully setting a increased take for this hotkey.  # Errors * `NotRegistered`: The hotkey we are delegating is not registered on the network.  * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldkey.  * `DelegateTakeTooHigh`: The delegate is setting a take which is not greater than the previous."
         return Call('SubtensorModule', 'increase_take', {'hotkey': hotkey, 'take': take})
@@ -357,12 +367,12 @@ class SubtensorModule:
 
     @staticmethod
     def register_network(hotkey: 'AccountId32') -> Call:
-        'User register a new subnetwork'
+        'User register a new subnetwork  Below `SubnetLimit` this creates a subnet; at the limit it either prunes one and queues, or queues to wait on a cleanup already in flight. The first two are mutually exclusive and neither dominates, so charge the worse; the third is dominated by the second.'
         return Call('SubtensorModule', 'register_network', {'hotkey': hotkey})
 
     @staticmethod
     def register_network_with_identity(hotkey: 'AccountId32', identity: 'Any') -> Call:
-        'User register a new subnetwork'
+        'User register a new subnetwork  Same outcomes as `register_network`, so the same worst case applies.'
         return Call('SubtensorModule', 'register_network_with_identity', {'hotkey': hotkey, 'identity': identity})
 
     @staticmethod

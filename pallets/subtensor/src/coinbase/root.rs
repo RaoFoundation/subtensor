@@ -296,6 +296,14 @@ impl<T: Config> Pallet<T> {
         LastRateLimitedBlock::<T>::remove(rate_limit_key);
     }
 
+    /// Whether a subnet is currently shielded from pruning, either by the immunity its
+    /// registration block grants or by immunity its owner has paid for. `registered_at` is
+    /// taken as an argument because every caller already holds it.
+    pub fn is_subnet_immune(netuid: NetUid, registered_at: u64, current_block: u64) -> bool {
+        current_block < registered_at.saturating_add(Self::get_network_immunity_period())
+            || current_block < NetworkImmuneUntil::<T>::get(netuid)
+    }
+
     pub fn get_network_to_prune() -> Option<NetUid> {
         let current_block: u64 = Self::get_current_block_as_u64();
 
@@ -311,7 +319,7 @@ impl<T: Config> Pallet<T> {
             let registered_at = NetworkRegisteredAt::<T>::get(netuid);
 
             // Skip immune networks.
-            if current_block < registered_at.saturating_add(Self::get_network_immunity_period()) {
+            if Self::is_subnet_immune(netuid, registered_at, current_block) {
                 continue;
             }
 
