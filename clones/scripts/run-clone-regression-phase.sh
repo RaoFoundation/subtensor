@@ -60,8 +60,8 @@ run_pristine() {
   migration_probe before
   upgrade_runtime
   migration_probe upgraded
-  run_regressions pristine
   migration_probe after
+  run_regressions pristine
 }
 
 run_sdk_metadata_drift() {

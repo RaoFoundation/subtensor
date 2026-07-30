@@ -13,7 +13,7 @@ const EXPECTED_MIN_ROOT_WEIGHTS = 8;
 const EXPECTED_BLOCK_TIME_MS = 12_000;
 const WAIT_TIMEOUT_MS = 3 * 60 * 60 * 1000;
 const POLL_INTERVAL_MS = 2_000;
-const PAGE_SIZE = 10_000;
+const PAGE_SIZE = 1_000;
 const QUERY_MULTI_PAGE_SIZE = 1_000;
 const FIXED_SCALE = 1n << 32n;
 
@@ -31,6 +31,7 @@ interface MigrationSnapshot {
   preUpgradeObservedAtMs: number;
   source: SerializedSourceAudit;
   upgradeBlock?: number;
+  upgradeTimestampMs?: string;
   upgradedObservedAtMs?: number;
 }
 
@@ -114,17 +115,17 @@ async function captureBefore(api: ApiPromise) {
     "mainnet snapshot has no RootClaimed state to migrate"
   );
   assert.equal(
-    await storageQueryHasAny(at.query.subtensorModule.basketRate),
+    await storagePrefixHasAny(api, "BasketRate", header.hash),
     false,
     "pre-upgrade mainnet already contains BasketRate rows"
   );
   assert.equal(
-    await storageQueryHasAny(at.query.subtensorModule.basketShares),
+    await storagePrefixHasAny(api, "BasketShares", header.hash),
     false,
     "pre-upgrade mainnet already contains BasketShares rows"
   );
   assert.equal(
-    await storageQueryHasAny(at.query.subtensorModule.basketClaimed),
+    await storagePrefixHasAny(api, "BasketClaimed", header.hash),
     false,
     "pre-upgrade mainnet already contains BasketClaimed rows"
   );
@@ -175,6 +176,9 @@ async function captureUpgrade(api: ApiPromise) {
   assert.notEqual(upgradeBlock, undefined, "could not locate the first upgraded block");
 
   snapshot.upgradeBlock = upgradeBlock;
+  const upgradeHash = await api.rpc.chain.getBlockHash(upgradeBlock);
+  const upgraded = await api.at(upgradeHash);
+  snapshot.upgradeTimestampMs = codecToBigInt(await upgraded.query.timestamp.now()).toString();
   snapshot.upgradedObservedAtMs = Date.now();
   fs.writeFileSync(SNAPSHOT_URL, `${JSON.stringify(snapshot, null, 2)}\n`);
   console.log(
@@ -188,21 +192,38 @@ async function captureUpgrade(api: ApiPromise) {
 async function waitForCompletionAndAssert(api: ApiPromise) {
   const snapshot = readSnapshot();
   assert.notEqual(snapshot.upgradeBlock, undefined, "missing upgrade block from upgraded probe");
+  assert.notEqual(snapshot.upgradeTimestampMs, undefined, "missing upgrade timestamp from upgraded probe");
   assert.notEqual(snapshot.upgradedObservedAtMs, undefined, "missing upgraded observation time");
 
   const cursorKey = storagePrefix("SeedBetaBasketV2Migration");
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
   let lastReportedBlock = -1;
   let observedCompletionBlock = -1;
+  let lastCursorBlock = -1;
+  let sawCursor = false;
 
   while (Date.now() < deadline) {
     const header = await api.rpc.chain.getHeader();
     const block = header.number.toNumber();
-    if (!(await storageExistsAt(api, cursorKey, header.hash))) {
+    const cursorExists = await storageExistsAt(api, cursorKey, header.hash);
+    if (cursorExists) {
+      sawCursor = true;
+      lastCursorBlock = block;
+    } else if (sawCursor) {
+      observedCompletionBlock = block;
+      break;
+    } else if (
+      (
+        await api.query.subtensorModule.hasMigrationRun([
+          ...Buffer.from("migrate_seed_beta_basket_v2"),
+        ])
+      ).toString() === "true"
+    ) {
+      // Support resuming the audit after the node/test process was restarted post-completion.
       observedCompletionBlock = block;
       break;
     }
-    if (block >= lastReportedBlock + 50) {
+    if (sawCursor && block >= lastReportedBlock + 50) {
       console.log("migration still running:", `block=${block}`);
       lastReportedBlock = block;
     }
@@ -210,15 +231,10 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   }
   assert.notEqual(observedCompletionBlock, -1, `migration cursor remained present for ${WAIT_TIMEOUT_MS}ms`);
 
-  const completionBlock = await findExactCompletionBlock(
-    api,
-    cursorKey,
-    snapshot.upgradeBlock!,
-    observedCompletionBlock
-  );
+  const completionBlock = sawCursor
+    ? await findExactCompletionBlock(api, cursorKey, lastCursorBlock, observedCompletionBlock)
+    : await findRecentCompletionBlock(api, cursorKey, observedCompletionBlock);
   const completionHash = await api.rpc.chain.getBlockHash(completionBlock);
-  const upgradeHash = await api.rpc.chain.getBlockHash(snapshot.upgradeBlock!);
-  const upgraded = await api.at(upgradeHash);
   const completed = await api.at(completionHash);
 
   for (const migration of MIGRATIONS) {
@@ -312,7 +328,7 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   );
 
   const migrationBlocks = completionBlock - snapshot.upgradeBlock!;
-  const upgradeTimestamp = codecToBigInt(await upgraded.query.timestamp.now());
+  const upgradeTimestamp = BigInt(snapshot.upgradeTimestampMs!);
   const completionTimestamp = codecToBigInt(await completed.query.timestamp.now());
   const chainElapsedMs = completionTimestamp - upgradeTimestamp;
   assert.equal(
@@ -362,24 +378,39 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   );
 }
 
+async function findRecentCompletionBlock(
+  api: ApiPromise,
+  cursorKey: string,
+  observedCompletionBlock: number
+): Promise<number> {
+  const oldestAvailable = Math.max(0, observedCompletionBlock - 255);
+  for (let block = observedCompletionBlock - 1; block >= oldestAvailable; block--) {
+    const hash = await api.rpc.chain.getBlockHash(block);
+    if (await storageExistsAt(api, cursorKey, hash)) {
+      return block + 1;
+    }
+  }
+  assert.fail(
+    `could not find a recent cursor transition before completed block ${observedCompletionBlock}`
+  );
+}
+
 async function findExactCompletionBlock(
   api: ApiPromise,
   cursorKey: string,
-  upgradeBlock: number,
+  lastCursorBlock: number,
   observedCompletionBlock: number
 ): Promise<number> {
-  let sawCursor = false;
-  for (let block = upgradeBlock; block <= observedCompletionBlock; block++) {
+  assert.notEqual(lastCursorBlock, -1, "missing last block with a migration cursor");
+  for (let block = lastCursorBlock + 1; block <= observedCompletionBlock; block++) {
     const hash = await api.rpc.chain.getBlockHash(block);
     const exists = await storageExistsAt(api, cursorKey, hash);
-    if (exists) {
-      sawCursor = true;
-    } else if (sawCursor) {
+    if (!exists) {
       return block;
     }
   }
   assert.fail(
-    `could not find cursor transition between upgrade block ${upgradeBlock} and ${observedCompletionBlock}`
+    `could not find cursor transition after block ${lastCursorBlock} and by ${observedCompletionBlock}`
   );
 }
 

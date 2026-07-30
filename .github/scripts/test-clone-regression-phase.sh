@@ -62,6 +62,9 @@ grep -Fq 'npx tsx tests/test-mainnet-migration-completion.ts upgraded' "$HARNESS
 grep -Fq 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG"
 grep -Fq 'npx tsx tests/test-mainnet-migration-completion.ts after' "$HARNESS_LOG"
 grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"
+after_line=$(grep -nF 'npx tsx tests/test-mainnet-migration-completion.ts after' "$HARNESS_LOG" | cut -d: -f1)
+regression_line=$(grep -nF 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG" | cut -d: -f1)
+(( after_line < regression_line ))
 if grep -Fq 'npm test' "$HARNESS_LOG"; then
   echo "pristine phase unexpectedly ran remaining smoke tests" >&2
   exit 1
