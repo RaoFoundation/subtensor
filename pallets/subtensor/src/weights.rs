@@ -3085,8 +3085,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `733`
 		//  Estimated: `4198`
-		// Minimum execution time: 10_000_000 picoseconds.
-		Weight::from_parts(10_000_000, 4198)
+		// Minimum execution time: 16_882_000 picoseconds.
+		Weight::from_parts(17_523_000, 4198)
 			.saturating_add(T::DbWeight::get().reads(2_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
@@ -3163,8 +3163,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `647`
 		//  Estimated: `4112`
-		// Minimum execution time: 10_000_000 picoseconds.
-		Weight::from_parts(11_000_000, 4112)
+		// Minimum execution time: 18_865_000 picoseconds.
+		Weight::from_parts(19_356_000, 4112)
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 	}
 	/// Storage: `SubtensorModule::Uids` (r:1 w:0)
@@ -6810,8 +6810,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `733`
 		//  Estimated: `4198`
-		// Minimum execution time: 10_000_000 picoseconds.
-		Weight::from_parts(10_000_000, 4198)
+		// Minimum execution time: 16_882_000 picoseconds.
+		Weight::from_parts(17_523_000, 4198)
 			.saturating_add(RocksDbWeight::get().reads(2_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:0)
@@ -6888,8 +6888,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `647`
 		//  Estimated: `4112`
-		// Minimum execution time: 10_000_000 picoseconds.
-		Weight::from_parts(11_000_000, 4112)
+		// Minimum execution time: 18_865_000 picoseconds.
+		Weight::from_parts(19_356_000, 4112)
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
 	}
 	/// Storage: `SubtensorModule::Uids` (r:1 w:0)
