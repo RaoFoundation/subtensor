@@ -15,6 +15,40 @@ pub(super) fn set_reserves<T: Config>(
     SubnetAlphaIn::<T>::insert(netuid, alpha_in);
 }
 
+/// Fill the chain with prunable subnets so a registration benchmark runs against a realistic
+/// `NetworksAdded` map rather than an empty one.
+///
+/// `do_register_network` counts every entry in `NetworksAdded` on every call, and once that count
+/// reaches `SubnetLimit` it also walks `get_network_to_prune`. Registering into an empty chain
+/// measures neither. The two outcomes are mutually exclusive and neither dominates the other:
+/// below the limit the call creates a subnet (many writes), at the limit it prunes and queues
+/// instead (far more reads). Callers pick which one they are measuring via `subnets`.
+///
+/// Immunity is set to one block and `NetworkRegisteredAt` to zero so no candidate is skipped.
+/// Requires a current block above zero.
+pub(super) fn fill_subnets<T: Config>(owner: &T::AccountId, subnets: u16) {
+    NetworkImmunityPeriod::<T>::set(1);
+
+    for netuid in 1..=subnets {
+        let netuid = NetUid::from(netuid);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        NetworkRegisteredAt::<T>::insert(netuid, 0);
+        SubnetOwner::<T>::insert(netuid, owner.clone());
+    }
+}
+
+/// One below `SubnetLimit`: the registration still creates a subnet, but pays the full count.
+pub(super) fn fill_subnets_below_limit<T: Config>(owner: &T::AccountId) {
+    let limit = Subtensor::<T>::get_max_subnets();
+    fill_subnets::<T>(owner, limit.saturating_sub(1));
+}
+
+/// At `SubnetLimit`: the registration prunes a subnet and queues instead of creating one.
+pub(super) fn fill_subnets_to_limit<T: Config>(owner: &T::AccountId) {
+    let limit = Subtensor::<T>::get_max_subnets();
+    fill_subnets::<T>(owner, limit);
+}
+
 pub(super) fn benchmark_registration_burn() -> TaoBalance {
     TaoBalance::from(1_000_000)
 }
