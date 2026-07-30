@@ -10,10 +10,14 @@ into **baskets** — per-validator, escrowed index funds of subnet alpha,
 curated by each validator's root weights — and realized only when a staker
 claims.
 
-This replaces the old per-subnet claimable system (`claim_root(subnets)`,
-`set_root_claim_type`). Root staking itself is unchanged: moving TAO in and
-out of root stake is not a pool swap — no fee, no slippage, no MEV exposure.
-For the thesis and live network numbers, see the
+This replaces the old per-subnet claimable system and retires
+`set_root_claim_type`. The `claim_root(subnets)` call keeps its SCALE
+signature for old clients, but `subnets` is ignored and the call claims
+fund-level across every validator; prefer
+[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) for a single
+validator. Root staking itself is unchanged: moving TAO in and out of root
+stake is not a pool swap — no fee, no slippage, no MEV exposure. For the
+thesis and live network numbers, see the
 [v441 release notes](/releases/v441-upgrade).
 
 ## Why it exists
@@ -75,13 +79,13 @@ their stakers the most TAO.
 Admission is **burn-based**: your coldkey pays the root burn price and the
 hotkey is registered — no prior stake required. The price is demand-set like
 subnet registration: each registration bumps it (~×1.26) and it decays back
-toward the floor (τ0.0005) with a ~72-minute half-life, so entry is nearly
-free when the network is quiet and expensive to spam.
+toward the floor (τ1) with a ~72-minute half-life, so entry costs at least
+1 TAO when the network is quiet and more under registration pressure.
 
 ```bash
 btcli subnets burn-cost 0                        # current root registration price
 btcli subnets register --netuid 0 --dry-run      # preview fee and effects
-btcli subnets register --netuid 0 -w my_coldkey  # register the wallet hotkey
+btcli subnets register --netuid 0 -w my_coldkey -H my_hotkey  # register this hotkey
 ```
 
 ```python
@@ -143,29 +147,34 @@ netuid 0, *accrued* is your fund yield marked at the realizable quote.
 
 ```bash
 btcli root list                                   # staked + accrued τ per validator
-btcli root subscribe --amount 100 --hotkey 5F...  # assets in; shares minted
-btcli root redeem --amount all --hotkey 5F...     # shares burned; assets returned
+btcli root subscribe --amount 100 --hotkey 5F...  # assets in
+btcli root claim                                  # pick wallet → validator → claim / withdraw
+btcli root claim --hotkey 5F... --amount all      # withdraw full position (accrued + staked)
+btcli root claim --hotkey 5F...                   # claim accrued into stake only
 ```
 
-Redeeming more than your staked τ claims accrued yield into staked principal
-first (a claim under the hood), so you never have to claim manually just to
-exit. To realize accrued yield explicitly — compounding it into your staked
-principal — submit the claim directly:
-
-```bash
-btcli tx claim-root --dry-run          # preview fee and effects
-btcli tx claim-root -w my_coldkey      # redeem across all validators
-```
+`btcli root claim` is the exit path. Omit `--amount` to realize accrued yield
+into root stake on that validator. Pass `--amount` / `all` to withdraw to free
+balance — accrued yield is claimed first when needed. Under the hood that uses
+[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) (and
+[`remove-stake`](/docs/tx/remove-stake) when withdrawing).
 
 ```python
-owed = await client.read("root_basket_owed", coldkey_ss58=wallet.coldkeypub.ss58_address)
-await client.execute(bt.ClaimRoot(), wallet)
+owed = await client.read(
+    "root_basket_owed_breakdown",
+    coldkey_ss58=wallet.coldkeypub.ss58_address,
+)
+await client.execute(bt.ClaimRootWithHotkey(hotkey_ss58=validator_hotkey), wallet)
+# coldkey-wide (compat): await client.execute(bt.ClaimRoot(subnets=[0]), wallet)
 ```
 
-[`claim-root`](/docs/tx/claim-root) takes no parameters: it walks every
-validator you root-stake to, redeems your accrued entitlement as a pro-rata slice of
-each basket (alpha holdings are sold to TAO at the pool price), and stakes
-the proceeds back to root on the same validator.
+[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) takes the validator
+hotkey: it redeems your accrued entitlement on that validator only as a
+pro-rata slice of its basket (alpha holdings are sold to TAO at the pool
+price), and stakes the proceeds back to root on the same validator.
+[`claim-root`](/docs/tx/claim-root) still exists for old clients — it keeps the
+pre-basket `subnets` argument (ignored) and walks every validator the coldkey
+root-stakes to.
 
 - **Claim threshold.** Per-validator payouts below the network threshold
   (default 500,000 rao = τ0.0005, at most τ0.01; read it with
@@ -185,18 +194,19 @@ the proceeds back to root on the same validator.
   root weight vector, and it differs per validator. Inspect it before — and
   while — you delegate: `btcli root show --hotkey 5F...` shows weights,
   holdings, NAV, and lifetime return. If you disagree with the curation,
-  redeem and subscribe to a different validator; your principal moves at face
-  value.
+  claim out and subscribe to a different validator; your principal moves at
+  face value.
 - **Accrued yield is market-priced.** Until claimed, your entitlement is a
   slice of a fund holding subnet alpha: its TAO quote moves with the pools.
   Principal is unaffected — it stays plain TAO on netuid 0.
 - **Claiming compounds, holding defers.** A claim converts entitlement to
   root stake (a realization event); unclaimed entitlement just keeps
   accruing — there is no deadline and nothing expires.
-- **Unstaking can have a hold window.** If the network sets
+- **Withdrawals can have a hold window.** If the network sets
   `RootStakeUnlockInterval`, root stake is locked for that many blocks after
-  your last stake change (anti-sniping around epoch boundaries). A redeem
-  inside the window fails with `RootStakeLocked` — wait it out and retry.
+  your last stake change (anti-sniping around epoch boundaries). A claim
+  with `--amount` inside the window fails with `RootStakeLocked` — wait it
+  out and retry.
 
 ## Queries and runtime APIs
 
@@ -219,8 +229,10 @@ The per-subnet claim model is retired, and the v441 upgrade migrates all
 previously accrued claimable alpha into basket holdings — nothing is lost,
 it simply becomes fund entitlement on the same validator.
 
-- `claim_root(subnets)` → [`claim-root`](/docs/tx/claim-root) with **no
-  arguments** (fund-level; there is no per-subnet selection anymore).
+- `claim_root(subnets)` keeps the same SCALE signature for old clients; the
+  `subnets` set is **ignored** and the call claims every validator fund-level.
+  Prefer [`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) for a
+  single validator.
 - `set_root_claim_type` (Swap / Keep / KeepSubnets) is **removed**: payouts
   are always TAO staked back to root. To hold subnet alpha, stake on the
   subnet directly.

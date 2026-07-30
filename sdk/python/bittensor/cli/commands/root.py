@@ -1,10 +1,8 @@
-"""``btcli root``: subscribe to, redeem from, and curate root validator funds.
+"""``btcli root``: subscribe to, claim from, and curate root validator funds.
 
 Everything is denominated in TAO. Subscribing moves τ from your free balance
-into root stake with a validator (assets in; shares minted). Dividends accrue
-as fund shares quoted in τ; redeeming burns shares and returns τ (assets out).
-Accrued yield is merged automatically when you redeem more than your staked
-balance.
+into root stake with a validator (assets in). Claiming realizes accrued yield
+and optionally withdraws τ back to free balance (assets out).
 """
 
 from __future__ import annotations
@@ -15,7 +13,7 @@ import typer
 from rich.console import Console
 
 from ...balance import Balance
-from ...intents import AddStake, ClaimRoot, RemoveStake, SetRootWeights
+from ...intents import AddStake, ClaimRootWithHotkey, RemoveStake, SetRootWeights
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import dust_note, list_coldkeys
@@ -25,11 +23,14 @@ from ..root_helpers import (
     fetch_root_positions,
     filter_dust_positions,
     is_dust_position,
+    pick_claim_hotkey,
     pick_validator,
     position_columns,
     position_rows,
     print_command_hint,
+    prompt_claim_amount,
     render_validator_detail,
+    resolve_claim_wallet,
     resolve_show_wallet,
 )
 from .weights import _parse_weight_pairs
@@ -132,55 +133,40 @@ def root_subscribe(
         help="Validator whose fund to subscribe to.",
     ),
 ):
-    """Subscribe to a validator's root fund (assets in; shares minted)."""
+    """Subscribe to a validator's root fund (assets in)."""
     app_ctx: AppContext = ctx_of(ctx)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     app_ctx.submit(AddStake(hotkey_ss58=hotkey, netuid=0, amount_tao=amount))
 
 
-@app.command("redeem")
-@with_tx_globals
-def root_redeem(
-    ctx: typer.Context,
-    amount: str = typer.Option(
-        ...,
-        "--amount",
-        help="TAO to redeem: returned from root to free balance. "
-        "If the amount exceeds your staked τ, accrued yield is claimed first.",
-    ),
-    hotkey_ss58: str = typer.Option(
-        ...,
-        address_cli_name("hotkey_ss58"),
-        help="Validator whose fund to redeem from.",
-    ),
-):
-    """Redeem from a validator's root fund (shares burned; assets returned).
-
-    When the amount is larger than your staked τ on that validator, accrued
-    yield is claimed into root stake first (one chain transaction), then the
-    redemption runs. Pass ``all`` to exit the full position including accrued
-    yield.
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-    owner = app_ctx.resolve_address("coldkey_ss58", None)
-
+def _claim_position(
+    app_ctx: AppContext,
+    *,
+    hotkey: str,
+    owner: str,
+    amount: Optional[str],
+) -> None:
+    """Realize accrued yield, and optionally withdraw τ to free balance."""
     positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
     row = next((p for p in positions if p.hotkey == hotkey), None)
     staked = row.staked if row else Balance.from_rao(0)
     accrued = row.accrued if row else Balance.from_rao(0)
     total = staked.rao + accrued.rao
 
+    if amount is None:
+        if accrued.rao <= 0:
+            app_ctx.output.error(f"no accrued yield to claim on {hotkey}")
+            raise typer.Exit(1)
+        app_ctx.submit(ClaimRootWithHotkey(hotkey_ss58=hotkey))
+        return
+
     if amount.strip().lower() == "all":
         if total == 0:
-            app_ctx.output.error(f"nothing to redeem on {hotkey}")
+            app_ctx.output.error(f"nothing to claim on {hotkey}")
             raise typer.Exit(1)
         if accrued.rao > 0:
             app_ctx.output.message("claiming accrued yield into root stake…")
-            app_ctx.submit(ClaimRoot())
-            positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
-            row = next((p for p in positions if p.hotkey == hotkey), None)
-            staked = row.staked if row else Balance.from_rao(0)
+            app_ctx.submit(ClaimRootWithHotkey(hotkey_ss58=hotkey))
         app_ctx.submit(RemoveStake(hotkey_ss58=hotkey, netuid=0, amount_alpha="all"))
         return
 
@@ -190,6 +176,10 @@ def root_redeem(
         app_ctx.output.error(f"invalid --amount: {error}")
         raise typer.Exit(1) from error
 
+    if amount_rao <= 0:
+        app_ctx.output.error("--amount must be positive")
+        raise typer.Exit(1)
+
     if amount_rao > total:
         app_ctx.output.error(
             f"only {Balance.from_rao(total)} on {hotkey} (staked {staked}, accrued {accrued})"
@@ -198,7 +188,7 @@ def root_redeem(
 
     if amount_rao > staked.rao and accrued.rao > 0:
         app_ctx.output.message("claiming accrued yield into root stake…")
-        app_ctx.submit(ClaimRoot())
+        app_ctx.submit(ClaimRootWithHotkey(hotkey_ss58=hotkey))
         positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
         row = next((p for p in positions if p.hotkey == hotkey), None)
         staked = row.staked if row else Balance.from_rao(0)
@@ -217,6 +207,71 @@ def root_redeem(
             amount_alpha=Balance.from_rao(amount_rao).tao,
         )
     )
+
+
+@app.command("claim")
+@with_tx_globals
+def root_claim(
+    ctx: typer.Context,
+    amount: Optional[str] = typer.Option(
+        None,
+        "--amount",
+        help="TAO to withdraw to free balance (`all` for the full position). "
+        "Omit to only claim accrued yield into root stake.",
+    ),
+    hotkey_ss58: Optional[str] = typer.Option(
+        None,
+        address_cli_name("hotkey_ss58"),
+        help="Validator to claim from. "
+        "Omit on a terminal to pick from your root positions.",
+    ),
+    coldkey_ss58: Optional[str] = typer.Option(
+        None,
+        address_cli_name("coldkey_ss58"),
+        help=ss58_param_help("coldkey_ss58"),
+    ),
+):
+    """Claim from a validator's root fund.
+
+    Without ``--amount``: realize accrued yield into root stake on that
+    validator. With ``--amount`` / ``all``: withdraw to free balance, claiming
+    accrued yield first when needed.
+
+    Interactively: pick a wallet, then a validator (staked + accrued shown),
+    then optionally an amount.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    console = Console()
+
+    if hotkey_ss58 is not None:
+        hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+        owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
+        _claim_position(app_ctx, hotkey=hotkey, owner=owner, amount=amount)
+        return
+
+    if not interactive(app_ctx):
+        app_ctx.output.error(
+            "missing required option: `--hotkey`",
+            help="pass `--hotkey`, or run on a terminal to pick a root position",
+        )
+        raise typer.Exit(2)
+
+    wallet_name, owner = resolve_claim_wallet(
+        console, app_ctx, coldkey_ss58, interactive=True
+    )
+    app_ctx.wallet_name = wallet_name
+    app_ctx.wallet_given = True
+
+    positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
+    chosen = pick_claim_hotkey(console, app_ctx, positions, flag="--hotkey")
+    withdraw = amount if amount is not None else prompt_claim_amount(console, chosen)
+
+    hint = ["btcli", "root", "claim", "-w", wallet_name, "--hotkey", chosen.hotkey]
+    if withdraw is not None:
+        hint += ["--amount", withdraw]
+    print_command_hint(console, hint)
+
+    _claim_position(app_ctx, hotkey=chosen.hotkey, owner=owner, amount=withdraw)
 
 
 @app.command("set-weights")

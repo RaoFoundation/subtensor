@@ -85,7 +85,7 @@ fn test_stake_into_basket_round_trip_symmetric() {
         assert!(StakingHotkeys::<Test>::get(bob).contains(&hotkey));
 
         // Claim it all back. The proceeds are staked on root for bob.
-        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(bob)));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(bob), hotkey));
         let recovered = root_stake_of(&hotkey, &bob);
         assert!(
             recovered <= amount,
@@ -203,7 +203,7 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
         assert_shares_fully_owed(&hotkey, &[alice, bob], ROUNDING_EPS);
 
         // Bob exits. Alice is still whole.
-        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(bob)));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(bob), hotkey));
         let alice_payout_after = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
         assert_abs_diff_eq!(
             alice_payout_after,

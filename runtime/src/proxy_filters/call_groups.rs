@@ -410,7 +410,10 @@ call_filter_group!(
 // Claiming accumulated root dividends.
 call_filter_group!(
     RootClaimCalls,
-    [RuntimeCall::SubtensorModule(SubtensorCall::claim_root),]
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_root),
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey),
+    ]
 );
 
 // A subnet's public identity and token symbol.

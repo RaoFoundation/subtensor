@@ -1960,6 +1960,7 @@ mod pallet_benchmarks {
 
     #[benchmark]
     fn claim_root(h: Linear<1, { crate::MAX_ROOT_CLAIM_WORK }>) {
+        // Coldkey-wide claim: `h` validator hotkeys, one holding each. `subnets` is ignored.
         let coldkey: T::AccountId = whitelisted_caller();
         let owner_coldkey: T::AccountId = account("claim_owner_cold", 0, 0);
         let owner_hotkey: T::AccountId = account("claim_owner_hot", 0, 1);
@@ -2006,10 +2007,10 @@ mod pallet_benchmarks {
             BasketRate::<T>::insert(&hotkey, I96F32::from_num(1));
         }
 
+        let subnets = sp_std::collections::btree_set::BTreeSet::from([NetUid::ROOT]);
         #[extrinsic_call]
-        _(RawOrigin::Signed(coldkey.clone()));
+        _(RawOrigin::Signed(coldkey.clone()), subnets);
 
-        // Every work unit must execute the active holding-redemption path.
         let first_hotkey: T::AccountId = account("claim_hot", 0, 1);
         let last_hotkey: T::AccountId = account("claim_hot", h.saturating_sub(1), 1);
         assert_eq!(BasketShares::<T>::get(first_hotkey), 0);

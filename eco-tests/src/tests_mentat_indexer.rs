@@ -368,8 +368,9 @@ fn indexer_extrinsic_decrease_take() {
 fn indexer_extrinsic_claim_root() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
 
-        let _ = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey));
+        let _ = SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey);
     });
 }
 

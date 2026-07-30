@@ -2465,7 +2465,7 @@ fn test_revert_claim_root_with_swap_hotkey() {
             AlphaBalance::ZERO,
         );
 
-        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey)));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hk1));
 
         let hk1_claimed = BasketClaimed::<Test>::get(hk1, coldkey);
         let hk1_rate = BasketRate::<Test>::get(hk1);
@@ -2953,9 +2953,10 @@ fn test_swap_hotkey_root_claims_unchanged_if_not_root() {
             AlphaBalance::ZERO,
         );
 
-        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(
-            staker_coldkey
-        )));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(staker_coldkey),
+            neuron_hotkey
+        ));
 
         let rate = BasketRate::<Test>::get(neuron_hotkey);
         assert!(rate > I96F32::from_num(0));
@@ -3036,9 +3037,10 @@ fn test_swap_hotkey_root_claims_changed_if_root() {
             AlphaBalance::ZERO,
         );
 
-        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(
-            staker_coldkey
-        )));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(staker_coldkey),
+            neuron_hotkey
+        ));
 
         let rate = BasketRate::<Test>::get(neuron_hotkey);
         assert!(rate > I96F32::from_num(0));
@@ -3121,9 +3123,10 @@ fn test_swap_hotkey_root_claims_changed_if_all_subnets() {
             AlphaBalance::ZERO,
         );
 
-        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(
-            staker_coldkey
-        )));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(staker_coldkey),
+            neuron_hotkey
+        ));
 
         let rate = BasketRate::<Test>::get(neuron_hotkey);
         assert!(rate > I96F32::from_num(0));

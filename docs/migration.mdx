@@ -364,7 +364,7 @@ a limit price).
 | `set_children(wallet, netuid, hotkey_ss58, children)` | `bt.SetChildren(netuid=..., children=[...])` — **unit change, see below** |
 | `set_subnet_identity(...)` | `bt.SetSubnetIdentity(netuid=..., subnet_name=..., ...)` (flattened fields) |
 | identity via extrinsics | `bt.SetIdentity(name=..., url=..., ...)` |
-| `claim_root(wallet, netuids)` | `bt.ClaimRoot()` — parameterless since v441 (fund-level, [baskets](/docs/guides/root-reborn)) |
+| `claim_root(wallet, netuids)` | `bt.ClaimRoot(subnets=...)` still decodes (subnets ignored; coldkey-wide). Prefer `bt.ClaimRootWithHotkey(hotkey_ss58=...)` ([baskets](/docs/guides/root-reborn)) |
 | `set_root_claim_type(wallet, type)` | removed (retired on chain in v441; claims are always TAO to root stake) |
 | `add_proxy` / `remove_proxy` / `remove_proxies` / `create_pure_proxy` / `kill_pure_proxy` | same-name intents (`bt.AddProxy(delegate_ss58=..., proxy_type=..., delay=...)`, ...) |
 | `proxy(wallet, real_ss58, type, call)` | `client.execute(intent, wallet, proxy_for=real_ss58)` |
@@ -673,7 +673,7 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `stake remove --all` | `tx unstake-all` / `tx unstake-all-alpha` |
 | `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; `--include-hotkeys`/`--exclude-hotkeys`/`--all-hotkeys` batching is gone — loop in your script) |
 | `stake auto` / `set-auto` | same names |
-| `stake set-claim` / `process-claim` | `btcli tx claim-root` (parameterless since v441; `set-claim` removed — see [Root Reborn](/docs/guides/root-reborn)) |
+| `stake set-claim` / `process-claim` | `btcli root claim` / `btcli tx claim-root-with-hotkey --hotkey ...` (per-validator; `claim_root(subnets)` kept for old clients — see [Root Reborn](/docs/guides/root-reborn)) |
 | `stake child get/set/revoke/take` | same names (`child set` takes `--children` as JSON pairs) |
 | `sudo set --param NAME --value V` | `sudo set --name NAME --value V` / `tx set-hyperparameter` |
 | `sudo get` / `subnets hyperparameters` | `sudo get` / `subnets hyperparameters NETUID` / `query subnet-hyperparameters` |

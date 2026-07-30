@@ -90,6 +90,7 @@ intent_plan_test!(intent_associate_hotkey, "associate_hotkey");
 intent_plan_test!(intent_batch, "batch");
 intent_plan_test!(intent_burned_register, "burned_register");
 intent_plan_test!(intent_claim_root, "claim_root");
+intent_plan_test!(intent_claim_root_with_hotkey, "claim_root_with_hotkey");
 intent_plan_test!(
     intent_clear_coldkey_swap_announcement,
     "clear_coldkey_swap_announcement"

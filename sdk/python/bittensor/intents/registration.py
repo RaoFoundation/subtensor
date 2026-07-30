@@ -189,30 +189,68 @@ class RootRegister(Intent):
 @register
 @dataclass
 class ClaimRoot(Intent):
-    """Redeem your accrued root dividends (basket shares) as root stake.
+    """Redeem accrued root dividends across every validator for the coldkey.
 
     Root dividends accrue as shares of each validator's basket — an
     escrowed index fund of subnet alpha the chain builds from the validator's
     root dividends per its root weights (see ``set_root_weights``). This call
-    redeems the signing coldkey's owed shares across every validator it
-    root-stakes to, in one transaction with no parameters: each basket pays
-    out pro-rata (subnet alpha holdings are sold to TAO at the current pool
-    price) and the proceeds are staked back to root on the same validator.
-    Claims whose estimated payout is below the chain's claim threshold
-    (see ``root_claim_threshold``) are silently skipped and keep accruing;
-    there is no deadline. Preview the payout with the ``root_basket_owed``
-    read.
+    redeems the signing coldkey's owed shares on every validator it
+    root-stakes to. The ``subnets`` argument is retained for call-data
+    compatibility with pre-basket clients and is ignored — baskets have no
+    per-subnet claim selection.
+
+    Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
     """
 
     op = "claim_root"
     signer = "coldkey"
     wraps = (("SubtensorModule", "claim_root"),)
 
+    subnets: list[int] = field(
+        default_factory=lambda: [0],
+        metadata={
+            "help": "Ignored (kept for old-client call-data compatibility). "
+            "Pass any non-empty netuid list; baskets claim fund-level."
+        },
+    )
+
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.SubtensorModule.claim_root())
+        return await substrate.compose(calls.SubtensorModule.claim_root(subnets=self.subnets))
 
     def summary(self) -> str:
-        return "claim root dividends (redeem basket shares to root stake)"
+        return "claim root dividends on all validators (redeem basket shares to root stake)"
+
+
+@register
+@dataclass
+class ClaimRootWithHotkey(Intent):
+    """Redeem accrued root dividends (basket shares) for one validator.
+
+    Redeems the signing coldkey's owed shares on the given validator only:
+    that basket pays out pro-rata (subnet alpha holdings are sold to TAO at
+    the current pool price) and the proceeds are staked back to root on the
+    same validator. Other validators' accrued yield is left untouched.
+    Claims whose estimated payout is below the chain's claim threshold
+    (see ``root_claim_threshold``) are silently skipped and keep accruing.
+    Preview per-validator payouts with ``root_basket_owed_breakdown``.
+    """
+
+    op = "claim_root_with_hotkey"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "claim_root_with_hotkey"),)
+
+    hotkey_ss58: str = field(
+        metadata={"help": "Validator whose accrued basket yield to claim."},
+    )
+
+    async def build(self, substrate, wallet: Any):
+        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        return await substrate.compose(
+            calls.SubtensorModule.claim_root_with_hotkey(hotkey=hotkey)
+        )
+
+    def summary(self) -> str:
+        return f"claim root dividends on {self.hotkey_ss58} (redeem basket shares to root stake)"
 
 
 @register

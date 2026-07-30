@@ -508,7 +508,10 @@ mod tests {
         );
         assert_eq!(
             allowed_calls(ProxyType::RootClaim),
-            expected(&["SubtensorModule::claim_root"])
+            expected(&[
+                "SubtensorModule::claim_root",
+                "SubtensorModule::claim_root_with_hotkey",
+            ])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),

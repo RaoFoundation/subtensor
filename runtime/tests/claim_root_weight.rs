@@ -6,11 +6,10 @@ use node_subtensor_runtime::{
     transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
 };
 use sp_runtime::{generic::Era, traits::TransactionExtension};
-use subtensor_runtime_common::TaoBalance;
+use sp_std::collections::btree_set::BTreeSet;
+use subtensor_runtime_common::{AccountId, NetUid, TaoBalance};
 
-#[test]
-fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
-    let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root {});
+fn assert_call_fits_normal_limit(call: RuntimeCall) {
     let extensions: TxExtension = (
         (
             frame_system::CheckNonZeroSender::<Runtime>::new(),
@@ -39,7 +38,24 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
 
     assert!(
         dispatch_info.total_weight().all_lte(max_extrinsic),
-        "claim_root total weight {:?} exceeds normal max extrinsic {max_extrinsic:?}",
+        "call total weight {:?} exceeds normal max extrinsic {max_extrinsic:?}",
         dispatch_info.total_weight()
     );
+}
+
+#[test]
+fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
+    let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root {
+        subnets: BTreeSet::from([NetUid::ROOT]),
+    });
+    assert_call_fits_normal_limit(call);
+}
+
+#[test]
+fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
+    let hotkey = AccountId::new([1u8; 32]);
+    let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey {
+        hotkey,
+    });
+    assert_call_fits_normal_limit(call);
 }

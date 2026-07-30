@@ -8,9 +8,8 @@ import styles from './page.module.css';
 export const metadata: Metadata = {
   title: 'Root Reborn — The V441 Upgrade',
   description:
-    'Nearly half of every TAO ever minted sits on root. Root Reborn turns its dividend ' +
-    'stream into validator-curated baskets — live network numbers, how the fund ' +
-    'works, and what to do.',
+    'TAO is a productive asset. Root Reborn turns root yield from passive into managed — ' +
+    'validator-curated baskets of subnet alpha, held until claimable.',
   alternates: {canonical: '/releases/v441-upgrade'},
 };
 
@@ -45,17 +44,683 @@ const usd = (tao: number) => {
 };
 
 const rootDividendsPerDay = fmt.format(snapshot.rootDividendsTaoPerDay);
-const buySideBoost = pct(snapshot.rootDividendsTaoPerDay / snapshot.taoPerDayIntoPools, 0);
+/** The root stream measured against fresh daily pool emission — the scale of the drain. */
+const streamVsInject = pct(snapshot.rootDividendsTaoPerDay / snapshot.taoPerDayIntoPools, 0);
 
-/** Calculated day mint: 0.5 τ/block × 7200 blocks/day (BlockEmission storage may still read 1.0). */
-const DAY_EMISSION_TAO = 3600;
-const poolInjectPerDay = snapshot.taoPerDayIntoPools;
-const rootMakebackPerDay = snapshot.rootDividendsTaoPerDay;
-const saveShareOfMint = poolInjectPerDay / DAY_EMISSION_TAO;
-const makebackShareOfMint = rootMakebackPerDay / DAY_EMISSION_TAO;
-const retainedPreShare = saveShareOfMint;
-const retainedPostShare = (poolInjectPerDay + rootMakebackPerDay) / DAY_EMISSION_TAO;
-const marketFlowSwingPerDay = rootMakebackPerDay * 2;
+/** Redistribution neutralizes the drain: net sell flow removed equals the stream itself. */
+const sellFlowRemovedPerDay = snapshot.rootDividendsTaoPerDay;
+
+const GOLD_SOFT = 'rgba(224, 165, 63, 0.14)';
+const FAINT = 'rgba(41, 41, 41, 0.12)';
+
+/** Cumulative-yield frontier: force-sold linear ceiling vs compounding managed curves. */
+const YieldFrontierDiagram = () => {
+  const x0 = 70;
+  const y0 = 40;
+  const w = 560;
+  const h = 200;
+  const baseline = y0 + h;
+  const yMax = 0.2;
+  const r = snapshot.rootYieldApr;
+  // Illustrative annualized allocation premiums, not a projection of any subnet.
+  const premiums = [0.05, 0.1];
+
+  const xFor = (t: number) => x0 + t * w;
+  const yFor = (v: number) => baseline - (v / yMax) * h;
+  const compounded = (rate: number, t: number) => Math.exp(rate * t) - 1;
+  const curvePoints = (rate: number) => {
+    const pts: string[] = [];
+    for (let i = 0; i <= 48; i++) {
+      const t = i / 48;
+      pts.push(`${xFor(t).toFixed(1)} ${yFor(compounded(rate, t)).toFixed(1)}`);
+    }
+    return pts;
+  };
+  const pathFor = (rate: number) =>
+    curvePoints(rate)
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p}`)
+      .join(' ');
+  // Skill band: area between the top managed curve and the force-sold line.
+  const topPremium = premiums[premiums.length - 1];
+  const bandPath = `${pathFor(r + topPremium)} L ${xFor(1).toFixed(1)} ${yFor(r).toFixed(
+    1,
+  )} L ${x0} ${baseline} Z`;
+
+  return (
+    <svg
+      className={styles.graph}
+      viewBox='0 0 760 300'
+      role='img'
+      aria-label={`Cumulative yield per TAO staked on root over twelve months. The before line is today's ${pct(
+        r,
+      )} run-rate, force-sold daily, and acts as a ceiling. Managed basket curves compound the same stream inside subnet alpha; illustrative allocation premiums lift the twelve-month outcome above the old ceiling, and the shaded region between them is what allocation skill plays for.`}
+    >
+      <text {...GRAPH_TEXT} x='380' y='28' textAnchor='middle' fill={MUTED}>
+        CUMULATIVE YIELD PER τ ON ROOT · 12 MONTHS · SAME DIVIDEND STREAM
+      </text>
+
+      <path d={bandPath} fill={GOLD_SOFT} />
+
+      {/* Axes */}
+      <line x1={x0} y1={y0} x2={x0} y2={baseline} stroke={INK} strokeWidth='1' />
+      <line x1={x0} y1={baseline} x2={x0 + w} y2={baseline} stroke={INK} strokeWidth='1' />
+      {[0.1, 0.2].map((v) => (
+        <g key={v}>
+          <line
+            x1={x0}
+            y1={yFor(v)}
+            x2={x0 + w}
+            y2={yFor(v)}
+            stroke={FAINT}
+            strokeWidth='1'
+            strokeDasharray='4 3'
+          />
+          <text {...GRAPH_TEXT} x={x0 - 8} y={yFor(v) + 3} textAnchor='end' fill={MUTED}>
+            {pct(v, 0)}
+          </text>
+        </g>
+      ))}
+      <text {...GRAPH_TEXT} x={x0 - 8} y={baseline + 3} textAnchor='end' fill={MUTED}>
+        0
+      </text>
+      {[0, 0.5, 1].map((t) => (
+        <text
+          key={t}
+          {...GRAPH_TEXT}
+          x={xFor(t)}
+          y={baseline + 20}
+          textAnchor='middle'
+          fill={MUTED}
+        >
+          {t * 12}
+        </text>
+      ))}
+      <text {...GRAPH_TEXT} x={x0 + w} y={baseline + 38} textAnchor='end' fill={MUTED}>
+        MONTHS →
+      </text>
+
+      {/* Before: force-sold daily, linear, a ceiling */}
+      <line
+        x1={x0}
+        y1={baseline}
+        x2={xFor(1)}
+        y2={yFor(r)}
+        stroke={MUTED}
+        strokeWidth='1.5'
+      />
+      <circle cx={xFor(1)} cy={yFor(r)} r='3.5' fill='none' stroke={MUTED} strokeWidth='1.5' />
+      <text {...GRAPH_TEXT} x={xFor(1) + 10} y={yFor(r) + 3} fill={MUTED}>
+        {pct(r)} · BEFORE
+      </text>
+      <text {...GRAPH_TEXT} x={xFor(1) + 10} y={yFor(r) + 16} fill={MUTED}>
+        SOLD DAILY · CEILING
+      </text>
+
+      {/* Managed basket curves */}
+      {premiums.map((g, i) => {
+        const last = i === premiums.length - 1;
+        return (
+          <g key={g}>
+            <path
+              d={pathFor(r + g)}
+              fill='none'
+              stroke={GOLD}
+              strokeWidth={last ? 2 : 1.25}
+            />
+            <circle cx={xFor(1)} cy={yFor(compounded(r + g, 1))} r='3.5' fill={GOLD} />
+            <text
+              {...GRAPH_TEXT}
+              x={xFor(1) + 10}
+              y={yFor(compounded(r + g, 1)) + 3}
+              fill={GOLD}
+            >
+              {pct(compounded(r + g, 1), 0)} · +{pct(g, 0)} SKILL
+            </text>
+          </g>
+        );
+      })}
+      <text {...GRAPH_TEXT} x={xFor(0.66)} y={yFor(0.062)} textAnchor='middle' fill={GOLD}>
+        ALLOCATION SKILL
+      </text>
+      <text
+        {...GRAPH_TEXT}
+        x={xFor(0.66)}
+        y={yFor(0.062) + 14}
+        textAnchor='middle'
+        fill='rgba(224, 165, 63, 0.75)'
+      >
+        COMPOUNDS IN α · REALIZED ON CLAIM
+      </text>
+    </svg>
+  );
+};
+
+/** Signed daily net flow at subnet pools: the root drain is neutralized, not reversed. */
+const FlowNeutralityDiagram = () => {
+  const inject = snapshot.taoPerDayIntoPools;
+  const rootStream = snapshot.rootDividendsTaoPerDay;
+  const netBefore = inject - rootStream;
+  const netAfter = inject; // root stream sold once, rebought across subnets: net ≈ 0
+
+  const zeroY = 160;
+  const k = 0.055; // px per τ/day
+  const yFor = (v: number) => zeroY - v * k;
+  const barW = 64;
+
+  const before = {cx: 200, injectX: 120, rootX: 216, lineX1: 110, lineX2: 300};
+  const after = {cx: 540, injectX: 460, rootX: 556, lineX1: 450, lineX2: 640};
+  const halfW = 28;
+
+  return (
+    <svg
+      className={styles.graph}
+      viewBox='0 0 760 300'
+      role='img'
+      aria-label={`Daily net TAO flow at the subnet pools, before and after the upgrade. Emission inject of ${fmt.format(
+        inject,
+      )} tao per day is unchanged. Before, the root stream of ${fmt.format(
+        rootStream,
+      )} tao per day sits below the zero axis as net sell flow, leaving a net of ${fmt.format(
+        netBefore,
+      )}. After, the same stream is sold once and immediately rebought across subnets, so its net at the pools is approximately zero — the ${fmt.format(
+        sellFlowRemovedPerDay,
+      )} tao per day drain is removed and the net rises to the full inject of ${fmt.format(
+        netAfter,
+      )}.`}
+    >
+      <text {...GRAPH_TEXT} x='380' y='28' textAnchor='middle' fill={MUTED}>
+        DAILY NET TAO FLOW AT THE SUBNET POOLS · τ / DAY · THE DRAIN GOES TO ZERO
+      </text>
+
+      {/* Gridlines and y labels */}
+      {[1000, -1000].map((v) => (
+        <g key={v}>
+          <line
+            x1='60'
+            y1={yFor(v)}
+            x2='700'
+            y2={yFor(v)}
+            stroke={FAINT}
+            strokeWidth='1'
+            strokeDasharray='4 3'
+          />
+          <text {...GRAPH_TEXT} x='52' y={yFor(v) + 3} textAnchor='end' fill={MUTED}>
+            {v > 0 ? `+${v / 1000}k` : `−${-v / 1000}k`}
+          </text>
+        </g>
+      ))}
+      <line x1='60' y1={zeroY} x2='700' y2={zeroY} stroke={INK} strokeWidth='1.25' />
+      <text {...GRAPH_TEXT} x='52' y={zeroY + 3} textAnchor='end'>
+        0
+      </text>
+
+      <text {...GRAPH_TEXT} x={before.cx} y='48' textAnchor='middle' fill={MUTED}>
+        BEFORE · ROOT STREAM EXITS
+      </text>
+      <text {...GRAPH_TEXT} x={after.cx} y='48' textAnchor='middle' fill={MUTED}>
+        AFTER · ROOT STREAM REDISTRIBUTED
+      </text>
+
+      {/* Before: inject up, root stream down, net well below inject */}
+      <rect
+        x={before.injectX}
+        y={yFor(inject)}
+        width={barW}
+        height={zeroY - yFor(inject)}
+        fill='none'
+        stroke={INK}
+        strokeWidth='1.5'
+      />
+      <text
+        {...GRAPH_TEXT}
+        x={before.injectX + barW / 2}
+        y={yFor(inject) - 8}
+        textAnchor='middle'
+      >
+        +{fmt.format(inject)} INJECT
+      </text>
+      <rect
+        x={before.rootX}
+        y={zeroY}
+        width={barW}
+        height={yFor(-rootStream) - zeroY}
+        fill='rgba(41, 41, 41, 0.08)'
+        stroke={MUTED}
+        strokeWidth='1.5'
+      />
+      <text
+        {...GRAPH_TEXT}
+        x={before.rootX + barW / 2}
+        y={yFor(-rootStream) + 16}
+        textAnchor='middle'
+        fill={MUTED}
+      >
+        −{fmt.format(rootStream)} SOLD, EXITS
+      </text>
+      <line
+        x1={before.lineX1}
+        y1={yFor(netBefore)}
+        x2={before.lineX2}
+        y2={yFor(netBefore)}
+        stroke={INK}
+        strokeWidth='1'
+        strokeDasharray='3 3'
+      />
+      <text {...GRAPH_TEXT} x={before.lineX2 + 6} y={yFor(netBefore) + 3} fill={MUTED}>
+        NET +{fmt.format(netBefore)}
+      </text>
+
+      {/* After: inject up, root stream sold and rebought — a cancelled pair */}
+      <rect
+        x={after.injectX}
+        y={yFor(inject)}
+        width={barW}
+        height={zeroY - yFor(inject)}
+        fill='none'
+        stroke={INK}
+        strokeWidth='1.5'
+      />
+      <text
+        {...GRAPH_TEXT}
+        x={after.injectX + barW / 2}
+        y={yFor(inject) - 8}
+        textAnchor='middle'
+      >
+        +{fmt.format(inject)} INJECT
+      </text>
+      <rect
+        x={after.rootX}
+        y={zeroY}
+        width={halfW}
+        height={yFor(-rootStream) - zeroY}
+        fill='rgba(41, 41, 41, 0.08)'
+        stroke={MUTED}
+        strokeWidth='1.5'
+      />
+      <text
+        {...GRAPH_TEXT}
+        x={after.rootX + halfW / 2}
+        y={yFor(-rootStream) + 16}
+        textAnchor='middle'
+        fill={MUTED}
+      >
+        SOLD
+      </text>
+      <rect
+        x={after.rootX + halfW + 8}
+        y={yFor(rootStream)}
+        width={halfW}
+        height={zeroY - yFor(rootStream)}
+        fill={GOLD_SOFT}
+        stroke={GOLD}
+        strokeWidth='1.5'
+      />
+      <text
+        {...GRAPH_TEXT}
+        x={after.rootX + halfW + 8 + halfW / 2}
+        y={yFor(rootStream) - 8}
+        textAnchor='middle'
+        fill={GOLD}
+      >
+        REBOUGHT
+      </text>
+      <text
+        {...GRAPH_TEXT}
+        x={after.rootX + halfW + 4}
+        y={yFor(-rootStream) + 36}
+        textAnchor='middle'
+        fill={GOLD}
+      >
+        NET ≈ 0 · REDISTRIBUTED PER ROOT WEIGHTS
+      </text>
+      <line
+        x1={after.lineX1}
+        y1={yFor(netAfter)}
+        x2={after.lineX2}
+        y2={yFor(netAfter)}
+        stroke={GOLD}
+        strokeWidth='1'
+        strokeDasharray='3 3'
+      />
+      <text {...GRAPH_TEXT} x={after.lineX2 + 6} y={yFor(netAfter) + 3} fill={GOLD}>
+        NET +{fmt.format(netAfter)}
+      </text>
+
+      {/* The drain removed: from −983 back to the zero axis */}
+      <line
+        x1='688'
+        y1={yFor(-rootStream)}
+        x2='688'
+        y2={zeroY + 4}
+        stroke={GOLD}
+        strokeWidth='1.5'
+      />
+      <polygon points={`688,${zeroY + 2} 684,${zeroY + 10} 692,${zeroY + 10}`} fill={GOLD} />
+      <text {...GRAPH_TEXT} x='698' y={yFor(-rootStream / 2) - 4} fill={GOLD}>
+        {fmt.format(sellFlowRemovedPerDay)} τ/DAY
+      </text>
+      <text {...GRAPH_TEXT} x='698' y={yFor(-rootStream / 2) + 10} fill={GOLD}>
+        NET SELLING
+      </text>
+      <text {...GRAPH_TEXT} x='698' y={yFor(-rootStream / 2) + 24} fill={GOLD}>
+        REMOVED
+      </text>
+
+      <text {...GRAPH_TEXT} x='380' y='288' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
+        EMISSION INJECT UNCHANGED · SOLD ONCE, REBOUGHT ACROSS SUBNETS · NEUTRAL, NOT REVERSED
+      </text>
+    </svg>
+  );
+};
+
+/** Bipartite graph: validators publish weight vectors; edges carry dividends to subnets. */
+const GuidingHandsDiagram = () => {
+  const validatorYs = [100, 180, 260, 340];
+  const goldValidator = 1;
+  const hexX = 130;
+  const hexR = 30;
+
+  // Right side: real top root-dividend subnets from the snapshot, plus the TAO slot.
+  const subnetNodes = snapshot.topRootDividendSubnets
+    .slice(0, 6)
+    .map((s, i) => ({label: `${s.name.toUpperCase()} · SN ${s.netuid}`, y: 70 + i * 45}));
+  const taoNode = {label: 'NETUID 0 · TAO SLOT', y: 70 + 6 * 45};
+  const nodes = [...subnetNodes, taoNode];
+  const rectX = 540;
+  const rectW = 190;
+  const rectH = 26;
+
+  // Illustrative weight vectors; destinations are the real subnets above.
+  const edges: Array<{v: number; s: number; w: number}> = [
+    {v: 0, s: 0, w: 0.5},
+    {v: 0, s: 1, w: 0.3},
+    {v: 0, s: 4, w: 0.2},
+    {v: 1, s: 1, w: 0.4},
+    {v: 1, s: 5, w: 0.3},
+    {v: 1, s: 6, w: 0.2},
+    {v: 1, s: 3, w: 0.1},
+    {v: 2, s: 3, w: 0.4},
+    {v: 2, s: 2, w: 0.3},
+    {v: 2, s: 6, w: 0.3},
+    {v: 3, s: 5, w: 0.5},
+    {v: 3, s: 0, w: 0.25},
+    {v: 3, s: 4, w: 0.25},
+  ];
+
+  const x1 = hexX + hexR * 0.866 + 4;
+  const x2 = rectX - 4;
+  const edgePath = (vy: number, sy: number) => {
+    const midX = (x1 + x2) / 2;
+    return `M ${x1} ${vy} C ${midX} ${vy}, ${midX} ${sy}, ${x2} ${sy}`;
+  };
+
+  return (
+    <svg
+      className={styles.graph}
+      viewBox='0 0 760 400'
+      role='img'
+      aria-label={`Bipartite graph of root validators and subnets. Four validator nodes on the left hold the network's ${fmt.format(
+        snapshot.rootStakeTao,
+      )} tao of delegated stake. Each publishes an on-chain weight vector, drawn as edges to subnet nodes on the right — real top root-dividend subnets plus the netuid zero TAO slot. Edge thickness is the share of the validator's root dividend flowing to that destination; one validator's vector is highlighted with its weights. Vectors shown are illustrative.`}
+    >
+      <text {...GRAPH_TEXT} x={hexX} y='32' textAnchor='middle' fill={MUTED}>
+        ROOT VALIDATORS
+      </text>
+      <text {...GRAPH_TEXT} x={hexX} y='46' textAnchor='middle' fill={MUTED}>
+        {fmt.format(snapshot.rootStakeTao)} τ DELEGATED
+      </text>
+      <text {...GRAPH_TEXT} x={rectX + rectW / 2} y='32' textAnchor='middle' fill={MUTED}>
+        SUBNETS · {snapshot.liveSubnets} LIVE
+      </text>
+      <text {...GRAPH_TEXT} x={rectX + rectW / 2} y='46' textAnchor='middle' fill={MUTED}>
+        α DESTINATIONS
+      </text>
+
+      {/* Edges under nodes */}
+      {edges.map(({v, s, w}) => {
+        const gold = v === goldValidator;
+        return (
+          <path
+            key={`${v}-${s}`}
+            d={edgePath(validatorYs[v], nodes[s].y)}
+            fill='none'
+            stroke={gold ? GOLD : 'rgba(41, 41, 41, 0.22)'}
+            strokeWidth={2 + w * 6}
+          />
+        );
+      })}
+      {/* Weight labels on the highlighted vector */}
+      {edges
+        .filter(({v}) => v === goldValidator)
+        .map(({s, w}) => (
+          <text
+            key={`w-${s}`}
+            {...GRAPH_TEXT}
+            x={x2 - 8}
+            y={nodes[s].y - 7}
+            textAnchor='end'
+            fill={GOLD}
+          >
+            {pct(w, 0)}
+          </text>
+        ))}
+
+      {/* Validator hexes */}
+      {validatorYs.map((y, i) => {
+        const gold = i === goldValidator;
+        return (
+          <g key={y}>
+            <polygon
+              points={hexPoints(hexX, y, hexR)}
+              fill={gold ? GOLD_SOFT : 'none'}
+              stroke={gold ? GOLD : INK}
+              strokeWidth='1.5'
+            />
+            <text
+              {...GRAPH_TEXT}
+              x={hexX}
+              y={y - 2}
+              textAnchor='middle'
+              fill={gold ? GOLD : INK}
+            >
+              VALI {String.fromCharCode(65 + i)}
+            </text>
+            <text
+              {...GRAPH_TEXT}
+              x={hexX}
+              y={y + 12}
+              textAnchor='middle'
+              fill={gold ? 'rgba(224, 165, 63, 0.75)' : MUTED}
+            >
+              VECTOR
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Subnet rects */}
+      {nodes.map((n, i) => {
+        const isTao = i === nodes.length - 1;
+        return (
+          <g key={n.label}>
+            <rect
+              x={rectX}
+              y={n.y - rectH / 2}
+              width={rectW}
+              height={rectH}
+              fill='none'
+              stroke={INK}
+              strokeWidth='1.5'
+            />
+            {isTao && (
+              <rect x={rectX + 6} y={n.y - 4} width={8} height={8} fill={GOLD} />
+            )}
+            <text {...GRAPH_TEXT} x={rectX + (isTao ? 20 : 8)} y={n.y + 4}>
+              {n.label}
+            </text>
+          </g>
+        );
+      })}
+
+      <text {...GRAPH_TEXT} x='380' y='392' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
+        EVERY EDGE IS ON-CHAIN, PUBLIC · WIDTH = SHARE OF THE VALIDATOR&apos;S ROOT DIVIDEND
+      </text>
+    </svg>
+  );
+};
+
+/** Sorted delegation distributions: incumbency curve vs a challenger breaking it on yield. */
+const RootCompetitionDiagram = () => {
+  // Illustrative delegation shares, sorted by size (not a live snapshot).
+  const beforeHeights = [120, 95, 75, 60, 48, 38, 30, 24];
+  const afterHeights = [92, 88, 72, 58, 104, 38, 30, 24];
+  const challenger = 4;
+  const incumbentLoss = beforeHeights[0] - afterHeights[0];
+
+  const barW = 26;
+  const gap = 9;
+  const baseline = 220;
+  const beforeX = 56;
+  const afterX = 432;
+  const barX = (originX: number, i: number) => originX + i * (barW + gap);
+
+  const incumbentCx = barX(afterX, 0) + barW / 2;
+  const challengerCx = barX(afterX, challenger) + barW / 2;
+  const arcTop = baseline - beforeHeights[0] - 26;
+
+  return (
+    <svg
+      className={styles.graph}
+      viewBox='0 0 760 300'
+      role='img'
+      aria-label='Two sorted delegation distributions. Before: bars decrease smoothly from a dominant incumbent — stake gravitates to size and entry requires out-staking the floor. After: registration is burn-based, and a gold challenger in the middle of the ranking breaks the monotone curve by posting a better realized yield, pulling delegation away from the incumbent, whose bar shows the ghost of the stake it lost. Distributions are illustrative.'
+    >
+      <text {...GRAPH_TEXT} x='190' y='32' textAnchor='middle' fill={MUTED}>
+        BEFORE · ENTRY BY STAKE
+      </text>
+      <text {...GRAPH_TEXT} x='570' y='32' textAnchor='middle' fill={MUTED}>
+        AFTER · ENTRY BY BURN, RANK BY YIELD
+      </text>
+
+      {/* Before: smooth incumbency curve */}
+      {beforeHeights.map((h, i) => (
+        <rect
+          key={i}
+          x={barX(beforeX, i)}
+          y={baseline - h}
+          width={barW}
+          height={h}
+          fill={i === 0 ? 'rgba(41, 41, 41, 0.08)' : 'none'}
+          stroke={INK}
+          strokeWidth='1.5'
+        />
+      ))}
+      <text
+        {...GRAPH_TEXT}
+        x={barX(beforeX, 0) + barW / 2}
+        y={baseline - beforeHeights[0] - 10}
+        textAnchor='middle'
+      >
+        INCUMBENT
+      </text>
+      <line
+        x1={beforeX - 8}
+        y1={baseline}
+        x2={barX(beforeX, beforeHeights.length)}
+        y2={baseline}
+        stroke={INK}
+        strokeWidth='1'
+      />
+      <text {...GRAPH_TEXT} x='190' y={baseline + 22} textAnchor='middle' fill={MUTED}>
+        DELEGATION SORTS BY SIZE · SIZE COMPOUNDS
+      </text>
+
+      {/* After: challenger breaks the curve */}
+      {afterHeights.map((h, i) => {
+        const gold = i === challenger;
+        return (
+          <rect
+            key={i}
+            x={barX(afterX, i)}
+            y={baseline - h}
+            width={barW}
+            height={h}
+            fill={gold ? GOLD_SOFT : 'none'}
+            stroke={gold ? GOLD : INK}
+            strokeWidth='1.5'
+          />
+        );
+      })}
+      {/* Ghost of the stake the incumbent lost */}
+      <rect
+        x={barX(afterX, 0)}
+        y={baseline - beforeHeights[0]}
+        width={barW}
+        height={incumbentLoss}
+        fill='none'
+        stroke={MUTED}
+        strokeWidth='1'
+        strokeDasharray='3 3'
+      />
+      {/* Delegation flows from incumbent to challenger */}
+      <path
+        d={`M ${incumbentCx} ${baseline - afterHeights[0] - 8} C ${incumbentCx} ${arcTop}, ${challengerCx} ${arcTop}, ${challengerCx} ${
+          baseline - afterHeights[challenger] - 8
+        }`}
+        fill='none'
+        stroke={GOLD}
+        strokeWidth='1.5'
+      />
+      <polygon
+        points={`${challengerCx},${baseline - afterHeights[challenger] - 6} ${
+          challengerCx - 4
+        },${baseline - afterHeights[challenger] - 14} ${challengerCx + 4},${
+          baseline - afterHeights[challenger] - 14
+        }`}
+        fill={GOLD}
+      />
+      <text
+        {...GRAPH_TEXT}
+        x={(incumbentCx + challengerCx) / 2}
+        y={arcTop - 8}
+        textAnchor='middle'
+        fill={GOLD}
+      >
+        DELEGATION FOLLOWS REALIZED YIELD
+      </text>
+      <text
+        {...GRAPH_TEXT}
+        x={challengerCx}
+        y={baseline + 22}
+        textAnchor='middle'
+        fill={GOLD}
+      >
+        NEW ENTRANT
+      </text>
+      <text
+        {...GRAPH_TEXT}
+        x={challengerCx}
+        y={baseline + 36}
+        textAnchor='middle'
+        fill='rgba(224, 165, 63, 0.75)'
+      >
+        BURNED IN · NO STAKE
+      </text>
+      <line
+        x1={afterX - 8}
+        y1={baseline}
+        x2={barX(afterX, afterHeights.length)}
+        y2={baseline}
+        stroke={INK}
+        strokeWidth='1'
+      />
+
+      <text {...GRAPH_TEXT} x='380' y='285' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
+        SCOREBOARD: WHO MADE THEIR STAKERS THE MOST TAO
+      </text>
+    </svg>
+  );
+};
 
 const hexPoints = (cx: number, cy: number, r: number) => {
   const dx = r * 0.866;
@@ -71,219 +736,6 @@ const hexPoints = (cx: number, cy: number, r: number) => {
     .join(' ');
 };
 
-const FlipDiagram = () => (
-  <svg
-    className={styles.graph}
-    viewBox='0 0 760 300'
-    role='img'
-    aria-label='Before the upgrade, the root dividend stream is sold every block into sell pressure. After it, the same stream is deployed across validator-curated baskets, compounds, and is realized only when the staker claims.'
-  >
-    <text {...GRAPH_TEXT} x='30' y='52' fill={MUTED}>
-      BEFORE
-    </text>
-    <rect x='120' y='30' width='150' height='36' fill='none' stroke={MUTED} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='195' y='52' textAnchor='middle' fill={MUTED}>
-      ROOT YIELD α
-    </text>
-    <line x1='270' y1='48' x2='420' y2='48' stroke={MUTED} strokeWidth='1.5' />
-    <polygon points='420,48 412,44 412,52' fill={MUTED} />
-    <text {...GRAPH_TEXT} x='345' y='38' textAnchor='middle' fill={MUTED}>
-      SOLD EVERY BLOCK
-    </text>
-    <rect x='424' y='30' width='190' height='36' fill='none' stroke={MUTED} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='519' y='52' textAnchor='middle' fill={MUTED}>
-      SELL PRESSURE · TAXED
-    </text>
-    <text {...GRAPH_TEXT} x='650' y='52' fill={MUTED}>
-      GONE
-    </text>
-
-    <line x1='30' y1='96' x2='730' y2='96' stroke='rgba(41,41,41,0.15)' strokeWidth='1' />
-
-    <text {...GRAPH_TEXT} x='30' y='150'>
-      AFTER
-    </text>
-    <rect x='120' y='128' width='150' height='36' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='195' y='150' textAnchor='middle'>
-      ROOT YIELD α
-    </text>
-    <line x1='270' y1='146' x2='340' y2='146' stroke={INK} strokeWidth='1.5' />
-    <polygon points='340,146 332,142 332,150' fill={INK} />
-    <text {...GRAPH_TEXT} x='305' y='136' textAnchor='middle'>
-      SOLD ONCE
-    </text>
-
-    <rect
-      x='344'
-      y='110'
-      width='200'
-      height='104'
-      fill='rgba(41, 41, 41, 0.03)'
-      stroke='rgba(41, 41, 41, 0.4)'
-      strokeWidth='1'
-      strokeDasharray='4 4'
-    />
-    <text {...GRAPH_TEXT} x='444' y='126' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      VALIDATOR BASKET
-    </text>
-    <rect x='360' y='136' width='168' height='20' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='368' y='150'>
-      SUBNET α HOLDINGS
-    </text>
-    <rect x='360' y='164' width='168' height='20' fill='none' stroke={INK} strokeWidth='1.5' />
-    <rect x='364' y='168' width='8' height='8' fill={GOLD} />
-    <text {...GRAPH_TEXT} x='378' y='178'>
-      TAO SLOT
-    </text>
-    <text {...GRAPH_TEXT} x='444' y='202' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      COMPOUNDS EVERY EPOCH
-    </text>
-
-    <line x1='548' y1='146' x2='624' y2='146' stroke={INK} strokeWidth='1.5' />
-    <polygon points='624,146 616,142 616,150' fill={INK} />
-    <text {...GRAPH_TEXT} x='586' y='136' textAnchor='middle'>
-      CLAIM
-    </text>
-    <rect x='628' y='128' width='102' height='36' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='679' y='144' textAnchor='middle'>
-      TAO · YOURS
-    </text>
-    <text {...GRAPH_TEXT} x='679' y='157' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      WHEN YOU CHOOSE
-    </text>
-    <path
-      d='M 712 118 l 5 5 l 9 -11'
-      fill='none'
-      stroke='#5a8f5a'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-    />
-
-    <text {...GRAPH_TEXT} x='380' y='262' textAnchor='middle'>
-      SAME STREAM · {rootDividendsPerDay} τ / DAY ·{' '}
-      {pct(snapshot.rootDividendsPctOfEmission, 0)} OF EMISSION
-    </text>
-    <text {...GRAPH_TEXT} x='380' y='278' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      REDEPLOYED ≈ +{buySideBoost} ON ALL TAO ENTERING SUBNET POOLS DAILY
-    </text>
-  </svg>
-);
-
-const BasketFlowDiagram = () => (
-  <svg
-    className={styles.graph}
-    viewBox='0 0 760 340'
-    role='img'
-    aria-label='Each epoch a validator’s root alpha dividend is sold to TAO and split across subnets per its root weights, buying alpha into an escrowed basket; root stakers accrue an entitlement at NAV and later redeem it pro-rata as TAO staked back to root.'
-  >
-    <rect
-      x='300'
-      y='50'
-      width='240'
-      height='240'
-      fill='rgba(41, 41, 41, 0.03)'
-      stroke='rgba(41, 41, 41, 0.4)'
-      strokeWidth='1'
-      strokeDasharray='4 4'
-    />
-    <text {...GRAPH_TEXT} x='420' y='68' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      BETA BASKET · ESCROWED
-    </text>
-
-    <polygon points={hexPoints(120, 130, 46)} fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='120' y='127' textAnchor='middle'>
-      ROOT
-    </text>
-    <text {...GRAPH_TEXT} x='120' y='141' textAnchor='middle'>
-      DIVIDEND α
-    </text>
-    <text {...GRAPH_TEXT} x='120' y='196' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      EVERY EPOCH
-    </text>
-
-    <line x1='166' y1='130' x2='294' y2='130' stroke={INK} strokeWidth='1.5' />
-    <polygon points='294,130 286,126 286,134' fill={INK} />
-    <text {...GRAPH_TEXT} x='230' y='118' textAnchor='middle'>
-      SOLD TO TAO
-    </text>
-    <text {...GRAPH_TEXT} x='230' y='146' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      SPLIT PER ROOT WEIGHTS
-    </text>
-
-    <rect x='330' y='92' width='180' height='30' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='340' y='111'>
-      SN 4 · α HOLDING
-    </text>
-    <text {...GRAPH_TEXT} x='500' y='111' textAnchor='end'>
-      30%
-    </text>
-
-    <rect x='330' y='140' width='180' height='30' fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='340' y='159'>
-      SN 8 · α HOLDING
-    </text>
-    <text {...GRAPH_TEXT} x='500' y='159' textAnchor='end'>
-      50%
-    </text>
-
-    <rect x='330' y='188' width='180' height='30' fill='none' stroke={INK} strokeWidth='1.5' />
-    <rect x='334' y='192' width='8' height='8' fill={GOLD} />
-    <text {...GRAPH_TEXT} x='350' y='207'>
-      NETUID 0 · TAO SLOT
-    </text>
-    <text {...GRAPH_TEXT} x='500' y='207' textAnchor='end'>
-      20%
-    </text>
-
-    <text {...GRAPH_TEXT} x='420' y='252' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      NAV = REALIZABLE TAO QUOTE
-    </text>
-    <text {...GRAPH_TEXT} x='420' y='266' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      NOT A SPOT MARK
-    </text>
-
-    <line x1='546' y1='130' x2='624' y2='130' stroke={INK} strokeWidth='1.5' />
-    <polygon points='624,130 616,126 616,134' fill={INK} />
-    <text {...GRAPH_TEXT} x='585' y='118' textAnchor='middle'>
-      SHARES
-    </text>
-    <text {...GRAPH_TEXT} x='585' y='146' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      MINTED AT NAV
-    </text>
-
-    <polygon points={hexPoints(672, 130, 40)} fill='none' stroke={INK} strokeWidth='1.5' />
-    <text {...GRAPH_TEXT} x='672' y='127' textAnchor='middle'>
-      ROOT
-    </text>
-    <text {...GRAPH_TEXT} x='672' y='141' textAnchor='middle'>
-      STAKERS
-    </text>
-
-    <line x1='672' y1='172' x2='672' y2='226' stroke={INK} strokeWidth='1.5' />
-    <line x1='672' y1='226' x2='548' y2='226' stroke={INK} strokeWidth='1.5' />
-    <polygon points='548,226 556,222 556,230' fill={INK} />
-    <text {...GRAPH_TEXT} x='680' y='200'>
-      CLAIM
-    </text>
-    <text {...GRAPH_TEXT} x='614' y='214' textAnchor='middle'>
-      PRO-RATA
-    </text>
-    <text {...GRAPH_TEXT} x='614' y='242' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-      SOLD TO TAO → ROOT STAKE
-    </text>
-
-    <path
-      d='M 700 220 l 6 6 l 10 -12'
-      fill='none'
-      stroke='#5a8f5a'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
-    />
-  </svg>
-);
-
 const page = () => {
   return (
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
@@ -297,11 +749,13 @@ const page = () => {
 
         <section className={styles.section}>
           <p>
-            TAO is not a fee token. It is a productive asset: the chain invests liquidity into{' '}
-            {snapshot.registeredSubnets} competing subnets and takes a share of every one of
-            them back, block by block. That share is called <strong>root proportion</strong> —
-            the return owed to TAO itself. Where it lands is the root network, subnet 0, and
-            what sits there is the deepest pool of capital in Bittensor:
+            TAO is not just a utility token — it is a productive asset. Holding it earns a
+            share of the inflation of all {snapshot.registeredSubnets} competitively
+            optimized subnets. We call that share <strong>root proportion</strong>: the
+            fraction of Bittensor&apos;s underlying subnets owed to TAO itself. The exchange
+            is a fair one — in return, the subnets exclusively receive TAO&apos;s own
+            inflation, the very issuance that dilutes TAO holders (above all those staked on
+            root).
           </p>
           <p className={styles.headline_number}>{fmt.format(snapshot.rootStakeTao)} τ</p>
           <p className={styles.headline_label}>
@@ -309,14 +763,322 @@ const page = () => {
             every TAO ever minted
           </p>
           <p>
-            Nearly half of all TAO in existence, {pct(snapshot.rootShareOfStake, 0)} of all
-            staked TAO, concentrated in one place — and until now it was the only capital in
-            the network with no intelligence attached. Its yield was sold the moment it
-            arrived, mechanically, every block. Spec <strong>441</strong> switches the giant
-            on: per-subnet claimable dividends become{' '}
-            <DocLink href='/docs/guides/root-reborn'>baskets</DocLink> — every root
-            validator runs an escrowed index fund of subnet alpha, curated by its root
-            weights, and stakers redeem their entitlement with one parameterless claim.
+            Nearly half of all TAO in existence sits on root —{' '}
+            {pct(snapshot.rootShareOfStake, 0)} of all staked TAO. Until now that capital has
+            been sterile, because the chain enforced a bias on how its owed inflation was
+            used: sold into TAO the moment it arrived. This upgrade changes the nature of
+            root yield, from passive to managed. The validator a root staker attaches to now
+            chooses a distribution allocation — where the rewards are deployed — so that
+            yield stays allocated inside the network and, instead of being auto-sold, is held
+            until claimable inside{' '}
+            <DocLink href='/docs/guides/root-reborn'>baskets</DocLink>. In effect, every root
+            validator runs an escrowed basket of subnet alpha, curated by its root weights,
+            and stakers redeem their entitlement when they choose.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>Why we are doing this</p>
+          <p>
+            <strong>1 · Optimize the yield we pay TAO holders.</strong> The subnets pay root
+            roughly {rootDividendsPerDay} τ every day ({usd(snapshot.rootDividendsTaoPerDay)}
+            /day) — {pct(snapshot.rootDividendsPctOfEmission, 0)} of all new emission — and
+            have paid {fmt.format(snapshot.cumulativeRootRevenueTao)} τ (
+            {usd(snapshot.cumulativeRootRevenueTao)}) since dTAO went live. At today&apos;s
+            run-rate that is a {pct(snapshot.rootYieldApr)}/yr base yield in TAO, and under
+            the old machinery it was a ceiling as much as a floor: every unit was force-sold
+            the block it arrived, at a price and a time nobody chose. Root Reborn hands that
+            stream to the people best positioned to manage it. A validator that allocates
+            well compounds its stakers&apos; yield inside subnet alpha every epoch instead of
+            realizing it daily — {pct(snapshot.rootYieldApr)} becomes the starting point, not
+            the story, and we expect the effective yield distributed to TAO holders to rise
+            with allocation skill.
+          </p>
+          <YieldFrontierDiagram />
+          <p className={styles.graph_caption}>
+            The same dividend stream under both regimes. Force-sold daily, today&apos;s
+            run-rate of {pct(snapshot.rootYieldApr)}/yr is a ceiling; compounding it inside a
+            managed basket makes it a floor. Premium curves are illustrative allocation
+            outcomes, not projections of any subnet.
+          </p>
+          <p>
+            <strong>2 · Make root proportion neutral for subnets.</strong> Root&apos;s share
+            of subnet inflation has been structural sell pressure: {rootDividendsPerDay} τ of
+            subnet alpha marked and sold out of the pools daily, mechanically, regardless of
+            conviction — a drain equal to {streamVsInject} of the roughly{' '}
+            {fmt.format(snapshot.taoPerDayIntoPools)} τ of fresh emission entering all subnet
+            pools each day. Root Reborn does not reverse that flow; it neutralizes it. The
+            dividend is still sold once, but the proceeds no longer exit — they are
+            immediately redeployed across subnet pools per each validator&apos;s weights.
+            Root&apos;s net flow at the pools goes from{' '}
+            <strong>
+              −{rootDividendsPerDay} τ/day ({usd(sellFlowRemovedPerDay)}) to ≈ 0
+            </strong>
+            : a redistribution among subnets rather than a tax out of them. Subnets still pay
+            root its proportion; root now recycles it back into the subnets its validators
+            believe in.
+          </p>
+          <FlowNeutralityDiagram />
+          <p className={styles.graph_caption}>
+            Daily net flow at the subnet pools, measured in τ. The emission inject is
+            untouched; the root dividend stream is sold once and rebought across subnets, so
+            its net at the pools falls from −{rootDividendsPerDay} to ≈ 0 τ/day — neutral,
+            not reversed — and the pools keep the full inject.
+          </p>
+          <p>
+            <strong>3 · Re-engage validators as guiding hands.</strong> Root validators sit
+            on the largest aggregated positions in the network —{' '}
+            {fmt.format(snapshot.rootStakeTao)} τ of delegated conviction — and until now had
+            no way to express a view with them. Root Reborn makes capital allocation part of
+            validation: each validator publishes an on-chain weight vector, and its
+            stakers&apos; dividends flow per that judgment across {snapshot.liveSubnets} live
+            subnets. The parties with the deepest visibility into the ecosystem are, for the
+            first time, paid to curate it — their vectors are public signals of where value
+            is being created.
+          </p>
+          <GuidingHandsDiagram />
+          <p className={styles.graph_caption}>
+            The allocation layer as a bipartite graph: validators on the left, subnet alpha
+            destinations on the right — the top root-dividend payers today, plus the netuid 0
+            TAO slot. Every edge is a published, on-chain weight; the highlighted validator
+            shows one full vector. Vectors are illustrative, destinations are real.
+          </p>
+          <p>
+            <strong>4 · Break the monopolies on root.</strong> Root delegation has been won
+            by incumbency: stake gravitates to size, and size compounds. This upgrade changes
+            what competition on root is about. Registration is now burn-based — no prior
+            stake required — and the scoreboard is the simplest in finance: who made their
+            stakers the most TAO. A new entrant with a sharper read on the subnets can
+            out-allocate an incumbent, post a better realized yield, and pull delegation away
+            from it. Intelligent allocation behaviour, not entrenchment, becomes how position
+            on root is earned.
+          </p>
+          <RootCompetitionDiagram />
+          <p className={styles.graph_caption}>
+            Delegation across root validators, sorted by size. Before, the distribution is a
+            pure incumbency curve — stake gravitates to stake. After, a burn-registered
+            entrant with a better realized yield breaks the curve and pulls delegation from
+            the head; the dashed ghost is what the incumbent lost. Distributions are
+            illustrative.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>How it works</p>
+          <p>
+            The machinery is one fund per root validator, five moving parts, no action
+            required from stakers:
+          </p>
+          <ul className={styles.list}>
+            <li>
+              <strong>Validators publish a vector.</strong>{' '}
+              <DocLink href='/docs/tx/set-root-weights'>
+                <code>set_root_weights</code>
+              </DocLink>{' '}
+              (call index 146) takes relative weights over netuid 0 and existing subnets — at
+              least 8 positive destinations (softened when fewer networks exist),
+              rate-limited like other weight calls. A validator that never sets a vector
+              still accrues: the chain defaults to a balanced 1/n allocation across every
+              live subnet.
+            </li>
+            <li>
+              <strong>Each epoch, the dividend is deployed.</strong> The validator&apos;s
+              root alpha dividend is sold to TAO once, split per the vector, and each slice
+              buys that destination&apos;s alpha into the basket. Weight on netuid 0 keeps
+              its slice as pure TAO — a fully passive fund is one setting away.
+            </li>
+            <li>
+              <strong>Holdings sit in chain-owned escrow.</strong> Basket positions are real
+              stake entries under a pallet sub-account with no private key — they cannot be
+              moved or signed away, and because they are real stake they keep earning every
+              epoch.
+            </li>
+            <li>
+              <strong>Stakers accrue entitlement at NAV.</strong> When a dividend lands, each
+              staker is credited a fraction of the whole fund, priced at its{' '}
+              <strong>realizable</strong> TAO quote — what selling the holdings would
+              actually fetch at current pool depth, never a spot mark. Existing holders are
+              neither diluted nor gifted.
+            </li>
+            <li>
+              <strong>Claims are per validator, whenever you choose.</strong>{' '}
+              <DocLink href='/docs/tx/claim-root-with-hotkey'>
+                <code>claim_root_with_hotkey</code>
+              </DocLink>{' '}
+              takes the validator hotkey: it redeems your owed fraction pro-rata from that
+              basket only, and pays it as TAO staked straight back to root on the same
+              validator. The legacy{' '}
+              <DocLink href='/docs/tx/claim-root'>
+                <code>claim_root(subnets)</code>
+              </DocLink>{' '}
+              call still decodes for old clients (the subnet set is ignored; it claims
+              coldkey-wide). Nothing is realized — and nothing is taxable — until you call
+              it.
+            </li>
+          </ul>
+          <p>
+            Past accruals migrate automatically at upgrade: the old per-subnet claimable
+            state becomes basket holdings and entitlement on the same validator, so no one
+            loses a rao and no one needs to act. Here is what each side actually runs.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>For root validators</p>
+          <p>
+            Joining root is now <strong>burn-based</strong>: <code>root_register</code>{' '}
+            charges the coldkey the demand-priced root burn (τ1 at rest, bumped
+            ~×1.26 per registration and decaying back to the floor) instead of requiring
+            stake up front. A full network still prunes the lowest-staked member on entry,
+            so subscribe stake to your own hotkey to hold the seat.
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli subnets burn-cost 0                        # current root registration price
+btcli subnets register --netuid 0 -w my_coldkey -H my_hotkey  # register; no prior stake needed`}
+          </pre>
+          <p>
+            Then set your distribution vector with your hotkey. A validator with no custom
+            weights still accrues — dividends default to a balanced 1/n allocation across
+            every live subnet. Set the vector to express a view, or weight netuid 0 to hold
+            TAO instead.
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet
+btcli root get-weights --hotkey 5F...
+btcli root show --hotkey 5F...         # your fund: weights, holdings, NAV`}
+          </pre>
+          <p>
+            Weights are relative and normalized before submission (
+            <DocLink href='/docs/tx/set-root-weights'>
+              <code>set-root-weights</code>
+            </DocLink>
+            , call index 146); every destination must be netuid 0 or an existing subnet, and
+            the root weights rate limit applies. The SDK surfaces the same path as{' '}
+            <code>bt.SetRootWeights</code>.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>For root stakers</p>
+          <p>
+            Nothing to configure — subscribe TAO on root and yield accrues automatically.{' '}
+            <code>btcli</code> shows root positions in TAO: staked τ is principal,
+            accrued τ is fund yield.
+          </p>
+          <pre className={styles.code_block}>
+            {`btcli root list                            # staked + accrued τ, per validator
+btcli root subscribe --amount 100 --hotkey 5F...  # assets in
+btcli root claim                                  # pick wallet → validator → claim / withdraw
+btcli root claim --hotkey 5F... --amount all      # withdraw full position
+btcli root claim --hotkey 5F...                   # claim accrued into stake only`}
+          </pre>
+          <p>
+            <code>btcli root claim</code> is the exit path: omit{' '}
+            <code>--amount</code> to realize accrued yield into root stake, or pass{' '}
+            <code>--amount</code> / <code>all</code> to withdraw to free balance (accrued
+            yield is claimed first when needed via{' '}
+            <DocLink href='/docs/tx/claim-root-with-hotkey'>
+              <code>claim_root_with_hotkey</code>
+            </DocLink>
+            ). Legacy <code>claim_root(subnets)</code> still works for old clients (subnets
+            ignored; claims every validator). Per-validator payouts below the claim
+            threshold (default 500,000 rao; read it with{' '}
+            <DocLink href='/docs/query/root-claim-threshold'>
+              <code>root-claim-threshold</code>
+            </DocLink>
+            ) are skipped and keep accruing — there is no deadline and nothing expires.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>Breaking changes</p>
+          <ul className={styles.list}>
+            <li>
+              <code>claim_root</code> (call index 121) keeps the{' '}
+              <code>subnets: BTreeSet&lt;NetUid&gt;</code> argument so old clients still
+              decode, but the set is <strong>ignored</strong> — claims are fund-level across
+              every validator the coldkey stakes to. New{' '}
+              <code>claim_root_with_hotkey</code> (148) claims one validator.
+            </li>
+            <li>
+              <code>set_root_claim_type</code> (122) and{' '}
+              <code>sudo_set_num_root_claims</code> (123) are <strong>removed</strong>.
+              Payouts are always TAO staked back to root — the Swap / Keep / KeepSubnets
+              setting and the automatic per-block claim sweep are gone. To hold subnet
+              alpha, stake on the subnet directly.
+            </li>
+            <li>
+              The <code>RootClaimable</code> / <code>RootClaimed</code> per-subnet state is{' '}
+              <strong>migrated into baskets</strong> at upgrade: previously accrued claimable
+              alpha becomes basket holdings and entitlement on the same validator. Nothing is
+              lost, and no user action is needed for past accruals.
+            </li>
+            <li>
+              Hotkey and coldkey swaps carry basket state (holdings, entitlements, claim
+              watermarks) to the new key; a hotkey with a live basket is not
+              &quot;clean&quot; for reuse. Subnet dissolution converts that subnet&apos;s
+              basket holdings into the TAO slot of each affected fund.
+            </li>
+            <li>
+              <code>root_register</code> (62) now charges the root burn price and no longer
+              requires the hotkey to out-stake the lowest root member — the{' '}
+              <code>StakeTooLowForRoot</code> error is retired. Tooling that pre-funded root
+              hotkeys with stake before registering can drop that step; coldkeys need free
+              balance for the burn instead.
+            </li>
+          </ul>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>New runtime APIs</p>
+          <p>
+            A <code>BetaBasketRuntimeApi</code> ships with the release, mirrored as{' '}
+            <code>betaBasket_*</code> RPC methods and as named SDK reads (available under{' '}
+            <code>btcli query</code> and <code>client.read</code>):
+          </p>
+          <pre className={styles.code_block}>
+            {`betaBasket_getStakerOwed(coldkey)            root-basket-owed
+betaBasket_getStakerValidatorOwed(hk, ck)    root-basket-owed-breakdown
+betaBasket_getValidatorBasket(hotkey)        validator-basket
+betaBasket_getValidatorNav(hotkey)           validator-basket-nav
+betaBasket_getTotalNav()                     root-basket-total-nav
+betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
+          </pre>
+        </section>
+
+        <section className={styles.section}>
+          <p className={styles.subtitle}>What to do</p>
+          <p>
+            Operators should wait for the on-chain <code>spec_version</code> to move to 441,
+            then upgrade nodes and clients. SDK users should pull the matching bittensor
+            release once the train publishes it.
+          </p>
+          <p>
+            <strong>Root validators:</strong> set your root weights with{' '}
+            <code>btcli root set-weights</code> to curate subnet exposure (the default is a
+            balanced 1/n across all live subnets). <strong>Stakers:</strong> use{' '}
+            <code>btcli root subscribe</code> and <code>btcli root claim</code> — list shows
+            staked and accrued τ; claim realizes yield and optionally withdraws. The retired{' '}
+            <code>btcli stake set-claim</code> / <code>process-claim</code> commands are
+            replaced by the <code>btcli root</code> suite.
+          </p>
+          <p>
+            <strong>Indexers and integrators:</strong> regenerate metadata for new{' '}
+            <code>claim_root_with_hotkey</code> (148) and <code>set_root_weights</code>{' '}
+            (146); <code>claim_root</code> (121) keeps its <code>subnets</code> arg (ignored).
+            Drop the retired 122/123 calls, and add the <code>RootWeightsSet</code>,{' '}
+            <code>BasketDeposited</code>, <code>BasketClaimed</code>, <code>RootClaimed</code>
+            , and <code>BasketHoldingConverted</code> events plus the{' '}
+            <code>betaBasket_*</code> RPC namespace. The claim threshold is root-settable via{' '}
+            <code>sudo_set_root_claim_threshold</code> (124), wrapped as{' '}
+            <DocLink href='/docs/tx/set-root-claim-threshold'>
+              <code>set-root-claim-threshold</code>
+            </DocLink>
+            .
+          </p>
+          <p>
+            Signers: after the release train proposes, use{' '}
+            <code>btcli upgrade sign --url &lt;v441 release URL&gt; -w &lt;wallet&gt;</code>.
           </p>
         </section>
 
@@ -403,324 +1165,6 @@ const page = () => {
             finney block {fmt.format(snapshot.block)} · july 24, 2026 · ${taoUsd.toFixed(2)}/τ ·
             sources: taomarketcap api (subnets + protocol revenue + market candles) + chain
             storage
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>Emission P&amp;L</p>
-          <p>
-            Three ledgers on one mint. The chain <strong>spends</strong> dilution,{' '}
-            <strong>saves</strong> a slice as pool liquidity, and <strong>makes back</strong>{' '}
-            root&apos;s share of subnet alpha as protocol revenue. Root Reborn does not change
-            the spend — it flips the disposition of the makeback.
-          </p>
-          <p className={styles.headline_number}>
-            {pct(retainedPreShare, 0)} → {pct(retainedPostShare, 0)}
-          </p>
-          <p className={styles.headline_label}>
-            of daily mint kept productive — pool inject alone vs inject + basket redeploy
-          </p>
-          <table className={styles.metrics_table}>
-            <tbody>
-              <tr>
-                <td>
-                  Spend
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    day mint · 0.5 τ/block × 7200
-                  </span>
-                </td>
-                <td>
-                  {fmt.format(DAY_EMISSION_TAO)} τ / day · {usd(DAY_EMISSION_TAO)} / day
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  Save
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    pool inject → SubnetTAO
-                  </span>
-                </td>
-                <td>
-                  {fmt.format(poolInjectPerDay)} τ / day · {usd(poolInjectPerDay)} / day ·{' '}
-                  {pct(saveShareOfMint, 0)} of mint
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  Makeback
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    root dividends · TMC 7-day avg
-                  </span>
-                </td>
-                <td>
-                  {rootDividendsPerDay} τ / day · {usd(rootMakebackPerDay)} / day ·{' '}
-                  {pct(makebackShareOfMint, 0)} of mint
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  Market flow swing
-                  <br />
-                  <span style={{opacity: 0.55, fontSize: 11}}>
-                    stop selling + start buying the same stream
-                  </span>
-                </td>
-                <td>
-                  {fmt.format(marketFlowSwingPerDay)} τ / day · {usd(marketFlowSwingPerDay)}{' '}
-                  / day
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p className={styles.data_note}>
-            net organic pool accrual ≈ inject − makeback sales ≈{' '}
-            {fmt.format(poolInjectPerDay - rootMakebackPerDay)} τ / day before private stake
-            flows · makeback is a parallel cash ledger (root α marked to TAO), not a residual
-            of the inject split
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>The leak, and the flip</p>
-          <p>
-            Every day the subnets pay root roughly <strong>{rootDividendsPerDay} TAO</strong>{' '}
-            ({usd(snapshot.rootDividendsTaoPerDay)}/day) worth of their alpha —{' '}
-            {pct(snapshot.rootDividendsPctOfEmission, 0)} of all new emission, and{' '}
-            {fmt.format(snapshot.cumulativeRootRevenueTao)} τ (
-            {usd(snapshot.cumulativeRootRevenueTao)}) collected since dTAO went live. Under
-            the old machinery that entire stream was force-sold:
-            instant sell pressure on every subnet token, a taxable event for every staker,
-            value out the door on a schedule nobody chose.
-          </p>
-          <p>
-            Root Reborn inverts the pipe. The same dividend stream is now deployed across
-            baskets of subnet alpha curated by each root validator, held in a chain-owned
-            escrow, compounding every epoch. For scale: about{' '}
-            {fmt.format(snapshot.taoPerDayIntoPools)} TAO of fresh emission enters all subnet
-            pools daily — redirecting the root stream adds up to{' '}
-            <strong>{buySideBoost} more buy-side flow</strong> to the subnets validators
-            believe in, and lifts chain-productive retention from{' '}
-            {pct(retainedPreShare, 0)} to {pct(retainedPostShare, 0)} of mint — a market flow
-            swing of about {usd(marketFlowSwingPerDay)}/day. The network&apos;s single largest
-            source of mechanical selling becomes its single largest source of curated demand.
-          </p>
-          <FlipDiagram />
-          <p className={styles.graph_caption}>
-            Same stream, opposite sign. Yield that was sold every block now compounds in
-            validator baskets and is realized only when the staker claims.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>Validators become fund managers</p>
-          <p>
-            Each root validator now publishes a weight vector — its allocation across subnets,
-            on-chain, for everyone to see. Dividends are deployed per that vector; stakers are
-            credited their slice of the resulting basket at net asset value, and redeem it with one
-            claim, paid in TAO staked straight back to root. A weight on netuid 0 holds that
-            slice as pure TAO, so fully passive validators remain exactly one setting away.
-            The scoreboard is the simplest in finance:{' '}
-            <strong>who made their stakers the most TAO?</strong>
-          </p>
-          <table className={styles.metrics_table}>
-            <thead>
-              <tr>
-                <th>Subnet</th>
-                <th>Netuid</th>
-                <th>Share of root dividends</th>
-                <th>Pool depth τ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {snapshot.topRootDividendSubnets.map((s) => (
-                <tr key={s.netuid}>
-                  <td>{s.name}</td>
-                  <td>{s.netuid}</td>
-                  <td>{pct(s.shareOfRootDividends)}</td>
-                  <td>{fmt.format(s.poolTao)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className={styles.data_note}>
-            top root-dividend payers — the raw material validators now allocate
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>How a basket works</p>
-          <p>
-            Each epoch, a validator&apos;s root alpha dividend is sold to TAO and redeployed
-            across the subnets it has chosen, in proportion to its root weights — buying each
-            destination&apos;s alpha into the basket. Holdings live under a chain-owned escrow
-            account as real stake positions, so they keep earning. When a dividend lands,
-            stakers accrue an entitlement priced at the fund&apos;s{' '}
-            <strong>realizable</strong> TAO quote — what selling the holdings would actually
-            fetch at current pool depth, never a spot mark.
-          </p>
-          <BasketFlowDiagram />
-          <p className={styles.graph_caption}>
-            One validator&apos;s fund with a 30/50/20 vector. Dividends buy holdings; stakers
-            hold an entitlement; a claim redeems a pro-rata slice of every holding as TAO staked back
-            to root.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>For root validators</p>
-          <p>
-            Joining root is now <strong>burn-based</strong>: <code>root_register</code>{' '}
-            charges the coldkey the demand-priced root burn (τ0.0005 at rest, bumped
-            ~×1.26 per registration and decaying back to the floor) instead of requiring
-            stake up front. A full network still prunes the lowest-staked member on entry,
-            so subscribe stake to your own hotkey to hold the seat.
-          </p>
-          <pre className={styles.code_block}>
-            {`btcli subnets burn-cost 0                        # current root registration price
-btcli subnets register --netuid 0 -w my_coldkey  # register; no prior stake needed`}
-          </pre>
-          <p>
-            Then set your distribution vector with your hotkey. A validator with no custom
-            weights still accrues — dividends default to 100% root (TAO in the fund&apos;s
-            root slot). Set the vector when you want to deploy into subnet alpha.
-          </p>
-          <pre className={styles.code_block}>
-            {`btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet
-btcli root get-weights --hotkey 5F...
-btcli root show --hotkey 5F...         # your fund: weights, holdings, NAV`}
-          </pre>
-          <p>
-            Weights are relative and normalized before submission (
-            <DocLink href='/docs/tx/set-root-weights'>
-              <code>set-root-weights</code>
-            </DocLink>
-            , call index 146); every destination must be netuid 0 or an existing subnet, and
-            the root weights rate limit applies. The SDK surfaces the same path as{' '}
-            <code>bt.SetRootWeights</code>.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>For root stakers</p>
-          <p>
-            Nothing to configure — subscribe TAO on root and yield accrues automatically.{' '}
-            <code>btcli</code> shows root positions in TAO: staked τ is principal,
-            accrued τ is fund yield. Today&apos;s root stream is a{' '}
-            {pct(snapshot.rootYieldApr)} base yield in TAO; after this release that floor is
-            where the story starts — yield compounds inside the basket, and{' '}
-            <strong>nothing is realized until you claim</strong>.
-          </p>
-          <pre className={styles.code_block}>
-            {`btcli root list                            # staked + accrued τ, per validator
-btcli root subscribe --amount 100 --hotkey 5F...  # assets in; shares minted
-btcli root redeem --amount all --hotkey 5F...     # shares burned; assets returned
-btcli tx claim-root -w my_coldkey                 # redeem accrued yield across all validators`}
-          </pre>
-          <p>
-            <DocLink href='/docs/tx/claim-root'>
-              <code>claim_root</code>
-            </DocLink>{' '}
-            takes <strong>no parameters</strong>: it walks every validator you root-stake to,
-            redeems your accrued entitlement pro-rata from each basket, and stakes the TAO proceeds
-            back to root. Per-validator payouts below the claim threshold (default 500,000
-            rao; read it with{' '}
-            <DocLink href='/docs/query/root-claim-threshold'>
-              <code>root-claim-threshold</code>
-            </DocLink>
-            ) are skipped and keep accruing — there is no deadline and nothing expires.
-            Redeeming past your staked τ also claims accrued yield automatically.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>Breaking changes</p>
-          <ul className={styles.list}>
-            <li>
-              <code>claim_root</code> (call index 121) changed signature: the{' '}
-              <code>subnets</code> argument is gone. Old-format transactions no longer
-              decode; clients must regenerate metadata.
-            </li>
-            <li>
-              <code>set_root_claim_type</code> (122) and{' '}
-              <code>sudo_set_num_root_claims</code> (123) are <strong>removed</strong>.
-              Payouts are always TAO staked back to root — the Swap / Keep / KeepSubnets
-              setting and the automatic per-block claim sweep are gone. To hold subnet
-              alpha, stake on the subnet directly.
-            </li>
-            <li>
-              The <code>RootClaimable</code> / <code>RootClaimed</code> per-subnet state is{' '}
-              <strong>migrated into baskets</strong> at upgrade: previously accrued claimable
-              alpha becomes basket holdings and entitlement on the same validator. Nothing is
-              lost, and no user action is needed for past accruals.
-            </li>
-            <li>
-              Hotkey and coldkey swaps carry basket state (holdings, entitlements, claim
-              watermarks) to the new key; a hotkey with a live basket is not
-              &quot;clean&quot; for reuse. Subnet dissolution converts that subnet&apos;s
-              basket holdings into the TAO slot of each affected fund.
-            </li>
-            <li>
-              <code>root_register</code> (62) now charges the root burn price and no longer
-              requires the hotkey to out-stake the lowest root member — the{' '}
-              <code>StakeTooLowForRoot</code> error is retired. Tooling that pre-funded root
-              hotkeys with stake before registering can drop that step; coldkeys need free
-              balance for the burn instead.
-            </li>
-          </ul>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>New runtime APIs</p>
-          <p>
-            A <code>BetaBasketRuntimeApi</code> ships with the release, mirrored as{' '}
-            <code>betaBasket_*</code> RPC methods and as named SDK reads (available under{' '}
-            <code>btcli query</code> and <code>client.read</code>):
-          </p>
-          <pre className={styles.code_block}>
-            {`betaBasket_getStakerOwed(coldkey)            root-basket-owed
-betaBasket_getStakerValidatorOwed(hk, ck)    root-basket-owed-breakdown
-betaBasket_getValidatorBasket(hotkey)        validator-basket
-betaBasket_getValidatorNav(hotkey)           validator-basket-nav
-betaBasket_getTotalNav()                     root-basket-total-nav
-betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
-          </pre>
-        </section>
-
-        <section className={styles.section}>
-          <p className={styles.subtitle}>What to do</p>
-          <p>
-            Operators should wait for the on-chain <code>spec_version</code> to move to 441,
-            then upgrade nodes and clients. SDK users should pull the matching bittensor
-            release once the train publishes it.
-          </p>
-          <p>
-            <strong>Root validators:</strong> set your root weights with{' '}
-            <code>btcli root set-weights</code> to curate subnet exposure (the default is
-            100% root / TAO). <strong>Stakers:</strong> claims are now fund-level;{' '}
-            <code>btcli root list</code> shows staked and accrued τ and{' '}
-            <code>btcli tx claim-root</code> redeems it. The retired{' '}
-            <code>btcli stake set-claim</code> / <code>process-claim</code> commands are
-            replaced by the <code>btcli root</code> suite.
-          </p>
-          <p>
-            <strong>Indexers and integrators:</strong> regenerate metadata for the changed{' '}
-            <code>claim_root</code> and new <code>set_root_weights</code> (146) calls, drop
-            the retired 122/123 calls, and add the <code>RootWeightsSet</code>,{' '}
-            <code>BasketDeposited</code>, <code>BasketClaimed</code>, <code>RootClaimed</code>
-            , and <code>BasketHoldingConverted</code> events plus the{' '}
-            <code>betaBasket_*</code> RPC namespace. The claim threshold is root-settable via{' '}
-            <code>sudo_set_root_claim_threshold</code> (124), wrapped as{' '}
-            <DocLink href='/docs/tx/set-root-claim-threshold'>
-              <code>set-root-claim-threshold</code>
-            </DocLink>
-            .
-          </p>
-          <p>
-            Signers: after the release train proposes, use{' '}
-            <code>btcli upgrade sign --url &lt;v441 release URL&gt; -w &lt;wallet&gt;</code>.
           </p>
         </section>
 

@@ -444,9 +444,16 @@ pub fn sample_intent(ctx: &TestContext, op: &str, netuid: u16) -> Result<IntentC
             SignerRole::Coldkey,
             "SubtensorModule",
             "claim_root",
-            record([("subnets", list([u(netuid)]))]),
+            record([("subnets", list([u(0)]))]),
         )
-        .touches([netuid]),
+        .touches([0]),
+        "claim_root_with_hotkey" => make(
+            SignerRole::Coldkey,
+            "SubtensorModule",
+            "claim_root_with_hotkey",
+            record([("hotkey", s(alice_hot.clone()))]),
+        )
+        .touches([0]),
         "clear_coldkey_swap_announcement" => make(
             SignerRole::Coldkey,
             "SubtensorModule",

@@ -91,11 +91,12 @@ class SetSubnetEmissionEnabled(Intent):
 class SetRootClaimThreshold(Intent):
     """Set the minimum TAO payout for a root dividend claim (root only).
 
-    ``claim_root`` silently skips any per-validator basket redemption whose
-    estimated payout falls below this threshold — the shares keep accruing
-    and pay out once they clear it. The threshold exists so dust claims
-    cannot grind the chain with tiny swaps; the default is 500,000 rao
-    (0.0005 TAO) and the chain caps it at 10,000,000 rao (0.01 TAO).
+    ``claim_root`` and ``claim_root_with_hotkey`` silently skip any
+    per-validator basket redemption whose estimated payout falls below this
+    threshold — the shares keep accruing and pay out once they clear it. The
+    threshold exists so dust claims cannot grind the chain with tiny swaps;
+    the default is 500,000 rao (0.0005 TAO) and the chain caps it at
+    10,000,000 rao (0.01 TAO).
 
     Requires the chain sudo key: ``Executor`` wraps the built call in
     ``Sudo.sudo`` because ``origin`` is ``root``, and when root is a multisig

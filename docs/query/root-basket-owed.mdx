@@ -8,8 +8,10 @@ description: "Total TAO a coldkey would realize by claiming its root dividends n
 Marks the coldkey's accrued basket entitlement across every validator it
 root-stakes to at current pool prices (the same slippage-aware valuation
 the chain uses to size redemptions). This is the "pending TAO" figure
-behind `claim_root`; per-validator amounts below the claim threshold are
-still included here even though a claim would skip them.
+behind coldkey-wide `claim_root`; for a per-validator breakdown use
+`root_basket_owed_breakdown` before `claim_root_with_hotkey`. Per-validator
+amounts below the claim threshold are still included here even though a
+claim would skip them.
 
 **Category:** Staking
 

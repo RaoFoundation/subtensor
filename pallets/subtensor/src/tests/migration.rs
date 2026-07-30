@@ -5887,7 +5887,7 @@ fn test_migrate_seed_beta_basket_v2_after_v1_already_ran() {
             NetUid::ROOT,
         )
         .to_u64();
-        assert_ok!(SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey)));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
         let gain = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &coldkey,

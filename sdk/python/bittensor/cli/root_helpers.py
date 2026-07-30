@@ -15,7 +15,7 @@ from rich.text import Text
 
 from ..balance import Balance
 from ..client import Client
-from .context import AppContext
+from .context import AppContext, address_cli_name
 from .helpers import (
     DUST_VALUE_TAO,
     chain_identity_names,
@@ -23,6 +23,7 @@ from .helpers import (
     local_address_names,
 )
 from .output import STYLE_COMMAND, STYLE_HINT, STYLE_KEY, STYLE_NAME
+from .prompt import PromptSpec
 
 # Same dust cutoff as ``btcli stake list`` (τ0.001).
 DUST_POSITION_RAO = int(DUST_VALUE_TAO * 1_000_000_000)
@@ -125,6 +126,205 @@ async def _wallets_with_positions(
         held.append((name, ss58, total, len(positions)))
     held.sort(key=lambda row: -row[2].rao)
     return held
+
+
+def filter_claimable_positions(positions: list[RootPosition]) -> list[RootPosition]:
+    """Positions with accrued yield above dust (realize via ``claim_root_with_hotkey``)."""
+    return [pos for pos in positions if pos.accrued.rao >= DUST_POSITION_RAO]
+
+
+def resolve_claim_wallet(
+    console: Console,
+    app_ctx: AppContext,
+    coldkey_ss58: Optional[str],
+    *,
+    interactive: bool,
+) -> tuple[str, str]:
+    """Pick the coldkey whose root position to claim / withdraw.
+
+    Uses ``--coldkey`` / ``-w`` when given; otherwise prompts among wallets that
+    hold a non-dust root position.
+    """
+    if coldkey_ss58:
+        owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
+        for name, ss58 in list_coldkeys(app_ctx.wallet_path):
+            if ss58 == owner:
+                return name, ss58
+        return app_ctx.wallet_name, owner
+
+    if app_ctx.wallet_given or not interactive:
+        owner = app_ctx.resolve_address("coldkey_ss58", None)
+        return app_ctx.wallet_name, owner
+
+    all_wallets = list_coldkeys(app_ctx.wallet_path)
+    if not all_wallets:
+        app_ctx.output.error(f"no wallets found in {app_ctx.wallet_path}")
+        raise typer.Exit(1)
+
+    with_positions = app_ctx.run(lambda c: _wallets_with_positions(c, all_wallets))
+    if not with_positions:
+        app_ctx.output.message(
+            f"no root position above dust (τ{DUST_VALUE_TAO}) in any wallet under "
+            f"{app_ctx.wallet_path}"
+        )
+        raise typer.Exit(0)
+
+    if len(with_positions) == 1:
+        name, ss58, total, _ = with_positions[0]
+        app_ctx.output.message(f"wallet {name} ({ss58}) — {total}")
+        return name, ss58
+
+    hint = Text("  ")
+    hint.append("Select wallet", style=STYLE_KEY)
+    hint.append("  ", style=STYLE_HINT)
+    hint.append("(only wallets with a root position above dust).", style=STYLE_HINT)
+    console.print(hint)
+    default = next(
+        (row for row in with_positions if row[0] == app_ctx.wallet_name),
+        with_positions[0],
+    )
+    for index, (name, _ss58, total, count) in enumerate(with_positions, start=1):
+        line = Text("    ", overflow="ignore", no_wrap=True)
+        line.append(f"{index}. ", style=STYLE_KEY)
+        line.append(name, style=STYLE_NAME)
+        line.append(f"  {total}  ({count} validators)", style="dim")
+        console.print(line)
+
+    while True:
+        raw = console.input("  > ").strip()
+        if not raw:
+            return default[0], default[1]
+        if raw.isdigit():
+            idx = int(raw)
+            if 1 <= idx <= len(with_positions):
+                row = with_positions[idx - 1]
+                return row[0], row[1]
+        for name, ss58, _, _ in with_positions:
+            if raw in (name, ss58):
+                return name, ss58
+        console.print("  [dim]enter a number, wallet name, or coldkey[/dim]")
+
+
+def claim_root_source_spec(hotkey_field: str = "hotkey_ss58") -> PromptSpec:
+    """PromptSpec whose custom flow picks a validator from root positions."""
+
+    def _pick(console: Console, app_ctx: AppContext, kwargs: dict) -> list[str]:
+        owner = app_ctx.resolve_address("coldkey_ss58", None)
+        positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
+        chosen = pick_claim_hotkey(console, app_ctx, positions, flag=address_cli_name(hotkey_field))
+        kwargs[hotkey_field] = chosen.hotkey
+        return [address_cli_name(hotkey_field), chosen.hotkey]
+
+    return PromptSpec(
+        field=hotkey_field,
+        flag=address_cli_name(hotkey_field),
+        help=None,
+        parse=lambda _app_ctx, raw: raw,
+        custom=_pick,
+    )
+
+
+def pick_claim_hotkey(
+    console: Console,
+    app_ctx: AppContext,
+    positions: list[RootPosition],
+    *,
+    flag: str,
+) -> RootPosition:
+    """Numbered picker over root positions; returns the chosen position."""
+    held = filter_dust_positions(positions)
+    if not held:
+        app_ctx.output.message(
+            f"no root position above dust (τ{DUST_VALUE_TAO}) for this wallet"
+        )
+        raise typer.Exit(0)
+
+    held = sorted(held, key=lambda p: -p.total.rao)
+    names = local_address_names(app_ctx.wallet_path)
+    unnamed = [pos.hotkey for pos in held if pos.hotkey not in names]
+    identities = app_ctx.run(lambda c: chain_identity_names(c, unnamed)) if unnamed else {}
+
+    hint = Text("  ")
+    hint.append(flag, style=STYLE_COMMAND)
+    hint.append("  ", style=STYLE_HINT)
+    hint.append(
+        "Validator to claim from — answer with a number, name, or hotkey.",
+        style=STYLE_HINT,
+    )
+    console.print(hint)
+
+    for index, pos in enumerate(held, start=1):
+        label = _hotkey_label(pos.hotkey, names, identities)
+        line = Text("    ", overflow="ignore", no_wrap=True)
+        line.append(f"{index}. ", style=STYLE_KEY)
+        line.append(label, style=STYLE_NAME)
+        line.append(
+            f"  total {pos.total}  (staked {pos.staked}, accrued {pos.accrued})",
+            style="dim",
+        )
+        console.print(line)
+
+    if len(held) == 1:
+        console.print("  [dim]only validator — selected[/dim]")
+        return held[0]
+
+    matchable = {str(i): pos for i, pos in enumerate(held, start=1)}
+    matchable.update({pos.hotkey: pos for pos in held})
+    for pos in held:
+        label = _hotkey_label(pos.hotkey, names, identities)
+        if label not in matchable:
+            matchable[label] = pos
+
+    while True:
+        raw = console.input("  > ").strip()
+        if not raw:
+            return held[0]
+        if raw in matchable:
+            return matchable[raw]
+        close = [
+            key
+            for key, pos in matchable.items()
+            if key.startswith(raw) and pos.hotkey.startswith(raw)
+        ]
+        if len(close) == 1:
+            return matchable[close[0]]
+        console.print("  [dim]enter a list number or hotkey[/dim]")
+
+
+def prompt_claim_amount(console: Console, position: RootPosition) -> Optional[str]:
+    """Ask how much to withdraw; ``None`` means claim accrued into stake only."""
+    can_compound = position.accrued.rao >= DUST_POSITION_RAO
+    hint = Text("  ")
+    hint.append("--amount", style=STYLE_COMMAND)
+    hint.append("  ", style=STYLE_HINT)
+    if can_compound:
+        hint.append(
+            f"Withdraw to free balance (total {position.total}). "
+            "`all`, a τ amount, or Enter to only claim accrued into stake.",
+            style=STYLE_HINT,
+        )
+    else:
+        hint.append(
+            f"Withdraw to free balance (total {position.total}). "
+            "`all` or a τ amount (no accrued yield to claim into stake).",
+            style=STYLE_HINT,
+        )
+    console.print(hint)
+    while True:
+        raw = console.input("  > ").strip()
+        if not raw:
+            if can_compound:
+                return None
+            return "all"
+        if raw.lower() == "all":
+            return "all"
+        try:
+            if Balance.from_tao(raw).rao <= 0:
+                console.print("  [dim]amount must be positive[/dim]")
+                continue
+            return raw
+        except Exception:
+            console.print("  [dim]enter `all`, a τ amount, or press Enter[/dim]")
 
 
 def resolve_show_wallet(

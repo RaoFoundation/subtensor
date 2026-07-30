@@ -58,6 +58,7 @@ from .proxy import (
 from .registration import (
     BurnedRegister,
     ClaimRoot,
+    ClaimRootWithHotkey,
     RegisterSubnet,
     RootRegister,
     StartCall,
@@ -97,6 +98,7 @@ __all__ = [
     "Batch",
     "BurnedRegister",
     "ClaimRoot",
+    "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",
     "CommitWeights",
     "ContributeCrowdloan",

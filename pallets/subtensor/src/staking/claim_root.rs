@@ -714,19 +714,25 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Returns the hotkey set and benchmark work parameter for a root claim.
+    /// Returns the hotkey set and benchmark work parameter for a coldkey-wide root claim.
+    pub(crate) fn root_claim_work(coldkey: &T::AccountId) -> (Vec<T::AccountId>, u32) {
+        let hotkeys = StakingHotkeys::<T>::get(coldkey);
+        let work = Self::root_claim_work_for_hotkeys(&hotkeys);
+        (hotkeys, work)
+    }
+
+    /// Benchmark work parameter for claiming the given validator hotkeys.
     ///
     /// The benchmark uses one hotkey with one basket position per work unit. Charging
     /// `max(hotkeys, holdings)` therefore covers callers with many empty hotkeys, callers
     /// with many holdings on one hotkey, and mixtures of the two. Counts are unbounded —
-    /// popular coldkeys may exceed [`crate::MAX_ROOT_CLAIM_WORK`]; the extrinsic pays the
+    /// fat baskets may exceed [`crate::MAX_ROOT_CLAIM_WORK`]; the extrinsic pays the
     /// resulting weight rather than hard-failing.
-    pub(crate) fn root_claim_work(coldkey: &T::AccountId) -> (Vec<T::AccountId>, u32) {
-        let hotkeys = StakingHotkeys::<T>::get(coldkey);
+    pub(crate) fn root_claim_work_for_hotkeys(hotkeys: &[T::AccountId]) -> u32 {
         let escrow = Self::get_beta_escrow_account_id();
         let mut holding_rows = 0_u32;
 
-        for hotkey in &hotkeys {
+        for hotkey in hotkeys {
             for _ in Alpha::<T>::iter_prefix((hotkey, &escrow))
                 .map(|_| ())
                 .chain(AlphaV2::<T>::iter_prefix((hotkey, &escrow)).map(|_| ()))
@@ -736,7 +742,7 @@ impl<T: Config> Pallet<T> {
         }
 
         let hotkey_count = hotkeys.len() as u32;
-        (hotkeys, hotkey_count.max(holding_rows).max(1))
+        hotkey_count.max(holding_rows).max(1)
     }
 
     pub fn do_root_claim(

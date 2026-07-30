@@ -254,9 +254,14 @@ class SubtensorModule:
         return Call('SubtensorModule', 'burned_register', {'netuid': netuid, 'hotkey': hotkey})
 
     @staticmethod
-    def claim_root() -> Call:
-        "Claims the root emissions for a coldkey.  Redemption is fund-level: for every validator the coldkey stakes to, the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). There is no per-subnet selection — the basket is a single fund whose composition is independent of staker entitlements.  # Arguments * `origin`: The signature of the caller's coldkey.  # Events * `RootClaimed`: On the successfully claiming the root emissions for a coldkey."
-        return Call('SubtensorModule', 'claim_root', {})
+    def claim_root(subnets: 'BTreeSet') -> Call:
+        "Claims the root emissions for a coldkey across every validator it root-stakes to.  Redemption is fund-level: for each validator, the staker's accrued entitlement is redeemed as their pro-rata fraction of that basket (sold to TAO and staked on root). The `subnets` argument is retained for call-data compatibility with pre-basket clients; it is ignored — baskets have no per-subnet claim selection.  Prefer `claim_root_with_hotkey` to claim a single validator.  # Arguments * `origin`: The signature of the caller's coldkey.  * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.  # Events * `RootClaimed`: On successfully claiming the root emissions for a coldkey."
+        return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
+
+    @staticmethod
+    def claim_root_with_hotkey(hotkey: 'AccountId32') -> Call:
+        "Claims the root emissions for a coldkey on one validator hotkey.  Redemption is fund-level for that validator: the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). Other validators' accrued yield is left untouched.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The validator whose basket entitlement to redeem.  # Events * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey."
+        return Call('SubtensorModule', 'claim_root_with_hotkey', {'hotkey': hotkey})
 
     @staticmethod
     def clear_coldkey_swap_announcement() -> Call:

@@ -28,6 +28,7 @@ from ..settings import tx_docs_url
 from . import globals as g
 from .context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from .prompt import PromptSpec, fill_missing, interactive, signer_specs
+from .root_helpers import claim_root_source_spec
 from .stake_picker import STAKE_SOURCE_FIELDS, stake_source_spec
 
 # Field annotation (as a string, under PEP 563) -> the Python type Typer should
@@ -236,6 +237,17 @@ def _make_command(intent_cls: type[Intent]):
             hotkey_field, netuid_field = source
             missing = [spec for spec in missing if spec.field != hotkey_field]
             missing.insert(0, stake_source_spec(hotkey_field, netuid_field))
+        # claim_root_with_hotkey targets one validator; pick from accrued yield,
+        # not the wallet's own hotkey (which rarely holds the claimable position).
+        if (
+            intent_cls.op == "claim_root_with_hotkey"
+            and kwargs.get("hotkey_ss58") is None
+            and not app_ctx.assume_yes
+            and not app_ctx.uses_extension_signer()
+            and interactive(app_ctx)
+        ):
+            missing = [spec for spec in missing if spec.field != "hotkey_ss58"]
+            missing.insert(0, claim_root_source_spec("hotkey_ss58"))
         # The signing wallet is confirmed too (Enter accepts the configured
         # default); --yes and the extension signer keep the flag-only flow.
         if not app_ctx.assume_yes and not app_ctx.uses_extension_signer():
@@ -250,6 +262,12 @@ def _make_command(intent_cls: type[Intent]):
             )
         if missing:
             fill_missing(app_ctx, missing, kwargs)
+        if intent_cls.op == "claim_root_with_hotkey" and kwargs.get("hotkey_ss58") is None:
+            app_ctx.output.error(
+                "missing required option: `--hotkey`",
+                help="pass the validator hotkey to claim from, or run on a terminal to pick one",
+            )
+            raise typer.Exit(2)
         # `self` is a sentinel (bypass the configured proxy_for default, see
         # AppContext.submit), so it must reach submit unresolved.
         raw_proxy_for = kwargs.pop("proxy_for", None)

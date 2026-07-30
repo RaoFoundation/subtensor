@@ -1902,29 +1902,66 @@ mod dispatches {
             Self::do_dissolve_network(netuid)
         }
 
-        /// Claims the root emissions for a coldkey.
+        /// Claims the root emissions for a coldkey across every validator it root-stakes to.
         ///
-        /// Redemption is fund-level: for every validator the coldkey stakes to, the staker's
-        /// accrued entitlement is redeemed as their pro-rata fraction of each basket holding
-        /// (sold to TAO and staked on root). There is no per-subnet selection — the basket is a
-        /// single fund whose composition is independent of staker entitlements.
+        /// Redemption is fund-level: for each validator, the staker's accrued entitlement is
+        /// redeemed as their pro-rata fraction of that basket (sold to TAO and staked on root).
+        /// The `subnets` argument is retained for call-data compatibility with pre-basket
+        /// clients; it is ignored — baskets have no per-subnet claim selection.
+        ///
+        /// Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
+        /// * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.
         ///
         /// # Events
-        /// * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.
+        /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
         #[pallet::call_index(121)]
         // Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]; actual work
         // is measured and refunded post-dispatch (fat coldkeys may exceed the reservation).
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
         )]
-        pub fn claim_root(origin: OriginFor<T>) -> DispatchResultWithPostInfo {
+        pub fn claim_root(
+            origin: OriginFor<T>,
+            subnets: BTreeSet<NetUid>,
+        ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
+            let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
             let (hotkeys, work) = Self::root_claim_work(&coldkey);
             Self::do_root_claim(coldkey.clone(), hotkeys)?;
+            Self::maybe_add_coldkey_index(&coldkey);
+
+            let weight = <T as crate::pallet::Config>::WeightInfo::claim_root(work);
+            Ok((Some(weight), Pays::Yes).into())
+        }
+
+        /// Claims the root emissions for a coldkey on one validator hotkey.
+        ///
+        /// Redemption is fund-level for that validator: the staker's accrued entitlement is
+        /// redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked
+        /// on root). Other validators' accrued yield is left untouched.
+        ///
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
+        /// * `hotkey`: The validator whose basket entitlement to redeem.
+        ///
+        /// # Events
+        /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
+        #[pallet::call_index(148)]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+        )]
+        pub fn claim_root_with_hotkey(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey: T::AccountId = ensure_signed(origin)?;
+
+            let work = Self::root_claim_work_for_hotkeys(core::slice::from_ref(&hotkey));
+            Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
             Self::maybe_add_coldkey_index(&coldkey);
 
             let weight = <T as crate::pallet::Config>::WeightInfo::claim_root(work);
@@ -1938,9 +1975,9 @@ mod dispatches {
         /// entitlement at the fund's pre-buy realizable NAV, priced against the
         /// realizable value the deposit added — the depositor bears their own entry
         /// slippage and swap fees. The credited entitlement is redeemable through
-        /// [`Pallet::claim_root`] like any dividend-accrued entitlement; it does not
-        /// require or affect root stake, and it does not change any staker's dividend
-        /// accrual.
+        /// [`Pallet::claim_root_with_hotkey`] (or coldkey-wide [`Pallet::claim_root`]);
+        /// it does not require or affect root stake, and it does not change any staker's
+        /// dividend accrual.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.

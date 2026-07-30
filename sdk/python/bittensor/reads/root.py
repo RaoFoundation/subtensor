@@ -3,7 +3,8 @@
 Root dividends accrue inside each validator's basket — an escrowed
 per-validator index fund of subnet alpha, built each epoch from the
 validator's root dividends per its root weights (``set_root_weights``) and
-redeemed by stakers with ``claim_root``. Every figure these reads return is
+redeemed by stakers with ``claim_root_with_hotkey`` (or coldkey-wide
+``claim_root``). Every figure these reads return is
 TAO-denominated (or the actual per-subnet alpha holdings); the fund's
 internal share accounting is never exposed. They wrap the
 ``BetaBasketRuntimeApi`` runtime APIs plus the claim-threshold storage entry.
@@ -85,8 +86,10 @@ async def root_basket_owed(view, coldkey_ss58: str) -> Balance:
     Marks the coldkey's accrued basket entitlement across every validator it
     root-stakes to at current pool prices (the same slippage-aware valuation
     the chain uses to size redemptions). This is the "pending TAO" figure
-    behind `claim_root`; per-validator amounts below the claim threshold are
-    still included here even though a claim would skip them.
+    behind coldkey-wide `claim_root`; for a per-validator breakdown use
+    `root_basket_owed_breakdown` before `claim_root_with_hotkey`.
+    Per-validator amounts below the claim threshold are still included here
+    even though a claim would skip them.
     """
     value = await view.runtime(api.BetaBasketRuntimeApi.get_root_basket_owed, [coldkey_ss58])
     return view.balance(int(value or 0), _ROOT_NETUID)
@@ -102,7 +105,8 @@ async def root_basket_owed_breakdown(view, coldkey_ss58: str) -> list[dict]:
     """A coldkey's pending root dividends, itemized per validator hotkey.
 
     For each hotkey the coldkey stakes to: the TAO its accrued entitlement
-    would realize if claimed now. Zero-owed validators are omitted.
+    would realize if claimed now with ``claim_root_with_hotkey``. Zero-owed
+    validators are omitted. Use this to pick a validator before claiming.
     """
     rows = await view.runtime(api.BetaBasketRuntimeApi.get_root_basket_positions, [coldkey_ss58])
     records = [
@@ -241,9 +245,9 @@ async def validator_root_weights(view, hotkey_ss58: str) -> list[dict]:
 async def root_claim_threshold(view) -> Balance:
     """The minimum TAO payout for a root dividend claim.
 
-    `claim_root` silently skips any per-validator basket redemption whose
-    estimated payout falls below this threshold; the entitlement keeps
-    accruing and pays out once it clears. Set by root via
+    `claim_root` and `claim_root_with_hotkey` silently skip any per-validator
+    basket redemption whose estimated payout falls below this threshold; the
+    entitlement keeps accruing and pays out once it clears. Set by root via
     `set_root_claim_threshold`.
     """
     value = await view.query(_ROOT_CLAIM_THRESHOLD, [_ROOT_NETUID])
