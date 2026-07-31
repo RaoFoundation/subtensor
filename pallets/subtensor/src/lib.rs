@@ -1412,6 +1412,21 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
+    /// Root dividend credits whose per-hotkey allocation was calculated by an epoch while the
+    /// beta-basket seed migration owned the destination maps. Credits are released to the same
+    /// hotkey on that subnet's first epoch after the seed completes.
+    #[pallet::storage]
+    pub type DeferredRootAlphaDividends<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
     // Coinbase
     /// ITEM ( global_block_emission )
     #[deprecated(note = "Use calculate_block_emission() or the block emission RPC instead.")]

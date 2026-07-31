@@ -351,11 +351,10 @@ mod errors {
         /// (measured from the last stake add/remove) and cannot be unstaked yet. Prevents
         /// epoch-boundary just-in-time dividend sniping.
         RootStakeLocked,
-        /// The `migrate_seed_beta_basket_v2` seed has not completed (its cursor is still
-        /// present — only possible if the one-shot upgrade run was interrupted). Basket
-        /// deposits, claims, coldkey / root-touching hotkey swaps, and root stake
-        /// add/remove/transfer/swap are paused until it finishes so snapshotted conversion
-        /// cannot desync from live stake (`Σ owed == BasketShares`).
+        /// The `migrate_seed_beta_basket_v2` seed or its per-hotkey deferred-dividend release
+        /// has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps,
+        /// and root stake add/remove/transfer/swap are paused until it finishes so snapshotted
+        /// conversion cannot desync from live stake (`Σ owed == BasketShares`).
         BetaBasketSeedInProgress,
     }
 }

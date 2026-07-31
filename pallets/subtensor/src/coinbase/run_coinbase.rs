@@ -389,9 +389,6 @@ impl<T: Config> Pallet<T> {
         // by setting `PendingEpochAt`.
         let max_epochs_per_block = Self::get_max_epochs_per_block() as u32;
         let mut epochs_run_this_block: u32 = 0;
-        let seed_in_progress =
-            crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
-
         for &netuid in subnets.iter() {
             // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
             // record that a due epoch missed its slot while avoiding an unbounded
@@ -432,16 +429,11 @@ impl<T: Config> Pallet<T> {
                 let pending_validator_alpha = PendingValidatorEmission::<T>::get(netuid);
                 PendingValidatorEmission::<T>::insert(netuid, AlphaBalance::ZERO);
 
-                // Do not distribute root dividends while the basket seed owns its destination
-                // maps. Leave them pending so the first epoch after completion distributes the
-                // full accumulated amount; other epoch emissions can proceed normally.
-                let pending_root_alpha = if seed_in_progress {
-                    AlphaBalance::ZERO
-                } else {
-                    let pending = PendingRootAlphaDivs::<T>::get(netuid);
-                    PendingRootAlphaDivs::<T>::insert(netuid, AlphaBalance::ZERO);
-                    pending
-                };
+                // Always drain root dividends into the epoch that earned them. While the basket
+                // seed owns the destination maps, the resulting per-hotkey credits are deferred
+                // below instead of aggregating this amount for a later validator distribution.
+                let pending_root_alpha = PendingRootAlphaDivs::<T>::get(netuid);
+                PendingRootAlphaDivs::<T>::insert(netuid, AlphaBalance::ZERO);
 
                 // Get and drain the pending owner cut.
                 let owner_cut = PendingOwnerCut::<T>::get(netuid);
@@ -832,6 +824,26 @@ impl<T: Config> Pallet<T> {
         // Distribute root alpha divs. Same ownership rule: full root emission
         // for release/earned; only validator take is capturable.
         let _ = RootAlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
+
+        // Once the seed no longer owns BasketRate/Shares, release credits using the hotkeys to
+        // which their original epochs assigned them. Root stake and basket mutations stay gated
+        // until this ledger is empty, so the claimant base is unchanged while credits wait.
+        if !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
+            for (hotkey, root_claimable_alpha) in
+                DeferredRootAlphaDividends::<T>::drain_prefix(netuid)
+            {
+                if root_claimable_alpha.is_zero() {
+                    continue;
+                }
+                Self::distribute_root_alpha_to_basket(&hotkey, netuid, root_claimable_alpha);
+                RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
+                    *divs = divs.saturating_add(root_claimable_alpha);
+                });
+            }
+        }
+
+        let seed_in_progress =
+            crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
         for (hotkey, root_alpha) in root_alpha_dividends {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
             let total: AlphaBalance = tou64!(root_alpha).into();
@@ -853,11 +865,17 @@ impl<T: Config> Pallet<T> {
 
             let root_claimable_alpha: AlphaBalance = tou64!(root_claimable).into();
             if !root_claimable_alpha.is_zero() {
-                // Distribute the validator's root dividend into its beta basket across subnets
-                // per the validator's root weight vector (set on subnet 0). The bought basket
-                // alpha is staked to the validator under the global escrow coldkey, so it counts
-                // toward the validator's stake and compounds; stakers accrue a claimable rate.
-                Self::distribute_root_alpha_to_basket(&hotkey, netuid, root_claimable_alpha);
+                if seed_in_progress {
+                    // Preserve this epoch's recipient while the migration owns the live basket
+                    // maps. Repeated epochs accumulate only for the same hotkey.
+                    DeferredRootAlphaDividends::<T>::mutate(netuid, &hotkey, |deferred| {
+                        *deferred = deferred.saturating_add(root_claimable_alpha);
+                    });
+                } else {
+                    // Distribute the validator's root dividend into its beta basket across
+                    // subnets per the validator's root weight vector (set on subnet 0).
+                    Self::distribute_root_alpha_to_basket(&hotkey, netuid, root_claimable_alpha);
+                }
 
                 RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
                     *divs = divs.saturating_add(root_claimable_alpha);

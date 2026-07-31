@@ -3962,7 +3962,7 @@ fn test_coinbase_drain_pending_gets_counters_and_resets_them() {
 }
 
 #[test]
-fn test_coinbase_defers_root_dividends_while_basket_seed_is_in_progress() {
+fn test_coinbase_keeps_root_dividends_in_the_epoch_that_earned_them_during_seed() {
     use crate::migrations::migrate_seed_beta_basket::{
         kickoff_seed_beta_basket_v2, migrate_seed_beta_basket_v2,
     };
@@ -3978,14 +3978,13 @@ fn test_coinbase_defers_root_dividends_while_basket_seed_is_in_progress() {
         let during_seed = SubtensorModule::drain_pending(&[netuid], 102);
         assert_eq!(during_seed.len(), 1);
         assert_eq!(
-            during_seed[&netuid].2,
-            AlphaBalance::ZERO,
-            "an epoch may run, but its root dividend must not reach basket distribution"
+            during_seed[&netuid].2, pending_root,
+            "the epoch must calculate the hotkeys that earned its root dividend"
         );
         assert_eq!(
             PendingRootAlphaDivs::<Test>::get(netuid),
-            pending_root,
-            "root dividends must remain deferred in their existing pending ledger"
+            AlphaBalance::ZERO,
+            "the subnet-wide ledger must not aggregate rewards across epochs"
         );
 
         migrate_seed_beta_basket_v2::<Test>();
@@ -3995,11 +3994,100 @@ fn test_coinbase_defers_root_dividends_while_basket_seed_is_in_progress() {
         assert!(SubtensorModule::should_run_epoch(netuid, 203));
 
         let after_seed = SubtensorModule::drain_pending(&[netuid], 203);
-        assert_eq!(after_seed[&netuid].2, pending_root);
+        assert_eq!(after_seed[&netuid].2, AlphaBalance::ZERO);
         assert_eq!(
             PendingRootAlphaDivs::<Test>::get(netuid),
             AlphaBalance::ZERO
         );
+    });
+}
+
+#[test]
+fn test_coinbase_releases_deferred_root_dividend_to_original_hotkey() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        kickoff_seed_beta_basket_v2, migrate_seed_beta_basket_v2, seed_beta_basket_v2_in_progress,
+    };
+    use crate::tests::claim_root::{fund_pool, set_root_weights_direct};
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(20_001);
+        let earned_hotkey = U256::from(20_002);
+        let other_hotkey = U256::from(20_003);
+        let staker = U256::from(20_004);
+        let netuid = add_dynamic_network(&earned_hotkey, &owner);
+        fund_pool(netuid);
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        set_root_weights_direct(&earned_hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
+        set_root_weights_direct(&other_hotkey, 1, &[(NetUid::ROOT, u16::MAX)]);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &earned_hotkey,
+            &staker,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &other_hotkey,
+            &staker,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+
+        kickoff_seed_beta_basket_v2::<Test>();
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::from([(earned_hotkey, U96F32::from_num(1_000_000u64))]),
+        );
+
+        let deferred = DeferredRootAlphaDividends::<Test>::get(netuid, earned_hotkey);
+        assert!(deferred > AlphaBalance::ZERO);
+        assert_eq!(
+            DeferredRootAlphaDividends::<Test>::get(netuid, other_hotkey),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(BasketShares::<Test>::get(earned_hotkey), 0);
+
+        migrate_seed_beta_basket_v2::<Test>();
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert_eq!(
+            SubtensorModule::ensure_beta_basket_seed_idle(),
+            Err(Error::<Test>::BetaBasketSeedInProgress),
+            "stake and dissolution must remain frozen until deferred credits are released"
+        );
+        assert_eq!(
+            SubtensorModule::root_dissolve_network(RuntimeOrigin::root(), netuid),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+
+        // A different hotkey earns the current epoch. The stored credit must still go to the
+        // hotkey selected by the skipped epoch instead of being reassigned to this one.
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::from([(other_hotkey, U96F32::from_num(2_000_000u64))]),
+        );
+
+        assert!(BasketShares::<Test>::get(earned_hotkey) > 0);
+        assert!(BasketShares::<Test>::get(other_hotkey) > 0);
+        assert!(
+            RootAlphaDividendsPerSubnet::<Test>::get(netuid, other_hotkey)
+                > RootAlphaDividendsPerSubnet::<Test>::get(netuid, earned_hotkey),
+            "the current epoch's larger independent credit must remain attributed separately"
+        );
+        assert!(
+            DeferredRootAlphaDividends::<Test>::iter_prefix(netuid)
+                .next()
+                .is_none()
+        );
+        assert!(
+            DeferredRootAlphaDividends::<Test>::iter().next().is_none(),
+            "temporary deferred-dividend storage must be fully cleared after release"
+        );
+        assert_ok!(SubtensorModule::ensure_beta_basket_seed_idle());
     });
 }
 
