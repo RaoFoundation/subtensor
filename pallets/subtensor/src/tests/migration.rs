@@ -6053,6 +6053,12 @@ fn test_migrate_seed_beta_basket_gates_live_deposits() {
             NetUid::ROOT,
             1_000_000u64.into(),
         );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            1_000_000u64.into(),
+        );
         // Many claimants so a tight drain budget leaves the migration in progress.
         for i in 0..8u64 {
             RootClaimed::<Test>::insert((netuid, hotkey, U256::from(5_000 + i)), 100u128);
@@ -6087,6 +6093,27 @@ fn test_migrate_seed_beta_basket_gates_live_deposits() {
             ),
             Err(Error::<Test>::BetaBasketSeedInProgress)
         );
+
+        let alpha_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+        let root_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        );
+        assert_eq!(
+            SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(coldkey), hotkey),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+        let alpha_after =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+        let root_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        );
+        assert_eq!(alpha_after, alpha_before);
+        assert_eq!(root_after, root_before);
 
         // Finish the migration; deposits must work again afterward.
         let mut passes = 0u32;

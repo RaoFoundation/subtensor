@@ -191,6 +191,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
+        Self::ensure_beta_basket_seed_idle()?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
 
         // 2. Ensure that the hotkey account exists this is only possible through registration.
