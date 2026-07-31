@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use node_subtensor_runtime::{
     BlockWeights, Runtime, RuntimeCall, TxExtension, check_mortality, check_nonce, sudo_wrapper,
