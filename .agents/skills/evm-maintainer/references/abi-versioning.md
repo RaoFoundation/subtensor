@@ -25,7 +25,7 @@ Before changing a precompile:
    documentation, SDK copies, and known integration contracts.
 3. Compare the branch with the relevant base and identify every runtime change
    that affects inputs, outputs, state changes, errors, authorization, units,
-   value handling, or gas and weight requirements.
+   value handling, runtime constants, or gas and weight requirements.
 4. Treat uncertain production status as released until evidence establishes
    otherwise.
 5. Distinguish released interfaces from explicit proposals. Allow an
@@ -44,6 +44,8 @@ Preserve all observable properties of every released call:
 - function name, input types, input order, and ABI encoding;
 - return types, tuple and struct field order, and ABI encoding;
 - documented meaning, units, precision, scaling, rounding, and defaults;
+- whether a returned constant means the value compiled into the current
+  runtime or a value fixed by the released interface;
 - view, state-changing, payable, and static-call behavior;
 - treatment of attached EVM value;
 - caller-to-Substrate account mapping and dispatched origin;
@@ -142,6 +144,8 @@ still be produced honestly with bounded, proportionate work:
 - Update Rust storage access when names, keys, hashers, or map shapes change.
 - Supply the exact old default when an extrinsic gains an option; expose the
   option through a new version.
+- Follow a renamed or relocated runtime constant to its authoritative source
+  while preserving the released view's meaning, type, and units.
 - Derive the documented old result when the runtime replaces its computation.
 - Preserve legacy units, precision, scaling, and rounding in the old function;
   expose a corrected convention through a new version.
@@ -160,6 +164,9 @@ make an explicit lifecycle decision.
 | Input or return type/order change | Add a version with a new selector. |
 | One concept splits into several | Reconstruct the old aggregate when honest; expose components through a version. |
 | Extrinsic gains an option | Preserve the old default; expose the option through a version. |
+| Runtime constant is added | Add a typed view in the appropriate domain. |
+| Current-runtime constant value changes | Keep the existing selector returning the new authoritative value when that is its documented meaning. |
+| Runtime constant type, units, or meaning changes | Preserve the old representation through an honest adapter or add a versioned view. |
 | Entirely new operation or view | Add a selector to the appropriate domain. |
 | Concept disappears without an honest representation | Reserve the selector and evaluate hard deprecation. |
 | Bug fix changes observable semantics | Preserve the released behavior and add a corrected version unless retaining it is unsafe. |

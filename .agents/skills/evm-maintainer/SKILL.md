@@ -1,11 +1,16 @@
 ---
 name: evm-maintainer
-description: Maintain the EVM precompiles in backwards compatible way with API versioning.
+description: Maintain backwards-compatible, versioned EVM precompiles that expose runtime extrinsics, state, constants, and APIs to Solidity.
 ---
 
 # EVM Precompile Maintainer
 
-You are the maintainer of EVM precompiles. EVM precompiles in subtensor should expose the deterministic functionality available to client applications to EVM smart contracts: extrinsics, state maps and variables through typed read-only views, and runtime APIs/RPC results. Your job is to keep this coverage current without breaking deployed smart contracts that rely on existing ABIs. Read the notes below and then execute steps.
+You are the maintainer of EVM precompiles. EVM precompiles in subtensor should
+expose the deterministic functionality available to client applications to EVM
+smart contracts: extrinsics, state maps and values, runtime constants, and
+runtime API/RPC results through typed interfaces. Your job is to keep this
+coverage current without breaking deployed smart contracts that rely on
+existing ABIs. Read the notes below and then execute the workflow.
 
 ## Reference routing
 
@@ -14,10 +19,11 @@ You are the maintainer of EVM precompiles. EVM precompiles in subtensor should e
   read [ABI versioning](references/abi-versioning.md).
 - Before implementing or reviewing precompile coverage and tests, read
   [Coverage and testing](references/coverage-and-testing.md).
-- Before classifying pallet state or adding, reviewing, or omitting a typed
-  state view, read [State exposure](references/state-exposure.md) and use its
-  direct, wrapped, and do-not-expose classifications. Do not override a
-  classification without an explicit human decision.
+- Before classifying pallet state or runtime constants, or adding, reviewing,
+  or omitting a typed view, read
+  [State exposure](references/state-exposure.md) and use its direct, wrapped,
+  and do-not-expose classifications. Do not override a classification without
+  an explicit human decision.
 - Before flagging or changing an existing view because of its storage
   cardinality or scan behavior, read
   [Reviewed exceptions](references/exceptions.md). Apply an exception only to
@@ -34,7 +40,7 @@ Compatibility covers observable behavior, not merely the continued existence
 of a four-byte selector. Preserve the documented meaning of the call whenever
 that meaning can still be represented honestly and safely.
 
-For each affected released function:
+For each affected released function or view:
 
 1. Preserve the old interface and meaning through the existing implementation
    or a bounded adapter whenever possible.
@@ -55,6 +61,13 @@ For each affected released function:
 5. Prove that legacy callers still work and that unrelated precompiles and ABIs
    are unchanged by following
    [Coverage and testing](references/coverage-and-testing.md).
+
+An exposed runtime constant is a view of the value compiled into the current
+runtime. Preserve its selector, return encoding, units, and documented meaning,
+but do not freeze its old numeric value when a runtime upgrade legitimately
+changes the source constant. Preserve the old representation through an honest
+adapter and add a versioned view if the constant's type, units, or meaning
+changes.
 
 ## Notes on coding precompiles
 
@@ -81,6 +94,10 @@ For each affected released function:
   unbounded helper and truncate its result afterward. Preserve the exact
   reviewed scan exceptions in
   [Reviewed exceptions](references/exceptions.md).
+- Read runtime constants from their authoritative runtime or pallet
+  configuration source. Never duplicate the literal value in precompile code.
+  Group related constants into coherent typed views when that keeps the
+  interface smaller without obscuring their meaning.
 - Follow [ABI versioning](references/abi-versioning.md) for every released
   interface.
 - Treat repository-owned Rust function lifecycle annotations as the source of
@@ -100,10 +117,26 @@ For each affected released function:
 - Multiply Subtensor balances by `10^9` to match EVM's 18-decimal convention,
   and divide by the same factor before passing balances to Subtensor pallets.
 
-## Step 1 - Review current precompiles vs. subtensor functionality
+## Maintenance workflow
 
-- All extrinsics that accept a non-Root signed origin should be exposed to
-  precompile callers for the following pallets:
+Perform this workflow on:
+
+- Every change to subtensor Rust codebase
+- When explicitly prompted
+
+## Step 1 — Determine the diff
+
+Determine the diff between current branch and the most recent main branch (may need to pull it locally if it is outdated). See how this diff affects EVM precompiles:
+
+- Does it remove or change any functions that precompiles rely on? Does it change function signatures or underlying functionality?
+- Does it add or change any functionality: extrinsics, RPCs, state maps and
+  values, or runtime constants?
+
+## Step 2 - Review the diff in the context of current precompiles vs. subtensor functionality
+
+- All extrinsics that accept a non-Root signed origin, as well as all state
+  variables, maps, and constants should be exposed directly or through
+  type-safe readers to precompile callers for the following pallets:
     - subtensor
     - admin-util
     - balances
@@ -124,17 +157,10 @@ For each affected released function:
 Use [Coverage and testing](references/coverage-and-testing.md) to build the
 inventory and distinguish deployed, partial, proposed, and missing coverage.
 Use [State exposure](references/state-exposure.md) to classify every state item
-and [Reviewed exceptions](references/exceptions.md) before treating an existing
-view as incomplete or improperly bounded.
+and runtime constant, and [Reviewed exceptions](references/exceptions.md)
+before treating an existing view as incomplete or improperly bounded.
 
-## Step 2 — Determine the diff
-
-Determine the diff between current branch and the most recent main branch (may need to pull it locally if it is outdated). See how this diff affects EVM precompiles:
-
-- Does it remove or change any functions that precompiles rely on? Does it change function signatures or underlying functionality?
-- Does it add any new functionality (extrinsics, RPCs, state maps and variables)?
-
-## Step 3 - Handle changed functions
+## Step 3 - Handle changed functions, state variables and maps, and constants
 
 Apply the backwards-compatibility decision rule above and the detailed
 [ABI versioning](references/abi-versioning.md) process. Preserve released
@@ -143,7 +169,7 @@ behavior. If preservation is impossible, dishonest, unbounded, or unsafe, stop
 and report the release blocker; do not implement an immediate compatibility
 break as an ordinary precompile update.
 
-## Step 4 - Handle added functions
+## Step 4 - Handle added functions, state variables and maps, and constants
 
 Determine the category under which the new functionality needs to be added and add to the corresponding existing precompile. You may create a new precompile too if the category does not fall into any existing ones.
 
@@ -151,4 +177,6 @@ Determine the category under which the new functionality needs to be added and a
 
 Update the Solidity interface, generated ABI, NatSpec, registry metadata, SDK
 copies, and public precompile documentation together. Verify their agreement
-and ensure unrelated precompile artifacts remain unchanged.
+and ensure unrelated precompile artifacts remain unchanged. Document the
+meaning, units, type conversion, and runtime-upgrade behavior of exposed
+constants.

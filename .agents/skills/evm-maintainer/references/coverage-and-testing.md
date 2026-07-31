@@ -6,6 +6,7 @@
 - [Build a coverage inventory](#build-a-coverage-inventory)
 - [Cover extrinsics](#cover-extrinsics)
 - [Cover state with typed views](#cover-state-with-typed-views)
+- [Cover runtime constants](#cover-runtime-constants)
 - [Cover runtime APIs and public RPCs](#cover-runtime-apis-and-public-rpcs)
 - [Add regression tests first](#add-regression-tests-first)
 - [Test observable behavior](#test-observable-behavior)
@@ -23,6 +24,7 @@ For each in-scope pallet, inspect:
 
 - every dispatchable extrinsic;
 - every public state map and value;
+- every public runtime constant;
 - every publicly facing runtime API and RPC;
 - changes to types, guards, authorization, units, and error behavior used by
   existing precompiles.
@@ -40,7 +42,7 @@ Create or update a working matrix with one row per source item:
 
 | Source | Kind | Public functionality | Precompile domain | Function | Status | Evidence |
 |---|---|---|---|---|---|---|
-| Pallet and item | Extrinsic, state, runtime API, or RPC | Meaning exposed to clients | Existing or proposed address/domain | Canonical signature | Covered, partial, missing, or excluded | Rust, Solidity, ABI, and test paths |
+| Pallet and item | Extrinsic, state, constant, runtime API, or RPC | Meaning exposed to clients | Existing or proposed address/domain | Canonical signature | Covered, partial, missing, or excluded | Rust, Solidity, ABI, and test paths |
 
 For every partial, missing, or excluded row, state the exact reason. Do not
 equate a similarly named function with coverage; compare parameters, returned
@@ -115,6 +117,23 @@ For every view, specify and test:
 When storage changes internally, update the Rust adapter and prove that released
 calldata still returns the released meaning.
 
+## Cover runtime constants
+
+Inventory every public runtime constant in the in-scope pallet configuration
+and expose its meaningful value through a typed view. Read the authoritative
+`Get::get()`, associated constant, or equivalent runtime source; never repeat
+its literal value in precompile code.
+
+Group related constants by contract use case when appropriate. Preserve each
+constant's meaning, units, signedness, width, and overflow behavior. A constant
+may change when a new runtime is compiled: when a released view promises the
+current runtime value, test and document that behavior instead of treating the
+old numeric value as ABI state.
+
+Do not expose generated weights, compiler/build constants, or private
+implementation limits unless they are part of the pallet's deterministic
+client-facing contract.
+
 ## Cover runtime APIs and public RPCs
 
 Inventory the publicly facing runtime APIs and RPCs in scope, including the
@@ -176,6 +195,7 @@ Cover every affected path:
 - account and address conversion;
 - TAO and Alpha unit conversion;
 - precision, rounding, overflow, and narrowing;
+- runtime-constant source values, units, and conversion boundaries;
 - bounded collections and duplicate inputs;
 - lifecycle status, hard-deprecation error, and disable/re-enable behavior when
   applicable; and
@@ -269,6 +289,7 @@ run and the specific reason; do not imply success from an unexecuted check.
 Summarize:
 
 - source functionality added, changed, or still missing;
+- runtime constants added, changed, or still missing;
 - released addresses and selectors affected;
 - adapters or new versions introduced;
 - lifecycle or mainnet-release warnings;

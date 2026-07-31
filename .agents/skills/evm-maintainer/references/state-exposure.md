@@ -1,14 +1,34 @@
-# Rules of exposing the state variables and maps
+# Rules for exposing state and runtime constants
 
-This file lists concrete state variables and maps and classifies them as one of three classes: 
+This file lists concrete state variables, maps, and runtime constants and
+classifies them as one of three classes:
 
 1. Safe to expose directly, as is, or 
 2. Need some type-safe wrapping, or
 3. Internal, do not need to be exposed, or already known to be deprecated soon
 
-The class 1 state variables and maps are not anticipated to change anytime soon or change significantly. Also, even if they do, it is expected that their exposed values can be easily simulated or recalculated with no greater than O(1) complexity.
+The class 1 items are not anticipated to change significantly. Even if they do,
+their exposed values should remain honestly reproducible with no greater than
+O(1) complexity.
 
-The class 2 state variables and maps are not expected to stay for a long time, are temporary, or express complex formulas and need to be safely wrapped.
+The class 2 items are temporary, use unstable internal representations, or
+express complex formulas and need to be safely wrapped.
+
+## Runtime constants
+
+Inventory every public runtime constant declared by or supplied to the
+configuration of an in-scope pallet. Expose it directly or through a coherent
+typed grouped view, reading the authoritative runtime source rather than
+copying its literal value into the precompile.
+
+Preserve semantic types and units when converting Rust values to Solidity.
+Treat fixed-point values, balances, block numbers, bounded sizes, and other
+representation-specific constants as type-safe wrapping cases when their Rust
+representation is not a suitable permanent ABI.
+
+This requirement covers deterministic client-facing runtime configuration. It
+does not cover generated weights, compiler/build constants, or private
+implementation details that are not part of the pallet's public behavior.
 
 ## Safe to expose directly
 
