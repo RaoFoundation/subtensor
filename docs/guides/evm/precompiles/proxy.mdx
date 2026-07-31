@@ -22,6 +22,18 @@ description: Reference for the deployed ProxyPrecompile.
 | `removeProxies()` | nonpayable |
 | `pokeDeposit()` | nonpayable |
 | `getProxies(bytes32)` | `view` |
+| `getProxyDeposit(bytes32)` | `view` |
+| `getAnnouncements(bytes32)` | `view` |
+| `getLastCallResult(bytes32)` | `view` |
+| `isRealPaysFee(bytes32,bytes32)` | `view` |
+
+`getLastCallResult` returns stable success/error metadata. Module errors expose
+the pallet index and four error bytes. Error kinds are `1` Other, `2`
+CannotLookup, `3` BadOrigin, `4` Module, `5` ConsumerRemaining, `6`
+NoProviders, `7` TooManyConsumers, `8` Token, `9` Arithmetic, `10`
+Transactional, `11` Exhausted, `12` Corruption, `13` Unavailable, `14`
+RootNotAllowed, and `15` Trie. This avoids returning SCALE-encoded runtime
+data.
 
 ## Added operations
 

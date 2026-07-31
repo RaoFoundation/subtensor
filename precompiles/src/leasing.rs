@@ -122,6 +122,23 @@ where
         Ok(lease_id.into())
     }
 
+    #[precompile::public("getNextLeaseId()")]
+    #[precompile::view]
+    fn get_next_lease_id(handle: &mut impl PrecompileHandle) -> EvmResult<u32> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::NextSubnetLeaseId::<R>::get())
+    }
+
+    #[precompile::public("getAccumulatedLeaseDividends(uint32)")]
+    #[precompile::view]
+    fn get_accumulated_lease_dividends(
+        handle: &mut impl PrecompileHandle,
+        lease_id: u32,
+    ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::AccumulatedLeaseDividends::<R>::get(lease_id).into())
+    }
+
     #[precompile::public("createLeaseCrowdloan(uint64,uint64,uint64,uint32,uint8,bool,uint32)")]
     #[precompile::payable]
     #[allow(clippy::too_many_arguments)]
@@ -334,6 +351,32 @@ mod tests {
             get_lease(caller, lease_id, expected_lease_info(lease_id));
 
             let precompile_addr = addr_from_index(LeasingPrecompile::<Runtime>::INDEX);
+            precompiles::<LeasingPrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    selector_u32("getNextLeaseId()").to_be_bytes().to_vec(),
+                )
+                .with_static_call(true)
+                .execute_returns(pallet_subtensor::NextSubnetLeaseId::<Runtime>::get());
+
+            let accumulated_dividends = 321_u64;
+            pallet_subtensor::AccumulatedLeaseDividends::<Runtime>::insert(
+                lease_id,
+                subtensor_runtime_common::AlphaBalance::from(accumulated_dividends),
+            );
+            precompiles::<LeasingPrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    precompile_addr,
+                    encode_with_selector(
+                        selector_u32("getAccumulatedLeaseDividends(uint32)"),
+                        (lease_id,),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns(accumulated_dividends);
+
             precompiles::<LeasingPrecompile<Runtime>>()
                 .prepare_test(
                     caller,

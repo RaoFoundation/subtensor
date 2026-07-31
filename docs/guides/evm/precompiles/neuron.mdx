@@ -67,6 +67,33 @@ dispatches the highest-level extrinsic as the mapped caller so runtime
 authorization remains in force. Root-only and deprecated compatibility calls
 are classified in the [coverage audit](./extrinsic-coverage).
 
+## Typed state views
+
+```text
+getUid(uint16,bytes32)
+isNetworkMember(bytes32,uint16)
+getWeights(uint16,uint16)
+getBonds(uint16,uint16)
+getBlockAtRegistration(uint16,uint16)
+getNeuronCertificate(uint16,bytes32)
+getPrometheus(uint16,bytes32)
+getChainIdentity(bytes32)
+getSubnetIdentity(uint16)
+getLoadedEmission(uint16)
+getTransactionKeyLastBlock(bytes32,uint16,uint16)
+getLegacyTransactionRateBlocks(bytes32)
+getWeightCommitCount(uint16,bytes32)
+getWeightCommit(uint16,bytes32,uint32)
+getTimelockedWeightCommitCount(uint16,uint64)
+getTimelockedWeightCommit(uint16,uint64,uint32)
+getLegacyTimelockedWeightCommitCount(uint8,uint16,uint64)
+getLegacyTimelockedWeightCommit(uint8,uint16,uint64,uint32)
+```
+
+The indexed commit readers expose stable metadata. Timelocked ciphertext is
+represented by its Keccak-256 hash and byte length instead of returning the
+runtime's encrypted payload type.
+
 ## Proposed bulk runtime API
 
 `NeuronInfoRuntimeApi.get_neurons` remains proposed. Its current result can

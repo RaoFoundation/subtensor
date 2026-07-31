@@ -608,4 +608,168 @@ mod address_and_selector_tests {
             );
         }
     }
+
+    #[test]
+    fn state_reader_selectors_are_locked() {
+        for signature in [
+            "getDelegate(bytes32)",
+            "getChildkeyTake(bytes32,uint16)",
+            "getPendingChildKeys(bytes32,uint16)",
+            "getChildKeys(bytes32,uint16)",
+            "getParentKeys(bytes32,uint16)",
+            "getPendingChildKeyCooldown()",
+            "getTakeLimits()",
+            "getMinChildkeyTakePerSubnet(uint16)",
+            "getHotkeyOwner(bytes32)",
+            "getOwnedHotkeys(bytes32)",
+            "getAutoStakeDestination(bytes32,uint16)",
+            "getAutoStakeDestinationColdkeys(bytes32,uint16)",
+            "getHotkeySuccessor(bytes32,uint16)",
+            "getHotkeyRoot(bytes32,uint16)",
+            "getColdkeySuccessor(bytes32)",
+            "getColdkeyRoot(bytes32)",
+            "getColdkeySwapStatus(bytes32)",
+            "getColdkeySwapDelays()",
+            "getLastHotkeySwapOnSubnet(bytes32,uint16)",
+            "getStakeAccounting()",
+            "getMinerCollateral(uint16,bytes32,bytes32)",
+            "getColdkeyCollateral(uint16,bytes32)",
+            "getCollateralConfig(uint16)",
+        ] {
+            assert!(
+                staking::StakingPrecompileV2Call::<Runtime>::supports_selector(selector_u32(
+                    signature
+                )),
+                "missing Staking V2 reader selector {signature}"
+            );
+        }
+
+        for signature in [
+            "getRegisteredSubnetCounter(uint16)",
+            "getSubnetDissolutionStatus(uint16)",
+            "getSubnetMetadata(uint16)",
+            "getSubnetCapacityConfig(uint16)",
+            "getMechanismEmissionSplit(uint16)",
+            "getBurnConfig(uint16)",
+            "getGlobalNetworkLimits()",
+            "getGlobalRateLimits()",
+            "getGlobalProtocolConfig()",
+        ] {
+            assert!(
+                subnet::SubnetPrecompileCall::<Runtime>::supports_selector(selector_u32(signature)),
+                "missing Subnet reader selector {signature}"
+            );
+        }
+
+        for signature in [
+            "getEmissionAccounting(uint16,bytes32)",
+            "getSubnetEconomicState(uint16)",
+            "getSubnetFlowState(uint16)",
+            "getEmissionGateConfig()",
+            "getSwapState(uint16)",
+            "hasSwapMigrationRun(bytes)",
+        ] {
+            assert!(
+                alpha::AlphaPrecompileCall::<Runtime>::supports_selector(selector_u32(signature)),
+                "missing Alpha reader selector {signature}"
+            );
+        }
+
+        for signature in [
+            "getUid(uint16,bytes32)",
+            "isNetworkMember(bytes32,uint16)",
+            "getWeights(uint16,uint16)",
+            "getBonds(uint16,uint16)",
+            "getBlockAtRegistration(uint16,uint16)",
+            "getNeuronCertificate(uint16,bytes32)",
+            "getPrometheus(uint16,bytes32)",
+            "getChainIdentity(bytes32)",
+            "getSubnetIdentity(uint16)",
+            "getLoadedEmission(uint16)",
+            "getTransactionKeyLastBlock(bytes32,uint16,uint16)",
+            "getLegacyTransactionRateBlocks(bytes32)",
+            "getWeightCommit(uint16,bytes32,uint32)",
+            "getWeightCommitCount(uint16,bytes32)",
+            "getTimelockedWeightCommit(uint16,uint64,uint32)",
+            "getTimelockedWeightCommitCount(uint16,uint64)",
+            "getLegacyTimelockedWeightCommit(uint8,uint16,uint64,uint32)",
+            "getLegacyTimelockedWeightCommitCount(uint8,uint16,uint64)",
+        ] {
+            assert!(
+                neuron::NeuronPrecompileCall::<Runtime>::supports_selector(selector_u32(signature)),
+                "missing Neuron reader selector {signature}"
+            );
+        }
+
+        for signature in [
+            "getProxyDeposit(bytes32)",
+            "getAnnouncements(bytes32)",
+            "getLastCallResult(bytes32)",
+            "isRealPaysFee(bytes32,bytes32)",
+        ] {
+            assert!(
+                proxy::ProxyPrecompileCall::<Runtime>::supports_selector(selector_u32(signature)),
+                "missing Proxy reader selector {signature}"
+            );
+        }
+
+        for signature in ["getNextLeaseId()", "getAccumulatedLeaseDividends(uint32)"] {
+            assert!(
+                leasing::LeasingPrecompileCall::<Runtime>::supports_selector(selector_u32(
+                    signature
+                )),
+                "missing Leasing reader selector {signature}"
+            );
+        }
+
+        assert!(
+            balance::BalancePrecompileCall::<Runtime>::supports_selector(selector_u32(
+                "getTotalIssuance()"
+            ))
+        );
+        assert!(
+            uid_lookup::UidLookupPrecompileCall::<Runtime>::supports_selector(selector_u32(
+                "getAssociatedEvmAddress(uint16,uint16)"
+            ))
+        );
+
+        for (domain, selectors) in [
+            (
+                "Staking V2",
+                staking::StakingPrecompileV2Call::<Runtime>::selectors(),
+            ),
+            (
+                "Subnet",
+                subnet::SubnetPrecompileCall::<Runtime>::selectors(),
+            ),
+            ("Alpha", alpha::AlphaPrecompileCall::<Runtime>::selectors()),
+            (
+                "Neuron",
+                neuron::NeuronPrecompileCall::<Runtime>::selectors(),
+            ),
+            ("Proxy", proxy::ProxyPrecompileCall::<Runtime>::selectors()),
+            (
+                "Leasing",
+                leasing::LeasingPrecompileCall::<Runtime>::selectors(),
+            ),
+            (
+                "Balance",
+                balance::BalancePrecompileCall::<Runtime>::selectors(),
+            ),
+            (
+                "UID lookup",
+                uid_lookup::UidLookupPrecompileCall::<Runtime>::selectors(),
+            ),
+        ] {
+            let unique = selectors
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                unique.len(),
+                selectors.len(),
+                "{domain} contains a selector collision"
+            );
+        }
+    }
 }

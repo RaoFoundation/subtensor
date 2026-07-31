@@ -68,6 +68,16 @@ const MAX_CONVICTION_HOTKEYS: usize = 64;
 const COLDKEY_LOCK_READS: u64 = 6;
 // Aggregate state reads the owner hotkey, global rates, current block, and up to four buckets.
 const HOTKEY_LOCK_READS: u64 = 8;
+// Each hotkey-wide total visits every possible subnet. Besides the
+// `NetworksAdded` entry, one active subnet can read TotalHotkeyAlpha plus the
+// four values used by `current_alpha_price`.
+const TOTAL_HOTKEY_STAKE_READS_PER_SUBNET: u64 = 5;
+// For each raw Alpha/AlphaV2 position, the coldkey totals read the position
+// once while accounting and once in the released helper. A matching position
+// can then perform the conservative V2 stake lookup, swap simulation, and
+// current-price reads.
+const TOTAL_COLDKEY_POSITION_BASE_READS: u64 = 2;
+const TOTAL_COLDKEY_MATCHED_POSITION_READS: u64 = STAKE_INFO_READS_PER_HOTKEY + 9 + 4;
 
 /// Prefix for the Allowances map in Substrate storage.
 pub struct AllowancesPrefix;
@@ -321,9 +331,8 @@ where
         handle: &mut impl PrecompileHandle,
         coldkey: H256,
     ) -> EvmResult<U256> {
-        // StakingHotkeys + per-hotkey stake reads
-        handle.record_db_reads::<R>(2)?;
         let coldkey = R::AccountId::from(coldkey.0);
+        record_total_coldkey_stake_reads::<R>(handle, &coldkey, None)?;
         let stake = pallet_subtensor::Pallet::<R>::get_total_stake_for_coldkey(&coldkey);
 
         Ok(stake.to_u64().into())
@@ -332,8 +341,7 @@ where
     #[precompile::public("getTotalHotkeyStake(bytes32)")]
     #[precompile::view]
     fn get_total_hotkey_stake(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<U256> {
-        // Per-subnet stake + alpha price reads
-        handle.record_db_reads::<R>(2)?;
+        record_total_hotkey_stake_reads::<R>(handle)?;
         let hotkey = R::AccountId::from(hotkey.0);
         let stake = pallet_subtensor::Pallet::<R>::get_total_stake_for_hotkey(&hotkey);
 
@@ -791,10 +799,9 @@ where
         coldkey: H256,
         netuid: U256,
     ) -> EvmResult<U256> {
-        // StakingHotkeys + per-hotkey stake reads
-        handle.record_db_reads::<R>(2)?;
         let coldkey = R::AccountId::from(coldkey.0);
         let netuid = try_u16_from_u256(netuid)?;
+        record_total_coldkey_stake_reads::<R>(handle, &coldkey, Some(netuid.into()))?;
         let stake = pallet_subtensor::Pallet::<R>::get_total_stake_for_coldkey_on_subnet(
             &coldkey,
             netuid.into(),
@@ -1307,6 +1314,370 @@ where
             },
         )
     }
+
+    #[precompile::public("getDelegate(bytes32)")]
+    #[precompile::view]
+    fn get_delegate(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<(bool, u16)> {
+        handle.record_db_reads::<R>(1)?;
+        let hotkey = R::AccountId::from(hotkey.0);
+        Ok(match pallet_subtensor::Delegates::<R>::try_get(hotkey) {
+            Ok(take) => (true, take.deconstruct()),
+            Err(()) => (false, 0),
+        })
+    }
+
+    #[precompile::public("getChildkeyTake(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_childkey_take(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+    ) -> EvmResult<u16> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::ChildkeyTake::<R>::get(
+            R::AccountId::from(hotkey.0),
+            NetUid::from(netuid),
+        )
+        .deconstruct())
+    }
+
+    #[precompile::public("getPendingChildKeys(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_pending_child_keys(
+        handle: &mut impl PrecompileHandle,
+        parent: H256,
+        netuid: u16,
+    ) -> EvmResult<(Vec<(u64, H256)>, u64)> {
+        handle.record_db_reads::<R>(1)?;
+        let (children, cooldown_block) = pallet_subtensor::PendingChildKeys::<R>::get(
+            NetUid::from(netuid),
+            R::AccountId::from(parent.0),
+        );
+        Ok((
+            children
+                .into_iter()
+                .map(|(proportion, child)| (proportion, account_to_h256(child)))
+                .collect(),
+            cooldown_block,
+        ))
+    }
+
+    #[precompile::public("getChildKeys(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_child_keys(
+        handle: &mut impl PrecompileHandle,
+        parent: H256,
+        netuid: u16,
+    ) -> EvmResult<Vec<(u64, H256)>> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::ChildKeys::<R>::get(
+            R::AccountId::from(parent.0),
+            NetUid::from(netuid),
+        )
+        .into_iter()
+        .map(|(proportion, child)| (proportion, account_to_h256(child)))
+        .collect())
+    }
+
+    #[precompile::public("getParentKeys(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_parent_keys(
+        handle: &mut impl PrecompileHandle,
+        child: H256,
+        netuid: u16,
+    ) -> EvmResult<Vec<(u64, H256)>> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::ParentKeys::<R>::get(
+            R::AccountId::from(child.0),
+            NetUid::from(netuid),
+        )
+        .into_iter()
+        .map(|(proportion, parent)| (proportion, account_to_h256(parent)))
+        .collect())
+    }
+
+    #[precompile::public("getPendingChildKeyCooldown()")]
+    #[precompile::view]
+    fn get_pending_childkey_cooldown(handle: &mut impl PrecompileHandle) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::PendingChildKeyCooldown::<R>::get())
+    }
+
+    #[precompile::public("getTakeLimits()")]
+    #[precompile::view]
+    fn get_take_limits(handle: &mut impl PrecompileHandle) -> EvmResult<(u16, u16, u16, u16)> {
+        handle.record_db_reads::<R>(4)?;
+        Ok((
+            pallet_subtensor::MinDelegateTake::<R>::get().deconstruct(),
+            pallet_subtensor::MaxDelegateTake::<R>::get().deconstruct(),
+            pallet_subtensor::MinChildkeyTake::<R>::get().deconstruct(),
+            pallet_subtensor::MaxChildkeyTake::<R>::get().deconstruct(),
+        ))
+    }
+
+    #[precompile::public("getMinChildkeyTakePerSubnet(uint16)")]
+    #[precompile::view]
+    fn get_min_childkey_take_per_subnet(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<u16> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            pallet_subtensor::MinChildkeyTakePerSubnet::<R>::get(NetUid::from(netuid))
+                .deconstruct(),
+        )
+    }
+
+    #[precompile::public("getHotkeyOwner(bytes32)")]
+    #[precompile::view]
+    fn get_hotkey_owner(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+    ) -> EvmResult<(bool, H256)> {
+        handle.record_db_reads::<R>(1)?;
+        let hotkey = R::AccountId::from(hotkey.0);
+        Ok(match pallet_subtensor::Owner::<R>::try_get(hotkey) {
+            Ok(owner) => (true, account_to_h256(owner)),
+            Err(()) => (false, H256::zero()),
+        })
+    }
+
+    #[precompile::public("getOwnedHotkeys(bytes32)")]
+    #[precompile::view]
+    fn get_owned_hotkeys(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+    ) -> EvmResult<Vec<H256>> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            pallet_subtensor::OwnedHotkeys::<R>::get(R::AccountId::from(coldkey.0))
+                .into_iter()
+                .map(account_to_h256)
+                .collect(),
+        )
+    }
+
+    #[precompile::public("getAutoStakeDestination(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_auto_stake_destination(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+        netuid: u16,
+    ) -> EvmResult<(bool, H256)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::AutoStakeDestination::<R>::get(
+                R::AccountId::from(coldkey.0),
+                NetUid::from(netuid),
+            ) {
+                Some(hotkey) => (true, account_to_h256(hotkey)),
+                None => (false, H256::zero()),
+            },
+        )
+    }
+
+    #[precompile::public("getAutoStakeDestinationColdkeys(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_auto_stake_destination_coldkeys(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+    ) -> EvmResult<Vec<H256>> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::AutoStakeDestinationColdkeys::<R>::get(
+            R::AccountId::from(hotkey.0),
+            NetUid::from(netuid),
+        )
+        .into_iter()
+        .map(account_to_h256)
+        .collect())
+    }
+
+    #[precompile::public("getHotkeySuccessor(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_hotkey_successor(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+    ) -> EvmResult<(bool, H256)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(optional_account(
+            pallet_subtensor::HotkeySuccessor::<R>::get(
+                NetUid::from(netuid),
+                R::AccountId::from(hotkey.0),
+            ),
+        ))
+    }
+
+    #[precompile::public("getHotkeyRoot(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_hotkey_root(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+    ) -> EvmResult<(bool, H256)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(optional_account(pallet_subtensor::HotkeyRoot::<R>::get(
+            NetUid::from(netuid),
+            R::AccountId::from(hotkey.0),
+        )))
+    }
+
+    #[precompile::public("getColdkeySuccessor(bytes32)")]
+    #[precompile::view]
+    fn get_coldkey_successor(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+    ) -> EvmResult<(bool, H256)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(optional_account(
+            pallet_subtensor::ColdkeySuccessor::<R>::get(R::AccountId::from(coldkey.0)),
+        ))
+    }
+
+    #[precompile::public("getColdkeyRoot(bytes32)")]
+    #[precompile::view]
+    fn get_coldkey_root(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+    ) -> EvmResult<(bool, H256)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(optional_account(pallet_subtensor::ColdkeyRoot::<R>::get(
+            R::AccountId::from(coldkey.0),
+        )))
+    }
+
+    #[precompile::public("getColdkeySwapStatus(bytes32)")]
+    #[precompile::view]
+    fn get_coldkey_swap_status(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+    ) -> EvmResult<(bool, u64, H256, bool, u64)> {
+        handle.record_db_reads::<R>(2)?;
+        let coldkey = R::AccountId::from(coldkey.0);
+        let announcement = pallet_subtensor::ColdkeySwapAnnouncements::<R>::get(&coldkey);
+        let dispute = pallet_subtensor::ColdkeySwapDisputes::<R>::get(&coldkey);
+        let (has_announcement, announcement_block, call_hash) = match announcement {
+            Some((block, hash)) => (
+                true,
+                block.unique_saturated_into(),
+                H256::from_slice(hash.as_ref()),
+            ),
+            None => (false, 0, H256::zero()),
+        };
+        Ok((
+            has_announcement,
+            announcement_block,
+            call_hash,
+            dispute.is_some(),
+            dispute
+                .map(UniqueSaturatedInto::unique_saturated_into)
+                .unwrap_or(0),
+        ))
+    }
+
+    #[precompile::public("getColdkeySwapDelays()")]
+    #[precompile::view]
+    fn get_coldkey_swap_delays(handle: &mut impl PrecompileHandle) -> EvmResult<(u64, u64)> {
+        handle.record_db_reads::<R>(2)?;
+        Ok((
+            pallet_subtensor::ColdkeySwapAnnouncementDelay::<R>::get().unique_saturated_into(),
+            pallet_subtensor::ColdkeySwapReannouncementDelay::<R>::get().unique_saturated_into(),
+        ))
+    }
+
+    #[precompile::public("getLastHotkeySwapOnSubnet(bytes32,uint16)")]
+    #[precompile::view]
+    fn get_last_hotkey_swap_on_subnet(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+        netuid: u16,
+    ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::LastHotkeySwapOnNetuid::<R>::get(
+            NetUid::from(netuid),
+            R::AccountId::from(coldkey.0),
+        ))
+    }
+
+    #[precompile::public("getStakeAccounting()")]
+    #[precompile::view]
+    fn get_stake_accounting(handle: &mut impl PrecompileHandle) -> EvmResult<(u64, u64)> {
+        handle.record_db_reads::<R>(2)?;
+        Ok((
+            pallet_subtensor::TotalIssuance::<R>::get().to_u64(),
+            pallet_subtensor::TotalStake::<R>::get().to_u64(),
+        ))
+    }
+
+    #[precompile::public("getMinerCollateral(uint16,bytes32,bytes32)")]
+    #[precompile::view]
+    fn get_miner_collateral(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+        coldkey: H256,
+    ) -> EvmResult<(bool, u64, u128, u64, u64)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::MinerCollateral::<R>::get((
+                NetUid::from(netuid),
+                R::AccountId::from(hotkey.0),
+                R::AccountId::from(coldkey.0),
+            )) {
+                Some(state) => (
+                    true,
+                    state.locked.to_u64(),
+                    state.drain_ratio.to_bits(),
+                    state.min_locked.to_u64(),
+                    state.earned.to_u64(),
+                ),
+                None => (false, 0, 0, 0, 0),
+            },
+        )
+    }
+
+    #[precompile::public("getColdkeyCollateral(uint16,bytes32)")]
+    #[precompile::view]
+    fn get_coldkey_collateral(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        coldkey: H256,
+    ) -> EvmResult<(u64, Vec<H256>)> {
+        handle.record_db_reads::<R>(2)?;
+        let coldkey = R::AccountId::from(coldkey.0);
+        Ok((
+            pallet_subtensor::ColdkeyMinerCollateral::<R>::get(NetUid::from(netuid), &coldkey)
+                .to_u64(),
+            pallet_subtensor::ColdkeyCollateralHotkeys::<R>::get(NetUid::from(netuid), coldkey)
+                .into_iter()
+                .map(account_to_h256)
+                .collect(),
+        ))
+    }
+
+    #[precompile::public("getCollateralConfig(uint16)")]
+    #[precompile::view]
+    fn get_collateral_config(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(u16, u128)> {
+        handle.record_db_reads::<R>(2)?;
+        Ok((
+            pallet_subtensor::CollateralLockShare::<R>::get(NetUid::from(netuid)),
+            pallet_subtensor::CollateralDrainRatio::<R>::get(NetUid::from(netuid)).to_bits(),
+        ))
+    }
+}
+
+fn account_to_h256<AccountId: Into<[u8; 32]>>(account: AccountId) -> H256 {
+    H256::from(account.into())
+}
+
+fn optional_account<AccountId: Into<[u8; 32]>>(account: Option<AccountId>) -> (bool, H256) {
+    account
+        .map(|account| (true, account_to_h256(account)))
+        .unwrap_or((false, H256::zero()))
 }
 
 fn dispatch_subtensor<R>(
@@ -1369,6 +1740,55 @@ where
 {
     let caller = handle.caller_account_id::<R>();
     handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+}
+
+fn record_total_hotkey_stake_reads<R>(handle: &mut impl PrecompileHandle) -> EvmResult<()>
+where
+    R: frame_system::Config + pallet_subtensor::Config + pallet_evm::Config,
+{
+    // Charge the SubnetLimit read plus the maximum permitted work before the
+    // released helper scans NetworksAdded.
+    handle.record_db_reads::<R>(1)?;
+    let subnet_limit: u64 = pallet_subtensor::SubnetLimit::<R>::get().unique_saturated_into();
+    handle.record_db_reads::<R>(subnet_limit.saturating_mul(TOTAL_HOTKEY_STAKE_READS_PER_SUBNET))
+}
+
+fn record_total_coldkey_stake_reads<R>(
+    handle: &mut impl PrecompileHandle,
+    coldkey: &R::AccountId,
+    selected_netuid: Option<NetUid>,
+) -> EvmResult<()>
+where
+    R: frame_system::Config + pallet_subtensor::Config + pallet_evm::Config,
+    R::AccountId: Clone,
+{
+    // Read the bounded-by-state list once here and once in the released
+    // aggregate helper.
+    handle.record_db_reads::<R>(2)?;
+    let hotkeys = pallet_subtensor::StakingHotkeys::<R>::get(coldkey);
+
+    let mut raw_positions = 0u64;
+    let mut matched_positions = 0u64;
+    for hotkey in hotkeys {
+        for (netuid, _) in pallet_subtensor::Alpha::<R>::iter_prefix((&hotkey, coldkey)) {
+            raw_positions = raw_positions.saturating_add(1);
+            if selected_netuid.is_none_or(|selected| selected == netuid) {
+                matched_positions = matched_positions.saturating_add(1);
+            }
+        }
+        for (netuid, _) in pallet_subtensor::AlphaV2::<R>::iter_prefix((&hotkey, coldkey)) {
+            raw_positions = raw_positions.saturating_add(1);
+            if selected_netuid.is_none_or(|selected| selected == netuid) {
+                matched_positions = matched_positions.saturating_add(1);
+            }
+        }
+    }
+
+    handle.record_db_reads::<R>(
+        raw_positions
+            .saturating_mul(TOTAL_COLDKEY_POSITION_BASE_READS)
+            .saturating_add(matched_positions.saturating_mul(TOTAL_COLDKEY_MATCHED_POSITION_READS)),
+    )
 }
 
 // Deprecated, exists for backward compatibility.
@@ -1486,9 +1906,8 @@ where
         handle: &mut impl PrecompileHandle,
         coldkey: H256,
     ) -> EvmResult<U256> {
-        // StakingHotkeys + per-hotkey stake reads
-        handle.record_db_reads::<R>(2)?;
         let coldkey = R::AccountId::from(coldkey.0);
+        record_total_coldkey_stake_reads::<R>(handle, &coldkey, None)?;
 
         // get total stake of coldkey
         let total_stake =
@@ -1505,8 +1924,7 @@ where
     #[precompile::public("getTotalHotkeyStake(bytes32)")]
     #[precompile::view]
     fn get_total_hotkey_stake(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<U256> {
-        // Per-subnet stake + alpha price reads
-        handle.record_db_reads::<R>(2)?;
+        record_total_hotkey_stake_reads::<R>(handle)?;
         let hotkey = R::AccountId::from(hotkey.0);
 
         // get total stake of hotkey
@@ -1634,12 +2052,12 @@ mod tests {
     )]
 
     use super::*;
-    use crate::PrecompileExt;
     use crate::mock::{
         AccountId, Proxy, Runtime, RuntimeCall, RuntimeOrigin, addr_from_index, assert_static_call,
         execute_precompile, fund_account, mapped_account, new_test_ext, precompiles, selector_u32,
         substrate_to_evm,
     };
+    use crate::{PrecompileExt, Precompiles};
     use precompile_utils::prelude::RuntimeHelper;
     use precompile_utils::solidity::{encode_return_value, encode_with_selector};
     use precompile_utils::testing::PrecompileTesterExt;
@@ -3489,6 +3907,282 @@ mod tests {
 
             let stake_after = stake_for(&hotkey, &caller_account, netuid);
             assert_eq!(stake_after, stake_before);
+        });
+    }
+
+    #[test]
+    fn aggregate_stake_views_charge_their_scans() {
+        new_test_ext().execute_with(|| {
+            setup_staking_subnet();
+            let caller = addr_from_index(0x3005);
+            let empty_account = AccountId::from([0x91; 32]);
+            let account_arg = H256::from_slice(empty_account.as_ref());
+            let db_read = RuntimeHelper::<Runtime>::db_read_gas_cost();
+            let hotkey_reads = 1u64.saturating_add(
+                u64::from(pallet_subtensor::SubnetLimit::<Runtime>::get())
+                    .saturating_mul(TOTAL_HOTKEY_STAKE_READS_PER_SUBNET),
+            );
+
+            for (address, is_v2) in [
+                (addr_from_index(StakingPrecompileV2::<Runtime>::INDEX), true),
+                (addr_from_index(StakingPrecompile::<Runtime>::INDEX), false),
+            ] {
+                let precompiles = Precompiles::<Runtime>::new();
+                precompiles
+                    .prepare_test(
+                        caller,
+                        address,
+                        encode_with_selector(
+                            selector_u32("getTotalHotkeyStake(bytes32)"),
+                            (account_arg,),
+                        ),
+                    )
+                    .with_static_call(true)
+                    .expect_cost(db_read.saturating_mul(hotkey_reads))
+                    .execute_returns(U256::zero());
+
+                precompiles
+                    .prepare_test(
+                        caller,
+                        address,
+                        encode_with_selector(
+                            selector_u32("getTotalColdkeyStake(bytes32)"),
+                            (account_arg,),
+                        ),
+                    )
+                    .with_static_call(true)
+                    .expect_cost(db_read.saturating_mul(2))
+                    .execute_returns(U256::zero());
+
+                if is_v2 {
+                    precompiles
+                        .prepare_test(
+                            caller,
+                            address,
+                            encode_with_selector(
+                                selector_u32("getTotalColdkeyStakeOnSubnet(bytes32,uint256)"),
+                                (account_arg, U256::from(TEST_NETUID_U16)),
+                            ),
+                        )
+                        .with_static_call(true)
+                        .expect_cost(db_read.saturating_mul(2))
+                        .execute_returns(U256::zero());
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn coldkey_aggregate_views_charge_each_stake_position() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x3007);
+            let coldkey = AccountId::from([0x92; 32]);
+            let hotkey = AccountId::from([0x93; 32]);
+            let coldkey_word = H256::from_slice(coldkey.as_ref());
+            pallet_subtensor::Pallet::<Runtime>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                netuid,
+                AlphaBalance::from(1_000_u64),
+            );
+
+            let total =
+                pallet_subtensor::Pallet::<Runtime>::get_total_stake_for_coldkey(&coldkey).to_u64();
+            let subnet_total =
+                pallet_subtensor::Pallet::<Runtime>::get_total_stake_for_coldkey_on_subnet(
+                    &coldkey, netuid,
+                )
+                .to_u64();
+            let reads = 2_u64
+                .saturating_add(TOTAL_COLDKEY_POSITION_BASE_READS)
+                .saturating_add(TOTAL_COLDKEY_MATCHED_POSITION_READS);
+            let cost = RuntimeHelper::<Runtime>::db_read_gas_cost().saturating_mul(reads);
+            let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+            let precompiles = Precompiles::<Runtime>::new();
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getTotalColdkeyStake(bytes32)"),
+                        (coldkey_word,),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(cost)
+                .execute_returns(U256::from(total));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getTotalColdkeyStakeOnSubnet(bytes32,uint256)"),
+                        (coldkey_word, U256::from(TEST_NETUID_U16)),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(cost)
+                .execute_returns(U256::from(subnet_total));
+        });
+    }
+
+    #[test]
+    fn staking_state_views_return_typed_values_and_missing_state() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(TEST_NETUID_U16);
+            let caller = addr_from_index(0x3006);
+            let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+            let hotkey = AccountId::from([0x71; 32]);
+            let coldkey = AccountId::from([0x72; 32]);
+            let hotkey_word = H256::from_slice(hotkey.as_ref());
+            let coldkey_word = H256::from_slice(coldkey.as_ref());
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+
+            macro_rules! assert_view {
+                ($signature:literal, $arguments:expr, $expected:expr) => {
+                    precompiles
+                        .prepare_test(
+                            caller,
+                            address,
+                            encode_with_selector(selector_u32($signature), $arguments),
+                        )
+                        .with_static_call(true)
+                        .execute_returns($expected);
+                };
+            }
+
+            pallet_subtensor::Delegates::<Runtime>::insert(&hotkey, PerU16::from_parts(123));
+            pallet_subtensor::Owner::<Runtime>::insert(&hotkey, &coldkey);
+            pallet_subtensor::OwnedHotkeys::<Runtime>::insert(&coldkey, vec![hotkey.clone()]);
+
+            assert_view!("getDelegate(bytes32)", (hotkey_word,), (true, 123_u16));
+            assert_view!(
+                "getChildkeyTake(bytes32,uint16)",
+                (hotkey_word, TEST_NETUID_U16),
+                pallet_subtensor::ChildkeyTake::<Runtime>::get(&hotkey, netuid).deconstruct()
+            );
+            assert_view!(
+                "getPendingChildKeys(bytes32,uint16)",
+                (hotkey_word, TEST_NETUID_U16),
+                (Vec::<(u64, H256)>::new(), 0_u64)
+            );
+            assert_view!(
+                "getChildKeys(bytes32,uint16)",
+                (hotkey_word, TEST_NETUID_U16),
+                Vec::<(u64, H256)>::new()
+            );
+            assert_view!(
+                "getParentKeys(bytes32,uint16)",
+                (hotkey_word, TEST_NETUID_U16),
+                Vec::<(u64, H256)>::new()
+            );
+            assert_view!(
+                "getPendingChildKeyCooldown()",
+                (),
+                pallet_subtensor::PendingChildKeyCooldown::<Runtime>::get()
+            );
+            assert_view!(
+                "getTakeLimits()",
+                (),
+                (
+                    pallet_subtensor::MinDelegateTake::<Runtime>::get().deconstruct(),
+                    pallet_subtensor::MaxDelegateTake::<Runtime>::get().deconstruct(),
+                    pallet_subtensor::MinChildkeyTake::<Runtime>::get().deconstruct(),
+                    pallet_subtensor::MaxChildkeyTake::<Runtime>::get().deconstruct(),
+                )
+            );
+            assert_view!(
+                "getMinChildkeyTakePerSubnet(uint16)",
+                (TEST_NETUID_U16,),
+                pallet_subtensor::MinChildkeyTakePerSubnet::<Runtime>::get(netuid).deconstruct()
+            );
+            assert_view!(
+                "getHotkeyOwner(bytes32)",
+                (hotkey_word,),
+                (true, coldkey_word)
+            );
+            assert_view!(
+                "getOwnedHotkeys(bytes32)",
+                (coldkey_word,),
+                vec![hotkey_word]
+            );
+            assert_view!(
+                "getAutoStakeDestination(bytes32,uint16)",
+                (coldkey_word, TEST_NETUID_U16),
+                (false, H256::zero())
+            );
+            assert_view!(
+                "getAutoStakeDestinationColdkeys(bytes32,uint16)",
+                (hotkey_word, TEST_NETUID_U16),
+                Vec::<H256>::new()
+            );
+            assert_view!(
+                "getHotkeySuccessor(bytes32,uint16)",
+                (hotkey_word, TEST_NETUID_U16),
+                (false, H256::zero())
+            );
+            assert_view!(
+                "getHotkeyRoot(bytes32,uint16)",
+                (hotkey_word, TEST_NETUID_U16),
+                (false, H256::zero())
+            );
+            assert_view!(
+                "getColdkeySuccessor(bytes32)",
+                (coldkey_word,),
+                (false, H256::zero())
+            );
+            assert_view!(
+                "getColdkeyRoot(bytes32)",
+                (coldkey_word,),
+                (false, H256::zero())
+            );
+            assert_view!(
+                "getColdkeySwapStatus(bytes32)",
+                (coldkey_word,),
+                (false, 0_u64, H256::zero(), false, 0_u64)
+            );
+            assert_view!(
+                "getColdkeySwapDelays()",
+                (),
+                (
+                    pallet_subtensor::ColdkeySwapAnnouncementDelay::<Runtime>::get(),
+                    pallet_subtensor::ColdkeySwapReannouncementDelay::<Runtime>::get(),
+                )
+            );
+            assert_view!(
+                "getLastHotkeySwapOnSubnet(bytes32,uint16)",
+                (coldkey_word, TEST_NETUID_U16),
+                0_u64
+            );
+            assert_view!(
+                "getStakeAccounting()",
+                (),
+                (
+                    pallet_subtensor::TotalIssuance::<Runtime>::get().to_u64(),
+                    pallet_subtensor::TotalStake::<Runtime>::get().to_u64(),
+                )
+            );
+            assert_view!(
+                "getMinerCollateral(uint16,bytes32,bytes32)",
+                (TEST_NETUID_U16, hotkey_word, coldkey_word),
+                (false, 0_u64, 0_u128, 0_u64, 0_u64)
+            );
+            assert_view!(
+                "getColdkeyCollateral(uint16,bytes32)",
+                (TEST_NETUID_U16, coldkey_word),
+                (0_u64, Vec::<H256>::new())
+            );
+            assert_view!(
+                "getCollateralConfig(uint16)",
+                (TEST_NETUID_U16,),
+                (
+                    pallet_subtensor::CollateralLockShare::<Runtime>::get(netuid),
+                    pallet_subtensor::CollateralDrainRatio::<Runtime>::get(netuid).to_bits(),
+                )
+            );
         });
     }
 }

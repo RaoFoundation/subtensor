@@ -3,12 +3,13 @@ use core::marker::PhantomData;
 use crate::PrecompileExt;
 use fp_evm::{ExitError, PrecompileFailure};
 use frame_support::{
+    BoundedVec,
     dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo},
-    traits::IsSubType,
+    traits::{ConstU32, IsSubType},
 };
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, BalanceConverter, PrecompileHandle, SubstrateBalance};
-use precompile_utils::EvmResult;
+use precompile_utils::{EvmResult, prelude::BoundedBytes};
 use sp_runtime::{
     SaturatedConversion, Vec,
     traits::{AsSystemOriginSigner, Dispatchable},
@@ -343,6 +344,132 @@ where
         };
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
+
+    #[precompile::public("getEmissionAccounting(uint16,bytes32)")]
+    #[precompile::view]
+    fn get_emission_accounting(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: sp_core::H256,
+    ) -> EvmResult<(u64, u64, u64, u64, u64, u64, u64, u128, u64)> {
+        handle.record_db_reads::<R>(9)?;
+        let netuid = NetUid::from(netuid);
+        let hotkey = R::AccountId::from(hotkey.0);
+        Ok((
+            pallet_subtensor::AlphaDividendsPerSubnet::<R>::get(netuid, &hotkey).to_u64(),
+            pallet_subtensor::RootAlphaDividendsPerSubnet::<R>::get(netuid, &hotkey).to_u64(),
+            pallet_subtensor::LastHotkeyEmissionOnNetuid::<R>::get(&hotkey, netuid).to_u64(),
+            pallet_subtensor::PendingServerEmission::<R>::get(netuid).to_u64(),
+            pallet_subtensor::PendingValidatorEmission::<R>::get(netuid).to_u64(),
+            pallet_subtensor::PendingRootAlphaDivs::<R>::get(netuid).to_u64(),
+            pallet_subtensor::PendingOwnerCut::<R>::get(netuid).to_u64(),
+            pallet_subtensor::MinerBurned::<R>::get(netuid).to_bits(),
+            pallet_subtensor::RAORecycledForRegistration::<R>::get(netuid).to_u64(),
+        ))
+    }
+
+    #[precompile::public("getSubnetEconomicState(uint16)")]
+    #[precompile::view]
+    fn get_subnet_economic_state(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(bool, u128, u64, u64, u64)> {
+        handle.record_db_reads::<R>(5)?;
+        let netuid = NetUid::from(netuid);
+        Ok((
+            pallet_subtensor::SubnetEmissionEnabled::<R>::get(netuid),
+            pallet_subtensor::RootProp::<R>::get(netuid).to_bits(),
+            pallet_subtensor::SubnetExcessTao::<R>::get(netuid).to_u64(),
+            pallet_subtensor::SubnetRootSellTao::<R>::get(netuid).to_u64(),
+            pallet_subtensor::SubnetProtocolAlpha::<R>::get(netuid).to_u64(),
+        ))
+    }
+
+    #[precompile::public("getSubnetFlowState(uint16)")]
+    #[precompile::view]
+    fn get_subnet_flow_state(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(U256, bool, u64, U256, U256, bool, u64, U256)> {
+        handle.record_db_reads::<R>(4)?;
+        let netuid = NetUid::from(netuid);
+        let tao_ema = pallet_subtensor::SubnetEmaTaoFlow::<R>::get(netuid);
+        let protocol_ema = pallet_subtensor::SubnetEmaProtocolFlow::<R>::get(netuid);
+        Ok((
+            signed_i64_word(pallet_subtensor::SubnetTaoFlow::<R>::get(netuid)),
+            tao_ema.is_some(),
+            tao_ema.map(|(block, _)| block).unwrap_or(0),
+            signed_i128_word(tao_ema.map(|(_, value)| value.to_bits()).unwrap_or(0)),
+            signed_i64_word(pallet_subtensor::SubnetProtocolFlow::<R>::get(netuid)),
+            protocol_ema.is_some(),
+            protocol_ema.map(|(block, _)| block).unwrap_or(0),
+            signed_i128_word(protocol_ema.map(|(_, value)| value.to_bits()).unwrap_or(0)),
+        ))
+    }
+
+    #[precompile::public("getEmissionGateConfig()")]
+    #[precompile::view]
+    fn get_emission_gate_config(
+        handle: &mut impl PrecompileHandle,
+    ) -> EvmResult<(u64, U256, bool, U256, u128, u128, u128, u128, u64)> {
+        handle.record_db_reads::<R>(9)?;
+        Ok((
+            #[allow(deprecated)]
+            pallet_subtensor::BlockEmission::<R>::get(),
+            signed_i128_word(pallet_subtensor::SubnetMovingAlpha::<R>::get().to_bits()),
+            pallet_subtensor::NetTaoFlowEnabled::<R>::get(),
+            signed_i128_word(pallet_subtensor::TaoFlowCutoff::<R>::get().to_bits()),
+            pallet_subtensor::FlowNormExponent::<R>::get().to_bits(),
+            pallet_subtensor::EmissionBarQuantile::<R>::get().to_bits(),
+            pallet_subtensor::EmissionGateExponent::<R>::get().to_bits(),
+            pallet_subtensor::EmissionGateBar::<R>::get().to_bits(),
+            pallet_subtensor::FlowEmaSmoothingFactor::<R>::get(),
+        ))
+    }
+
+    #[precompile::public("getSwapState(uint16)")]
+    #[precompile::view]
+    fn get_swap_state(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(u16, bool, u64, u64, u64)> {
+        handle.record_db_reads::<R>(5)?;
+        let netuid = NetUid::from(netuid);
+        Ok((
+            pallet_subtensor_swap::FeeRate::<R>::get(netuid),
+            pallet_subtensor_swap::PalSwapInitialized::<R>::get(netuid),
+            pallet_subtensor_swap::SwapBalancer::<R>::get(netuid)
+                .get_quote_weight()
+                .deconstruct(),
+            pallet_subtensor_swap::BalancerTaoReservoir::<R>::get(netuid).to_u64(),
+            pallet_subtensor_swap::BalancerAlphaReservoir::<R>::get(netuid).to_u64(),
+        ))
+    }
+
+    #[precompile::public("hasSwapMigrationRun(bytes)")]
+    #[precompile::view]
+    fn has_swap_migration_run(
+        handle: &mut impl PrecompileHandle,
+        migration_name: BoundedBytes<ConstU32<128>>,
+    ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
+        let migration_name = BoundedVec::<u8, ConstU32<128>>::truncate_from(migration_name.into());
+        Ok(pallet_subtensor_swap::HasMigrationRun::<R>::get(
+            migration_name,
+        ))
+    }
+}
+
+fn signed_i64_word(value: i64) -> U256 {
+    let mut encoded = [if value.is_negative() { 0xff } else { 0 }; 32];
+    encoded[24..].copy_from_slice(&value.to_be_bytes());
+    U256::from_big_endian(&encoded)
+}
+
+fn signed_i128_word(value: i128) -> U256 {
+    let mut encoded = [if value.is_negative() { 0xff } else { 0 }; 32];
+    encoded[16..].copy_from_slice(&value.to_be_bytes());
+    U256::from_big_endian(&encoded)
 }
 
 #[cfg(test)]
@@ -704,5 +831,136 @@ mod tests {
                 U256::zero(),
             );
         });
+    }
+
+    #[test]
+    fn alpha_state_views_return_typed_runtime_state() {
+        new_test_ext().execute_with(|| {
+            let precompiles = precompiles::<AlphaPrecompile<Runtime>>();
+            let caller = addr_from_index(1);
+            let address = addr_from_index(AlphaPrecompile::<Runtime>::INDEX);
+            let netuid = NetUid::from(DYNAMIC_NETUID_U16);
+            let hotkey = sp_core::H256::repeat_byte(0x41);
+
+            assert_view(
+                &precompiles,
+                caller,
+                address,
+                "getEmissionAccounting(uint16,bytes32)",
+                (DYNAMIC_NETUID_U16, hotkey),
+                (
+                    0_u64, 0_u64, 0_u64, 0_u64, 0_u64, 0_u64, 0_u64, 0_u128, 0_u64,
+                ),
+            );
+
+            assert_view(
+                &precompiles,
+                caller,
+                address,
+                "getSubnetEconomicState(uint16)",
+                (DYNAMIC_NETUID_U16,),
+                (
+                    pallet_subtensor::SubnetEmissionEnabled::<Runtime>::get(netuid),
+                    pallet_subtensor::RootProp::<Runtime>::get(netuid).to_bits(),
+                    pallet_subtensor::SubnetExcessTao::<Runtime>::get(netuid).to_u64(),
+                    pallet_subtensor::SubnetRootSellTao::<Runtime>::get(netuid).to_u64(),
+                    pallet_subtensor::SubnetProtocolAlpha::<Runtime>::get(netuid).to_u64(),
+                ),
+            );
+
+            let tao_ema = pallet_subtensor::SubnetEmaTaoFlow::<Runtime>::get(netuid);
+            let protocol_ema = pallet_subtensor::SubnetEmaProtocolFlow::<Runtime>::get(netuid);
+            assert_view(
+                &precompiles,
+                caller,
+                address,
+                "getSubnetFlowState(uint16)",
+                (DYNAMIC_NETUID_U16,),
+                (
+                    signed_i64_word(pallet_subtensor::SubnetTaoFlow::<Runtime>::get(netuid)),
+                    tao_ema.is_some(),
+                    tao_ema.map(|(block, _)| block).unwrap_or(0),
+                    signed_i128_word(tao_ema.map(|(_, value)| value.to_bits()).unwrap_or(0)),
+                    signed_i64_word(pallet_subtensor::SubnetProtocolFlow::<Runtime>::get(netuid)),
+                    protocol_ema.is_some(),
+                    protocol_ema.map(|(block, _)| block).unwrap_or(0),
+                    signed_i128_word(protocol_ema.map(|(_, value)| value.to_bits()).unwrap_or(0)),
+                ),
+            );
+
+            #[allow(deprecated)]
+            let emission_gate = (
+                pallet_subtensor::BlockEmission::<Runtime>::get(),
+                signed_i128_word(pallet_subtensor::SubnetMovingAlpha::<Runtime>::get().to_bits()),
+                pallet_subtensor::NetTaoFlowEnabled::<Runtime>::get(),
+                signed_i128_word(pallet_subtensor::TaoFlowCutoff::<Runtime>::get().to_bits()),
+                pallet_subtensor::FlowNormExponent::<Runtime>::get().to_bits(),
+                pallet_subtensor::EmissionBarQuantile::<Runtime>::get().to_bits(),
+                pallet_subtensor::EmissionGateExponent::<Runtime>::get().to_bits(),
+                pallet_subtensor::EmissionGateBar::<Runtime>::get().to_bits(),
+                pallet_subtensor::FlowEmaSmoothingFactor::<Runtime>::get(),
+            );
+            assert_view(
+                &precompiles,
+                caller,
+                address,
+                "getEmissionGateConfig()",
+                (),
+                emission_gate,
+            );
+
+            let balancer = pallet_subtensor_swap::SwapBalancer::<Runtime>::get(netuid);
+            assert_view(
+                &precompiles,
+                caller,
+                address,
+                "getSwapState(uint16)",
+                (DYNAMIC_NETUID_U16,),
+                (
+                    pallet_subtensor_swap::FeeRate::<Runtime>::get(netuid),
+                    pallet_subtensor_swap::PalSwapInitialized::<Runtime>::get(netuid),
+                    balancer.get_quote_weight().deconstruct(),
+                    pallet_subtensor_swap::BalancerTaoReservoir::<Runtime>::get(netuid).to_u64(),
+                    pallet_subtensor_swap::BalancerAlphaReservoir::<Runtime>::get(netuid).to_u64(),
+                ),
+            );
+
+            let migration_name = b"reader-test".to_vec();
+            pallet_subtensor_swap::HasMigrationRun::<Runtime>::insert(
+                BoundedVec::truncate_from(migration_name.clone()),
+                true,
+            );
+            assert_view(
+                &precompiles,
+                caller,
+                address,
+                "hasSwapMigrationRun(bytes)",
+                (BoundedBytes::<ConstU32<128>>::from(migration_name),),
+                true,
+            );
+        });
+    }
+
+    fn assert_view<Args, Output>(
+        precompiles: &impl pallet_evm::PrecompileSet,
+        caller: sp_core::H160,
+        address: sp_core::H160,
+        signature: &str,
+        args: Args,
+        expected: Output,
+    ) where
+        Args: precompile_utils::solidity::Codec,
+        Output: precompile_utils::solidity::Codec,
+    {
+        use precompile_utils::testing::PrecompileTesterExt;
+
+        precompiles
+            .prepare_test(
+                caller,
+                address,
+                encode_with_selector(selector_u32(signature), args),
+            )
+            .with_static_call(true)
+            .execute_returns(expected);
     }
 }

@@ -8,6 +8,7 @@ interface IBalance {
     /// @param coldkey The coldkey public key (32 bytes).
     /// @return The free balance in rao (1 TAO = 1e9 rao).
     function getFreeBalance(bytes32 coldkey) external view returns (uint256);
+    function getTotalIssuance() external view returns (uint256);
     function burnBalance(uint256 amount, bool keepAlive) external;
     function upgradeAccounts(bytes32[] calldata accounts) external;
 }

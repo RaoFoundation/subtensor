@@ -29,6 +29,10 @@ interface ILeasing {
      * @return The lease id.
      */
     function getLeaseIdForSubnet(uint16 netuid) external view returns (uint32);
+    function getNextLeaseId() external view returns (uint32);
+    function getAccumulatedLeaseDividends(
+        uint32 leaseId
+    ) external view returns (uint64);
 
     /**
      * @dev Create a lease crowdloan.

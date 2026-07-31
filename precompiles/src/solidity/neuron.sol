@@ -3,6 +3,11 @@ pragma solidity ^0.8.0;
 address constant INeuron_ADDRESS = 0x0000000000000000000000000000000000000804;
 
 interface INeuron {
+    struct WeightPair {
+        uint16 uid;
+        uint16 value;
+    }
+
     /**
      * @dev Registers a neuron by calling `do_burned_registration` internally with the origin set to the ss58 mirror of the H160 address.
      * This allows the H160 to further call neuron-related methods and receive emissions.
@@ -238,4 +243,148 @@ interface INeuron {
     function executeAnnouncedColdkeySwap(bytes32 newColdkey) external;
     function disputeColdkeySwap() external;
     function clearColdkeySwapAnnouncement() external;
+    function getUid(
+        uint16 netuid,
+        bytes32 hotkey
+    ) external view returns (bool exists, uint16 uid);
+    function isNetworkMember(
+        bytes32 hotkey,
+        uint16 netuid
+    ) external view returns (bool);
+    function getWeights(
+        uint16 netuid,
+        uint16 uid
+    ) external view returns (WeightPair[] memory);
+    function getBonds(
+        uint16 netuid,
+        uint16 uid
+    ) external view returns (WeightPair[] memory);
+    function getBlockAtRegistration(
+        uint16 netuid,
+        uint16 uid
+    ) external view returns (uint64);
+    function getNeuronCertificate(
+        uint16 netuid,
+        bytes32 hotkey
+    ) external view returns (bool exists, uint8 algorithm, bytes memory publicKey);
+    function getPrometheus(
+        uint16 netuid,
+        bytes32 hotkey
+    )
+        external
+        view
+        returns (
+            bool exists,
+            uint64 blockNumber,
+            uint32 version,
+            uint128 ip,
+            uint16 port,
+            uint8 ipType
+        );
+    function getChainIdentity(
+        bytes32 coldkey
+    )
+        external
+        view
+        returns (
+            bool exists,
+            bytes memory name,
+            bytes memory url,
+            bytes memory githubRepo,
+            bytes memory image,
+            bytes memory discord,
+            bytes memory description,
+            bytes memory additional
+        );
+    function getSubnetIdentity(
+        uint16 netuid
+    )
+        external
+        view
+        returns (
+            bool exists,
+            bytes memory subnetName,
+            bytes memory githubRepo,
+            bytes memory subnetContact,
+            bytes memory subnetUrl,
+            bytes memory discord,
+            bytes memory description,
+            bytes memory logoUrl,
+            bytes memory additional
+        );
+    struct LoadedEmission {
+        bytes32 hotkey;
+        uint64 serverEmission;
+        uint64 validatorEmission;
+    }
+    function getLoadedEmission(
+        uint16 netuid
+    ) external view returns (bool exists, LoadedEmission[] memory);
+    function getTransactionKeyLastBlock(
+        bytes32 hotkey,
+        uint16 netuid,
+        uint16 transactionKey
+    ) external view returns (uint64);
+    function getLegacyTransactionRateBlocks(
+        bytes32 hotkey
+    )
+        external
+        view
+        returns (
+            uint64 lastTransactionBlock,
+            uint64 lastChildkeyTakeBlock,
+            uint64 lastDelegateTakeBlock
+        );
+    function getWeightCommit(
+        uint16 netuid,
+        bytes32 hotkey,
+        uint32 index
+    )
+        external
+        view
+        returns (bool exists, bytes32 hash, uint64 epoch, uint64 blockNumber);
+    function getWeightCommitCount(
+        uint16 netuid,
+        bytes32 hotkey
+    ) external view returns (uint32);
+    function getTimelockedWeightCommit(
+        uint16 netuid,
+        uint64 epoch,
+        uint32 index
+    )
+        external
+        view
+        returns (
+            bool exists,
+            bytes32 hotkey,
+            uint64 blockNumber,
+            bytes32 ciphertextHash,
+            uint32 ciphertextLength,
+            uint64 revealRound
+        );
+    function getTimelockedWeightCommitCount(
+        uint16 netuid,
+        uint64 epoch
+    ) external view returns (uint32);
+    function getLegacyTimelockedWeightCommit(
+        uint8 version,
+        uint16 netuid,
+        uint64 epoch,
+        uint32 index
+    )
+        external
+        view
+        returns (
+            bool exists,
+            bytes32 hotkey,
+            uint64 blockNumber,
+            bytes32 ciphertextHash,
+            uint32 ciphertextLength,
+            uint64 revealRound
+        );
+    function getLegacyTimelockedWeightCommitCount(
+        uint8 version,
+        uint16 netuid,
+        uint64 epoch
+    ) external view returns (uint32);
 }

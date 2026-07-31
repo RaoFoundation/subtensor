@@ -73,6 +73,13 @@ where
         Ok(pallet_balances::Pallet::<R>::free_balance(&coldkey).into())
     }
 
+    #[precompile::public("getTotalIssuance()")]
+    #[precompile::view]
+    fn get_total_issuance(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_balances::Pallet::<R>::total_issuance().into())
+    }
+
     #[precompile::public("burnBalance(uint256,bool)")]
     fn burn_balance(
         handle: &mut impl PrecompileHandle,
@@ -161,6 +168,17 @@ mod tests {
                 .with_static_call(true)
                 .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
                 .execute_returns_raw(abi_word(U256::from(amount)));
+
+            let total_issuance: U256 = pallet_balances::Pallet::<Runtime>::total_issuance().into();
+            precompiles::<BalancePrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(BalancePrecompile::<Runtime>::INDEX),
+                    selector_u32("getTotalIssuance()").to_be_bytes().to_vec(),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns(total_issuance);
         });
     }
 

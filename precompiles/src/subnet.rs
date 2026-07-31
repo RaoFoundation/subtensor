@@ -7,14 +7,15 @@ use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, PrecompileHandle};
 use precompile_utils::{
     EvmResult,
-    prelude::{BoundedString, BoundedVec},
+    prelude::{BoundedString, BoundedVec, UnboundedBytes},
 };
 use sp_core::H256;
-use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
+use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, UniqueSaturatedInto};
 use sp_std::{vec, vec::Vec};
 use subtensor_runtime_common::{NetUid, TaoBalance, Token};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
+use pallet_subtensor::subnets::dissolution::DissolveCleanupPhase;
 
 pub struct SubnetPrecompile<R>(PhantomData<R>);
 
@@ -30,7 +31,7 @@ where
         + Send
         + Sync
         + scale_info::TypeInfo,
-    R::AccountId: From<[u8; 32]>,
+    R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
     <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
     <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
         + From<pallet_admin_utils::Call<R>>
@@ -58,7 +59,7 @@ where
         + Send
         + Sync
         + scale_info::TypeInfo,
-    R::AccountId: From<[u8; 32]>,
+    R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
     <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
     <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
         + From<pallet_admin_utils::Call<R>>
@@ -172,6 +173,18 @@ where
     ) -> EvmResult<u64> {
         handle.record_db_reads::<R>(1)?;
         Ok(pallet_subtensor::NetworkRegisteredAt::<R>::get(
+            NetUid::from(netuid),
+        ))
+    }
+
+    #[precompile::public("getRegisteredSubnetCounter(uint16)")]
+    #[precompile::view]
+    fn get_registered_subnet_counter(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::RegisteredSubnetCounter::<R>::get(
             NetUid::from(netuid),
         ))
     }
@@ -895,6 +908,24 @@ where
         Ok(pallet_subtensor::DissolveCleanupQueue::<R>::get().contains(&NetUid::from(netuid)))
     }
 
+    #[precompile::public("getSubnetDissolutionStatus(uint16)")]
+    #[precompile::view]
+    fn get_subnet_dissolution_status(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(bool, bool, u8)> {
+        handle.record_db_reads::<R>(2)?;
+        let netuid = NetUid::from(netuid);
+        let is_queued = pallet_subtensor::DissolveCleanupQueue::<R>::get().contains(&netuid);
+
+        match pallet_subtensor::CurrentDissolveCleanupStatus::<R>::get() {
+            Some(status) if status.netuid == netuid => {
+                Ok((true, true, dissolution_cleanup_phase_code(&status.phase)))
+            }
+            _ => Ok((is_queued, false, 0)),
+        }
+    }
+
     #[precompile::public(
         "setSubnetIdentity(uint16,string,string,string,string,string,string,string,string)"
     )]
@@ -1101,6 +1132,133 @@ where
             },
         )
     }
+
+    #[precompile::public("getSubnetMetadata(uint16)")]
+    #[precompile::view]
+    fn get_subnet_metadata(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(UnboundedBytes, H256, H256, u16, u8)> {
+        handle.record_db_reads::<R>(5)?;
+        let netuid = NetUid::from(netuid);
+        let recycle_or_burn = match pallet_subtensor::RecycleOrBurn::<R>::get(netuid) {
+            pallet_subtensor::RecycleOrBurnEnum::Burn => 0,
+            pallet_subtensor::RecycleOrBurnEnum::Recycle => 1,
+        };
+        Ok((
+            UnboundedBytes::from(pallet_subtensor::TokenSymbol::<R>::get(netuid)),
+            account_to_h256(pallet_subtensor::SubnetOwner::<R>::get(netuid)),
+            account_to_h256(pallet_subtensor::SubnetOwnerHotkey::<R>::get(netuid)),
+            pallet_subtensor::Tempo::<R>::get(netuid),
+            recycle_or_burn,
+        ))
+    }
+
+    #[precompile::public("getSubnetCapacityConfig(uint16)")]
+    #[precompile::view]
+    fn get_subnet_capacity_config(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(u16, u16, u16, u16, u16, u16, u16, u16, bool, bool, u16, u8)> {
+        handle.record_db_reads::<R>(12)?;
+        let netuid = NetUid::from(netuid);
+        Ok((
+            pallet_subtensor::MinAllowedUids::<R>::get(netuid),
+            pallet_subtensor::MaxAllowedUids::<R>::get(netuid),
+            pallet_subtensor::MaxAllowedValidators::<R>::get(netuid),
+            pallet_subtensor::AdjustmentInterval::<R>::get(netuid),
+            pallet_subtensor::TargetRegistrationsPerInterval::<R>::get(netuid),
+            pallet_subtensor::MinNonImmuneUids::<R>::get(netuid),
+            pallet_subtensor::ImmuneOwnerUidsLimit::<R>::get(netuid),
+            pallet_subtensor::BondsPenalty::<R>::get(netuid),
+            pallet_subtensor::OwnerCutEnabled::<R>::get(netuid),
+            pallet_subtensor::TransferToggle::<R>::get(netuid),
+            pallet_subtensor::MaxRegistrationsPerBlock::<R>::get(netuid),
+            pallet_subtensor::MechanismCountCurrent::<R>::get(netuid).into(),
+        ))
+    }
+
+    #[precompile::public("getMechanismEmissionSplit(uint16)")]
+    #[precompile::view]
+    fn get_mechanism_emission_split(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(bool, Vec<u16>)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::MechanismEmissionSplit::<R>::get(NetUid::from(netuid)) {
+                Some(split) => (true, split),
+                None => (false, Vec::new()),
+            },
+        )
+    }
+
+    #[precompile::public("getBurnConfig(uint16)")]
+    #[precompile::view]
+    fn get_burn_config(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<(u16, u128)> {
+        handle.record_db_reads::<R>(2)?;
+        let netuid = NetUid::from(netuid);
+        Ok((
+            pallet_subtensor::BurnHalfLife::<R>::get(netuid),
+            pallet_subtensor::BurnIncreaseMult::<R>::get(netuid).to_bits(),
+        ))
+    }
+
+    #[precompile::public("getGlobalNetworkLimits()")]
+    #[precompile::view]
+    fn get_global_network_limits(
+        handle: &mut impl PrecompileHandle,
+    ) -> EvmResult<(u16, u16, u16, u64, u16, u16, u64, u64, u64, u64, u64, u16)> {
+        handle.record_db_reads::<R>(12)?;
+        Ok((
+            pallet_subtensor::MinActivityCutoff::<R>::get(),
+            pallet_subtensor::AdminFreezeWindow::<R>::get(),
+            pallet_subtensor::OwnerHyperparamRateLimit::<R>::get(),
+            pallet_subtensor::DissolveNetworkScheduleDuration::<R>::get().unique_saturated_into(),
+            pallet_subtensor::SubnetLimit::<R>::get(),
+            pallet_subtensor::TotalNetworks::<R>::get(),
+            pallet_subtensor::NetworkImmunityPeriod::<R>::get(),
+            pallet_subtensor::StartCallDelay::<R>::get(),
+            pallet_subtensor::NetworkMinLockCost::<R>::get().to_u64(),
+            pallet_subtensor::NetworkLastLockCost::<R>::get().to_u64(),
+            pallet_subtensor::NetworkLockReductionInterval::<R>::get(),
+            pallet_subtensor::SubnetOwnerCut::<R>::get(),
+        ))
+    }
+
+    #[precompile::public("getGlobalRateLimits()")]
+    #[precompile::view]
+    fn get_global_rate_limits(
+        handle: &mut impl PrecompileHandle,
+    ) -> EvmResult<(u64, u64, u64, u64, u64, u8)> {
+        handle.record_db_reads::<R>(6)?;
+        Ok((
+            pallet_subtensor::NetworkRateLimit::<R>::get(),
+            pallet_subtensor::WeightsVersionKeyRateLimit::<R>::get(),
+            pallet_subtensor::TxRateLimit::<R>::get(),
+            pallet_subtensor::TxDelegateTakeRateLimit::<R>::get(),
+            pallet_subtensor::TxChildkeyTakeRateLimit::<R>::get(),
+            pallet_subtensor::MaxEpochsPerBlock::<R>::get(),
+        ))
+    }
+
+    #[precompile::public("getGlobalProtocolConfig()")]
+    #[precompile::view]
+    fn get_global_protocol_config(
+        handle: &mut impl PrecompileHandle,
+    ) -> EvmResult<(u8, u16, u64, u64)> {
+        handle.record_db_reads::<R>(4)?;
+        Ok((
+            pallet_subtensor::MaxMechanismCount::<R>::get().into(),
+            pallet_subtensor::CommitRevealWeightsVersion::<R>::get(),
+            pallet_subtensor::NetworkRegistrationStartBlock::<R>::get(),
+            pallet_subtensor::TaoInRefundDeploymentBlock::<R>::get(),
+        ))
+    }
+}
+
+fn account_to_h256<AccountId: Into<[u8; 32]>>(account: AccountId) -> H256 {
+    H256::from(account.into())
 }
 
 fn dispatch_admin<R>(
@@ -1118,7 +1276,7 @@ where
         + Send
         + Sync
         + scale_info::TypeInfo,
-    R::AccountId: From<[u8; 32]>,
+    R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
     <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
     <R as frame_system::Config>::RuntimeCall: From<pallet_admin_utils::Call<R>>
         + GetDispatchInfo
@@ -1131,6 +1289,38 @@ where
 {
     let caller = handle.caller_account_id::<R>();
     handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+}
+
+/// Stable, append-only EVM codes for the runtime's detailed cleanup phases.
+///
+/// These values intentionally do not use the Rust enum discriminant. Runtime
+/// phases may be reordered internally without changing the Solidity contract.
+fn dissolution_cleanup_phase_code(phase: &DissolveCleanupPhase) -> u8 {
+    match phase {
+        DissolveCleanupPhase::SubnetRootDividendsRootClaimable => 1,
+        DissolveCleanupPhase::SubnetRootDividendsRootClaimed => 2,
+        DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue => 3,
+        DissolveCleanupPhase::AlphaInOutStakesSettleStakes => 4,
+        DissolveCleanupPhase::AlphaInOutStakesAlpha => 5,
+        DissolveCleanupPhase::AlphaInOutStakesHotkeyTotals => 6,
+        DissolveCleanupPhase::AlphaInOutStakesLocks => 7,
+        DissolveCleanupPhase::AlphaInOutStakesDecayingLocks => 8,
+        DissolveCleanupPhase::AlphaInOutStakes => 9,
+        DissolveCleanupPhase::ProtocolLiquidity => 10,
+        DissolveCleanupPhase::PurgeNetuid => 11,
+        DissolveCleanupPhase::NetworkIsNetworkMember => 12,
+        DissolveCleanupPhase::NetworkParameters => 13,
+        DissolveCleanupPhase::NetworkMapParameters => 14,
+        DissolveCleanupPhase::NetworkUpdateWeightsOnRoot => 15,
+        DissolveCleanupPhase::NetworkChildkeyTake => 16,
+        DissolveCleanupPhase::NetworkChildkeys => 17,
+        DissolveCleanupPhase::NetworkParentkeys => 18,
+        DissolveCleanupPhase::NetworkLastHotkeyEmissionOnNetuid => 19,
+        DissolveCleanupPhase::NetworkTotalHotkeyAlphaLastEpoch => 20,
+        DissolveCleanupPhase::NetworkTransactionKeyLastBlock => 21,
+        DissolveCleanupPhase::NetworkLock => 22,
+        DissolveCleanupPhase::NetworkDecayingLock => 23,
+    }
 }
 
 #[cfg(test)]
@@ -1692,6 +1882,42 @@ mod tests {
     }
 
     #[test]
+    fn subnet_precompile_gets_registered_subnet_counter() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5003);
+            let netuid = setup_owner_subnet(caller);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+
+            pallet_subtensor::RegisteredSubnetCounter::<Runtime>::insert(netuid, 7);
+
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getRegisteredSubnetCounter(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::from(7_u64),
+            );
+
+            pallet_subtensor::RegisteredSubnetCounter::<Runtime>::remove(netuid);
+
+            assert_static_call(
+                &precompiles,
+                caller,
+                precompile_addr,
+                encode_with_selector(
+                    selector_u32("getRegisteredSubnetCounter(uint16)"),
+                    (TEST_NETUID_U16,),
+                ),
+                U256::zero(),
+            );
+        });
+    }
+
+    #[test]
     fn subnet_precompile_is_subnet_dissolving() {
         new_test_ext().execute_with(|| {
             let caller = addr_from_index(0x5003);
@@ -1722,6 +1948,215 @@ mod tests {
                 ),
                 U256::one(),
             );
+        });
+    }
+
+    #[test]
+    fn subnet_precompile_reports_stable_dissolution_cleanup_status() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5003);
+            let netuid = setup_owner_subnet(caller);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let precompile_addr = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+            let input = || {
+                encode_with_selector(
+                    selector_u32("getSubnetDissolutionStatus(uint16)"),
+                    (TEST_NETUID_U16,),
+                )
+            };
+
+            precompiles
+                .prepare_test(caller, precompile_addr, input())
+                .with_static_call(true)
+                .execute_returns((false, false, 0_u8));
+
+            pallet_subtensor::DissolveCleanupQueue::<Runtime>::set(vec![netuid]);
+
+            precompiles
+                .prepare_test(caller, precompile_addr, input())
+                .with_static_call(true)
+                .execute_returns((true, false, 0_u8));
+
+            let mut status =
+                pallet_subtensor::subnets::dissolution::DissolveCleanupStatus::new(netuid);
+            status.set_phase(DissolveCleanupPhase::AlphaInOutStakesSettleStakes);
+            pallet_subtensor::CurrentDissolveCleanupStatus::<Runtime>::set(Some(status));
+
+            precompiles
+                .prepare_test(caller, precompile_addr, input())
+                .with_static_call(true)
+                .execute_returns((true, true, 4_u8));
+        });
+    }
+
+    #[test]
+    fn dissolution_cleanup_phase_codes_are_stable() {
+        let phases = [
+            (DissolveCleanupPhase::SubnetRootDividendsRootClaimable, 1),
+            (DissolveCleanupPhase::SubnetRootDividendsRootClaimed, 2),
+            (DissolveCleanupPhase::AlphaInOutStakesGetTotalAlphaValue, 3),
+            (DissolveCleanupPhase::AlphaInOutStakesSettleStakes, 4),
+            (DissolveCleanupPhase::AlphaInOutStakesAlpha, 5),
+            (DissolveCleanupPhase::AlphaInOutStakesHotkeyTotals, 6),
+            (DissolveCleanupPhase::AlphaInOutStakesLocks, 7),
+            (DissolveCleanupPhase::AlphaInOutStakesDecayingLocks, 8),
+            (DissolveCleanupPhase::AlphaInOutStakes, 9),
+            (DissolveCleanupPhase::ProtocolLiquidity, 10),
+            (DissolveCleanupPhase::PurgeNetuid, 11),
+            (DissolveCleanupPhase::NetworkIsNetworkMember, 12),
+            (DissolveCleanupPhase::NetworkParameters, 13),
+            (DissolveCleanupPhase::NetworkMapParameters, 14),
+            (DissolveCleanupPhase::NetworkUpdateWeightsOnRoot, 15),
+            (DissolveCleanupPhase::NetworkChildkeyTake, 16),
+            (DissolveCleanupPhase::NetworkChildkeys, 17),
+            (DissolveCleanupPhase::NetworkParentkeys, 18),
+            (DissolveCleanupPhase::NetworkLastHotkeyEmissionOnNetuid, 19),
+            (DissolveCleanupPhase::NetworkTotalHotkeyAlphaLastEpoch, 20),
+            (DissolveCleanupPhase::NetworkTransactionKeyLastBlock, 21),
+            (DissolveCleanupPhase::NetworkLock, 22),
+            (DissolveCleanupPhase::NetworkDecayingLock, 23),
+        ];
+
+        for (phase, expected) in phases {
+            assert_eq!(dissolution_cleanup_phase_code(&phase), expected);
+        }
+    }
+
+    #[test]
+    fn subnet_state_views_return_grouped_runtime_configuration() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x5020);
+            let netuid = setup_owner_subnet(caller);
+            let address = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getSubnetMetadata(uint16)"),
+                        (TEST_NETUID_U16,),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns((
+                    UnboundedBytes::from(pallet_subtensor::TokenSymbol::<Runtime>::get(netuid)),
+                    account_to_h256(pallet_subtensor::SubnetOwner::<Runtime>::get(netuid)),
+                    account_to_h256(pallet_subtensor::SubnetOwnerHotkey::<Runtime>::get(netuid)),
+                    pallet_subtensor::Tempo::<Runtime>::get(netuid),
+                    0_u8,
+                ));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getSubnetCapacityConfig(uint16)"),
+                        (TEST_NETUID_U16,),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns((
+                    pallet_subtensor::MinAllowedUids::<Runtime>::get(netuid),
+                    pallet_subtensor::MaxAllowedUids::<Runtime>::get(netuid),
+                    pallet_subtensor::MaxAllowedValidators::<Runtime>::get(netuid),
+                    pallet_subtensor::AdjustmentInterval::<Runtime>::get(netuid),
+                    pallet_subtensor::TargetRegistrationsPerInterval::<Runtime>::get(netuid),
+                    pallet_subtensor::MinNonImmuneUids::<Runtime>::get(netuid),
+                    pallet_subtensor::ImmuneOwnerUidsLimit::<Runtime>::get(netuid),
+                    pallet_subtensor::BondsPenalty::<Runtime>::get(netuid),
+                    pallet_subtensor::OwnerCutEnabled::<Runtime>::get(netuid),
+                    pallet_subtensor::TransferToggle::<Runtime>::get(netuid),
+                    pallet_subtensor::MaxRegistrationsPerBlock::<Runtime>::get(netuid),
+                    u8::from(pallet_subtensor::MechanismCountCurrent::<Runtime>::get(
+                        netuid,
+                    )),
+                ));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getMechanismEmissionSplit(uint16)"),
+                        (TEST_NETUID_U16,),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns((false, Vec::<u16>::new()));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(selector_u32("getBurnConfig(uint16)"), (TEST_NETUID_U16,)),
+                )
+                .with_static_call(true)
+                .execute_returns((
+                    pallet_subtensor::BurnHalfLife::<Runtime>::get(netuid),
+                    pallet_subtensor::BurnIncreaseMult::<Runtime>::get(netuid).to_bits(),
+                ));
+
+            let dissolve_schedule_duration: u64 =
+                pallet_subtensor::DissolveNetworkScheduleDuration::<Runtime>::get()
+                    .unique_saturated_into();
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    selector_u32("getGlobalNetworkLimits()")
+                        .to_be_bytes()
+                        .to_vec(),
+                )
+                .with_static_call(true)
+                .execute_returns((
+                    pallet_subtensor::MinActivityCutoff::<Runtime>::get(),
+                    pallet_subtensor::AdminFreezeWindow::<Runtime>::get(),
+                    pallet_subtensor::OwnerHyperparamRateLimit::<Runtime>::get(),
+                    dissolve_schedule_duration,
+                    pallet_subtensor::SubnetLimit::<Runtime>::get(),
+                    pallet_subtensor::TotalNetworks::<Runtime>::get(),
+                    pallet_subtensor::NetworkImmunityPeriod::<Runtime>::get(),
+                    pallet_subtensor::StartCallDelay::<Runtime>::get(),
+                    pallet_subtensor::NetworkMinLockCost::<Runtime>::get().to_u64(),
+                    pallet_subtensor::NetworkLastLockCost::<Runtime>::get().to_u64(),
+                    pallet_subtensor::NetworkLockReductionInterval::<Runtime>::get(),
+                    pallet_subtensor::SubnetOwnerCut::<Runtime>::get(),
+                ));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    selector_u32("getGlobalRateLimits()").to_be_bytes().to_vec(),
+                )
+                .with_static_call(true)
+                .execute_returns((
+                    pallet_subtensor::NetworkRateLimit::<Runtime>::get(),
+                    pallet_subtensor::WeightsVersionKeyRateLimit::<Runtime>::get(),
+                    pallet_subtensor::TxRateLimit::<Runtime>::get(),
+                    pallet_subtensor::TxDelegateTakeRateLimit::<Runtime>::get(),
+                    pallet_subtensor::TxChildkeyTakeRateLimit::<Runtime>::get(),
+                    pallet_subtensor::MaxEpochsPerBlock::<Runtime>::get(),
+                ));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    selector_u32("getGlobalProtocolConfig()")
+                        .to_be_bytes()
+                        .to_vec(),
+                )
+                .with_static_call(true)
+                .execute_returns((
+                    u8::from(pallet_subtensor::MaxMechanismCount::<Runtime>::get()),
+                    pallet_subtensor::CommitRevealWeightsVersion::<Runtime>::get(),
+                    pallet_subtensor::NetworkRegistrationStartBlock::<Runtime>::get(),
+                    pallet_subtensor::TaoInRefundDeploymentBlock::<Runtime>::get(),
+                ));
         });
     }
 

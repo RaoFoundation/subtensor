@@ -35,6 +35,14 @@ interface ISubnet {
         uint16 netuid
     ) external view returns (uint64);
 
+    /**
+     * @dev Returns the monotonic registration generation for a netuid.
+     * The value increments whenever the netuid is successfully registered.
+     */
+    function getRegisteredSubnetCounter(
+        uint16 netuid
+    ) external view returns (uint64);
+
     function setServingRateLimit(
         uint16 netuid,
         uint64 servingRateLimit
@@ -83,7 +91,7 @@ interface ISubnet {
 
     function setImmunityPeriod(
         uint16 netuid,
-        uint64 immunityPeriod
+        uint16 immunityPeriod
     ) external payable;
 
     function getMinAllowedWeights(uint16 netuid) external view returns (uint16);
@@ -107,7 +115,7 @@ interface ISubnet {
 
     function setAlphaSigmoidSteepness(
         uint16 netuid,
-        int16 steepness
+        uint16 steepness
     ) external payable;
 
     function getActivityCutoff(uint16 netuid) external view returns (uint16);
@@ -194,6 +202,34 @@ interface ISubnet {
 
     function isSubnetDissolving(uint16 netuid) external view returns (bool);
 
+    /**
+     * @dev Returns stable dissolution and cleanup state for a subnet.
+     *
+     * cleanupPhase is zero while cleanup has not started. Once cleanup is in
+     * progress, the append-only phase codes are:
+     * 1 root claimable dividends; 2 root claimed dividends;
+     * 3 calculate stake value; 4 settle stakes; 5 clear alpha;
+     * 6 clear hotkey totals; 7 clear stake locks; 8 clear decaying stake locks;
+     * 9 finish stake cleanup; 10 clear protocol liquidity;
+     * 11 purge subnet commitments; 12 clear network membership;
+     * 13 clear network parameters; 14 clear network maps;
+     * 15 update root weights; 16 clear childkey takes;
+     * 17 clear childkeys; 18 clear parentkeys;
+     * 19 clear last hotkey emissions; 20 clear last-epoch hotkey alpha;
+     * 21 clear transaction rate-limit records; 22 clear network locks;
+     * 23 clear decaying network locks.
+     */
+    function getSubnetDissolutionStatus(
+        uint16 netuid
+    )
+        external
+        view
+        returns (
+            bool isDissolving,
+            bool cleanupInProgress,
+            uint8 cleanupPhase
+        );
+
     function setLiquidAlphaEnabled(
         uint16 netuid,
         bool liquidAlphaEnabled
@@ -233,6 +269,8 @@ interface ISubnet {
         uint64 commitRevealWeightsInterval
     ) external payable;
 
+    function toggleTransfers(uint16 netuid, bool toggle) external payable;
+
     function setSubnetIdentity(
         uint16 netuid,
         string calldata subnetName,
@@ -263,4 +301,78 @@ interface ISubnet {
     ) external;
     function setTempo(uint16 netuid, uint16 tempo) external;
     function trimToMaxAllowedUids(uint16 netuid, uint16 maxUids) external;
+    function getSubnetMetadata(
+        uint16 netuid
+    )
+        external
+        view
+        returns (
+            bytes memory tokenSymbol,
+            bytes32 owner,
+            bytes32 ownerHotkey,
+            uint16 tempo,
+            uint8 recycleOrBurn
+        );
+    function getSubnetCapacityConfig(
+        uint16 netuid
+    )
+        external
+        view
+        returns (
+            uint16 minAllowedUids,
+            uint16 maxAllowedUids,
+            uint16 maxAllowedValidators,
+            uint16 adjustmentInterval,
+            uint16 targetRegistrationsPerInterval,
+            uint16 minNonImmuneUids,
+            uint16 immuneOwnerUidsLimit,
+            uint16 bondsPenalty,
+            bool ownerCutEnabled,
+            bool transfersEnabled,
+            uint16 maxRegistrationsPerBlock,
+            uint8 mechanismCount
+        );
+    function getMechanismEmissionSplit(
+        uint16 netuid
+    ) external view returns (bool exists, uint16[] memory split);
+    function getBurnConfig(
+        uint16 netuid
+    ) external view returns (uint16 halfLife, uint128 increaseMultiplier);
+    function getGlobalNetworkLimits()
+        external
+        view
+        returns (
+            uint16 minActivityCutoff,
+            uint16 adminFreezeWindow,
+            uint16 ownerHyperparamRateLimit,
+            uint64 dissolveScheduleDuration,
+            uint16 subnetLimit,
+            uint16 totalNetworks,
+            uint64 networkImmunityPeriod,
+            uint64 startCallDelay,
+            uint64 minNetworkLockCost,
+            uint64 lastNetworkLockCost,
+            uint64 networkLockReductionInterval,
+            uint16 subnetOwnerCut
+        );
+    function getGlobalRateLimits()
+        external
+        view
+        returns (
+            uint64 networkRateLimit,
+            uint64 weightsVersionKeyRateLimit,
+            uint64 transactionRateLimit,
+            uint64 delegateTakeRateLimit,
+            uint64 childkeyTakeRateLimit,
+            uint8 maxEpochsPerBlock
+        );
+    function getGlobalProtocolConfig()
+        external
+        view
+        returns (
+            uint8 maxMechanismCount,
+            uint16 commitRevealWeightsVersion,
+            uint64 networkRegistrationStartBlock,
+            uint64 taoInRefundDeploymentBlock
+        );
 }

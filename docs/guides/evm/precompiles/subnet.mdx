@@ -48,6 +48,7 @@ getMinDifficulty(uint16)
 getNetworkPowRegistrationAllowed(uint16)
 getNetworkRegistrationAllowed(uint16)
 getNetworkRegistrationBlock(uint16)
+getRegisteredSubnetCounter(uint16)
 getOwnerCutAutoLockEnabled(uint16)
 getRho(uint16)
 getServingRateLimit(uint16)
@@ -55,7 +56,60 @@ getWeightsSetRateLimit(uint16)
 getWeightsVersionKey(uint16)
 getYuma3Enabled(uint16)
 isSubnetDissolving(uint16)
+getSubnetDissolutionStatus(uint16)
+getSubnetMetadata(uint16)
+getSubnetCapacityConfig(uint16)
+getMechanismEmissionSplit(uint16)
+getBurnConfig(uint16)
+getGlobalNetworkLimits()
+getGlobalRateLimits()
+getGlobalProtocolConfig()
 ```
+
+The grouped configuration views return stable typed fields rather than raw
+storage encodings. Fixed-point burn multipliers are returned as raw `U64F64`
+bits.
+
+`getRegisteredSubnetCounter` returns a monotonic generation number for a
+netuid. It increments on every successful registration, allowing a contract to
+distinguish a reused netuid even when it did not retain the previous
+registration block.
+
+`getSubnetDissolutionStatus` returns `(isDissolving, cleanupInProgress,
+cleanupPhase)`. Phase `0` means that detailed cleanup has not started. Active
+cleanup uses stable, append-only phase codes:
+
+| Code | Cleanup work |
+|---:|---|
+| 1 | Root claimable dividends |
+| 2 | Root claimed dividends |
+| 3 | Calculate stake value |
+| 4 | Settle stakes |
+| 5 | Clear alpha |
+| 6 | Clear hotkey totals |
+| 7 | Clear stake locks |
+| 8 | Clear decaying stake locks |
+| 9 | Finish stake cleanup |
+| 10 | Clear protocol liquidity |
+| 11 | Purge subnet commitments |
+| 12 | Clear network membership |
+| 13 | Clear network parameters |
+| 14 | Clear network maps |
+| 15 | Update root weights |
+| 16 | Clear childkey takes |
+| 17 | Clear childkeys |
+| 18 | Clear parentkeys |
+| 19 | Clear last hotkey emissions |
+| 20 | Clear last-epoch hotkey alpha |
+| 21 | Clear transaction rate-limit records |
+| 22 | Clear network locks |
+| 23 | Clear decaying network locks |
+
+The runtime does not currently store a per-subnet future dissolution block.
+The authorized dissolution calls execute dissolution immediately, while the
+generic scheduler stores calls by agenda position rather than maintaining a
+typed netuid-to-dissolution lookup. Consequently, there is no truthful,
+bounded per-subnet scheduled-block view to expose.
 
 ## Configuration
 

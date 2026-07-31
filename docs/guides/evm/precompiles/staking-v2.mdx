@@ -45,6 +45,44 @@ getDefaultMinStake()
 
 These functions are `view`.
 
+## Relationship and ownership views
+
+```text
+getDelegate(bytes32)
+getChildkeyTake(bytes32,uint16)
+getPendingChildKeys(bytes32,uint16)
+getChildKeys(bytes32,uint16)
+getParentKeys(bytes32,uint16)
+getPendingChildKeyCooldown()
+getTakeLimits()
+getMinChildkeyTakePerSubnet(uint16)
+getHotkeyOwner(bytes32)
+getOwnedHotkeys(bytes32)
+getAutoStakeDestination(bytes32,uint16)
+getAutoStakeDestinationColdkeys(bytes32,uint16)
+getHotkeySuccessor(bytes32,uint16)
+getHotkeyRoot(bytes32,uint16)
+getColdkeySuccessor(bytes32)
+getColdkeyRoot(bytes32)
+getColdkeySwapStatus(bytes32)
+getColdkeySwapDelays()
+getLastHotkeySwapOnSubnet(bytes32,uint16)
+```
+
+Optional relationships return an explicit `exists` flag. Child and parent
+links return typed `(proportion, account)` entries.
+
+## Accounting and collateral views
+
+```text
+getStakeAccounting()
+getMinerCollateral(uint16,bytes32,bytes32)
+getColdkeyCollateral(uint16,bytes32)
+getCollateralConfig(uint16)
+```
+
+Fixed-point collateral ratios are returned as their raw `U64F64` bits.
+
 ## Locks and account policy
 
 ```text

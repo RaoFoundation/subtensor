@@ -172,14 +172,10 @@ where
     #[precompile::public("getTotalVotingPower(uint16)")]
     #[precompile::view]
     fn get_total_voting_power(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
-        let mut total: u64 = 0;
-        for (_, voting_power) in
-            pallet_subtensor::VotingPower::<R>::iter_prefix(NetUid::from(netuid))
-        {
-            handle.record_db_reads::<R>(1)?;
-            total = total.saturating_add(voting_power);
-        }
-        Ok(U256::from(total))
+        handle.record_db_reads::<R>(1)?;
+        Ok(U256::from(pallet_subtensor::TotalVotingPower::<R>::get(
+            NetUid::from(netuid),
+        )))
     }
 
     #[precompile::public("enableVotingPowerTracking(uint16)")]
@@ -311,6 +307,7 @@ mod tests {
             pallet_subtensor::VotingPowerTrackingEnabled::<Runtime>::insert(netuid, true);
             pallet_subtensor::VotingPower::<Runtime>::insert(netuid, &first_hotkey, 123_u64);
             pallet_subtensor::VotingPower::<Runtime>::insert(netuid, &second_hotkey, 456_u64);
+            pallet_subtensor::TotalVotingPower::<Runtime>::insert(netuid, 579_u64);
 
             assert_voting_power_call(
                 caller,

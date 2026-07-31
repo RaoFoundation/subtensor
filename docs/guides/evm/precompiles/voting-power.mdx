@@ -22,6 +22,11 @@ getVotingPowerEmaAlpha(uint16)
 getTotalVotingPower(uint16)
 ```
 
+`getTotalVotingPower` reads a maintained per-subnet aggregate. A one-time
+runtime migration initializes the aggregate from existing validator entries;
+normal epoch updates, removals, swaps, and tracking disablement keep it in
+sync without a precompile-side map scan.
+
 ## Added operations
 
 | Function | Source extrinsic |

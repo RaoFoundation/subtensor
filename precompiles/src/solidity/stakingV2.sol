@@ -625,4 +625,104 @@ interface IStaking {
         uint16 netuid,
         uint128 rawRatio
     ) external;
+
+    struct KeyLink {
+        uint64 proportion;
+        bytes32 account;
+    }
+
+    function getDelegate(bytes32 hotkey) external view returns (bool exists, uint16 take);
+    function getChildkeyTake(bytes32 hotkey, uint16 netuid) external view returns (uint16);
+    function getPendingChildKeys(
+        bytes32 parent,
+        uint16 netuid
+    ) external view returns (KeyLink[] memory children, uint64 cooldownBlock);
+    function getChildKeys(
+        bytes32 parent,
+        uint16 netuid
+    ) external view returns (KeyLink[] memory);
+    function getParentKeys(
+        bytes32 child,
+        uint16 netuid
+    ) external view returns (KeyLink[] memory);
+    function getPendingChildKeyCooldown() external view returns (uint64);
+    function getTakeLimits()
+        external
+        view
+        returns (
+            uint16 minDelegateTake,
+            uint16 maxDelegateTake,
+            uint16 minChildkeyTake,
+            uint16 maxChildkeyTake
+        );
+    function getMinChildkeyTakePerSubnet(uint16 netuid) external view returns (uint16);
+    function getHotkeyOwner(bytes32 hotkey) external view returns (bool exists, bytes32 owner);
+    function getOwnedHotkeys(bytes32 coldkey) external view returns (bytes32[] memory);
+    function getAutoStakeDestination(
+        bytes32 coldkey,
+        uint16 netuid
+    ) external view returns (bool exists, bytes32 hotkey);
+    function getAutoStakeDestinationColdkeys(
+        bytes32 hotkey,
+        uint16 netuid
+    ) external view returns (bytes32[] memory);
+    function getHotkeySuccessor(
+        bytes32 hotkey,
+        uint16 netuid
+    ) external view returns (bool exists, bytes32 successor);
+    function getHotkeyRoot(
+        bytes32 hotkey,
+        uint16 netuid
+    ) external view returns (bool exists, bytes32 root);
+    function getColdkeySuccessor(
+        bytes32 coldkey
+    ) external view returns (bool exists, bytes32 successor);
+    function getColdkeyRoot(
+        bytes32 coldkey
+    ) external view returns (bool exists, bytes32 root);
+    function getColdkeySwapStatus(
+        bytes32 coldkey
+    )
+        external
+        view
+        returns (
+            bool hasAnnouncement,
+            uint64 announcementBlock,
+            bytes32 callHash,
+            bool hasDispute,
+            uint64 disputeBlock
+        );
+    function getColdkeySwapDelays()
+        external
+        view
+        returns (uint64 announcementDelay, uint64 reannouncementDelay);
+    function getLastHotkeySwapOnSubnet(
+        bytes32 coldkey,
+        uint16 netuid
+    ) external view returns (uint64);
+    function getStakeAccounting()
+        external
+        view
+        returns (uint64 totalIssuance, uint64 totalStake);
+    function getMinerCollateral(
+        uint16 netuid,
+        bytes32 hotkey,
+        bytes32 coldkey
+    )
+        external
+        view
+        returns (
+            bool exists,
+            uint64 locked,
+            uint128 drainRatio,
+            uint64 minLocked,
+            uint64 earned
+        );
+    function getColdkeyCollateral(
+        uint16 netuid,
+        bytes32 coldkey
+    ) external view returns (uint64 locked, bytes32[] memory hotkeys);
+    function getCollateralConfig(
+        uint16 netuid
+    ) external view returns (uint16 lockShare, uint128 drainRatio);
 }
