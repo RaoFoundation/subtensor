@@ -113,6 +113,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
+    runtime_configuration::ProxyBalanceOf<R>: Into<U256>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     fn default() -> Self {
@@ -157,6 +158,7 @@ where
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
+    runtime_configuration::ProxyBalanceOf<R>: Into<U256>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     pub fn new() -> Self {
@@ -241,6 +243,7 @@ where
         From<Option<pallet_evm::AccountIdOf<R>>>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
+    runtime_configuration::ProxyBalanceOf<R>: Into<U256>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
@@ -457,7 +460,36 @@ mod address_and_selector_tests {
                 "missing Timestamp selector {signature}"
             );
         }
-        for signature in ["getEvmChainId()", "getTransactionRateLimit()"] {
+        let runtime_configuration_signatures = [
+            "getEvmChainId()",
+            "getTransactionRateLimit()",
+            "getSubtensorEconomicConstants()",
+            "getSubtensorSubnetConstants()",
+            "getSubtensorConsensusConstants()",
+            "getSubtensorRegistrationConstants()",
+            "getSubtensorDelegationConstants()",
+            "getSubtensorRateLimitConstants()",
+            "getSubtensorProtocolConstants()",
+            "getSubtensorSystemAccounts()",
+            "getBalancesConstants()",
+            "getProxyConstants()",
+            "getSchedulerConstants()",
+            "getDrandConstants()",
+            "getCrowdloanConstants()",
+            "getSwapConstants()",
+            "getTimestampConstants()",
+            "getAdminConstants()",
+        ];
+        assert_eq!(
+            runtime_configuration_signatures.len(),
+            runtime_configuration_signatures
+                .iter()
+                .map(|signature| selector_u32(signature))
+                .collect::<BTreeSet<_>>()
+                .len(),
+            "runtime-configuration selectors collide"
+        );
+        for signature in runtime_configuration_signatures {
             assert!(
                 runtime_configuration::RuntimeConfigurationPrecompileCall::<Runtime>::supports_selector(
                     selector_u32(signature)
