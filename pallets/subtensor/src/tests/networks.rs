@@ -3,6 +3,7 @@
 use super::mock::*;
 use crate::migrations::migrate_network_immunity_period;
 use crate::staking::lock::LockState;
+use crate::subnets::subnet::RefusalWindow;
 use crate::*;
 use frame_support::{
     assert_err, assert_noop, assert_ok, traits::Currency, weights::Weight, weights::WeightMeter,
@@ -1676,6 +1677,7 @@ fn the_owner_pays_no_more_than_the_challenger_committed() {
         let (low, high, low_cold, registrant) = refusal_setup(4010);
 
         assert_ok!(register_from(registrant, 4015));
+        let offer = SubnetRefusalWindow::<Test>::get(low).unwrap().offer;
         let balance_before = SubtensorModule::get_coldkey_balance(&low_cold);
         let issuance_before = TotalIssuance::<Test>::get();
 
@@ -1684,13 +1686,19 @@ fn the_owner_pays_no_more_than_the_challenger_committed() {
             low
         ));
 
-        // The challenger keeps their place in line; only the challenge is over.
-        let queue = NetworkRegistrationQueue::<Test>::get();
+        // The owner pays the challenger's own figure, and it is burned rather than banked.
         let paid = balance_before.saturating_sub(SubtensorModule::get_coldkey_balance(&low_cold));
-        assert_eq!(paid, queue[0].lock_amount.into());
+        assert_eq!(paid, offer.into());
         assert_eq!(
             issuance_before.saturating_sub(TotalIssuance::<Test>::get()),
-            queue[0].lock_amount
+            offer
+        );
+
+        // The refused challenger is out of the queue with their lock released.
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert_eq!(
+            Balances::usable_balance(registrant),
+            Balances::free_balance(registrant)
         );
 
         assert!(NetworksAdded::<Test>::get(low));
@@ -1759,24 +1767,31 @@ fn an_unanswered_window_lapses_and_the_slot_is_taken() {
     });
 }
 
-/// One challenge stands against a given subnet at a time.
+/// One challenge stands chain-wide at a time, not one per subnet.
 ///
 /// A second registration arriving while an owner is deciding is refused outright rather than
 /// queued behind the first. Queueing it would grow `NetworkRegistrationQueue` with no teardown
-/// coming to drain it, and every registration on the chain decodes that queue. This is what holds
-/// a subnet to a single queued challenger, so it is a chain-availability rule and not a nicety.
-/// What bounds the queue overall is a separate argument, covered by
-/// `challenges_cannot_grow_the_queue_past_the_evictable_pool`.
+/// coming to drain it, and every registration on the chain decodes that queue, so this is a
+/// chain-availability rule.
+///
+/// The scope is the part worth pinning: `get_network_to_prune` names one candidate, and a live
+/// window on that candidate refuses rather than falling through to the next-cheapest subnet. The
+/// other subnet here is evictable and unchallenged, and the second registration is still turned
+/// away, so the challenge path holds at most one queue entry at any moment.
 ///
 /// The owner also still answers the one figure they were shown, since the recorded offer is left
 /// alone.
 #[test]
 fn a_second_challenge_inside_the_window_is_refused_rather_than_queued() {
     new_test_ext(0).execute_with(|| {
-        let (low, _high, _low_cold, registrant) = refusal_setup(4040);
+        let (low, high, _low_cold, registrant) = refusal_setup(4040);
 
         assert_ok!(register_from(registrant, 4045));
         let first_window = SubnetRefusalWindow::<Test>::get(low).unwrap();
+
+        // The other subnet is a live eviction candidate with nothing standing on it.
+        assert!(NetworksAdded::<Test>::get(high));
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(high));
 
         System::set_block_number(System::block_number().saturating_add(10));
         assert_noop!(
@@ -1784,21 +1799,26 @@ fn a_second_challenge_inside_the_window_is_refused_rather_than_queued() {
             Error::<Test>::SubnetChallengeInProgress
         );
 
+        // Refused, not redirected: no window opened on the unchallenged subnet either.
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(high));
         assert_eq!(SubnetRefusalWindow::<Test>::get(low).unwrap(), first_window);
         assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
     });
 }
 
-/// What actually bounds the queue.
+/// What bounds the queue.
 ///
 /// A challenge is the one path that appends to `NetworkRegistrationQueue` without dissolving
 /// anything, so the "every entry is paid for by a teardown" argument that bounds the unchallenged
-/// path does not cover it. The bound instead comes from the eviction pool shrinking: answering a
-/// challenge makes that subnet immune, so it stops being a candidate. Once nothing is evictable
-/// `get_network_to_prune` yields `None` and registrations are refused outright, which is where the
-/// queue stops rather than growing for a transaction fee.
+/// path does not cover it. Answering refunds and dequeues the challenger, so the append is undone
+/// by the same call that ends the challenge and the queue is back where it started. Answering also
+/// makes the subnet immune, so it leaves the eviction pool; once nothing is evictable
+/// `get_network_to_prune` yields `None` and registrations are refused outright rather than queued.
+///
+/// `matched_challengers_do_not_accumulate_across_immunity_cycles` covers the same property once
+/// the bought immunity has lapsed and the subnet is back in the pool.
 #[test]
-fn challenges_cannot_grow_the_queue_past_the_evictable_pool() {
+fn challenges_cannot_grow_the_queue() {
     new_test_ext(0).execute_with(|| {
         let (low, high, low_cold, registrant) = refusal_setup(4090);
 
@@ -1814,7 +1834,7 @@ fn challenges_cannot_grow_the_queue_past_the_evictable_pool() {
             RuntimeOrigin::signed(low_cold),
             low
         ));
-        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
 
         // Only the other subnet is left to challenge, and its owner answers too.
         assert_ok!(register_from(registrant, 4096));
@@ -1823,7 +1843,7 @@ fn challenges_cannot_grow_the_queue_past_the_evictable_pool() {
             RuntimeOrigin::signed(high_cold),
             high
         ));
-        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 2);
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
 
         // The pool is empty, so the next registration is turned away instead of queued.
         assert_eq!(SubtensorModule::get_network_to_prune(), None);
@@ -1831,7 +1851,7 @@ fn challenges_cannot_grow_the_queue_past_the_evictable_pool() {
             register_from(registrant, 4097),
             Error::<Test>::SubnetLimitReached
         );
-        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 2);
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
     });
 }
 
@@ -1943,9 +1963,13 @@ fn serving_an_old_queued_registration_does_not_lower_the_lock_cost() {
         ));
         assert_eq!(SubtensorModule::get_network_last_lock(), offer);
 
-        // The queued challenger is now served from a slot that came free. Raising the limit stands
-        // in for the dissolution that would have freed one; what is under test is the price the
-        // serving writes back, not the slot accounting that got it there.
+        // That challenger was refunded and dequeued, so the entry under test is the next one: a
+        // second registration, which lands on the other subnet now that `low` is immune.
+        assert_ok!(register_from(registrant, 4046));
+
+        // It is served from a slot that came free. Raising the limit stands in for the dissolution
+        // that would have freed one; what is under test is the price the serving writes back, not
+        // the slot accounting that got it there.
         SubnetLimit::<Test>::put(3u16);
 
         // The market moves further up while the entry waits, so the figure it locked is now stale.
@@ -1953,7 +1977,10 @@ fn serving_an_old_queued_registration_does_not_lower_the_lock_cost() {
         SubtensorModule::set_network_last_lock(market);
 
         let queued = NetworkRegistrationQueue::<Test>::get();
-        let entry = queued.first().expect("challenger is still queued").clone();
+        let entry = queued
+            .first()
+            .expect("the second challenger is queued")
+            .clone();
         assert!(entry.lock_amount < market);
 
         assert_ok!(SubtensorModule::set_new_network_state(
@@ -4579,5 +4606,134 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
             .expect("queued registration should create a new subnet");
         assert_eq!(SubnetOwner::<Test>::get(new_netuid), cold);
         assert_eq!(SubnetLocked::<Test>::get(new_netuid), queued_lock);
+    });
+}
+
+/// Queue depth is not a function of elapsed time.
+///
+/// Immunity bought by answering a challenge does lapse, and the subnet then returns to the
+/// eviction pool and can be challenged again. Were a matched challenger left queued, one subnet
+/// would add an entry every cycle forever, and nothing in the eviction pool would bound a list
+/// that every registration on the chain decodes. Dequeueing on match is what stops that.
+#[test]
+fn matched_challengers_do_not_accumulate_across_immunity_cycles() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4200);
+
+        let big = SubtensorModule::get_network_lock_cost().saturating_mul(10_000.into());
+        add_balance_to_coldkey_account(&low_cold, big.into());
+        add_balance_to_coldkey_account(&registrant, big.into());
+        TotalIssuance::<Test>::mutate(|t| *t = t.saturating_add(big.saturating_mul(2.into())));
+
+        // Two subnets exist, so the evictable pool is never larger than two.
+        for cycle in 0..4u64 {
+            assert_eq!(SubtensorModule::get_network_to_prune(), Some(low));
+            assert_ok!(register_from(registrant, 4300u64.saturating_add(cycle)));
+            assert_ok!(SubtensorModule::exercise_first_refusal(
+                RuntimeOrigin::signed(low_cold),
+                low
+            ));
+            assert!(
+                NetworkRegistrationQueue::<Test>::get().is_empty(),
+                "cycle {cycle}: the answered challenger was refunded and dequeued"
+            );
+            System::set_block_number(NetworkImmuneUntil::<Test>::get(low).saturating_add(1));
+        }
+    });
+}
+
+/// Guards the benchmark fixture: a window with no challenger behind it does not prune.
+///
+/// `refusal_state` tests challenger presence before expiry, so a window whose `challenger_lock_id`
+/// is absent from `NetworkRegistrationQueue` resolves to `Unchallenged` rather than `Lapsed`, and
+/// the registration opens a fresh window instead of pruning. `register_network_pruning` used to
+/// build exactly that state and so measured the wrong branch, and its old
+/// `assert!(!queue.is_empty())` passed on both, which is why it went unnoticed. `fill_subnets` now
+/// queues the matching entry; this pins the behavior that made the omission matter.
+#[test]
+fn a_window_with_no_queued_challenger_opens_afresh_instead_of_pruning() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, _low_cold, registrant) = refusal_setup(4400);
+
+        // exactly what benchmarks::helpers::lapsed_refusal_window() writes
+        SubnetRefusalWindow::<Test>::insert(
+            low,
+            RefusalWindow {
+                offer: TaoBalance::from(0u64),
+                expires_at: 0,
+                challenger_lock_id: 0,
+                immunity_period: 0,
+            },
+        );
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+
+        assert_ok!(register_from(registrant, 4500));
+
+        // the benchmark's assertion -- passes either way
+        assert!(!NetworkRegistrationQueue::<Test>::get().is_empty());
+
+        // but nothing was pruned
+        assert!(
+            DissolveCleanupQueue::<Test>::get().is_empty(),
+            "no teardown was started, so the prune branch never ran"
+        );
+        let fresh = SubnetRefusalWindow::<Test>::get(low).expect("a fresh window was opened");
+        assert!(
+            fresh.expires_at > 0,
+            "the fixture's lapsed window (expires_at 0) was replaced by a live one, \
+             so the registration opened a window rather than pruning"
+        );
+    });
+}
+
+/// Documents pre-existing base behavior. This PR neither introduces it nor relies on it, and the
+/// test is here because the collateral behind a queued registration is what an owner is deciding
+/// against. Reported separately rather than patched here.
+///
+/// Registration collateral uses `LockableCurrency::set_lock` under a per-lock-id identifier, and
+/// Substrate locks overlap rather than stack. `lock_network_registration_cost` guards with
+/// `can_remove_balance_from_coldkey_account`, which nets out already-frozen funds, so a coldkey
+/// cannot open a second lock for its whole balance. It CAN open two locks of unequal size: the
+/// pair freezes max(a, b) while promising a + b, leaving the difference spendable.
+#[test]
+fn unequal_registration_locks_freeze_max_not_sum() {
+    new_test_ext(0).execute_with(|| {
+        let coldkey = U256::from(9001u64);
+        let big: u64 = 100_000_000_000;
+        let small: u64 = 50_000_000_000;
+        add_balance_to_coldkey_account(&coldkey, big.saturating_add(small).into());
+
+        assert_ok!(SubtensorModule::lock_network_registration_cost(
+            &coldkey,
+            big.into(),
+            0
+        ));
+        // The guard rejects a second lock for the full balance -- overlap is not freely exploitable.
+        assert_err!(
+            SubtensorModule::lock_network_registration_cost(&coldkey, big.into(), 1),
+            Error::<Test>::InsufficientTaoBalance
+        );
+        // But an unequal second lock fits inside what the first one left reducible.
+        assert_ok!(SubtensorModule::lock_network_registration_cost(
+            &coldkey,
+            small.into(),
+            1
+        ));
+
+        let free: u64 = Balances::free_balance(coldkey).into();
+        let usable: u64 = Balances::usable_balance(coldkey).into();
+        let frozen = free.saturating_sub(usable);
+
+        assert_eq!(
+            frozen,
+            big,
+            "two locks promising {} freeze only max(a, b) = {}",
+            big.saturating_add(small),
+            big
+        );
+        assert_eq!(
+            usable, small,
+            "the {small} difference stays spendable while still promised to a queued offer"
+        );
     });
 }

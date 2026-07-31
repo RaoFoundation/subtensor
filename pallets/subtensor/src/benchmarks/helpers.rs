@@ -15,16 +15,27 @@ pub(super) fn set_reserves<T: Config>(
     SubnetAlphaIn::<T>::insert(netuid, alpha_in);
 }
 
+/// The lock held by the challenger behind every window `fill_subnets` stamps.
+///
+/// Nonzero so it cannot collide with the id `NetworkRegistrationLockId` hands the registration
+/// under measurement, which would put two entries in the queue under one lock.
+pub(super) const LAPSED_CHALLENGER_LOCK_ID: u32 = 1;
+
 /// A refusal window that closed at block zero, so the candidate is evictable at any later block.
 ///
 /// The at-limit benchmark uses this because clearing a lapsed window and then evicting is the
 /// heaviest way step 5 can go. Opening a fresh window instead does strictly less work, and being
 /// refused for a live one does less still.
+///
+/// A window is only lapsed while its challenger is still queued: `refusal_state` tests challenger
+/// presence first, so a window naming a lock id absent from `NetworkRegistrationQueue` reports as
+/// `Unchallenged` and the registration opens a fresh window rather than pruning. `fill_subnets`
+/// therefore queues the matching entry, and without it this fixture measures the wrong branch.
 pub(super) fn lapsed_refusal_window() -> RefusalWindow {
     RefusalWindow {
         offer: TaoBalance::from(0u64),
         expires_at: 0,
-        challenger_lock_id: 0,
+        challenger_lock_id: LAPSED_CHALLENGER_LOCK_ID,
         immunity_period: 0,
     }
 }
@@ -96,6 +107,36 @@ pub(super) fn fill_subnets<T: Config>(owner: &T::AccountId, subnets: u16) {
         );
         SubnetRefusalWindow::<T>::insert(netuid, lapsed_refusal_window());
     }
+
+    // Queue depth is measured at one entry per subnet slot. That is not the challenge path, which
+    // holds at most one entry at a time because only one window is ever open chain-wide; it is the
+    // `wait_to_cleanup` path, where registrations queue behind dissolutions already in flight and
+    // `DissolveCleanupQueue` has no bound of its own. Every entry carries a maximum identity
+    // because the whole queue is decoded and written back when the registration under measurement
+    // is pushed. `LAPSED_CHALLENGER_LOCK_ID` goes last, the worst case for the scan that resolves
+    // the window.
+    let mut queued: Vec<NetworkRegistrationInfo<T::AccountId>> = (0..subnets)
+        .map(|index| NetworkRegistrationInfo::<T::AccountId> {
+            coldkey: account("QueuedChallenger", 0, u32::from(index)),
+            hotkey: account("QueuedChallengerHotkey", 0, u32::from(index)),
+            mechid: 1,
+            identity: Some(max_subnet_identity()),
+            lock_amount: TaoBalance::from(0u64),
+            median_subnet_alpha_price: U64F64::saturating_from_num(1),
+            registration_block: 0,
+            lock_id: LAPSED_CHALLENGER_LOCK_ID
+                .saturating_add(u32::from(index))
+                .saturating_add(1),
+        })
+        .collect();
+    if let Some(last) = queued.last_mut() {
+        last.lock_id = LAPSED_CHALLENGER_LOCK_ID;
+    }
+    let next_lock_id = LAPSED_CHALLENGER_LOCK_ID
+        .saturating_add(u32::from(subnets))
+        .saturating_add(1);
+    NetworkRegistrationQueue::<T>::set(queued);
+    NetworkRegistrationLockId::<T>::set(next_lock_id);
 
     let price = Subtensor::<T>::get_network_lock_cost();
     add_balance_to_coldkey_account::<T>(owner, price.saturating_mul(2.into()));

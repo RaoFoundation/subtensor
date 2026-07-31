@@ -2539,6 +2539,10 @@ mod dispatches {
         /// a challenger just signed a transaction to pay for the same slot. Answering moves
         /// `NetworkLastLockCost` exactly as a completed registration does.
         ///
+        /// The challenger is dequeued and their lock returned. Their offer was refused, which is
+        /// the whole of what this call decides, and it is what keeps `NetworkRegistrationQueue`
+        /// from carrying past challengers forward into the next immunity cycle.
+        ///
         /// # Arguments
         /// * `origin`: Signed by the subnet's owner coldkey.
         /// * `netuid`: The subnet to keep.
@@ -2552,7 +2556,8 @@ mod dispatches {
         ///   existential deposit.
         ///
         /// # Events
-        /// Emits `SubnetFirstRefusalExercised`.
+        /// Emits `NetworkRegistrationCancelled` for the refunded challenger, then
+        /// `SubnetFirstRefusalExercised`.
         #[pallet::call_index(146)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::exercise_first_refusal())]
         pub fn exercise_first_refusal(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
@@ -2565,6 +2570,11 @@ mod dispatches {
         /// with its lock cost locked rather than spent, and is served when a slot reaches it. This
         /// call is the way back out. It removes the entry and releases the lock, so a registrant
         /// who no longer wants to wait is not holding funds against a slot indefinitely.
+        ///
+        /// Answering a challenge refunds that challenger without this call. The case this covers is
+        /// a window nobody resolves: expiry is lazy, so a lapsed window is acted on by the next
+        /// registration to reach the limit, and a queued entry is served only once a slot is free.
+        /// Absent further registrations, nothing block-driven releases the lock.
         ///
         /// `lock_id` identifies which registration, since one coldkey can hold several. It is the
         /// `lock_id` field of the entry in `NetworkRegistrationQueue`.

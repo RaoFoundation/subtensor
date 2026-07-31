@@ -248,9 +248,13 @@ impl<T: Config> Pallet<T> {
                     }
                     // A second challenger is refused, not queued behind the first, because
                     // `NetworkRegistrationQueue` is unbounded, decoded by every registration, and
-                    // has no teardown in flight to drain it while a window stands. One subnet
-                    // therefore holds at most one challenger, and since answering and lapsing both
-                    // take a subnet out of the eviction pool, the queue stays bounded overall.
+                    // has no teardown in flight to drain it while a window stands.
+                    //
+                    // `get_network_to_prune` names one candidate and this arm refuses rather than
+                    // falling through to the next, so at most one window is open chain-wide and
+                    // the challenge path contributes at most one queue entry at a time. Answering
+                    // removes that entry and lapsing hands it the slot, so a challenge adds
+                    // nothing that outlives the window it opened.
                     RefusalState::Live => {
                         return Err(Error::<T>::SubnetChallengeInProgress.into());
                     }
@@ -365,10 +369,10 @@ impl<T: Config> Pallet<T> {
         // If the challenger has left the queue, whether served from some other slot that came free
         // or withdrawn, nothing is threatening this subnet, so the owner is stopped from burning
         // the offer for immunity nobody was contesting.
-        ensure!(
-            Self::challenger_is_queued(window.challenger_lock_id),
-            Error::<T>::NoChallengeToAnswer
-        );
+        let challenger = NetworkRegistrationQueue::<T>::get()
+            .into_iter()
+            .find(|entry| entry.lock_id == window.challenger_lock_id)
+            .ok_or(Error::<T>::NoChallengeToAnswer)?;
 
         let offer = window.offer;
 
@@ -379,11 +383,19 @@ impl<T: Config> Pallet<T> {
         // balance against the existential deposit.
         Self::recycle_tao(&coldkey, offer.into())?;
 
-        // Only the window is cleared. The challenger's registration was for a slot, not for this
-        // subnet, so matching the offer ends the challenge and leaves them queued for the next slot
-        // to come free, at the price they locked. `cancel_network_registration` is theirs to call
-        // if they would rather have the lock back than the place in line.
+        // The challenger is refunded and dequeued. Their offer was refused, which is the whole of
+        // what a right of first refusal decides, so they are not left holding a place in line at a
+        // price that was just beaten.
+        //
+        // This is also what bounds the queue. A challenge is the one path that appends without a
+        // teardown to drain it; leaving a matched challenger queued would let entries accumulate
+        // across immunity cycles, since the immunity the owner bought lapses and the same subnet
+        // returns to the eviction pool with every past challenger still on the list.
         SubnetRefusalWindow::<T>::remove(netuid);
+        NetworkRegistrationQueue::<T>::mutate(|queue| {
+            queue.retain(|entry| entry.lock_id != window.challenger_lock_id);
+        });
+        Self::unlock_network_registration_cost(&challenger.coldkey, window.challenger_lock_id)?;
         // The immunity promised when the window opened, not whatever the parameter says now.
         NetworkImmuneUntil::<T>::insert(
             netuid,
@@ -401,6 +413,12 @@ impl<T: Config> Pallet<T> {
         Self::set_network_last_lock(offer.max(Self::get_network_last_lock()));
         Self::set_network_last_lock_block(current_block);
 
+        Self::deposit_event(Event::NetworkRegistrationCancelled {
+            coldkey: challenger.coldkey,
+            hotkey: challenger.hotkey,
+            lock_amount: challenger.lock_amount,
+            lock_id: window.challenger_lock_id,
+        });
         Self::deposit_event(Event::SubnetFirstRefusalExercised {
             netuid,
             owner: coldkey,
@@ -432,6 +450,12 @@ impl<T: Config> Pallet<T> {
         // queue, so a window whose challenger has gone reports as unchallenged and is cleared by
         // the next registration to look at it. Withdrawing an offer retracts the threat behind it;
         // it does not evict the subnet the offer was aimed at.
+        //
+        // An answered challenge refunds the challenger without this call. What it covers is the
+        // other end: a window that lapses is resolved by the next registration to reach the limit,
+        // and `process_network_registration_queue` can only serve an entry once a slot is actually
+        // free. If no further registration arrives, the entry waits with its TAO locked and no
+        // block-driven path releases it.
         Self::deposit_event(Event::NetworkRegistrationCancelled {
             coldkey,
             hotkey: info.hotkey,
@@ -450,10 +474,6 @@ impl<T: Config> Pallet<T> {
         lock_id: u32,
     ) -> bool {
         queue.iter().any(|entry| entry.lock_id == lock_id)
-    }
-
-    fn challenger_is_queued(lock_id: u32) -> bool {
-        Self::challenger_is_queued_in(&NetworkRegistrationQueue::<T>::get(), lock_id)
     }
 
     /// Where the candidate stands: nobody challenging it, a live challenge the owner may answer,

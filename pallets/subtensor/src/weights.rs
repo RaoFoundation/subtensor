@@ -43,6 +43,7 @@ pub trait WeightInfo {
 	fn serve_prometheus() -> Weight;
 	fn burned_register() -> Weight;
 	fn root_register() -> Weight;
+
 	fn register_network() -> Weight;
 	fn register_network_pruning() -> Weight;
 	fn commit_weights() -> Weight;
@@ -597,6 +598,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(219_u64))
 			.saturating_add(T::DbWeight::get().writes(88_u64))
 	}
+
 	/// Storage: `SubtensorModule::Owner` (r:1 w:1)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkRegistrationStartBlock` (r:1 w:0)
@@ -715,10 +717,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::MaxAllowedUids` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_network() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `8028`
-		//  Estimated: `328293`
-		// Minimum execution time: 3_510_666_000 picoseconds.
-		Weight::from_parts(3_749_630_000, 328293)
+		//  Measured:  `868501`
+		//  Estimated: `1188766`
+		// Minimum execution time: 3_154_777_000 picoseconds.
+		Weight::from_parts(3_261_104_000, 1188766)
 			.saturating_add(T::DbWeight::get().reads(671_u64))
 			.saturating_add(T::DbWeight::get().writes(49_u64))
 	}
@@ -738,14 +740,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::DissolveCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkRegistrationQueue` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworkRegistrationQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::NetworkRegisteredAt` (r:128 w:0)
-	/// Proof: `SubtensorModule::NetworkRegisteredAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::NetworkImmunityPeriod` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworkImmunityPeriod` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetMechanism` (r:128 w:0)
-	/// Proof: `SubtensorModule::SubnetMechanism` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetMovingPrice` (r:128 w:0)
-	/// Proof: `SubtensorModule::SubnetMovingPrice` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkLastLockCost` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworkLastLockCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkMinLockCost` (r:1 w:0)
@@ -754,6 +748,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::NetworkLockReductionInterval` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalIssuance` (r:1 w:0)
 	/// Proof: `SubtensorModule::TotalIssuance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkRegisteredAt` (r:128 w:0)
+	/// Proof: `SubtensorModule::NetworkRegisteredAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkImmunityPeriod` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworkImmunityPeriod` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkImmuneUntil` (r:128 w:0)
+	/// Proof: `SubtensorModule::NetworkImmuneUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetMechanism` (r:128 w:0)
+	/// Proof: `SubtensorModule::SubnetMechanism` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetMovingPrice` (r:128 w:0)
+	/// Proof: `SubtensorModule::SubnetMovingPrice` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetRefusalWindow` (r:1 w:1)
+	/// Proof: `SubtensorModule::SubnetRefusalWindow` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `Swap::BalancerTaoReservoir` (r:1 w:1)
@@ -778,10 +784,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	fn register_network_pruning() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `11314`
-		//  Estimated: `334054`
-		// Minimum execution time: 4_355_915_000 picoseconds.
-		Weight::from_parts(4_733_135_000, 334054)
+		//  Measured:  `878562`
+		//  Estimated: `1201302`
+		// Minimum execution time: 5_461_229_000 picoseconds.
+		Weight::from_parts(5_821_408_000, 1201302)
 			.saturating_add(T::DbWeight::get().reads(1045_u64))
 			.saturating_add(T::DbWeight::get().writes(11_u64))
 	}
@@ -1921,24 +1927,30 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetRefusalWindow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetRefusalWindow` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkRegistrationQueue` (r:1 w:1)
+	/// Proof: `SubtensorModule::NetworkRegistrationQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalIssuance` (r:1 w:1)
 	/// Proof: `SubtensorModule::TotalIssuance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::NetworkImmunityPeriod` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworkImmunityPeriod` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Balances::Locks` (r:1 w:1)
+	/// Proof: `Balances::Locks` (`max_values`: None, `max_size`: Some(899), added: 3374, mode: `MaxEncodedLen`)
+	/// Storage: `Balances::Freezes` (r:1 w:0)
+	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(499), added: 2974, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::NetworkLastLockCost` (r:1 w:1)
+	/// Proof: `SubtensorModule::NetworkLastLockCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:0 w:1)
 	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::NetworkLastLockCost` (r:0 w:1)
-	/// Proof: `SubtensorModule::NetworkLastLockCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkImmuneUntil` (r:0 w:1)
 	/// Proof: `SubtensorModule::NetworkImmuneUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn exercise_first_refusal() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `875042`
-		//  Estimated: `878507`
-		// Minimum execution time: 791_340_000 picoseconds.
-		Weight::from_parts(845_149_000, 878507)
-			.saturating_add(T::DbWeight::get().reads(6_u64))
-			.saturating_add(T::DbWeight::get().writes(5_u64))
+		//  Measured:  `875174`
+		//  Estimated: `878639`
+		// Minimum execution time: 2_319_516_000 picoseconds.
+		Weight::from_parts(2_385_148_000, 878639)
+			.saturating_add(T::DbWeight::get().reads(9_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
 	}
 	/// Storage: `SubtensorModule::NetworkRegistrationQueue` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworkRegistrationQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -1950,8 +1962,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `874625`
 		//  Estimated: `876110`
-		// Minimum execution time: 1_321_376_000 picoseconds.
-		Weight::from_parts(1_383_951_000, 876110)
+		// Minimum execution time: 1_746_913_000 picoseconds.
+		Weight::from_parts(1_914_373_000, 876110)
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
@@ -4322,6 +4334,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(219_u64))
 			.saturating_add(RocksDbWeight::get().writes(88_u64))
 	}
+
 	/// Storage: `SubtensorModule::Owner` (r:1 w:1)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkRegistrationStartBlock` (r:1 w:0)
@@ -4440,10 +4453,10 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::MaxAllowedUids` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_network() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `8028`
-		//  Estimated: `328293`
-		// Minimum execution time: 3_510_666_000 picoseconds.
-		Weight::from_parts(3_749_630_000, 328293)
+		//  Measured:  `868501`
+		//  Estimated: `1188766`
+		// Minimum execution time: 3_154_777_000 picoseconds.
+		Weight::from_parts(3_261_104_000, 1188766)
 			.saturating_add(RocksDbWeight::get().reads(671_u64))
 			.saturating_add(RocksDbWeight::get().writes(49_u64))
 	}
@@ -4463,14 +4476,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::DissolveCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkRegistrationQueue` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworkRegistrationQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::NetworkRegisteredAt` (r:128 w:0)
-	/// Proof: `SubtensorModule::NetworkRegisteredAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::NetworkImmunityPeriod` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworkImmunityPeriod` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetMechanism` (r:128 w:0)
-	/// Proof: `SubtensorModule::SubnetMechanism` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetMovingPrice` (r:128 w:0)
-	/// Proof: `SubtensorModule::SubnetMovingPrice` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkLastLockCost` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworkLastLockCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkMinLockCost` (r:1 w:0)
@@ -4479,6 +4484,18 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::NetworkLockReductionInterval` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalIssuance` (r:1 w:0)
 	/// Proof: `SubtensorModule::TotalIssuance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkRegisteredAt` (r:128 w:0)
+	/// Proof: `SubtensorModule::NetworkRegisteredAt` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkImmunityPeriod` (r:1 w:0)
+	/// Proof: `SubtensorModule::NetworkImmunityPeriod` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkImmuneUntil` (r:128 w:0)
+	/// Proof: `SubtensorModule::NetworkImmuneUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetMechanism` (r:128 w:0)
+	/// Proof: `SubtensorModule::SubnetMechanism` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetMovingPrice` (r:128 w:0)
+	/// Proof: `SubtensorModule::SubnetMovingPrice` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetRefusalWindow` (r:1 w:1)
+	/// Proof: `SubtensorModule::SubnetRefusalWindow` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `Swap::BalancerTaoReservoir` (r:1 w:1)
@@ -4503,10 +4520,10 @@ impl WeightInfo for () {
 	/// Proof: `Swap::SwapBalancer` (`max_values`: None, `max_size`: Some(18), added: 2493, mode: `MaxEncodedLen`)
 	fn register_network_pruning() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `11314`
-		//  Estimated: `334054`
-		// Minimum execution time: 4_355_915_000 picoseconds.
-		Weight::from_parts(4_733_135_000, 334054)
+		//  Measured:  `878562`
+		//  Estimated: `1201302`
+		// Minimum execution time: 5_461_229_000 picoseconds.
+		Weight::from_parts(5_821_408_000, 1201302)
 			.saturating_add(RocksDbWeight::get().reads(1045_u64))
 			.saturating_add(RocksDbWeight::get().writes(11_u64))
 	}
@@ -5646,24 +5663,30 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetRefusalWindow` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetRefusalWindow` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::NetworkRegistrationQueue` (r:1 w:1)
+	/// Proof: `SubtensorModule::NetworkRegistrationQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::TotalIssuance` (r:1 w:1)
 	/// Proof: `SubtensorModule::TotalIssuance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::NetworkImmunityPeriod` (r:1 w:0)
-	/// Proof: `SubtensorModule::NetworkImmunityPeriod` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Balances::Locks` (r:1 w:1)
+	/// Proof: `Balances::Locks` (`max_values`: None, `max_size`: Some(899), added: 3374, mode: `MaxEncodedLen`)
+	/// Storage: `Balances::Freezes` (r:1 w:0)
+	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(499), added: 2974, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
+	/// Storage: `SubtensorModule::NetworkLastLockCost` (r:1 w:1)
+	/// Proof: `SubtensorModule::NetworkLastLockCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:0 w:1)
 	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::NetworkLastLockCost` (r:0 w:1)
-	/// Proof: `SubtensorModule::NetworkLastLockCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::NetworkImmuneUntil` (r:0 w:1)
 	/// Proof: `SubtensorModule::NetworkImmuneUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn exercise_first_refusal() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `875042`
-		//  Estimated: `878507`
-		// Minimum execution time: 791_340_000 picoseconds.
-		Weight::from_parts(845_149_000, 878507)
-			.saturating_add(RocksDbWeight::get().reads(6_u64))
-			.saturating_add(RocksDbWeight::get().writes(5_u64))
+		//  Measured:  `875174`
+		//  Estimated: `878639`
+		// Minimum execution time: 2_319_516_000 picoseconds.
+		Weight::from_parts(2_385_148_000, 878639)
+			.saturating_add(RocksDbWeight::get().reads(9_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
 	}
 	/// Storage: `SubtensorModule::NetworkRegistrationQueue` (r:1 w:1)
 	/// Proof: `SubtensorModule::NetworkRegistrationQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -5675,8 +5698,8 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `874625`
 		//  Estimated: `876110`
-		// Minimum execution time: 1_321_376_000 picoseconds.
-		Weight::from_parts(1_383_951_000, 876110)
+		// Minimum execution time: 1_746_913_000 picoseconds.
+		Weight::from_parts(1_914_373_000, 876110)
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}

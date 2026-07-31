@@ -341,7 +341,9 @@ mod pallet_benchmarks {
             ));
         }
 
-        assert!(!NetworkRegistrationQueue::<T>::get().is_empty());
+        // The prune branch specifically. `NetworkRegistrationQueue` grows on the window branch
+        // too, so its length alone cannot tell the two apart; a started teardown can.
+        assert!(!DissolveCleanupQueue::<T>::get().is_empty());
     }
 
     #[benchmark]
@@ -1942,9 +1944,10 @@ mod pallet_benchmarks {
         assert_eq!(TokenSymbol::<T>::get(netuid), new_symbol);
     }
 
-    /// Answering a challenge has to prove the challenger is still queued, so the queue is filled
-    /// to its bound and the matching entry put last, which is the worst case for that scan. The
-    /// bound is one queued challenge per subnet that can have a window open at once.
+    /// Answering a challenge scans the queue for the challenger, removes them and releases their
+    /// lock, so the queue is filled to its bound and the matching entry put last, which is the
+    /// worst case for both the scan and the write-back. The bound is one queued challenge per
+    /// subnet that can have a window open at once.
     #[benchmark]
     fn exercise_first_refusal() {
         let coldkey: T::AccountId = whitelisted_caller();
@@ -1984,11 +1987,25 @@ mod pallet_benchmarks {
             },
         );
 
+        // The lock the call releases has to exist, or the `Locks` write is not measured.
+        let challenger: T::AccountId = account("Challenger", 0, challenger_lock_id);
+        add_balance_to_coldkey_account::<T>(&challenger, offer.saturating_mul(2.into()));
+        assert_ok!(Subtensor::<T>::lock_network_registration_cost(
+            &challenger,
+            offer.into(),
+            challenger_lock_id
+        ));
+
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey), netuid);
 
         assert!(!SubnetRefusalWindow::<T>::contains_key(netuid));
         assert!(NetworkImmuneUntil::<T>::get(netuid) > 1);
+        assert!(
+            !NetworkRegistrationQueue::<T>::get()
+                .iter()
+                .any(|entry| entry.lock_id == challenger_lock_id)
+        );
     }
 
     /// Cancelling scans the queue for the caller's entry and writes back what is left, so the queue
