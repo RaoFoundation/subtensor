@@ -435,12 +435,11 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::start_call),]
 );
 
-// Buying a subnet out of the pruning queue, and authorizing that purchase to happen
-// automatically. Both spend the owner's TAO through `recycle_tao`, which destroys it, so they
-// belong on the same side of the line as `burned_register` rather than with the rest of the
-// subnet-owner calls: `NonFungible` must not reach them because it promises to move no value,
-// and `NonCritical` must not because it cannot dissolve a subnet either, so it has no business
-// spending to keep one alive.
+// Buying a subnet out of the pruning queue. It spends the owner's TAO through `recycle_tao`,
+// which destroys it, so it belongs on the same side of the line as `burned_register` rather than
+// with the rest of the subnet-owner calls: `NonFungible` must not reach it because it promises to
+// move no value, and `NonCritical` must not because it cannot dissolve a subnet either, so it has
+// no business spending to keep one alive.
 call_filter_group!(
     SubnetImmunityCalls,
     [RuntimeCall::SubtensorModule(
