@@ -93,6 +93,20 @@ pub enum SeedBetaBasketV2Progress {
         after: Option<Vec<u8>>,
         hotkey: Option<HotkeyConvertState>,
     },
+    /// Clear the provisional per-slot share supply written by `Convert`. Legacy overclaims can
+    /// make `Σ_s max(gross_s - claimed_s, 0)` differ from the unified model's
+    /// `Σ_c max(BasketRate * root_stake_c - BasketClaimed_c, 0)`, so the final supply must be
+    /// rebuilt from claimant positions rather than retaining the per-slot total.
+    ClearShares { cursor: Option<Vec<u8>> },
+    /// Rebuild `BasketShares` from uncapped runtime owed positions. The dense staking-coldkey
+    /// index is stable while the seed cursor exists because root stake changes, deposits, and
+    /// claims are gated. `hotkey_index` resumes within one coldkey's `StakingHotkeys` vector so
+    /// even a coldkey associated with many validators is bounded across passes.
+    ReconcileClaimants {
+        coldkey_index: u64,
+        hotkey_index: u32,
+        total_coldkeys: u64,
+    },
     /// Bounded clear of legacy `RootClaimed` rows that had no matching
     /// `RootClaimable[hotkey][netuid]` slot. Such watermarks are inert because there is no
     /// corresponding accrual rate to convert, but they must still be removed before the
@@ -123,12 +137,19 @@ pub type SeedBetaBasketV2Migration<T: Config> =
 /// * holdings: the still-outstanding legacy alpha `remaining_s = rate_s * total_root - Σ claimed`
 ///   is attributed to the validator under the escrow coldkey on subnet `s`;
 /// * `BasketRate[hot]   = Σ_s rate_s * p_s`
-/// * `BasketShares[hot] = Σ_s remaining_s * p_s`
+/// * provisional `BasketShares[hot] = Σ_s remaining_s * p_s`
 /// * `BasketClaimed[hot, ck] = Σ_s claimed_s(ck) * p_s`
 ///
-/// With NAV marked at the same `p_s`, `N == P` at the seed, and every staker's owed TAO value is
-/// preserved exactly: `owed_new = Σ_s p_s (rate_s * stake - claimed_s)`. The drained legacy maps
-/// are cleared so no per-subnet claim state survives.
+/// Legacy state can contain per-subnet overclaims. Flooring each subnet's remaining backing and
+/// then aggregating claims into one signed watermark does not commute: the provisional supply can
+/// differ from `Σ_c max(BasketRate * root_stake_c - BasketClaimed_c, 0)`. After conversion, a
+/// bounded reconciliation therefore clears the provisional supply and rebuilds `BasketShares`
+/// from every uncapped runtime claimant position. This guarantees every share is owned exactly
+/// once and prevents claim-order-dependent loss. On inconsistent legacy funds the initial
+/// `NAV / BasketShares` may differ from one; that share price applies the backing surplus or
+/// shortfall pro rata instead of letting early claimants drain later claimants' value.
+///
+/// The drained legacy maps are cleared so no per-subnet claim state survives.
 ///
 /// ## Chains that already ran the superseded v1 seed migration
 ///
@@ -227,6 +248,17 @@ fn hotkey_attempt_weight<T: Config>() -> Weight {
 
 fn principal_clear_item_weight<T: Config>() -> Weight {
     T::DbWeight::get().reads_writes(1, 1)
+}
+
+fn reconcile_coldkey_weight<T: Config>() -> Weight {
+    // StakingColdkeysByIndex + StakingHotkeys.
+    T::DbWeight::get().reads(2)
+}
+
+fn reconcile_position_weight<T: Config>() -> Weight {
+    // Conservative envelope for BasketRate/BasketClaimed, the root share pool's legacy + v2
+    // numerator/denominator/value reads, and the BasketShares accumulation.
+    T::DbWeight::get().reads_writes(10, 1)
 }
 
 fn affordable_items(budget: Weight, per_item: Weight) -> u64 {
@@ -422,7 +454,7 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                                 hk
                             }
                             None => {
-                                progress = SeedBetaBasketV2Progress::ClearClaimed { cursor: None };
+                                progress = SeedBetaBasketV2Progress::ClearShares { cursor: None };
                                 continue 'phases;
                             }
                         }
@@ -471,6 +503,161 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                             return weight;
                         }
                     }
+                }
+            }
+            SeedBetaBasketV2Progress::ClearShares { cursor } => {
+                let mut clear_limit = principal_clear_per_pass;
+                if let Some(limit) = adaptive_limit {
+                    let remaining = limit
+                        .saturating_sub(weight)
+                        .saturating_sub(T::DbWeight::get().writes(2));
+                    let affordable =
+                        affordable_items(remaining, principal_clear_item_weight::<T>());
+                    if affordable == 0 && made_progress {
+                        SeedBetaBasketV2Migration::<T>::put(
+                            SeedBetaBasketV2Progress::ClearShares { cursor },
+                        );
+                        weight.saturating_accrue(T::DbWeight::get().writes(1));
+                        log::info!(
+                            "Migration 'migrate_seed_beta_basket_v2' paused before provisional share cleanup at its adaptive weight limit; will resume on_idle."
+                        );
+                        return weight;
+                    }
+                    clear_limit =
+                        clear_limit.min(affordable.max(1).min(u64::from(u32::MAX)) as u32);
+                }
+
+                let shares_removal = BasketShares::<T>::clear(clear_limit, cursor.as_deref());
+                weight.saturating_accrue(
+                    T::DbWeight::get()
+                        .reads_writes(shares_removal.loops as u64, shares_removal.backend as u64),
+                );
+                made_progress |= shares_removal.backend != 0;
+
+                if let Some(next) = shares_removal.maybe_cursor {
+                    progress = SeedBetaBasketV2Progress::ClearShares { cursor: Some(next) };
+                    SeedBetaBasketV2Migration::<T>::put(progress);
+                    weight.saturating_accrue(T::DbWeight::get().writes(1));
+                    log::info!(
+                        "Migration 'migrate_seed_beta_basket_v2' paused after clearing {} provisional BasketShares entries; will resume on the next pass.",
+                        shares_removal.backend
+                    );
+                    return weight;
+                }
+
+                let total_coldkeys = NumStakingColdkeys::<T>::get();
+                weight.saturating_accrue(T::DbWeight::get().reads(1));
+                progress = SeedBetaBasketV2Progress::ReconcileClaimants {
+                    coldkey_index: 0,
+                    hotkey_index: 0,
+                    total_coldkeys,
+                };
+                continue 'phases;
+            }
+            SeedBetaBasketV2Progress::ReconcileClaimants {
+                mut coldkey_index,
+                mut hotkey_index,
+                total_coldkeys,
+            } => {
+                let mut coldkeys_done_this_pass = 0u32;
+                let mut positions_done_this_pass = 0u32;
+
+                loop {
+                    if coldkey_index >= total_coldkeys {
+                        progress = SeedBetaBasketV2Progress::ClearClaimed { cursor: None };
+                        continue 'phases;
+                    }
+                    if hotkey_index == 0 && coldkeys_done_this_pass >= hotkeys_per_pass {
+                        SeedBetaBasketV2Migration::<T>::put(
+                            SeedBetaBasketV2Progress::ReconcileClaimants {
+                                coldkey_index,
+                                hotkey_index,
+                                total_coldkeys,
+                            },
+                        );
+                        weight.saturating_accrue(T::DbWeight::get().writes(1));
+                        return weight;
+                    }
+                    if hotkey_index == 0
+                        && made_progress
+                        && adaptive_limit.is_some_and(|limit| {
+                            !next_item_fits::<T>(weight, reconcile_coldkey_weight::<T>(), limit)
+                        })
+                    {
+                        SeedBetaBasketV2Migration::<T>::put(
+                            SeedBetaBasketV2Progress::ReconcileClaimants {
+                                coldkey_index,
+                                hotkey_index,
+                                total_coldkeys,
+                            },
+                        );
+                        weight.saturating_accrue(T::DbWeight::get().writes(1));
+                        return weight;
+                    }
+
+                    let Some(coldkey) = StakingColdkeysByIndex::<T>::get(coldkey_index) else {
+                        weight.saturating_accrue(T::DbWeight::get().reads(1));
+                        coldkey_index = coldkey_index.saturating_add(1);
+                        hotkey_index = 0;
+                        coldkeys_done_this_pass = coldkeys_done_this_pass.saturating_add(1);
+                        made_progress = true;
+                        continue;
+                    };
+                    let hotkeys = StakingHotkeys::<T>::get(&coldkey);
+                    weight.saturating_accrue(reconcile_coldkey_weight::<T>());
+
+                    // The escrow is fund custody, never a claimant. It can appear in the dense
+                    // staking index after conversion attributed subnet holdings to it.
+                    if coldkey == escrow {
+                        coldkey_index = coldkey_index.saturating_add(1);
+                        hotkey_index = 0;
+                        coldkeys_done_this_pass = coldkeys_done_this_pass.saturating_add(1);
+                        made_progress = true;
+                        continue;
+                    }
+
+                    while (hotkey_index as usize) < hotkeys.len() {
+                        if positions_done_this_pass >= claimed_drains_per_pass
+                            || (made_progress
+                                && adaptive_limit.is_some_and(|limit| {
+                                    !next_item_fits::<T>(
+                                        weight,
+                                        reconcile_position_weight::<T>(),
+                                        limit,
+                                    )
+                                }))
+                        {
+                            SeedBetaBasketV2Migration::<T>::put(
+                                SeedBetaBasketV2Progress::ReconcileClaimants {
+                                    coldkey_index,
+                                    hotkey_index,
+                                    total_coldkeys,
+                                },
+                            );
+                            weight.saturating_accrue(T::DbWeight::get().writes(1));
+                            log::info!(
+                                "Migration 'migrate_seed_beta_basket_v2' paused after reconciling {} claimant position(s); will resume on_idle.",
+                                positions_done_this_pass
+                            );
+                            return weight;
+                        }
+
+                        let hotkey = &hotkeys[hotkey_index as usize];
+                        let owed = Pallet::<T>::get_basket_owed_shares(hotkey, &coldkey);
+                        if owed != 0 {
+                            BasketShares::<T>::mutate(hotkey, |shares| {
+                                *shares = shares.saturating_add(owed);
+                            });
+                        }
+                        weight.saturating_accrue(reconcile_position_weight::<T>());
+                        hotkey_index = hotkey_index.saturating_add(1);
+                        positions_done_this_pass = positions_done_this_pass.saturating_add(1);
+                        made_progress = true;
+                    }
+
+                    coldkey_index = coldkey_index.saturating_add(1);
+                    hotkey_index = 0;
+                    coldkeys_done_this_pass = coldkeys_done_this_pass.saturating_add(1);
                 }
             }
             SeedBetaBasketV2Progress::ClearClaimed { cursor } => {

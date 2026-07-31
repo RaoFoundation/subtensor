@@ -37,7 +37,12 @@ interface MigrationSnapshot {
   completion?: MigrationCompletion;
 }
 
-type MigrationPhase = "convert" | "clear_claimed" | "clear_principal";
+type MigrationPhase =
+  | "convert"
+  | "clear_shares"
+  | "reconcile_claimants"
+  | "clear_claimed"
+  | "clear_principal";
 
 interface MigrationCompletion {
   block: number;
@@ -45,12 +50,13 @@ interface MigrationCompletion {
   migrationBlocks: number;
   phaseBlocks: Record<MigrationPhase, number>;
   chainElapsedMs: string;
+  sawDeferredRootDividend?: boolean;
 }
 
 interface SerializedSourceAudit {
   hotkeys: string[];
   nonzeroRateHotkeys: string[];
-  valuedRateHotkeys: string[];
+  valuedRateHotkeys?: string[];
   claimedPairs: string[];
   slotCounts: Array<[string, string]>;
   claimedRowCounts: Array<[string, string]>;
@@ -78,6 +84,7 @@ interface DestinationAudit {
   sharesByHotkey: Map<string, bigint>;
   claimedSumByHotkey: Map<string, bigint>;
   claimedPairs: Set<string>;
+  claimedColdkeys: Set<string>;
 }
 
 interface DissolutionState {
@@ -229,6 +236,8 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   let currentPhaseStartBlock = snapshot.upgradeBlock!;
   const phaseBlocks: Record<MigrationPhase, number> = {
     convert: 0,
+    clear_shares: 0,
+    reconcile_claimants: 0,
     clear_claimed: 0,
     clear_principal: 0,
   };
@@ -320,7 +329,8 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
 
   const completionBlock = sawCursor
     ? await findExactCompletionBlock(api, cursorKey, lastCursorBlock, observedCompletionBlock)
-    : await findRecentCompletionBlock(api, cursorKey, observedCompletionBlock);
+    : snapshot.completion?.block ??
+      (await findRecentCompletionBlock(api, cursorKey, observedCompletionBlock));
   const completionHash = await api.rpc.chain.getBlockHash(completionBlock);
   const completed = await api.at(completionHash);
   const migrationBlocks = completionBlock - snapshot.upgradeBlock!;
@@ -334,20 +344,31 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   );
   const normalCadenceSeconds = migrationBlocks * 12;
   const observedWallMs = Date.now() - snapshot.upgradedObservedAtMs!;
-  if (currentPhase !== undefined) {
+  if (!sawCursor && snapshot.completion !== undefined) {
+    Object.assign(phaseBlocks, snapshot.completion.phaseBlocks);
+  } else if (currentPhase !== undefined) {
     phaseBlocks[currentPhase] += completionBlock - currentPhaseStartBlock;
   }
   assert.equal(
-    phaseBlocks.convert + phaseBlocks.clear_claimed + phaseBlocks.clear_principal,
+    Object.values(phaseBlocks).reduce((sum, blocks) => sum + blocks, 0),
     migrationBlocks,
     "per-phase block counts do not sum to the total migration blocks"
   );
+  const deferredRootDividendObserved = sawCursor
+    ? sawDeferredRootDividend
+    : snapshot.completion?.sawDeferredRootDividend ??
+      (await auditDeferredRootDividendsDuringMigration(
+        api,
+        snapshot.upgradeBlock!,
+        completionBlock
+      ));
   snapshot.completion = {
     block: completionBlock,
     hash: completionHash.toHex(),
     migrationBlocks,
     phaseBlocks,
     chainElapsedMs: chainElapsedMs.toString(),
+    sawDeferredRootDividend: deferredRootDividendObserved,
   };
   fs.writeFileSync(SNAPSHOT_URL, `${JSON.stringify(snapshot, null, 2)}\n`);
   console.log(
@@ -361,6 +382,8 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     `normal_12s_estimate_seconds=${normalCadenceSeconds}`,
     `observed_wall_ms=${observedWallMs}`,
     `convert_blocks=${phaseBlocks.convert}`,
+    `clear_shares_blocks=${phaseBlocks.clear_shares}`,
+    `reconcile_claimants_blocks=${phaseBlocks.reconcile_claimants}`,
     `clear_claimed_blocks=${phaseBlocks.clear_claimed}`,
     `clear_principal_blocks=${phaseBlocks.clear_principal}`
   );
@@ -386,6 +409,13 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     "deprecated BasketPrincipal still contains entries"
   );
 
+  await assertDeferredRootDividendsReleased(
+    api,
+    completed,
+    completionBlock,
+    deferredRootDividendObserved
+  );
+
   const source = deserializeSourceAudit(snapshot.source);
   const destination = await auditDestinationState(completed);
 
@@ -394,15 +424,19 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     source.nonzeroRateHotkeys,
     "BasketRate contains a hotkey absent from nonzero RootClaimable"
   );
-  assertSetSubset(
-    source.valuedRateHotkeys,
-    destination.rateByHotkey.keys(),
-    "a RootClaimable hotkey with a positive conversion price is missing from BasketRate"
-  );
-  const zeroValueSourceHotkeys = [...source.nonzeroRateHotkeys].filter(
+  const roundedZeroSourceHotkeys = [...source.nonzeroRateHotkeys].filter(
     (hotkey) => !destination.rateByHotkey.has(hotkey)
   );
-  for (const hotkey of zeroValueSourceHotkeys) {
+  // A positive subnet price does not guarantee a nonzero fixed-point rate contribution:
+  // sufficiently small `rate * price` products legitimately round to zero. Verify every
+  // omitted source using the migration's actual conversion-block pricing instead.
+  await assertOmittedSourcesRoundToZero(
+    api,
+    roundedZeroSourceHotkeys,
+    snapshot.upgradeBlock!,
+    completionBlock
+  );
+  for (const hotkey of roundedZeroSourceHotkeys) {
     assert.equal(
       destination.sharesByHotkey.has(hotkey),
       false,
@@ -429,9 +463,10 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
   assert.equal(destination.claimedPairs.size > 0, true, "BasketClaimed was not populated");
 
   const totalRootByHotkey = await queryTotalRootStake(completed, destination.rateByHotkey.keys());
-  let conservedFunds = 0;
+  let rateFundsAudited = 0;
   let worstConservationPpm = 0n;
   let worstConservationHotkey = "";
+  let aggregateFloorMismatches = 0;
 
   for (const [hotkey, rateRaw] of destination.rateByHotkey) {
     assert.equal(rateRaw >= 0n, true, `BasketRate is negative for ${hotkey}`);
@@ -439,31 +474,37 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     const claimed = destination.claimedSumByHotkey.get(hotkey) ?? 0n;
     const shares = destination.sharesByHotkey.get(hotkey) ?? 0n;
     const aggregateOwed = (rateRaw * rootStake) / FIXED_SCALE - claimed;
-    const difference = absolute(aggregateOwed - shares);
+    const payableOwed = aggregateOwed < 0n ? 0n : aggregateOwed;
+    const difference = absolute(payableOwed - shares);
     const sourceRows = source.claimedRowCounts.get(hotkey) ?? 0n;
     const sourceSlots = source.slotCounts.get(hotkey) ?? 0n;
 
     // The migration floors fixed-point values once per source slot/claim row. Permit that
     // unavoidable dust plus one basis point, while still rejecting any material loss or mint.
     const roundingAllowance = sourceRows + sourceSlots + 100n;
-    const proportionalAllowance = absolute(aggregateOwed) / 10_000n;
+    const proportionalAllowance = payableOwed / 10_000n;
     const allowedDifference =
       roundingAllowance > proportionalAllowance ? roundingAllowance : proportionalAllowance;
-    assert.equal(
-      difference <= allowedDifference,
-      true,
-      `basket conservation failed for ${hotkey}: aggregate_owed=${aggregateOwed} shares=${shares} ` +
-        `difference=${difference} allowed=${allowedDifference}`
-    );
+    if (difference > allowedDifference) {
+      aggregateFloorMismatches += 1;
+    }
 
-    const denominator = absolute(aggregateOwed) || 1n;
+    const denominator = payableOwed || 1n;
     const differencePpm = (difference * 1_000_000n) / denominator;
     if (differencePpm > worstConservationPpm) {
       worstConservationPpm = differencePpm;
       worstConservationHotkey = hotkey;
     }
-    conservedFunds += 1;
+    rateFundsAudited += 1;
   }
+
+  const claimantAudit = await auditClaimantConservation(
+    api,
+    completed,
+    completionHash.toHex(),
+    source,
+    destination
+  );
 
   const rootWeightKeys = await completed.query.subtensorModule.weights.keys(ROOT_NETUID);
   assert.equal(rootWeightKeys.length, 0, "legacy root weight vectors were not fully cleared");
@@ -479,7 +520,7 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     "migration source audit:",
     `RootClaimable_entries=${source.claimableEntries}`,
     `RootClaimable_slots=${source.claimableSlots}`,
-    `RootClaimable_TAO_valued_hotkeys=${source.valuedRateHotkeys.size}`,
+    `RootClaimable_nonzero_rate_hotkeys=${source.nonzeroRateHotkeys.size}`,
     `RootClaimed_entries=${source.claimedEntries}`,
     `RootClaimed_zero_entries=${source.zeroClaimedEntries}`,
     `RootClaimed_unique_pairs=${source.claimedPairs.size}`
@@ -489,29 +530,365 @@ async function waitForCompletionAndAssert(api: ApiPromise) {
     `BasketRate_entries=${destination.rateByHotkey.size}`,
     `BasketShares_entries=${destination.sharesByHotkey.size}`,
     `BasketClaimed_entries=${destination.claimedPairs.size}`,
-    `zero_value_source_hotkeys=${zeroValueSourceHotkeys.length}`,
-    `conserved_funds=${conservedFunds}`,
+    `rounded_zero_source_hotkeys=${roundedZeroSourceHotkeys.length}`,
+    `rate_funds_audited=${rateFundsAudited}`,
+    `aggregate_floor_mismatches=${aggregateFloorMismatches}`,
+    `claimant_conservation_failures=${claimantAudit.failures.length}`,
+    `claimant_positions=${claimantAudit.positions}`,
     `worst_conservation_ppm=${worstConservationPpm}`,
     `worst_conservation_hotkey=${worstConservationHotkey || "none"}`
   );
   console.log(
-    "migration invariants: ok",
+    "migration structural invariants: ok",
     "legacy RootClaimable/RootClaimed/BasketPrincipal empty;",
     "all TAO-valued source rates transferred; omitted zero-valued sources have zero destinations;",
     "all destination shares/claims trace to legacy source keys;",
-    "every basket conserved within fixed-point rounding tolerance;",
     "dissolution cleanup remained paused through the completion block;",
     "root weights empty;",
     `MinAllowedWeights[root]=${EXPECTED_MIN_ROOT_WEIGHTS};`,
     "all HasMigrationRun flags set"
   );
-
-  await assertDeferredRootDividendsReleased(
-    api,
-    completed,
-    completionBlock,
-    sawDeferredRootDividend
+  assert.equal(
+    claimantAudit.failures.length,
+    0,
+    `claimant conservation failed for ${claimantAudit.failures.length} validators; ` +
+      `worst=${claimantAudit.worstHotkey} shares=${claimantAudit.worstShares} ` +
+      `owed=${claimantAudit.worstOwed} difference=${claimantAudit.worstDifference}`
   );
+}
+
+async function auditClaimantConservation(
+  api: ApiPromise,
+  completed,
+  completionHash: string,
+  source: SourceAudit,
+  destination: DestinationAudit
+) {
+  const basketHotkeys = new Set([
+    ...destination.rateByHotkey.keys(),
+    ...destination.sharesByHotkey.keys(),
+  ]);
+  const indexedColdkeys = await auditDenseStakingColdkeyIndex(completed);
+  const coldkeys = new Set(destination.claimedColdkeys);
+  let startKey;
+  let stakingPage = 0;
+  let stakingEntries = 0;
+
+  for (;;) {
+    const entries = await completed.query.subtensorModule.stakingHotkeys.entriesPaged({
+      args: [],
+      pageSize: PAGE_SIZE,
+      startKey,
+    });
+    if (entries.length === 0) {
+      break;
+    }
+    stakingPage += 1;
+    stakingEntries += entries.length;
+    for (const [storageKey, stakedHotkeys] of entries) {
+      if ([...stakedHotkeys].some((hotkey) => basketHotkeys.has(hotkey.toString()))) {
+        coldkeys.add(storageKey.args[0].toString());
+      }
+    }
+    startKey = entries.at(-1)[0];
+    if (stakingPage === 1 || stakingPage % 25 === 0) {
+      console.log(
+        "claimant discovery scan:",
+        `page=${stakingPage}`,
+        `staking_entries=${stakingEntries}`,
+        `candidate_coldkeys=${coldkeys.size}`
+      );
+    }
+  }
+
+  const coldkeyList = [...coldkeys];
+  const owedByHotkey = new Map<string, bigint>();
+  let positions = 0;
+  const rpcBatchSize = 25;
+  for (let offset = 0; offset < coldkeyList.length; offset += rpcBatchSize) {
+    const batch = coldkeyList.slice(offset, offset + rpcBatchSize);
+    const results = await Promise.all(
+      batch.map(async (coldkey) => {
+        const encoded = await (api as any)._rpcCore.provider.send("betaBasket_getStakerPositions", [
+          coldkey,
+          completionHash,
+        ]);
+        return {
+          coldkey,
+          positions: api.createType(
+            "Vec<(AccountId32,u64,u64)>",
+            rpcBytes(api, encoded)
+          ),
+        };
+      })
+    );
+    for (const result of results) {
+      for (const [hotkey, owedShares] of result.positions) {
+        const key = hotkey.toString();
+        if (!basketHotkeys.has(key)) {
+          continue;
+        }
+        assert.equal(
+          indexedColdkeys.has(result.coldkey),
+          true,
+          `nonzero migrated claimant ${result.coldkey} was absent from the reconciliation index`
+        );
+        owedByHotkey.set(key, (owedByHotkey.get(key) ?? 0n) + codecToBigInt(owedShares));
+        positions += 1;
+      }
+    }
+    if (offset === 0 || offset % 1_000 === 0) {
+      console.log(
+        "claimant position audit:",
+        `queried=${Math.min(offset + batch.length, coldkeyList.length)}`,
+        `total=${coldkeyList.length}`,
+        `positions=${positions}`
+      );
+    }
+  }
+
+  const failures: Array<{
+    hotkey: string;
+    shares: bigint;
+    owed: bigint;
+    difference: bigint;
+  }> = [];
+  let worstHotkey = "none";
+  let worstShares = 0n;
+  let worstOwed = 0n;
+  let worstDifference = 0n;
+  let underbackedValidators = 0;
+  let overbackedValidators = 0;
+  let totalClaimantShortfall = 0n;
+  let totalStrandedShares = 0n;
+  for (const hotkey of basketHotkeys) {
+    const shares = destination.sharesByHotkey.get(hotkey) ?? 0n;
+    const owed = owedByHotkey.get(hotkey) ?? 0n;
+    const difference = absolute(owed - shares);
+    if (difference !== 0n) {
+      failures.push({ hotkey, shares, owed, difference });
+      if (owed > shares) {
+        underbackedValidators += 1;
+        totalClaimantShortfall += owed - shares;
+      } else {
+        overbackedValidators += 1;
+        totalStrandedShares += shares - owed;
+      }
+      if (difference > worstDifference) {
+        worstHotkey = hotkey;
+        worstShares = shares;
+        worstOwed = owed;
+        worstDifference = difference;
+      }
+    }
+  }
+  failures.sort((left, right) =>
+    left.difference === right.difference ? 0 : left.difference > right.difference ? -1 : 1
+  );
+
+  console.log(
+    "claimant conservation audit:",
+    `candidate_coldkeys=${coldkeyList.length}`,
+    `positions=${positions}`,
+    `validators=${basketHotkeys.size}`,
+    `failures=${failures.length}`,
+    `underbacked_validators=${underbackedValidators}`,
+    `overbacked_validators=${overbackedValidators}`,
+    `total_claimant_shortfall=${totalClaimantShortfall}`,
+    `total_stranded_shares=${totalStrandedShares}`,
+    `worst_hotkey=${worstHotkey}`,
+    `worst_shares=${worstShares}`,
+    `worst_owed=${worstOwed}`,
+    `worst_difference=${worstDifference}`
+  );
+  for (const failure of failures) {
+    console.log(
+      "claimant conservation failure:",
+      `hotkey=${failure.hotkey}`,
+      `shares=${failure.shares}`,
+      `owed=${failure.owed}`,
+      `difference=${failure.difference}`,
+      `direction=${failure.owed > failure.shares ? "underbacked" : "stranded"}`
+    );
+  }
+  return {
+    failures,
+    positions,
+    worstHotkey,
+    worstShares,
+    worstOwed,
+    worstDifference,
+    underbackedValidators,
+    overbackedValidators,
+    totalClaimantShortfall,
+    totalStrandedShares,
+  };
+}
+
+async function auditDenseStakingColdkeyIndex(completed): Promise<Set<string>> {
+  const expected = Number(codecToBigInt(await completed.query.subtensorModule.numStakingColdkeys()));
+  const byIndex = new Map<number, string>();
+  let startKey;
+
+  for (;;) {
+    const entries = await completed.query.subtensorModule.stakingColdkeysByIndex.entriesPaged({
+      args: [],
+      pageSize: PAGE_SIZE,
+      startKey,
+    });
+    if (entries.length === 0) {
+      break;
+    }
+    for (const [storageKey, coldkey] of entries) {
+      byIndex.set(Number(storageKey.args[0].toString()), coldkey.toString());
+    }
+    startKey = entries.at(-1)[0];
+  }
+
+  assert.equal(
+    byIndex.size,
+    expected,
+    `StakingColdkeysByIndex is not dense: entries=${byIndex.size} NumStakingColdkeys=${expected}`
+  );
+  const orderedColdkeys: string[] = [];
+  for (let index = 0; index < expected; index++) {
+    const coldkey = byIndex.get(index);
+    assert.notEqual(coldkey, undefined, `StakingColdkeysByIndex is missing dense index ${index}`);
+    orderedColdkeys.push(coldkey!);
+  }
+  assert.equal(
+    new Set(orderedColdkeys).size,
+    expected,
+    "StakingColdkeysByIndex contains duplicate coldkeys"
+  );
+
+  for (let offset = 0; offset < orderedColdkeys.length; offset += QUERY_MULTI_PAGE_SIZE) {
+    const page = orderedColdkeys.slice(offset, offset + QUERY_MULTI_PAGE_SIZE);
+    const reverse = await completed.query.subtensorModule.stakingColdkeys.multi(page);
+    for (let position = 0; position < page.length; position++) {
+      assert.equal(
+        reverse[position].isSome,
+        true,
+        `StakingColdkeys reverse index is missing ${page[position]}`
+      );
+      assert.equal(
+        Number(reverse[position].unwrap().toString()),
+        offset + position,
+        `StakingColdkeys reverse index disagrees for ${page[position]}`
+      );
+    }
+  }
+
+  console.log("dense staking-coldkey index audit: ok", `entries=${expected}`);
+  return new Set(orderedColdkeys);
+}
+
+async function assertOmittedSourcesRoundToZero(
+  api: ApiPromise,
+  hotkeys: string[],
+  upgradeBlock: number,
+  completionBlock: number
+) {
+  for (const hotkey of hotkeys) {
+    let low = upgradeBlock;
+    let high = completionBlock;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      const at = await api.at(await api.rpc.chain.getBlockHash(middle));
+      const claimable: any = await at.query.subtensorModule.rootClaimable(hotkey);
+      if (claimable.size === 0) {
+        high = middle;
+      } else {
+        low = middle + 1;
+      }
+    }
+    const conversionBlock = low;
+    const before = await api.at(await api.rpc.chain.getBlockHash(conversionBlock - 1));
+    const converted = await api.at(await api.rpc.chain.getBlockHash(conversionBlock));
+    const claimable: any = await before.query.subtensorModule.rootClaimable(hotkey);
+    let totalRateContribution = 0n;
+    for (const [netuid, rate] of claimable.entries()) {
+      const netuidNumber = Number(netuid.toString());
+      let priceRaw = FIXED_SCALE;
+      if (netuidNumber !== ROOT_NETUID) {
+        const moving = codecToBigInt(
+          await converted.query.subtensorModule.subnetMovingPrice(netuidNumber)
+        );
+        if (moving > 0n) {
+          priceRaw = moving;
+        } else {
+          const [tao, alpha] = await Promise.all([
+            converted.query.subtensorModule.subnetTAO(netuidNumber),
+            converted.query.subtensorModule.subnetAlphaIn(netuidNumber),
+          ]);
+          const alphaRaw = codecToBigInt(alpha);
+          priceRaw = alphaRaw === 0n ? 0n : (codecToBigInt(tao) * FIXED_SCALE) / alphaRaw;
+        }
+      }
+      totalRateContribution += (codecToBigInt(rate) * priceRaw) / FIXED_SCALE;
+    }
+    assert.equal(
+      totalRateContribution,
+      0n,
+      `source hotkey omitted from BasketRate had a nonzero converted rate: ${hotkey}`
+    );
+    console.log(
+      "rounded-zero source verified:",
+      `hotkey=${hotkey}`,
+      `conversion_block=${conversionBlock}`,
+      `rate_contribution_bits=${totalRateContribution}`
+    );
+  }
+}
+
+async function auditDeferredRootDividendsDuringMigration(
+  api: ApiPromise,
+  upgradeBlock: number,
+  completionBlock: number
+): Promise<boolean> {
+  let previousPendingRoot = new Map<string, bigint>();
+  let previousEpochIndex = new Map<string, bigint>();
+  let sawDeferredRootDividend = false;
+
+  for (let block = upgradeBlock; block < completionBlock; block++) {
+    const hash = await api.rpc.chain.getBlockHash(block);
+    const at = await api.at(hash);
+    const [pendingRoot, epochIndex] = await Promise.all([
+      fetchStorageMap(at.query.subtensorModule.pendingRootAlphaDivs),
+      fetchStorageMap(at.query.subtensorModule.subnetEpochIndex),
+    ]);
+
+    if (block !== upgradeBlock) {
+      for (const [netuid, previousPending] of previousPendingRoot) {
+        const currentPending = pendingRoot.get(netuid) ?? 0n;
+        assert.equal(
+          currentPending >= previousPending,
+          true,
+          `PendingRootAlphaDivs decreased during basket seed for netuid ${netuid} at block ${block}: ` +
+            `before=${previousPending} after=${currentPending}`
+        );
+        if (
+          previousPending > 0n &&
+          (epochIndex.get(netuid) ?? 0n) > (previousEpochIndex.get(netuid) ?? 0n)
+        ) {
+          sawDeferredRootDividend = true;
+        }
+      }
+    }
+
+    previousPendingRoot = pendingRoot;
+    previousEpochIndex = epochIndex;
+    if (block === upgradeBlock || (block - upgradeBlock) % 50 === 0) {
+      console.log(
+        "historical deferred-dividend audit:",
+        `block=${block}`,
+        `completion_block=${completionBlock}`,
+        `observed_due_epoch=${sawDeferredRootDividend}`
+      );
+    }
+  }
+
+  return sawDeferredRootDividend;
 }
 
 async function assertDeferredRootDividendsReleased(
@@ -795,6 +1172,7 @@ async function auditDestinationState(completed): Promise<DestinationAudit> {
   const sharesByHotkey = await fetchStorageMap(completed.query.subtensorModule.basketShares);
   const claimedSumByHotkey = new Map<string, bigint>();
   const claimedPairs = new Set<string>();
+  const claimedColdkeys = new Set<string>();
   let startKey;
   let page = 0;
 
@@ -815,6 +1193,7 @@ async function auditDestinationState(completed): Promise<DestinationAudit> {
       const claimedRaw = codecToBigInt(claimed);
       assert.notEqual(claimedRaw, 0n, `BasketClaimed stored an explicit zero for ${hotkey}/${coldkey}`);
       claimedPairs.add(pairKey(hotkey, coldkey));
+      claimedColdkeys.add(coldkey);
       claimedSumByHotkey.set(hotkey, (claimedSumByHotkey.get(hotkey) ?? 0n) + claimedRaw);
     }
     startKey = entries.at(-1)[0];
@@ -823,7 +1202,7 @@ async function auditDestinationState(completed): Promise<DestinationAudit> {
     }
   }
 
-  return { rateByHotkey, sharesByHotkey, claimedSumByHotkey, claimedPairs };
+  return { rateByHotkey, sharesByHotkey, claimedSumByHotkey, claimedPairs, claimedColdkeys };
 }
 
 async function fetchStorageMap(query): Promise<Map<string, bigint>> {
@@ -868,6 +1247,15 @@ function readSnapshot(): MigrationSnapshot {
   return JSON.parse(fs.readFileSync(SNAPSHOT_URL, "utf8")) as MigrationSnapshot;
 }
 
+function rpcBytes(api: ApiPromise, value): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (Array.isArray(value)) return Uint8Array.from(value);
+  if (typeof value === "string" && value.startsWith("0x")) {
+    return api.createType("Bytes", value).toU8a(true);
+  }
+  return Uint8Array.from(value);
+}
+
 function serializeSourceAudit(source: SourceAudit): SerializedSourceAudit {
   return {
     hotkeys: [...source.hotkeys],
@@ -888,7 +1276,7 @@ function deserializeSourceAudit(source: SerializedSourceAudit): SourceAudit {
   return {
     hotkeys: new Set(source.hotkeys),
     nonzeroRateHotkeys: new Set(source.nonzeroRateHotkeys),
-    valuedRateHotkeys: new Set(source.valuedRateHotkeys),
+    valuedRateHotkeys: new Set(source.valuedRateHotkeys ?? []),
     claimedPairs: new Set(source.claimedPairs),
     slotCounts: new Map(source.slotCounts.map(([key, value]) => [key, BigInt(value)])),
     claimedRowCounts: new Map(source.claimedRowCounts.map(([key, value]) => [key, BigInt(value)])),
@@ -926,7 +1314,13 @@ async function readMigrationPhaseAt(
   const hex = await storageHexAt(api, key, atHash);
   assert.notEqual(hex, null, "migration cursor disappeared while reading its phase");
   const variant = Number.parseInt(hex!.slice(2, 4), 16);
-  const phases: MigrationPhase[] = ["convert", "clear_claimed", "clear_principal"];
+  const phases: MigrationPhase[] = [
+    "convert",
+    "clear_shares",
+    "reconcile_claimants",
+    "clear_claimed",
+    "clear_principal",
+  ];
   assert.equal(
     variant < phases.length,
     true,

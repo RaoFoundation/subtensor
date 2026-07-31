@@ -26,8 +26,12 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         Self::try_set_pending_children(block_number);
         // --- 8. Beta baskets are redeemed on-demand by stakers via `claim_root`; no auto-swap.
         // --- 9. Populate root coldkey maps.
-        Self::populate_root_coldkey_staking_maps();
-        Self::populate_root_coldkey_staking_maps_v2();
+        // Keep the dense index immutable while the seed migration is using a snapshotted
+        // `[0, NumStakingColdkeys)` range to reconcile claimant shares.
+        if !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
+            Self::populate_root_coldkey_staking_maps();
+            Self::populate_root_coldkey_staking_maps_v2();
+        }
 
         // Return ok.
         Ok(())
