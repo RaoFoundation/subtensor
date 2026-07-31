@@ -592,17 +592,16 @@ jobs:
   # label is set). Auto-skips (via the `build-node-release` need) when the PR touches
   # nothing runtime-relevant.
   #
-  # The pristine migration diagnostic uses normal 12-second sealing; the
-  # remaining regression shard advances one 12-second slot every 250ms.
+  # Interval sealing advances runtime time by one 12-second slot every 250ms.
   # With a trusted snapshot available, the pristine issuance invariant and
   # the state-mutating remaining regressions restore independent copies and
   # run in parallel. A live scrape retains the combined sequential path.
   clone-upgrade:
     name: clone-upgrade (${{ matrix.phase }})
     needs: [trusted-pr, changes, clone-plan, build-node-release]
-    runs-on: [self-hosted, fireactions-validatorbench]
+    runs-on: [self-hosted, fireactions-turbo-8]
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-clone-upgrade') }}
-    timeout-minutes: 240
+    timeout-minutes: 90
     permissions:
       contents: read
       # Cross-run artifact download (the nightly mainnet snapshot).
@@ -720,15 +719,7 @@ jobs:
 
       - name: Install clone test dependencies
         working-directory: clones/js-tests
-        run: |
-          for attempt in 1 2 3; do
-            if npm ci; then
-              exit 0
-            fi
-            echo "::warning::npm ci attempt ${attempt} failed; retrying"
-            sleep 15
-          done
-          exit 1
+        run: npm ci
 
       - name: Run clone regression phase
         env:
@@ -738,14 +729,10 @@ jobs:
         run: ./clones/scripts/run-clone-regression-phase.sh "${{ matrix.phase }}"
 
       - name: Dump clone node and harness logs
-        if: always()
+        if: failure()
         run: |
           echo "===== clone-node.log (last 200 lines) ====="
           tail -n 200 clone-node.log 2>/dev/null || echo "(missing)"
-          echo "===== migration runtime log lines ====="
-          grep -E \
-            "migrate_seed_beta_basket_v2|clear_root_basket_weights_v2|set_root_min_allowed_weights_8|reset_emission_gate_bar_rank_32" \
-            clone-node.log 2>/dev/null || echo "(missing)"
           for f in clones/js-tests/temp/*.log; do
             [ -f "$f" ] || continue
             echo "===== $f ====="

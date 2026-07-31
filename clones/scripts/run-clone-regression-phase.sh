@@ -19,38 +19,22 @@ run_sdk_drift=${RUN_SDK_DRIFT:-false}
   echo "RUN_SDK_DRIFT must be true or false" >&2
   exit 2
 }
-keep_clone_running=${KEEP_CLONE_RUNNING:-false}
-[[ "$keep_clone_running" == true || "$keep_clone_running" == false ]] || {
-  echo "KEEP_CLONE_RUNNING must be true or false" >&2
-  exit 2
-}
 
 cleanup() {
   local status=$?
-  if [[ "$keep_clone_running" == true ]]; then
-    echo "Leaving local clone running (KEEP_CLONE_RUNNING=true)."
-  else
-    "$SCRIPT_DIR/stop-local-clone.sh" || true
-  fi
+  "$SCRIPT_DIR/stop-local-clone.sh" || true
   exit "$status"
 }
 trap cleanup EXIT
 
 start_clone() {
-  "$SCRIPT_DIR/start-local-clone-and-wait.sh" "${1:-accelerated}"
+  "$SCRIPT_DIR/start-local-clone-and-wait.sh" accelerated
 }
 
 upgrade_runtime() {
   (
     cd "$JS_TESTS"
     npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
-  )
-}
-
-migration_probe() {
-  (
-    cd "$JS_TESTS"
-    npx tsx tests/test-mainnet-migration-completion.ts "$1"
   )
 }
 
@@ -65,11 +49,8 @@ run_regressions() {
 }
 
 run_pristine() {
-  start_clone normal
-  migration_probe before
+  start_clone
   upgrade_runtime
-  migration_probe upgraded
-  migration_probe after
   run_regressions pristine
 }
 

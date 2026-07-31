@@ -28,10 +28,6 @@ if [[ -n "${MOCK_NPM_FAIL:-}" && "$*" == *"$MOCK_NPM_FAIL"* ]]; then
   exit 1
 fi
 EOF
-cat > "$tmp/bin/npx" <<'EOF'
-#!/usr/bin/env bash
-printf 'npx %s cwd=%s\n' "$*" "$PWD" >> "$HARNESS_LOG"
-EOF
 cat > "$tmp/bin/sleep" <<'EOF'
 #!/usr/bin/env bash
 printf 'sleep %s\n' "$*" >> "$HARNESS_LOG"
@@ -40,7 +36,7 @@ cat > "$tmp/bin/uv" <<'EOF'
 #!/usr/bin/env bash
 printf 'uv %s cwd=%s\n' "$*" "$PWD" >> "$HARNESS_LOG"
 EOF
-chmod +x "$tmp/bin/npm" "$tmp/bin/npx" "$tmp/bin/sleep" "$tmp/bin/uv" "$tmp/repo/clones/scripts/run-clone-regression-phase.sh"
+chmod +x "$tmp/bin/npm" "$tmp/bin/sleep" "$tmp/bin/uv" "$tmp/repo/clones/scripts/run-clone-regression-phase.sh"
 
 export PATH="$tmp/bin:$PATH"
 export HARNESS_LOG="$tmp/harness.log"
@@ -55,29 +51,21 @@ run_phase() {
 }
 
 run_phase pristine
-grep -Fq 'start-local-clone-and-wait.sh normal' "$HARNESS_LOG"
-grep -Fq 'npx tsx tests/test-mainnet-migration-completion.ts before' "$HARNESS_LOG"
+grep -Fq 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG"
 grep -Fq 'npm run runtime:update:alice' "$HARNESS_LOG"
-grep -Fq 'npx tsx tests/test-mainnet-migration-completion.ts upgraded' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG"
-grep -Fq 'npx tsx tests/test-mainnet-migration-completion.ts after' "$HARNESS_LOG"
 grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"
-after_line=$(grep -nF 'npx tsx tests/test-mainnet-migration-completion.ts after' "$HARNESS_LOG" | cut -d: -f1)
-regression_line=$(grep -nF 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG" | cut -d: -f1)
-(( after_line < regression_line ))
 if grep -Fq 'npm test' "$HARNESS_LOG"; then
   echo "pristine phase unexpectedly ran remaining smoke tests" >&2
   exit 1
 fi
 
 run_phase remaining
-grep -Fq 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG"
 grep -Fq 'npm test phase=' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=remaining' "$HARNESS_LOG"
 
 run_phase combined
-[[ $(grep -Fc 'start-local-clone-and-wait.sh normal' "$HARNESS_LOG") -eq 1 ]]
-[[ $(grep -Fc 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG") -eq 1 ]]
+[[ $(grep -Fc 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG") -eq 2 ]]
 grep -Fq "local-clone-checkpoint.sh restore $checkpoint" "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=remaining' "$HARNESS_LOG"
@@ -104,22 +92,8 @@ if MOCK_NPM_FAIL=test:clone-regressions \
 fi
 grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"
 
-: > "$HARNESS_LOG"
-KEEP_CLONE_RUNNING=true RUN_SDK_DRIFT=false \
-  "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" pristine
-if grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"; then
-  echo "KEEP_CLONE_RUNNING=true unexpectedly stopped the clone" >&2
-  exit 1
-fi
-
 if "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" invalid >/dev/null 2>&1; then
   echo "invalid clone phase was accepted" >&2
-  exit 1
-fi
-
-if KEEP_CLONE_RUNNING=invalid \
-  "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" pristine >/dev/null 2>&1; then
-  echo "invalid KEEP_CLONE_RUNNING value was accepted" >&2
   exit 1
 fi
 

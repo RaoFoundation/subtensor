@@ -2465,10 +2465,7 @@ fn test_revert_claim_root_with_swap_hotkey() {
             AlphaBalance::ZERO,
         );
 
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(
-            RuntimeOrigin::signed(coldkey),
-            hk1
-        ));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hk1));
 
         let hk1_claimed = BasketClaimed::<Test>::get(hk1, coldkey);
         let hk1_rate = BasketRate::<Test>::get(hk1);
