@@ -108,13 +108,14 @@ pub(super) fn fill_subnets<T: Config>(owner: &T::AccountId, subnets: u16) {
         SubnetRefusalWindow::<T>::insert(netuid, lapsed_refusal_window());
     }
 
-    // Queue depth is measured at one entry per subnet slot. That is not the challenge path, which
-    // holds at most one entry at a time because only one window is ever open chain-wide; it is the
-    // `wait_to_cleanup` path, where registrations queue behind dissolutions already in flight and
-    // `DissolveCleanupQueue` has no bound of its own. Every entry carries a maximum identity
-    // because the whole queue is decoded and written back when the registration under measurement
-    // is pushed. `LAPSED_CHALLENGER_LOCK_ID` goes last, the worst case for the scan that resolves
-    // the window.
+    // Queue depth is measured at one entry per subnet slot, and two paths reach it. The scan skips
+    // a subnet whose window is still live and names the next candidate, so every evictable subnet
+    // can carry its own window and its own queued challenger at the same time. The
+    // `wait_to_cleanup` path reaches the same depth from the other direction, with registrations
+    // queued behind dissolutions already in flight and `DissolveCleanupQueue` unbounded. Every
+    // entry carries a maximum identity because the whole queue is decoded and written back when
+    // the registration under measurement is pushed. `LAPSED_CHALLENGER_LOCK_ID` goes last, the
+    // worst case for the scan that resolves the window.
     let mut queued: Vec<NetworkRegistrationInfo<T::AccountId>> = (0..subnets)
         .map(|index| NetworkRegistrationInfo::<T::AccountId> {
             coldkey: account("QueuedChallenger", 0, u32::from(index)),

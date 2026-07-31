@@ -306,6 +306,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_network_to_prune() -> Option<NetUid> {
         let current_block: u64 = Self::get_current_block_as_u64();
+        let queue = NetworkRegistrationQueue::<T>::get();
 
         let mut candidate_netuid: Option<NetUid> = None;
         let mut candidate_price: U64F64 = U64F64::saturating_from_num(u128::MAX);
@@ -320,6 +321,15 @@ impl<T: Config> Pallet<T> {
 
             // Skip immune networks.
             if Self::is_subnet_immune(netuid, registered_at, current_block) {
+                continue;
+            }
+
+            // Skip a subnet whose owner is still inside the window to answer. Passing over it
+            // rather than refusing the registration outright is what stops one open window from
+            // holding up every registration on the chain: the scan falls through to the next
+            // candidate, and freezing registrations now costs a challenger one full lock per
+            // evictable subnet held at once rather than one lock total.
+            if Self::refusal_window_is_live(netuid, current_block, &queue) {
                 continue;
             }
 

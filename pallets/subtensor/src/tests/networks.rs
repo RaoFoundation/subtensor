@@ -1767,24 +1767,25 @@ fn an_unanswered_window_lapses_and_the_slot_is_taken() {
     });
 }
 
-/// One challenge stands chain-wide at a time, not one per subnet.
+/// A challenge on one subnet does not reprice a window already open on another.
 ///
-/// A second registration arriving while an owner is deciding is refused outright rather than
-/// queued behind the first. Queueing it would grow `NetworkRegistrationQueue` with no teardown
-/// coming to drain it, and every registration on the chain decodes that queue, so this is a
-/// chain-availability rule.
+/// The scan passes over a subnet whose owner is still deciding, so two windows can stand at once
+/// and the second registration moves the lock cost while the first owner is still inside their
+/// deadline. The offer is recorded when the window opens, so that owner answers the figure they
+/// were shown rather than a number somebody else's registration set afterwards.
 ///
-/// The scope is the part worth pinning: `get_network_to_prune` names one candidate, and a live
-/// window on that candidate refuses rather than falling through to the next-cheapest subnet. The
-/// other subnet here is evictable and unchallenged, and the second registration is still turned
-/// away, so the challenge path holds at most one queue entry at any moment.
-///
-/// The owner also still answers the one figure they were shown, since the recorded offer is left
-/// alone.
+/// One queue entry per outstanding challenge is the honest bound here. It used to be one
+/// chain-wide, enforced by refusing the second registration outright, and that turned a single
+/// lock into a hold on every at-cap registration.
 #[test]
-fn a_second_challenge_inside_the_window_is_refused_rather_than_queued() {
+fn a_challenge_elsewhere_does_not_reprice_an_open_window() {
     new_test_ext(0).execute_with(|| {
-        let (low, high, _low_cold, registrant) = refusal_setup(4040);
+        let (low, high, low_cold, registrant) = refusal_setup(4040);
+
+        let big = SubtensorModule::get_network_lock_cost().saturating_mul(10_000.into());
+        add_balance_to_coldkey_account(&registrant, big.into());
+        add_balance_to_coldkey_account(&low_cold, big.into());
+        TotalIssuance::<Test>::mutate(|t| *t = t.saturating_add(big.saturating_mul(2.into())));
 
         assert_ok!(register_from(registrant, 4045));
         let first_window = SubnetRefusalWindow::<Test>::get(low).unwrap();
@@ -1794,15 +1795,21 @@ fn a_second_challenge_inside_the_window_is_refused_rather_than_queued() {
         assert!(!SubnetRefusalWindow::<Test>::contains_key(high));
 
         System::set_block_number(System::block_number().saturating_add(10));
-        assert_noop!(
-            register_from(registrant, 4046),
-            Error::<Test>::SubnetChallengeInProgress
-        );
 
-        // Refused, not redirected: no window opened on the unchallenged subnet either.
-        assert!(!SubnetRefusalWindow::<Test>::contains_key(high));
+        // Diverted to that candidate, not refused.
+        assert_ok!(register_from(registrant, 4046));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(high));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 2);
         assert_eq!(SubnetRefusalWindow::<Test>::get(low).unwrap(), first_window);
-        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+
+        // And the first owner is charged the figure their window recorded.
+        let balance_before = SubtensorModule::get_coldkey_balance(&low_cold);
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+        let paid = balance_before.saturating_sub(SubtensorModule::get_coldkey_balance(&low_cold));
+        assert_eq!(paid, first_window.offer.into());
     });
 }
 
@@ -4639,6 +4646,79 @@ fn matched_challengers_do_not_accumulate_across_immunity_cycles() {
             );
             System::set_block_number(NetworkImmuneUntil::<Test>::get(low).saturating_add(1));
         }
+    });
+}
+
+/// The answered path is bounded. The unanswered path is not, and this pins the difference.
+///
+/// A challenger opens a window and is queued, but nothing is pruned yet. Nobody answers. The next
+/// registration to arrive clears the lapsed window, prunes, and joins the queue behind that
+/// challenger. Two entries in, one slot out. Depth climbs by one per unanswered cycle, and every
+/// registration decodes the queue, so this is a real cost rather than a cosmetic one. Stated in
+/// the PR body rather than fixed: closing it means handing a lapsed window's challenger the slot
+/// without waiting for a second registration to trigger the prune.
+#[test]
+fn an_unanswered_cycle_queues_two_and_frees_one() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, _low_cold, registrant) = refusal_setup(4500);
+
+        let big = SubtensorModule::get_network_lock_cost().saturating_mul(10_000.into());
+        add_balance_to_coldkey_account(&registrant, big.into());
+        TotalIssuance::<Test>::mutate(|t| *t = t.saturating_add(big));
+
+        assert_ok!(register_from(registrant, 4510));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(low));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+
+        let expires = SubnetRefusalWindow::<Test>::get(low).unwrap().expires_at;
+        System::set_block_number(expires.saturating_add(1));
+
+        assert_ok!(register_from(registrant, 4511));
+        assert_eq!(
+            NetworkRegistrationQueue::<Test>::get().len(),
+            2,
+            "the lapsed window's challenger is still queued when the pruner joins"
+        );
+
+        DissolveCleanupQueue::<Test>::kill();
+        run_network_registration_queue();
+        assert_eq!(
+            NetworkRegistrationQueue::<Test>::get().len(),
+            1,
+            "one entry outlives the cycle that created it"
+        );
+    });
+}
+
+/// One open window diverts the next registration rather than holding up the chain.
+///
+/// `get_network_to_prune` passes over a subnet whose owner is still inside the deadline, so the
+/// scan names the next candidate instead. Refusing here rather than skipping would have let a
+/// single lock freeze every at-cap registration, and cancelling refunds in full, so the same lock
+/// could be recycled indefinitely. Skipping prices the attack properly: freezing the chain now
+/// takes a live window on every evictable subnet at once, each backed by its own full lock.
+#[test]
+fn a_live_window_diverts_the_next_registration_instead_of_blocking_it() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, _low_cold, registrant) = refusal_setup(4600);
+
+        let big = SubtensorModule::get_network_lock_cost().saturating_mul(10_000.into());
+        add_balance_to_coldkey_account(&registrant, big.into());
+        TotalIssuance::<Test>::mutate(|t| *t = t.saturating_add(big));
+
+        assert_ok!(register_from(registrant, 4610));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(low));
+
+        // Not refused with `SubnetChallengeInProgress`: the scan skips `low` and names `high`.
+        assert_ok!(register_from(registrant, 4611));
+        assert!(
+            SubnetRefusalWindow::<Test>::contains_key(high),
+            "the second challenge landed on the next candidate"
+        );
+        assert!(
+            SubnetRefusalWindow::<Test>::contains_key(low),
+            "and the first window is untouched, so its owner keeps the full deadline"
+        );
     });
 }
 

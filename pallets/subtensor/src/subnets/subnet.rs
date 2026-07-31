@@ -246,15 +246,15 @@ impl<T: Config> Pallet<T> {
                         SubnetRefusalWindow::<T>::remove(netuid);
                         prune_netuid = Some(netuid);
                     }
-                    // A second challenger is refused, not queued behind the first, because
-                    // `NetworkRegistrationQueue` is unbounded, decoded by every registration, and
-                    // has no teardown in flight to drain it while a window stands.
+                    // Unreachable by construction: `get_network_to_prune` skips a subnet whose
+                    // window is still live, so the candidate it names is never one. Kept as a
+                    // guard rather than an `unreachable!`, and it is what a registrant sees if
+                    // the scan and this check ever disagree.
                     //
-                    // `get_network_to_prune` names one candidate and this arm refuses rather than
-                    // falling through to the next, so at most one window is open chain-wide and
-                    // the challenge path contributes at most one queue entry at a time. Answering
-                    // removes that entry and lapsing hands it the slot, so a challenge adds
-                    // nothing that outlives the window it opened.
+                    // The scan skips rather than this arm refusing, which is the difference
+                    // between one window blocking every at-cap registration and one window
+                    // blocking only the subnet it names. Holding the chain now costs a challenger
+                    // a full lock per evictable subnet, held simultaneously, instead of one lock.
                     RefusalState::Live => {
                         return Err(Error::<T>::SubnetChallengeInProgress.into());
                     }
@@ -474,6 +474,22 @@ impl<T: Config> Pallet<T> {
         lock_id: u32,
     ) -> bool {
         queue.iter().any(|entry| entry.lock_id == lock_id)
+    }
+
+    /// Whether a window on `netuid` is still open with its challenger still waiting.
+    ///
+    /// Deliberately side-effect free, unlike `refusal_state`, which clears a window whose
+    /// challenger has left. This one runs inside the pruning scan and from a read-only runtime
+    /// API, neither of which may write.
+    pub(crate) fn refusal_window_is_live(
+        netuid: NetUid,
+        current_block: u64,
+        queue: &[NetworkRegistrationInfo<T::AccountId>],
+    ) -> bool {
+        SubnetRefusalWindow::<T>::get(netuid).is_some_and(|window| {
+            current_block <= window.expires_at
+                && Self::challenger_is_queued_in(queue, window.challenger_lock_id)
+        })
     }
 
     /// Where the candidate stands: nobody challenging it, a live challenge the owner may answer,
