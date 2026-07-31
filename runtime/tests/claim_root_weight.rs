@@ -54,8 +54,7 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
 #[test]
 fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
     let hotkey = AccountId::new([1u8; 32]);
-    let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey {
-        hotkey,
-    });
+    let call =
+        RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey { hotkey });
     assert_call_fits_normal_limit(call);
 }

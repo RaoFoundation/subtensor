@@ -5923,11 +5923,18 @@ fn test_migrate_seed_beta_basket_batches_repeated_coldkey_writes() {
         });
 
         // One independent BasketClaimed mutation per row would cost 25B ref-time for the
-        // 100 rows alone. Aggregating the 50 repeated coldkeys lets the whole migration,
-        // including its other storage work, finish below this 22B limit.
+        // 100 rows alone. Aggregating the 50 repeated coldkeys lets conversion finish below
+        // this 22B per-pass limit; the claimant-reconciliation phase may use a later pass.
         let limit = Weight::from_parts(22_000_000_000, u64::MAX);
-        let used = migrate_seed_beta_basket_v2_with_limit::<Test>(limit);
+        let mut used = migrate_seed_beta_basket_v2_with_limit::<Test>(limit);
         assert!(used.all_lte(limit));
+        for _ in 0..4 {
+            if HasMigrationRun::<Test>::get(b"migrate_seed_beta_basket_v2".to_vec()) {
+                break;
+            }
+            used = migrate_seed_beta_basket_v2_with_limit::<Test>(limit);
+            assert!(used.all_lte(limit));
+        }
         assert!(HasMigrationRun::<Test>::get(
             b"migrate_seed_beta_basket_v2".to_vec()
         ));
@@ -6123,14 +6130,17 @@ fn test_migrate_seed_beta_basket_reconciles_cross_subnet_overclaims() {
         });
         RootClaimed::<Test>::insert((over_a, over_hotkey, over_large), 300_000u128);
 
+        // Mirror current mainnet's incomplete auxiliary dense index: the large under-backed
+        // claimant is present in authoritative StakingHotkeys but absent from that index.
+        StakingHotkeys::<Test>::insert(under_large, vec![under_hotkey]);
         for (coldkey, hotkey) in [
             (under_small, under_hotkey),
-            (under_large, under_hotkey),
             (over_large, over_hotkey),
             (over_small, over_hotkey),
         ] {
             register_seed_migration_root_staker(hotkey, coldkey);
         }
+        assert!(!StakingColdkeys::<Test>::contains_key(under_large));
 
         migrate_seed_beta_basket_v2::<Test>();
 
@@ -6212,6 +6222,29 @@ fn test_migrate_seed_beta_basket_keeps_reconciliation_index_stable() {
             "normal root-staker index maintenance must resume after the seed"
         );
         assert_eq!(StakingColdkeysByIndex::<Test>::get(0), Some(coldkey));
+    });
+}
+
+#[test]
+fn test_migrate_seed_beta_basket_corrupt_claimant_cursor_fails_closed() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        SeedBetaBasketV2Migration, SeedBetaBasketV2Progress, migrate_seed_beta_basket_v2_limited,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let corrupt = SeedBetaBasketV2Progress::ReconcileClaimants {
+            after: None,
+            coldkey: Some(vec![0xff]),
+            hotkey_index: 0,
+        };
+        SeedBetaBasketV2Migration::<Test>::put(corrupt.clone());
+
+        migrate_seed_beta_basket_v2_limited::<Test>(10, 10, 10);
+
+        assert_eq!(SeedBetaBasketV2Migration::<Test>::get(), Some(corrupt));
+        assert!(!HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
     });
 }
 
@@ -6416,7 +6449,10 @@ fn test_migrate_seed_beta_basket_v2_after_v1_already_ran() {
             NetUid::ROOT,
         )
         .to_u64();
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         let gain = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &coldkey,

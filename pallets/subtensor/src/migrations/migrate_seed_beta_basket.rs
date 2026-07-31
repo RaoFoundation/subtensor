@@ -98,14 +98,14 @@ pub enum SeedBetaBasketV2Progress {
     /// `Σ_c max(BasketRate * root_stake_c - BasketClaimed_c, 0)`, so the final supply must be
     /// rebuilt from claimant positions rather than retaining the per-slot total.
     ClearShares { cursor: Option<Vec<u8>> },
-    /// Rebuild `BasketShares` from uncapped runtime owed positions. The dense staking-coldkey
-    /// index is stable while the seed cursor exists because root stake changes, deposits, and
-    /// claims are gated. `hotkey_index` resumes within one coldkey's `StakingHotkeys` vector so
-    /// even a coldkey associated with many validators is bounded across passes.
+    /// Rebuild `BasketShares` from uncapped runtime owed positions. `StakingHotkeys` is the
+    /// authoritative claimant set used by the claim API; unlike the auxiliary dense coldkey
+    /// index, it is complete on legacy mainnet state. `after` resumes the outer storage map and
+    /// `coldkey`/`hotkey_index` resume within one coldkey's vector.
     ReconcileClaimants {
-        coldkey_index: u64,
+        after: Option<Vec<u8>>,
+        coldkey: Option<Vec<u8>>,
         hotkey_index: u32,
-        total_coldkeys: u64,
     },
     /// Bounded clear of legacy `RootClaimed` rows that had no matching
     /// `RootClaimable[hotkey][netuid]` slot. Such watermarks are inert because there is no
@@ -251,8 +251,8 @@ fn principal_clear_item_weight<T: Config>() -> Weight {
 }
 
 fn reconcile_coldkey_weight<T: Config>() -> Weight {
-    // StakingColdkeysByIndex + StakingHotkeys.
-    T::DbWeight::get().reads(2)
+    // One StakingHotkeys map entry (key plus claimant hotkey vector).
+    T::DbWeight::get().reads(1)
 }
 
 fn reconcile_position_weight<T: Config>() -> Weight {
@@ -545,40 +545,34 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                     return weight;
                 }
 
-                let total_coldkeys = NumStakingColdkeys::<T>::get();
-                weight.saturating_accrue(T::DbWeight::get().reads(1));
                 progress = SeedBetaBasketV2Progress::ReconcileClaimants {
-                    coldkey_index: 0,
+                    after: None,
+                    coldkey: None,
                     hotkey_index: 0,
-                    total_coldkeys,
                 };
                 continue 'phases;
             }
             SeedBetaBasketV2Progress::ReconcileClaimants {
-                mut coldkey_index,
+                mut after,
+                mut coldkey,
                 mut hotkey_index,
-                total_coldkeys,
             } => {
                 let mut coldkeys_done_this_pass = 0u32;
                 let mut positions_done_this_pass = 0u32;
 
                 loop {
-                    if coldkey_index >= total_coldkeys {
-                        progress = SeedBetaBasketV2Progress::ClearClaimed { cursor: None };
-                        continue 'phases;
-                    }
-                    if hotkey_index == 0 && coldkeys_done_this_pass >= hotkeys_per_pass {
+                    if coldkey.is_none() && coldkeys_done_this_pass >= hotkeys_per_pass {
                         SeedBetaBasketV2Migration::<T>::put(
                             SeedBetaBasketV2Progress::ReconcileClaimants {
-                                coldkey_index,
+                                after,
+                                coldkey,
                                 hotkey_index,
-                                total_coldkeys,
                             },
                         );
                         weight.saturating_accrue(T::DbWeight::get().writes(1));
                         return weight;
                     }
-                    if hotkey_index == 0
+                    if coldkey.is_none()
                         && made_progress
                         && adaptive_limit.is_some_and(|limit| {
                             !next_item_fits::<T>(weight, reconcile_coldkey_weight::<T>(), limit)
@@ -586,30 +580,47 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                     {
                         SeedBetaBasketV2Migration::<T>::put(
                             SeedBetaBasketV2Progress::ReconcileClaimants {
-                                coldkey_index,
+                                after,
+                                coldkey,
                                 hotkey_index,
-                                total_coldkeys,
                             },
                         );
                         weight.saturating_accrue(T::DbWeight::get().writes(1));
                         return weight;
                     }
 
-                    let Some(coldkey) = StakingColdkeysByIndex::<T>::get(coldkey_index) else {
+                    let (current_coldkey, hotkeys) = if let Some(encoded) = coldkey.as_ref() {
+                        let current = match T::AccountId::decode(&mut &encoded[..]) {
+                            Ok(current) => current,
+                            Err(_) => {
+                                log::error!(
+                                    "Migration 'migrate_seed_beta_basket_v2' found an undecodable claimant cursor; preserving it and stopping this pass."
+                                );
+                                return weight;
+                            }
+                        };
+                        let hotkeys = StakingHotkeys::<T>::get(&current);
                         weight.saturating_accrue(T::DbWeight::get().reads(1));
-                        coldkey_index = coldkey_index.saturating_add(1);
+                        (current, hotkeys)
+                    } else {
+                        let mut iter = match after.as_ref() {
+                            Some(raw) => StakingHotkeys::<T>::iter_from(raw.clone()),
+                            None => StakingHotkeys::<T>::iter(),
+                        };
+                        let Some((current, hotkeys)) = iter.next() else {
+                            progress = SeedBetaBasketV2Progress::ClearClaimed { cursor: None };
+                            continue 'phases;
+                        };
+                        weight.saturating_accrue(T::DbWeight::get().reads(1));
+                        coldkey = Some(current.encode());
                         hotkey_index = 0;
-                        coldkeys_done_this_pass = coldkeys_done_this_pass.saturating_add(1);
-                        made_progress = true;
-                        continue;
+                        (current, hotkeys)
                     };
-                    let hotkeys = StakingHotkeys::<T>::get(&coldkey);
-                    weight.saturating_accrue(reconcile_coldkey_weight::<T>());
 
-                    // The escrow is fund custody, never a claimant. It can appear in the dense
-                    // staking index after conversion attributed subnet holdings to it.
-                    if coldkey == escrow {
-                        coldkey_index = coldkey_index.saturating_add(1);
+                    // The escrow is fund custody, never a claimant.
+                    if current_coldkey == escrow {
+                        after = Some(StakingHotkeys::<T>::hashed_key_for(&current_coldkey));
+                        coldkey = None;
                         hotkey_index = 0;
                         coldkeys_done_this_pass = coldkeys_done_this_pass.saturating_add(1);
                         made_progress = true;
@@ -629,9 +640,9 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                         {
                             SeedBetaBasketV2Migration::<T>::put(
                                 SeedBetaBasketV2Progress::ReconcileClaimants {
-                                    coldkey_index,
+                                    after,
+                                    coldkey,
                                     hotkey_index,
-                                    total_coldkeys,
                                 },
                             );
                             weight.saturating_accrue(T::DbWeight::get().writes(1));
@@ -643,7 +654,7 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                         }
 
                         let hotkey = &hotkeys[hotkey_index as usize];
-                        let owed = Pallet::<T>::get_basket_owed_shares(hotkey, &coldkey);
+                        let owed = Pallet::<T>::get_basket_owed_shares(hotkey, &current_coldkey);
                         if owed != 0 {
                             BasketShares::<T>::mutate(hotkey, |shares| {
                                 *shares = shares.saturating_add(owed);
@@ -655,7 +666,8 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                         made_progress = true;
                     }
 
-                    coldkey_index = coldkey_index.saturating_add(1);
+                    after = Some(StakingHotkeys::<T>::hashed_key_for(&current_coldkey));
+                    coldkey = None;
                     hotkey_index = 0;
                     coldkeys_done_this_pass = coldkeys_done_this_pass.saturating_add(1);
                 }

@@ -839,10 +839,9 @@ impl<T: Config> Pallet<T> {
             .max(outcome.realized.saturating_add(outcome.swept))
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
-        <T as crate::pallet::Config>::WeightInfo::claim_root(active)
-            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
-                scanned,
-            ))
+        <T as crate::pallet::Config>::WeightInfo::claim_root(active).saturating_add(
+            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(scanned),
+        )
     }
 
     pub fn do_root_claim(
