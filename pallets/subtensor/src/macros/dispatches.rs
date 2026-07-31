@@ -1060,6 +1060,7 @@ mod dispatches {
             netuid: NetUid,
         ) -> DispatchResult {
             ensure_root(origin)?;
+            Self::ensure_beta_basket_seed_idle()?;
             Self::do_dissolve_network(netuid)
         }
 
@@ -1897,6 +1898,7 @@ mod dispatches {
         #[pallet::weight(<T as Config>::WeightInfo::root_dissolve_network())]
         pub fn root_dissolve_network(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
             ensure_root(origin)?;
+            Self::ensure_beta_basket_seed_idle()?;
             Self::do_dissolve_network(netuid)
         }
 

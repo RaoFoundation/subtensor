@@ -5740,6 +5740,91 @@ fn test_migrate_seed_beta_basket_pauses_dissolution_cleanup_until_complete() {
     });
 }
 
+#[test]
+fn test_migrate_seed_beta_basket_rejects_all_new_dissolution_paths() {
+    use crate::migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(14_101);
+        let hotkey = U256::from(14_102);
+        let coldkey = U256::from(14_103);
+        let claimant = U256::from(14_104);
+        let replacement_hotkey = U256::from(14_105);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid, I96F32::from_num(0.5));
+        });
+        RootClaimed::<Test>::insert((netuid, hotkey, claimant), 100u128);
+        PendingRootAlphaDivs::<Test>::insert(netuid, AlphaBalance::from(500u64));
+
+        // Make this subnet the deterministic registration-prune candidate at the subnet cap.
+        SubnetLimit::<Test>::put(1u16);
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(0));
+        let mature_block = NetworkRegisteredAt::<Test>::get(netuid)
+            .saturating_add(SubtensorModule::get_network_immunity_period())
+            .saturating_add(1);
+        System::set_block_number(mature_block);
+        let lock_cost = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(
+            &coldkey,
+            lock_cost.saturating_mul(TaoBalance::from(2u64)),
+        );
+
+        let total_networks = TotalNetworks::<Test>::get();
+        let total_stake = TotalStake::<Test>::get();
+        kickoff_seed_beta_basket_v2::<Test>();
+
+        // Both root dissolution dispatches must fail before touching any source or network state.
+        assert_eq!(
+            SubtensorModule::dissolve_network(RuntimeOrigin::root(), owner, netuid),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+        assert_eq!(
+            SubtensorModule::root_dissolve_network(RuntimeOrigin::root(), netuid),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+        assert!(NetworksAdded::<Test>::get(netuid));
+        assert_eq!(TotalNetworks::<Test>::get(), total_networks);
+        assert_eq!(TotalStake::<Test>::get(), total_stake);
+        assert!(DissolveCleanupQueue::<Test>::get().is_empty());
+        assert_eq!(PendingRootAlphaDivs::<Test>::get(netuid).to_u64(), 500);
+        assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, claimant)), 100);
+        assert!(RootClaimable::<Test>::get(hotkey).contains_key(&netuid));
+
+        // A signed registration at the cap reaches the same shared guard instead of pruning.
+        assert_eq!(
+            SubtensorModule::do_register_network(
+                RuntimeOrigin::signed(coldkey),
+                &replacement_hotkey,
+                1,
+                None,
+            ),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+        assert!(NetworksAdded::<Test>::get(netuid));
+        assert_eq!(TotalNetworks::<Test>::get(), total_networks);
+        assert_eq!(TotalStake::<Test>::get(), total_stake);
+        assert!(DissolveCleanupQueue::<Test>::get().is_empty());
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert_eq!(PendingRootAlphaDivs::<Test>::get(netuid).to_u64(), 500);
+        assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, claimant)), 100);
+        assert!(RootClaimable::<Test>::get(hotkey).contains_key(&netuid));
+
+        // Registration itself is not disabled: when capacity exists, no dissolution is needed
+        // and the caller receives the new subnet normally during the migration.
+        SubnetLimit::<Test>::put(2u16);
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(coldkey),
+            &replacement_hotkey,
+            1,
+            None,
+        ));
+        assert_eq!(TotalNetworks::<Test>::get(), total_networks.saturating_add(1));
+        assert_eq!(SubnetOwner::<Test>::get(NetUid::from(2)), coldkey);
+    });
+}
+
 /// Adaptive production entrypoint must scale work to the remaining on_idle weight while always
 /// making progress. In particular, a zero remaining budget must still execute one indivisible
 /// row/hotkey iteration instead of persisting the same cursor forever.

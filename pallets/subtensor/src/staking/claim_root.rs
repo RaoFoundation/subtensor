@@ -54,11 +54,11 @@ impl RootClaimOutcome {
 }
 
 impl<T: Config> Pallet<T> {
-    /// Reject user-facing basket / root-stake mutations while the
+    /// Reject basket / root-stake mutations and subnet dissolution while the
     /// `migrate_seed_beta_basket_v2` cursor is still present. Dividend production normally
     /// remains in `PendingRootAlphaDivs` until the seed completes; direct calls into the
-    /// distribution soft path recycle defensively. Deposits, claims, swaps, and root stake
-    /// add/remove/transfer hard-error here.
+    /// distribution soft path recycle defensively. Deposits, claims, swaps, root stake
+    /// add/remove/transfer, and dissolution hard-error here.
     pub(crate) fn ensure_beta_basket_seed_idle() -> Result<(), Error<T>> {
         ensure!(
             !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
