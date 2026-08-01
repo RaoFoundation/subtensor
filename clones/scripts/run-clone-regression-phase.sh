@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 JS_TESTS="$REPO_ROOT/clones/js-tests"
+source "$SCRIPT_DIR/clone-process-supervision.sh"
 
 usage() {
   echo "usage: run-clone-regression-phase.sh pristine|remaining|combined" >&2
@@ -22,6 +23,14 @@ run_sdk_drift=${RUN_SDK_DRIFT:-false}
 
 cleanup() {
   local status=$?
+  if [[ -n "${workload_pid:-}" ]]; then
+    terminate_process_tree "$workload_pid"
+    wait "$workload_pid" 2>/dev/null || true
+  fi
+  if [[ -n "${monitor_pid:-}" ]]; then
+    kill -TERM "$monitor_pid" 2>/dev/null || true
+    wait "$monitor_pid" 2>/dev/null || true
+  fi
   "$SCRIPT_DIR/stop-local-clone.sh" || true
   exit "$status"
 }
@@ -48,10 +57,36 @@ run_regressions() {
   )
 }
 
+start_block_monitor() {
+  local phase_name=$1
+  local node_log="$REPO_ROOT/clone-node.log"
+  local start_offset
+
+  [[ -f "$node_log" ]] || : > "$node_log"
+  start_offset=$(wc -c < "$node_log" | tr -d '[:space:]')
+  "$SCRIPT_DIR/run-clone-block-monitor.sh" fail-fast "$phase_name" "$start_offset" &
+  monitor_pid=$!
+}
+
+run_monitored_workload() {
+  local phase_name=$1
+  shift
+  local status=0
+
+  start_block_monitor "$phase_name"
+  "$@" &
+  workload_pid=$!
+
+  supervise_monitor_and_workload "$monitor_pid" "$workload_pid" "$phase_name workload" || status=$?
+  workload_pid=
+  monitor_pid=
+  return "$status"
+}
+
 run_pristine() {
   start_clone
   upgrade_runtime
-  run_regressions pristine
+  run_monitored_workload pristine run_regressions pristine
 }
 
 run_sdk_metadata_drift() {
@@ -67,15 +102,19 @@ run_sdk_metadata_drift() {
   )
 }
 
-run_remaining() {
-  start_clone
-  upgrade_runtime
+run_remaining_workload() {
   (
     cd "$JS_TESTS"
     npm test
   )
   run_regressions remaining
   run_sdk_metadata_drift
+}
+
+run_remaining() {
+  start_clone
+  upgrade_runtime
+  run_monitored_workload remaining run_remaining_workload
 }
 
 case "$phase" in

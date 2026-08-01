@@ -1,0 +1,200 @@
+name: Mainnet Clone Epoch Soak
+
+on:
+  workflow_dispatch:
+    inputs:
+      epoch_cycles:
+        description: "Complete post-migration epoch cycles required for every active non-root subnet"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+        default: "2"
+      fresh_state:
+        description: "Bypass the trusted nightly snapshot and scrape mainnet state live"
+        type: boolean
+        default: false
+
+concurrency:
+  group: mainnet-clone-epoch-soak
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  WS_ENDPOINT: ws://127.0.0.1:9944
+
+jobs:
+  build-node-release:
+    name: build release node for epoch soak
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 60
+    environment:
+      name: sccache-reader
+      deployment: false
+    env:
+      RUST_BACKTRACE: full
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          cache-key: clone-epoch-soak-node
+          sccache-credential-mode: auto
+          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
+          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
+
+      - name: Add wasm target and rust-src
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Build production node and runtime
+        run: cargo build --release -p node-subtensor --locked
+
+      - name: Validate release artifacts
+        run: |
+          test -s target/release/node-subtensor
+          test -s target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+          chmod +x target/release/node-subtensor
+
+      - name: Report compiler cache
+        if: always()
+        run: .github/scripts/sccache-report.sh "Clone epoch soak compiler cache"
+
+      - name: Upload release node and runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: clone-epoch-soak-node-${{ github.sha }}
+          path: |
+            target/release/node-subtensor
+            target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+          if-no-files-found: error
+          retention-days: 1
+
+  epoch-soak:
+    name: post-upgrade epoch soak (${{ inputs.epoch_cycles }} cycles)
+    needs: build-node-release
+    runs-on: [self-hosted, fireactions-validatorbench]
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reserve ten minutes inside the Actions timeout for cleanup and artifact upload.
+      - name: Set operational deadline
+        run: echo "SOAK_DEADLINE_EPOCH_MS=$(( $(date -u +%s) * 1000 + 140 * 60 * 1000 ))" >> "$GITHUB_ENV"
+
+      - name: Download release node and runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: clone-epoch-soak-node-${{ github.sha }}
+          path: target/release
+
+      - name: Make node binary executable
+        run: chmod +x target/release/node-subtensor
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install clone test dependencies
+        working-directory: clones/js-tests
+        run: npm ci
+
+      - name: Select trusted mainnet snapshot
+        id: snapshot
+        if: inputs.fresh_state != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/snapshot-artifact.sh select \
+            mainnet-snapshot \
+            "${{ github.event.repository.default_branch }}" \
+            "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml \
+            168 "$GITHUB_OUTPUT" required
+
+      - name: Download trusted mainnet snapshot
+        id: download-snapshot
+        if: inputs.fresh_state != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          .github/scripts/download-artifact.sh \
+            "${{ steps.snapshot.outputs.artifact-id }}" \
+            mainnet-snapshot \
+            "${{ steps.snapshot.outputs.artifact-digest }}" \
+            "${{ steps.snapshot.outputs.artifact-size-bytes }}" \
+            "$RUNNER_TEMP/mainnet-epoch-soak-snapshot" "$GITHUB_OUTPUT"
+
+      - name: Restore trusted mainnet snapshot
+        if: inputs.fresh_state != true
+        run: |
+          ./clones/scripts/local-clone-checkpoint.sh restore \
+            "$RUNNER_TEMP/mainnet-epoch-soak-snapshot/mainnet-snapshot.tar.gz"
+          echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+          {
+            echo "### Mainnet clone snapshot"
+            echo "- Artifact: ${{ steps.snapshot.outputs.artifact-id }}"
+            echo "- Age: ${{ steps.snapshot.outputs.age-hours }}h"
+            echo "- Download source: ${{ steps.download-snapshot.outputs.source }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create clone from fresh mainnet state
+        if: inputs.fresh_state == true
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=30 1200 ./clones/scripts/clone-mainnet.sh; then
+              exit 0
+            fi
+            echo "::warning::mainnet scrape attempt ${attempt} timed out or failed; retrying"
+            pkill -9 -f build-patched-spec || true
+            sleep 10
+          done
+          exit 1
+
+      - name: Run accelerated post-upgrade epoch soak
+        # The release runtime still advances Timestamp by 12 seconds per block;
+        # only manual-seal wall scheduling is compressed to 250ms.
+        run: ./clones/scripts/run-clone-epoch-soak.sh "${{ inputs.epoch_cycles }}"
+
+      - name: Stop clone
+        if: always()
+        run: ./clones/scripts/stop-local-clone.sh
+
+      - name: Dump diagnostic tails
+        if: failure()
+        run: |
+          echo "===== clone-node.log (last 300 lines) ====="
+          tail -n 300 clone-node.log 2>/dev/null || echo "(missing)"
+          for file in clones/js-tests/temp/clone-*.log; do
+            [ -f "$file" ] || continue
+            echo "===== $file ====="
+            tail -n 300 "$file"
+          done
+
+      - name: Compress node log
+        if: always()
+        run: |
+          if [ -f clone-node.log ]; then
+            gzip -9 -f clone-node.log
+          fi
+
+      - name: Upload soak reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clone-epoch-soak-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            clone-node.log.gz
+            clones/js-tests/temp/clone-block-performance-soak.log
+            clones/js-tests/temp/clone-block-performance-soak.json
+            clones/js-tests/temp/clone-epoch-soak.log
+            clones/js-tests/temp/clone-epoch-coverage.json
+          if-no-files-found: warn
+          retention-days: 14
