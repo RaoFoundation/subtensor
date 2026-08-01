@@ -27,61 +27,42 @@ env:
   WS_ENDPOINT: ws://127.0.0.1:9944
 
 jobs:
-  build-node-release:
-    name: build release node for epoch soak
+  select-node-release:
+    name: select exact Runtime Checks release node
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.action == 'labeled' &&
        github.event.label.name == 'run-clone-epoch-soak' &&
        github.event.pull_request.head.repo.fork == false)
-    runs-on: [self-hosted, fireactions-turbo-8]
-    timeout-minutes: 60
-    environment:
-      name: sccache-reader
-      deployment: false
-    env:
-      RUST_BACKTRACE: full
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.release.outputs.artifact_id }}
+      digest: ${{ steps.release.outputs.digest }}
+      size: ${{ steps.release.outputs.size }}
+      run_id: ${{ steps.release.outputs.run_id }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/rust-setup
-        with:
-          cache-key: clone-epoch-soak-node
-          sccache-credential-mode: auto
-          sccache-writer-access-key-id: ${{ secrets.SCCACHE_R2_WRITE_ACCESS_KEY_ID }}
-          sccache-writer-secret-access-key: ${{ secrets.SCCACHE_R2_WRITE_SECRET_ACCESS_KEY }}
-
-      - name: Add wasm target and rust-src
+      - name: Wait for exact release node from Runtime Checks
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          rustup target add wasm32-unknown-unknown
-          rustup component add rust-src
-
-      - name: Build production node and runtime
-        run: cargo build --release -p node-subtensor --locked
-
-      - name: Validate release artifacts
-        run: |
-          test -s target/release/node-subtensor
-          test -s target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
-          chmod +x target/release/node-subtensor
-
-      - name: Report compiler cache
-        if: always()
-        run: .github/scripts/sccache-report.sh "Clone epoch soak compiler cache"
-
-      - name: Upload release node and runtime
-        uses: actions/upload-artifact@v4
-        with:
-          name: clone-epoch-soak-node-${{ github.sha }}
-          path: |
-            target/release/node-subtensor
-            target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
-          if-no-files-found: error
-          retention-days: 1
+          .github/scripts/select-shared-release-artifact.sh "$GITHUB_OUTPUT" 1200
+          if ! grep -qx 'found=true' "$GITHUB_OUTPUT"; then
+            echo "::error::No exact Runtime Checks release artifact became available."
+            exit 1
+          fi
 
   epoch-soak:
     name: post-upgrade epoch soak (${{ inputs.epoch_cycles || '2' }} cycles)
-    needs: build-node-release
+    needs: select-node-release
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 150
     permissions:
@@ -94,14 +75,24 @@ jobs:
       - name: Set operational deadline
         run: echo "SOAK_DEADLINE_EPOCH_MS=$(( $(date -u +%s) * 1000 + 140 * 60 * 1000 ))" >> "$GITHUB_ENV"
 
-      - name: Download release node and runtime
-        uses: actions/download-artifact@v4
-        with:
-          name: clone-epoch-soak-node-${{ github.sha }}
-          path: target/release
+      - name: Download exact release node and runtime
+        id: release-download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          .github/scripts/download-artifact.sh \
+            "${{ needs.select-node-release.outputs.artifact_id }}" \
+            "node-subtensor-release-${GITHUB_SHA}" \
+            "${{ needs.select-node-release.outputs.digest }}" \
+            "${{ needs.select-node-release.outputs.size }}" \
+            target/release "$GITHUB_OUTPUT"
 
-      - name: Make node binary executable
-        run: chmod +x target/release/node-subtensor
+      - name: Validate release node and runtime
+        run: |
+          test -s target/release/node-subtensor
+          test -s target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+          chmod +x target/release/node-subtensor
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
