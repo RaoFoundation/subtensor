@@ -6,8 +6,10 @@ import test from "node:test";
 import {
   BestHeadLiveness,
   NodeLogTail,
+  bestHeadFailureReasons,
   blockLatencyFailureReasons,
   computeEpochCoverageBudget,
+  computeEpochCoverageTimeout,
   evaluateEpochCoverage,
   evaluateMigrationGate,
   parsePreparedBlockChunk,
@@ -120,6 +122,27 @@ test("rejects a best-head regression", () => {
   assert.throws(() => liveness.observe(19, 1), /regressed/);
 });
 
+test("records a recoverable soak stall as a violation before its hard timeout", () => {
+  const liveness = new BestHeadLiveness(4_000, 12_000, 120_000);
+  liveness.observe(50, 0);
+  assert.equal(liveness.tick(4_000).kind, "warning");
+  const violation = liveness.tick(12_000);
+  assert.equal(violation.kind, "violation");
+  assert.equal(liveness.tick(30_000).kind, "healthy");
+
+  const recovered = liveness.observe(51, 30_660);
+  assert.equal(recovered?.durationMs, 30_660);
+  assert.equal(recovered?.violatedAtMs, 12_000);
+  assert.deepEqual(bestHeadFailureReasons(liveness.getStalls()), [
+    "1 best-head stall(s) met or exceeded 12000ms",
+  ]);
+
+  liveness.tick(34_660);
+  liveness.tick(42_660);
+  const aborted = liveness.tick(150_660);
+  assert.equal(aborted.kind, "abort");
+});
+
 test("tracks complete epoch cycles and exposes removal, missing, and regression failures", () => {
   const baseline: EpochBaseline[] = [
     { netuid: 1, tempo: 360, epochIndex: 4n },
@@ -187,4 +210,25 @@ test("budgets tempo, two-per-block deferral, margin, and accelerated wall time",
     () => computeEpochCoverageBudget([{ netuid: 1, tempo: 0, epochIndex: 0n }], 2, 2),
     /invalid tempo/,
   );
+});
+
+test("sizes epoch coverage timeout from observed block pace with a two-times allowance", () => {
+  const budget = computeEpochCoverageBudget(
+    [{ netuid: 1, tempo: 1800, epochIndex: 0n }],
+    2,
+    2,
+  );
+  const timeout = computeEpochCoverageTimeout(budget, 100, 50_000, 10_000_000);
+
+  assert.equal(timeout.observedBlockWallMs, 500);
+  assert.equal(timeout.projectedBlockWallMs, 500);
+  assert.equal(timeout.projectedCoverageWallMs, budget.blockBudget * 500);
+  assert.equal(timeout.requestedTimeoutMs, budget.blockBudget * 1_000);
+  assert.equal(timeout.effectiveTimeoutMs, timeout.requestedTimeoutMs);
+  assert.equal(timeout.constrainedByOperationalDeadline, false);
+
+  const capped = computeEpochCoverageTimeout(budget, 0, 0, 60_000);
+  assert.equal(capped.projectedBlockWallMs, 250);
+  assert.equal(capped.effectiveTimeoutMs, 60_000);
+  assert.equal(capped.constrainedByOperationalDeadline, true);
 });

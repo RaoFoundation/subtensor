@@ -5,11 +5,14 @@ import { connectApi } from "../lib/api.js";
 import {
   DEFAULT_BLOCK_FAILURE_MS,
   DEFAULT_BLOCK_WARNING_MS,
+  COLLECT_HEAD_TIMEOUT_MS,
   DEFAULT_HEAD_TIMEOUT_MS,
+  DEFAULT_HEAD_VIOLATION_MS,
   DEFAULT_HEAD_WARNING_MS,
   DEFAULT_MIN_BLOCK_SAMPLES,
   BestHeadLiveness,
   NodeLogTail,
+  bestHeadFailureReasons,
   blockLatencyFailureReasons,
   remainingRequiredBlockSamples,
   summarizeBlockSamples,
@@ -39,6 +42,7 @@ interface MonitorReport {
     blockWarningMs: number;
     blockFailureMs: number;
     headWarningMs: number;
+    headViolationMs: number;
     headTimeoutMs: number;
     minimumSamples: number;
   };
@@ -60,7 +64,13 @@ async function main() {
   const samples: BlockConstructionSample[] = [];
   const failureReasons: string[] = [];
   const tail = new NodeLogTail(args.nodeLog, args.startOffset);
-  const liveness = new BestHeadLiveness();
+  const headTimeoutMs =
+    args.policy === "collect" ? COLLECT_HEAD_TIMEOUT_MS : DEFAULT_HEAD_TIMEOUT_MS;
+  const liveness = new BestHeadLiveness(
+    DEFAULT_HEAD_WARNING_MS,
+    DEFAULT_HEAD_VIOLATION_MS,
+    headTimeoutMs,
+  );
   let shutdownRequested = false;
   let shutdownNoticePrinted = false;
   let disconnecting = false;
@@ -156,6 +166,12 @@ async function main() {
           `no new best head for ${tick.stall.durationMs}ms after block ${tick.stall.afterBlock}`,
         );
         break;
+      } else if (tick.kind === "violation") {
+        console.error(
+          `BEST HEAD VIOLATION: no new best head for ${tick.stall.durationMs}ms ` +
+            `after block ${tick.stall.afterBlock}; continuing until recovery or ` +
+            `${headTimeoutMs}ms hard timeout`,
+        );
       }
 
       await delay(200);
@@ -184,6 +200,8 @@ async function main() {
   failureReasons.push(
     ...blockLatencyFailureReasons(latency, DEFAULT_MIN_BLOCK_SAMPLES),
   );
+  const stalls = liveness.getStalls();
+  failureReasons.push(...bestHeadFailureReasons(stalls));
 
   const report: MonitorReport = {
     schemaVersion: 1,
@@ -197,12 +215,13 @@ async function main() {
       blockWarningMs: DEFAULT_BLOCK_WARNING_MS,
       blockFailureMs: DEFAULT_BLOCK_FAILURE_MS,
       headWarningMs: DEFAULT_HEAD_WARNING_MS,
-      headTimeoutMs: DEFAULT_HEAD_TIMEOUT_MS,
+      headViolationMs: DEFAULT_HEAD_VIOLATION_MS,
+      headTimeoutMs,
       minimumSamples: DEFAULT_MIN_BLOCK_SAMPLES,
     },
     bestHead: {
       lastBlock: liveness.getLastBlock() ?? null,
-      stalls: liveness.getStalls(),
+      stalls,
     },
     latency,
     failureReasons,

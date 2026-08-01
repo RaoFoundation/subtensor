@@ -3,9 +3,12 @@ import fs from "node:fs";
 export const DEFAULT_BLOCK_WARNING_MS = 2_000;
 export const DEFAULT_BLOCK_FAILURE_MS = 4_000;
 export const DEFAULT_HEAD_WARNING_MS = 4_000;
+export const DEFAULT_HEAD_VIOLATION_MS = 12_000;
 export const DEFAULT_HEAD_TIMEOUT_MS = 12_000;
+export const COLLECT_HEAD_TIMEOUT_MS = 120_000;
 export const DEFAULT_MIN_BLOCK_SAMPLES = 20;
 export const ACCELERATED_SEALING_MS = 250;
+export const SOAK_TIMEOUT_MULTIPLIER = 2;
 
 export function remainingRequiredBlockSamples(
   observedSamples: number,
@@ -44,6 +47,7 @@ export interface BlockLatencySummary {
 export interface BestHeadStall {
   afterBlock: number;
   warnedAtMs: number;
+  violatedAtMs: number | null;
   endedAtMs: number | null;
   outcome: "active" | "recovered" | "aborted";
   durationMs: number;
@@ -52,6 +56,7 @@ export interface BestHeadStall {
 export type LivenessTick =
   | { kind: "healthy" }
   | { kind: "warning"; stall: BestHeadStall }
+  | { kind: "violation"; stall: BestHeadStall }
   | { kind: "abort"; stall: BestHeadStall };
 
 export interface EpochBaseline {
@@ -81,6 +86,18 @@ export interface EpochCoverageBudget {
   unpaddedBlocks: number;
   blockBudget: number;
   nominalWallMs: number;
+}
+
+export interface EpochCoverageTimeout {
+  observedBlocks: number;
+  observedWallMs: number;
+  observedBlockWallMs: number;
+  projectedBlockWallMs: number;
+  projectedCoverageWallMs: number;
+  timeoutMultiplier: number;
+  requestedTimeoutMs: number;
+  effectiveTimeoutMs: number;
+  constrainedByOperationalDeadline: boolean;
 }
 
 export type MigrationGateEvaluation =
@@ -204,10 +221,14 @@ export class BestHeadLiveness {
 
   constructor(
     readonly warningMs = DEFAULT_HEAD_WARNING_MS,
+    readonly violationMs = DEFAULT_HEAD_VIOLATION_MS,
     readonly timeoutMs = DEFAULT_HEAD_TIMEOUT_MS,
   ) {
-    if (!(warningMs > 0 && timeoutMs > warningMs)) {
-      throw new Error(`invalid best-head thresholds: warning=${warningMs} timeout=${timeoutMs}`);
+    if (!(warningMs > 0 && violationMs > warningMs && timeoutMs >= violationMs)) {
+      throw new Error(
+        `invalid best-head thresholds: warning=${warningMs} violation=${violationMs} ` +
+          `timeout=${timeoutMs}`,
+      );
     }
   }
 
@@ -248,11 +269,12 @@ export class BestHeadLiveness {
       this.activeStall = {
         afterBlock: this.lastBlock,
         warnedAtMs: nowMs,
+        violatedAtMs: null,
         endedAtMs: null,
         outcome: "active",
         durationMs,
       };
-      if (durationMs < this.timeoutMs) {
+      if (durationMs < this.violationMs) {
         return { kind: "warning", stall: { ...this.activeStall } };
       }
     } else {
@@ -263,6 +285,10 @@ export class BestHeadLiveness {
       this.activeStall.endedAtMs = nowMs;
       this.activeStall.outcome = "aborted";
       return { kind: "abort", stall: { ...this.activeStall } };
+    }
+    if (durationMs >= this.violationMs && this.activeStall.violatedAtMs === null) {
+      this.activeStall.violatedAtMs = nowMs;
+      return { kind: "violation", stall: { ...this.activeStall } };
     }
     return { kind: "healthy" };
   }
@@ -281,6 +307,16 @@ export class BestHeadLiveness {
     }
     return result;
   }
+}
+
+export function bestHeadFailureReasons(
+  stalls: readonly BestHeadStall[],
+  violationMs = DEFAULT_HEAD_VIOLATION_MS,
+): string[] {
+  const violations = stalls.filter(({ durationMs }) => durationMs >= violationMs);
+  return violations.length === 0
+    ? []
+    : [`${violations.length} best-head stall(s) met or exceeded ${violationMs}ms`];
 }
 
 export function evaluateEpochCoverage(
@@ -395,6 +431,46 @@ export function computeEpochCoverageBudget(
     unpaddedBlocks,
     blockBudget,
     nominalWallMs: blockBudget * ACCELERATED_SEALING_MS,
+  };
+}
+
+export function computeEpochCoverageTimeout(
+  budget: EpochCoverageBudget,
+  observedBlocks: number,
+  observedWallMs: number,
+  remainingWallMs: number,
+  timeoutMultiplier = SOAK_TIMEOUT_MULTIPLIER,
+): EpochCoverageTimeout {
+  if (!Number.isSafeInteger(observedBlocks) || observedBlocks < 0) {
+    throw new Error(`invalid observed migration blocks: ${observedBlocks}`);
+  }
+  if (!Number.isFinite(observedWallMs) || observedWallMs < 0) {
+    throw new Error(`invalid observed migration wall time: ${observedWallMs}`);
+  }
+  if (!Number.isFinite(remainingWallMs) || remainingWallMs < 0) {
+    throw new Error(`invalid remaining wall time: ${remainingWallMs}`);
+  }
+  if (!Number.isFinite(timeoutMultiplier) || timeoutMultiplier < 1) {
+    throw new Error(`invalid soak timeout multiplier: ${timeoutMultiplier}`);
+  }
+
+  const observedBlockWallMs =
+    observedBlocks === 0 ? ACCELERATED_SEALING_MS : Math.ceil(observedWallMs / observedBlocks);
+  const projectedBlockWallMs = Math.max(ACCELERATED_SEALING_MS, observedBlockWallMs);
+  const projectedCoverageWallMs = budget.blockBudget * projectedBlockWallMs;
+  const requestedTimeoutMs = Math.ceil(projectedCoverageWallMs * timeoutMultiplier);
+  const effectiveTimeoutMs = Math.min(requestedTimeoutMs, Math.floor(remainingWallMs));
+
+  return {
+    observedBlocks,
+    observedWallMs: Math.ceil(observedWallMs),
+    observedBlockWallMs,
+    projectedBlockWallMs,
+    projectedCoverageWallMs,
+    timeoutMultiplier,
+    requestedTimeoutMs,
+    effectiveTimeoutMs,
+    constrainedByOperationalDeadline: effectiveTimeoutMs < requestedTimeoutMs,
   };
 }
 

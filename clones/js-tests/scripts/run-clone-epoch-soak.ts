@@ -6,11 +6,13 @@ import { xxhashAsHex } from "@polkadot/util-crypto";
 import { connectApi } from "../lib/api.js";
 import {
   computeEpochCoverageBudget,
+  computeEpochCoverageTimeout,
   evaluateEpochCoverage,
   evaluateMigrationGate,
   type EpochBaseline,
   type EpochCoverageBudget,
   type EpochCoverageEvaluation,
+  type EpochCoverageTimeout,
 } from "../lib/clone-performance.js";
 import { createTempLogger } from "../lib/file-log.js";
 
@@ -30,6 +32,8 @@ interface MigrationObservation {
   sawCursor: boolean;
   startBlock: number;
   completionBlock: number;
+  observedBlocks: number;
+  observedWallMs: number;
 }
 
 interface EpochSoakReport {
@@ -43,6 +47,10 @@ interface EpochSoakReport {
   baselineBlock?: number;
   completionBlock?: number;
   budget?: EpochCoverageBudget;
+  coverageTimeout?: EpochCoverageTimeout & {
+    startedAtEpochMs: number;
+    deadlineEpochMs: number;
+  };
   chainTiming?: {
     baselineTimestampMs: string;
     completionTimestampMs: string;
@@ -97,16 +105,29 @@ async function main() {
     );
     const baselineTimestampMs = BigInt((await atBaseline.query.timestamp.now()).toString());
     const budget = computeEpochCoverageBudget(baseline, args.epochCycles, maxEpochsPerBlock);
-    const remainingWallMs = args.deadlineEpochMs - Date.now();
+    const coverageStartedAtEpochMs = Date.now();
+    const remainingWallMs = Math.max(0, args.deadlineEpochMs - coverageStartedAtEpochMs);
     if (budget.nominalWallMs > remainingWallMs) {
       throw new Error(
         `epoch coverage cannot fit: nominal ${formatDuration(budget.nominalWallMs)} exceeds ` +
           `${formatDuration(Math.max(0, remainingWallMs))} remaining`,
       );
     }
+    const coverageTimeout = computeEpochCoverageTimeout(
+      budget,
+      report.migration.observedBlocks,
+      report.migration.observedWallMs,
+      remainingWallMs,
+    );
+    const coverageDeadlineEpochMs = coverageStartedAtEpochMs + coverageTimeout.effectiveTimeoutMs;
 
     report.baselineBlock = baselineBlock;
     report.budget = budget;
+    report.coverageTimeout = {
+      ...coverageTimeout,
+      startedAtEpochMs: coverageStartedAtEpochMs,
+      deadlineEpochMs: coverageDeadlineEpochMs,
+    };
     report.baseline = baseline.map(({ netuid, tempo, epochIndex }) => ({
       netuid,
       tempo,
@@ -118,7 +139,11 @@ async function main() {
       `Epoch baseline: block=${baselineBlock} active_non_root=${baseline.length} ` +
         `max_tempo=${budget.maxTempo} max_epochs_per_block=${maxEpochsPerBlock} ` +
         `cycles=${args.epochCycles} block_budget=${budget.blockBudget} ` +
-        `nominal=${formatDuration(budget.nominalWallMs)}`,
+        `nominal=${formatDuration(budget.nominalWallMs)} ` +
+        `observed_block_wall=${coverageTimeout.observedBlockWallMs}ms ` +
+        `projected=${formatDuration(coverageTimeout.projectedCoverageWallMs)} ` +
+        `timeout=${formatDuration(coverageTimeout.effectiveTimeoutMs)}` +
+        (coverageTimeout.constrainedByOperationalDeadline ? " (workflow-capped)" : ""),
     );
 
     const blockDeadline = baselineBlock + budget.blockBudget;
@@ -128,7 +153,7 @@ async function main() {
     let lastReportBlock = baselineBlock - 100;
 
     for (;;) {
-      ensureWallDeadline(args.deadlineEpochMs);
+      ensureWallDeadline(coverageDeadlineEpochMs, "epoch coverage wall");
       const header = await finalizedHeader(api);
       const block = header.number.toNumber();
       if (block === lastBlock) {
@@ -228,6 +253,7 @@ async function waitForMigration(
 ): Promise<MigrationObservation> {
   const start = await finalizedHeader(api);
   const startBlock = start.number.toNumber();
+  const startedAtEpochMs = Date.now();
   const cursorKey = storagePrefix("SeedBetaBasketV2Migration");
   let sawCursor = false;
   let lastBlock = -1;
@@ -250,7 +276,14 @@ async function waitForMigration(
     const gate = evaluateMigrationGate(cursorExists, migrationRan, sawCursor);
     sawCursor = gate.sawCursor;
     if (gate.kind === "complete") {
-      return { sawCursor, startBlock, completionBlock: block };
+      const observedWallMs = Date.now() - startedAtEpochMs;
+      return {
+        sawCursor,
+        startBlock,
+        completionBlock: block,
+        observedBlocks: Math.max(0, block - startBlock),
+        observedWallMs,
+      };
     }
     if (gate.kind === "invalid") {
       throw new Error(`${gate.reason} at block ${block}`);
@@ -402,9 +435,9 @@ function parseArguments(values: string[]): SoakArguments {
   };
 }
 
-function ensureWallDeadline(deadlineEpochMs: number) {
+function ensureWallDeadline(deadlineEpochMs: number, label = "soak wall") {
   if (Date.now() >= deadlineEpochMs) {
-    throw new Error(`soak wall deadline ${new Date(deadlineEpochMs).toISOString()} was reached`);
+    throw new Error(`${label} deadline ${new Date(deadlineEpochMs).toISOString()} was reached`);
   }
 }
 
@@ -429,6 +462,13 @@ function appendStepSummary(report: EpochSoakReport) {
       `- Active non-root subnets: ${report.budget?.activeSubnets ?? "n/a"}`,
       `- Maximum tempo: ${report.budget?.maxTempo ?? "n/a"}`,
       `- Block budget: ${report.budget?.blockBudget ?? "n/a"}`,
+      `- Projected coverage / timeout: ${
+        report.coverageTimeout
+          ? `${formatDuration(report.coverageTimeout.projectedCoverageWallMs)} / ${formatDuration(
+              report.coverageTimeout.effectiveTimeoutMs,
+            )}`
+          : "n/a"
+      }`,
       `- Verified chain block time: ${report.chainTiming?.millisecondsPerBlock ?? "n/a"}ms`,
       report.failure ? `- Failure: ${report.failure}` : "",
     ]
