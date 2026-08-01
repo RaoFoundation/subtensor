@@ -19,6 +19,7 @@ PUBLISH_HELPER = Path(__file__).with_name("publish-artifact-mirror.sh")
 CURRENT_RUN_HELPER = Path(__file__).with_name(
     "publish-current-run-artifact-mirror.sh"
 )
+SNAPSHOT_WORKFLOW = Path(__file__).parents[1] / "workflows" / "refresh-mainnet-snapshot.yml"
 SPEC = importlib.util.spec_from_file_location("r2_artifact_mirror", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -30,6 +31,14 @@ assert MODULE.ALLOWED_ARTIFACT_NAMES == {
     "try-runtime-snap-v0.10.1-testnet",
     "try-runtime-snap-v0.10.1-devnet",
 }
+
+snapshot_workflow = SNAPSHOT_WORKFLOW.read_text(encoding="utf-8")
+mainnet_mirror_step = snapshot_workflow.split(
+    "  # try-runtime state snapshots", maxsplit=1
+)[0].split("      - name: Mirror snapshot for fleet prefetch", maxsplit=1)[1]
+assert "publish-current-run-artifact-mirror.sh" in mainnet_mirror_step
+assert "mainnet-snapshot" in mainnet_mirror_step
+assert "steps.upload-snapshot.outputs.artifact-digest" not in mainnet_mirror_step
 
 
 assert MODULE.validate_endpoint(
