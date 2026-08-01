@@ -82,7 +82,7 @@ jobs:
   epoch-soak:
     name: post-upgrade epoch soak (${{ inputs.epoch_cycles || '2' }} cycles)
     needs: build-node-release
-    runs-on: [self-hosted, fireactions-validatorbench]
+    runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 150
     permissions:
       contents: read

@@ -22,7 +22,7 @@ if grep -Eq '^[[:space:]]*(push|schedule):' "$workflow"; then
   exit 1
 fi
 grep -Fq 'default: "2"' "$workflow"
-grep -Fq 'runs-on: [self-hosted, fireactions-validatorbench]' "$workflow"
+[[ $(grep -Fc 'runs-on: [self-hosted, fireactions-turbo-8]' "$workflow") -eq 2 ]]
 grep -Fq 'timeout-minutes: 150' "$workflow"
 grep -Fq 'retention-days: 14' "$workflow"
 grep -Fq 'gzip -9 -f clone-node.log' "$workflow"
