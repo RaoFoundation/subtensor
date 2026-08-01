@@ -11,6 +11,7 @@ import {
   evaluateEpochCoverage,
   evaluateMigrationGate,
   parsePreparedBlockChunk,
+  remainingRequiredBlockSamples,
   summarizeBlockSamples,
   type EpochBaseline,
 } from "../lib/clone-performance.js";
@@ -70,6 +71,14 @@ test("classifies warning and hard-failure boundaries and calculates nearest-rank
   assert.equal(empty.maximumMs, null);
   assert.match(blockLatencyFailureReasons(empty, 20)[0], /observed 0 proposer samples/);
   assert.match(blockLatencyFailureReasons(summary, 5)[0], /1 block\(s\)/);
+});
+
+test("graceful monitor shutdown drains exactly to the minimum sample count", () => {
+  assert.equal(remainingRequiredBlockSamples(0), 20);
+  assert.equal(remainingRequiredBlockSamples(19), 1);
+  assert.equal(remainingRequiredBlockSamples(20), 0);
+  assert.equal(remainingRequiredBlockSamples(25), 0);
+  assert.throws(() => remainingRequiredBlockSamples(-1), /invalid observed/);
 });
 
 test("flags the 4725ms proposer duration observed on PR 3019", () => {

@@ -11,6 +11,7 @@ import {
   BestHeadLiveness,
   NodeLogTail,
   blockLatencyFailureReasons,
+  remainingRequiredBlockSamples,
   summarizeBlockSamples,
   type BlockConstructionSample,
 } from "../lib/clone-performance.js";
@@ -60,13 +61,15 @@ async function main() {
   const failureReasons: string[] = [];
   const tail = new NodeLogTail(args.nodeLog, args.startOffset);
   const liveness = new BestHeadLiveness();
-  let stopRequested = false;
+  let shutdownRequested = false;
+  let shutdownNoticePrinted = false;
+  let disconnecting = false;
   let fatalError: Error | undefined;
   let api;
   let unsubscribe: (() => void) | undefined;
 
   const requestStop = () => {
-    stopRequested = true;
+    shutdownRequested = true;
   };
   process.once("SIGINT", requestStop);
   process.once("SIGTERM", requestStop);
@@ -104,7 +107,7 @@ async function main() {
     console.log(`Initial best block: ${initialHeader.number.toNumber()}`);
 
     const markRpcFailure = (value: unknown) => {
-      if (stopRequested || fatalError !== undefined) {
+      if (disconnecting || fatalError !== undefined) {
         return;
       }
       fatalError = value instanceof Error ? value : new Error(String(value));
@@ -125,10 +128,21 @@ async function main() {
       }
     });
 
-    while (!stopRequested && fatalError === undefined) {
+    while (fatalError === undefined) {
       acceptSamples(tail.read());
       if (fatalError !== undefined) {
         break;
+      }
+
+      const missingSamples = remainingRequiredBlockSamples(samples.length);
+      if (shutdownRequested && missingSamples === 0) {
+        break;
+      }
+      if (shutdownRequested && !shutdownNoticePrinted) {
+        shutdownNoticePrinted = true;
+        console.log(
+          `Graceful shutdown requested; waiting for ${missingSamples} more proposer sample(s).`,
+        );
       }
 
       const tick = liveness.tick(Date.now());
@@ -151,6 +165,7 @@ async function main() {
   } catch (error) {
     fatalError = error instanceof Error ? error : new Error(String(error));
   } finally {
+    disconnecting = true;
     try {
       unsubscribe?.();
     } catch {

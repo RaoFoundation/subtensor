@@ -7,6 +7,19 @@ export const DEFAULT_HEAD_TIMEOUT_MS = 12_000;
 export const DEFAULT_MIN_BLOCK_SAMPLES = 20;
 export const ACCELERATED_SEALING_MS = 250;
 
+export function remainingRequiredBlockSamples(
+  observedSamples: number,
+  minimumSamples = DEFAULT_MIN_BLOCK_SAMPLES,
+): number {
+  if (!Number.isInteger(observedSamples) || observedSamples < 0) {
+    throw new Error(`invalid observed block samples: ${observedSamples}`);
+  }
+  if (!Number.isInteger(minimumSamples) || minimumSamples < 1) {
+    throw new Error(`invalid minimum block samples: ${minimumSamples}`);
+  }
+  return Math.max(0, minimumSamples - observedSamples);
+}
+
 export interface BlockConstructionSample {
   block: number;
   durationMs: number;
@@ -173,10 +186,8 @@ export function blockLatencyFailureReasons(
   failureMs = DEFAULT_BLOCK_FAILURE_MS,
 ): string[] {
   const reasons: string[] = [];
-  if (!Number.isInteger(minimumSamples) || minimumSamples < 1) {
-    throw new Error(`invalid minimum block samples: ${minimumSamples}`);
-  }
-  if (summary.sampleCount < minimumSamples) {
+  const missingSamples = remainingRequiredBlockSamples(summary.sampleCount, minimumSamples);
+  if (missingSamples > 0) {
     reasons.push(`observed ${summary.sampleCount} proposer samples; required at least ${minimumSamples}`);
   }
   if (summary.violations.length > 0) {

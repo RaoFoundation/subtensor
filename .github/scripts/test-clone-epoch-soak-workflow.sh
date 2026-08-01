@@ -14,8 +14,11 @@ bash -n "$monitor_script"
 bash -n "$supervisor_script"
 
 grep -Fq 'workflow_dispatch:' "$workflow"
-if grep -Eq '^[[:space:]]*(pull_request|push|schedule):' "$workflow"; then
-  echo "clone epoch soak must remain manually dispatched" >&2
+grep -Fq 'types: [labeled]' "$workflow"
+grep -Fq "github.event.label.name == 'run-clone-epoch-soak'" "$workflow"
+grep -Fq 'github.event.pull_request.head.repo.fork == false' "$workflow"
+if grep -Eq '^[[:space:]]*(push|schedule):' "$workflow"; then
+  echo "clone epoch soak must remain manually triggered" >&2
   exit 1
 fi
 grep -Fq 'default: "2"' "$workflow"
@@ -26,7 +29,7 @@ grep -Fq 'gzip -9 -f clone-node.log' "$workflow"
 grep -Fq 'clone-node.log.gz' "$workflow"
 grep -Fq 'inputs.fresh_state != true' "$workflow"
 grep -Fq 'snapshot-artifact.sh select' "$workflow"
-grep -Fq 'run-clone-epoch-soak.sh "${{ inputs.epoch_cycles }}"' "$workflow"
+grep -Fq 'run-clone-epoch-soak.sh "${{ inputs.epoch_cycles || '\''2'\'' }}"' "$workflow"
 
 grep -Fq 'start-local-clone-and-wait.sh" accelerated' "$soak_script"
 grep -Fq 'run-clone-block-monitor.sh" collect soak' "$soak_script"

@@ -1,6 +1,8 @@
 name: Mainnet Clone Epoch Soak
 
 on:
+  pull_request:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       epoch_cycles:
@@ -27,6 +29,11 @@ env:
 jobs:
   build-node-release:
     name: build release node for epoch soak
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' &&
+       github.event.label.name == 'run-clone-epoch-soak' &&
+       github.event.pull_request.head.repo.fork == false)
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 60
     environment:
@@ -73,7 +80,7 @@ jobs:
           retention-days: 1
 
   epoch-soak:
-    name: post-upgrade epoch soak (${{ inputs.epoch_cycles }} cycles)
+    name: post-upgrade epoch soak (${{ inputs.epoch_cycles || '2' }} cycles)
     needs: build-node-release
     runs-on: [self-hosted, fireactions-validatorbench]
     timeout-minutes: 150
@@ -107,7 +114,7 @@ jobs:
 
       - name: Select trusted mainnet snapshot
         id: snapshot
-        if: inputs.fresh_state != true
+        if: github.event_name == 'pull_request' || inputs.fresh_state != true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -120,7 +127,7 @@ jobs:
 
       - name: Download trusted mainnet snapshot
         id: download-snapshot
-        if: inputs.fresh_state != true
+        if: github.event_name == 'pull_request' || inputs.fresh_state != true
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
@@ -133,7 +140,7 @@ jobs:
             "$RUNNER_TEMP/mainnet-epoch-soak-snapshot" "$GITHUB_OUTPUT"
 
       - name: Restore trusted mainnet snapshot
-        if: inputs.fresh_state != true
+        if: github.event_name == 'pull_request' || inputs.fresh_state != true
         run: |
           ./clones/scripts/local-clone-checkpoint.sh restore \
             "$RUNNER_TEMP/mainnet-epoch-soak-snapshot/mainnet-snapshot.tar.gz"
@@ -146,7 +153,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create clone from fresh mainnet state
-        if: inputs.fresh_state == true
+        if: github.event_name == 'workflow_dispatch' && inputs.fresh_state == true
         run: |
           for attempt in 1 2 3; do
             if timeout --kill-after=30 1200 ./clones/scripts/clone-mainnet.sh; then
@@ -161,7 +168,7 @@ jobs:
       - name: Run accelerated post-upgrade epoch soak
         # The release runtime still advances Timestamp by 12 seconds per block;
         # only manual-seal wall scheduling is compressed to 250ms.
-        run: ./clones/scripts/run-clone-epoch-soak.sh "${{ inputs.epoch_cycles }}"
+        run: ./clones/scripts/run-clone-epoch-soak.sh "${{ inputs.epoch_cycles || '2' }}"
 
       - name: Stop clone
         if: always()

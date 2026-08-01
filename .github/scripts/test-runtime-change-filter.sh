@@ -82,6 +82,12 @@ grep -Fq 'matrix={"phase":["pristine","remaining"]}' "$runtime_workflow"
 grep -Fq 'matrix={"phase":["combined"]}' "$runtime_workflow"
 grep -Fq "needs.clone-plan.outputs.matrix || '{\"phase\":[\"combined\"]}'" "$runtime_workflow"
 grep -Fq './clones/scripts/run-clone-regression-phase.sh "${{ matrix.phase }}"' "$runtime_workflow"
+clone_upgrade_job=$(sed -n '/^  clone-upgrade:/,/^  clone-upgrade-gate:/p' "$runtime_workflow")
+grep -Fq 'runs-on: [self-hosted, fireactions-turbo-8]' <<< "$clone_upgrade_job"
+if grep -Fq 'fireactions-validatorbench' <<< "$clone_upgrade_job"; then
+  echo "clone-upgrade phases, including remaining, must use fireactions-turbo-8" >&2
+  exit 1
+fi
 grep -Fq 'RUN_SDK_DRIFT: ${{ github.event_name != '\''pull_request'\'' || needs.changes.outputs.sdk_drift == '\''true'\'' }}' "$runtime_workflow"
 grep -Fq 'artifact_id: ${{ steps.plan.outputs.artifact_id }}' "$runtime_workflow"
 grep -Fq 'ARTIFACT_ID: ${{ needs.clone-plan.outputs.artifact_id }}' "$runtime_workflow"
