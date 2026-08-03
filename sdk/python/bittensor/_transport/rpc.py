@@ -51,6 +51,12 @@ raw_logger = logging.getLogger("bittensor.transport.raw_websocket")
 
 _STATE_DISCARDED_NEEDLE = "State already discarded for "
 _POLICY_RPC_ERROR_CODES = frozenset({-32004, -32005})
+_POLICY_RPC_METADATA_KEYS = frozenset(
+    {"policy", "reason", "retry_after", "retryAfter", "retry_after_ms", "retryAfterMs"}
+)
+_POLICY_RPC_ERROR_MESSAGES = {
+    -32004: frozenset({"storage work rate limit exceeded"}),
+}
 _HANDSHAKE_TIMEOUT = 10.0
 
 # Requests that must never be auto-resubmitted after a reconnect: a duplicate
@@ -181,6 +187,18 @@ def _response_detail(body: bytes | bytearray) -> str:
     return _safe_diagnostic(detail, limit=500)
 
 
+def _is_policy_rpc_error(error: dict) -> bool:
+    """Match only the explicit gateway policy contract for provider-defined codes."""
+    code = error.get("code")
+    if not isinstance(code, int) or code not in _POLICY_RPC_ERROR_CODES:
+        return False
+    message = str(error.get("message", "")).strip().casefold()
+    if message in _POLICY_RPC_ERROR_MESSAGES.get(code, ()):
+        return True
+    data = error.get("data")
+    return isinstance(data, dict) and bool(_POLICY_RPC_METADATA_KEYS.intersection(data))
+
+
 def classify_rpc_error(error: dict) -> SubstrateRequestException:
     """Build the exception for a JSON-RPC error payload."""
     message = str(error.get("message", ""))
@@ -189,7 +207,7 @@ def classify_rpc_error(error: dict) -> SubstrateRequestException:
         return StateDiscardedError(data.split(_STATE_DISCARDED_NEEDLE)[1].strip())
     if _STATE_DISCARDED_NEEDLE in message:
         return StateDiscardedError(message.split(_STATE_DISCARDED_NEEDLE)[1].strip())
-    if error.get("code") in _POLICY_RPC_ERROR_CODES:
+    if _is_policy_rpc_error(error):
         payload = {"error": error}
         detail = _safe_diagnostic(str(SubstrateRequestException(payload)), limit=500)
         data = error.get("data")

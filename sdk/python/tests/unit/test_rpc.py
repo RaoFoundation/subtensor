@@ -246,6 +246,28 @@ async def test_load_shed_policy_supports_camel_case_retry_metadata():
     assert error.policy is None
 
 
+@pytest.mark.parametrize("code", [-32004, -32005])
+async def test_provider_defined_code_without_policy_contract_is_not_terminal(code):
+    error = rpc.classify_rpc_error(
+        {
+            "code": code,
+            "message": "provider-specific server error",
+            "data": {"detail": "not a traffic policy"},
+        }
+    )
+    assert type(error) is SubstrateRequestException
+
+
+async def test_known_storage_work_policy_without_metadata_remains_terminal():
+    error = rpc.classify_rpc_error(
+        {
+            "code": -32004,
+            "message": "Storage work rate limit exceeded",
+        }
+    )
+    assert isinstance(error, RpcPolicyRejection)
+
+
 async def test_json_rpc_policy_diagnostics_strip_terminal_controls():
     error = rpc.classify_rpc_error(
         {
