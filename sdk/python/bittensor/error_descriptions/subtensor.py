@@ -642,8 +642,9 @@ DESCRIPTIONS: dict[str, str] = {
         "available — wait for the enable; dividends keep accruing meanwhile."
     ),
     "RootStakeLocked": (
-        "A root (netuid 0) unstake was attempted before `RootStakeUnlockInterval` blocks "
-        "elapsed since the coldkey/hotkey's last root stake add or remove. Check "
+        "A root (netuid 0) exit was attempted before `RootStakeUnlockInterval` blocks "
+        "elapsed since the coldkey/hotkey's last root stake add, remove, or claim. Applies to "
+        "`remove_stake` and to move/swap/transfer off root. Check "
         "`LastColdkeyHotkeyStakeBlock` against the current block and wait out the hold window "
         "(or leave the interval at 0 via sudo if the lock is not intended)."
     ),
