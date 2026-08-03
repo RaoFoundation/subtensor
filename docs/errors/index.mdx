@@ -18,7 +18,7 @@ A failed `execute` returns an `ExtrinsicResult` whose `error` has a semantic `co
 | [`not_found`](/docs/errors/not-found) | 20 | The referenced object is not on-chain; check the identifier |
 | [`subnet_not_exists`](/docs/errors/subnet-not-exists) | 4 | Use an existing netuid; `btcli subnets list` shows valid ones |
 | [`subtoken_disabled`](/docs/errors/subtoken-disabled) | 1 | The subnet is not active yet; wait for start_call |
-| [`disabled`](/docs/errors/disabled) | 19 | This call or feature is switched off on this network |
+| [`disabled`](/docs/errors/disabled) | 20 | This call or feature is switched off on this network |
 | [`too_early`](/docs/errors/too-early) | 20 | The required window has not opened yet; wait some blocks and retry |
 | [`expired`](/docs/errors/expired) | 5 | The window has closed; restart the flow with fresh state |
 | [`limit_exceeded`](/docs/errors/limit-exceeded) | 37 | A chain-side capacity limit was hit; reduce the size or count of the request |

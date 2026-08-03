@@ -18,7 +18,7 @@ cap.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_burn`](/code/pallets/subtensor/src/macros/dispatches.rs#L2238-L2248) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_burn`](/code/pallets/subtensor/src/macros/dispatches.rs#L2243-L2253) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("stake_burn", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_stake_burn` — [`pallets/subtensor/src/macros/dispatches.rs#L2240`](/code/pallets/subtensor/src/macros/dispatches.rs#L2238-L2248):
+`SubtensorModule.add_stake_burn` — [`pallets/subtensor/src/macros/dispatches.rs#L2245`](/code/pallets/subtensor/src/macros/dispatches.rs#L2243-L2253):
 
 ```rust
 #[pallet::call_index(132)]

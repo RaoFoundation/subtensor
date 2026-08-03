@@ -280,6 +280,7 @@
     "RootNetUidNotAllowed",
     "RootNetworkDoesNotExist",
     "RootStakeLocked",
+    "RootWeightSettingDisabled",
     "SameAutoStakeHotkeyAlreadySet",
     "SameNetuid",
     "SenderInSignatories",

@@ -234,9 +234,7 @@ def pick_claim_hotkey(
     """Numbered picker over root positions; returns the chosen position."""
     held = filter_dust_positions(positions)
     if not held:
-        app_ctx.output.message(
-            f"no root position above dust (τ{DUST_VALUE_TAO}) for this wallet"
-        )
+        app_ctx.output.message(f"no root position above dust (τ{DUST_VALUE_TAO}) for this wallet")
         raise typer.Exit(0)
 
     held = sorted(held, key=lambda p: -p.total.rao)
@@ -497,7 +495,8 @@ def render_validator_detail(
         )
     else:
         app_ctx.output.message(
-            f"no custom root weights on {hotkey}: dividends accumulate in place on their origin subnet"
+            f"no custom root weights on {hotkey}: "
+            "dividends accumulate in place on their origin subnet"
         )
 
     if holdings:

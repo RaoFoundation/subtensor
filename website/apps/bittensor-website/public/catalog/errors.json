@@ -482,7 +482,7 @@
     },
     "BasketHasNoWeights": {
       "code": "invalid_argument",
-      "description": "`stake_into_basket` (or a related basket deposit) was called against a validator whose root weight vector filters to no usable destinations. Have the validator set root weights with `btcli weights set-root` (or `set_root_weights`) before depositing.",
+      "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli weights set-root` (or `set_root_weights`) first.",
       "docs_url": "/docs/errors/chain/BasketHasNoWeights",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketHasNoWeights/content.md",
       "pallets": [
@@ -528,8 +528,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 359,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L359",
+          "line": 358,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L358",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -582,8 +582,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 149,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L149",
+          "line": 156,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L156",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1077,8 +1077,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 173,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L173",
+          "line": 180,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L180",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1095,8 +1095,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 171,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L171",
+          "line": 178,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L178",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1410,8 +1410,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 169,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L169",
+          "line": 176,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L176",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -2632,8 +2632,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 163,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L163",
+          "line": 170,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L170",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2884,8 +2884,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 147,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L147",
+          "line": 154,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L154",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2902,8 +2902,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 161,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L161",
+          "line": 168,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L168",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2920,8 +2920,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 159,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L159",
+          "line": 166,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L166",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2992,8 +2992,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 145,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L145",
+          "line": 152,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L152",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3090,8 +3090,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 155,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L155",
+          "line": 162,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L162",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3108,8 +3108,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 157,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L157",
+          "line": 164,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L164",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3207,8 +3207,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 151,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L151",
+          "line": 158,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L158",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3749,8 +3749,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 165,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L165",
+          "line": 172,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L172",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3991,8 +3991,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 167,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L167",
+          "line": 174,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L174",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4411,6 +4411,13 @@
         }
       ]
     },
+    "RootWeightSettingDisabled": {
+      "code": "disabled",
+      "description": "`set_root_weights` is disabled network-wide: Root Reborn launched gated, so every fund runs the null strategy (dividends accumulate in place on their origin subnet) until weight setting is switched on by governance or a later upgrade. No action available \u2014 wait for the enable; dividends keep accruing meanwhile.",
+      "docs_url": "/docs/errors/chain/RootWeightSettingDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightSettingDisabled/content.md",
+      "pallets": []
+    },
     "SameAutoStakeHotkeyAlreadySet": {
       "code": "already_exists",
       "description": "The coldkey tried to set its auto-stake destination on a subnet to the hotkey that is already configured. Read `AutoStakeDestination` for the coldkey and netuid before calling; only a different hotkey is accepted.",
@@ -4711,8 +4718,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 143,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L143",
+          "line": 150,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L150",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5495,8 +5502,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 153,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L153",
+          "line": 160,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L160",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

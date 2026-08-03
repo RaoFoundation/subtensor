@@ -5766,10 +5766,7 @@ fn test_migrate_seed_beta_basket_rejects_all_new_dissolution_paths() {
             .saturating_add(1);
         System::set_block_number(mature_block);
         let lock_cost = SubtensorModule::get_network_lock_cost();
-        add_balance_to_coldkey_account(
-            &coldkey,
-            lock_cost.saturating_mul(TaoBalance::from(2u64)),
-        );
+        add_balance_to_coldkey_account(&coldkey, lock_cost.saturating_mul(TaoBalance::from(2u64)));
 
         let total_networks = TotalNetworks::<Test>::get();
         let total_stake = TotalStake::<Test>::get();
@@ -5820,7 +5817,10 @@ fn test_migrate_seed_beta_basket_rejects_all_new_dissolution_paths() {
             1,
             None,
         ));
-        assert_eq!(TotalNetworks::<Test>::get(), total_networks.saturating_add(1));
+        assert_eq!(
+            TotalNetworks::<Test>::get(),
+            total_networks.saturating_add(1)
+        );
         assert_eq!(SubnetOwner::<Test>::get(NetUid::from(2)), coldkey);
     });
 }

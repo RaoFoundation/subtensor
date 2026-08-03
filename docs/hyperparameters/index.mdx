@@ -9,50 +9,50 @@ Read them with `btcli sudo get --netuid N` (the [`subnet_hyperparameters`](/docs
 
 | Hyperparameter | Unit | Owner-settable | What it controls | Source |
 | --- | --- | --- | --- | --- |
-| [`rho`](/docs/hyperparameters/rho) | integer | yes | trust curve steepness | [`Rho`](/code/pallets/subtensor/src/lib.rs#L2147) |
-| [`kappa`](/docs/hyperparameters/kappa) | fraction (u16, 65535 = 1.0) | root only | consensus majority-stake threshold | [`Kappa`](/code/pallets/subtensor/src/lib.rs#L2156) |
-| [`immunity_period`](/docs/hyperparameters/immunity-period) | blocks (12s) | yes | prune-immunity window for new neurons | [`ImmunityPeriod`](/code/pallets/subtensor/src/lib.rs#L2185) |
-| [`min_allowed_weights`](/docs/hyperparameters/min-allowed-weights) | integer | yes | minimum weights per submission | [`MinAllowedWeights`](/code/pallets/subtensor/src/lib.rs#L2211) |
-| [`max_weights_limit`](/docs/hyperparameters/max-weights-limit) | fraction (u16, 65535 = 1.0) | root only | cap on a single miner's weight | [`MaxWeightsLimit`](/code/pallets/subtensor/src/lib.rs#L2201) |
-| [`tempo`](/docs/hyperparameters/tempo) | blocks (12s) | yes | blocks per consensus epoch | [`Tempo`](/code/pallets/subtensor/src/lib.rs#L1975) |
-| [`min_difficulty`](/docs/hyperparameters/min-difficulty) | PoW difficulty (u64) | root only | PoW registration difficulty floor | [`MinDifficulty`](/code/pallets/subtensor/src/lib.rs#L2289) |
-| [`max_difficulty`](/docs/hyperparameters/max-difficulty) | PoW difficulty (u64) | yes | PoW registration difficulty ceiling | [`MaxDifficulty`](/code/pallets/subtensor/src/lib.rs#L2294) |
-| [`difficulty`](/docs/hyperparameters/difficulty) | PoW difficulty (u64) | root only | current PoW registration difficulty | [`Difficulty`](/code/pallets/subtensor/src/lib.rs#L2275) |
-| [`weights_version`](/docs/hyperparameters/weights-version) | integer | yes | minimum version key for set_weights | [`WeightsVersionKey`](/code/pallets/subtensor/src/lib.rs#L2206) |
-| [`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit) | blocks (12s) | root only | wait between weight submissions | [`WeightsSetRateLimit`](/code/pallets/subtensor/src/lib.rs#L2241) |
-| [`adjustment_interval`](/docs/hyperparameters/adjustment-interval) | blocks (12s) | root only | difficulty/burn adjustment cadence | [`AdjustmentInterval`](/code/pallets/subtensor/src/lib.rs#L2221) |
-| [`activity_cutoff`](/docs/hyperparameters/activity-cutoff) | blocks (12s) | root only | no-weights window before inactive | [`ActivityCutoff`](/code/pallets/subtensor/src/lib.rs#L2191) |
-| [`activity_cutoff_factor`](/docs/hyperparameters/activity-cutoff-factor) | integer | yes | activity cutoff, per-mille of tempo | [`ActivityCutoffFactorMilli`](/code/pallets/subtensor/src/lib.rs#L2018) |
-| [`registration_allowed`](/docs/hyperparameters/registration-allowed) | flag | root only | new neuron registrations allowed | [`NetworkRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L2056) |
-| [`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) | flag | yes | PoW registration toggle | [`NetworkPowRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L2061) |
-| [`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval) | integer | root only | registration-rate controller target | [`TargetRegistrationsPerInterval`](/code/pallets/subtensor/src/lib.rs#L2256) |
-| [`min_burn`](/docs/hyperparameters/min-burn) | TAO amount in rao | yes | burned-registration cost floor | [`MinBurn`](/code/pallets/subtensor/src/lib.rs#L2279) |
-| [`max_burn`](/docs/hyperparameters/max-burn) | TAO amount in rao | yes | burned-registration cost ceiling | [`MaxBurn`](/code/pallets/subtensor/src/lib.rs#L2284) |
-| [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg) | fraction (1,000,000 = 1.0) | yes | bonds EMA smoothing factor | [`BondsMovingAverage`](/code/pallets/subtensor/src/lib.rs#L2226) |
-| [`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block) | integer | root only | per-block registration cap | [`MaxRegistrationsPerBlock`](/code/pallets/subtensor/src/lib.rs#L1891) |
-| [`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit) | blocks (12s) | yes | cooldown between axon serve calls | [`ServingRateLimit`](/code/pallets/subtensor/src/lib.rs#L2142) |
-| [`max_validators`](/docs/hyperparameters/max-validators) | integer | root only | top-stake validator permit cap | [`MaxAllowedValidators`](/code/pallets/subtensor/src/lib.rs#L2216) |
-| [`adjustment_alpha`](/docs/hyperparameters/adjustment-alpha) | fraction (u64, u64::MAX = 1.0) | yes | difficulty/burn adjust smoothing | [`AdjustmentAlpha`](/code/pallets/subtensor/src/lib.rs#L2261) |
-| [`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period) | epochs (tempos) | yes | weight commit-to-reveal delay | [`RevealPeriodEpochs`](/code/pallets/subtensor/src/lib.rs#L2703) |
-| [`commit_reveal_weights_enabled`](/docs/hyperparameters/commit-reveal-weights-enabled) | flag | yes | commit-reveal weights toggle | [`CommitRevealWeightsEnabled`](/code/pallets/subtensor/src/lib.rs#L2266) |
+| [`rho`](/docs/hyperparameters/rho) | integer | yes | trust curve steepness | [`Rho`](/code/pallets/subtensor/src/lib.rs#L2162) |
+| [`kappa`](/docs/hyperparameters/kappa) | fraction (u16, 65535 = 1.0) | root only | consensus majority-stake threshold | [`Kappa`](/code/pallets/subtensor/src/lib.rs#L2171) |
+| [`immunity_period`](/docs/hyperparameters/immunity-period) | blocks (12s) | yes | prune-immunity window for new neurons | [`ImmunityPeriod`](/code/pallets/subtensor/src/lib.rs#L2200) |
+| [`min_allowed_weights`](/docs/hyperparameters/min-allowed-weights) | integer | yes | minimum weights per submission | [`MinAllowedWeights`](/code/pallets/subtensor/src/lib.rs#L2226) |
+| [`max_weights_limit`](/docs/hyperparameters/max-weights-limit) | fraction (u16, 65535 = 1.0) | root only | cap on a single miner's weight | [`MaxWeightsLimit`](/code/pallets/subtensor/src/lib.rs#L2216) |
+| [`tempo`](/docs/hyperparameters/tempo) | blocks (12s) | yes | blocks per consensus epoch | [`Tempo`](/code/pallets/subtensor/src/lib.rs#L1990) |
+| [`min_difficulty`](/docs/hyperparameters/min-difficulty) | PoW difficulty (u64) | root only | PoW registration difficulty floor | [`MinDifficulty`](/code/pallets/subtensor/src/lib.rs#L2304) |
+| [`max_difficulty`](/docs/hyperparameters/max-difficulty) | PoW difficulty (u64) | yes | PoW registration difficulty ceiling | [`MaxDifficulty`](/code/pallets/subtensor/src/lib.rs#L2309) |
+| [`difficulty`](/docs/hyperparameters/difficulty) | PoW difficulty (u64) | root only | current PoW registration difficulty | [`Difficulty`](/code/pallets/subtensor/src/lib.rs#L2290) |
+| [`weights_version`](/docs/hyperparameters/weights-version) | integer | yes | minimum version key for set_weights | [`WeightsVersionKey`](/code/pallets/subtensor/src/lib.rs#L2221) |
+| [`weights_rate_limit`](/docs/hyperparameters/weights-rate-limit) | blocks (12s) | root only | wait between weight submissions | [`WeightsSetRateLimit`](/code/pallets/subtensor/src/lib.rs#L2256) |
+| [`adjustment_interval`](/docs/hyperparameters/adjustment-interval) | blocks (12s) | root only | difficulty/burn adjustment cadence | [`AdjustmentInterval`](/code/pallets/subtensor/src/lib.rs#L2236) |
+| [`activity_cutoff`](/docs/hyperparameters/activity-cutoff) | blocks (12s) | root only | no-weights window before inactive | [`ActivityCutoff`](/code/pallets/subtensor/src/lib.rs#L2206) |
+| [`activity_cutoff_factor`](/docs/hyperparameters/activity-cutoff-factor) | integer | yes | activity cutoff, per-mille of tempo | [`ActivityCutoffFactorMilli`](/code/pallets/subtensor/src/lib.rs#L2033) |
+| [`registration_allowed`](/docs/hyperparameters/registration-allowed) | flag | root only | new neuron registrations allowed | [`NetworkRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L2071) |
+| [`network_pow_registration_allowed`](/docs/hyperparameters/network-pow-registration-allowed) | flag | yes | PoW registration toggle | [`NetworkPowRegistrationAllowed`](/code/pallets/subtensor/src/lib.rs#L2076) |
+| [`target_regs_per_interval`](/docs/hyperparameters/target-regs-per-interval) | integer | root only | registration-rate controller target | [`TargetRegistrationsPerInterval`](/code/pallets/subtensor/src/lib.rs#L2271) |
+| [`min_burn`](/docs/hyperparameters/min-burn) | TAO amount in rao | yes | burned-registration cost floor | [`MinBurn`](/code/pallets/subtensor/src/lib.rs#L2294) |
+| [`max_burn`](/docs/hyperparameters/max-burn) | TAO amount in rao | yes | burned-registration cost ceiling | [`MaxBurn`](/code/pallets/subtensor/src/lib.rs#L2299) |
+| [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg) | fraction (1,000,000 = 1.0) | yes | bonds EMA smoothing factor | [`BondsMovingAverage`](/code/pallets/subtensor/src/lib.rs#L2241) |
+| [`max_regs_per_block`](/docs/hyperparameters/max-regs-per-block) | integer | root only | per-block registration cap | [`MaxRegistrationsPerBlock`](/code/pallets/subtensor/src/lib.rs#L1906) |
+| [`serving_rate_limit`](/docs/hyperparameters/serving-rate-limit) | blocks (12s) | yes | cooldown between axon serve calls | [`ServingRateLimit`](/code/pallets/subtensor/src/lib.rs#L2157) |
+| [`max_validators`](/docs/hyperparameters/max-validators) | integer | root only | top-stake validator permit cap | [`MaxAllowedValidators`](/code/pallets/subtensor/src/lib.rs#L2231) |
+| [`adjustment_alpha`](/docs/hyperparameters/adjustment-alpha) | fraction (u64, u64::MAX = 1.0) | yes | difficulty/burn adjust smoothing | [`AdjustmentAlpha`](/code/pallets/subtensor/src/lib.rs#L2276) |
+| [`commit_reveal_period`](/docs/hyperparameters/commit-reveal-period) | epochs (tempos) | yes | weight commit-to-reveal delay | [`RevealPeriodEpochs`](/code/pallets/subtensor/src/lib.rs#L2718) |
+| [`commit_reveal_weights_enabled`](/docs/hyperparameters/commit-reveal-weights-enabled) | flag | yes | commit-reveal weights toggle | [`CommitRevealWeightsEnabled`](/code/pallets/subtensor/src/lib.rs#L2281) |
 | [`alpha_high`](/docs/hyperparameters/alpha-high) | fraction (u16, 65535 = 1.0) | yes | liquid-alpha smoothing upper bound | — |
 | [`alpha_low`](/docs/hyperparameters/alpha-low) | fraction (u16, 65535 = 1.0) | yes | liquid-alpha smoothing lower bound | — |
-| [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) | flag | yes | per-weight bonds EMA (liquid alpha) | [`LiquidAlphaOn`](/code/pallets/subtensor/src/lib.rs#L2343) |
-| [`bonds_penalty`](/docs/hyperparameters/bonds-penalty) | fraction (u16, 65535 = 1.0) | yes | penalty on out-of-consensus bonds | [`BondsPenalty`](/code/pallets/subtensor/src/lib.rs#L2231) |
-| [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness) | integer | yes | liquid-alpha sigmoid steepness | [`AlphaSigmoidSteepness`](/code/pallets/subtensor/src/lib.rs#L2151) |
+| [`liquid_alpha_enabled`](/docs/hyperparameters/liquid-alpha-enabled) | flag | yes | per-weight bonds EMA (liquid alpha) | [`LiquidAlphaOn`](/code/pallets/subtensor/src/lib.rs#L2358) |
+| [`bonds_penalty`](/docs/hyperparameters/bonds-penalty) | fraction (u16, 65535 = 1.0) | yes | penalty on out-of-consensus bonds | [`BondsPenalty`](/code/pallets/subtensor/src/lib.rs#L2246) |
+| [`alpha_sigmoid_steepness`](/docs/hyperparameters/alpha-sigmoid-steepness) | integer | yes | liquid-alpha sigmoid steepness | [`AlphaSigmoidSteepness`](/code/pallets/subtensor/src/lib.rs#L2166) |
 | [`min_childkey_take`](/docs/hyperparameters/min-childkey-take) | fraction (u16, 65535 = 1.0) | yes | floor for childkey take | [`MinChildkeyTakePerSubnet`](/code/pallets/subtensor/src/lib.rs#L1320) |
-| [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit) | integer | yes | owner-designated prune-immune UIDs | [`ImmuneOwnerUidsLimit`](/code/pallets/subtensor/src/lib.rs#L2442) |
-| [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids) | integer | yes | neuron slot capacity before pruning | [`MaxAllowedUids`](/code/pallets/subtensor/src/lib.rs#L2180) |
-| [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) | multiplier (U64F64 bits / 2^64) | yes | burn cost bump per registration | [`BurnIncreaseMult`](/code/pallets/subtensor/src/lib.rs#L2950) |
-| [`burn_half_life`](/docs/hyperparameters/burn-half-life) | blocks (12s) | yes | burn cost decay half-life | [`BurnHalfLife`](/code/pallets/subtensor/src/lib.rs#L2945) |
-| [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share) | fraction (u16, 65535 = 1.0) | yes | registration price share locked | [`CollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L2959) |
-| [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio) | multiplier (U64F64 bits / 2^64) | yes | collateral released per α earned | [`CollateralDrainRatio`](/code/pallets/subtensor/src/lib.rs#L2968) |
-| [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) | flag | yes | yuma3 consensus variant toggle | [`Yuma3On`](/code/pallets/subtensor/src/lib.rs#L2348) |
+| [`owner_immune_neuron_limit`](/docs/hyperparameters/owner-immune-neuron-limit) | integer | yes | owner-designated prune-immune UIDs | [`ImmuneOwnerUidsLimit`](/code/pallets/subtensor/src/lib.rs#L2457) |
+| [`max_allowed_uids`](/docs/hyperparameters/max-allowed-uids) | integer | yes | neuron slot capacity before pruning | [`MaxAllowedUids`](/code/pallets/subtensor/src/lib.rs#L2195) |
+| [`burn_increase_mult`](/docs/hyperparameters/burn-increase-mult) | multiplier (U64F64 bits / 2^64) | yes | burn cost bump per registration | [`BurnIncreaseMult`](/code/pallets/subtensor/src/lib.rs#L2976) |
+| [`burn_half_life`](/docs/hyperparameters/burn-half-life) | blocks (12s) | yes | burn cost decay half-life | [`BurnHalfLife`](/code/pallets/subtensor/src/lib.rs#L2971) |
+| [`collateral_lock_share`](/docs/hyperparameters/collateral-lock-share) | fraction (u16, 65535 = 1.0) | yes | registration price share locked | [`CollateralLockShare`](/code/pallets/subtensor/src/lib.rs#L2985) |
+| [`collateral_drain_ratio`](/docs/hyperparameters/collateral-drain-ratio) | multiplier (U64F64 bits / 2^64) | yes | collateral released per α earned | [`CollateralDrainRatio`](/code/pallets/subtensor/src/lib.rs#L2994) |
+| [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) | flag | yes | yuma3 consensus variant toggle | [`Yuma3On`](/code/pallets/subtensor/src/lib.rs#L2363) |
 | [`yuma_version`](/docs/hyperparameters/yuma-version) | integer | root only | epoch consensus variant (2 or 3) | — |
 | [`subnet_is_active`](/docs/hyperparameters/subnet-is-active) | flag | root only | subnet started (staking + emissions) | — |
-| [`subnet_emission_enabled`](/docs/hyperparameters/subnet-emission-enabled) | flag | root only | root switch for TAO emission share | [`SubnetEmissionEnabled`](/code/pallets/subtensor/src/lib.rs#L1493) |
+| [`subnet_emission_enabled`](/docs/hyperparameters/subnet-emission-enabled) | flag | root only | root switch for TAO emission share | [`SubnetEmissionEnabled`](/code/pallets/subtensor/src/lib.rs#L1508) |
 | [`user_liquidity_enabled`](/docs/hyperparameters/user-liquidity-enabled) | flag | root only | legacy user-LP flag (always false) | — |
-| [`bonds_reset_enabled`](/docs/hyperparameters/bonds-reset-enabled) | flag | yes | bonds reset on metadata commit | [`BondsResetOn`](/code/pallets/subtensor/src/lib.rs#L2236) |
-| [`transfers_enabled`](/docs/hyperparameters/transfers-enabled) | flag | yes | stake transfers between coldkeys | [`TransferToggle`](/code/pallets/subtensor/src/lib.rs#L1959) |
-| [`owner_cut_enabled`](/docs/hyperparameters/owner-cut-enabled) | flag | yes | owner emission cut toggle | [`OwnerCutEnabled`](/code/pallets/subtensor/src/lib.rs#L1934) |
-| [`owner_cut_auto_lock_enabled`](/docs/hyperparameters/owner-cut-auto-lock-enabled) | flag | yes | auto-lock the owner's emission cut | [`OwnerCutAutoLockEnabled`](/code/pallets/subtensor/src/lib.rs#L1736) |
+| [`bonds_reset_enabled`](/docs/hyperparameters/bonds-reset-enabled) | flag | yes | bonds reset on metadata commit | [`BondsResetOn`](/code/pallets/subtensor/src/lib.rs#L2251) |
+| [`transfers_enabled`](/docs/hyperparameters/transfers-enabled) | flag | yes | stake transfers between coldkeys | [`TransferToggle`](/code/pallets/subtensor/src/lib.rs#L1974) |
+| [`owner_cut_enabled`](/docs/hyperparameters/owner-cut-enabled) | flag | yes | owner emission cut toggle | [`OwnerCutEnabled`](/code/pallets/subtensor/src/lib.rs#L1949) |
+| [`owner_cut_auto_lock_enabled`](/docs/hyperparameters/owner-cut-auto-lock-enabled) | flag | yes | auto-lock the owner's emission cut | [`OwnerCutAutoLockEnabled`](/code/pallets/subtensor/src/lib.rs#L1751) |

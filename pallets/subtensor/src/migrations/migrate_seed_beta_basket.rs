@@ -262,16 +262,14 @@ fn reconcile_position_weight<T: Config>() -> Weight {
 }
 
 fn affordable_items(budget: Weight, per_item: Weight) -> u64 {
-    let by_ref_time = if per_item.ref_time() == 0 {
-        u64::MAX
-    } else {
-        budget.ref_time() / per_item.ref_time()
-    };
-    let by_proof_size = if per_item.proof_size() == 0 {
-        u64::MAX
-    } else {
-        budget.proof_size() / per_item.proof_size()
-    };
+    let by_ref_time = budget
+        .ref_time()
+        .checked_div(per_item.ref_time())
+        .unwrap_or(u64::MAX);
+    let by_proof_size = budget
+        .proof_size()
+        .checked_div(per_item.proof_size())
+        .unwrap_or(u64::MAX);
     by_ref_time.min(by_proof_size)
 }
 
@@ -653,7 +651,9 @@ fn migrate_seed_beta_basket_v2_inner<T: Config>(
                             return weight;
                         }
 
-                        let hotkey = &hotkeys[hotkey_index as usize];
+                        let Some(hotkey) = hotkeys.get(hotkey_index as usize) else {
+                            break;
+                        };
                         let owed = Pallet::<T>::get_basket_owed_shares(hotkey, &current_coldkey);
                         if owed != 0 {
                             BasketShares::<T>::mutate(hotkey, |shares| {

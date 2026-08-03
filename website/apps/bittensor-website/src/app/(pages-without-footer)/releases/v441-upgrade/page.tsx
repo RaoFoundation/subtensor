@@ -407,7 +407,7 @@ const FlowNeutralityDiagram = () => {
       </text>
 
       <text {...GRAPH_TEXT} x='380' y='288' textAnchor='middle' fill='rgba(41, 41, 41, 0.55)'>
-        EMISSION INJECT UNCHANGED · SOLD ONCE, REBOUGHT ACROSS SUBNETS · NEUTRAL, NOT REVERSED
+        EMISSION INJECT UNCHANGED · CURATED FLOW SHOWN — AT LAUNCH NOTHING IS SOLD AT ALL
       </text>
     </svg>
   );
@@ -835,7 +835,9 @@ const page = () => {
             no way to express a view with them. Root Reborn makes capital allocation part of
             validation: each validator publishes an on-chain weight vector, and its
             stakers&apos; dividends flow per that judgment across {snapshot.liveSubnets} live
-            subnets. The parties with the deepest visibility into the ecosystem are, for the
+            subnets. (Weight setting ships gated off; curation opens in a follow-up upgrade
+            so the null-strategy baseline is established first.) The parties with the
+            deepest visibility into the ecosystem are, for the
             first time, paid to curate it — their vectors are public signals of where value
             is being created.
           </p>

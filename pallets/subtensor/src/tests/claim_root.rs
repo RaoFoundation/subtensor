@@ -508,7 +508,10 @@ fn test_root_basket_records_symmetric_protocol_flow() {
         // Now redeem the basket. The fund-level claim sells the staker's pro-rata slice of BOTH
         // holdings back to TAO, booking an outflow on each dest that nets the round-trip back
         // toward zero.
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
 
         let flow_b_after = SubnetProtocolFlow::<Test>::get(netuid_b);
         let flow_c_after = SubnetProtocolFlow::<Test>::get(netuid_c);
@@ -586,7 +589,10 @@ fn test_root_claim_consolidates_dust_holdings() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
-        assert!(escrow_alpha(&hotkey, netuid_b) > 0, "fund must hold B alpha");
+        assert!(
+            escrow_alpha(&hotkey, netuid_b) > 0,
+            "fund must hold B alpha"
+        );
 
         // Plant a dust holding on C (e.g. left behind by an earlier, wider weight vector).
         let escrow = SubtensorModule::get_beta_escrow_account_id();
@@ -660,7 +666,10 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
-        assert!(escrow_alpha(&hotkey, netuid_b) > 0, "fund must hold B alpha");
+        assert!(
+            escrow_alpha(&hotkey, netuid_b) > 0,
+            "fund must hold B alpha"
+        );
         assert_eq!(escrow_alpha(&hotkey, NetUid::ROOT), 0);
 
         // Plant an orphaned dust holding on C (not in the weight vector).
@@ -710,9 +719,8 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
         let actual = post
             .actual_weight
             .expect("claim reports benchmark-derived actual weight");
-        let expected = <Test as crate::Config>::WeightInfo::claim_root(1).saturating_add(
-            <Test as crate::Config>::WeightInfo::claim_root_scan(2),
-        );
+        let expected = <Test as crate::Config>::WeightInfo::claim_root(1)
+            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(2));
         assert_eq!(actual, expected);
     });
 }
@@ -760,7 +768,10 @@ fn test_root_basket_claim_swaps_to_root() {
         assert_eq!(root_before, root_stake);
 
         // Claim: the staker's owed fraction of the fund is sold to TAO and staked on root.
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
 
         // Staker's root stake increased, fund shares consumed, watermark advanced.
         assert!(root_stake_of(&hotkey, &coldkey) > root_before);
@@ -817,8 +828,14 @@ fn test_root_basket_proportional_two_stakers() {
         let alice_before = root_stake_of(&hotkey, &alice);
         let bob_before = root_stake_of(&hotkey, &bob);
 
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(alice), hotkey));
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(bob), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
 
         let alice_gain = root_stake_of(&hotkey, &alice).saturating_sub(alice_before);
         let bob_gain = root_stake_of(&hotkey, &bob).saturating_sub(bob_before);
@@ -1042,7 +1059,10 @@ fn test_root_basket_dissolve_converts_to_root_slot() {
 
         // The staker's claim survives dissolution and is redeemable from the root slot.
         let root_before = root_stake_of(&hotkey, &coldkey);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         assert!(root_stake_of(&hotkey, &coldkey) > root_before);
     });
 }
@@ -1113,8 +1133,14 @@ fn test_root_basket_dissolve_preserves_owed_not_stake() {
         let alice_before = root_stake_of(&hotkey, &alice);
         let bob_before = root_stake_of(&hotkey, &bob);
 
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(alice), hotkey));
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(bob), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
 
         let alice_gain = root_stake_of(&hotkey, &alice).saturating_sub(alice_before);
         let bob_gain = root_stake_of(&hotkey, &bob).saturating_sub(bob_before);
@@ -1180,7 +1206,10 @@ fn test_root_basket_total_stake_conserved() {
 
         // --- Redemption must also be TotalStake-neutral (swap out then stake on root).
         let ts_before_claim = TotalStake::<Test>::get().to_u64();
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         let ts_after_claim = TotalStake::<Test>::get().to_u64();
         assert_eq!(
             ts_before_claim, ts_after_claim,
@@ -1246,7 +1275,10 @@ fn test_root_basket_compounds_when_escrow_grows() {
         );
 
         let root_before = root_stake_of(&hotkey, &coldkey);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         let gain = root_stake_of(&hotkey, &coldkey).saturating_sub(root_before);
 
         // The sole staker realizes the *grown* basket, strictly more than the original shares'
@@ -1306,8 +1338,14 @@ fn test_root_basket_fully_drains_on_claims() {
         let escrow_filled = escrow_alpha(&hotkey, netuid);
         assert!(escrow_filled > 0);
 
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(alice), hotkey));
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(bob), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
 
         // Escrow and shares fully drained (allow tiny rounding dust).
         assert!(
@@ -1371,8 +1409,14 @@ fn test_root_basket_disproportional_two_stakers() {
         let alice_before = root_stake_of(&hotkey, &alice);
         let bob_before = root_stake_of(&hotkey, &bob);
 
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(alice), hotkey));
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(bob), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
 
         let alice_gain = root_stake_of(&hotkey, &alice).saturating_sub(alice_before);
         let bob_gain = root_stake_of(&hotkey, &bob).saturating_sub(bob_before);
@@ -1511,11 +1555,7 @@ fn test_set_root_weights_rejects_len_above_network_ceiling() {
         let values = vec![1u16; dests.len()];
 
         assert_noop!(
-            SubtensorModule::set_root_weights(
-                RuntimeOrigin::signed(hotkey),
-                dests,
-                values,
-            ),
+            SubtensorModule::set_root_weights(RuntimeOrigin::signed(hotkey), dests, values,),
             Error::<Test>::UidsLengthExceedUidsInSubNet
         );
     });
@@ -1644,7 +1684,10 @@ fn test_claim1_principal_never_lost() {
         assert_eq!(root_stake_of(&hotkey, &coldkey), principal);
 
         // Claiming only adds TAO to the root principal (never subtracts).
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         assert!(root_stake_of(&hotkey, &coldkey) >= principal);
     });
 }
@@ -2005,7 +2048,10 @@ fn test_root_basket_end_to_end_via_coinbase() {
 
         // And it is redeemable to root TAO.
         let root_before = root_stake_of(&hotkey, &coldkey);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         assert!(root_stake_of(&hotkey, &coldkey) > root_before);
     });
 }
@@ -2125,7 +2171,10 @@ fn test_root_basket_uid0_claim_reassigns_no_swap() {
         assert!(escrow_before > 0);
 
         let ts_before = TotalStake::<Test>::get().to_u64();
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         let ts_after = TotalStake::<Test>::get().to_u64();
 
         let gain = root_stake_of(&hotkey, &coldkey).saturating_sub(root_before);
@@ -2199,7 +2248,10 @@ fn test_root_basket_uid0_compounds() {
         assert!(escrow_alpha(&hotkey, NetUid::ROOT) > escrow_before);
 
         let root_before = root_stake_of(&hotkey, &coldkey);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         let gain = root_stake_of(&hotkey, &coldkey).saturating_sub(root_before);
 
         assert!(
@@ -2273,14 +2325,23 @@ fn test_root_basket_conservation_interleaved() {
 
         // Interleave deposits and claims.
         deposit(1_000_000);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(alice), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
         deposit(2_000_000);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(bob), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
         deposit(1_500_000);
 
         // Final round: everyone claims everything.
         for ck in [alice, bob, carol] {
-            assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(ck), hotkey));
+            assert_ok!(SubtensorModule::claim_root_with_hotkey(
+                RuntimeOrigin::signed(ck),
+                hotkey
+            ));
         }
 
         // The fund is fully drained: no stranded value in any holding, no outstanding shares.
@@ -2338,7 +2399,10 @@ fn test_root_basket_claim_idempotent() {
             AlphaBalance::ZERO,
         );
 
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
 
         let root_after_first = root_stake_of(&hotkey, &coldkey);
         let shares_after_first = fund_shares(&hotkey);
@@ -2353,7 +2417,10 @@ fn test_root_basket_claim_idempotent() {
 
         // Repeated claims: at most the 1-share dust moves once; nothing compounds.
         for _ in 0..3 {
-            assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+            assert_ok!(SubtensorModule::claim_root_with_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                hotkey
+            ));
         }
         assert!(root_stake_of(&hotkey, &coldkey) <= root_after_first + 2);
         assert!(shares_after_first.saturating_sub(fund_shares(&hotkey)) <= 2);
@@ -2598,7 +2665,10 @@ fn test_root_basket_unstake_preserves_accrued() {
         // is a fee-included realizable value, so the realized gain can exceed the quote by up
         // to the swap fee.
         let root_before = root_stake_of(&hotkey, &coldkey);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         let gain = root_stake_of(&hotkey, &coldkey).saturating_sub(root_before);
         assert_abs_diff_eq!(gain, payout_before, epsilon = payout_before / 500);
     });
@@ -2665,7 +2735,10 @@ fn test_root_basket_claim_preserves_composition() {
 
         // Alice (half the shares) claims.
         let alice_root_before = root_stake_of(&hotkey, &alice);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(alice), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
         let alice_gain = root_stake_of(&hotkey, &alice).saturating_sub(alice_root_before);
 
         // Composition is preserved: both holdings shrank by the same fraction.
@@ -2679,7 +2752,10 @@ fn test_root_basket_claim_preserves_composition() {
 
         // Bob's payout matches Alice's (equal stakes), modulo slippage from her claim.
         let bob_root_before = root_stake_of(&hotkey, &bob);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(bob), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
         let bob_gain = root_stake_of(&hotkey, &bob).saturating_sub(bob_root_before);
         assert!(alice_gain > 0 && bob_gain > 0);
         assert_abs_diff_eq!(alice_gain, bob_gain, epsilon = 3_000u64);
@@ -2782,7 +2858,10 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
 
         // Below threshold: skipped, nothing consumed. The holding is curated, so the dust
         // sweep exempts it despite its sub-threshold value.
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         assert_eq!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
             owed_before
@@ -2797,7 +2876,10 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
 
         // Lower the threshold: the full amount pays out.
         zero_claim_threshold();
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         assert!(root_stake_of(&hotkey, &coldkey) > root_before);
         assert!(fund_shares(&hotkey) <= 10);
     });
@@ -2883,7 +2965,10 @@ fn test_root_basket_coldkey_swap_carries_owed_with_zero_stake() {
 
         // And it is claimable by the new coldkey.
         let root_before = root_stake_of(&hotkey, &new_coldkey);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(new_coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(new_coldkey),
+            hotkey
+        ));
         assert!(
             root_stake_of(&hotkey, &new_coldkey) > root_before,
             "new coldkey must be able to realize the carried entitlement"
@@ -2940,7 +3025,10 @@ fn test_root_basket_zero_realized_claim_burns_nothing() {
         let escrow_before = escrow_alpha(&hotkey, netuid);
         let root_before = root_stake_of(&hotkey, &coldkey);
 
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
 
         // Complete no-op: no shares burned, no watermark advanced, nothing moved.
         assert_eq!(
@@ -3000,12 +3088,7 @@ fn test_root_basket_mixed_forfeit_claim_burns_nothing() {
             NetUid::ROOT,
             1_000_000u64.into(),
         );
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &escrow,
-            netuid,
-            1u64.into(),
-        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid, 1u64.into());
         BasketShares::<Test>::insert(hotkey, 100u64);
         BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
 
@@ -3075,7 +3158,10 @@ fn test_root_basket_revives_after_full_drain() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         assert!(fund_shares(&hotkey) <= 10, "epoch-1 fund should be drained");
 
         // Epoch 2: a new deposit into the drained fund.
@@ -3092,7 +3178,10 @@ fn test_root_basket_revives_after_full_drain() {
         // The sole staker redeems ~the entire epoch-2 value; nothing was lost to the drained
         // epoch's residual dust.
         let root_before = root_stake_of(&hotkey, &coldkey);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
         let gain = root_stake_of(&hotkey, &coldkey).saturating_sub(root_before);
         assert_abs_diff_eq!(gain, epoch2_value, epsilon = epoch2_value / 100);
         assert!(fund_shares(&hotkey) <= 20);
@@ -3145,7 +3234,10 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
         let escrow_before = escrow_alpha(&hotkey, NetUid::ROOT);
         assert!(escrow_before > 0);
 
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
 
         // The sole real staker drains the whole root slot: no value stranded by the escrow's
         // own root holdings.

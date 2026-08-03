@@ -22,7 +22,7 @@ Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1952-L1967) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1954-L1969) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1956`](/code/pallets/subtensor/src/macros/dispatches.rs#L1952-L1967):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1958`](/code/pallets/subtensor/src/macros/dispatches.rs#L1954-L1969):
 
 ```rust
 #[pallet::call_index(148)]
@@ -92,6 +92,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L818), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L847), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L804).
+Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L935), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L964), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L922).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
