@@ -221,8 +221,9 @@ export async function swapStakeLimit(
 }
 
 export async function claimRoot(api: TypedApi<typeof subtensor>, coldkey: KeyringPair): Promise<void> {
-    // Fund-level redemption: no per-subnet selection.
-    const tx = api.tx.SubtensorModule.claim_root();
+    // Fund-level redemption: the subnets argument is ignored on-chain (kept for
+    // call-data compatibility) but the codec still requires it.
+    const tx = api.tx.SubtensorModule.claim_root({ subnets: [] });
     await waitForTransactionWithRetry(api, tx, coldkey, "claim_root");
 }
 
