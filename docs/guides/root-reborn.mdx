@@ -64,12 +64,17 @@ stake; a claim pays it out as TAO staked back to root.
   each deposit bears its own swap slippage.
 - **Claims are proportional.** A claim redeems the staker's owed fraction of
   every holding pro-rata, preserving fund composition.
-- **Default is balanced 1/n over every live subnet.** A validator with no
-  custom weights still accrues — dividends deploy equally across non-root
-  subnets. Weight netuid 0 to hold a slice as TAO instead of subnet alpha.
-  `set_root_weights` requires at least 8 positive destinations (softened
-  when fewer networks exist), and netuid 0 remains a valid destination to
-  keep part of a curated basket in TAO.
+- **Default is accumulate-in-place: hold what you earned.** A validator with
+  no custom weights still accrues — each subnet's dividend is credited
+  straight into the fund's holding on that subnet, with no sell and no
+  redeploy. The protocol executes zero trades (no swap fees, no slippage,
+  no mechanical sell pressure) on behalf of a validator that expressed no
+  preference, so the default basket is the emission-weighted portfolio the
+  dividends themselves describe. Setting a weight vector is what turns on
+  the sell-and-redeploy engine. Weight netuid 0 to hold a slice as TAO
+  instead of subnet alpha. `set_root_weights` requires at least 8 positive
+  destinations (softened when fewer networks exist), and netuid 0 remains a
+  valid destination to keep part of a curated basket in TAO.
 
 Root validators are transparent fund managers: weight vectors are public,
 fund NAV and lifetime return are queryable, and the scoreboard is who made
@@ -105,8 +110,9 @@ Steps to a working fund:
    (`btcli root subscribe --amount ... --hotkey <your hotkey>`). Stake also
    gates weight-setting: the hotkey must clear the minimum stake to set
    weights.
-3. **Curate** your basket weights (next section). Until you set a vector,
-   dividends deploy balanced 1/n across every live non-root subnet.
+3. **Curate** your basket weights (next section) — once weight setting is
+   enabled network-wide. Until you set a vector, dividends accumulate in
+   place — each subnet's dividend stays in that subnet's alpha, trade-free.
 4. **Earn.** Registration marks the hotkey as a delegate with the default
    18% take; your dividends deploy into the basket each epoch and your
    stakers accrue the rest pro-rata.
@@ -117,9 +123,16 @@ principal and accrued entitlement throughout.
 
 ## For validators: curate the basket
 
-Set the distribution vector with your **hotkey** (it must be registered on
-the root network and hold the minimum stake to set weights; the root weights
-rate limit applies):
+**Weight setting is gated off at launch.** Root Reborn ships with
+`set_root_weights` disabled network-wide (`RootWeightSettingDisabled`), so
+every fund runs the null strategy — dividends accumulate in place — and the
+network gets a clean, uniform baseline before curation opens. Weight setting
+will be switched on in a later upgrade; until then the commands below fail
+with `RootWeightSettingDisabled`.
+
+Once enabled: set the distribution vector with your **hotkey** (it must be
+registered on the root network and hold the minimum stake to set weights;
+the root weights rate limit applies):
 
 ```bash
 btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet

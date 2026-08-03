@@ -93,40 +93,19 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
-    /// Balanced `1/n` basket vector over every live non-root subnet (equal `u16::MAX`
-    /// entries, sorted). Applied whenever a validator has no stored root weights. When no
-    /// productive subnets exist yet, falls back to 100% root (TAO cash slot).
-    pub fn default_balanced_basket_weights() -> Vec<(u16, u16)> {
-        let mut dests: Vec<u16> = Self::get_all_subnet_netuids()
-            .into_iter()
-            .filter(|netuid| !netuid.is_root())
-            .map(u16::from)
-            .collect();
-        dests.sort_unstable();
-        if dests.is_empty() {
-            vec![(u16::from(NetUid::ROOT), u16::MAX)]
-        } else {
-            dests.into_iter().map(|netuid| (netuid, u16::MAX)).collect()
-        }
-    }
-
     /// The validator's usable basket weight vector: entries pointing at root (the fund's
     /// TAO/cash slot) or an existing subnet, zero weights dropped. The vector follows the
     /// validator's root uid (so it survives hotkey swaps automatically) and reuses the
-    /// existing root weights plumbing. An empty / missing stored vector means "non-specific":
-    /// deploy balanced `1/n` across every live non-root subnet. Returns an empty vector only
-    /// when explicit weights filter to nothing. Every returned weight is positive, so a
-    /// non-empty vector always has a positive weight sum.
+    /// existing root weights plumbing. An empty result means the fund is *uncurated* —
+    /// either no vector was ever stored, or explicit weights filtered to nothing — and
+    /// dividends accumulate in place on the subnet they arrived on instead of being
+    /// sold and redeployed (see [`Self::distribute_root_alpha_to_basket`]). Every
+    /// returned weight is positive, so a non-empty vector always has a positive weight sum.
     pub fn get_valid_basket_weights(hotkey: &T::AccountId) -> Vec<(NetUid, u64)> {
         let maybe_uid = Uids::<T>::try_get(NetUid::ROOT, hotkey).ok();
-        let stored_weights = maybe_uid
+        let weights = maybe_uid
             .map(|uid| Weights::<T>::get(NetUidStorageIndex::ROOT, uid))
             .unwrap_or_default();
-        let weights = if stored_weights.is_empty() {
-            Self::default_balanced_basket_weights()
-        } else {
-            stored_weights
-        };
 
         // Keep weights that point at root (uid 0) or an existing subnet. Root is a valid
         // destination: that slice is held as the fund's root-stake (TAO) cash position instead of
@@ -184,35 +163,44 @@ impl<T: Config> Pallet<T> {
     /// Distributes a validator's root dividend (origin-subnet alpha, net of take) into its beta
     /// basket according to the validator's root weight vector `w` (set on subnet 0).
     ///
-    /// Flow: sell the origin alpha for TAO, then split that TAO across subnets per `w`, buying
-    /// each subnet's alpha and staking it to the validator under the global escrow coldkey (a
-    /// root-destination slice is held directly as the fund's root-stake cash position). The
-    /// deposit then mints *fund shares* against the whole basket: `shares = value_added * P / N`,
-    /// where `N` is the fund's pre-buy realizable NAV, `P` the outstanding shares, and
-    /// `value_added` the realizable NAV the deposit actually added (post-buy NAV minus the
-    /// pre-buy snapshot), so the deposit bears its own buy slippage/fees instead of
-    /// socializing them, and existing holders are neither diluted nor taxed. Stakers accrue
-    /// entitlement through the single per-validator
+    /// Curated flow: sell the origin alpha for TAO, then split that TAO across subnets per `w`,
+    /// buying each subnet's alpha and staking it to the validator under the global escrow
+    /// coldkey (a root-destination slice is held directly as the fund's root-stake cash
+    /// position). The deposit then mints *fund shares* against the whole basket:
+    /// `shares = value_added * P / N`, where `N` is the fund's pre-buy realizable NAV, `P` the
+    /// outstanding shares, and `value_added` the realizable NAV the deposit actually added
+    /// (post-buy NAV minus the pre-buy snapshot), so the deposit bears its own buy
+    /// slippage/fees instead of socializing them, and existing holders are neither diluted nor
+    /// taxed. Stakers accrue entitlement through the single per-validator
     /// `BasketRate += shares / total_root_stake` accumulator; no entitlement is ever denominated
     /// in a particular subnet's alpha, which is what allows holdings to be rebalanced without
     /// touching staker claims.
     ///
-    /// Attribution: the dividend was earned by the validator's WHOLE root stake, including
-    /// the fund's own root-slot (escrow) position. Only the real stakers' fraction of the
-    /// value mints shares; the escrow slot's fraction enters the fund unminted, so the
+    /// Uncurated flow (no stored root weights, or explicit weights filtered to nothing): the
+    /// dividend *accumulates in place* — the origin alpha is credited directly to the fund's
+    /// holding on the origin subnet, with no sell and no redeploy. The default basket is
+    /// therefore the emission-weighted portfolio the dividends themselves describe, the
+    /// protocol executes zero trades (no swap fees, no slippage, no sell pressure) on behalf
+    /// of a validator that expressed no preference, and shares still mint at NAV against the
+    /// realizable value the alpha added (see
+    /// [`Self::try_accumulate_root_alpha_into_basket`]).
+    ///
+    /// Attribution (both flows): the dividend was earned by the validator's WHOLE root stake,
+    /// including the fund's own root-slot (escrow) position. Only the real stakers' fraction
+    /// of the value mints shares; the escrow slot's fraction enters the fund unminted, so the
     /// fund's own cash yield accrues to existing share holders through N/P instead of
     /// leaking to root stakers as free shares.
     ///
     /// The whole operation is transactional: if any swap fails (or the deposit is dust), it is
-    /// rolled back and the original alpha is recycled. Validators with no stored root weights
-    /// default to a balanced `1/n` over every live non-root subnet. Dividends are recycled only
-    /// when explicit weights filter to nothing, or when the validator has no root stake to
-    /// apportion against.
+    /// rolled back and the original alpha is recycled. Dividends are recycled only when the
+    /// validator has no root stake to apportion against.
     ///
     /// Protocol-flow accounting is symmetric with redemption: the origin sell is booked as an
     /// outflow on the origin subnet and each redistribution buy as an inflow on its dest subnet,
     /// so that a deposit-then-claim round-trip nets to ~0 on the dest pools (the claim sell is
-    /// booked as an outflow in `root_claim_for_hotkey`).
+    /// booked as an outflow in `root_claim_for_hotkey`). An in-place accumulation moves no TAO
+    /// through any pool, so it records nothing; the eventual claim sell is a genuine net
+    /// extraction and books its outflow then.
     pub fn distribute_root_alpha_to_basket(
         hotkey: &T::AccountId,
         origin_netuid: NetUid,
@@ -243,34 +231,45 @@ impl<T: Config> Pallet<T> {
         let total_root =
             Self::get_stake_for_hotkey_on_subnet(hotkey, NetUid::ROOT).saturating_sub(escrow_root);
 
-        // Explicit weights that filter to nothing, or no root stake to apportion against: recycle.
-        if valid.is_empty() || total_root.is_zero() {
+        // No root stake to apportion against: recycle.
+        if total_root.is_zero() {
             Self::recycle_subnet_alpha(origin_netuid, root_alpha);
             return;
         }
 
         let outcome = with_transaction(|| {
-            match Self::try_distribute_root_alpha_to_basket(
-                hotkey,
-                origin_netuid,
-                root_alpha,
-                &valid,
-                total_root.to_u64(),
-                escrow_root.to_u64(),
-            ) {
+            let result = if valid.is_empty() {
+                Self::try_accumulate_root_alpha_into_basket(
+                    hotkey,
+                    origin_netuid,
+                    root_alpha,
+                    total_root.to_u64(),
+                    escrow_root.to_u64(),
+                )
+            } else {
+                Self::try_distribute_root_alpha_to_basket(
+                    hotkey,
+                    origin_netuid,
+                    root_alpha,
+                    &valid,
+                    total_root.to_u64(),
+                    escrow_root.to_u64(),
+                )
+            };
+            match result {
                 Ok(()) => TransactionOutcome::Commit(Ok(())),
                 Err(err) => TransactionOutcome::Rollback(Err(err)),
             }
         });
 
-        // On any failure the swaps were rolled back; recycle the original alpha.
+        // On any failure everything was rolled back; recycle the original alpha.
         if outcome.is_err() {
             Self::recycle_subnet_alpha(origin_netuid, root_alpha);
         }
     }
 
-    /// Transactional body of [`Self::distribute_root_alpha_to_basket`]; any error rolls the
-    /// whole deposit back (the caller recycles the origin alpha).
+    /// Transactional body of [`Self::distribute_root_alpha_to_basket`]'s curated flow; any
+    /// error rolls the whole deposit back (the caller recycles the origin alpha).
     fn try_distribute_root_alpha_to_basket(
         hotkey: &T::AccountId,
         origin_netuid: NetUid,
@@ -279,8 +278,6 @@ impl<T: Config> Pallet<T> {
         total_root: u64,
         escrow_root: u64,
     ) -> DispatchResult {
-        let shares_outstanding: u64 = BasketShares::<T>::get(hotkey);
-
         // 1. Sell the origin-subnet alpha for TAO, booked as protocol outflow (TAO left the
         // origin pool). The deployment below snapshots NAV only after this sell: the fund may
         // itself hold origin-subnet alpha, and the sell moves that price, so marking N any
@@ -303,7 +300,68 @@ impl<T: Config> Pallet<T> {
             BasketFunding::Protocol { origin_netuid },
         )?;
 
-        // 3. Attribution: the dividend was earned by the whole root stake, escrow slot
+        // 3. Mint fund shares for the stakers' fraction of the value added.
+        Self::mint_basket_dividend_shares(hotkey, nav_before, value_added, total_root, escrow_root)
+    }
+
+    /// Transactional body of [`Self::distribute_root_alpha_to_basket`]'s uncurated flow: the
+    /// dividend alpha is credited directly to the fund's holding on the subnet it arrived on.
+    /// No swap runs — the alpha is already counted in `SubnetAlphaOut` (the recycle fallback
+    /// decrements it), it just is not assigned to any stake position yet, so the whole deposit
+    /// is a share-pool credit. Any error rolls the credit back (the caller recycles).
+    ///
+    /// The deposit is valued as the realizable delta on the origin holding alone: crediting
+    /// stake moves no pool, so every other holding's quote is unchanged and the full-fund
+    /// `nav_after` sweep the curated flow needs collapses to one extra origin-subnet quote.
+    /// Realizable valuation keeps deposit pricing honest on thin pools exactly as it does for
+    /// bought alpha — the marginal alpha of a large holding quotes below spot, so existing
+    /// share holders are never diluted by an over-marked deposit.
+    fn try_accumulate_root_alpha_into_basket(
+        hotkey: &T::AccountId,
+        origin_netuid: NetUid,
+        root_alpha: AlphaBalance,
+        total_root: u64,
+        escrow_root: u64,
+    ) -> DispatchResult {
+        let escrow = Self::get_beta_escrow_account_id();
+
+        let held_before: u64 =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, origin_netuid)
+                .to_u64();
+        let nav_before: u64 = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+        let origin_before: u64 = Self::realizable_tao_for_alpha(origin_netuid, held_before);
+
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            &escrow,
+            origin_netuid,
+            root_alpha,
+        );
+
+        // Re-read the holding after the credit so share-pool rounding is priced in.
+        let held_after: u64 =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, origin_netuid)
+                .to_u64();
+        let value_added: u64 =
+            Self::realizable_tao_for_alpha(origin_netuid, held_after).saturating_sub(origin_before);
+
+        Self::mint_basket_dividend_shares(hotkey, nav_before, value_added, total_root, escrow_root)
+    }
+
+    /// Shared tail of both dividend deposit flows: attribute the value added between real
+    /// stakers and the fund's own escrow slot, mint fund shares at the pre-deposit NAV, and
+    /// advance the per-validator claimable rate. Errors on a dust deposit so the caller rolls
+    /// back and recycles.
+    fn mint_basket_dividend_shares(
+        hotkey: &T::AccountId,
+        nav_before: u64,
+        value_added: u64,
+        total_root: u64,
+        escrow_root: u64,
+    ) -> DispatchResult {
+        let shares_outstanding: u64 = BasketShares::<T>::get(hotkey);
+
+        // Attribution: the dividend was earned by the whole root stake, escrow slot
         // included. Only the real stakers' fraction mints shares; the escrow slot's
         // fraction stays unminted so its value raises N/P for existing share holders
         // (the fund's own cash yield belongs to the fund).
@@ -313,7 +371,7 @@ impl<T: Config> Pallet<T> {
             total_root.saturating_add(escrow_root),
         );
 
-        // 4. Mint fund shares at the pre-deposit NAV: shares = stakers_value * P / N. A
+        // Mint fund shares at the pre-deposit NAV: shares = stakers_value * P / N. A
         // deposit into an already-compounded fund (N/P > 1) mints fewer shares than TAO
         // added, so N/P is left unchanged.
         let shares: u64 =
@@ -467,6 +525,16 @@ impl<T: Config> Pallet<T> {
     /// negative watermark credit is an unconditional share grant that needs no root stake
     /// and survives stake-change rebasing (which is additive).
     ///
+    /// An uncurated fund (no usable weight vector — dividends accumulate in place) has no
+    /// vector to deploy a TAO deposit across, so the deposit *mirrors the fund*: it is
+    /// deployed pro-rata across the current holdings by realizable value. A deposit then
+    /// buys exactly the exposure the minted shares represent, existing holders' composition
+    /// is untouched, and the deposit-then-claim round trip stays symmetric with redemption
+    /// (claims redeem pro-rata of every holding) — without this, cycling cash deposits
+    /// through claims would let anyone convert an uncurated fund's alpha into cash and push
+    /// sell pressure through the escrow. An empty fund has nothing to mirror; that deposit
+    /// is held as the fund's root (TAO cash) slot at NAV.
+    ///
     /// Shares are minted at the pre-buy realizable NAV against the realizable value the
     /// deposit added (`nav_after - nav_before`), so the depositor bears their own entry
     /// slippage and fees, and a deposit-then-claim round trip nets to ~0 (minus swap fees)
@@ -489,8 +557,22 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotEnoughBalanceToStake
         );
 
-        let valid = Self::get_valid_basket_weights(&hotkey);
-        ensure!(!valid.is_empty(), Error::<T>::BasketHasNoWeights);
+        let mut valid = Self::get_valid_basket_weights(&hotkey);
+        if valid.is_empty() {
+            // Uncurated fund: mirror the fund — deploy pro-rata across current holdings by
+            // realizable value (worthless rows carry no weight). Empty fund: nothing to
+            // mirror, hold the deposit as the fund's root (TAO cash) slot.
+            valid = Self::get_basket_holdings(&hotkey)
+                .into_iter()
+                .filter_map(|(netuid, alpha)| {
+                    let value = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
+                    (value > 0).then_some((netuid, value))
+                })
+                .collect();
+            if valid.is_empty() {
+                valid = vec![(NetUid::ROOT, 1)];
+            }
+        }
 
         // Each weight slot can add at most one new holding, so pre-deploy holdings plus the
         // slot count bounds the holdings the two NAV valuations will sweep.
@@ -807,6 +889,12 @@ impl<T: Config> Pallet<T> {
             .into_iter()
             .map(|(netuid, _)| netuid)
             .collect();
+        // Uncurated fund: dividends accumulate in place, so every live subnet is an implicit
+        // destination — nothing is orphaned, and sweeping sub-threshold rows would only fight
+        // next epoch's accrual with pointless swaps.
+        if curated.is_empty() {
+            return 0;
+        }
 
         let escrow = Self::get_beta_escrow_account_id();
         let mut swept: u32 = 0;

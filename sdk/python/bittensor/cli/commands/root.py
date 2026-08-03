@@ -311,7 +311,7 @@ def root_get_weights(
     if not rows:
         app_ctx.output.detail("root weights", {"hotkey": hotkey, "weights": []})
         app_ctx.output.message(
-            "no custom weights set: dividends default to balanced 1/n over all subnets"
+            "no custom weights set: dividends accumulate in place on their origin subnet"
         )
         return
     table_rows = [[r["netuid"], f"{r['share']:.2%}", r["weight"]] for r in rows]

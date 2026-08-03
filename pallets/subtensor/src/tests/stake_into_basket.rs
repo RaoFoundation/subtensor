@@ -219,7 +219,7 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
 #[test]
 fn test_stake_into_basket_rejections() {
     new_test_ext(1).execute_with(|| {
-        let (_owner, hotkey, _netuid) = setup_stake_in_env();
+        let (_owner, hotkey, netuid) = setup_stake_in_env();
 
         let bob = U256::from(2001);
         add_balance_to_coldkey_account(&bob, TaoBalance::from(50_000_000u64));
@@ -252,15 +252,57 @@ fn test_stake_into_basket_rejections() {
             Error::<Test>::NotEnoughBalanceToStake
         );
 
-        // Explicit weights that filter to nothing (nonexistent subnet).
+        // Explicit weights that filter to nothing (nonexistent subnet): the fund is treated
+        // as uncurated instead of erroring. With no holdings yet there is nothing to
+        // mirror, so the deposit is held as the fund's root (TAO cash) slot at NAV.
         set_root_weights_direct(&hotkey, 0, &[(NetUid::from(99u16), u16::MAX)]);
-        assert_noop!(
-            SubtensorModule::stake_into_basket(
-                RuntimeOrigin::signed(bob),
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        let deposit = 10_000_000u64;
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
+            hotkey,
+            deposit.into(),
+        ));
+        let root_slot = |hotkey: &U256| {
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
                 hotkey,
-                10_000_000u64.into(),
-            ),
-            Error::<Test>::BasketHasNoWeights
+                &escrow,
+                NetUid::ROOT,
+            )
+            .to_u64()
+        };
+        assert_eq!(
+            root_slot(&hotkey),
+            deposit,
+            "deposit into an empty uncurated fund must land in the root (TAO cash) slot 1:1"
+        );
+
+        // Once the uncurated fund holds something, a deposit mirrors it: with the root slot
+        // and an equally-valued alpha holding (price ~1, deep pool), a new deposit must
+        // split ~50/50 between them instead of piling into cash.
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            deposit.into(),
+        );
+        let alpha_before = escrow_alpha(&hotkey, netuid);
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
+            hotkey,
+            deposit.into(),
+        ));
+        let root_gain = root_slot(&hotkey).saturating_sub(deposit);
+        let alpha_gain = escrow_alpha(&hotkey, netuid).saturating_sub(alpha_before);
+        assert_abs_diff_eq!(
+            root_gain,
+            deposit / 2,
+            epsilon = deposit / 2 * FEE_TOLERANCE_PCT / 100
+        );
+        assert_abs_diff_eq!(
+            alpha_gain,
+            deposit / 2,
+            epsilon = deposit / 2 * FEE_TOLERANCE_PCT / 100
         );
     });
 }

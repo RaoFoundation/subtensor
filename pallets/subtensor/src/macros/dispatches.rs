@@ -1974,10 +1974,14 @@ mod dispatches {
         /// (exactly like a dividend deposit) and the caller is credited a fund
         /// entitlement at the fund's pre-buy realizable NAV, priced against the
         /// realizable value the deposit added — the depositor bears their own entry
-        /// slippage and swap fees. The credited entitlement is redeemable through
-        /// [`Pallet::claim_root_with_hotkey`] (or coldkey-wide [`Pallet::claim_root`]);
-        /// it does not require or affect root stake, and it does not change any staker's
-        /// dividend accrual.
+        /// slippage and swap fees. An uncurated fund (no usable weight vector) is
+        /// mirrored instead: the deposit deploys pro-rata across the fund's current
+        /// holdings by realizable value, keeping deposits symmetric with claims (which
+        /// redeem pro-rata of every holding); a deposit into an empty uncurated fund is
+        /// held as the fund's root (TAO cash) slot. The credited entitlement is
+        /// redeemable through [`Pallet::claim_root_with_hotkey`] (or coldkey-wide
+        /// [`Pallet::claim_root`]); it does not require or affect root stake, and it
+        /// does not change any staker's dividend accrual.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -1993,7 +1997,6 @@ mod dispatches {
         /// * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value
         ///   rounds to zero entitlement.
         /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.
-        /// * `BasketHasNoWeights`: The validator's weight vector filters to nothing.
         #[pallet::call_index(147)]
         // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
         // (each slot costs a balance transfer + swap + escrow write; each holding two NAV

@@ -10,9 +10,10 @@ use subtensor_runtime_common::NetUidStorageIndex;
 /// Legacy `set_root_weights` / root-network weight vectors reused `Weights[ROOT]` and
 /// are not meaningful basket curation; wiping them avoids carrying old subnet-score
 /// vectors into Root Reborn. No vector is seeded in their place: an empty stored vector
-/// is resolved at runtime to a balanced `1/n` over every live non-root subnet (see
-/// [`crate::Pallet::default_balanced_basket_weights`]), so new subnets join the default
-/// index automatically without rewriting storage.
+/// means the fund is *uncurated* — dividends accumulate in place on the subnet they
+/// arrive on, trade-free (see [`crate::Pallet::distribute_root_alpha_to_basket`]) —
+/// so every validator starts Root Reborn holding exactly what its dividends earn,
+/// with no protocol-imposed sells or buys, until it sets an explicit vector.
 ///
 /// Uses a fresh `HasMigrationRun` key (`clear_root_basket_weights_v2`) so environments
 /// that ran the superseded balanced-seed variant (`seed_balanced_root_basket_weights`)

@@ -2739,6 +2739,17 @@ pub mod pallet {
     #[pallet::storage]
     pub type RootStakeUnlockInterval<T> = StorageValue<_, u64, ValueQuery>;
 
+    /// Master switch for `set_root_weights` (basket curation). Defaults to OFF: Root Reborn
+    /// launches with every fund uncurated — dividends accumulate in place — so the null
+    /// strategy is the observable network-wide baseline, and validators cannot stampede
+    /// into TAO-cash (netuid 0) vectors on day one, which would recreate the old
+    /// mechanical sell-pressure regime under a new name. Flipped on later via
+    /// `AdminUtils::sudo_set_root_weight_setting_enabled` (or a migration in the enabling
+    /// upgrade). Gates only the setter: existing stored vectors, dividend deployment, and
+    /// all read paths are unaffected.
+    #[pallet::storage]
+    pub type RootWeightSettingEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
     #[pallet::storage] // --- MAP(netuid ) --> Root claim threshold
     /// Basket redemption is fund-level (not per-subnet), so only the `NetUid::ROOT` entry is
     /// consulted: a claim below `RootClaimableThreshold[ROOT]` TAO is skipped as dust. Other

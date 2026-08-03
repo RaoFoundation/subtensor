@@ -44,6 +44,12 @@ pub(super) fn fund_pool(netuid: NetUid) {
     }
 }
 
+/// Open the network-wide `set_root_weights` gate (closed by default at launch so every
+/// fund starts on the null accumulate strategy) for tests exercising the extrinsic.
+pub(super) fn enable_root_weight_setting() {
+    crate::RootWeightSettingEnabled::<Test>::put(true);
+}
+
 /// Claims are fund-level and consult only the ROOT threshold entry; zero it for tests that
 /// exercise small claims.
 pub(super) fn zero_claim_threshold() {
@@ -231,6 +237,18 @@ fn test_set_root_weights_rejects_unregistered_hotkey() {
         let hotkey = U256::from(1002);
         let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
 
+        // Launch default: the network-wide gate is closed, so weight setting fails for
+        // everyone regardless of registration — every fund runs the null strategy.
+        assert_noop!(
+            SubtensorModule::set_root_weights(
+                RuntimeOrigin::signed(hotkey),
+                vec![u16::from(netuid)],
+                vec![u16::MAX],
+            ),
+            Error::<Test>::RootWeightSettingDisabled
+        );
+        enable_root_weight_setting();
+
         // `hotkey` is not registered on the root subnet, so it cannot set root weights.
         assert_noop!(
             SubtensorModule::set_root_weights(
@@ -307,7 +325,7 @@ fn test_root_basket_accrues_per_weights() {
 }
 
 #[test]
-fn test_root_basket_defaults_to_all_subnets_without_weights() {
+fn test_root_basket_accumulates_in_place_without_weights() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -331,7 +349,10 @@ fn test_root_basket_defaults_to_all_subnets_without_weights() {
             10_000_000u64.into(),
         );
 
-        // No root weights set: default is balanced 1/n over every live non-root subnet.
+        // No root weights set: the fund is uncurated — the dividend accumulates in place on
+        // its origin subnet, trade-free (no sell, no redeploy, pool untouched).
+        let pool_tao_before = SubnetTAO::<Test>::get(netuid);
+        let pool_alpha_in_before = SubnetAlphaIn::<Test>::get(netuid);
         SubtensorModule::distribute_emission(
             netuid,
             AlphaBalance::ZERO,
@@ -345,7 +366,17 @@ fn test_root_basket_defaults_to_all_subnets_without_weights() {
         assert!(has_fund(&hotkey));
         assert!(
             escrow_alpha(&hotkey, netuid) > 0,
-            "default 1/n must buy the only live subnet"
+            "accumulate must credit the origin-subnet holding"
+        );
+        assert_eq!(
+            SubnetTAO::<Test>::get(netuid),
+            pool_tao_before,
+            "accumulate must not move TAO through the pool"
+        );
+        assert_eq!(
+            SubnetAlphaIn::<Test>::get(netuid),
+            pool_alpha_in_before,
+            "accumulate must not sell alpha into the pool"
         );
         assert!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey) > 0,
@@ -1437,11 +1468,12 @@ fn test_set_root_weights_rejects_below_min_length() {
             NetUid::ROOT,
             2_000_000u64.into(),
         );
+        enable_root_weight_setting();
 
         assert_noop!(
             SubtensorModule::set_root_weights(
                 RuntimeOrigin::signed(hotkey),
-                dests[..3].to_vec(),
+                dests.get(..3).unwrap_or_default().to_vec(),
                 vec![u16::MAX; 3],
             ),
             Error::<Test>::WeightVecLengthIsLow
@@ -1470,6 +1502,7 @@ fn test_set_root_weights_rejects_len_above_network_ceiling() {
             2_000_000u64.into(),
         );
 
+        enable_root_weight_setting();
         let available = SubtensorModule::get_all_subnet_netuids().len();
         assert!(available > 0);
         // One past the NetworksAdded ceiling — unique u16s so the old O(n²) path would
@@ -1509,6 +1542,7 @@ fn test_set_root_weights_stores_vector() {
             2_000_000u64.into(),
         );
 
+        enable_root_weight_setting();
         // With root + one subnet available, the floor softens to 2 positive weights.
         assert_ok!(SubtensorModule::set_root_weights(
             RuntimeOrigin::signed(hotkey),
@@ -1544,6 +1578,7 @@ fn test_set_root_weights_accepts_root_destination() {
             2_000_000u64.into(),
         );
 
+        enable_root_weight_setting();
         // A vector mixing root (uid 0) and a subnet is accepted and stored verbatim.
         assert_ok!(SubtensorModule::set_root_weights(
             RuntimeOrigin::signed(hotkey),
@@ -3199,6 +3234,7 @@ fn test_become_root_validator_fund_journey() {
         // Registration stamps `LastUpdate`, so on-chain the first weight-set
         // waits out the rate limit; zero it here to stay in one block.
         SubtensorModule::set_weights_set_rate_limit(NetUid::ROOT, 0);
+        enable_root_weight_setting();
         assert_ok!(SubtensorModule::set_root_weights(
             RuntimeOrigin::signed(validator_hotkey),
             vec![u16::from(NetUid::ROOT), u16::from(netuid)],

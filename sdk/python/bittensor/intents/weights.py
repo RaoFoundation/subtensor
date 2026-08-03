@@ -451,8 +451,12 @@ class SetRootWeights(Intent):
     minimum stake to set weights; the root weights rate limit applies, and
     every destination must be netuid 0 or an existing subnet. At least 8
     positive destinations are required (softened when fewer networks exist).
-    Validators with no stored root weights default to a balanced 1/n over
-    every live non-root subnet; set this vector to curate a different basket.
+    Validators with no stored root weights accumulate dividends in place —
+    each subnet's dividend stays in that subnet's alpha, trade-free; setting
+    this vector is what turns on the sell-and-redeploy engine.
+    Weight setting launched gated off network-wide (every call fails with
+    ``RootWeightSettingDisabled`` until governance or a later upgrade enables
+    it), so all funds start on the null accumulate strategy.
     Read it back with the ``validator_root_weights`` read.
     """
 

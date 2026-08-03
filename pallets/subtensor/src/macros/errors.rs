@@ -343,9 +343,9 @@ mod errors {
         /// with miner collateral on the subnet
         /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
         ColdkeyCollateralPositionsFull,
-        /// The validator has no usable basket weights (no root uid, or every weight entry
-        /// is zero / points at a nonexistent subnet), so a direct basket deposit cannot
-        /// be routed.
+        /// Retired (kept for SCALE index stability): direct basket deposits into an
+        /// uncurated fund are now held as the fund's root (TAO cash) slot instead of
+        /// erroring.
         BasketHasNoWeights,
         /// Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window
         /// (measured from the last stake add/remove) and cannot be unstaked yet. Prevents
@@ -356,5 +356,10 @@ mod errors {
         /// and root stake add/remove/transfer/swap are paused until it finishes so snapshotted
         /// conversion cannot desync from live stake (`Σ owed == BasketShares`).
         BetaBasketSeedInProgress,
+        /// `set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`]
+        /// is false). Root Reborn launches gated: every fund runs the null strategy
+        /// (dividends accumulate in place) until weight setting is switched on by
+        /// governance or a later upgrade.
+        RootWeightSettingDisabled,
     }
 }

@@ -134,6 +134,13 @@ pub mod pallet {
             /// The new drain ratio (alpha released per alpha of emission earned).
             drain_ratio: U64F64,
         },
+
+        /// Root basket weight setting (`set_root_weights`) was enabled or disabled
+        /// network-wide.
+        RootWeightSettingToggled {
+            /// Whether validators can now set root basket weights.
+            enabled: bool,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2413,6 +2420,24 @@ pub mod pallet {
                 &[Hyperparameter::CollateralDrainRatio.into()],
             );
 
+            Ok(())
+        }
+
+        /// Enables or disables root basket weight setting (`set_root_weights`)
+        /// network-wide. Root Reborn launches with this OFF so every fund runs the
+        /// null (accumulate in place) strategy as the observable baseline; flip it on
+        /// later to open basket curation. Gates only the setter — existing vectors,
+        /// dividend deployment, and reads are unaffected. Root-only.
+        #[pallet::call_index(103)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_commit_reveal_weights_enabled())]
+        pub fn sudo_set_root_weight_setting_enabled(
+            origin: OriginFor<T>,
+            enabled: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::RootWeightSettingEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::RootWeightSettingToggled { enabled });
+            log::debug!("RootWeightSettingToggled( enabled: {enabled:?} )");
             Ok(())
         }
 

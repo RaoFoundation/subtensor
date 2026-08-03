@@ -887,6 +887,14 @@ impl<T: Config> Pallet<T> {
         let hotkey = ensure_signed(origin)?;
         log::debug!("do_set_root_weights( hotkey:{hotkey:?}, dests:{dests:?}, values:{values:?} )");
 
+        // --- 1.5. Weight setting must be enabled network-wide. Root Reborn launches with
+        // this gate closed so every fund runs the null (accumulate in place) strategy
+        // first; see `RootWeightSettingEnabled`.
+        ensure!(
+            RootWeightSettingEnabled::<T>::get(),
+            Error::<T>::RootWeightSettingDisabled
+        );
+
         // --- 2. Lengths match.
         ensure!(
             Self::uids_match_values(&dests, &values),

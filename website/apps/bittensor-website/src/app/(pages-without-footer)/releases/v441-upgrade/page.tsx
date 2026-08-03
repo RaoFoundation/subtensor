@@ -222,7 +222,7 @@ const FlowNeutralityDiagram = () => {
         rootStream,
       )} tao per day sits below the zero axis as net sell flow, leaving a net of ${fmt.format(
         netBefore,
-      )}. After, the same stream is sold once and immediately rebought across subnets, so its net at the pools is approximately zero — the ${fmt.format(
+      )      }. After, the drain is removed: at launch dividends accrue in place and nothing is sold; a curated fund, shown here, sells its stream once and immediately rebuys across subnets. Either way the net at the pools is approximately zero — the ${fmt.format(
         sellFlowRemovedPerDay,
       )} tao per day drain is removed and the net rises to the full inject of ${fmt.format(
         netAfter,
@@ -807,23 +807,26 @@ const page = () => {
             subnet alpha marked and sold out of the pools daily, mechanically, regardless of
             conviction — a drain equal to {streamVsInject} of the roughly{' '}
             {fmt.format(snapshot.taoPerDayIntoPools)} τ of fresh emission entering all subnet
-            pools each day. Root Reborn does not reverse that flow; it neutralizes it. The
-            dividend is still sold once, but the proceeds no longer exit — they are
-            immediately redeployed across subnet pools per each validator&apos;s weights.
-            Root&apos;s net flow at the pools goes from{' '}
+            pools each day. Root Reborn removes that drain outright. At launch every fund
+            runs the null strategy: the dividend is not sold at all — it accrues in place as
+            subnet alpha held by the fund, touching no pool. Once curation opens, a curated
+            dividend is sold once and its proceeds immediately rebought across subnet pools
+            per the validator&apos;s weights. Either way, root&apos;s net flow at the pools
+            goes from{' '}
             <strong>
               −{rootDividendsPerDay} τ/day ({usd(sellFlowRemovedPerDay)}) to ≈ 0
             </strong>
             : a redistribution among subnets rather than a tax out of them. Subnets still pay
-            root its proportion; root now recycles it back into the subnets its validators
-            believe in.
+            root its proportion; root now holds it — and, curated, recycles it — inside the
+            subnets its validators believe in.
           </p>
           <FlowNeutralityDiagram />
           <p className={styles.graph_caption}>
             Daily net flow at the subnet pools, measured in τ. The emission inject is
-            untouched; the root dividend stream is sold once and rebought across subnets, so
-            its net at the pools falls from −{rootDividendsPerDay} to ≈ 0 τ/day — neutral,
-            not reversed — and the pools keep the full inject.
+            untouched. At launch nothing is sold — dividends accrue in place, net 0 by
+            construction; a curated fund (shown) sells its dividend once and rebuys across
+            subnets, still net ≈ 0. The −{rootDividendsPerDay} τ/day drain is removed either
+            way, and the pools keep the full inject.
           </p>
           <p>
             <strong>3 · Re-engage validators as guiding hands.</strong> Root validators sit
@@ -871,21 +874,25 @@ const page = () => {
           </p>
           <ul className={styles.list}>
             <li>
-              <strong>Validators publish a vector.</strong>{' '}
+              <strong>Validators publish a vector — once curation opens.</strong>{' '}
               <DocLink href='/docs/tx/set-root-weights'>
                 <code>set_root_weights</code>
               </DocLink>{' '}
               (call index 146) takes relative weights over netuid 0 and existing subnets — at
               least 8 positive destinations (softened when fewer networks exist),
-              rate-limited like other weight calls. A validator that never sets a vector
-              still accrues: dividends deploy balanced 1/n across every live non-root
-              subnet until it curates.
+              rate-limited like other weight calls.{' '}
+              <strong>Weight setting launches gated off network-wide</strong> (calls fail
+              with <code>RootWeightSettingDisabled</code>): every fund starts on the same
+              null strategy, and curation is switched on in a later upgrade.
             </li>
             <li>
-              <strong>Each epoch, the dividend is deployed.</strong> The validator&apos;s
-              root alpha dividend is sold to TAO once, split per the vector, and each slice
-              buys that destination&apos;s alpha into the basket. Weight on netuid 0 keeps
-              its slice as pure TAO — a fully passive fund is one setting away.
+              <strong>Each epoch, the dividend lands in the basket.</strong> With no vector
+              — every fund at launch — the dividend simply accrues in place: the subnet
+              alpha is credited straight into the fund&apos;s holding on the subnet that
+              paid it, trade-free (no sell, no swap fees, no slippage). Once a validator
+              curates, its dividend is instead sold to TAO once, split per the vector, and
+              each slice buys that destination&apos;s alpha into the basket; weight on
+              netuid 0 keeps its slice as pure TAO.
             </li>
             <li>
               <strong>Holdings sit in chain-owned escrow.</strong> Basket positions are real
@@ -937,10 +944,14 @@ const page = () => {
 btcli subnets register --netuid 0 -w my_coldkey -H my_hotkey  # register; no prior stake needed`}
           </pre>
           <p>
-            Then set your distribution vector with your hotkey. A validator with no custom
-            weights still accrues — dividends deploy balanced 1/n across every live
-            non-root subnet. Set the vector to curate, or weight netuid 0 to keep part of
-            a curated basket in TAO.
+            No curation is needed to earn: a validator with no weight vector accrues
+            automatically — each subnet&apos;s dividend accumulates in place in that
+            subnet&apos;s alpha, trade-free. <strong>Weight setting is gated off at
+            launch</strong>: <code>set_root_weights</code> fails with{' '}
+            <code>RootWeightSettingDisabled</code> network-wide, so every fund starts on
+            this same null strategy and the upgrade&apos;s effect is uniform and visible.
+            Curation will be enabled in a later upgrade; once it is, set your vector with
+            your hotkey (or weight netuid 0 to keep part of a curated basket in TAO):
           </p>
           <pre className={styles.code_block}>
             {`btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet
@@ -987,6 +998,52 @@ btcli root claim --hotkey 5F...                   # claim accrued into stake onl
               <code>root-claim-threshold</code>
             </DocLink>
             ) are skipped and keep accruing — there is no deadline and nothing expires.
+          </p>
+          <p>
+            The same claim from the SDK — preview what is owed, then redeem one
+            validator&apos;s accrued yield:
+          </p>
+          <pre className={styles.code_block}>
+            {`import bittensor as bt
+from bittensor.wallet import Wallet
+
+wallet = Wallet(name="my_coldkey")
+sub = bt.Subtensor()
+
+# Preview: TAO owed per validator hotkey, at current pool prices
+owed = sub.read(
+    "root_basket_owed_breakdown",
+    coldkey_ss58=wallet.coldkeypub.ss58_address,
+)
+
+# Claim one validator's accrued yield (staked back to root)
+result = sub.execute(bt.ClaimRootWithHotkey(hotkey_ss58="5F..."), wallet)
+
+# Or claim across every validator you stake to (compat; subnets ignored)
+result = sub.execute(bt.ClaimRoot(subnets=[0]), wallet)`}
+          </pre>
+          <p>
+            And the raw chain calls, for anyone signing directly or building against
+            metadata:
+          </p>
+          <pre className={styles.code_block}>
+            {`SubtensorModule.claim_root_with_hotkey        call index 148
+  origin: signed(coldkey)
+  args:   hotkey: AccountId32      # validator whose accrued yield to redeem
+
+SubtensorModule.claim_root                    call index 121
+  origin: signed(coldkey)
+  args:   subnets: BTreeSet<u16>   # IGNORED — claims are fund-level;
+                                   # walks every validator you stake to`}
+          </pre>
+          <p>
+            A claim redeems your owed fraction of the validator&apos;s basket pro-rata
+            (alpha sold to TAO at current pool depth) and stakes the proceeds back to root
+            on the same validator. Fees are charged by work actually done — the declared
+            weight is a cap, refunded post-dispatch. Prefer{' '}
+            <code>claim_root_with_hotkey</code>: a coldkey staked to many validators pays
+            for the full walk under bare <code>claim_root</code>, while the per-hotkey call
+            prices exactly one fund.
           </p>
         </section>
 
@@ -1054,9 +1111,10 @@ betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
             release once the train publishes it.
           </p>
           <p>
-            <strong>Root validators:</strong> set your root weights with{' '}
-            <code>btcli root set-weights</code> to curate subnet exposure (without a
-            vector, dividends deploy balanced 1/n across every live non-root subnet).{' '}
+            <strong>Root validators:</strong> nothing to do at launch — weight setting is
+            gated off network-wide and every fund runs the null strategy, with dividends
+            accumulating in place per subnet. When curation is enabled in a later upgrade,
+            set your vector with <code>btcli root set-weights</code>.{' '}
             <strong>Stakers:</strong> use{' '}
             <code>btcli root subscribe</code> and <code>btcli root claim</code> — list shows
             staked and accrued τ; claim realizes yield and optionally withdraws. The retired{' '}
@@ -1072,7 +1130,11 @@ betaBasket_getValidatorWeights(hotkey)       validator-root-weights`}
             Drop the retired 122/123 calls, and add the <code>RootWeightsSet</code>,{' '}
             <code>BasketDeposited</code>, <code>BasketClaimed</code>, <code>RootClaimed</code>
             , and <code>BasketHoldingConverted</code> events plus the{' '}
-            <code>betaBasket_*</code> RPC namespace. The claim threshold is root-settable via{' '}
+            <code>betaBasket_*</code> RPC namespace. Note that{' '}
+            <code>set_root_weights</code> is gated at launch — it fails with the new{' '}
+            <code>RootWeightSettingDisabled</code> error until governance flips the flag via{' '}
+            <code>AdminUtils.sudo_set_root_weight_setting_enabled</code> (103, emitting{' '}
+            <code>RootWeightSettingToggled</code>). The claim threshold is root-settable via{' '}
             <code>sudo_set_root_claim_threshold</code> (124), wrapped as{' '}
             <DocLink href='/docs/tx/set-root-claim-threshold'>
               <code>set-root-claim-threshold</code>

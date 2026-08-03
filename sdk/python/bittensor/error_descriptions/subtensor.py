@@ -75,9 +75,10 @@ DESCRIPTIONS: dict[str, str] = {
         "the coldkey's balance with `btcli wallet balance` and reduce the amount or top up."
     ),
     "BasketHasNoWeights": (
-        "`stake_into_basket` (or a related basket deposit) was called against a validator "
-        "whose root weight vector filters to no usable destinations. Have the validator set "
-        "root weights with `btcli weights set-root` (or `set_root_weights`) before depositing."
+        "Retired on current runtimes: a basket deposit into a validator with no usable root "
+        "weight vector is now held as the fund's root (TAO cash) slot instead of erroring. "
+        "Seeing this error means the chain is running an older runtime — have the validator "
+        "set root weights with `btcli weights set-root` (or `set_root_weights`) first."
     ),
     "BeneficiaryDoesNotOwnHotkey": (
         "When ending a subnet lease, the hotkey passed for the ownership handover is not owned "
@@ -628,6 +629,12 @@ DESCRIPTIONS: dict[str, str] = {
         "Root registration or root stake claiming found no root network in chain state, which "
         "only happens on misconfigured or freshly bootstrapped chains. Verify netuid 0 exists "
         "in `NetworksAdded`."
+    ),
+    "RootWeightSettingDisabled": (
+        "`set_root_weights` is disabled network-wide: Root Reborn launched gated, so every "
+        "fund runs the null strategy (dividends accumulate in place on their origin subnet) "
+        "until weight setting is switched on by governance or a later upgrade. No action "
+        "available — wait for the enable; dividends keep accruing meanwhile."
     ),
     "RootStakeLocked": (
         "A root (netuid 0) unstake was attempted before `RootStakeUnlockInterval` blocks "
