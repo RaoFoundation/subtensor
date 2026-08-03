@@ -135,11 +135,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+      - name: Install clone monitor dependencies
+        working-directory: clones/js-tests
+        run: npm ci
+      - name: Test clone performance monitor
+        working-directory: clones/js-tests
+        run: npm run test:clone-performance
       - run: .github/scripts/test-snapshot-artifact.sh
       - run: .github/scripts/test-download-artifact.sh
       - run: .github/scripts/test-select-shared-release-artifact.sh
       - run: .github/scripts/test-runtime-change-filter.sh
       - run: .github/scripts/test-clone-regression-phase.sh
+      - run: .github/scripts/test-clone-epoch-soak-workflow.sh
 
   # Build the try-runtime wasm independently so its consumers do not wait for
   # the unrelated release node build. The source check also makes the
@@ -738,6 +748,21 @@ jobs:
             echo "===== $f ====="
             cat "$f"
           done
+
+      - name: Upload clone block performance report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: clone-block-performance-${{ matrix.phase }}-${{ github.run_id }}
+          path: |
+            clones/js-tests/temp/clone-block-performance-*.log
+            clones/js-tests/temp/clone-block-performance-*.json
+            clones/js-tests/temp/clone-block-diagnostics-*.log
+            clones/js-tests/temp/runtime-upgrade-*.json
+            clones/js-tests/temp/clone-readiness-*.log
+            clones/js-tests/temp/clone-readiness-*.json
+          if-no-files-found: warn
+          retention-days: 14
 
   # Branch protection requires a check named exactly "Sudo-upgrade mainnet
   # clone and test"; this fan-in preserves the required-check name. It passes

@@ -112,16 +112,9 @@ jobs:
       - name: Mirror snapshot for fleet prefetch
         env:
           GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.upload-snapshot.outputs.artifact-id }}
-          ARTIFACT_DIGEST: ${{ steps.upload-snapshot.outputs.artifact-digest }}
-        run: |
-          set -euo pipefail
-          .github/scripts/publish-artifact-mirror.sh \
-            "$ARTIFACT_ID" \
-            mainnet-snapshot \
-            "$ARTIFACT_DIGEST" \
-            "$GITHUB_SHA" \
-            .github/workflows/refresh-mainnet-snapshot.yml
+        run: >-
+          .github/scripts/publish-current-run-artifact-mirror.sh
+          mainnet-snapshot
 
   # try-runtime state snapshots, one job per network so one flaky endpoint
   # doesn't prevent the others from publishing. The .snap format

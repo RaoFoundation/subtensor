@@ -1,0 +1,217 @@
+name: Mainnet Clone Epoch Soak
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+  workflow_dispatch:
+    inputs:
+      epoch_cycles:
+        description: "Complete post-migration epoch cycles required for every active non-root subnet"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+        default: "2"
+      fresh_state:
+        description: "Bypass the trusted nightly snapshot and scrape mainnet state live"
+        type: boolean
+        default: false
+
+concurrency:
+  group: mainnet-clone-epoch-soak-${{ github.event.pull_request.head.repo.id || github.repository_id }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  WS_ENDPOINT: ws://127.0.0.1:9944
+
+jobs:
+  select-node-release:
+    name: select exact Runtime Checks release node
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'labeled' &&
+       github.event.label.name == 'run-clone-epoch-soak' &&
+       github.event.pull_request.head.repo.fork == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      artifact_id: ${{ steps.release.outputs.artifact_id }}
+      artifact_name: ${{ steps.release.outputs.artifact_name }}
+      artifact_sha: ${{ steps.release.outputs.artifact_sha }}
+      digest: ${{ steps.release.outputs.digest }}
+      size: ${{ steps.release.outputs.size }}
+      run_id: ${{ steps.release.outputs.run_id }}
+      deadline_epoch_ms: ${{ steps.deadline.outputs.deadline_epoch_ms }}
+    steps:
+      # Keep the complete two-job workflow inside 150 minutes while reserving
+      # ten minutes for clone shutdown and report upload.
+      - name: Set workflow deadline
+        id: deadline
+        run: echo "deadline_epoch_ms=$(( $(date -u +%s) * 1000 + 140 * 60 * 1000 ))" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Wait for exact release node from Runtime Checks
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          .github/scripts/select-shared-release-artifact.sh "$GITHUB_OUTPUT" 1200
+          if ! grep -qx 'found=true' "$GITHUB_OUTPUT"; then
+            echo "::error::No exact Runtime Checks release artifact became available."
+            exit 1
+          fi
+
+  epoch-soak:
+    name: post-upgrade epoch soak (${{ inputs.epoch_cycles || '2' }} cycles)
+    needs: select-node-release
+    runs-on: [self-hosted, fireactions-turbo-8]
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Restore workflow deadline
+        env:
+          DEADLINE_EPOCH_MS: ${{ needs.select-node-release.outputs.deadline_epoch_ms }}
+        run: |
+          [[ "$DEADLINE_EPOCH_MS" =~ ^[1-9][0-9]*$ ]]
+          echo "SOAK_DEADLINE_EPOCH_MS=$DEADLINE_EPOCH_MS" >> "$GITHUB_ENV"
+
+      - name: Download exact release node and runtime
+        id: release-download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          EXPECTED_RELEASE_SHA: ${{ needs.select-node-release.outputs.artifact_sha }}
+        run: |
+          .github/scripts/download-artifact.sh \
+            "${{ needs.select-node-release.outputs.artifact_id }}" \
+            "${{ needs.select-node-release.outputs.artifact_name }}" \
+            "${{ needs.select-node-release.outputs.digest }}" \
+            "${{ needs.select-node-release.outputs.size }}" \
+            target/release "$GITHUB_OUTPUT"
+
+      - name: Validate release node and runtime
+        run: |
+          test -s target/release/node-subtensor
+          test -s target/release/wbuild/node-subtensor-runtime/node_subtensor_runtime.compact.compressed.wasm
+          chmod +x target/release/node-subtensor
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      - name: Install clone test dependencies
+        working-directory: clones/js-tests
+        run: npm ci
+
+      - name: Select trusted mainnet snapshot
+        id: snapshot
+        if: github.event_name == 'pull_request' || inputs.fresh_state != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          .github/scripts/snapshot-artifact.sh select \
+            mainnet-snapshot \
+            "${{ github.event.repository.default_branch }}" \
+            "${{ github.repository_id }}" \
+            .github/workflows/refresh-mainnet-snapshot.yml \
+            168 "$GITHUB_OUTPUT" required
+
+      - name: Download trusted mainnet snapshot
+        id: download-snapshot
+        if: github.event_name == 'pull_request' || inputs.fresh_state != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          .github/scripts/download-artifact.sh \
+            "${{ steps.snapshot.outputs.artifact-id }}" \
+            mainnet-snapshot \
+            "${{ steps.snapshot.outputs.artifact-digest }}" \
+            "${{ steps.snapshot.outputs.artifact-size-bytes }}" \
+            "$RUNNER_TEMP/mainnet-epoch-soak-snapshot" "$GITHUB_OUTPUT"
+
+      - name: Restore trusted mainnet snapshot
+        if: github.event_name == 'pull_request' || inputs.fresh_state != true
+        run: |
+          ./clones/scripts/local-clone-checkpoint.sh restore \
+            "$RUNNER_TEMP/mainnet-epoch-soak-snapshot/mainnet-snapshot.tar.gz"
+          echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+          echo "SOAK_CHECKPOINT=$RUNNER_TEMP/mainnet-epoch-soak-snapshot/mainnet-snapshot.tar.gz" >> "$GITHUB_ENV"
+          {
+            echo "### Mainnet clone snapshot"
+            echo "- Artifact: ${{ steps.snapshot.outputs.artifact-id }}"
+            echo "- Age: ${{ steps.snapshot.outputs.age-hours }}h"
+            echo "- Download source: ${{ steps.download-snapshot.outputs.source }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create clone from fresh mainnet state
+        if: github.event_name == 'workflow_dispatch' && inputs.fresh_state == true
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=30 1200 ./clones/scripts/clone-mainnet.sh; then
+              exit 0
+            fi
+            echo "::warning::mainnet scrape attempt ${attempt} timed out or failed; retrying"
+            pkill -9 -f build-patched-spec || true
+            sleep 10
+          done
+          exit 1
+
+      - name: Checkpoint fresh clone state
+        if: github.event_name == 'workflow_dispatch' && inputs.fresh_state == true
+        run: |
+          checkpoint="$RUNNER_TEMP/mainnet-epoch-soak-fresh.tar"
+          ./clones/scripts/local-clone-checkpoint.sh create "$checkpoint"
+          echo "SOAK_CHECKPOINT=$checkpoint" >> "$GITHUB_ENV"
+          echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+
+      - name: Run accelerated post-upgrade epoch soak
+        # The release runtime still advances Timestamp by 12 seconds per block;
+        # only manual-seal wall scheduling is compressed to 250ms.
+        run: ./clones/scripts/run-clone-epoch-soak.sh "${{ inputs.epoch_cycles || '2' }}"
+
+      - name: Stop clone
+        if: always()
+        run: ./clones/scripts/stop-local-clone.sh
+
+      - name: Dump diagnostic tails
+        if: failure()
+        run: |
+          echo "===== clone-node.log (last 300 lines) ====="
+          tail -n 300 clone-node.log 2>/dev/null || echo "(missing)"
+          for file in clones/js-tests/temp/clone-*.log; do
+            [ -f "$file" ] || continue
+            echo "===== $file ====="
+            tail -n 300 "$file"
+          done
+
+      - name: Upload soak reports and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: clone-epoch-soak-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            clones/js-tests/temp/clone-block-performance-*.log
+            clones/js-tests/temp/clone-block-performance-*.json
+            clones/js-tests/temp/clone-block-diagnostics-*.log
+            clones/js-tests/temp/runtime-upgrade-soak.json
+            clones/js-tests/temp/clone-epoch-baseline.log
+            clones/js-tests/temp/clone-epoch-coverage-baseline.json
+            clones/js-tests/temp/clone-epoch-soak.log
+            clones/js-tests/temp/clone-epoch-coverage.json
+          if-no-files-found: warn
+          retention-days: 14

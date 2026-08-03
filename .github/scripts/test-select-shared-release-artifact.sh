@@ -15,6 +15,7 @@ endpoint="${!#}"
 case "$endpoint" in
   */actions/artifacts*) cat "$MOCK_ARTIFACTS" ;;
   */actions/runs/777) cat "$MOCK_RUN" ;;
+  */commits/*/pulls) cat "$MOCK_PULLS" ;;
   *) echo "unexpected endpoint: $endpoint" >&2; exit 2 ;;
 esac
 EOF
@@ -26,8 +27,10 @@ export GITHUB_REPOSITORY=RaoFoundation/subtensor
 export GITHUB_REPOSITORY_ID=608683796
 export GITHUB_SHA=cccccccccccccccccccccccccccccccccccccccc
 export GITHUB_PR_HEAD_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+export GITHUB_EVENT_NAME=pull_request
 export MOCK_ARTIFACTS="$tmp/artifacts.json"
 export MOCK_RUN="$tmp/run.json"
+export MOCK_PULLS="$tmp/pulls.json"
 
 cat > "$MOCK_ARTIFACTS" <<'EOF'
 {"artifacts":[{"id":123,"name":"node-subtensor-release-cccccccccccccccccccccccccccccccccccccccc","size_in_bytes":456,"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","expired":false,"created_at":"2026-07-17T00:00:00Z","workflow_run":{"id":777,"head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_repository_id":608683796}}]}
@@ -35,11 +38,16 @@ EOF
 cat > "$MOCK_RUN" <<'EOF'
 {"id":777,"event":"pull_request","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_repository":{"id":608683796},"path":".github/workflows/runtime-checks.yml"}
 EOF
+cat > "$MOCK_PULLS" <<'EOF'
+[{"state":"open","merge_commit_sha":"cccccccccccccccccccccccccccccccccccccccc","head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"id":608683796}},"base":{"repo":{"id":608683796}}}]
+EOF
 
 : > "$tmp/output"
 "$selector" "$tmp/output" 0 >/dev/null
 grep -qx 'found=true' "$tmp/output"
 grep -qx 'artifact_id=123' "$tmp/output"
+grep -qx 'artifact_name=node-subtensor-release-cccccccccccccccccccccccccccccccccccccccc' "$tmp/output"
+grep -qx 'artifact_sha=cccccccccccccccccccccccccccccccccccccccc' "$tmp/output"
 grep -qx 'run_id=777' "$tmp/output"
 grep -qx 'size=456' "$tmp/output"
 grep -qx 'digest=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' "$tmp/output"
@@ -69,5 +77,23 @@ export MOCK_ARTIFACTS="$tmp/bad-artifacts.json"
 : > "$tmp/output"
 "$selector" "$tmp/output" 0 >/dev/null
 grep -qx 'found=false' "$tmp/output"
+
+# A manual dispatch runs at the source head SHA. Resolve its sole open,
+# same-repository PR to the synthetic merge SHA that names the trusted build.
+export GITHUB_EVENT_NAME=workflow_dispatch
+export GITHUB_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+export MOCK_ARTIFACTS="$tmp/artifacts.json"
+export MOCK_RUN="$tmp/run.json"
+: > "$tmp/output"
+"$selector" "$tmp/output" 0 >/dev/null
+grep -qx 'found=true' "$tmp/output"
+grep -qx 'artifact_sha=cccccccccccccccccccccccccccccccccccccccc' "$tmp/output"
+
+jq '. + [.[0]]' "$MOCK_PULLS" > "$tmp/ambiguous-pulls.json"
+export MOCK_PULLS="$tmp/ambiguous-pulls.json"
+if "$selector" "$tmp/output" 0 >/dev/null 2>&1; then
+  echo "ambiguous manual PR context unexpectedly succeeded" >&2
+  exit 1
+fi
 
 echo "shared release artifact selector tests passed"

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { Keyring } from "@polkadot/api";
@@ -28,6 +29,10 @@ const alice = keyring.addFromUri("//Alice");
 const logger = createTempLogger("runtime-update-alice.log");
 logger.captureConsole();
 
+interface RuntimeUpdateArguments {
+  reportFile?: string;
+}
+
 function formatDispatchError(api, error) {
   if (!error.isModule) {
     return error.toString();
@@ -38,7 +43,7 @@ function formatDispatchError(api, error) {
 }
 
 async function submitAndWait(api, signer, tx, label) {
-  return new Promise<any>((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     let unsubscribe;
     let settled = false;
 
@@ -81,6 +86,8 @@ async function connect() {
 }
 
 async function main() {
+  const args = parseArguments(process.argv.slice(2));
+  const startedAt = new Date().toISOString();
   await logger.start();
   assert.ok(fs.existsSync(WASM_PATH), `runtime wasm not found: ${WASM_PATH}`);
 
@@ -112,17 +119,55 @@ async function main() {
       api.tx.sudo.sudo(api.tx.system.setCode(`0x${wasm.toString("hex")}`)),
       "runtime upgrade"
     );
+    const upgradeHeader = await api.rpc.chain.getHeader(blockHash);
+    const finalizedAtEpochMs = Date.now();
+    const upgradeBlock = upgradeHeader.number.toNumber();
 
     console.log("runtime upgrade finalized in block:", blockHash);
+    console.log("runtime upgrade finalized at height:", upgradeBlock);
 
     await api.disconnect();
     api = await connect();
 
     const after = await api.rpc.state.getRuntimeVersion();
     console.log("runtime after:", after.specName.toString(), after.specVersion.toString());
+
+    if (args.reportFile) {
+      writeJson(args.reportFile, {
+        schemaVersion: 1,
+        startedAt,
+        finalizedAt: new Date().toISOString(),
+        finalizedAtEpochMs,
+        upgradeBlock,
+        upgradeBlockHash: blockHash,
+        beforeSpecVersion: before.specVersion.toNumber(),
+        afterSpecVersion: after.specVersion.toNumber(),
+      });
+    }
   } finally {
     await api.disconnect();
   }
+}
+
+function parseArguments(values: string[]): RuntimeUpdateArguments {
+  const { values: options } = parseArgs({
+    args: values,
+    allowPositionals: false,
+    strict: true,
+    options: {
+      report: { type: "string" },
+    },
+  });
+  return {
+    reportFile: options.report ? path.resolve(options.report) : undefined,
+  };
+}
+
+function writeJson(filename: string, value: unknown) {
+  fs.mkdirSync(path.dirname(filename), { recursive: true });
+  const temporary = `${filename}.tmp-${process.pid}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
+  fs.renameSync(temporary, filename);
 }
 
 main().then(() => logger.flush()).catch(async (error) => {

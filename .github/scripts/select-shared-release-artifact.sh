@@ -17,12 +17,38 @@ max_wait_seconds="${2:-360}"
 : "${GITHUB_SHA:?GITHUB_SHA must be set}"
 : "${GITHUB_PR_HEAD_SHA:?GITHUB_PR_HEAD_SHA must be set}"
 
+event_name="${GITHUB_EVENT_NAME:-pull_request}"
 [[ "$GITHUB_REPOSITORY_ID" =~ ^[1-9][0-9]*$ ]] || usage
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || usage
 [[ "$GITHUB_PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || usage
 [[ "$max_wait_seconds" =~ ^[0-9]+$ ]] || usage
+[[ "$event_name" == pull_request || "$event_name" == workflow_dispatch ]] || usage
 
-artifact_name="node-subtensor-release-$GITHUB_SHA"
+artifact_sha="$GITHUB_SHA"
+if [[ "$event_name" == workflow_dispatch ]]; then
+  pulls=$(gh api \
+    -H 'Accept: application/vnd.github+json' \
+    "repos/$GITHUB_REPOSITORY/commits/$GITHUB_PR_HEAD_SHA/pulls")
+  candidates=$(jq -cer \
+    --arg repository_id "$GITHUB_REPOSITORY_ID" \
+    --arg head_sha "$GITHUB_PR_HEAD_SHA" '
+      [.[]
+        | select(.state == "open")
+        | select(.head.sha == $head_sha)
+        | select((.head.repo.id | tostring) == $repository_id)
+        | select((.base.repo.id | tostring) == $repository_id)
+        | select(.merge_commit_sha | type == "string")
+        | select(.merge_commit_sha | test("^[0-9a-f]{40}$"))]
+    ' <<< "$pulls")
+  candidate_count=$(jq -er 'length' <<< "$candidates")
+  if [[ "$candidate_count" != 1 ]]; then
+    echo "workflow_dispatch requires exactly one open same-repository PR for $GITHUB_PR_HEAD_SHA; found $candidate_count" >&2
+    exit 1
+  fi
+  artifact_sha=$(jq -er '.[0].merge_commit_sha' <<< "$candidates")
+fi
+
+artifact_name="node-subtensor-release-$artifact_sha"
 workflow_path=.github/workflows/runtime-checks.yml
 started=$(date -u +%s)
 
@@ -68,6 +94,8 @@ while true; do
       {
         echo "found=true"
         echo "artifact_id=$artifact_id"
+        echo "artifact_name=$artifact_name"
+        echo "artifact_sha=$artifact_sha"
         echo "digest=$digest"
         echo "size=$size"
         echo "run_id=$run_id"
@@ -97,7 +125,7 @@ while true; do
   elapsed=$(($(date -u +%s) - started))
   if (( elapsed >= max_wait_seconds )); then
     write_miss
-    echo "No exact-commit TypeScript release artifact appeared after ${elapsed}s; using the local build fallback."
+    echo "No exact-merge Runtime Checks release artifact appeared after ${elapsed}s."
     exit 0
   fi
   remaining=$((max_wait_seconds - elapsed))
