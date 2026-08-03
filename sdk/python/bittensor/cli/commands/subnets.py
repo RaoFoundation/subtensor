@@ -390,7 +390,8 @@ def register_subnet(
     `btcli subnets burn-cost`.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(BurnedRegister(netuid=netuid, hotkey_ss58=hotkey_ss58))
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    app_ctx.submit(BurnedRegister(netuid=netuid, hotkey_ss58=hotkey))
 
 
 @app.command("create", rich_help_panel=PANEL_REGISTER)
