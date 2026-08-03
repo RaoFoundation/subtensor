@@ -1427,6 +1427,37 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
+    /// DMAP ( hotkey, netuid ) --> alpha | Root dividend credits waiting to enter the
+    /// validator's beta basket. Epochs enqueue here instead of depositing inline (a deposit
+    /// prices a share mint against the fund's full NAV — one AMM quote per holding — so
+    /// running one per validator inside the epoch made epoch blocks scale with
+    /// `validators x holdings`). Credits merge per (hotkey, origin subnet) and are flushed
+    /// as a single batched deposit per hotkey: by the one-hotkey-per-block round-robin
+    /// drain (`flush_pending_basket_deposits_block`), or eagerly whenever the hotkey's claimant
+    /// base or basket is touched (claims, basket stakes, root stake changes, hotkey swaps),
+    /// so stake added after an epoch can never capture dividends earned before it arrived.
+    /// Credits whose spot value is below `RootClaimableThreshold[ROOT]` stay queued and
+    /// keep merging until they are worth a deposit, which is what keeps dust from ever
+    /// becoming a basket holding row.
+    #[pallet::storage]
+    pub type PendingBasketDeposits<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
+    /// ITEM ( raw storage key ) | Round-robin cursor of the per-block pending-basket-deposit
+    /// flush over [`PendingBasketDeposits`]: the drain flushes one hotkey per block and
+    /// resumes here, so every queued hotkey gets its turn even when some entries are
+    /// deferred dust that stays in the map after its hotkey's visit.
+    #[pallet::storage]
+    pub type PendingBasketFlushCursor<T: Config> = StorageValue<_, Vec<u8>, OptionQuery>;
+
     // Coinbase
     /// ITEM ( global_block_emission )
     #[deprecated(note = "Use calculate_block_emission() or the block emission RPC instead.")]

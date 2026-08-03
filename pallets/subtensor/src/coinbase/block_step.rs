@@ -18,6 +18,10 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         Self::reveal_crv3_commits();
         // --- 4. Run emission through network.
         Self::run_coinbase(block_emission);
+        // --- 4b. Flush queued root-dividend basket deposits: one hotkey per block,
+        // round-robin. Runs right after coinbase (and before the price EMA update) so a
+        // flush lands where the epoch-inline deposits used to happen.
+        Self::flush_pending_basket_deposits_block();
         // --- 5. Update moving prices AFTER using them for emissions.
         Self::update_moving_prices();
         // --- 6. Update roop prop AFTER using them for emissions.
