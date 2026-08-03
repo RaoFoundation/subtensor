@@ -222,8 +222,7 @@ def root_claim(
     hotkey_ss58: Optional[str] = typer.Option(
         None,
         address_cli_name("hotkey_ss58"),
-        help="Validator to claim from. "
-        "Omit on a terminal to pick from your root positions.",
+        help="Validator to claim from. Omit on a terminal to pick from your root positions.",
     ),
     coldkey_ss58: Optional[str] = typer.Option(
         None,
@@ -256,9 +255,7 @@ def root_claim(
         )
         raise typer.Exit(2)
 
-    wallet_name, owner = resolve_claim_wallet(
-        console, app_ctx, coldkey_ss58, interactive=True
-    )
+    wallet_name, owner = resolve_claim_wallet(console, app_ctx, coldkey_ss58, interactive=True)
     app_ctx.wallet_name = wallet_name
     app_ctx.wallet_given = True
 

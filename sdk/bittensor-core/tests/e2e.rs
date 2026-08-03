@@ -144,14 +144,10 @@ intent_plan_test!(intent_set_subnet_identity, "set_subnet_identity");
 /// Root Reborn retires `set_root_claim_type`. Keep the named slots so the
 /// base-branch e2e matrix builder's fixed test count stays satisfied; the
 /// SDK helper remains for older runtimes / offline policy checks only.
+/// (`intent_claim_root_with_hotkey` took one former stub slot to stay at 112.)
 #[test]
 fn intent_set_root_claim_type() {
     assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
-    assert!(IntentCall::set_root_claim_type("Swap", None).is_ok());
-}
-
-#[test]
-fn test_root_claim_type_variants() {
     assert!(IntentCall::set_root_claim_type("Swap", None).is_ok());
     assert!(IntentCall::set_root_claim_type("Keep", None).is_ok());
     assert!(IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1])).is_ok());

@@ -252,9 +252,7 @@ class ClaimRootWithHotkey(Intent):
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
-        return await substrate.compose(
-            calls.SubtensorModule.claim_root_with_hotkey(hotkey=hotkey)
-        )
+        return await substrate.compose(calls.SubtensorModule.claim_root_with_hotkey(hotkey=hotkey))
 
     def summary(self) -> str:
         return f"claim root dividends on {self.hotkey_ss58} (redeem basket shares to root stake)"

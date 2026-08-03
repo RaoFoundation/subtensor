@@ -77,9 +77,7 @@ INTENT_SAMPLES: dict[str, dict] = {
     "register_subnet": {},
     "start_call": {"netuid": 1},
     "claim_root": {"subnets": [0]},
-    "claim_root_with_hotkey": {
-        "hotkey_ss58": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-    },
+    "claim_root_with_hotkey": {"hotkey_ss58": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"},
     "set_root_weights": {"netuids": [0, 1], "weights": [0.5, 0.5]},
     "swap_hotkey": {"new_hotkey_ss58": BOB_HOT},
     "set_children": {"netuid": 1, "children": [[2**63, BOB_HOT]]},
