@@ -83,6 +83,14 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
+        // Root churn: settle flushable pending basket credits while the hotkey is still
+        // on root (earned dividends must deposit, not recycle). After membership drops,
+        // a second flush recycles leftover sub-threshold dust the hotkey can no longer
+        // merge by earning more.
+        if netuid.is_root() {
+            let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
+        }
+
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
         Self::remove_associated_evm_address(netuid, uid_to_replace);
@@ -90,9 +98,6 @@ impl<T: Config> Pallet<T> {
         #[allow(unknown_lints)]
         Keys::<T>::remove(netuid, uid_to_replace);
 
-        // Root churn: the outgoing hotkey will not earn more dividends to merge
-        // sub-threshold dust. Recycle any still-queued pending credits (not basket
-        // holdings) and purge the rows so the deposit queue cannot grow with replacements.
         if netuid.is_root() {
             let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
         }
@@ -219,6 +224,11 @@ impl<T: Config> Pallet<T> {
 
                     // Remove hotkey related storage items if hotkey exists
                     if let Ok(hotkey) = Keys::<T>::try_get(netuid, neuron_uid) {
+                        // Same root-churn finalization as `replace_neuron`: deposit while
+                        // still on root, then recycle leftover dust after membership drops.
+                        if netuid.is_root() {
+                            let _ = Self::flush_basket_deposits_for_hotkey(&hotkey);
+                        }
                         Uids::<T>::remove(netuid, &hotkey);
                         IsNetworkMember::<T>::remove(&hotkey, netuid);
                         LastHotkeyEmissionOnNetuid::<T>::remove(&hotkey, netuid);
@@ -226,8 +236,6 @@ impl<T: Config> Pallet<T> {
                         Axons::<T>::remove(netuid, &hotkey);
                         NeuronCertificates::<T>::remove(netuid, &hotkey);
                         Prometheus::<T>::remove(netuid, &hotkey);
-                        // Same root-churn finalization as `replace_neuron`: recycle queued
-                        // pending credits and purge so trimmed UIDs cannot leave stragglers.
                         if netuid.is_root() {
                             let _ = Self::flush_basket_deposits_for_hotkey(&hotkey);
                         }

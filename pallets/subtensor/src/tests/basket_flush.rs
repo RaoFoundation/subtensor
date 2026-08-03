@@ -205,9 +205,10 @@ fn test_flush_drain_dust_advances_cursor_without_deposit() {
     });
 }
 
-/// Root replacement recycles and purges the outgoing hotkey's queued credits (no deposit).
+/// Root replacement settles flushable pending credits into the basket before membership
+/// drops, so already-earned dividends are not recycled away.
 #[test]
-fn test_flush_root_eviction_recycles_pending_credits() {
+fn test_flush_root_eviction_deposits_pending_credits() {
     new_test_ext(1).execute_with(|| {
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
@@ -239,27 +240,77 @@ fn test_flush_root_eviction_recycles_pending_credits() {
         queue_credit(&hot, netuid, credit);
         let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
 
-        reset_basket_op_counters();
         SubtensorModule::replace_neuron(NetUid::ROOT, uid, &replacement, 1);
 
         assert!(
             !PendingBasketDeposits::<Test>::contains_key(hot, netuid),
-            "root churn must purge queued credits"
+            "root churn must clear the queued credit"
+        );
+        assert!(
+            fund_shares(&hot) > 0,
+            "flushable credit must deposit into the basket before membership drops"
+        );
+        assert!(
+            escrow_alpha(&hot, netuid) > 0,
+            "uncurated deposit must credit the origin holding"
+        );
+        // Accumulate-in-place keeps SubnetAlphaOut (alpha was already issued).
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out_before);
+        assert!(!SubtensorModule::is_hotkey_registered_on_network(
+            NetUid::ROOT,
+            &hot
+        ));
+    });
+}
+
+/// Sub-threshold dust still recycles after root membership drops — the hotkey can no
+/// longer earn dividends to merge it past the deposit threshold.
+#[test]
+fn test_flush_root_eviction_recycles_dust_after_membership_drop() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000_000_000u64));
+
+        let cold = U256::from(2001);
+        let hot = U256::from(3001);
+        let replacement = U256::from(3002);
+        let owner = U256::from(9001);
+        let owner_hot = U256::from(9101);
+        let netuid = add_dynamic_network(&owner_hot, &owner);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+
+        let uid = 1u16;
+        Uids::<Test>::insert(NetUid::ROOT, hot, uid);
+        Keys::<Test>::insert(NetUid::ROOT, uid, hot);
+        IsNetworkMember::<Test>::insert(hot, NetUid::ROOT, true);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hot,
+            &cold,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        let credit = 1_000u64;
+        queue_credit(&hot, netuid, credit);
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+
+        SubtensorModule::replace_neuron(NetUid::ROOT, uid, &replacement, 1);
+
+        assert!(
+            !PendingBasketDeposits::<Test>::contains_key(hot, netuid),
+            "dust must not pin the queue after root eviction"
         );
         assert_eq!(
             fund_shares(&hot),
             0,
-            "eviction recycles pending credits; it must not deposit into the basket"
+            "sub-threshold dust must not mint shares"
         );
         assert_eq!(
             SubnetAlphaOut::<Test>::get(netuid),
             alpha_out_before.saturating_sub(credit.into()),
-            "recycled alpha must leave SubnetAlphaOut"
+            "post-eviction dust flush recycles the credit"
         );
-        // Straggler path: recycle + row drop, no AMM work.
-        assert_eq!(basket_swap_ops(), 0);
-        assert_eq!(basket_quote_ops(), 0);
-        assert_eq!(basket_write_ops(), 1);
     });
 }
 
