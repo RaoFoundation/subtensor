@@ -415,3 +415,114 @@ class TestTransactions:
         ) in updates
         assert "subnet 6 registered" in result.output
         assert "queued · registered after deregistration of subnet 6" in result.output
+
+
+def test_local_hotkey_name_is_not_valid_ss58():
+    """Local wallet names must be resolved before ss58 decode.
+
+    Passing a name like ``hotkey1`` straight into the codec raises Substrate's
+    opaque ``Length is bad`` — the failure mode ``btcli s register --hotkey
+    hotkey1`` hit before CLI call sites resolved ``*_ss58`` options.
+    """
+    from bittensor._transport.codec import ss58_decode
+
+    with pytest.raises(ValueError, match="Length is bad"):
+        ss58_decode("hotkey1")
+
+
+class TestResolveHotkeySs58:
+    """Hand-written CLI commands must resolve ``--hotkey`` like generated ``tx``."""
+
+    @pytest.fixture()
+    def alt_hotkey(self, wallet_dir) -> str:
+        wallets.new_hotkey(
+            name=_WALLET_NAME, hotkey="hotkey1", path=wallet_dir, overwrite=True
+        )
+        return wallets.open_wallet(_WALLET_NAME, "hotkey1", wallet_dir).hotkey.ss58_address
+
+    def test_subnets_register_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke(
+            "subnets", "register", "--netuid", "18", "--hotkey", "hotkey1"
+        )
+        assert result.exit_code == 0, result.output
+        assert len(captured) == 1
+        assert captured[0].op == "burned_register"
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_set_auto_stake_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke("stake", "set-auto", "--netuid", "1", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_lock_add_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke(
+            "lock", "add", "--netuid", "1", "--amount-alpha", "1", "--hotkey", "hotkey1"
+        )
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_stake_burn_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke(
+            "sudo",
+            "stake-burn",
+            "--netuid",
+            "1",
+            "--amount-tao",
+            "1",
+            "--limit-price",
+            "1000",
+            "--hotkey",
+            "hotkey1",
+        )
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_child_revoke_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke("stake", "child", "revoke", "--netuid", "1", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey

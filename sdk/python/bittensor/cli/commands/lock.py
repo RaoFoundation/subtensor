@@ -162,9 +162,10 @@ def add_lock(
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount-alpha`: {error}")
         raise typer.Exit(2)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     if perpetual:
         app_ctx.submit(SetPerpetualLock(netuid=netuid, enabled=True))
-    app_ctx.submit(LockStake(netuid=netuid, amount_alpha=amount, hotkey_ss58=hotkey_ss58))
+    app_ctx.submit(LockStake(netuid=netuid, amount_alpha=amount, hotkey_ss58=hotkey))
 
 
 @app.command("mode")
