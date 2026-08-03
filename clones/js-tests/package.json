@@ -5,6 +5,7 @@
     "typecheck": "tsc --noEmit",
     "test:clone-performance": "bash -o pipefail -c 'node --import tsx --test tests/clone-performance.test.ts 2>&1 | tee temp/clone-performance-unit.log'",
     "monitor:block-latency": "tsx scripts/monitor-clone-blocks.ts",
+    "wait:clone-readiness": "tsx scripts/wait-clone-readiness.ts",
     "soak:epochs": "tsx scripts/run-clone-epoch-soak.ts",
     "test:clone-regressions": "tsx scripts/run-clone-regressions.ts",
     "runtime:update:alice": "tsx scripts/update-runtime-with-alice.ts",

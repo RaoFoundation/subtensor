@@ -3,6 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { ApiPromise } from "@polkadot/api";
+import {
+  evaluateMigrationReadiness,
+  waitForMigrationReadiness,
+  type MigrationReadinessSnapshot,
+} from "../lib/clone-readiness.js";
 import {
   BestHeadLiveness,
   NodeLogTail,
@@ -10,8 +16,6 @@ import {
   blockLatencyFailureReasons,
   computeEpochCoverageBudget,
   evaluateEpochCoverage,
-  evaluateInitialMigrationState,
-  evaluateMigrationGate,
   parsePreparedBlockChunk,
   remainingRequiredBlockSamples,
   sampleDrainFailureReason,
@@ -181,33 +185,109 @@ test("tracks complete epoch cycles and exposes removal, missing, and regression 
 });
 
 test("supports absent, cursorless instant, and multi-block migration states", () => {
-  assert.deepEqual(evaluateInitialMigrationState(false, false), {
-    kind: "not-observed",
-  });
-  assert.deepEqual(evaluateInitialMigrationState(false, true), {
-    kind: "complete",
-    sawCursor: false,
-  });
-  assert.deepEqual(evaluateInitialMigrationState(true, false), {
-    kind: "waiting",
-    sawCursor: true,
-  });
-  assert.equal(evaluateInitialMigrationState(true, true).kind, "invalid");
+  assert.deepEqual(
+    evaluateMigrationReadiness({
+      cursorExists: false,
+      completionFlag: false,
+      deferredEntriesExist: false,
+    }),
+    {
+      kind: "not-observed",
+      history: { sawCursor: false, sawDeferredEntries: false },
+    },
+  );
 
-  assert.deepEqual(evaluateMigrationGate(false, false, false), {
-    kind: "waiting",
-    sawCursor: false,
+  const instant = evaluateMigrationReadiness({
+    cursorExists: false,
+    completionFlag: true,
+    deferredEntriesExist: false,
   });
-  assert.deepEqual(evaluateMigrationGate(true, false, false), {
-    kind: "waiting",
-    sawCursor: true,
+  assert.equal(instant.kind, "ready");
+
+  const migrating = evaluateMigrationReadiness({
+    cursorExists: true,
+    completionFlag: false,
+    deferredEntriesExist: true,
   });
-  assert.deepEqual(evaluateMigrationGate(false, true, true), {
-    kind: "complete",
-    sawCursor: true,
+  assert.equal(migrating.kind, "waiting");
+  if (migrating.kind !== "waiting") {
+    assert.fail("expected migration to be waiting");
+  }
+  assert.equal(migrating.stage, "migration");
+
+  const draining = evaluateMigrationReadiness(
+    { cursorExists: false, completionFlag: true, deferredEntriesExist: true },
+    migrating.history,
+  );
+  assert.equal(draining.kind, "waiting");
+  if (draining.kind !== "waiting") {
+    assert.fail("expected deferred release to be waiting");
+  }
+  assert.equal(draining.stage, "deferred-release");
+
+  const ready = evaluateMigrationReadiness(
+    { cursorExists: false, completionFlag: true, deferredEntriesExist: false },
+    draining.history,
+  );
+  assert.equal(ready.kind, "ready");
+  assert.deepEqual(ready.history, { sawCursor: true, sawDeferredEntries: true });
+
+  assert.equal(
+    evaluateMigrationReadiness({
+      cursorExists: true,
+      completionFlag: true,
+      deferredEntriesExist: false,
+    }).kind,
+    "invalid",
+  );
+  assert.equal(
+    evaluateMigrationReadiness(
+      { cursorExists: false, completionFlag: false, deferredEntriesExist: false },
+      migrating.history,
+    ).kind,
+    "invalid",
+  );
+  assert.equal(
+    evaluateMigrationReadiness({
+      cursorExists: false,
+      completionFlag: false,
+      deferredEntriesExist: true,
+    }).kind,
+    "invalid",
+  );
+});
+
+test("waits through cursor completion and deferred release before reporting readiness", async () => {
+  const snapshots = [
+    {
+      block: 10,
+      hash: "0x10",
+      state: { cursorExists: true, completionFlag: false, deferredEntriesExist: true },
+    },
+    {
+      block: 11,
+      hash: "0x11",
+      state: { cursorExists: false, completionFlag: true, deferredEntriesExist: true },
+    },
+    {
+      block: 12,
+      hash: "0x12",
+      state: { cursorExists: false, completionFlag: true, deferredEntriesExist: false },
+    },
+  ];
+  const api = mockReadinessApi(snapshots);
+  const observation = await waitForMigrationReadiness(api, {
+    deadlineEpochMs: Date.now() + 5_000,
+    pollIntervalMs: 1,
   });
-  assert.equal(evaluateMigrationGate(true, true, true).kind, "invalid");
-  assert.equal(evaluateMigrationGate(false, false, true).kind, "invalid");
+
+  assert.equal(observation.mode, "multi-block");
+  assert.equal(observation.startBlock, 10);
+  assert.equal(observation.cursorCompletionBlock, 11);
+  assert.equal(observation.readinessBlock, 12);
+  assert.equal(observation.observedBlocks, 2);
+  assert.equal(observation.sawCursor, true);
+  assert.equal(observation.sawDeferredEntries, true);
 });
 
 test("budgets tempo, two-per-block deferral, margin, and accelerated wall time", () => {
@@ -228,3 +308,51 @@ test("budgets tempo, two-per-block deferral, margin, and accelerated wall time",
     /invalid tempo/,
   );
 });
+
+function mockReadinessApi(
+  snapshots: ReadonlyArray<{
+    block: number;
+    hash: string;
+    state: MigrationReadinessSnapshot;
+  }>,
+): ApiPromise {
+  assert.ok(snapshots.length > 0);
+  const byHash = new Map(snapshots.map((snapshot) => [snapshot.hash, snapshot.state]));
+  let headerIndex = 0;
+  const stateAt = (hash: string) => {
+    const state = byHash.get(hash);
+    assert.ok(state, `unknown mock block hash: ${hash}`);
+    return state;
+  };
+  const api = {
+    rpc: {
+      chain: {
+        getHeader: async () => {
+          const snapshot = snapshots[Math.min(headerIndex, snapshots.length - 1)];
+          headerIndex += 1;
+          return {
+            number: { toNumber: () => snapshot.block },
+            hash: { toHex: () => snapshot.hash },
+          };
+        },
+      },
+      state: {
+        getStorage: async (_key: string, hash: string) => ({
+          isSome: stateAt(hash).cursorExists,
+        }),
+        getKeysPaged: async (_prefix: string, _count: number, _start: string, hash: string) =>
+          stateAt(hash).deferredEntriesExist ? ["0xentry"] : [],
+      },
+    },
+    at: async (hash: string) => ({
+      query: {
+        subtensorModule: {
+          hasMigrationRun: async () => ({
+            toString: () => String(stateAt(hash).completionFlag),
+          }),
+        },
+      },
+    }),
+  };
+  return api as unknown as ApiPromise;
+}

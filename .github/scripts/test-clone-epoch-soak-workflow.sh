@@ -7,6 +7,7 @@ soak_script="$repo_root/clones/scripts/run-clone-epoch-soak.sh"
 monitor_script="$repo_root/clones/scripts/run-clone-block-monitor.sh"
 supervisor_script="$repo_root/clones/scripts/clone-process-supervision.sh"
 package="$repo_root/clones/js-tests/package.json"
+epoch_script="$repo_root/clones/js-tests/scripts/run-clone-epoch-soak.ts"
 
 ruby -e 'require "yaml"; YAML.parse_file(ARGV.fetch(0))' "$workflow"
 bash -n "$soak_script"
@@ -16,6 +17,10 @@ bash -n "$supervisor_script"
 grep -Fq 'workflow_dispatch:' "$workflow"
 grep -Fq 'types: [labeled]' "$workflow"
 grep -Fq "github.event.label.name == 'run-clone-epoch-soak'" "$workflow"
+if grep -Eq 'uses: actions/(checkout|setup-node|upload-artifact)@v[0-9]+' "$workflow"; then
+  echo "clone epoch soak actions must be pinned to full commit SHAs" >&2
+  exit 1
+fi
 grep -Fq 'github.event.pull_request.head.repo.fork == false' "$workflow"
 if grep -Eq '^[[:space:]]*(push|schedule):' "$workflow"; then
   echo "clone epoch soak must remain manually triggered" >&2
@@ -59,7 +64,12 @@ if grep -Fq -- '--migration' "$soak_script"; then
   echo "epoch soak must not permit bypassing its migration gate" >&2
   exit 1
 fi
-jq -e '.scripts["monitor:block-latency"] and .scripts["soak:epochs"] and .scripts["test:clone-performance"]' \
+grep -Fq 'waitForMigrationReadiness(api' "$epoch_script"
+if grep -Fq 'getFinalizedHead' "$epoch_script"; then
+  echo "single-node epoch coverage must use the same best-head state as readiness monitoring" >&2
+  exit 1
+fi
+jq -e '.scripts["monitor:block-latency"] and .scripts["wait:clone-readiness"] and .scripts["soak:epochs"] and .scripts["test:clone-performance"]' \
   "$package" >/dev/null
 
 tmp=$(mktemp -d)

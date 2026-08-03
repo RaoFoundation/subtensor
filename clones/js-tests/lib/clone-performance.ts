@@ -110,15 +110,6 @@ export interface EpochCoverageBudget {
   nominalWallMs: number;
 }
 
-export type MigrationGateEvaluation =
-  | { kind: "waiting"; sawCursor: boolean }
-  | { kind: "complete"; sawCursor: boolean }
-  | { kind: "invalid"; sawCursor: boolean; reason: string };
-
-export type InitialMigrationEvaluation =
-  | { kind: "not-observed" }
-  | MigrationGateEvaluation;
-
 export class NodeLogTail {
   private position: number;
   private remainder = "";
@@ -380,42 +371,6 @@ export function evaluateEpochCoverage(
     missingNetuids,
     regressedNetuids,
   };
-}
-
-export function evaluateMigrationGate(
-  cursorExists: boolean,
-  completionFlag: boolean,
-  previouslySawCursor: boolean,
-): MigrationGateEvaluation {
-  const sawCursor = previouslySawCursor || cursorExists;
-  if (cursorExists && completionFlag) {
-    return {
-      kind: "invalid",
-      sawCursor,
-      reason: "migration cursor and completion flag both exist",
-    };
-  }
-  if (!cursorExists && completionFlag) {
-    return { kind: "complete", sawCursor };
-  }
-  if (previouslySawCursor && !cursorExists) {
-    return {
-      kind: "invalid",
-      sawCursor,
-      reason: "migration cursor disappeared without its completion flag",
-    };
-  }
-  return { kind: "waiting", sawCursor };
-}
-
-export function evaluateInitialMigrationState(
-  cursorExists: boolean,
-  completionFlag: boolean,
-): InitialMigrationEvaluation {
-  if (!cursorExists && !completionFlag) {
-    return { kind: "not-observed" };
-  }
-  return evaluateMigrationGate(cursorExists, completionFlag, false);
 }
 
 export function computeEpochCoverageBudget(

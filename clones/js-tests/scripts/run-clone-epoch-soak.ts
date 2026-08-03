@@ -2,13 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import type { ApiPromise } from "@polkadot/api";
-import { xxhashAsHex } from "@polkadot/util-crypto";
 import { connectApi } from "../lib/api.js";
+import {
+  waitForMigrationReadiness,
+  type MigrationReadinessObservation,
+} from "../lib/clone-readiness.js";
 import {
   computeEpochCoverageBudget,
   evaluateEpochCoverage,
-  evaluateInitialMigrationState,
-  evaluateMigrationGate,
   type EpochBaseline,
   type EpochCoverageBudget,
   type EpochCoverageEvaluation,
@@ -16,7 +17,6 @@ import {
 import { createTempLogger } from "../lib/file-log.js";
 
 const ROOT_NETUID = 0;
-const MIGRATION_NAME = "migrate_seed_beta_basket_v2";
 const POLL_INTERVAL_MS = 1_000;
 const COVERAGE_POLL_BLOCKS = 10;
 const EXPECTED_CHAIN_BLOCK_TIME_MS = 12_000;
@@ -27,23 +27,14 @@ interface SoakArguments {
   reportFile: string;
 }
 
-interface MigrationObservation {
-  mode: "not-observed" | "cursorless-complete" | "multi-block";
-  sawCursor: boolean;
-  startBlock: number;
-  completionBlock: number;
-  observedBlocks: number;
-  observedWallMs: number;
-}
-
 interface EpochSoakReport {
-  schemaVersion: 1;
+  schemaVersion: 2;
   status: "running" | "passed" | "failed";
   startedAt: string;
   finishedAt?: string;
   requestedCycles: number;
   deadlineEpochMs: number;
-  migration?: MigrationObservation;
+  migration?: MigrationReadinessObservation;
   baselineBlock?: number;
   completionBlock?: number;
   budget?: EpochCoverageBudget;
@@ -71,7 +62,7 @@ interface EpochSoakReport {
   failure?: string;
 }
 
-type ChainHash = Awaited<ReturnType<typeof finalizedHeader>>["hash"];
+type ChainHash = Awaited<ReturnType<typeof bestHeader>>["hash"];
 
 async function main() {
   const args = parseArguments(process.argv.slice(2));
@@ -80,7 +71,7 @@ async function main() {
   logger.captureConsole();
 
   const report: EpochSoakReport = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     status: "running",
     startedAt: new Date().toISOString(),
     requestedCycles: args.epochCycles,
@@ -92,13 +83,17 @@ async function main() {
     api = await connectApi(process.env.WS_ENDPOINT ?? "ws://127.0.0.1:9944", {
       log: (message) => console.log(message),
     });
-    report.migration = await resolveTrackedMigration(api, args.deadlineEpochMs);
+    report.migration = await waitForMigrationReadiness(api, {
+      deadlineEpochMs: args.deadlineEpochMs,
+      log: (message) => console.log(message),
+    });
     console.log(
-      `Migration gate resolved at block ${report.migration.completionBlock}; ` +
-        `mode=${report.migration.mode} saw_cursor=${report.migration.sawCursor}`,
+      `Migration gate resolved at block ${report.migration.readinessBlock}; ` +
+        `mode=${report.migration.mode} saw_cursor=${report.migration.sawCursor} ` +
+        `saw_deferred=${report.migration.sawDeferredEntries}`,
     );
 
-    const baselineHeader = await finalizedHeader(api);
+    const baselineHeader = await bestHeader(api);
     const baselineBlock = baselineHeader.number.toNumber();
     const baseline = await readEpochBaseline(api, baselineHeader.hash);
     const atBaseline = await api.at(baselineHeader.hash);
@@ -148,14 +143,14 @@ async function main() {
 
     for (;;) {
       ensureWallDeadline(coverageDeadlineEpochMs, "epoch coverage wall");
-      const header = await finalizedHeader(api);
+      const header = await bestHeader(api);
       const block = header.number.toNumber();
       if (block === lastBlock) {
         await delay(POLL_INTERVAL_MS);
         continue;
       }
       if (block < lastBlock) {
-        throw new Error(`finalized block regressed from ${lastBlock} to ${block}`);
+        throw new Error(`best block regressed from ${lastBlock} to ${block}`);
       }
       lastBlock = block;
       if (block < lastCoverageBlock + COVERAGE_POLL_BLOCKS) {
@@ -241,96 +236,6 @@ async function main() {
   }
 }
 
-async function resolveTrackedMigration(
-  api: ApiPromise,
-  deadlineEpochMs: number,
-): Promise<MigrationObservation> {
-  const start = await finalizedHeader(api);
-  const startBlock = start.number.toNumber();
-  const startedAtEpochMs = Date.now();
-  const cursorKey = storagePrefix("SeedBetaBasketV2Migration");
-  const [initialCursorExists, initialMigrationRan] = await Promise.all([
-    storageExistsAt(api, cursorKey, start.hash),
-    hasMigrationRunAt(api, start.hash),
-  ]);
-  const initial = evaluateInitialMigrationState(initialCursorExists, initialMigrationRan);
-  if (initial.kind === "not-observed") {
-    console.log(
-      `No ${MIGRATION_NAME} cursor or completion marker observed after the runtime upgrade; ` +
-        "continuing with epoch coverage.",
-    );
-    return {
-      mode: "not-observed",
-      sawCursor: false,
-      startBlock,
-      completionBlock: startBlock,
-      observedBlocks: 0,
-      observedWallMs: Date.now() - startedAtEpochMs,
-    };
-  }
-  if (initial.kind === "invalid") {
-    throw new Error(`${initial.reason} at block ${startBlock}`);
-  }
-  if (initial.kind === "complete") {
-    return {
-      mode: "cursorless-complete",
-      sawCursor: false,
-      startBlock,
-      completionBlock: startBlock,
-      observedBlocks: 0,
-      observedWallMs: Date.now() - startedAtEpochMs,
-    };
-  }
-
-  let sawCursor = initial.sawCursor;
-  let lastBlock = startBlock;
-  let lastReportedBlock = startBlock - 50;
-
-  console.log(
-    `Waiting for migration: block=${startBlock} cursor=${initialCursorExists} ` +
-      `completed=${initialMigrationRan}`,
-  );
-
-  for (;;) {
-    ensureWallDeadline(deadlineEpochMs);
-    const header = await finalizedHeader(api);
-    const block = header.number.toNumber();
-    if (block === lastBlock) {
-      await delay(POLL_INTERVAL_MS);
-      continue;
-    }
-    lastBlock = block;
-
-    const [cursorExists, migrationRan] = await Promise.all([
-      storageExistsAt(api, cursorKey, header.hash),
-      hasMigrationRunAt(api, header.hash),
-    ]);
-    const gate = evaluateMigrationGate(cursorExists, migrationRan, sawCursor);
-    sawCursor = gate.sawCursor;
-    if (gate.kind === "complete") {
-      const observedWallMs = Date.now() - startedAtEpochMs;
-      return {
-        mode: "multi-block",
-        sawCursor,
-        startBlock,
-        completionBlock: block,
-        observedBlocks: Math.max(0, block - startBlock),
-        observedWallMs,
-      };
-    }
-    if (gate.kind === "invalid") {
-      throw new Error(`${gate.reason} at block ${block}`);
-    }
-    if (block >= lastReportedBlock + 50) {
-      lastReportedBlock = block;
-      console.log(
-        `Waiting for migration: block=${block} cursor=${cursorExists} completed=${migrationRan}`,
-      );
-    }
-    await delay(POLL_INTERVAL_MS);
-  }
-}
-
 async function readEpochBaseline(api: ApiPromise, hash: ChainHash): Promise<EpochBaseline[]> {
   const at = await api.at(hash);
   const query = at.query.subtensorModule;
@@ -407,27 +312,8 @@ function serializeCoverage(evaluation: EpochCoverageEvaluation) {
   }));
 }
 
-async function finalizedHeader(api: ApiPromise) {
-  const hash = await api.rpc.chain.getFinalizedHead();
-  return api.rpc.chain.getHeader(hash);
-}
-
-async function hasMigrationRunAt(api: ApiPromise, hash: ChainHash): Promise<boolean> {
-  const at = await api.at(hash);
-  const value = await at.query.subtensorModule.hasMigrationRun([...Buffer.from(MIGRATION_NAME)]);
-  return value.toString() === "true";
-}
-
-async function storageExistsAt(api: ApiPromise, key: string, hash: ChainHash): Promise<boolean> {
-  const value = await api.rpc.state.getStorage(key, hash);
-  if (value === null || typeof value !== "object" || !("isSome" in value)) {
-    throw new Error(`unexpected storage response for ${key}`);
-  }
-  return value.isSome === true;
-}
-
-function storagePrefix(item: string): string {
-  return `${xxhashAsHex("SubtensorModule", 128)}${xxhashAsHex(item, 128).slice(2)}`;
+async function bestHeader(api: ApiPromise) {
+  return api.rpc.chain.getHeader();
 }
 
 function parseArguments(values: string[]): SoakArguments {
@@ -491,7 +377,9 @@ function appendStepSummary(report: EpochSoakReport) {
       `- Status: **${report.status}**`,
       `- Requested cycles: ${report.requestedCycles}`,
       `- Migration mode: ${report.migration?.mode ?? "unresolved"}`,
-      `- Migration completion block: ${report.migration?.completionBlock ?? "unresolved"}`,
+      `- Migration cursor completion block: ${report.migration?.cursorCompletionBlock ?? "not-observed"}`,
+      `- Fully writable block: ${report.migration?.readinessBlock ?? "unresolved"}`,
+      `- Deferred release observed: ${report.migration?.sawDeferredEntries ?? false}`,
       `- Baseline / completion block: ${report.baselineBlock ?? "n/a"} / ${report.completionBlock ?? "n/a"}`,
       `- Active non-root subnets: ${report.budget?.activeSubnets ?? "n/a"}`,
       `- Maximum tempo: ${report.budget?.maxTempo ?? "n/a"}`,

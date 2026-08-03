@@ -57,6 +57,22 @@ run_regressions() {
   )
 }
 
+wait_for_readiness() {
+  local phase_name=$1
+  local timeout_ms=${CLONE_READINESS_TIMEOUT_MS:-2700000}
+  [[ "$timeout_ms" =~ ^[1-9][0-9]*$ ]] || {
+    echo "CLONE_READINESS_TIMEOUT_MS must be a positive integer" >&2
+    return 2
+  }
+  (
+    cd "$JS_TESTS"
+    npm run wait:clone-readiness -- \
+      --label "$phase_name" \
+      --timeout-ms "$timeout_ms" \
+      --report "temp/clone-readiness-$phase_name.json"
+  )
+}
+
 start_block_monitor() {
   local phase_name=$1
   local node_log="$REPO_ROOT/clone-node.log"
@@ -86,7 +102,12 @@ run_monitored_workload() {
 run_pristine() {
   start_clone
   upgrade_runtime
-  run_monitored_workload pristine run_regressions pristine
+  run_monitored_workload pristine run_pristine_workload
+}
+
+run_pristine_workload() {
+  wait_for_readiness pristine
+  run_regressions pristine
 }
 
 run_sdk_metadata_drift() {
@@ -103,6 +124,7 @@ run_sdk_metadata_drift() {
 }
 
 run_remaining_workload() {
+  wait_for_readiness remaining
   (
     cd "$JS_TESTS"
     npm test

@@ -29,7 +29,7 @@ while IFS= read -r path; do
       runtime=true
       sdk_drift=true
       ;;
-    .github/workflows/clone-epoch-soak.yml|.github/scripts/test-clone-epoch-soak-workflow.sh|clones/scripts/clone-process-supervision.sh|clones/scripts/run-clone-block-monitor.sh|clones/scripts/run-clone-epoch-soak.sh|clones/js-tests/lib/clone-performance.ts|clones/js-tests/scripts/monitor-clone-blocks.ts|clones/js-tests/scripts/run-clone-epoch-soak.ts|clones/js-tests/tests/clone-performance.test.ts|clones/js-tests/package.json)
+    .github/workflows/clone-epoch-soak.yml|.github/scripts/test-clone-epoch-soak-workflow.sh|clones/scripts/clone-process-supervision.sh|clones/scripts/run-clone-block-monitor.sh|clones/scripts/run-clone-epoch-soak.sh|clones/js-tests/lib/clone-performance.ts|clones/js-tests/lib/clone-readiness.ts|clones/js-tests/scripts/monitor-clone-blocks.ts|clones/js-tests/scripts/run-clone-epoch-soak.ts|clones/js-tests/scripts/wait-clone-readiness.ts|clones/js-tests/tests/clone-performance.test.ts|clones/js-tests/package.json)
       runtime=true
       snapshot_ci=true
       ;;

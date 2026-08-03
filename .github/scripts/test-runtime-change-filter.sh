@@ -57,6 +57,8 @@ assert_classification clones/scripts/run-clone-epoch-soak.sh "$runtime_and_snaps
 assert_classification clones/scripts/run-clone-block-monitor.sh "$runtime_and_snapshot_only"
 assert_classification clones/scripts/clone-process-supervision.sh "$runtime_and_snapshot_only"
 assert_classification clones/js-tests/lib/clone-performance.ts "$runtime_and_snapshot_only"
+assert_classification clones/js-tests/lib/clone-readiness.ts "$runtime_and_snapshot_only"
+assert_classification clones/js-tests/scripts/wait-clone-readiness.ts "$runtime_and_snapshot_only"
 assert_classification .github/scripts/test-clone-regression-phase.sh "$runtime_and_snapshot_only"
 assert_classification .github/scripts/test-clone-epoch-soak-workflow.sh "$runtime_and_snapshot_only"
 assert_classification .github/workflows/refresh-mainnet-snapshot.yml "$runtime_and_snapshot_only"
@@ -89,6 +91,9 @@ if grep -Fq 'fireactions-validatorbench' <<< "$clone_upgrade_job"; then
   exit 1
 fi
 grep -Fq 'RUN_SDK_DRIFT: ${{ github.event_name != '\''pull_request'\'' || needs.changes.outputs.sdk_drift == '\''true'\'' }}' "$runtime_workflow"
+grep -Fq 'clones/js-tests/temp/clone-readiness-*.json' "$runtime_workflow"
+grep -Fq 'uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4' "$runtime_workflow"
+grep -Fq 'uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4' <<< "$clone_upgrade_job"
 grep -Fq 'artifact_id: ${{ steps.plan.outputs.artifact_id }}' "$runtime_workflow"
 grep -Fq 'ARTIFACT_ID: ${{ needs.clone-plan.outputs.artifact_id }}' "$runtime_workflow"
 grep -Fq 'gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"' "$runtime_workflow"

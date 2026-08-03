@@ -68,10 +68,19 @@ run_phase() {
     "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" "$1"
 }
 
+assert_before() {
+  local first=$1 second=$2 first_line second_line
+  first_line=$(grep -Fn "$first" "$HARNESS_LOG" | head -n 1 | cut -d: -f1)
+  second_line=$(grep -Fn "$second" "$HARNESS_LOG" | head -n 1 | cut -d: -f1)
+  [[ -n "$first_line" && -n "$second_line" && "$first_line" -lt "$second_line" ]]
+}
+
 run_phase pristine
 grep -Fq 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG"
 grep -Fq 'npm run runtime:update:alice' "$HARNESS_LOG"
+grep -Fq 'npm run wait:clone-readiness -- --label pristine --timeout-ms 2700000 --report temp/clone-readiness-pristine.json' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG"
+assert_before 'npm run wait:clone-readiness' 'npm run test:clone-regressions'
 grep -Fq 'monitor start fail-fast pristine ' "$HARNESS_LOG"
 grep -Fq 'monitor stop' "$HARNESS_LOG"
 grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"
@@ -81,8 +90,10 @@ if grep -Fq 'npm test' "$HARNESS_LOG"; then
 fi
 
 run_phase remaining
+grep -Fq 'npm run wait:clone-readiness -- --label remaining --timeout-ms 2700000 --report temp/clone-readiness-remaining.json' "$HARNESS_LOG"
 grep -Fq 'npm test phase=' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=remaining' "$HARNESS_LOG"
+assert_before 'npm run wait:clone-readiness' 'npm test phase='
 grep -Fq 'monitor start fail-fast remaining ' "$HARNESS_LOG"
 
 run_phase combined
@@ -123,6 +134,13 @@ if MOCK_MONITOR_FAIL=true \
 fi
 grep -Fq 'monitor start fail-fast pristine ' "$HARNESS_LOG"
 grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"
+
+if CLONE_READINESS_TIMEOUT_MS=invalid \
+  RUN_SDK_DRIFT=false \
+  "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" pristine; then
+  echo "invalid clone readiness timeout unexpectedly succeeded" >&2
+  exit 1
+fi
 
 if "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" invalid >/dev/null 2>&1; then
   echo "invalid clone phase was accepted" >&2
