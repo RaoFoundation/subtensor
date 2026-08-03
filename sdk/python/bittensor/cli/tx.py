@@ -218,10 +218,28 @@ def _make_command(intent_cls: type[Intent]):
     # them when the intent already owns a field with the same name (e.g.
     # ExecuteProxyAnnounced.force_proxy_type is the chain param, not the wrapper).
     global_proxy_type = "force_proxy_type" not in intent_names
+    # Intents with a single amount field also take a bare --amount, so the
+    # unit-suffixed canonical flag never has to be guessed on the command line.
+    amount_fields = intent_names & {"amount_alpha", "amount_tao"}
+    amount_alias = next(iter(amount_fields)) if len(amount_fields) == 1 else None
+    # Origin/destination ops are usually same-subnet; --netuid fills both so
+    # `--origin-netuid 51 --dest-netuid 51` collapses to `--netuid 51`.
+    # swap_stake is excluded: its whole point is that the netuids differ.
+    shared_netuid = (
+        {"origin_netuid", "dest_netuid"} <= intent_names
+        and "netuid" not in intent_names
+        and intent_cls.op != "swap_stake"
+    )
 
     def command(ctx: typer.Context, **kwargs: Any) -> None:
         g.apply(ctx, kwargs)
         app_ctx = ctx_of(ctx)
+        if shared_netuid:
+            netuid = kwargs.pop("netuid", None)
+            if netuid is not None:
+                for netuid_field in ("origin_netuid", "dest_netuid"):
+                    if kwargs.get(netuid_field) is None:
+                        kwargs[netuid_field] = netuid
         missing = [spec for spec in prompt_specs if kwargs.get(spec.field) is None]
         # Unstake-style ops pick their source hotkey from the coldkey's live
         # stake positions instead of a bare text prompt (or, worse, a silent
@@ -357,7 +375,14 @@ def _make_command(intent_cls: type[Intent]):
             if _base_annotation(str(f.type)) == "bool"
             else cli_name
         )
-        option = typer.Option(default, flag_name, help=help_text)
+        decls = [flag_name]
+        if f.name == amount_alias:
+            decls.append("--amount")
+        elif f.name == "dest_coldkey_ss58" and "dest_ss58" not in intent_names:
+            # Match wallet transfer's --dest so the destination flag is the
+            # same whether TAO or a stake position is being handed over.
+            decls.append("--dest")
+        option = typer.Option(default, *decls, help=help_text)
         # Money options parse as strings so amounts stay exact and the `all`
         # sentinel survives typer; the command body validates them (_parse_money).
         opt_type = str if is_money(str(f.type)) else _option_type(str(f.type))
@@ -368,6 +393,23 @@ def _make_command(intent_cls: type[Intent]):
                 inspect.Parameter.KEYWORD_ONLY,
                 default=option,
                 annotation=annotations[f.name],
+            )
+        )
+
+    if shared_netuid:
+        annotations["netuid"] = Optional[int]
+        params.append(
+            inspect.Parameter(
+                "netuid",
+                inspect.Parameter.KEYWORD_ONLY,
+                default=typer.Option(
+                    None,
+                    "--netuid",
+                    help="Shortcut for same-subnet operations: use this subnet as "
+                    "both --origin-netuid and --dest-netuid (either can still be "
+                    "overridden explicitly).",
+                ),
+                annotation=Optional[int],
             )
         )
 

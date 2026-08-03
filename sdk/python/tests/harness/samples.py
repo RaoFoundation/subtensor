@@ -252,6 +252,8 @@ READ_SAMPLES: dict[str, dict] = {
     "root_baskets": {},
     "root_claim_threshold": {},
     "stake": {"coldkey_ss58": ALICE, "hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "stake_availability": {"coldkey_ss58": ALICE, "netuid": 1},
+    "stake_availability_for_coldkey": {"coldkey_ss58": ALICE, "netuids": [1]},
     "stake_for_coldkey": {"coldkey_ss58": ALICE},
     "stake_for_coldkeys": {"coldkey_ss58s": [ALICE, BOB]},
     "stake_value_for_coldkey": {"coldkey_ss58": ALICE},

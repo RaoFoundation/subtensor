@@ -642,6 +642,18 @@ class SubstrateConnection:
             )
         return await self._resolve_inclusion(extrinsic.extrinsic_hash, block_hash, finalized)
 
+    async def resolve_extrinsic(
+        self, extrinsic_hash: str, block_hash: str, *, finalized: bool = False
+    ) -> InclusionReport:
+        """Resolve the outcome of an extrinsic already included in ``block_hash``.
+
+        Used to follow a MEV-shielded submission to its decrypted inner
+        extrinsic, which the block author includes separately from the carrier
+        that was watched. Raises ``ExtrinsicNotFound`` when the block does not
+        carry the extrinsic.
+        """
+        return await self._resolve_inclusion(extrinsic_hash, block_hash, finalized)
+
     async def _resolve_inclusion(
         self, extrinsic_hash: str, block_hash: str, finalized: bool
     ) -> InclusionReport:

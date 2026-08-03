@@ -24,7 +24,11 @@ from ._transport.contract import (
     SignedExtrinsic,
     UnsignedExtrinsic,
 )
-from ._transport.errors import StateDiscardedError, SubstrateRequestException
+from ._transport.errors import (
+    ExtrinsicNotFound,
+    StateDiscardedError,
+    SubstrateRequestException,
+)
 from .balance import Balance
 from .result import (
     ChainError,
@@ -176,6 +180,13 @@ class Substrate(Protocol):
 
     async def sign_extrinsic(self, call, keypair, *, nonce: int, period: int) -> tuple[bytes, str]:
         """A signed extrinsic's (raw bytes, 0x-hex hash), without submitting."""
+        ...
+
+    async def find_extrinsic(
+        self, extrinsic_hash: str, block_hash: str
+    ) -> Optional[ExtrinsicResult]:
+        """The resolved outcome of an extrinsic included in a specific block,
+        located by its hash, or None when the block does not carry it."""
         ...
 
     async def prepare(
@@ -522,6 +533,21 @@ class RpcSubstrate:
             call, keypair, nonce=nonce, era={"period": period}
         )
         return extrinsic.data, extrinsic.extrinsic_hash
+
+    async def find_extrinsic(
+        self, extrinsic_hash: str, block_hash: str
+    ) -> Optional[ExtrinsicResult]:
+        """Locate an extrinsic by hash in ``block_hash`` and resolve its outcome.
+
+        Used to follow a MEV-shielded submission to its decrypted inner
+        extrinsic, which the block author includes separately from the
+        watched carrier. Returns None when the block does not carry it.
+        """
+        try:
+            report = await self.raw.resolve_extrinsic(extrinsic_hash, block_hash)
+        except ExtrinsicNotFound:
+            return None
+        return self._result_from_report(report, True)
 
     async def submit(
         self,

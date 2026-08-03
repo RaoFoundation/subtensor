@@ -32,10 +32,11 @@ from ..result import (
     PolicyError,
 )
 from ..settings import error_docs_url
+from ..signing import public_view
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
-from .output import Output
+from .output import STYLE_WARNING, Output
 
 T = TypeVar("T")
 
@@ -576,6 +577,23 @@ class AppContext:
                 raise typer.Exit(1)
             return None
 
+        # Surface intent warnings before the user confirms (dry-run already
+        # prints them via ``output.plan``). Keep this cheap: warnings-only, no
+        # fee estimation. Skip when an external signer still needs its account
+        # picker — those paths resolve the origin later.
+        if not self.uses_external_signer():
+
+            async def _warnings(client):
+                try:
+                    origin = public_view(wallet, intent.signer).ss58_address
+                except Exception:
+                    return []
+                return list(await intent.warnings(client._substrate, proxy_for or origin))
+
+            for warning in self.run(_warnings):
+                rendered = self.output.with_subnets(self.output.with_names(warning))
+                self.output.message(f"[{STYLE_WARNING}]warning:[/{STYLE_WARNING}] {rendered}")
+
         if self.uses_extension_signer():
 
             async def _prepare(_client):
@@ -597,25 +615,26 @@ class AppContext:
                 self.output.message(f"[dim]{registration_flow}[/dim]")
             self.confirm(f"{summary}?")
 
-        # Native keyfiles unlock synchronously on their first signature.  Do it
-        # before starting the registration status display so an encrypted
-        # coldkey's password prompt remains visible and usable.  Reuse the
-        # unlocked keypair for planning/signing; otherwise the lazy SDK signer
-        # would prompt underneath the live spinner and appear to hang forever.
+        # Native keyfiles unlock synchronously on their first signature. Unlock
+        # encrypted coldkeys eagerly instead: a wrong password can be retried
+        # on the spot (instead of aborting and losing every prompt answer),
+        # and the password prompt stays visible — the lazy SDK signer would
+        # prompt underneath register_subnet's live spinner and appear to hang.
         local_signer = None
-        if intent.op == "register_subnet" and not self.uses_external_signer():
-            signing_key = wallets.signing_keypair(
-                wallet,
-                intent.signer,
-                password_file=self.wallet_password_file,
-                macos_prompt=self.macos_password,
-                keychain=self.keychain_password,
-            )
+        if (
+            intent.signer == "coldkey"
+            and not self.uses_external_signer()
+            and (intent.op == "register_subnet" or _coldkey_encrypted(wallet))
+        ):
+            signing_key = self._unlock_coldkey(wallet)
             try:
                 hotkey = wallet.hotkeypub
             except FileNotFoundError:
-                hotkey = wallet.hotkey
-            # Keep the wallet shape because register_subnet defaults its hotkey
+                try:
+                    hotkey = wallet.hotkey
+                except Exception:
+                    hotkey = None  # coldkey-only wallet; intents needing it fail on use
+            # Keep the wallet shape because intents may default their hotkey
             # from it, while replacing the signing side with the keypair that
             # was already unlocked above.
             local_signer = SimpleNamespace(
@@ -759,6 +778,53 @@ class AppContext:
             )
         return result
 
+    def _unlock_coldkey(self, wallet):
+        """Unlock the wallet coldkey, re-prompting on a wrong password.
+
+        The retry only applies when the password came from an interactive
+        prompt; non-interactive sources (env var, password file, Keychain,
+        the macOS dialog) would fail identically on a retry, so they keep
+        the single attempt and the usual remediation hint.
+        """
+        try:
+            password = wallets.resolve_wallet_password(
+                wallet,
+                password_file=self.wallet_password_file,
+                macos_prompt=self.macos_password,
+                keychain=self.keychain_password,
+            )
+        except ValueError as error:
+            self.output.error(str(error))
+            raise typer.Exit(1)
+        prompted = password is None and sys.stdin.isatty()
+        for attempts_left in (2, 1, 0):
+            try:
+                return wallets.signing_keypair(
+                    wallet,
+                    "coldkey",
+                    password=password,
+                    macos_prompt=self.macos_password,
+                    keychain=self.keychain_password,
+                )
+            except ValueError as error:
+                wrong = str(error).lower().startswith("wrong password")
+                if wrong and prompted and attempts_left:
+                    self.output.error("wrong password")
+                    continue
+                if wrong:
+                    self.output.error(
+                        "wrong password",
+                        help=(
+                            "re-save with `btcli wallet keychain save`"
+                            if self.keychain_password
+                            else "re-run and enter the coldkey password used when "
+                            "the key was created"
+                        ),
+                    )
+                else:
+                    self.output.error(str(error))
+                raise typer.Exit(1)
+
     async def _attach_multisig_followup(self, client, intent, result: ExtrinsicResult) -> None:
         """After a multisig approve/execute intent, cache the inner call locally
         and attach co-signer instructions (timepoint, ready-to-run commands) so
@@ -889,6 +955,14 @@ class AppContext:
         if not accepted:
             self.output.message("aborted.")
             raise typer.Exit(1)
+
+
+def _coldkey_encrypted(wallet) -> bool:
+    """Whether the wallet's coldkey file exists and is password-protected."""
+    try:
+        return bool(wallet.coldkey_file.is_encrypted())
+    except Exception:
+        return False
 
 
 def _endpoint_pool(value: Optional[str]) -> Optional[list[str]]:

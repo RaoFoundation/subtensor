@@ -340,8 +340,8 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "(`btcli stake add` / `btcli stake list`); funding free TAO alone will not help"
     ),
     "NotEnoughStakeToWithdraw": (
-        "lower the unstake/move amount; check free stake with `btcli stake list` "
-        "(locks and collateral do not count)"
+        "lower the amount or use the hotkey that actually holds the stake "
+        "(`btcli stake list`); lock target and stake hotkey can differ"
     ),
     "NotEnoughBalanceToStake": (
         "fund the coldkey or reduce the stake/registration amount; check with "
@@ -349,7 +349,13 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "StakeUnavailable": (
         "only free stake can move — wait out conviction locks or drain miner "
-        "collateral, then retry; check with `btcli stake list`"
+        "collateral, then retry; check locked vs free with `btcli stake list`"
+    ),
+    "LockHotkeyMismatch": (
+        "reuse the existing lock hotkey, or for transfers of locked alpha land "
+        "on the receiver's lock hotkey via `btcli stake transfer "
+        "--destination-hotkey <lock-hotkey>`; inspect with `btcli lock show` / "
+        "`btcli stake list`"
     ),
     "NeuronNoValidatorPermit": (
         "this hotkey lacks a validator permit on the subnet; increase stake weight "

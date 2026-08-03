@@ -462,9 +462,12 @@ DESCRIPTIONS: dict[str, str] = {
         "have the subnet owner enable liquid alpha first."
     ),
     "LockHotkeyMismatch": (
-        "The coldkey already has a conviction lock on this subnet bound to a different hotkey, "
-        "and locks for one coldkey per subnet must target a single hotkey. Check the existing "
-        "lock's hotkey in the lock storage for the coldkey and netuid, or move the lock first."
+        "A conviction lock on this subnet is bound to a different hotkey than the one in the "
+        "call. One coldkey may lock to only one hotkey per subnet: topping up `lock_stake` "
+        "must reuse that hotkey (`btcli lock move` to retarget), and a stake transfer that "
+        "moves locked alpha must land on the receiver's existing lock hotkey "
+        "(`btcli stake transfer --destination-hotkey <lock-hotkey>`). Check the lock with "
+        "`btcli lock show --netuid <n>` / `btcli stake list` (locked · free · lock → hotkey)."
     ),
     "LockIdOverFlow": (
         "The global network-registration lock id counter reached its u32 maximum while queueing "
@@ -576,8 +579,10 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NotEnoughStakeToWithdraw": (
         "An unstake, stake move, swap, or transfer requested more alpha than the hotkey-coldkey "
-        "pair holds on that subnet. Compare the requested amount against the pair's current "
-        "stake on the netuid (`btcli stake list` or the `Alpha` storage)."
+        "pair holds on that subnet. Compare the requested amount against that specific "
+        "position (`btcli stake list`) — conviction locks are coldkey-wide, so stake may sit "
+        "on a different hotkey than the lock target; move stake onto the origin hotkey first "
+        "or pass the hotkey that actually holds the balance."
     ),
     "NotRootSubnet": (
         "A call that only operates on the root network, such as setting root network weights, "

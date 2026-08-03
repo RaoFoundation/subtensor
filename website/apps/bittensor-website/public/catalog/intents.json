@@ -4049,7 +4049,7 @@
   {
     "name": "transfer_stake",
     "summary": "Transfer stake ownership to another coldkey.",
-    "description": "Transfer stake ownership to another coldkey.\n\nHands the position itself to the destination coldkey: after this call that\ncoldkey \u2014 not you \u2014 controls and can unstake those funds, so this is a\ntransfer of value and is irreversible. Double-check the destination\naddress. The stake stays on the same hotkey by default; pass a destination\nhotkey to re-delegate it in the same call (dispatched as\n`transfer_stake_and_hotkey`). It can also land on a different subnet,\nswapping through both pools (with slippage) when the netuids differ. Fails\nwith `TransferDisallowed` when the subnet owner has disabled stake\ntransfers on the origin or destination subnet. A spend-cap policy treats\nthis as an unbounded spend and blocks it until the cap is raised. Use\n`move_stake` to re-delegate without changing owners.",
+    "description": "Transfer stake ownership to another coldkey.\n\nHands the position itself to the destination coldkey: after this call that\ncoldkey \u2014 not you \u2014 controls and can unstake those funds, so this is a\ntransfer of value and is irreversible. Double-check the destination\naddress. The stake stays on the same hotkey by default; pass a destination\nhotkey to re-delegate it in the same call (dispatched as\n`transfer_stake_and_hotkey`).\n\nConviction locks: a lock is a coldkey-wide floor (stake hotkey and lock\nhotkey may differ). Amounts at or below free (unlocked) alpha transfer\nwithout moving the lock. Amounts above free pull locked mass with the\nstake \u2014 that locked portion must land on the **receiver's** existing lock\nhotkey or the call fails with `LockHotkeyMismatch`. Fix: keep\n`hotkey_ss58` as the hotkey that holds the stake and set\n`dest_hotkey_ss58` to the receiver's lock hotkey (see `btcli stake\nlist` / `btcli lock show`). Pulling from the lock hotkey when the stake\nstill sits elsewhere fails with `NotEnoughStakeToWithdraw`. See the\nconviction guide's \"Transferring locked stake\" section.\n\nIt can also land on a different subnet, swapping through both pools (with\nslippage) when the netuids differ. Fails with `TransferDisallowed` when\nthe subnet owner has disabled stake transfers on the origin or destination\nsubnet. A spend-cap policy treats this as an unbounded spend and blocks it\nuntil the cap is raised. Use `move_stake` to re-delegate without changing\nowners.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -4098,7 +4098,7 @@
         },
         "dest_hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey the stake lands on. Defaults to the origin hotkey (the position stays with the same validator)."
+          "description": "Hotkey the stake lands on. Defaults to the origin hotkey. Required when the transfer moves locked alpha and the receiver already locks to a different hotkey \u2014 pass their lock hotkey (see `btcli stake list` / `btcli lock show`)."
         }
       },
       "required": [
