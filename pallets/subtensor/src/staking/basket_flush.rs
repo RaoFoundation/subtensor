@@ -44,7 +44,10 @@ impl<T: Config> Pallet<T> {
     /// is what keeps dust from ever becoming a basket holding row (and what lets dust
     /// consolidation run on uncurated funds without fighting next epoch's accrual).
     /// Credits from dissolved subnets are dropped: their pool accounting was wiped with
-    /// the subnet, so there is nothing to recycle into.
+    /// the subnet, so there is nothing to recycle into. This existence check only covers
+    /// the dissolution-in-progress window — the durable guarantee against netuid reuse is
+    /// the `NetworkPendingBasketDeposits` dissolution phase, which purges every queued
+    /// credit for the netuid before the cleanup completes (and reuse becomes possible).
     ///
     /// Returns `(work, last_key)`: the approximate quote work done (scan-priced into claim
     /// weights by `root_claim_for_hotkey`) and the raw storage key of the hotkey's last
