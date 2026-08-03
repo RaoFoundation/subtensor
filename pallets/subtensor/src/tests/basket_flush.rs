@@ -442,10 +442,7 @@ fn test_flush_drain_ops_bounded_to_one_hotkey() {
         reset_basket_op_counters();
         SubtensorModule::flush_pending_basket_deposits_block();
 
-        let flushed = hotkeys
-            .iter()
-            .filter(|h| fund_shares(h) > 0)
-            .count();
+        let flushed = hotkeys.iter().filter(|h| fund_shares(h) > 0).count();
         assert_eq!(flushed, 1, "drain must flush exactly one hotkey");
         // Uncurated single-credit: 1 spot quote + accumulate quotes, 1 pending remove + cursor.
         assert_eq!(basket_swap_ops(), 0);
@@ -474,10 +471,7 @@ fn test_flush_drain_via_block_step_one_hotkey() {
 
         assert_ok!(SubtensorModule::block_step());
 
-        let flushed = [hot_a, hot_b]
-            .iter()
-            .filter(|h| fund_shares(h) > 0)
-            .count();
+        let flushed = [hot_a, hot_b].iter().filter(|h| fund_shares(h) > 0).count();
         assert_eq!(flushed, 1);
         assert!(PendingBasketFlushCursor::<Test>::get().is_some());
     });
