@@ -750,6 +750,14 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<TaoBalance, DispatchError> {
+        // Root stake is the claimant base for queued basket deposits: flush the hotkey's
+        // pending dividend credits before the stake leaves, so a staker doesn't forfeit
+        // flushable dividends earned while they were staked. (Sub-threshold credits
+        // deliberately stay queued and accrue to whoever is staked when they flush.)
+        if netuid.is_root() {
+            Self::flush_basket_deposits_for_hotkey(hotkey);
+        }
+
         // Refuse to strip conviction-locked or collateral-bonded alpha even when
         // callers (e.g. alpha fee withdrawal) skip the remove-stake validators.
         Self::ensure_available_to_unstake(coldkey, netuid, alpha)?;
@@ -863,6 +871,13 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<AlphaBalance, DispatchError> {
+        // Root stake is the claimant base for queued basket deposits: flush the hotkey's
+        // pending dividend credits before the new stake lands, so it can't capture
+        // flushable dividends earned before it arrived.
+        if netuid.is_root() {
+            Self::flush_basket_deposits_for_hotkey(hotkey);
+        }
+
         // Transfer TAO from coldkey to the subnet account.
         // Actual transfered may be different within ED amount.
         let tao_staked = Self::transfer_tao_to_subnet(netuid, coldkey, tao)?;
@@ -984,6 +999,15 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
+        // Root stake moves claimant base on both hotkeys: settle queued basket deposits
+        // on each side first (see `stake_into_subnet` / `unstake_from_subnet`).
+        if netuid.is_root() {
+            Self::flush_basket_deposits_for_hotkey(origin_hotkey);
+            if destination_hotkey != origin_hotkey {
+                Self::flush_basket_deposits_for_hotkey(destination_hotkey);
+            }
+        }
+
         // Transfer lock (may fail if destination coldkey has a conflicting lock).
         // The lock must follow the stake to the destination hotkey, otherwise a
         // hotkey-changing transfer would leave the recipient's lock and conviction

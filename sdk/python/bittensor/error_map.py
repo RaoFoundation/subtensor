@@ -614,7 +614,9 @@ DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
     "Payment": (
         _C.INSUFFICIENT_BALANCE,
         "The signing account cannot cover the transaction fee (and tip). Fund the "
-        "account or lower the tip; check with `btcli wallet balance`.",
+        "account with free TAO or lower the tip; check with `btcli wallet balance`. "
+        "MEV-shielded submissions charge the outer carrier in TAO only — if you "
+        "only hold staked alpha, retry with `--no-mev-shield`.",
     ),
     "Future": (
         _C.TOO_EARLY,

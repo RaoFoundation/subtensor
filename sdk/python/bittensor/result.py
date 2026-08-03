@@ -335,7 +335,10 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "use the same new coldkey you announced"
     ),
     "Payment": (
-        "fund the signing account so it can cover fees (and tip); check with `btcli wallet balance`"
+        "fund the signing account with free TAO for fees (and tip); check with "
+        "`btcli wallet balance`. MEV-shielded submissions cannot take the outer "
+        "carrier fee in alpha — retry with `--no-mev-shield` if you only hold "
+        "staked alpha"
     ),
     "Future": (
         "the nonce is too high; wait for pending extrinsics or resubmit with "

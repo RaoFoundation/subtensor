@@ -56,6 +56,27 @@ pub(super) fn zero_claim_threshold() {
     RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(0));
 }
 
+/// Epochs enqueue basket deposits into `PendingBasketDeposits`; the per-block drain (or any
+/// touch of the hotkey) performs the actual deposit. Tests that drive dividends through
+/// `distribute_emission` directly call this where the pre-queue code deposited inline.
+/// The chain drain flushes one hotkey per block; here every queued hotkey is flushed at
+/// once so assertions see all deposits landed.
+pub(super) fn flush_baskets() {
+    let hotkeys: BTreeSet<U256> = crate::PendingBasketDeposits::<Test>::iter_keys()
+        .map(|(hotkey, _)| hotkey)
+        .collect();
+    for hotkey in hotkeys {
+        let _ = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+    }
+}
+
+/// Grant a hotkey a root-network UID without setting any weights: it qualifies for root
+/// dividends (the epoch split pays root dividends only to root-registered hotkeys) while
+/// its fund stays on the uncurated accumulate-in-place strategy.
+pub(super) fn register_on_root(hotkey: &U256, uid: u16) {
+    Uids::<Test>::insert(NetUid::ROOT, hotkey, uid);
+}
+
 pub(super) fn escrow_alpha(hotkey: &U256, netuid: NetUid) -> u64 {
     let escrow = SubtensorModule::get_beta_escrow_account_id();
     SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, netuid).to_u64()
@@ -305,6 +326,7 @@ fn test_root_basket_accrues_per_weights() {
             pending_root_alpha.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         // Fund shares minted, escrow holds the basket alpha, and a claimable rate exists.
         assert!(fund_shares(&hotkey) > 0);
@@ -349,8 +371,10 @@ fn test_root_basket_accumulates_in_place_without_weights() {
             10_000_000u64.into(),
         );
 
-        // No root weights set: the fund is uncurated — the dividend accumulates in place on
-        // its origin subnet, trade-free (no sell, no redeploy, pool untouched).
+        // Root-registered (required to earn root dividends) but with no weights set: the
+        // fund is uncurated — the dividend accumulates in place on its origin subnet,
+        // trade-free (no sell, no redeploy, pool untouched).
+        register_on_root(&hotkey, 0);
         let pool_tao_before = SubnetTAO::<Test>::get(netuid);
         let pool_alpha_in_before = SubnetAlphaIn::<Test>::get(netuid);
         SubtensorModule::distribute_emission(
@@ -360,6 +384,7 @@ fn test_root_basket_accumulates_in_place_without_weights() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let shares = fund_shares(&hotkey);
         assert!(shares > 0, "fund shares must be minted");
@@ -425,6 +450,7 @@ fn test_root_basket_routes_to_target_subnet() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         // The holding should be on B, not A; the fund is denominated at the validator level.
         assert!(escrow_alpha(&hotkey, netuid_b) > 0);
@@ -491,6 +517,7 @@ fn test_root_basket_records_symmetric_protocol_flow() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let flow_a = SubnetProtocolFlow::<Test>::get(netuid_a);
         let flow_b = SubnetProtocolFlow::<Test>::get(netuid_b);
@@ -589,6 +616,7 @@ fn test_root_claim_consolidates_dust_holdings() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         assert!(
             escrow_alpha(&hotkey, netuid_b) > 0,
             "fund must hold B alpha"
@@ -666,6 +694,7 @@ fn test_root_claim_noop_below_threshold_costs_scan_and_sweeps_dust() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         assert!(
             escrow_alpha(&hotkey, netuid_b) > 0,
             "fund must hold B alpha"
@@ -761,6 +790,7 @@ fn test_root_basket_claim_swaps_to_root() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let shares_before = fund_shares(&hotkey);
         assert!(shares_before > 0);
@@ -824,6 +854,7 @@ fn test_root_basket_proportional_two_stakers() {
             10_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let alice_before = root_stake_of(&hotkey, &alice);
         let bob_before = root_stake_of(&hotkey, &bob);
@@ -901,6 +932,7 @@ fn test_claim_root_targets_one_hotkey_only() {
             5_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let owed_a = SubtensorModule::get_basket_owed_shares(&hot_a, &coldkey);
         let owed_b = SubtensorModule::get_basket_owed_shares(&hot_b, &coldkey);
@@ -969,6 +1001,7 @@ fn test_root_basket_hotkey_swap_migrates() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let basket_before = escrow_alpha(&hotkey, netuid);
         let shares_before = fund_shares(&hotkey);
@@ -1038,6 +1071,7 @@ fn test_root_basket_dissolve_converts_to_root_slot() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let subnet_holding = escrow_alpha(&hotkey, netuid);
         assert!(subnet_holding > 0);
@@ -1106,6 +1140,7 @@ fn test_root_basket_dissolve_preserves_owed_not_stake() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         assert!(escrow_alpha(&hotkey, netuid) > 0);
 
         // Bob joins AFTER accrual with the SAME root stake; his watermark is rebased exactly as
@@ -1198,6 +1233,7 @@ fn test_root_basket_total_stake_conserved() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         let ts_after_distribute = TotalStake::<Test>::get().to_u64();
         assert_eq!(
             ts_before_distribute, ts_after_distribute,
@@ -1256,6 +1292,7 @@ fn test_root_basket_compounds_when_escrow_grows() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let shares = fund_shares(&hotkey);
         let escrow_before = escrow_alpha(&hotkey, netuid);
@@ -1334,6 +1371,7 @@ fn test_root_basket_fully_drains_on_claims() {
             10_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let escrow_filled = escrow_alpha(&hotkey, netuid);
         assert!(escrow_filled > 0);
@@ -1405,6 +1443,7 @@ fn test_root_basket_disproportional_two_stakers() {
             10_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let alice_before = root_stake_of(&hotkey, &alice);
         let bob_before = root_stake_of(&hotkey, &bob);
@@ -1473,6 +1512,7 @@ fn test_root_basket_splits_across_multiple_subnets() {
             10_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let basket_b = escrow_alpha(&hotkey, netuid_b);
         let basket_c = escrow_alpha(&hotkey, netuid_c);
@@ -1679,6 +1719,7 @@ fn test_claim1_principal_never_lost() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         // Dividend distribution did not touch the staker's root principal.
         assert_eq!(root_stake_of(&hotkey, &coldkey), principal);
@@ -1729,6 +1770,7 @@ fn test_claim2_accrued_basket_unchanged_when_others_stake() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let alice_before = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
         assert!(alice_before > 0);
@@ -1792,6 +1834,7 @@ fn test_claim3_basket_compounds() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let before = SubtensorModule::get_basket_payout_tao(&hotkey, &coldkey);
         assert!(before > 0);
@@ -1852,6 +1895,7 @@ fn test_claim4_no_dilution_or_skim_on_late_stake() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         // The basket compounds heavily (escrow value grows ~4x; shares unchanged).
         let escrow = SubtensorModule::get_beta_escrow_account_id();
@@ -1900,6 +1944,7 @@ fn test_claim4_no_dilution_or_skim_on_late_stake() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         // (4b) Deposit-at-NAV: the N/P multiplier is unchanged, so no dilution occurred.
         let mult_after = mult(&hotkey);
@@ -1968,6 +2013,7 @@ fn test_root_basket_rpc_views() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
         let total = SubtensorModule::get_root_basket_total_nav_tao().to_u64();
@@ -2103,6 +2149,7 @@ fn test_root_basket_uid0_holds_as_root_stake() {
             pending_root_alpha.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         let ts_after = TotalStake::<Test>::get().to_u64();
 
         // A root slot now exists: shares minted, escrow holds root stake, claimable rate set.
@@ -2163,6 +2210,7 @@ fn test_root_basket_uid0_claim_reassigns_no_swap() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let shares_before = fund_shares(&hotkey);
         let escrow_before = escrow_alpha(&hotkey, NetUid::ROOT);
@@ -2232,6 +2280,7 @@ fn test_root_basket_uid0_compounds() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let shares = fund_shares(&hotkey);
         assert!(shares > 0);
@@ -2321,6 +2370,7 @@ fn test_root_basket_conservation_interleaved() {
                 amount.into(),
                 AlphaBalance::ZERO,
             );
+            flush_baskets();
         };
 
         // Interleave deposits and claims.
@@ -2398,6 +2448,7 @@ fn test_root_basket_claim_idempotent() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
@@ -2473,6 +2524,7 @@ fn test_root_basket_self_referential_origin() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         let alice_before = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
         assert!(alice_before > 0);
 
@@ -2493,6 +2545,7 @@ fn test_root_basket_self_referential_origin() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let alice_after = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
         let bob_after = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
@@ -2632,6 +2685,7 @@ fn test_root_basket_unstake_preserves_accrued() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let owed_before = SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey);
         let payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &coldkey);
@@ -2727,6 +2781,7 @@ fn test_root_basket_claim_preserves_composition() {
             6_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let b_before = escrow_alpha(&hotkey, netuid_b) as f64;
         let c_before = escrow_alpha(&hotkey, netuid_c) as f64;
@@ -2839,7 +2894,10 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
         );
         set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
-        // Accrue less than the threshold.
+        // Accrue less than the (soon-raised) claim threshold. The deposit itself must land,
+        // so flush with the threshold zeroed — the queue gate uses the same threshold and
+        // would otherwise defer the credit instead of depositing it.
+        zero_claim_threshold();
         SubtensorModule::distribute_emission(
             netuid,
             AlphaBalance::ZERO,
@@ -2847,6 +2905,7 @@ fn test_root_basket_threshold_skip_consumes_nothing() {
             100_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(1_000_000u64));
 
         let owed_before = SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey);
@@ -2925,6 +2984,7 @@ fn test_root_basket_coldkey_swap_carries_owed_with_zero_stake() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         // Unstake ALL root stake, mirroring the real remove_stake path. The watermark goes
         // negative; owed is preserved with zero live stake.
@@ -3158,6 +3218,7 @@ fn test_root_basket_revives_after_full_drain() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey
@@ -3172,6 +3233,7 @@ fn test_root_basket_revives_after_full_drain() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         let epoch2_value = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
         assert!(epoch2_value > 0);
 
@@ -3229,6 +3291,9 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
                 1_000_000u64.into(),
                 AlphaBalance::ZERO,
             );
+            // Flush per iteration: the point is two separate deposits, the second landing
+            // while the escrow already holds root stake from the first.
+            flush_baskets();
         }
 
         let escrow_before = escrow_alpha(&hotkey, NetUid::ROOT);
@@ -3353,6 +3418,7 @@ fn test_become_root_validator_fund_journey() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         assert!(has_fund(&validator_hotkey));
         assert!(escrow_alpha(&validator_hotkey, netuid) > 0);
         assert!(SubtensorModule::get_basket_owed_shares(&validator_hotkey, &staker_coldkey) > 0);

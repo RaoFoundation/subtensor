@@ -134,6 +134,8 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`root-baskets`](/docs/query/root-baskets) | Basket summaries for every validator with an active basket. |
 | [`root-claim-threshold`](/docs/query/root-claim-threshold) | The minimum TAO payout for a root dividend claim. |
 | [`stake`](/docs/query/stake) | Alpha staked by a coldkey to a hotkey on a subnet (TAO when netuid is 0). |
+| [`stake-availability`](/docs/query/stake-availability) | Free vs locked stake for a coldkey on one subnet. |
+| [`stake-availability-for-coldkey`](/docs/query/stake-availability-for-coldkey) | Free vs locked stake for a coldkey across many subnets (one runtime call). |
 | [`stake-for-coldkey`](/docs/query/stake-for-coldkey) | Every stake position held by a coldkey, across all hotkeys and subnets. |
 | [`stake-for-coldkeys`](/docs/query/stake-for-coldkeys) | Every stake position for several coldkeys at once, in one runtime call. |
 | [`stake-value-for-coldkey`](/docs/query/stake-value-for-coldkey) | A coldkey's stake marked to TAO at spot prices (excludes slippage/fees), block-pinned. |

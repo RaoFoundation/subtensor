@@ -82,6 +82,8 @@
     "root-baskets",
     "root-claim-threshold",
     "stake",
+    "stake-availability",
+    "stake-availability-for-coldkey",
     "stake-for-coldkey",
     "stake-for-coldkeys",
     "stake-value-for-coldkey",

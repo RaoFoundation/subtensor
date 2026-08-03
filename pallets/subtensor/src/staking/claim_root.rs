@@ -19,7 +19,7 @@ const DRAINED_FUND_DUST_DIVISOR: u64 = 100;
 /// Where the TAO entering a basket deployment comes from. The two deposit paths share one
 /// deployment engine (`deploy_tao_into_basket`); this is the only difference between them.
 #[derive(Clone, Copy)]
-enum BasketFunding<'a, AccountId> {
+pub(super) enum BasketFunding<'a, AccountId> {
     /// Dividend TAO realized by selling origin-subnet alpha. Swap fees are dropped. The sell
     /// drops `SubnetTAO[origin]` but leaves the free balance on the origin subnet account, so
     /// each destination slice must be physically moved from `origin_netuid` before that dest's
@@ -160,199 +160,11 @@ impl<T: Config> Pallet<T> {
         Self::mul_div_u64(value, shares_outstanding, nav_before)
     }
 
-    /// Distributes a validator's root dividend (origin-subnet alpha, net of take) into its beta
-    /// basket according to the validator's root weight vector `w` (set on subnet 0).
-    ///
-    /// Curated flow: sell the origin alpha for TAO, then split that TAO across subnets per `w`,
-    /// buying each subnet's alpha and staking it to the validator under the global escrow
-    /// coldkey (a root-destination slice is held directly as the fund's root-stake cash
-    /// position). The deposit then mints *fund shares* against the whole basket:
-    /// `shares = value_added * P / N`, where `N` is the fund's pre-buy realizable NAV, `P` the
-    /// outstanding shares, and `value_added` the realizable NAV the deposit actually added
-    /// (post-buy NAV minus the pre-buy snapshot), so the deposit bears its own buy
-    /// slippage/fees instead of socializing them, and existing holders are neither diluted nor
-    /// taxed. Stakers accrue entitlement through the single per-validator
-    /// `BasketRate += shares / total_root_stake` accumulator; no entitlement is ever denominated
-    /// in a particular subnet's alpha, which is what allows holdings to be rebalanced without
-    /// touching staker claims.
-    ///
-    /// Uncurated flow (no stored root weights, or explicit weights filtered to nothing): the
-    /// dividend *accumulates in place* — the origin alpha is credited directly to the fund's
-    /// holding on the origin subnet, with no sell and no redeploy. The default basket is
-    /// therefore the emission-weighted portfolio the dividends themselves describe, the
-    /// protocol executes zero trades (no swap fees, no slippage, no sell pressure) on behalf
-    /// of a validator that expressed no preference, and shares still mint at NAV against the
-    /// realizable value the alpha added (see
-    /// [`Self::try_accumulate_root_alpha_into_basket`]).
-    ///
-    /// Attribution (both flows): the dividend was earned by the validator's WHOLE root stake,
-    /// including the fund's own root-slot (escrow) position. Only the real stakers' fraction
-    /// of the value mints shares; the escrow slot's fraction enters the fund unminted, so the
-    /// fund's own cash yield accrues to existing share holders through N/P instead of
-    /// leaking to root stakers as free shares.
-    ///
-    /// The whole operation is transactional: if any swap fails (or the deposit is dust), it is
-    /// rolled back and the original alpha is recycled. Dividends are recycled only when the
-    /// validator has no root stake to apportion against.
-    ///
-    /// Protocol-flow accounting is symmetric with redemption: the origin sell is booked as an
-    /// outflow on the origin subnet and each redistribution buy as an inflow on its dest subnet,
-    /// so that a deposit-then-claim round-trip nets to ~0 on the dest pools (the claim sell is
-    /// booked as an outflow in `root_claim_for_hotkey`). An in-place accumulation moves no TAO
-    /// through any pool, so it records nothing; the eventual claim sell is a genuine net
-    /// extraction and books its outflow then.
-    pub fn distribute_root_alpha_to_basket(
-        hotkey: &T::AccountId,
-        origin_netuid: NetUid,
-        root_alpha: AlphaBalance,
-    ) {
-        if root_alpha.is_zero() {
-            return;
-        }
-
-        // Seed migration still converting legacy claim state. Coinbase records its calculated
-        // per-hotkey credit in DeferredRootAlphaDividends; recycle an unexpected direct call
-        // defensively rather than writing BasketRate/Shares that a later pass would overwrite.
-        if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
-            Self::recycle_subnet_alpha(origin_netuid, root_alpha);
-            return;
-        }
-
-        let valid = Self::get_valid_basket_weights(hotkey);
-        let escrow = Self::get_beta_escrow_account_id();
-
-        // Claimant base = real stakers' root stake. The escrow custody account is not a claimant,
-        // so its own root-slot holdings are excluded; otherwise the fund's claimable rate would
-        // be diluted and a slice of shares would become unclaimable. The escrow slot is kept
-        // separately: it earned its pro-rata slice of this dividend, which is credited to the
-        // fund unminted below.
-        let escrow_root =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, NetUid::ROOT);
-        let total_root =
-            Self::get_stake_for_hotkey_on_subnet(hotkey, NetUid::ROOT).saturating_sub(escrow_root);
-
-        // No root stake to apportion against: recycle.
-        if total_root.is_zero() {
-            Self::recycle_subnet_alpha(origin_netuid, root_alpha);
-            return;
-        }
-
-        let outcome = with_transaction(|| {
-            let result = if valid.is_empty() {
-                Self::try_accumulate_root_alpha_into_basket(
-                    hotkey,
-                    origin_netuid,
-                    root_alpha,
-                    total_root.to_u64(),
-                    escrow_root.to_u64(),
-                )
-            } else {
-                Self::try_distribute_root_alpha_to_basket(
-                    hotkey,
-                    origin_netuid,
-                    root_alpha,
-                    &valid,
-                    total_root.to_u64(),
-                    escrow_root.to_u64(),
-                )
-            };
-            match result {
-                Ok(()) => TransactionOutcome::Commit(Ok(())),
-                Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        });
-
-        // On any failure everything was rolled back; recycle the original alpha.
-        if outcome.is_err() {
-            Self::recycle_subnet_alpha(origin_netuid, root_alpha);
-        }
-    }
-
-    /// Transactional body of [`Self::distribute_root_alpha_to_basket`]'s curated flow; any
-    /// error rolls the whole deposit back (the caller recycles the origin alpha).
-    fn try_distribute_root_alpha_to_basket(
-        hotkey: &T::AccountId,
-        origin_netuid: NetUid,
-        root_alpha: AlphaBalance,
-        valid: &[(NetUid, u64)],
-        total_root: u64,
-        escrow_root: u64,
-    ) -> DispatchResult {
-        // 1. Sell the origin-subnet alpha for TAO, booked as protocol outflow (TAO left the
-        // origin pool). The deployment below snapshots NAV only after this sell: the fund may
-        // itself hold origin-subnet alpha, and the sell moves that price, so marking N any
-        // earlier would misprice the mint against the state the deposit actually enters.
-        let tao_total: TaoBalance = Self::swap_alpha_for_tao(
-            origin_netuid,
-            root_alpha,
-            T::SwapInterface::min_price::<TaoBalance>(),
-            true,
-        )?
-        .amount_paid_out;
-        Self::record_protocol_outflow(origin_netuid, tao_total);
-
-        // 2. Deploy the TAO across the basket per the weight vector and value the deposit at
-        // the realizable NAV it actually added.
-        let (nav_before, value_added) = Self::deploy_tao_into_basket(
-            hotkey,
-            valid,
-            tao_total.to_u64(),
-            BasketFunding::Protocol { origin_netuid },
-        )?;
-
-        // 3. Mint fund shares for the stakers' fraction of the value added.
-        Self::mint_basket_dividend_shares(hotkey, nav_before, value_added, total_root, escrow_root)
-    }
-
-    /// Transactional body of [`Self::distribute_root_alpha_to_basket`]'s uncurated flow: the
-    /// dividend alpha is credited directly to the fund's holding on the subnet it arrived on.
-    /// No swap runs — the alpha is already counted in `SubnetAlphaOut` (the recycle fallback
-    /// decrements it), it just is not assigned to any stake position yet, so the whole deposit
-    /// is a share-pool credit. Any error rolls the credit back (the caller recycles).
-    ///
-    /// The deposit is valued as the realizable delta on the origin holding alone: crediting
-    /// stake moves no pool, so every other holding's quote is unchanged and the full-fund
-    /// `nav_after` sweep the curated flow needs collapses to one extra origin-subnet quote.
-    /// Realizable valuation keeps deposit pricing honest on thin pools exactly as it does for
-    /// bought alpha — the marginal alpha of a large holding quotes below spot, so existing
-    /// share holders are never diluted by an over-marked deposit.
-    fn try_accumulate_root_alpha_into_basket(
-        hotkey: &T::AccountId,
-        origin_netuid: NetUid,
-        root_alpha: AlphaBalance,
-        total_root: u64,
-        escrow_root: u64,
-    ) -> DispatchResult {
-        let escrow = Self::get_beta_escrow_account_id();
-
-        let held_before: u64 =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, origin_netuid)
-                .to_u64();
-        let nav_before: u64 = Self::get_validator_basket_nav_tao(hotkey).to_u64();
-        let origin_before: u64 = Self::realizable_tao_for_alpha(origin_netuid, held_before);
-
-        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            hotkey,
-            &escrow,
-            origin_netuid,
-            root_alpha,
-        );
-
-        // Re-read the holding after the credit so share-pool rounding is priced in.
-        let held_after: u64 =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, origin_netuid)
-                .to_u64();
-        let value_added: u64 =
-            Self::realizable_tao_for_alpha(origin_netuid, held_after).saturating_sub(origin_before);
-
-        Self::mint_basket_dividend_shares(hotkey, nav_before, value_added, total_root, escrow_root)
-    }
-
     /// Shared tail of both dividend deposit flows: attribute the value added between real
     /// stakers and the fund's own escrow slot, mint fund shares at the pre-deposit NAV, and
     /// advance the per-validator claimable rate. Errors on a dust deposit so the caller rolls
     /// back and recycles.
-    fn mint_basket_dividend_shares(
+    pub(super) fn mint_basket_dividend_shares(
         hotkey: &T::AccountId,
         nav_before: u64,
         value_added: u64,
@@ -427,7 +239,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// Not transactional by itself: callers run it inside `with_transaction` and roll back on
     /// error.
-    fn deploy_tao_into_basket(
+    pub(super) fn deploy_tao_into_basket(
         hotkey: &T::AccountId,
         valid: &[(NetUid, u64)],
         tao: u64,
@@ -551,6 +363,9 @@ impl<T: Config> Pallet<T> {
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists
         );
+        // Deposit queued dividend credits first so the share mint below prices against
+        // the fund's full, current NAV.
+        Self::flush_basket_deposits_for_hotkey(&hotkey);
         ensure!(tao >= DefaultMinStake::<T>::get(), Error::<T>::AmountTooLow);
         ensure!(
             Self::can_remove_balance_from_coldkey_account(&coldkey, tao.into()),
@@ -710,6 +525,13 @@ impl<T: Config> Pallet<T> {
         ignore_minimum_condition: bool,
     ) -> Result<RootClaimOutcome, DispatchError> {
         let mut outcome = RootClaimOutcome::default();
+
+        // Deposit any queued dividend credits first so the claim redeems against the
+        // fund's full, current state. The flush work is scan-priced into the outcome.
+        let (flush_work, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        outcome.rows = outcome
+            .rows
+            .saturating_add(u32::try_from(flush_work).unwrap_or(u32::MAX));
 
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {
@@ -875,6 +697,16 @@ impl<T: Config> Pallet<T> {
     /// flattened to TAO on every claim. A curated dust row keeps charging the (cheap)
     /// per-row scan weight — the honest price of keeping it on the books.
     ///
+    /// Uncurated funds have no exemptions: every sub-threshold row is swept. This does not
+    /// fight the next epoch's accrual — dividend credits are queue-gated by the same
+    /// threshold in `flush_basket_deposits_for_hotkey`, so a swept row only re-forms from
+    /// a deposit the gate valued at or above the threshold. The gate marks at spot while
+    /// this sweep marks realizable, so a just-above-threshold deposit can still land a row
+    /// realizably below it and get re-swept next claim; that churn is bounded by the
+    /// spot-vs-realizable gap on a threshold-sized amount, not a treadmill. Without the
+    /// sweep an uncurated fund's holding count only ever grows, and every deposit's NAV
+    /// sweep pays a quote per row forever.
+    ///
     /// Consolidation is NAV-continuous (minus slippage on a sub-threshold amount) and
     /// touches no shares or watermarks. Best-effort per holding: a failed swap leaves the
     /// row for a later attempt. Returns the number of holdings converted.
@@ -889,12 +721,6 @@ impl<T: Config> Pallet<T> {
             .into_iter()
             .map(|(netuid, _)| netuid)
             .collect();
-        // Uncurated fund: dividends accumulate in place, so every live subnet is an implicit
-        // destination — nothing is orphaned, and sweeping sub-threshold rows would only fight
-        // next epoch's accrual with pointless swaps.
-        if curated.is_empty() {
-            return 0;
-        }
 
         let escrow = Self::get_beta_escrow_account_id();
         let mut swept: u32 = 0;
@@ -1077,10 +903,11 @@ impl<T: Config> Pallet<T> {
     /// and every escrow holding, moved by value. The caller must guarantee the new hotkey is
     /// clean on root (enforced by `do_swap_hotkey`), so this is a move, not a merge.
     ///
-    /// Returns the number of `BasketClaimed` rows moved so the caller can charge weight.
-    /// Claimant rows are unbounded (same class of work as moving stake coldkeys): a popular
-    /// root validator must still be able to hotkey-swap; the extrinsic pays the resulting
-    /// weight rather than hard-failing above [`crate::MAX_ROOT_CLAIM_WORK`].
+    /// Returns the number of `BasketClaimed` plus queued `PendingBasketDeposits` rows moved
+    /// so the caller can charge weight. Claimant rows are unbounded (same class of work as
+    /// moving stake coldkeys): a popular root validator must still be able to hotkey-swap;
+    /// the extrinsic pays the resulting weight rather than hard-failing above
+    /// [`crate::MAX_ROOT_CLAIM_WORK`].
     pub fn transfer_basket_for_new_hotkey(
         old_hotkey: &T::AccountId,
         new_hotkey: &T::AccountId,
@@ -1108,11 +935,23 @@ impl<T: Config> Pallet<T> {
         // One row per historical coldkey — may be large; weight is charged by the caller.
         let claimed_entries: Vec<(T::AccountId, i128)> =
             BasketClaimed::<T>::iter_prefix(old_hotkey).collect();
-        let claimed_count = claimed_entries.len() as u32;
+        let mut moved_rows = claimed_entries.len() as u32;
         for (coldkey, claimed) in claimed_entries {
             BasketClaimed::<T>::remove(old_hotkey, &coldkey);
             BasketClaimed::<T>::mutate(new_hotkey, &coldkey, |c| {
                 *c = c.saturating_add(claimed);
+            });
+        }
+
+        // Queued dividend credits follow the fund. The clean-root guard doesn't inspect
+        // the queue, so the new hotkey may hold threshold-deferred dust credits of its
+        // own; per-origin amounts merge additively, which is exactly enqueue semantics.
+        let pending: Vec<(NetUid, AlphaBalance)> =
+            PendingBasketDeposits::<T>::drain_prefix(old_hotkey).collect();
+        moved_rows = moved_rows.saturating_add(pending.len() as u32);
+        for (netuid, alpha) in pending {
+            PendingBasketDeposits::<T>::mutate(new_hotkey, netuid, |p| {
+                *p = p.saturating_add(alpha);
             });
         }
 
@@ -1126,7 +965,7 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        claimed_count
+        moved_rows
     }
 
     /// Converts validators' basket holdings on a dissolving subnet into each fund's root

@@ -1168,6 +1168,10 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
+        // Root-registered: root stake only carries dividend weight for hotkeys holding a
+        // root UID.
+        Uids::<Test>::insert(NetUid::ROOT, hotkey1, 0u16);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey2, 1u16);
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey1,
@@ -1249,6 +1253,10 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
+        // Root-registered: root stake only carries dividend weight for hotkeys holding a
+        // root UID.
+        Uids::<Test>::insert(NetUid::ROOT, hotkey1, 0u16);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey2, 1u16);
         SubtensorModule::set_tao_weight(u64::MAX / 2); // Set TAO weight to 0.5
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey1,
@@ -2159,6 +2167,9 @@ fn test_calculate_dividend_distribution_totals() {
         let tao_weight: U96F32 = U96F32::from_num(0.18); // 18%
 
         let hotkeys = [U256::from(0), U256::from(1)];
+        // Root dividends only accrue to root-registered hotkeys.
+        Uids::<Test>::insert(NetUid::ROOT, hotkeys[0], 0u16);
+        Uids::<Test>::insert(NetUid::ROOT, hotkeys[1], 1u16);
 
         // Stake map and dividends shouldn't matter for this test.
         stake_map.insert(hotkeys[0], (4_859_302.into(), 2_342_352.into()));
@@ -2203,6 +2214,9 @@ fn test_calculate_dividend_distribution_total_only_tao() {
         let tao_weight: U96F32 = U96F32::from_num(0.18); // 18%
 
         let hotkeys = [U256::from(0), U256::from(1)];
+        // Root dividends only accrue to root-registered hotkeys.
+        Uids::<Test>::insert(NetUid::ROOT, hotkeys[0], 0u16);
+        Uids::<Test>::insert(NetUid::ROOT, hotkeys[1], 1u16);
 
         // Stake map and dividends shouldn't matter for this test.
         stake_map.insert(hotkeys[0], (4_859_302.into(), 2_342_352.into()));
@@ -4070,6 +4084,10 @@ fn test_coinbase_releases_deferred_root_dividend_to_original_hotkey() {
             BTreeMap::new(),
             BTreeMap::from([(other_hotkey, U96F32::from_num(2_000_000u64))]),
         );
+        // Released deferred credits and the current epoch's credit both land in the
+        // pending queue; the drain flushes one hotkey per block, so run it once per
+        // queued hotkey.
+        crate::tests::claim_root::flush_baskets();
 
         assert!(BasketShares::<Test>::get(earned_hotkey) > 0);
         assert!(BasketShares::<Test>::get(other_hotkey) > 0);

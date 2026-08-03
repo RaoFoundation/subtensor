@@ -920,7 +920,7 @@ def wallet_balance(
 
         rows_data = app_ctx.run(_all)
         key_map = {
-            "name": lambda r: r["wallet"].lower(),
+            "name": lambda r: wallets.natural_name_key(r["wallet"]),
             "free": lambda r: r["free_tao"],
             "stake-value": lambda r: r["stake_value_tao"],
             "total-value": lambda r: r["total_value_tao"],

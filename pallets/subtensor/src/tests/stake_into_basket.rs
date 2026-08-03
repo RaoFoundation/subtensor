@@ -2,8 +2,8 @@
 //! attribution.
 
 use crate::tests::claim_root::{
-    escrow_alpha, fund_pool, fund_shares, has_fund, root_stake_of, set_root_weights_direct,
-    zero_claim_threshold,
+    escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, root_stake_of,
+    set_root_weights_direct, zero_claim_threshold,
 };
 use crate::tests::mock::*;
 use crate::{BasketClaimed, DefaultMinStake, Error, StakingHotkeys, SubnetAlphaIn, SubnetTAO};
@@ -176,6 +176,7 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         let alice_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
         assert!(alice_payout_before > 0);
 
@@ -346,6 +347,7 @@ fn test_stake_into_basket_credit_survives_stake_changes() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         assert!(has_fund(&hotkey));
 
         // Bob buys in directly with zero root stake.
@@ -401,6 +403,7 @@ fn test_stake_into_basket_credit_survives_stake_changes() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         assert!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &bob) > minted,
             "dividend accrual must stack on top of the direct-share credit"
@@ -451,6 +454,7 @@ fn test_stake_into_basket_gets_no_dividend_accrual() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         // Bob's share count is exactly unchanged; the dividend's shares went to root stakers.
         assert_eq!(
@@ -517,6 +521,7 @@ fn test_basket_deposit_mints_delta_nav_on_thin_pool() {
             dividend.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let shares = fund_shares(&hotkey);
         let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
@@ -572,6 +577,7 @@ fn test_root_slot_yield_accrues_to_share_holders() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
         let e1 = escrow_alpha(&hotkey, NetUid::ROOT);
         assert!(e1 > 0);
         assert_eq!(fund_shares(&hotkey), e1, "first deposit mints at par");
@@ -603,6 +609,7 @@ fn test_root_slot_yield_accrues_to_share_holders() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         let delta2 = SubtensorModule::get_validator_basket_nav_tao(&hotkey)
             .to_u64()
@@ -672,6 +679,7 @@ fn test_stake_into_basket_cannot_skim_compounding() {
             1_000_000u64.into(),
             AlphaBalance::ZERO,
         );
+        flush_baskets();
 
         // The basket compounds hard: escrow value grows 4x, shares unchanged (N/P ~4).
         let escrow = SubtensorModule::get_beta_escrow_account_id();

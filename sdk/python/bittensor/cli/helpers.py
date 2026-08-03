@@ -194,9 +194,7 @@ def annotate_stake_groups_with_locks(
         lock_label = None
         if lock_hotkey and locked is not None and locked.rao > 0:
             lock_label = (
-                hotkey_names.get(lock_hotkey)
-                or identity_names.get(lock_hotkey)
-                or lock_hotkey
+                hotkey_names.get(lock_hotkey) or identity_names.get(lock_hotkey) or lock_hotkey
             )
             # Keep the header note short — long locked/free figures sit on the
             # stake line (see ``availability_note``) so they are not clipped.
@@ -413,9 +411,7 @@ async def wallet_overview_rows(
         balance = _wallet_balance_row(name, ss58, free_by_addr[ss58], valuations[ss58])
         stakes = filter_stakes(valuations[ss58].positions, netuid)
         locks_by_netuid, availability_by_netuid = lock_ctx[ss58]
-        locked_rows = [
-            row for row in availability_by_netuid.values() if row["locked"].rao > 0
-        ]
+        locked_rows = [row for row in availability_by_netuid.values() if row["locked"].rao > 0]
         locked_value = Balance(
             sum(valuations[ss58].spot_value(row["locked"]).rao for row in locked_rows)
         )

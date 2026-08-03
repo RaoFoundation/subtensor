@@ -19,6 +19,7 @@ import typer
 
 from .. import config as cfg
 from .. import wallets
+from .._generated import calls as generated_calls
 from .._generated import runtime_apis, storage
 from ..client import Client
 from ..extension.client import BridgeError
@@ -35,12 +36,23 @@ from ..result import (
 )
 from ..settings import error_docs_url
 from ..signing import public_view
+from ..sp_core import ss58_decode
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
 from .output import STYLE_WARNING, Output
 
 T = TypeVar("T")
+
+
+class _FeeAddressView:
+    """Public-only keypair shape for ``estimate_fee`` (zeroed signature)."""
+
+    crypto_type = 1  # sr25519
+
+    def __init__(self, address: str):
+        self.ss58_address = address
+        self.public_key = bytes(ss58_decode(address))
 
 
 def address_cli_name(param: str) -> str:
@@ -496,6 +508,41 @@ class AppContext:
         )
         wallet = self.wallet()
         self._register_local_names(wallet)
+        # Outer MevShield.submit_encrypted has no netuid, so fees_in_alpha cannot
+        # route — free TAO must cover the carrier. Bare remove_stake (etc.) can
+        # pay in alpha; downgrade the stake default before confirm so the summary
+        # is honest and α-only coldkeys still unstake. External signers resolve
+        # the fee payer later; _execute repeats this check for them.
+        if shield and not self.uses_external_signer():
+            try:
+                fee_payer = public_view(wallet, intent.signer).ss58_address
+            except Exception:
+                fee_payer = None
+            if fee_payer is not None:
+
+                async def _shield_fee_preflight(client):
+                    return await self._shield_outer_fee_shortfall(client, fee_payer)
+
+                shortfall = self.run(_shield_fee_preflight)
+                if shortfall is not None:
+                    if shield_forced or intent.mev_shield_required:
+                        self.output.error(
+                            "MEV-shielded submission needs free TAO for the outer carrier fee",
+                            help=(
+                                f"{intent.op} cannot submit unshielded"
+                                if intent.mev_shield_required
+                                else "pass --no-mev-shield to submit unshielded "
+                                "(alpha fees work on the bare call), or fund the "
+                                "signing account with free TAO"
+                            ),
+                        )
+                        raise typer.Exit(2)
+                    self.output.message(
+                        "[dim]MEV shield skipped: free TAO cannot cover the outer "
+                        "carrier fee (alpha fees only work on the unshielded call) "
+                        "— submitting unshielded[/dim]"
+                    )
+                    shield = False
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
         registration_quote = None
         registration_flow = None
@@ -574,6 +621,13 @@ class AppContext:
                     "submitted MEV-shielded: the call stays encrypted in the "
                     "mempool until the block author decrypts and executes it"
                 )
+
+                async def _shield_fee_warning(client):
+                    return await self._shield_outer_fee_shortfall(client, plan.signer_address)
+
+                shortfall = self.run(_shield_fee_warning)
+                if shortfall is not None:
+                    plan.warnings.append(shortfall)
             self.output.plan(plan)
             if not plan.ok:
                 raise typer.Exit(1)
@@ -695,6 +749,36 @@ class AppContext:
                 )
                 use_shield = False
             signer = local_signer or await self.resolve_signing_wallet(intent.signer)
+            if use_shield and self.uses_external_signer():
+                # Local wallets already preflighted before confirm; external
+                # signers only know the fee payer after account pick.
+                try:
+                    fee_payer = public_view(signer, intent.signer).ss58_address
+                except Exception:
+                    fee_payer = None
+                shortfall = (
+                    await self._shield_outer_fee_shortfall(client, fee_payer)
+                    if fee_payer is not None
+                    else None
+                )
+                if shortfall is not None:
+                    if shield_forced or intent.mev_shield_required:
+                        raise BittensorError(
+                            "MEV-shielded submission needs free TAO for the outer "
+                            "carrier fee; "
+                            + (
+                                f"{intent.op} cannot submit unshielded"
+                                if intent.mev_shield_required
+                                else "pass --no-mev-shield to submit unshielded "
+                                "(alpha fees work on the bare call)"
+                            )
+                        )
+                    self.output.message(
+                        "[dim]MEV shield skipped: free TAO cannot cover the outer "
+                        "carrier fee (alpha fees only work on the unshielded call) "
+                        "— submitting unshielded[/dim]"
+                    )
+                    use_shield = False
             if use_shield and self.uses_vault_signer():
                 # Shielded signing runs against an 8-block (~96 s) era, and
                 # a shielded submission means two QR scans (the shielded
@@ -767,10 +851,12 @@ class AppContext:
         if not rendered:
             if shield and result.data.get("shielded") is not True:
                 # The failure happened at (or before) the encrypted pool
-                # submission, so the shield itself may be the blocker.
+                # submission. Outer carrier fees need free TAO; alpha fees only
+                # apply to the bare call.
                 self.output.message(
-                    "[dim]the submission was MEV-shielded; retry with "
-                    "--no-mev-shield to rule the shield out[/dim]"
+                    "[dim]the submission was MEV-shielded; the outer carrier needs "
+                    "free TAO (alpha fees only work unshielded) — retry with "
+                    "--no-mev-shield[/dim]"
                 )
             raise typer.Exit(1)
         if intent.verify:
@@ -779,6 +865,43 @@ class AppContext:
                 f"[dim]verify: `btcli query {intent.verify.replace('_', '-')} ...`[/dim]"
             )
         return result
+
+    async def _shield_outer_fee_shortfall(
+        self, client: Client, fee_payer_ss58: str
+    ) -> Optional[str]:
+        """Warning text when free TAO cannot cover a MevShield carrier fee.
+
+        Returns ``None`` when the payer looks able to cover it (or the check
+        cannot run). The outer ``submit_encrypted`` call has no netuid, so the
+        fee pallet cannot fall back to alpha — unlike bare ``remove_stake``.
+        """
+        try:
+            free = await client.balances.get(fee_payer_ss58)
+            # Exact ciphertext size is unknown until encrypt; length fee is
+            # 1 rao/byte so a padded dummy keeps the estimate conservative.
+            outer = await client.compose(
+                generated_calls.MevShield.submit_encrypted(ciphertext=bytes(8192))
+            )
+            fee = await client._substrate.estimate_fee(outer, _FeeAddressView(fee_payer_ss58))
+        except Exception:
+            # Best-effort: if we only know free is zero, that is enough to warn.
+            try:
+                free = await client.balances.get(fee_payer_ss58)
+            except Exception:
+                return None
+            if free.rao > 0:
+                return None
+            return (
+                "free TAO cannot cover the MEV-shield outer carrier fee; alpha "
+                "fees only apply to the unshielded call — use --no-mev-shield"
+            )
+        if free.rao >= fee.rao:
+            return None
+        return (
+            f"free TAO ({free}) cannot cover the MEV-shield outer carrier fee "
+            f"(~{fee}); alpha fees only apply to the unshielded call — use "
+            "--no-mev-shield"
+        )
 
     def _unlock_coldkey(self, wallet):
         """Unlock the wallet coldkey, re-prompting on a wrong password.

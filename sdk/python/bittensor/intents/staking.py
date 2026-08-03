@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Optional
 
 from .._generated import calls
 from .._generated import storage as st
-from .._generated.runtime_apis import StakeInfoRuntimeApi, SwapRuntimeApi
+from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi, SwapRuntimeApi
 from ..balance import Balance
 from ..result import BittensorError
 from ..settings import RAO_PER_TAO
@@ -101,9 +101,7 @@ async def _lock_hotkey(substrate, coldkey_ss58: str, netuid: int) -> Optional[st
     return None
 
 
-async def _availability_rao(
-    substrate, coldkey_ss58: str, netuid: int
-) -> tuple[int, int, int]:
+async def _availability_rao(substrate, coldkey_ss58: str, netuid: int) -> tuple[int, int, int]:
     """``(total, locked, available)`` rao for a coldkey on one subnet."""
     raw = await substrate.runtime_call(
         *StakeInfoRuntimeApi.get_stake_availability_for_coldkeys,
@@ -116,6 +114,29 @@ async def _availability_rao(
         int(entry.get("total") or 0),
         int(entry.get("locked") or 0),
         int(entry.get("available") or 0),
+    )
+
+
+async def _root_claimable_warning(substrate, coldkey_ss58: str, hotkey_ss58: str) -> Optional[str]:
+    """Warn when unstaking root would leave basket yield unclaimed.
+
+    Root ``remove_stake`` / ``unstake_all`` move principal only; accrued basket
+    entitlement stays owed until ``btcli root claim``. Best-effort: a failed
+    payout read is silent so warnings never block the plan.
+    """
+    try:
+        payout = await substrate.runtime_call(
+            *BetaBasketRuntimeApi.get_basket_payout,
+            [hotkey_ss58, coldkey_ss58],
+        )
+    except Exception:
+        return None
+    rao = int(payout or 0)
+    if rao <= 0:
+        return None
+    return (
+        f"{Balance.from_rao(rao)} remains claimable via `btcli root claim` "
+        "(unstaking root principal does not claim basket yield)"
     )
 
 
@@ -270,9 +291,14 @@ class RemoveStake(Intent):
         return f"unstake {amount} from {self.hotkey_ss58} on netuid {self.netuid}{note}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
+        out: list[str] = []
         if self.amount_alpha == ALL:
-            return ["removes the entire stake from this hotkey on this subnet"]
-        return []
+            out.append("removes the entire stake from this hotkey on this subnet")
+        if self.netuid == 0:
+            claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
+            if claimable:
+                out.append(claimable)
+        return out
 
 
 @register
@@ -443,9 +469,14 @@ class RemoveStakeLimit(Intent):
         )
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
+        out: list[str] = []
         if self.amount_alpha == ALL:
-            return ["removes the entire stake from this hotkey on this subnet"]
-        return []
+            out.append("removes the entire stake from this hotkey on this subnet")
+        if self.netuid == 0:
+            claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
+            if claimable:
+                out.append(claimable)
+        return out
 
 
 @register
@@ -478,7 +509,11 @@ class UnstakeAll(Intent):
         return f"unstake ALL from {self.hotkey_ss58}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
-        return ["removes the entire stake from this hotkey"]
+        out = ["removes the entire stake from this hotkey"]
+        claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
+        if claimable:
+            out.append(claimable)
+        return out
 
     def affects_all_subnets(self) -> bool:
         return True
@@ -745,11 +780,7 @@ class TransferStake(Intent):
                 f"move stake onto this hotkey first, or pass a different origin hotkey"
             )
 
-        if (
-            sender_lock_hotkey
-            and locked_rao > 0
-            and sender_lock_hotkey != self.hotkey_ss58
-        ):
+        if sender_lock_hotkey and locked_rao > 0 and sender_lock_hotkey != self.hotkey_ss58:
             out.append(
                 f"your conviction lock on netuid {self.origin_netuid} targets "
                 f"{sender_lock_hotkey}, but stake is leaving {self.hotkey_ss58} "
@@ -772,9 +803,7 @@ class TransferStake(Intent):
                     f"(current landing hotkey is {landing}) or transfer only the "
                     f"free amount"
                 )
-            elif not receiver_lock_hotkey and landing != (
-                sender_lock_hotkey or landing
-            ):
+            elif not receiver_lock_hotkey and landing != (sender_lock_hotkey or landing):
                 out.append(
                     f"receiver has no lock yet; locked alpha will create one on "
                     f"landing hotkey {landing}"
