@@ -30,6 +30,7 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository &&
       vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     env:
       DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -39,7 +40,7 @@ jobs:
       - name: Check out trusted controls from the default branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
           persist-credentials: false
           path: trusted-source
           sparse-checkout: |
@@ -108,6 +109,7 @@ jobs:
 
       - name: Audit preview project and pre-provisioned domain
         if: steps.meta.outputs.mode == 'deploy'
+        id: project
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -135,7 +137,14 @@ jobs:
         if: steps.recheck.outputs.authorized == 'true'
         env:
           DEPLOY_ROOT: ${{ steps.extract.outputs.root }}
+          VERCEL_ROOT_DIRECTORY: ${{ steps.project.outputs.root_directory }}
         run: |
+          set -euo pipefail
+          case "${VERCEL_ROOT_DIRECTORY}" in
+            .|website/apps/bittensor-website) ;;
+            *) echo "invalid audited Vercel root directory" >&2; exit 1 ;;
+          esac
+          mkdir -p -- "${DEPLOY_ROOT}/${VERCEL_ROOT_DIRECTORY}"
           python3 trusted-source/.github/scripts/docs_preview_vercel.py \
             --project-id "${VERCEL_PREVIEW_PROJECT_ID}" \
             --team-id "${VERCEL_ORG_ID}" \

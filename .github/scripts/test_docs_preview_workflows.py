@@ -15,6 +15,9 @@ GITHUB_SCRIPT = REPOSITORY / ".github/scripts/docs_preview_github.py"
 VERCEL_SCRIPT = REPOSITORY / ".github/scripts/docs_preview_vercel.py"
 CLI_PACKAGE = REPOSITORY / ".github/docs-preview-vercel/package.json"
 CLI_LOCK = REPOSITORY / ".github/docs-preview-vercel/package-lock.json"
+PRODUCTION_VERCEL_CONFIG = (
+    REPOSITORY / "website/apps/bittensor-website/vercel.json"
+)
 ACTION_SHA = re.compile(r"^\s*uses:\s+[^#\s]+@[0-9a-f]{40}(?:\s+#.*)?$")
 
 
@@ -42,14 +45,15 @@ class DocsPreviewWorkflowPolicyTests(unittest.TestCase):
     def test_untrusted_workflow_is_secret_free_and_ephemeral(self):
         self.assertNotIn("secrets.", self.request)
         self.assertNotIn("self-hosted", self.request)
-        self.assertGreaterEqual(self.request.count("runs-on: ubuntu-24.04"), 2)
+        self.assertEqual(self.request.count("runs-on: ubuntu-24.04"), 3)
+        self.assertIn("retention-days: 1", self.request)
         self.assertIn("persist-credentials: false", self.request)
         self.assertIn("cancel-in-progress: true", self.request)
-        self.assertIn("retention-days: 1", self.request)
 
     def test_trusted_workflow_never_checks_out_pr_head(self):
         self.assertNotIn("pull_request.head.sha", self.deploy)
-        self.assertIn("ref: ${{ github.event.repository.default_branch }}", self.deploy)
+        self.assertIn("ref: ${{ github.sha }}", self.deploy)
+        self.assertNotIn("ref: ${{ github.event.repository.default_branch }}", self.deploy)
         self.assertIn("persist-credentials: false", self.deploy)
         self.assertNotIn("self-hosted", self.deploy)
         self.assertIn("runs-on: ubuntu-24.04", self.deploy)
@@ -64,6 +68,13 @@ class DocsPreviewWorkflowPolicyTests(unittest.TestCase):
             r"(?m)^\s{4}env:\s*\n(?:\s{6}.+\n)*\s{6}\w+:\s*\$\{\{\s*secrets\.",
         )
 
+    def test_production_project_git_deploys_only_main(self):
+        config = json.loads(PRODUCTION_VERCEL_CONFIG.read_text(encoding="utf-8"))
+        self.assertEqual(
+            config["git"]["deploymentEnabled"],
+            {"*": False, "main": True},
+        )
+
     def test_dedicated_preview_project_is_enforced_in_both_halves(self):
         for workflow in (self.deploy, self.request):
             self.assertIn("VERCEL_DOCS_PREVIEW_PROJECT_ID", workflow)
@@ -76,10 +87,23 @@ class DocsPreviewWorkflowPolicyTests(unittest.TestCase):
         self.assertIn('"non-production project"', self.vercel)
         self.assertNotIn("secrets.VERCEL_DOCS_PROJECT_ID", self.deploy)
         self.assertIn("vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''", self.deploy)
-        self.assertGreaterEqual(
+        self.assertEqual(
             self.request.count("vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''"),
-            2,
+            3,
         )
+
+    def test_close_cleanup_is_unfiltered_and_triggers_trusted_consumer(self):
+        self.assertIn("types: [opened, synchronize, reopened, closed]", self.request)
+        self.assertNotIn("paths:", self.request)
+        self.assertIn("github.event.action == 'closed'", self.request)
+        self.assertIn("always() &&", self.request)
+        self.assertIn("needs.changes.outputs.relevant == 'false'", self.request)
+        self.assertIn("actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd", self.request)
+        self.assertIn(
+            "group: request-docs-preview-${{ github.event.pull_request.number }}",
+            self.request,
+        )
+        self.assertIn('workflows: ["Request Docs Preview"]', self.deploy)
 
     def test_deploy_queue_and_stale_run_controls_are_present(self):
         self.assertIn("cancel-in-progress: false", self.deploy)
@@ -121,6 +145,9 @@ class DocsPreviewWorkflowPolicyTests(unittest.TestCase):
 
     def test_preview_environment_and_deployment_lifecycle_are_guarded(self):
         self.assertIn("audit-project", self.deploy)
+        self.assertIn("id: project", self.deploy)
+        self.assertIn("steps.project.outputs.root_directory", self.deploy)
+        self.assertIn('mkdir -p -- "${DEPLOY_ROOT}/${VERCEL_ROOT_DIRECTORY}"', self.deploy)
         self.assertIn('--preview-domain "*.preview.${DOCS_DOMAIN}"', self.deploy)
         self.assertIn(
             'client.paginated(project_path, "envs", {"decrypt": "false"})', self.vercel
@@ -151,6 +178,8 @@ class DocsPreviewWorkflowPolicyTests(unittest.TestCase):
             "57.0.0",
         )
         self.assertIn("tar", package["overrides"])
+        self.assertEqual(package["overrides"]["brace-expansion"], "5.0.8")
+        self.assertEqual(package["overrides"]["@tootallnate/once"], "3.0.1")
         for workflow in (self.deploy, self.request):
             self.assertIn("npm ci --ignore-scripts", workflow)
             self.assertIn("npm audit --audit-level=high", workflow)

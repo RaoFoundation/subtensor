@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from docs_preview_vercel import (
     ApiError,
+    BUILD_ROOT_DIRECTORY,
     UnsafeEnvironmentVariable,
     VercelClient,
     audit_project,
+    delete_pr_deployments,
     deployment_id_for_url,
     deployment_ids_for_pr,
+    main,
     remove_alias,
     set_alias,
     unsafe_preview_variables,
     validate_configuration,
+    validate_project_security_settings,
     write_project_link,
 )
 
@@ -40,6 +45,17 @@ class FakeClient(VercelClient):
 
 
 class DocsPreviewVercelTests(unittest.TestCase):
+    @staticmethod
+    def secure_project(root_directory=BUILD_ROOT_DIRECTORY):
+        return {
+            "id": "prj_preview",
+            "autoExposeSystemEnvs": False,
+            "oidcTokenConfig": {"enabled": False, "issuerMode": "team"},
+            "protectionBypass": {},
+            "integrations": [],
+            "rootDirectory": root_directory,
+        }
+
     def test_flags_project_and_shared_preview_variables_without_values(self):
         unsafe = unsafe_preview_variables(
             [
@@ -50,6 +66,11 @@ class DocsPreviewVercelTests(unittest.TestCase):
                 },
                 {"key": "PRODUCTION_ONLY", "target": ["production"]},
                 {"key": "VERCEL_ENV", "target": ["preview"], "system": True},
+                {
+                    "key": "VERCEL_OIDC_TOKEN",
+                    "target": ["preview"],
+                    "system": True,
+                },
             ],
             [
                 {"key": "SHARED_SECRET", "target": "preview"},
@@ -60,6 +81,7 @@ class DocsPreviewVercelTests(unittest.TestCase):
             unsafe,
             [
                 UnsafeEnvironmentVariable("project", "PROJECT_SECRET"),
+                UnsafeEnvironmentVariable("project", "VERCEL_OIDC_TOKEN"),
                 UnsafeEnvironmentVariable("team-shared", "SHARED_SECRET"),
             ],
         )
@@ -78,11 +100,21 @@ class DocsPreviewVercelTests(unittest.TestCase):
     def test_project_audit_covers_environment_and_verified_wildcard(self):
         client = Mock()
         client.paginated.side_effect = [[], []]
-        client.request.return_value = {
-            "name": "*.preview.bittensor.com",
-            "verified": True,
-        }
-        audit_project(client, "prj_preview", "*.preview.bittensor.com")
+        client.request.side_effect = [
+            self.secure_project(),
+            {
+                "name": "*.preview.bittensor.com",
+                "verified": True,
+            },
+        ]
+        self.assertEqual(
+            audit_project(client, "prj_preview", "*.preview.bittensor.com"),
+            BUILD_ROOT_DIRECTORY,
+        )
+        self.assertEqual(
+            client.request.call_args_list[0].args,
+            ("GET", "/v9/projects/prj_preview"),
+        )
         self.assertEqual(
             client.paginated.call_args_list[0].args,
             ("/v10/projects/prj_preview/env", "envs", {"decrypt": "false"}),
@@ -92,7 +124,7 @@ class DocsPreviewVercelTests(unittest.TestCase):
             ("/v1/env", "data", {"projectId": "prj_preview"}),
         )
         self.assertEqual(
-            client.request.call_args.args,
+            client.request.call_args_list[1].args,
             (
                 "GET",
                 "/v9/projects/prj_preview/domains/%2A.preview.bittensor.com",
@@ -101,6 +133,7 @@ class DocsPreviewVercelTests(unittest.TestCase):
 
     def test_project_audit_rejects_secrets_without_logging_values(self):
         client = Mock()
+        client.request.return_value = self.secure_project()
         client.paginated.side_effect = [
             [{"key": "SECRET_VALUE", "value": "do-not-log", "target": ["preview"]}],
             [],
@@ -109,7 +142,7 @@ class DocsPreviewVercelTests(unittest.TestCase):
             audit_project(client, "prj_preview", "*.preview.bittensor.com")
         self.assertIn("SECRET_VALUE", str(context.exception))
         self.assertNotIn("do-not-log", str(context.exception))
-        client.request.assert_not_called()
+        self.assertEqual(client.request.call_count, 1)
 
     def test_project_audit_rejects_missing_or_unverified_wildcard(self):
         for response in (
@@ -120,13 +153,99 @@ class DocsPreviewVercelTests(unittest.TestCase):
             with self.subTest(response=response):
                 client = Mock()
                 client.paginated.side_effect = [[], []]
-                client.request.return_value = response
+                client.request.side_effect = [self.secure_project(), response]
                 with self.assertRaises(ApiError):
                     audit_project(
                         client,
                         "prj_preview",
                         "*.preview.bittensor.com",
                     )
+
+    def test_project_security_settings_fail_closed_on_credentials_and_links(self):
+        unsafe_projects = (
+            {**self.secure_project(), "autoExposeSystemEnvs": True},
+            {
+                **self.secure_project(),
+                "oidcTokenConfig": {"enabled": True, "issuerMode": "team"},
+            },
+            {
+                **self.secure_project(),
+                "protectionBypass": {
+                    "secret": {"scope": "automation-bypass", "isEnvVar": True}
+                },
+            },
+            {
+                **self.secure_project(),
+                "integrations": [
+                    {"installationId": "icfg_123", "resources": []}
+                ],
+            },
+            {**self.secure_project(), "rootDirectory": "other/application"},
+            {**self.secure_project(), "id": "prj_production"},
+        )
+        for project in unsafe_projects:
+            with self.subTest(project=project):
+                with self.assertRaises(ApiError):
+                    validate_project_security_settings(project, "prj_preview")
+
+        missing_system_policy = self.secure_project()
+        del missing_system_policy["autoExposeSystemEnvs"]
+        with self.assertRaises(ApiError):
+            validate_project_security_settings(
+                missing_system_policy,
+                "prj_preview",
+            )
+
+    def test_project_security_settings_accept_an_empty_remote_root(self):
+        self.assertEqual(
+            validate_project_security_settings(
+                self.secure_project(root_directory=None),
+                "prj_preview",
+            ),
+            ".",
+        )
+
+    @patch("docs_preview_vercel.VercelClient")
+    def test_audit_command_exports_only_the_validated_root_directory(
+        self,
+        client_type,
+    ):
+        client = client_type.return_value
+        client.request.side_effect = [
+            self.secure_project(),
+            {
+                "name": "*.preview.bittensor.com",
+                "verified": True,
+            },
+        ]
+        client.paginated.side_effect = [[], []]
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "github-output"
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_OUTPUT": str(output),
+                    "VERCEL_TOKEN": "token",
+                },
+                clear=False,
+            ):
+                result = main(
+                    [
+                        "--project-id",
+                        "prj_preview",
+                        "--team-id",
+                        "team_123",
+                        "audit-project",
+                        "--preview-domain",
+                        "*.preview.bittensor.com",
+                    ]
+                )
+            exported = output.read_text(encoding="utf-8")
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            exported,
+            f"root_directory={BUILD_ROOT_DIRECTORY}\n",
+        )
 
     def test_configuration_requires_distinct_valid_projects(self):
         validate_configuration(
@@ -161,7 +280,7 @@ class DocsPreviewVercelTests(unittest.TestCase):
         self.assertEqual(payload["projectId"], "prj_preview")
         self.assertEqual(
             payload["settings"]["rootDirectory"],
-            "website/apps/bittensor-website",
+            BUILD_ROOT_DIRECTORY,
         )
 
     def test_pagination_collects_every_page_and_rejects_cursor_loops(self):
@@ -236,13 +355,23 @@ class DocsPreviewVercelTests(unittest.TestCase):
         wrong_project = FakeClient(
             [{"uid": "alias_123", "projectId": "prj_production"}]
         )
-        with self.assertRaises(ApiError):
+        self.assertFalse(
             remove_alias(
                 wrong_project,
                 "prj_preview",
                 "pr-42.preview.bittensor.com",
             )
+        )
         self.assertEqual(len(wrong_project.calls), 1)
+
+        malformed = FakeClient([{"projectId": "prj_preview"}])
+        with self.assertRaises(ApiError):
+            remove_alias(
+                malformed,
+                "prj_preview",
+                "pr-42.preview.bittensor.com",
+            )
+        self.assertEqual(len(malformed.calls), 1)
 
     def test_selects_only_matching_obsolete_deployments(self):
         deployments = [
@@ -254,6 +383,35 @@ class DocsPreviewVercelTests(unittest.TestCase):
         self.assertEqual(
             deployment_ids_for_pr(deployments, "42", keep_deployment_id="keep"),
             ["old"],
+        )
+
+    def test_cleanup_uses_documented_list_and_delete_endpoints(self):
+        client = FakeClient(
+            [
+                {
+                    "deployments": [
+                        {"uid": "dpl_old123", "meta": {"docsPreviewPr": "42"}}
+                    ],
+                    "pagination": {"next": None},
+                },
+                {},
+            ]
+        )
+        self.assertEqual(
+            delete_pr_deployments(client, "prj_preview", "42"),
+            1,
+        )
+        self.assertEqual(
+            client.calls[0][0:3],
+            (
+                "GET",
+                "/v6/deployments",
+                {"projectId": "prj_preview", "limit": 100},
+            ),
+        )
+        self.assertEqual(
+            client.calls[1][0:2],
+            ("DELETE", "/v13/deployments/dpl_old123"),
         )
 
     def test_invalid_deployment_response_fails_closed(self):

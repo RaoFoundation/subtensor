@@ -1,8 +1,8 @@
 name: Request Docs Preview
 
 # Untrusted half of docs previews. This workflow runs pull-request code, so it
-# must remain secret-free. It only builds and uploads a bounded-lifetime
-# artifact for the default-branch workflow to validate.
+# must remain secret-free. It builds or requests reconciliation and uploads a
+# bounded-lifetime artifact for the default-branch workflow to validate.
 #
 # Repository variables used when previews are enabled (public identifiers, not
 # credentials). The jobs stay disabled until the dedicated preview ID exists:
@@ -13,15 +13,10 @@ name: Request Docs Preview
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    paths:
-      - "docs/**"
-      - "website/**"
-      - ".github/docs-preview-vercel/**"
-      - ".github/scripts/docs_preview_*.py"
-      - ".github/workflows/request-docs-preview.yml"
 
 permissions:
   contents: read
+  pull-requests: read
 
 # A close or newer commit cancels an in-flight build for the same PR.
 concurrency:
@@ -29,14 +24,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build PR docs preview (no secrets)
+  changes:
+    name: Detect docs-preview changes
     if: >
       github.event.action != 'closed' &&
       !github.event.pull_request.head.repo.fork &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.paths.outputs.result }}
+    steps:
+      - name: Inspect the complete pull-request file list
+        id: paths
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          result-encoding: string
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const relevant = files.length >= 3000 || files.some(({ filename }) =>
+              filename.startsWith("docs/") ||
+              filename.startsWith("website/") ||
+              filename.startsWith(".github/docs-preview-vercel/") ||
+              /^\.github\/scripts\/docs_preview_.*\.py$/.test(filename) ||
+              filename === ".github/workflows/request-docs-preview.yml"
+            );
+            return relevant ? "true" : "false";
+
+  build:
+    name: Build PR docs preview (no secrets)
+    needs: changes
+    if: >
+      needs.changes.outputs.relevant == 'true' &&
+      !github.event.pull_request.head.repo.fork &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       DOCS_DOMAIN: ${{ vars.DOCS_DOMAIN || 'bittensor.com' }}
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -114,13 +144,18 @@ jobs:
           retention-days: 1
 
   request-cleanup:
-    name: Request preview cleanup (no secrets)
-    if: >
-      github.event.action == 'closed' &&
+    name: Reconcile an obsolete or closed preview (no secrets)
+    needs: changes
+    if: >-
+      always() &&
+      (github.event.action == 'closed' ||
+       (needs.changes.result == 'success' &&
+        needs.changes.outputs.relevant == 'false')) &&
       !github.event.pull_request.head.repo.fork &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       vars.VERCEL_DOCS_PREVIEW_PROJECT_ID != ''
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Create cleanup marker
         env:

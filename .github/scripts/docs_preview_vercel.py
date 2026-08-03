@@ -22,6 +22,13 @@ IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 DOMAIN_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
 DEPLOYMENT_ID_PATTERN = re.compile(r"^dpl_[A-Za-z0-9]+$")
 DEPLOYMENT_URL_PATTERN = re.compile(r"^https://[A-Za-z0-9.-]+$")
+BUILD_ROOT_DIRECTORY = "website/apps/bittensor-website"
+SENSITIVE_SYSTEM_VARIABLES = frozenset(
+    {
+        "VERCEL_AUTOMATION_BYPASS_SECRET",
+        "VERCEL_OIDC_TOKEN",
+    }
+)
 
 
 class ApiError(RuntimeError):
@@ -161,7 +168,7 @@ def write_project_link(
             "installCommand": None,
             "buildCommand": None,
             "outputDirectory": None,
-            "rootDirectory": "website/apps/bittensor-website",
+            "rootDirectory": BUILD_ROOT_DIRECTORY,
             "directoryListing": False,
             "nodeVersion": "24.x",
         }
@@ -209,6 +216,14 @@ def unsafe_preview_variables(
                 unsafe.append(UnsafeEnvironmentVariable(source, "<invalid-response>"))
                 continue
             if variable.get("system") is True:
+                key = variable.get("key")
+                if not isinstance(key, str) or key in SENSITIVE_SYSTEM_VARIABLES:
+                    unsafe.append(
+                        UnsafeEnvironmentVariable(
+                            source,
+                            key if isinstance(key, str) and key else "<unnamed-system>",
+                        )
+                    )
                 continue
             if _targets_preview(variable.get("target")):
                 key = variable.get("key")
@@ -221,13 +236,50 @@ def unsafe_preview_variables(
     return sorted(unsafe, key=lambda item: (item.source, item.key))
 
 
+def validate_project_security_settings(project: object, project_id: str) -> str:
+    if not isinstance(project, dict) or project.get("id") != project_id:
+        raise ApiError("Vercel returned the wrong docs-preview project")
+    if project.get("autoExposeSystemEnvs") is not False:
+        raise ApiError(
+            "docs-preview project must disable automatic system environment variables"
+        )
+
+    oidc = project.get("oidcTokenConfig")
+    if oidc is not None and (
+        not isinstance(oidc, dict) or oidc.get("enabled") is not False
+    ):
+        raise ApiError("docs-preview project must disable OIDC token generation")
+
+    protection_bypass = project.get("protectionBypass")
+    if protection_bypass not in (None, {}):
+        raise ApiError("docs-preview project must not configure a protection bypass")
+
+    integrations = project.get("integrations")
+    if integrations not in (None, []):
+        raise ApiError("docs-preview project must not attach integrations or resources")
+
+    root_directory = project.get("rootDirectory")
+    if root_directory is None:
+        return "."
+    if root_directory != BUILD_ROOT_DIRECTORY:
+        raise ApiError(
+            "docs-preview project rootDirectory must be empty or "
+            f"{BUILD_ROOT_DIRECTORY}"
+        )
+    return root_directory
+
+
 def audit_project(
     client: VercelClient,
     project_id: str,
     preview_domain: str,
-) -> None:
+) -> str:
+    quoted_project_id = urllib.parse.quote(project_id, safe="")
+    project = client.request("GET", f"/v9/projects/{quoted_project_id}")
+    root_directory = validate_project_security_settings(project, project_id)
+
     project_path = "/v10/projects/{}/env".format(
-        urllib.parse.quote(project_id, safe="")
+        quoted_project_id
     )
     project_variables = client.paginated(project_path, "envs", {"decrypt": "false"})
     shared_variables = client.paginated(
@@ -258,6 +310,7 @@ def audit_project(
         raise ApiError(
             f"preview project must pre-provision and verify {preview_domain}"
         )
+    return root_directory
 
 
 def deployment_id_for_url(
@@ -311,10 +364,16 @@ def remove_alias(
     )
     if response is None:
         return False
-    alias_id = response.get("uid") if isinstance(response, dict) else None
-    alias_project_id = response.get("projectId") if isinstance(response, dict) else None
-    if not isinstance(alias_id, str) or not alias_id or alias_project_id != project_id:
-        raise ApiError("refusing to remove an alias outside the preview project")
+    if not isinstance(response, dict):
+        raise ApiError("Vercel returned an invalid alias response")
+    alias_project_id = response.get("projectId")
+    if not isinstance(alias_project_id, str) or not alias_project_id:
+        raise ApiError("Vercel alias response has no project ID")
+    if alias_project_id != project_id:
+        return False
+    alias_id = response.get("uid")
+    if not isinstance(alias_id, str) or not alias_id:
+        raise ApiError("Vercel alias response has no alias ID")
     client.request(
         "DELETE",
         f"/now/aliases/{urllib.parse.quote(alias_id, safe='')}",
@@ -360,7 +419,7 @@ def delete_pr_deployments(
     keep_deployment_id: Optional[str] = None,
 ) -> int:
     deployments = client.paginated(
-        "/v7/deployments",
+        "/v6/deployments",
         "deployments",
         {"projectId": project_id},
     )
@@ -453,7 +512,12 @@ def main(arguments: Optional[Iterable[str]] = None) -> int:
             raise ValueError("VERCEL_TOKEN is required")
         client = VercelClient(token, args.team_id)
         if args.command == "audit-project":
-            audit_project(client, args.project_id, args.preview_domain)
+            root_directory = audit_project(
+                client,
+                args.project_id,
+                args.preview_domain,
+            )
+            _write_output("root_directory", root_directory)
             print("Vercel preview project and domain satisfy the trusted boundary")
         elif args.command == "deployment-id":
             deployment_id = deployment_id_for_url(
@@ -470,7 +534,7 @@ def main(arguments: Optional[Iterable[str]] = None) -> int:
             print(
                 "Removed preview alias"
                 if removed
-                else "Preview alias was already absent"
+                else "No preview-project alias needed removal"
             )
         elif args.command == "delete-pr-deployments":
             count = delete_pr_deployments(
