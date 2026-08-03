@@ -320,11 +320,6 @@ class SubtensorModule:
         return Call('SubtensorModule', 'enable_voting_power_tracking', {'netuid': netuid})
 
     @staticmethod
-    def faucet(block_number: 'u64', nonce: 'u64', work: 'Any') -> Call:
-        'Facility extrinsic for user to get taken from faucet It is only available when pow-faucet feature enabled Just deployed in testnet and devnet for testing purpose'
-        return Call('SubtensorModule', 'faucet', {'block_number': block_number, 'nonce': nonce, 'work': work})
-
-    @staticmethod
     def increase_take(hotkey: 'AccountId32', take: 'PerU16') -> Call:
         "Allows delegates to increase its take value. This call is rate-limited.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The hotkey we are delegating (must be owned by the coldkey).  * `take`: The new stake proportion that this hotkey takes from delegations. The new value can be between 0 and 11_796 parts and should be strictly greater than the previous value. T is the new value (rational number), the the parameter is calculated as [65535 * T]. For example, 1% would be [0.01 * 65535] = [655.35] = 655  # Events * `TakeIncreased`: On successfully setting a increased take for this hotkey.  # Errors * `NotRegistered`: The hotkey we are delegating is not registered on the network.  * `NonAssociatedColdKey`: The hotkey we are delegating is not owned by the calling coldkey.  * `DelegateTakeTooHigh`: The delegate is setting a take which is not greater than the previous."
         return Call('SubtensorModule', 'increase_take', {'hotkey': hotkey, 'take': take})
