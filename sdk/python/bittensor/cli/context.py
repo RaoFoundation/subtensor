@@ -31,6 +31,8 @@ from ..result import (
     ErrorCode,
     ExtrinsicResult,
     PolicyError,
+    RpcConnectionError,
+    RpcPolicyError,
 )
 from ..settings import error_docs_url
 from ..signing import public_view
@@ -1017,6 +1019,23 @@ class AppContext:
             # — print them instead of the bare message.
             if isinstance(error, ChainError):
                 self.output.chain_error(error)
+            elif isinstance(error, RpcPolicyError):
+                retry = None
+                if error.retry_after:
+                    retry = (
+                        f"wait {error.retry_after} seconds, then retry"
+                        if error.retry_after.isdigit()
+                        else f"retry after {error.retry_after}"
+                    )
+                self.output.error(
+                    str(error),
+                    help=retry or "reduce the request or connection rate, then retry",
+                )
+            elif isinstance(error, RpcConnectionError):
+                self.output.error(
+                    f"could not reach {self.network}: {error}",
+                    help="check the endpoint and network connection, then retry",
+                )
             elif isinstance(error, PolicyError):
                 self.output.error(
                     str(error),
@@ -1053,7 +1072,8 @@ class AppContext:
             self.output.error(str(error))
             raise typer.Exit(1)
         except (ConnectionError, TimeoutError, OSError) as error:
-            self.output.error(f"could not reach {self.network}: {error}")
+            detail = str(error).strip() or "the connection timed out without a response"
+            self.output.error(f"could not reach {self.network}: {detail}")
             raise typer.Exit(1)
         except KeyboardInterrupt:
             self.output.message("aborted.")

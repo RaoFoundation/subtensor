@@ -1,9 +1,8 @@
 """JSON-RPC websocket session: correlation, subscriptions, reconnection.
 
 This module knows nothing about SCALE, metadata, or Substrate semantics beyond
-two things: JSON-RPC 2.0 framing (including batches and subscription
-notifications), and the node's "state already discarded" error shape, which is
-classified here so callers can retry against an archive node.
+JSON-RPC 2.0 framing, the node's "state already discarded" error shape, and
+deployment policy refusals that must be surfaced without retry amplification.
 
 Design:
 
@@ -19,8 +18,9 @@ Design:
   its queue instead.
 - Endpoint pool: the primary URL first, rotating through ``fallback_urls`` when
   an endpoint fails to connect or exhausts ``max_retries`` response timeouts.
-  With ``retry_forever`` the pool is cycled indefinitely, with a growing pause
-  between full cycles.
+  Explicit HTTP / JSON-RPC policy refusals are terminal. With ``retry_forever``
+  other failures cycle the pool indefinitely, with a growing pause between
+  full cycles.
 - The websocket connection itself is injectable (``connect_factory``) so tests
   drive the session against an in-process fake server.
 """
@@ -32,17 +32,32 @@ import contextlib
 import itertools
 import logging
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Protocol, Union
+from unicodedata import category as unicode_category
+from urllib.parse import urlsplit
 
 from websockets.asyncio.client import connect as ws_connect
-from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, InvalidStatus
 
-from .errors import MaxRetriesExceeded, StateDiscardedError, SubstrateRequestException
+from .errors import (
+    MaxRetriesExceeded,
+    RpcPolicyRejection,
+    StateDiscardedError,
+    SubstrateRequestException,
+)
 from .utils import json
 
 logger = logging.getLogger("bittensor.transport")
 raw_logger = logging.getLogger("bittensor.transport.raw_websocket")
 
 _STATE_DISCARDED_NEEDLE = "State already discarded for "
+_POLICY_RPC_ERROR_CODES = frozenset({-32004, -32005})
+_POLICY_RPC_METADATA_KEYS = frozenset(
+    {"policy", "reason", "retry_after", "retryAfter", "retry_after_ms", "retryAfterMs"}
+)
+_POLICY_RPC_ERROR_MESSAGES = {
+    -32004: frozenset({"storage work rate limit exceeded"}),
+}
+_HANDSHAKE_TIMEOUT = 10.0
 
 # Requests that must never be auto-resubmitted after a reconnect: a duplicate
 # submission can hit the pool as "already imported" while the original is
@@ -69,7 +84,119 @@ ConnectFactory = Callable[[str], Awaitable[WsConnection]]
 
 
 async def _default_connect(url: str) -> WsConnection:
-    return await asyncio.wait_for(ws_connect(url, max_size=2**32, write_limit=2**16), timeout=10.0)
+    try:
+        return await asyncio.wait_for(
+            ws_connect(url, max_size=2**32, write_limit=2**16),
+            timeout=_HANDSHAKE_TIMEOUT,
+        )
+    except InvalidStatus as error:
+        response = error.response
+        detail = _response_detail(response.body)
+        if response.status_code in (403, 429):
+            headers = response.headers
+            policy = _response_header(headers, "X-RateLimit-Policy")
+            reason = _response_header(headers, "X-RateLimit-Reason")
+            retry_after = _response_header(headers, "Retry-After") or _response_header(
+                headers, "X-RateLimit-Reset"
+            )
+            if response.status_code == 429:
+                message = "RPC endpoint rate limited this source (HTTP 429)"
+            else:
+                message = "RPC endpoint rejected this source under its access policy (HTTP 403)"
+            if detail:
+                message += f": {detail}"
+            qualifiers = [
+                value
+                for value in (
+                    f"policy={policy}" if policy else None,
+                    f"reason={reason}" if reason else None,
+                )
+                if value
+            ]
+            if qualifiers:
+                message += f" ({', '.join(qualifiers)})"
+            raise RpcPolicyRejection(
+                message,
+                status_code=response.status_code,
+                retry_after=retry_after,
+                policy=policy,
+                reason=reason,
+            ) from error
+        message = f"RPC endpoint rejected the WebSocket handshake (HTTP {response.status_code})"
+        if detail:
+            message += f": {detail}"
+        raise SubstrateRequestException(message) from error
+    except asyncio.TimeoutError as error:
+        raise TimeoutError(
+            f"no response during the WebSocket handshake with {_safe_endpoint(url)} "
+            f"after {_HANDSHAKE_TIMEOUT:.0f}s"
+        ) from error
+
+
+def _safe_endpoint(url: str) -> str:
+    """Render an endpoint without userinfo, path tokens, query params, or fragments."""
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+        if not parsed.scheme or not hostname:
+            return "the configured RPC endpoint"
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        return f"{parsed.scheme}://{host}{port}"
+    except ValueError:
+        return "the configured RPC endpoint"
+
+
+def _safe_diagnostic(value: str, *, limit: int) -> str:
+    """Bound server text and remove terminal control characters."""
+    clean = "".join(
+        (
+            " "
+            if ord(character) < 32
+            or 127 <= ord(character) <= 159
+            or unicode_category(character) == "Cf"
+            else character
+        )
+        for character in value
+    )
+    return " ".join(clean.split())[:limit]
+
+
+def _response_header(headers: Any, name: str) -> Optional[str]:
+    """Read one bounded header value without failing on duplicate fields."""
+    values = headers.get_all(name)
+    if not values:
+        return None
+    return _safe_diagnostic(str(values[0]), limit=200) or None
+
+
+def _response_detail(body: bytes | bytearray) -> str:
+    """Return a short, readable handshake response body for diagnostics."""
+    if not body:
+        return ""
+    text = bytes(body[:4096]).decode("utf-8", errors="replace").strip()
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        detail = text
+    else:
+        if isinstance(payload, dict):
+            detail = str(payload.get("error") or payload.get("message") or payload)
+        else:
+            detail = str(payload)
+    return _safe_diagnostic(detail, limit=500)
+
+
+def _is_policy_rpc_error(error: dict) -> bool:
+    """Match only the explicit gateway policy contract for provider-defined codes."""
+    code = error.get("code")
+    if not isinstance(code, int) or code not in _POLICY_RPC_ERROR_CODES:
+        return False
+    message = str(error.get("message", "")).strip().casefold()
+    if message in _POLICY_RPC_ERROR_MESSAGES.get(code, ()):
+        return True
+    data = error.get("data")
+    return isinstance(data, dict) and bool(_POLICY_RPC_METADATA_KEYS.intersection(data))
 
 
 def classify_rpc_error(error: dict) -> SubstrateRequestException:
@@ -80,7 +207,38 @@ def classify_rpc_error(error: dict) -> SubstrateRequestException:
         return StateDiscardedError(data.split(_STATE_DISCARDED_NEEDLE)[1].strip())
     if _STATE_DISCARDED_NEEDLE in message:
         return StateDiscardedError(message.split(_STATE_DISCARDED_NEEDLE)[1].strip())
+    if _is_policy_rpc_error(error):
+        payload = {"error": error}
+        detail = _safe_diagnostic(str(SubstrateRequestException(payload)), limit=500)
+        data = error.get("data")
+        retry_after = None
+        policy = None
+        reason = None
+        if isinstance(data, dict):
+            retry_after = data.get("retry_after") or data.get("retryAfter")
+            policy = data.get("policy")
+            reason = data.get("reason")
+        return RpcPolicyRejection(
+            f"RPC endpoint refused the request under its traffic policy: {detail}",
+            retry_after=(
+                _safe_diagnostic(str(retry_after), limit=200) if retry_after is not None else None
+            ),
+            policy=_safe_diagnostic(str(policy), limit=200) if policy is not None else None,
+            reason=_safe_diagnostic(str(reason), limit=200) if reason is not None else None,
+            payload=payload,
+        )
     return SubstrateRequestException({"error": error})
+
+
+def _policy_close_error(error: Exception) -> Optional[RpcPolicyRejection]:
+    """Classify RFC 6455 policy-violation closes without reconnecting."""
+    if not isinstance(error, ConnectionClosed) or error.rcvd is None or error.rcvd.code != 1008:
+        return None
+    detail = _safe_diagnostic(error.rcvd.reason, limit=500)
+    message = "RPC endpoint closed the connection for a policy violation (WebSocket 1008)"
+    if detail:
+        message += f": {detail}"
+    return RpcPolicyRejection(message, status_code=1008, reason=detail or None)
 
 
 class Subscription:
@@ -431,13 +589,16 @@ class RpcSession:
             len(self._subscriptions),
         )
         for sub in self._subscriptions.values():
-            sub._push(
-                SubstrateRequestException(
-                    "Connection lost while waiting for a subscription response "
-                    "(e.g. extrinsic finalization). The transaction may already be "
-                    "on chain — verify balances before retrying."
+            if isinstance(error, RpcPolicyRejection):
+                sub._push(error)
+            else:
+                sub._push(
+                    SubstrateRequestException(
+                        "Connection lost while waiting for a subscription response "
+                        "(e.g. extrinsic finalization). The transaction may already be "
+                        "on chain — verify balances before retrying."
+                    )
                 )
-            )
         self._subscriptions.clear()
 
     async def _run(self) -> None:
@@ -459,6 +620,10 @@ class RpcSession:
             self._ws = None
             if self._closing or isinstance(reason, ConnectionClosedOK):
                 return
+            policy_error = _policy_close_error(reason)
+            if policy_error is not None:
+                self._give_up(policy_error)
+                return
             # Any abnormal end: subscriptions die, plain requests survive.
             self._fail_subscriptions(reason)
             # Only *consecutive* failures count — any received frame resets
@@ -470,9 +635,14 @@ class RpcSession:
             if not self._retry_forever and self._consecutive_failures >= self._max_retries * len(
                 self._urls
             ):
-                self._give_up(MaxRetriesExceeded("Max retries exceeded."))
+                self._give_up(
+                    MaxRetriesExceeded(
+                        "RPC request failed after exhausting endpoint retries: "
+                        f"{_safe_diagnostic(str(reason), limit=500)}"
+                    )
+                )
                 return
-            logger.info(f"Connection to {self.url} lost ({reason!r}); reconnecting")
+            logger.info(f"Connection to {_safe_endpoint(self.url)} lost ({reason!r}); reconnecting")
             # Backoff between consecutive failures: keeps a connect-then-drop
             # endpoint from turning into a busy loop.
             await asyncio.sleep(min(0.25 * self._consecutive_failures, 5.0))
@@ -485,9 +655,17 @@ class RpcSession:
             for _ in range(len(self._urls)):
                 try:
                     return await self._connect(self.url)
+                except RpcPolicyRejection:
+                    # A policy response proves the endpoint is reachable and is
+                    # explicitly telling this source to stop. Retrying another
+                    # public endpoint can amplify the traffic that triggered it.
+                    raise
                 except Exception as error:
                     last_error = error
-                    logger.info(f"Could not connect to {self.url}: {type(error).__name__}: {error}")
+                    logger.info(
+                        f"Could not connect to {_safe_endpoint(self.url)}: "
+                        f"{type(error).__name__}: {error}"
+                    )
                     self._rotate_url()
             cycle += 1
             if not self._retry_forever:
@@ -503,7 +681,7 @@ class RpcSession:
         if len(self._urls) == 1:
             return
         self._url_index = (self._url_index + 1) % len(self._urls)
-        logger.info(f"Falling back to endpoint {self.url}")
+        logger.info(f"Falling back to endpoint {_safe_endpoint(self.url)}")
 
     async def _resubmit_pending(self) -> None:
         """Send every unanswered request's frame on the fresh connection.
@@ -558,7 +736,9 @@ class RpcSession:
                     # Idle silence is fine — including a legitimately quiet
                     # subscription; only an unanswered request times out.
                     continue
-                return TimeoutError(f"no response from {self.url} in {self._response_timeout}s")
+                return TimeoutError(
+                    f"no response from {_safe_endpoint(self.url)} in {self._response_timeout}s"
+                )
             except ConnectionClosedOK as error:
                 if self._pending or self._subscriptions:
                     # The server hung up mid-request: treat as abnormal.
