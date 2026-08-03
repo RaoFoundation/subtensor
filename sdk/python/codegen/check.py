@@ -92,10 +92,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "batch_set_weights",
         "batch_commit_weights",
         "batch_reveal_weights",
-        # PoW registration — out of scope by design (faucet is testnet-only;
-        # present on fast-runtime / localnet metadata, absent from finney)
+        # PoW registration — out of scope by design
         "register",
-        "faucet",
         # Direct basket deposit — agent surface still uses claim_root / stake
         # intents; reachable via raw compose until a dedicated intent lands
         "stake_into_basket",
