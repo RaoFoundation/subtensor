@@ -422,9 +422,23 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
         for name, ann, _ in specs:
             annotations[name] = ann
         wrapper.__annotations__ = annotations
+        # The tier marks which commands touch the local wallet (tx/unlock), so
+        # the generic prompt round (prompt.py) can confirm the wallet *first*.
+        wrapper.__btcli_tier__ = tier
         return wrapper
 
     return decorate
+
+
+def evm_key_signed(fn: Callable) -> Callable:
+    """Mark a tx-tier command as signing with a stored EVM key, not the wallet.
+
+    The generic prompt round confirms the signing wallet before a tx command's
+    own missing params; these commands don't sign with the wallet, so that
+    confirmation would only mislead.
+    """
+    fn.__btcli_wallet_signs__ = False
+    return fn
 
 
 # Read-only commands: no confirmation, unlocking, or signing options.

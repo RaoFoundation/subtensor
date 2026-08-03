@@ -220,6 +220,21 @@ impl<T: Config> Pallet<T> {
         Order: OrderT,
         BasicSwapStep<T, Order::PaidIn, Order::PaidOut>: SwapStep<T, Order::PaidIn, Order::PaidOut>,
     {
+        // Simulations on an initialized pool are pure reads: `maybe_initialize_palswap`
+        // early-returns, and the swap step only computes. Skip the transactional overlay,
+        // whose open/rollback cost dominates when valuation paths (basket NAV sweeps,
+        // RPC quotes) issue thousands of sim swaps per block. An uninitialized pool falls
+        // through to the transactional dry-run so its one-time init write still rolls back.
+        if simulate && PalSwapInitialized::<T>::get(netuid) {
+            return Self::ensure_swap_input_within_reserve_limit::<Order>(
+                netuid,
+                order.amount(),
+                drop_fees,
+            )
+            .and_then(|_| Self::swap_inner::<Order>(netuid, order, limit_price, drop_fees))
+            .map_err(Into::into);
+        }
+
         transactional::with_transaction(|| {
             let reserve = Order::ReserveOut::reserve(netuid.into());
 

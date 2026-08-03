@@ -88,7 +88,8 @@ pub trait WeightInfo {
 	fn commit_timelocked_weights() -> Weight;
 	fn set_coldkey_auto_stake_hotkey() -> Weight;
 	fn set_root_claim_type() -> Weight;
-	fn claim_root() -> Weight;
+	fn claim_root(h: u32, ) -> Weight;
+	fn claim_root_scan(h: u32, ) -> Weight;
 	fn sudo_set_num_root_claims() -> Weight;
 	fn sudo_set_root_claim_threshold() -> Weight;
 	fn set_auto_parent_delegation_enabled() -> Weight;
@@ -714,7 +715,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `9947`
 		// Minimum execution time: 145_000_000 picoseconds.
 		Weight::from_parts(153_000_000, 9947)
-			.saturating_add(T::DbWeight::get().reads(41_u64))
+			.saturating_add(T::DbWeight::get().reads(42_u64))
 			.saturating_add(T::DbWeight::get().writes(48_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -2160,7 +2161,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `9883`
 		// Minimum execution time: 143_000_000 picoseconds.
 		Weight::from_parts(148_000_000, 9883)
-			.saturating_add(T::DbWeight::get().reads(40_u64))
+			.saturating_add(T::DbWeight::get().reads(41_u64))
 			.saturating_add(T::DbWeight::get().writes(47_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -2740,7 +2741,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::RootClaimed` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimableThreshold` (r:1 w:0)
 	/// Proof: `SubtensorModule::RootClaimableThreshold` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn claim_root() -> Weight {
+	fn claim_root(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1969`
 		//  Estimated: `7909`
@@ -2748,6 +2749,15 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(70_000_000, 7909)
 			.saturating_add(T::DbWeight::get().reads(17_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_mul(h.into())
+	}
+	/// Per holding row a claim scans without redeeming: one `sim_swap` valuation plus
+	/// stake reads (no swap execution, no writes).
+	fn claim_root_scan(h: u32, ) -> Weight {
+		// Minimum execution time: 6_000_000 picoseconds.
+		Weight::from_parts(6_000_000, 1000)
+			.saturating_add(T::DbWeight::get().reads(3_u64))
+			.saturating_mul(h.into())
 	}
 	/// Storage: `SubtensorModule::NumRootClaim` (r:0 w:1)
 	/// Proof: `SubtensorModule::NumRootClaim` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -3434,7 +3444,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4545`
 		// Minimum execution time: 45_000_000 picoseconds.
 		Weight::from_parts(52_000_000, 4545)
-			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:1)
@@ -3457,7 +3467,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4545`
 		// Minimum execution time: 43_000_000 picoseconds.
 		Weight::from_parts(51_000_000, 4545)
-			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
 	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)
@@ -4328,7 +4338,7 @@ impl WeightInfo for () {
 		//  Estimated: `9947`
 		// Minimum execution time: 145_000_000 picoseconds.
 		Weight::from_parts(153_000_000, 9947)
-			.saturating_add(RocksDbWeight::get().reads(41_u64))
+			.saturating_add(RocksDbWeight::get().reads(42_u64))
 			.saturating_add(RocksDbWeight::get().writes(48_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -5774,7 +5784,7 @@ impl WeightInfo for () {
 		//  Estimated: `9883`
 		// Minimum execution time: 143_000_000 picoseconds.
 		Weight::from_parts(148_000_000, 9883)
-			.saturating_add(RocksDbWeight::get().reads(40_u64))
+			.saturating_add(RocksDbWeight::get().reads(41_u64))
 			.saturating_add(RocksDbWeight::get().writes(47_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
@@ -6354,7 +6364,7 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::RootClaimed` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::RootClaimableThreshold` (r:1 w:0)
 	/// Proof: `SubtensorModule::RootClaimableThreshold` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn claim_root() -> Weight {
+	fn claim_root(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1969`
 		//  Estimated: `7909`
@@ -6362,6 +6372,15 @@ impl WeightInfo for () {
 		Weight::from_parts(70_000_000, 7909)
 			.saturating_add(RocksDbWeight::get().reads(17_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_mul(h.into())
+	}
+	/// Per holding row a claim scans without redeeming: one `sim_swap` valuation plus
+	/// stake reads (no swap execution, no writes).
+	fn claim_root_scan(h: u32, ) -> Weight {
+		// Minimum execution time: 6_000_000 picoseconds.
+		Weight::from_parts(6_000_000, 1000)
+			.saturating_add(RocksDbWeight::get().reads(3_u64))
+			.saturating_mul(h.into())
 	}
 	/// Storage: `SubtensorModule::NumRootClaim` (r:0 w:1)
 	/// Proof: `SubtensorModule::NumRootClaim` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -7048,7 +7067,7 @@ impl WeightInfo for () {
 		//  Estimated: `4545`
 		// Minimum execution time: 45_000_000 picoseconds.
 		Weight::from_parts(52_000_000, 4545)
-			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:1)
@@ -7071,7 +7090,7 @@ impl WeightInfo for () {
 		//  Estimated: `4545`
 		// Minimum execution time: 43_000_000 picoseconds.
 		Weight::from_parts(51_000_000, 4545)
-			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}
 	/// Storage: `SubtensorModule::TransactionKeyLastBlock` (r:1 w:1)

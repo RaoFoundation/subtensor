@@ -111,6 +111,7 @@ pub trait WeightInfo {
 	fn sudo_set_tao_flow_cutoff() -> Weight;
 	fn sudo_set_tao_flow_normalization_exponent() -> Weight;
 	fn sudo_set_emission_bar_quantile() -> Weight;
+	fn sudo_set_emission_bar_rank() -> Weight;
 	fn sudo_set_emission_gate_exponent() -> Weight;
 	fn sudo_set_tao_flow_smoothing_factor() -> Weight;
 	fn sudo_set_net_tao_flow_enabled() -> Weight;
@@ -1325,6 +1326,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `SubtensorModule::EmissionBarQuantile` (r:0 w:1)
 	/// Proof: `SubtensorModule::EmissionBarQuantile` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn sudo_set_emission_bar_quantile() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_000_000 picoseconds.
+		Weight::from_parts(2_000_000, 0)
+			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::EmissionGateBar` (r:0 w:1)
+	/// Proof: `SubtensorModule::EmissionGateBar` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::EmissionBarRank` (r:0 w:1)
+	/// Proof: `SubtensorModule::EmissionBarRank` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_emission_bar_rank() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
@@ -2698,6 +2711,18 @@ impl WeightInfo for () {
 	/// Storage: `SubtensorModule::EmissionBarQuantile` (r:0 w:1)
 	/// Proof: `SubtensorModule::EmissionBarQuantile` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn sudo_set_emission_bar_quantile() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Minimum execution time: 1_000_000 picoseconds.
+		Weight::from_parts(2_000_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::EmissionGateBar` (r:0 w:1)
+	/// Proof: `SubtensorModule::EmissionGateBar` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::EmissionBarRank` (r:0 w:1)
+	/// Proof: `SubtensorModule::EmissionBarRank` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_emission_bar_rank() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`

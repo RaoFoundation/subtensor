@@ -58,14 +58,14 @@ from .proxy import (
 from .registration import (
     BurnedRegister,
     ClaimRoot,
+    ClaimRootWithHotkey,
     RegisterSubnet,
     RootRegister,
-    SetRootClaimType,
     StartCall,
     SwapHotkey,
 )
 from .registry import REGISTRY, build, list_tools, register
-from .root import SetSubnetEmissionEnabled
+from .root import SetRootClaimThreshold, SetSubnetEmissionEnabled
 from .serving import ResetAxon, ServeAxon, ServeAxonTls, ServePrometheus
 from .staking import (
     AddStake,
@@ -80,7 +80,7 @@ from .staking import (
     UnstakeAllAlpha,
 )
 from .transfer import Transfer, TransferAll
-from .weights import CommitWeights, RevealWeights, SetWeights, normalize
+from .weights import CommitWeights, RevealWeights, SetRootWeights, SetWeights, normalize
 
 __all__ = [
     "ALL",
@@ -98,6 +98,7 @@ __all__ = [
     "Batch",
     "BurnedRegister",
     "ClaimRoot",
+    "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",
     "CommitWeights",
     "ContributeCrowdloan",
@@ -147,7 +148,8 @@ __all__ = [
     "SetMechanismCount",
     "SetMinCollateral",
     "SetPerpetualLock",
-    "SetRootClaimType",
+    "SetRootClaimThreshold",
+    "SetRootWeights",
     "SetSubnetEmissionEnabled",
     "SetSubnetIdentity",
     "SetTake",

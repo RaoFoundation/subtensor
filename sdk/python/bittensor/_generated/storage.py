@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 440
+Spec version: 441
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -102,6 +102,9 @@ class SubtensorModule:
     ParentKeys = Item('SubtensorModule', 'ParentKeys', 'Vec<(u64, AccountId32)>')
     AlphaDividendsPerSubnet = Item('SubtensorModule', 'AlphaDividendsPerSubnet', 'AlphaBalance')
     RootAlphaDividendsPerSubnet = Item('SubtensorModule', 'RootAlphaDividendsPerSubnet', 'AlphaBalance')
+    DeferredRootAlphaDividends = Item('SubtensorModule', 'DeferredRootAlphaDividends', 'AlphaBalance')
+    PendingBasketDeposits = Item('SubtensorModule', 'PendingBasketDeposits', 'AlphaBalance')
+    PendingBasketFlushCursor = Item('SubtensorModule', 'PendingBasketFlushCursor', 'Vec<u8>')
     BlockEmission = Item('SubtensorModule', 'BlockEmission', 'u64')
     LastHotkeyEmissionOnNetuid = Item('SubtensorModule', 'LastHotkeyEmissionOnNetuid', 'AlphaBalance')
     SubnetLimit = Item('SubtensorModule', 'SubnetLimit', 'u16')
@@ -156,6 +159,7 @@ class SubtensorModule:
     TaoFlowCutoff = Item('SubtensorModule', 'TaoFlowCutoff', 'FixedI128')
     FlowNormExponent = Item('SubtensorModule', 'FlowNormExponent', 'FixedU128')
     EmissionBarQuantile = Item('SubtensorModule', 'EmissionBarQuantile', 'FixedU128')
+    EmissionBarRank = Item('SubtensorModule', 'EmissionBarRank', 'u16')
     EmissionGateExponent = Item('SubtensorModule', 'EmissionGateExponent', 'FixedU128')
     EmissionGateBar = Item('SubtensorModule', 'EmissionGateBar', 'FixedU128')
     FlowEmaSmoothingFactor = Item('SubtensorModule', 'FlowEmaSmoothingFactor', 'u64')
@@ -283,14 +287,19 @@ class SubtensorModule:
     CRV3WeightCommitsV2 = Item('SubtensorModule', 'CRV3WeightCommitsV2', 'Vec<(AccountId32, u64, BoundedVec, u64)>')
     RevealPeriodEpochs = Item('SubtensorModule', 'RevealPeriodEpochs', 'u64')
     LastColdkeyHotkeyStakeBlock = Item('SubtensorModule', 'LastColdkeyHotkeyStakeBlock', 'u64')
+    RootStakeUnlockInterval = Item('SubtensorModule', 'RootStakeUnlockInterval', 'u64')
+    RootWeightSettingEnabled = Item('SubtensorModule', 'RootWeightSettingEnabled', 'bool')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')
     RootClaimed = Item('SubtensorModule', 'RootClaimed', 'u128')
-    RootClaimType = Item('SubtensorModule', 'RootClaimType', 'RootClaimTypeEnum')
+    BasketShares = Item('SubtensorModule', 'BasketShares', 'u64')
+    BasketRate = Item('SubtensorModule', 'BasketRate', 'FixedI128')
+    BasketClaimed = Item('SubtensorModule', 'BasketClaimed', 'i128')
+    BasketDepositedTao = Item('SubtensorModule', 'BasketDepositedTao', 'TaoBalance')
+    BasketRedeemedTao = Item('SubtensorModule', 'BasketRedeemedTao', 'TaoBalance')
     StakingColdkeysByIndex = Item('SubtensorModule', 'StakingColdkeysByIndex', 'AccountId32')
     StakingColdkeys = Item('SubtensorModule', 'StakingColdkeys', 'u64')
     NumStakingColdkeys = Item('SubtensorModule', 'NumStakingColdkeys', 'u64')
-    NumRootClaim = Item('SubtensorModule', 'NumRootClaim', 'u64')
     AssociatedEvmAddress = Item('SubtensorModule', 'AssociatedEvmAddress', '(H160, u64)')
     AssociatedUidsByEvmAddress = Item('SubtensorModule', 'AssociatedUidsByEvmAddress', 'BoundedVec')
     SubnetLeases = Item('SubtensorModule', 'SubnetLeases', 'SubnetLease')

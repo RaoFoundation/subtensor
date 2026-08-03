@@ -10,16 +10,6 @@ from ._money import UNBOUNDED, Spend
 from .base import Intent
 from .registry import register
 
-# Variants of the runtime's RootClaimTypeEnum (subtensor/pallets/subtensor/src/lib.rs).
-ROOT_CLAIM_TYPES = ("Swap", "Keep", "KeepSubnets")
-
-ROOT_CLAIM_TYPE_HELP = (
-    "How root alpha emission is claimed. One of: "
-    + ", ".join(ROOT_CLAIM_TYPES)
-    + ". Swap converts all alpha emission to TAO, Keep keeps everything as alpha, "
-    "KeepSubnets keeps alpha only on the subnets given via --subnets and swaps the rest."
-)
-
 
 @register
 @dataclass
@@ -160,18 +150,23 @@ class RootRegister(Intent):
 
     Joins the hotkey to the root network, the TAO staking pool (netuid 0 has
     no miners and no alpha; validators register here to receive root stake).
-    Placement is stake-based rather than burn-based: root slots are limited, so
-    joining a full root network evicts the member with the least stake, and a
-    hotkey without enough stake behind it will not hold a seat. Root
-    registrations are also capped per block (``max_registrations_per_block``)
-    and per interval (three times ``target_registrations_per_interval``);
-    hitting either cap fails until the window passes. Use
-    ``burned_register`` for ordinary subnets.
+    Admission is burn-based, like subnet registration: the coldkey pays the
+    root burn price (recycled out of issuance, demand-priced — each
+    registration bumps it and it decays back toward the floor). No prior
+    stake is required, but root slots are limited: joining a full root
+    network evicts the member with the least stake, so a seat is only held
+    by keeping stake behind the hotkey. Root registrations are also capped
+    per block (``max_registrations_per_block``) and per interval (three
+    times ``target_registrations_per_interval``); hitting either cap fails
+    until the window passes. Use ``burned_register`` for ordinary subnets.
     """
 
     op = "root_register"
     signer = "coldkey"
     wraps = (("SubtensorModule", "root_register"),)
+    # Docs: the friendly path is the ordinary subnet register command, which
+    # routes netuid 0 here.
+    cli_example = "btcli subnets register --netuid 0"
 
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -194,17 +189,17 @@ class RootRegister(Intent):
 @register
 @dataclass
 class ClaimRoot(Intent):
-    """Claim accumulated root dividends from one or more subnets.
+    """Redeem accrued root dividends across every validator for the coldkey.
 
-    Pays out the signing coldkey's accrued root-stake dividends from the listed
-    subnets. What the payout looks like depends on the coldkey's root claim
-    type (see ``set_root_claim_type``): swapped to TAO, kept as subnet alpha,
-    or a per-subnet mix. At most 5 subnets per call — an empty or longer list
-    fails with ``InvalidSubnetNumber``. Subnets whose accrued dividends are
-    below the per-subnet claim threshold (default 500,000 rao; adjustable by
-    the subnet owner or root) are silently skipped while the transaction
-    still succeeds. Unclaimed dividends simply keep accruing — there is no
-    deadline — but each call pays out only the subnets listed.
+    Root dividends accrue as shares of each validator's basket — an
+    escrowed index fund of subnet alpha the chain builds from the validator's
+    root dividends per its root weights (see ``set_root_weights``). This call
+    redeems the signing coldkey's owed shares on every validator it
+    root-stakes to. The ``subnets`` argument is retained for call-data
+    compatibility with pre-basket clients and is ignored — baskets have no
+    per-subnet claim selection.
+
+    Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
     """
 
     op = "claim_root"
@@ -212,66 +207,55 @@ class ClaimRoot(Intent):
     wraps = (("SubtensorModule", "claim_root"),)
 
     subnets: list[int] = field(
-        metadata={"help": "Netuids to claim accumulated root dividends from; at most 5 per call."}
+        default_factory=lambda: [0],
+        metadata={
+            "help": "Ignored (kept for old-client call-data compatibility). "
+            "Pass any non-empty netuid list; baskets claim fund-level."
+        },
     )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(
-            calls.SubtensorModule.claim_root(subnets=[int(n) for n in self.subnets])
-        )
+        return await substrate.compose(calls.SubtensorModule.claim_root(subnets=self.subnets))
 
     def summary(self) -> str:
-        return f"claim root dividends from subnets {self.subnets}"
+        return "claim root dividends on all validators (redeem basket shares to root stake)"
 
 
 @register
 @dataclass
-class SetRootClaimType(Intent):
-    """Set how a coldkey's root alpha emission is claimed.
+class ClaimRootWithHotkey(Intent):
+    """Redeem accrued root dividends (basket shares) for one validator.
 
-    Controls what happens to root dividends when they are claimed (see
-    ``claim_root``): ``Swap`` converts all alpha emission to TAO (the chain
-    default), ``Keep`` keeps everything as subnet alpha, and ``KeepSubnets``
-    keeps alpha on the listed ``subnets`` while swapping the rest. The setting
-    is per-coldkey and persists until changed again; it does not move anything
-    already claimed. Read it back with the ``root_claim_type`` read.
+    Redeems the signing coldkey's owed shares on the given validator only:
+    that basket pays out pro-rata (subnet alpha holdings are sold to TAO at
+    the current pool price) and the proceeds are staked back to root on the
+    same validator. Other validators' accrued yield is left untouched.
+    Claims whose estimated payout is below the chain's claim threshold
+    (see ``root_claim_threshold``) are silently skipped and keep accruing.
+    Orphaned dust holdings in the basket (subnets outside the validator's
+    current weight vector, worth less than the same threshold) are
+    consolidated into the fund's root (TAO) slot as a side effect, so the
+    per-holding claim fee shrinks over time; curated positions are left to
+    compound. The transaction fee is charged by work actually done:
+    holdings redeemed pay full weight, holdings merely scanned pay a small
+    per-row cost.
+    Preview per-validator payouts with ``root_basket_owed_breakdown``.
     """
 
-    op = "set_root_claim_type"
+    op = "claim_root_with_hotkey"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "set_root_claim_type"),)
+    wraps = (("SubtensorModule", "claim_root_with_hotkey"),)
 
-    claim_type: str = field(default="Swap", metadata={"help": ROOT_CLAIM_TYPE_HELP})
-    subnets: Optional[list] = field(
-        default=None,
-        metadata={"help": "Netuids to keep alpha on; required for KeepSubnets, invalid otherwise."},
+    hotkey_ss58: str = field(
+        metadata={"help": "Validator whose accrued basket yield to claim."},
     )
 
-    def __post_init__(self):
-        if self.claim_type not in ROOT_CLAIM_TYPES:
-            raise ValueError(
-                f"claim_type must be one of {ROOT_CLAIM_TYPES}, got {self.claim_type!r}"
-            )
-        if self.claim_type == "KeepSubnets" and not self.subnets:
-            raise ValueError("claim_type 'KeepSubnets' requires a non-empty subnets list")
-        if self.claim_type != "KeepSubnets" and self.subnets:
-            raise ValueError(
-                f"subnets is only valid for claim_type 'KeepSubnets', not {self.claim_type!r}"
-            )
-
     async def build(self, substrate, wallet: Any):
-        if self.claim_type == "KeepSubnets":
-            value: Any = {"KeepSubnets": {"subnets": sorted({int(n) for n in self.subnets})}}
-        else:
-            value = self.claim_type
-        return await substrate.compose(
-            calls.SubtensorModule.set_root_claim_type(new_root_claim_type=value)
-        )
+        hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        return await substrate.compose(calls.SubtensorModule.claim_root_with_hotkey(hotkey=hotkey))
 
     def summary(self) -> str:
-        if self.claim_type == "KeepSubnets":
-            return f"set root claim type to keep alpha on subnets {sorted(self.subnets)}"
-        return f"set root claim type to {self.claim_type}"
+        return f"claim root dividends on {self.hotkey_ss58} (redeem basket shares to root stake)"
 
 
 @register

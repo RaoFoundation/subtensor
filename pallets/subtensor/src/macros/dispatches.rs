@@ -12,11 +12,8 @@ mod dispatches {
     use sp_runtime::{Percent, Saturating, traits::Hash};
 
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
-    use crate::MAX_NUM_ROOT_CLAIMS;
-    use crate::MAX_ROOT_CLAIM_HOTKEYS;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
-    use crate::MAX_SUBNET_CLAIMS;
-
+    use crate::MAX_ROOT_CLAIM_WORK;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
     /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
@@ -80,6 +77,26 @@ mod dispatches {
             } else {
                 Self::do_set_weights(origin, netuid, dests, weights, version_key)
             }
+        }
+
+        /// --- Sets a root validator's basket distribution vector `w` on the root subnet
+        /// (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the
+        /// validator's root dividends to deploy into each subnet's alpha basket.
+        /// Requires at least [`crate::MIN_ROOT_BASKET_WEIGHTS`] positive destinations
+        /// (softened when fewer networks exist).
+        ///
+        /// # Args:
+        /// * `origin`: the root validator hotkey.
+        /// * `dests` (Vec<u16>): destination subnet netuids.
+        /// * `weights` (Vec<u16>): per-subnet weights (normalized on use).
+        #[pallet::call_index(146)]
+        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]
+        pub fn set_root_weights(
+            origin: OriginFor<T>,
+            dests: Vec<u16>,
+            weights: Vec<u16>,
+        ) -> DispatchResult {
+            Self::do_set_root_weights(origin, dests, weights)
         }
 
         /// Sets the caller weights for the incentive mechanism for mechanisms. The call
@@ -806,7 +823,12 @@ mod dispatches {
             Self::do_register(origin, netuid, hotkey)
         }
 
-        /// Register the hotkey to root network
+        /// Register the hotkey to root network.
+        ///
+        /// Admission is burn-based: the coldkey pays the root burn price
+        /// (demand-priced like subnet registration), recycled out of issuance.
+        /// No prior stake is required. When the network is full, the
+        /// lowest-staked member is pruned to make room.
         #[pallet::call_index(62)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
         pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
@@ -836,7 +858,7 @@ mod dispatches {
         )]
         #[pallet::call_index(70)]
         #[pallet::weight((
-            <T as crate::pallet::Config>::WeightInfo::swap_hotkey(),
+            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(&hotkey, &netuid, false),
             DispatchClass::Normal,
             Pays::Yes
         ))]
@@ -863,7 +885,7 @@ mod dispatches {
         #[allow(unknown_lints, benchmarked_weight_not_plugged)]
         #[pallet::call_index(72)]
         #[pallet::weight((
-            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(netuid, *keep_stake),
+            crate::Pallet::<T>::swap_hotkey_v2_dispatch_weight(&hotkey, &netuid, *keep_stake),
             DispatchClass::Normal,
             Pays::Yes
         ))]
@@ -1038,6 +1060,7 @@ mod dispatches {
             netuid: NetUid,
         ) -> DispatchResult {
             ensure_root(origin)?;
+            Self::ensure_beta_basket_seed_idle()?;
             Self::do_dissolve_network(netuid)
         }
 
@@ -1875,96 +1898,128 @@ mod dispatches {
         #[pallet::weight(<T as Config>::WeightInfo::root_dissolve_network())]
         pub fn root_dissolve_network(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
             ensure_root(origin)?;
+            Self::ensure_beta_basket_seed_idle()?;
             Self::do_dissolve_network(netuid)
         }
 
-        /// Claims the root emissions for a coldkey.
+        /// Claims the root emissions for a coldkey across every validator it root-stakes to.
+        ///
+        /// Redemption is fund-level: for each validator, the staker's accrued entitlement is
+        /// redeemed as their pro-rata fraction of that basket (sold to TAO and staked on root).
+        /// The `subnets` argument is retained for call-data compatibility with pre-basket
+        /// clients; it is ignored — baskets have no per-subnet claim selection.
+        ///
+        /// Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
+        /// * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.
         ///
         /// # Events
-        /// * `RootClaimed`: On the successfully claiming the root emissions for a coldkey.
-        ///
-        /// # Errors
-        /// * `InvalidSubnetNumber`: The subnet set is empty or exceeds the maximum number of claims.
-        /// * `TooManyRootClaimHotkeys`: The coldkey's hotkey fanout exceeds one claim's bound.
-        ///
+        /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
         #[pallet::call_index(121)]
-        // The benchmark covers one hotkey and one subnet. Manual claims bound both
-        // dimensions below and refund unused weight after execution.
+        // Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]; actual work
+        // is measured and refunded post-dispatch (fat coldkeys may exceed the reservation).
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root()
-                .saturating_mul(MAX_ROOT_CLAIM_HOTKEYS as u64)
-                .saturating_mul(MAX_SUBNET_CLAIMS as u64)
+            <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
         )]
         pub fn claim_root(
             origin: OriginFor<T>,
             subnets: BTreeSet<NetUid>,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
+            let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
-            ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
-            ensure!(
-                subnets.len() <= MAX_SUBNET_CLAIMS,
-                Error::<T>::InvalidSubnetNumber
-            );
-
-            let hotkey_count = StakingHotkeys::<T>::decode_len(&coldkey).unwrap_or_default();
-            ensure!(
-                hotkey_count <= MAX_ROOT_CLAIM_HOTKEYS,
-                Error::<T>::TooManyRootClaimHotkeys
-            );
-
+            let hotkeys = StakingHotkeys::<T>::get(&coldkey);
+            let hotkey_count = hotkeys.len() as u32;
+            let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = T::DbWeight::get()
-                .reads(1)
-                .saturating_add(Self::do_root_claim(coldkey, Some(subnets))?);
+            let weight = Self::root_claim_actual_weight(hotkey_count, &outcome);
             Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// Sets the root claim type for the coldkey.
+        /// Claims the root emissions for a coldkey on one validator hotkey.
+        ///
+        /// Redemption is fund-level for that validator: the staker's accrued entitlement is
+        /// redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked
+        /// on root). Other validators' accrued yield is left untouched.
+        ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
+        /// * `hotkey`: The validator whose basket entitlement to redeem.
         ///
         /// # Events
-        /// * `RootClaimTypeSet`: On the successfully setting the root claim type for the coldkey.
-        ///
-        #[pallet::call_index(122)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_root_claim_type())]
-        pub fn set_root_claim_type(
+        /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
+        #[pallet::call_index(148)]
+        #[pallet::weight(
+            <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+        )]
+        pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,
-            new_root_claim_type: RootClaimTypeEnum,
-        ) -> DispatchResult {
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
 
-            if let RootClaimTypeEnum::KeepSubnets { subnets } = &new_root_claim_type {
-                ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
-            }
-
+            let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            Self::change_root_claim_type(&coldkey, new_root_claim_type);
-            Ok(())
+            let weight = Self::root_claim_actual_weight(1, &outcome);
+            Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// Sets root claim number (sudo extrinsic). Zero disables auto-claim.
-        #[pallet::call_index(123)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_num_root_claims())]
-        pub fn sudo_set_num_root_claims(origin: OriginFor<T>, new_value: u64) -> DispatchResult {
-            ensure_root(origin)?;
-
-            ensure!(
-                new_value <= MAX_NUM_ROOT_CLAIMS,
-                Error::<T>::InvalidNumRootClaim
-            );
-
-            NumRootClaim::<T>::set(new_value);
-
-            Ok(())
+        /// Stakes TAO from the caller's balance directly into a validator's basket.
+        ///
+        /// The TAO is deployed across subnets per the validator's root weight vector
+        /// (exactly like a dividend deposit) and the caller is credited a fund
+        /// entitlement at the fund's pre-buy realizable NAV, priced against the
+        /// realizable value the deposit added — the depositor bears their own entry
+        /// slippage and swap fees. An uncurated fund (no usable weight vector) is
+        /// mirrored instead: the deposit deploys pro-rata across the fund's current
+        /// holdings by realizable value, keeping deposits symmetric with claims (which
+        /// redeem pro-rata of every holding); a deposit into an empty uncurated fund is
+        /// held as the fund's root (TAO cash) slot. The credited entitlement is
+        /// redeemable through [`Pallet::claim_root_with_hotkey`] (or coldkey-wide
+        /// [`Pallet::claim_root`]); it does not require or affect root stake, and it
+        /// does not change any staker's dividend accrual.
+        ///
+        /// # Arguments
+        /// * `origin`: The signature of the caller's coldkey.
+        /// * `hotkey`: The validator whose basket to deposit into.
+        /// * `amount_staked`: TAO to take from the caller's balance and deploy.
+        ///
+        /// # Events
+        /// * `BasketStakedIn`: On success, with the TAO taken, the realizable value added,
+        ///   and the entitlement credited.
+        ///
+        /// # Errors
+        /// * `HotKeyAccountNotExists`: The hotkey is not a registered account.
+        /// * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value
+        ///   rounds to zero entitlement.
+        /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.
+        #[pallet::call_index(147)]
+        // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
+        // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
+        // sim-swap valuations); the actual weight is computed in `do_stake_into_basket`
+        // from the real slot and holding counts and refunded post-dispatch, mirroring
+        // `claim_root`.
+        #[pallet::weight((Pallet::<T>::stake_into_basket_weight(128, 256), DispatchClass::Normal, Pays::Yes))]
+        pub fn stake_into_basket(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            amount_staked: TaoBalance,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey = ensure_signed(origin)?;
+            let weight = Self::do_stake_into_basket(coldkey, hotkey, amount_staked)?;
+            Ok((Some(weight), Pays::Yes).into())
         }
 
-        /// Sets root claim threshold for subnet (sudo or owner origin).
+        // Call indices 122 (`set_root_claim_type`) and 123 (`sudo_set_num_root_claims`) are
+        // retired: basket redemption is always a full swap to root TAO (no per-coldkey claim
+        // type), and there is no auto-claim scheduler to configure. Do not reuse these indices.
+
+        /// --- Sets the root claim dust threshold (sudo). Basket redemption is fund-level, so
+        /// only the `NetUid::ROOT` entry is meaningful; other netuids are rejected.
         #[pallet::call_index(124)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_root_claim_threshold())]
         pub fn sudo_set_root_claim_threshold(
@@ -1973,7 +2028,10 @@ mod dispatches {
             new_value: u64,
         ) -> DispatchResult {
             Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+
+            // Claims only ever consult the ROOT entry; accepting other netuids would silently
+            // store an inert value.
+            ensure!(netuid.is_root(), Error::<T>::InvalidRootClaimThreshold);
 
             ensure!(
                 new_value <= I96F32::from(MAX_ROOT_CLAIM_THRESHOLD),

@@ -208,6 +208,13 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // A registration that needs to prune must fail as a registration before it locks funds
+        // or mutates either network. During the seed, removing the old subnet would stop its
+        // epochs and strand the deferred PendingRootAlphaDivs backlog.
+        if prune_netuid.is_some() {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // --- 6. Calculate and lock the required tokens.
         let lock_amount = Self::get_network_lock_cost();
         log::debug!("network lock_amount: {lock_amount:?}");

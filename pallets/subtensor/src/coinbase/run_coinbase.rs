@@ -389,7 +389,6 @@ impl<T: Config> Pallet<T> {
         // by setting `PendingEpochAt`.
         let max_epochs_per_block = Self::get_max_epochs_per_block() as u32;
         let mut epochs_run_this_block: u32 = 0;
-
         for &netuid in subnets.iter() {
             // Keep the scheduler age bounded per subnet. `tempo + 1` is enough to
             // record that a due epoch missed its slot while avoiding an unbounded
@@ -430,7 +429,9 @@ impl<T: Config> Pallet<T> {
                 let pending_validator_alpha = PendingValidatorEmission::<T>::get(netuid);
                 PendingValidatorEmission::<T>::insert(netuid, AlphaBalance::ZERO);
 
-                // Get and drain the pending Alpha for root divs.
+                // Always drain root dividends into the epoch that earned them. While the basket
+                // seed owns the destination maps, the resulting per-hotkey credits are deferred
+                // below instead of aggregating this amount for a later validator distribution.
                 let pending_root_alpha = PendingRootAlphaDivs::<T>::get(netuid);
                 PendingRootAlphaDivs::<T>::insert(netuid, AlphaBalance::ZERO);
 
@@ -571,8 +572,19 @@ impl<T: Config> Pallet<T> {
                 // Get hotkey TAO on root.
                 let root_stake = asfloat!(root_stake);
 
-                // Convert TAO to alpha with weight.
-                let root_alpha = root_stake.saturating_mul(tao_weight);
+                // Root dividends are restricted to hotkeys actively registered on the root
+                // network (holders of one of the root subnet's UIDs). Root stake delegated
+                // to an unregistered validator carries no dividend weight: the validator's
+                // whole epoch dividend flows to its alpha stakers instead, and the subnet's
+                // root allocation redistributes across the registered validators. This also
+                // caps the basket-fund population (and the pending-deposit queue) at the
+                // root UID table instead of every staked validator network-wide.
+                let root_alpha = if Uids::<T>::contains_key(NetUid::ROOT, &hotkey) {
+                    // Convert TAO to alpha with weight.
+                    root_stake.saturating_mul(tao_weight)
+                } else {
+                    zero
+                };
                 // Get total from root and local
                 let total_alpha = alpha_stake.saturating_add(root_alpha);
                 // Compute root prop.
@@ -823,6 +835,29 @@ impl<T: Config> Pallet<T> {
         // Distribute root alpha divs. Same ownership rule: full root emission
         // for release/earned; only validator take is capturable.
         let _ = RootAlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
+
+        // Once the seed no longer owns BasketRate/Shares, release credits using the hotkeys to
+        // which their original epochs assigned them. Root stake and basket mutations stay gated
+        // until this ledger is empty, so the claimant base is unchanged while credits wait.
+        // Credits move into the pending-deposit queue rather than depositing inline, so the
+        // post-migration backlog drains one hotkey per block instead of spiking this
+        // epoch's block.
+        if !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
+            for (hotkey, root_claimable_alpha) in
+                DeferredRootAlphaDividends::<T>::drain_prefix(netuid)
+            {
+                if root_claimable_alpha.is_zero() {
+                    continue;
+                }
+                Self::enqueue_basket_deposit(&hotkey, netuid, root_claimable_alpha);
+                RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
+                    *divs = divs.saturating_add(root_claimable_alpha);
+                });
+            }
+        }
+
+        let seed_in_progress =
+            crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
         for (hotkey, root_alpha) in root_alpha_dividends {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
             let total: AlphaBalance = tou64!(root_alpha).into();
@@ -844,11 +879,21 @@ impl<T: Config> Pallet<T> {
 
             let root_claimable_alpha: AlphaBalance = tou64!(root_claimable).into();
             if !root_claimable_alpha.is_zero() {
-                Self::increase_root_claimable_for_hotkey_and_subnet(
-                    &hotkey,
-                    netuid,
-                    root_claimable_alpha,
-                );
+                if seed_in_progress {
+                    // Preserve this epoch's recipient while the migration owns the live basket
+                    // maps. Repeated epochs accumulate only for the same hotkey.
+                    DeferredRootAlphaDividends::<T>::mutate(netuid, &hotkey, |deferred| {
+                        *deferred = deferred.saturating_add(root_claimable_alpha);
+                    });
+                } else {
+                    // Queue the validator's root dividend for its beta basket. The deposit
+                    // itself (share mint priced against the fund's full NAV — one AMM quote
+                    // per holding) is deliberately not done here: epochs enqueue, and the
+                    // per-block flush deposits each hotkey's credits from all subnets as
+                    // one batch, so epoch blocks no longer pay
+                    // validators x holdings quotes.
+                    Self::enqueue_basket_deposit(&hotkey, netuid, root_claimable_alpha);
+                }
 
                 RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
                     *divs = divs.saturating_add(root_claimable_alpha);
@@ -951,6 +996,18 @@ impl<T: Config> Pallet<T> {
                 hotkey_emission,
                 tao_weight,
             );
+
+        // If no dividend earner qualifies for root dividends (none is registered on the
+        // root network, or none holds root stake), the whole root allocation is
+        // unassignable: recycle it instead of leaving it counted in `SubnetAlphaOut`
+        // with no owner.
+        if !root_alpha.is_zero()
+            && root_alpha_dividends
+                .values()
+                .all(|divs| divs.saturating_to_num::<u64>() == 0)
+        {
+            Self::recycle_subnet_alpha(netuid, root_alpha);
+        }
 
         Self::distribute_dividends_and_incentives(
             netuid,

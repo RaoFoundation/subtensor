@@ -10,7 +10,7 @@ import typer
 from ....evm import addresses as evm_addresses
 from ....evm import contracts as evm_contracts
 from ...context import ctx_of
-from ...globals import with_tx_globals
+from ...globals import evm_key_signed, with_tx_globals
 from ._shared import EVM_KEY_HELP, PANEL_CHAIN, RPC_URL_OPTION, _submit_evm_tx, _tao_to_wei
 
 
@@ -19,6 +19,7 @@ def register(app: typer.Typer) -> None:
 
 
 @with_tx_globals
+@evm_key_signed
 def deploy(
     ctx: typer.Context,
     artifact_path: str = typer.Argument(

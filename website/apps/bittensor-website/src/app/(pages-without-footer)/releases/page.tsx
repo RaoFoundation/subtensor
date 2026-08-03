@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v441',
+    date: 'July 2026',
+    title: 'Root Reborn',
+    summary:
+      'Nearly half of all TAO sits on root. This release turns its dividend stream into ' +
+      'validator-curated baskets — live network numbers, how the fund works, btcli ' +
+      'commands, breaking changes, and the migration of legacy claimable state.',
+    href: '/releases/v441-upgrade',
+  },
+  {
     tag: 'v440',
     date: 'July 2026',
     title: 'The Emission Gate',

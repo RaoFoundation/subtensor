@@ -995,6 +995,13 @@ impl<T: Config> Pallet<T> {
         EmissionGateBar::<T>::kill();
     }
 
+    /// Sets the emission bar rank (N). 0 restores q-mass (quantile) mode.
+    pub fn set_emission_bar_rank(rank: u16) {
+        EmissionBarRank::<T>::set(rank);
+        // Force a bar recompute with the new rank on the next block.
+        EmissionGateBar::<T>::kill();
+    }
+
     /// Sets the emission gate Hill exponent (h)
     pub fn set_emission_gate_exponent(exponent: U64F64) {
         EmissionGateExponent::<T>::set(exponent);

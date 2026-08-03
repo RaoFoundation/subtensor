@@ -76,8 +76,6 @@ RAW_ONLY: dict[str, set[str]] = {
         # sudo/admin/root-origin operations — deliberately not agent-executable
         "sudo_set_max_childkey_take",
         "sudo_set_min_childkey_take",
-        "sudo_set_num_root_claims",
-        "sudo_set_root_claim_threshold",
         "sudo_set_tx_childkey_take_rate_limit",
         "sudo_set_voting_power_ema_alpha",
         "trigger_epoch",
@@ -94,9 +92,11 @@ RAW_ONLY: dict[str, set[str]] = {
         "batch_set_weights",
         "batch_commit_weights",
         "batch_reveal_weights",
-        # PoW registration — out of scope by design (faucet is testnet-only and
-        # absent from the finney metadata this layer is generated against)
+        # PoW registration — out of scope by design
         "register",
+        # Direct basket deposit — agent surface still uses claim_root / stake
+        # intents; reachable via raw compose until a dedicated intent lands
+        "stake_into_basket",
         # coldkey swap: announce/execute/clear/dispute are wrapped by intents; these
         # remain raw — deprecated (schedule) or root-only (reset, arbitrary swap)
         "reset_coldkey_swap",
@@ -231,6 +231,10 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_difficulty",
         "sudo_set_dissolve_network_schedule_duration",
         "sudo_set_ema_price_halving_period",
+        # emission gate tuning (v440/v441) — root-only, no semantic wrapper
+        "sudo_set_emission_bar_quantile",
+        "sudo_set_emission_bar_rank",
+        "sudo_set_emission_gate_exponent",
         "sudo_set_evm_chain_id",
         "sudo_set_kappa",
         "sudo_set_lock_reduction_interval",
@@ -254,6 +258,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_owner_hparam_rate_limit",
         "sudo_set_rao_recycled",
         "sudo_set_recycle_or_burn",
+        # Root Reborn launch gate for set_root_weights — root-only governance toggle
+        "sudo_set_root_weight_setting_enabled",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",

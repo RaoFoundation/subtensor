@@ -42,6 +42,8 @@ mod events {
         ),
         /// a caller successfully sets their weights on a subnetwork.
         WeightsSet(NetUidStorageIndex, u16),
+        /// a root validator set its beta-basket distribution vector (uid on the root subnet).
+        RootWeightsSet(u16),
         /// a new neuron account has been registered to the chain.
         NeuronRegistered(NetUid, u16, T::AccountId),
         /// multiple uids have been concurrently registered.
@@ -466,22 +468,65 @@ mod events {
         /// The minimum allowed non-Immune UIDs has been set.
         MinNonImmuneUidsSet(NetUid, u16),
         /// Root emissions have been claimed for a coldkey on all subnets and hotkeys.
-        /// Parameters:
-        /// (coldkey)
         RootClaimed {
             /// Claim coldkey
             coldkey: T::AccountId,
+            /// Total TAO realized across every per-validator redemption and staked on root.
+            tao: TaoBalance,
         },
 
-        /// Root claim type for a coldkey has been set.
-        /// Parameters:
-        /// (coldkey, u8)
-        RootClaimTypeSet {
-            /// Claim coldkey
-            coldkey: T::AccountId,
+        /// A validator's beta basket (fund) received a dividend deposit: the dividend was
+        /// deployed across subnets per the validator's weight vector, adding `tao` of
+        /// realizable NAV to the fund and minting `shares` fund shares at the pre-deposit NAV.
+        BasketDeposited {
+            /// Validator hotkey whose basket received the deposit.
+            hotkey: T::AccountId,
+            /// Realizable NAV the deposit added to the fund (post-buy NAV minus the
+            /// pre-buy snapshot; the deposit bears its own buy slippage).
+            tao: TaoBalance,
+            /// Fund shares minted at the pre-deposit NAV (grows `BasketShares`).
+            shares: u64,
+        },
 
-            /// Claim type
-            root_claim_type: RootClaimTypeEnum,
+        /// A staker deposited TAO from their balance directly into a validator's beta
+        /// basket: the TAO was deployed across subnets per the validator's weight vector
+        /// and `shares` fund shares were credited to the staker via their claimed
+        /// watermark.
+        BasketStakedIn {
+            /// Validator hotkey whose basket received the deposit.
+            hotkey: T::AccountId,
+            /// Depositing staker coldkey.
+            coldkey: T::AccountId,
+            /// TAO taken from the staker's balance.
+            tao: TaoBalance,
+            /// Realizable NAV the deposit added to the fund (the mint value basis; the
+            /// depositor bears their own entry slippage and fees).
+            value: TaoBalance,
+            /// Fund shares credited to the staker (grows `BasketShares`).
+            shares: u64,
+        },
+
+        /// A staker redeemed (claimed) their owed share of a validator's beta basket: their
+        /// pro-rata fraction of every holding was realized as `tao` and staked onto their root
+        /// position.
+        BasketClaimed {
+            /// Validator hotkey the basket belongs to.
+            hotkey: T::AccountId,
+            /// Staker coldkey that claimed.
+            coldkey: T::AccountId,
+            /// TAO realized and staked on root for the staker.
+            tao: TaoBalance,
+        },
+
+        /// A validator's basket holding on a dissolving subnet was converted into the fund's
+        /// root (TAO) slot. Fund shares and staker entitlements are unaffected.
+        BasketHoldingConverted {
+            /// Validator hotkey whose holding was converted.
+            hotkey: T::AccountId,
+            /// Subnet being dissolved.
+            netuid: NetUid,
+            /// TAO realized and held as the fund's root-slot position.
+            tao: TaoBalance,
         },
 
         /// Voting power tracking has been enabled for a subnet.

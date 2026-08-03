@@ -83,12 +83,24 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
+        // Root churn: settle flushable pending basket credits while the hotkey is still
+        // on root (earned dividends must deposit, not recycle). After membership drops,
+        // a second flush recycles leftover sub-threshold dust the hotkey can no longer
+        // merge by earning more.
+        if netuid.is_root() {
+            let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
+        }
+
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
         Self::remove_associated_evm_address(netuid, uid_to_replace);
         IsNetworkMember::<T>::remove(old_hotkey.clone(), netuid);
         #[allow(unknown_lints)]
         Keys::<T>::remove(netuid, uid_to_replace);
+
+        if netuid.is_root() {
+            let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
+        }
 
         // 3. Create new set memberships.
         Self::set_active_for_uid(netuid, uid_to_replace, true); // Set to active by default.
@@ -212,6 +224,11 @@ impl<T: Config> Pallet<T> {
 
                     // Remove hotkey related storage items if hotkey exists
                     if let Ok(hotkey) = Keys::<T>::try_get(netuid, neuron_uid) {
+                        // Same root-churn finalization as `replace_neuron`: deposit while
+                        // still on root, then recycle leftover dust after membership drops.
+                        if netuid.is_root() {
+                            let _ = Self::flush_basket_deposits_for_hotkey(&hotkey);
+                        }
                         Uids::<T>::remove(netuid, &hotkey);
                         IsNetworkMember::<T>::remove(&hotkey, netuid);
                         LastHotkeyEmissionOnNetuid::<T>::remove(&hotkey, netuid);
@@ -219,6 +236,9 @@ impl<T: Config> Pallet<T> {
                         Axons::<T>::remove(netuid, &hotkey);
                         NeuronCertificates::<T>::remove(netuid, &hotkey);
                         Prometheus::<T>::remove(netuid, &hotkey);
+                        if netuid.is_root() {
+                            let _ = Self::flush_basket_deposits_for_hotkey(&hotkey);
+                        }
                     }
 
                     // Remove all storage items associated with this uid

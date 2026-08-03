@@ -4349,14 +4349,8 @@ fn test_root_children_enable_subnet_owner_set_weights() {
         register_ok_neuron(netuid, root_val_hotkey_2, root_val_coldkey_2, 0);
 
         // --- Register root validators on root network ---
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(root_val_coldkey_1),
-            root_val_hotkey_1,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(root_val_coldkey_2),
-            root_val_hotkey_2,
-        ));
+        root_register_ok(root_val_hotkey_1, root_val_coldkey_1);
+        root_register_ok(root_val_hotkey_2, root_val_coldkey_2);
 
         // --- Add stake for root validators on root and the subnet ---
         let root_stake = AlphaBalance::from(1_000_000_000);
@@ -4472,14 +4466,8 @@ fn test_register_network_schedules_root_validators() {
         register_ok_neuron(bootstrap_netuid, root_val_hotkey_1, root_val_coldkey_1, 0);
         register_ok_neuron(bootstrap_netuid, root_val_hotkey_2, root_val_coldkey_2, 0);
 
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(root_val_coldkey_1),
-            root_val_hotkey_1,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(root_val_coldkey_2),
-            root_val_hotkey_2,
-        ));
+        root_register_ok(root_val_hotkey_1, root_val_coldkey_1);
+        root_register_ok(root_val_hotkey_2, root_val_coldkey_2);
 
         // Give root validators significant stake on root and bootstrap subnet
         let root_stake = AlphaBalance::from(1_000_000_000);
@@ -4595,14 +4583,8 @@ fn test_register_network_schedules_root_validators_auto_parent_delegation_flag()
         register_ok_neuron(bootstrap_netuid, root_val_hotkey_1, root_val_coldkey_1, 0);
         register_ok_neuron(bootstrap_netuid, root_val_hotkey_2, root_val_coldkey_2, 0);
 
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(root_val_coldkey_1),
-            root_val_hotkey_1,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(root_val_coldkey_2),
-            root_val_hotkey_2,
-        ));
+        root_register_ok(root_val_hotkey_1, root_val_coldkey_1);
+        root_register_ok(root_val_hotkey_2, root_val_coldkey_2);
 
         // Give root validators significant stake on root and bootstrap subnet
         let root_stake = AlphaBalance::from(1_000_000_000);

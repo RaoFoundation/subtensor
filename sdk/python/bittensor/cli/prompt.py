@@ -373,6 +373,40 @@ def _supplied(param: Any, args: list[str]) -> bool:
     return bool(given.intersection(param.opts) or given.intersection(param.secondary_opts))
 
 
+def _signing_wallet_spec(
+    command: Any, app_ctx: AppContext, args: list[str]
+) -> Optional[PromptSpec]:
+    """The wallet-confirmation spec for the generic prompt round, or None.
+
+    Commands that use the local wallet (the tx and unlock tiers, see
+    globals.py) confirm it *before* their own missing params, so prompt order
+    always narrows down — whose keys first, then what to do with them — the
+    same order signer_specs gives the generated tx commands. The answer is
+    injected into argv as ``--wallet``, which marks the wallet as given on the
+    re-run so the submit-time confirmation doesn't ask again.
+    """
+    callback = getattr(command, "callback", None)
+    tier = getattr(callback, "__btcli_tier__", None)
+    if tier not in ("tx", "unlock") or not getattr(callback, "__btcli_wallet_signs__", True):
+        return None
+    if app_ctx.wallet_given or app_ctx.assume_yes or app_ctx.uses_external_signer():
+        return None
+    given = {token.split("=", 1)[0] for token in args}
+    if given & {"--wallet", "-w", "--yes", "-y", "--signer", "--ledger"}:
+        return None
+    return PromptSpec(
+        field="wallet",
+        flag="--wallet",
+        help=(
+            "Wallet that signs this transaction."
+            if tier == "tx"
+            else "Wallet this command targets."
+        ),
+        parse=functools.partial(_parse_wallet, require_coldkey=False),
+        default=app_ctx.wallet_name,
+    )
+
+
 def _missing_click_params(error: Any, args: list[str]) -> list[Any]:
     """Every required param the command line omits, in declaration order, so one
     round of prompts covers them all (instead of one error per re-run).
@@ -441,16 +475,22 @@ def _run_app(app: typer.Typer) -> None:
                     help=getattr(param, "help", None),
                     parse=functools.partial(_click_parse, param),
                     placeholder=_click_placeholder(param),
+                    positional=param.param_type_name != "option",
                 )
                 for param in missing
             ]
             if not interactive(app_ctx):
                 _missing_error(app_ctx, [spec.flag for spec in specs])
+            # Wallet-using commands confirm the signing wallet before their own
+            # params (has a default, so it is never part of the missing error).
+            wallet_spec = _signing_wallet_spec(error.ctx.command, app_ctx, args)
+            if wallet_spec is not None:
+                specs.insert(0, wallet_spec)
             console = Console(stderr=True, highlight=False)
             console.print()
-            for spec, param in zip(specs, missing):
+            for spec in specs:
                 _, raw = _ask(console, app_ctx, spec)
-                entered = [raw] if param.param_type_name != "option" else [spec.flag, raw]
+                entered = [raw] if spec.positional else [spec.flag, raw]
                 args += entered
                 _entered_tokens.extend(entered)
                 console.print()

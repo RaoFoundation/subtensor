@@ -189,7 +189,8 @@ def test_metadata_ir_shape():
     subtensor_pallet = next(p for p in ir.pallets if p.name == "SubtensorModule")
     add_stake = next(call for call in subtensor_pallet.calls if call.name == "add_stake")
     assert [a.name for a in add_stake.args] == ["hotkey", "netuid", "amount_staked"]
-    # Type identity per arg: named registry types by path, primitives by name.
+    # Type identity per arg: named registry types by path (including the
+    # NetUid/TaoBalance newtypes the runtime carries), primitives by name.
     assert add_stake.args[0].type_ident == "AccountId32"
     assert add_stake.args[1].type_ident == "NetUid"
     assert add_stake.args[2].type_ident == "TaoBalance"
@@ -197,7 +198,7 @@ def test_metadata_ir_shape():
     storage_by_name = {s.name: s for s in subtensor_pallet.storage}
     assert "Tempo" in storage_by_name
     # Storage entries carry their VALUE's type identity (map storages: the
-    # value after all keys).
+    # value after all keys), including the PerU16/TaoBalance newtypes.
     assert storage_by_name["Tempo"].value_type_ident == "u16"
     assert storage_by_name["Delegates"].value_type_ident == "PerU16"
     assert storage_by_name["MinBurn"].value_type_ident == "TaoBalance"

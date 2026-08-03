@@ -4,6 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
+    basket_info::BasketSummary,
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
@@ -82,5 +83,27 @@ sp_api::decl_runtime_apis! {
     pub trait ProxyFilterRuntimeApi {
         fn get_proxy_types() -> Vec<ProxyTypeInfo>;
         fn get_proxy_filters(proxy_types: Option<Vec<u8>>) -> Vec<ProxyFilterInfo>;
+    }
+
+    pub trait BetaBasketRuntimeApi {
+        /// Total TAO a coldkey would realize by redeeming all its root beta baskets (marked).
+        fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance;
+        /// TAO a coldkey would realize by redeeming its owed shares on one validator (marked).
+        fn get_basket_payout(hotkey: AccountId32, coldkey: AccountId32) -> TaoBalance;
+        /// A validator's beta basket net asset value, in TAO (marked).
+        fn get_validator_basket_nav(hotkey: AccountId32) -> TaoBalance;
+        /// A validator's basket breakdown: (subnet, alpha held, TAO value) per subnet.
+        fn get_validator_basket(hotkey: AccountId32) -> Vec<(NetUid, AlphaBalance, TaoBalance)>;
+        /// Network-wide total beta basket NAV across all validators, in TAO (marked).
+        fn get_root_basket_total_nav() -> TaoBalance;
+        /// A validator's basket weight vector `w`: (subnet, weight) it deploys dividends into.
+        fn get_validator_weights(hotkey: AccountId32) -> Vec<(NetUid, u16)>;
+        /// Full explorer-facing summary of one validator's basket: NAV (realizable and spot),
+        /// shares, lifetime deposit/redemption counters, weights, and per-subnet holdings.
+        fn get_validator_basket_summary(hotkey: AccountId32) -> BasketSummary<AccountId32>;
+        /// Summaries for every validator with an active basket (network-wide leaderboard).
+        fn get_all_validator_baskets() -> Vec<BasketSummary<AccountId32>>;
+        /// A staker's positions across all its validators: (hotkey, owed shares, payout TAO).
+        fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)>;
     }
 }
