@@ -22,6 +22,7 @@ AdjustmentDirection = Any
 AlphaBalance = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
+BTreeSet = Any
 CommitmentInfo = Any
 Determinism = Any
 EquivocationProof = Any
