@@ -1605,6 +1605,10 @@ fn test_get_root_children_drain() {
 
         // Lets change the take value. (Bob is greedy.)
         ChildkeyTake::<Test>::insert(bob, alpha, PerU16::from_parts(u16::MAX));
+        let alice_stake_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&alice, &cold_alice, alpha);
+        let bob_stake_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob, &cold_bob, alpha);
 
         // Lets drain
         let pending_alpha = AlphaBalance::from(1_000_000_000);
@@ -1622,9 +1626,26 @@ fn test_get_root_children_drain() {
             AlphaDividendsPerSubnet::<Test>::get(alpha, alice),
             AlphaBalance::ZERO
         );
-        // Bob makes it all.
+        // Bob's shared half remains in the dividend pool. The half taken from
+        // Alice is credited exclusively to Bob's owning coldkey.
         assert_abs_diff_eq!(
             AlphaDividendsPerSubnet::<Test>::get(alpha, bob),
+            pending_alpha / 2.into(),
+            epsilon = 1.into()
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &alice,
+                &cold_alice,
+                alpha,
+            )
+            .saturating_sub(alice_stake_before),
+            AlphaBalance::ZERO,
+            epsilon = 1.into()
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob, &cold_bob, alpha)
+                .saturating_sub(bob_stake_before),
             pending_alpha,
             epsilon = 1.into()
         );
@@ -1783,6 +1804,11 @@ fn test_get_root_children_drain_with_take() {
         Delegates::<Test>::insert(alice, PerU16::zero());
         Delegates::<Test>::insert(bob, PerU16::zero());
 
+        let alice_stake_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&alice, &cold_alice, alpha);
+        let bob_stake_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob, &cold_bob, alpha);
+
         // Lets drain!
         let pending_alpha = AlphaBalance::from(1_000_000_000);
         SubtensorModule::distribute_emission(
@@ -1793,7 +1819,8 @@ fn test_get_root_children_drain_with_take() {
             AlphaBalance::ZERO,
         );
 
-        // Bob makes it all.
+        // Alice's inherited share is taken entirely by Bob. Bob's own half
+        // remains a shared dividend while the childkey take is owner-only.
         close(
             AlphaDividendsPerSubnet::<Test>::get(alpha, alice).into(),
             0,
@@ -1801,6 +1828,20 @@ fn test_get_root_children_drain_with_take() {
         );
         close(
             AlphaDividendsPerSubnet::<Test>::get(alpha, bob).into(),
+            (pending_alpha / 2.into()).into(),
+            10,
+        );
+        close(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&alice, &cold_alice, alpha)
+                .saturating_sub(alice_stake_before)
+                .into(),
+            0,
+            10,
+        );
+        close(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob, &cold_bob, alpha)
+                .saturating_sub(bob_stake_before)
+                .into(),
             pending_alpha.into(),
             10,
         );
@@ -1871,6 +1912,11 @@ fn test_get_root_children_drain_with_half_take() {
         Delegates::<Test>::insert(alice, PerU16::zero());
         Delegates::<Test>::insert(bob, PerU16::zero());
 
+        let alice_stake_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&alice, &cold_alice, alpha);
+        let bob_stake_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob, &cold_bob, alpha);
+
         // Lets drain!
         let pending_alpha = AlphaBalance::from(1_000_000_000);
         SubtensorModule::distribute_emission(
@@ -1881,7 +1927,8 @@ fn test_get_root_children_drain_with_half_take() {
             AlphaBalance::ZERO,
         );
 
-        // Alice and Bob make the same amount.
+        // Half of Alice's inherited share remains with Alice and half becomes
+        // owner-only childkey take for Bob. Bob's shared dividends exclude it.
         close(
             AlphaDividendsPerSubnet::<Test>::get(alpha, alice).into(),
             (pending_alpha / 4.into()).into(),
@@ -1889,10 +1936,103 @@ fn test_get_root_children_drain_with_half_take() {
         );
         close(
             AlphaDividendsPerSubnet::<Test>::get(alpha, bob).into(),
-            3 * u64::from(pending_alpha / 4.into()),
+            (pending_alpha / 2.into()).into(),
+            10000,
+        );
+        close(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&alice, &cold_alice, alpha)
+                .saturating_sub(alice_stake_before)
+                .into(),
+            (pending_alpha / 4.into()).into(),
+            10000,
+        );
+        close(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob, &cold_bob, alpha)
+                .saturating_sub(bob_stake_before)
+                .into(),
+            (pending_alpha * 3.into() / 4.into()).into(),
             10000,
         );
     });
+}
+
+#[test]
+fn test_root_childkey_take_is_owner_only_not_root_claimable() {
+    fn run_case(childkey_take: PerU16) -> (AlphaBalance, AlphaBalance, AlphaBalance) {
+        new_test_ext(1).execute_with(move || {
+            let alpha = NetUid::from(1);
+            add_network(NetUid::ROOT, 1, 0);
+            add_network(alpha, 1, 0);
+            SubtensorModule::set_tao_weight(u64::MAX);
+            SubtensorModule::set_ck_burn(0);
+
+            let cold_alice = U256::from(0);
+            let cold_bob = U256::from(1);
+            let alice = U256::from(2);
+            let bob = U256::from(3);
+            register_ok_neuron(alpha, alice, cold_alice, 0);
+            register_ok_neuron(alpha, bob, cold_bob, 0);
+            assert_ok!(SubtensorModule::root_register(
+                RuntimeOrigin::signed(cold_alice),
+                alice,
+            ));
+            assert_ok!(SubtensorModule::root_register(
+                RuntimeOrigin::signed(cold_bob),
+                bob,
+            ));
+
+            let root_stake = AlphaBalance::from(1_000_000_000);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &alice,
+                &cold_alice,
+                NetUid::ROOT,
+                root_stake,
+            );
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &bob,
+                &cold_bob,
+                NetUid::ROOT,
+                root_stake,
+            );
+
+            mock_set_children_no_epochs(alpha, &alice, &[(u64::MAX, bob)]);
+            ChildkeyTake::<Test>::insert(bob, alpha, childkey_take);
+            Delegates::<Test>::insert(alice, PerU16::zero());
+            Delegates::<Test>::insert(bob, PerU16::zero());
+
+            let bob_owner_stake_before =
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob, &cold_bob, alpha);
+            let pending_root_alpha = AlphaBalance::from(1_000_000_000);
+            SubtensorModule::distribute_emission(
+                alpha,
+                AlphaBalance::ZERO,
+                AlphaBalance::ZERO,
+                pending_root_alpha,
+                AlphaBalance::ZERO,
+            );
+
+            (
+                SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&bob, &cold_bob, alpha)
+                    .saturating_sub(bob_owner_stake_before),
+                RootAlphaDividendsPerSubnet::<Test>::get(alpha, alice),
+                RootAlphaDividendsPerSubnet::<Test>::get(alpha, bob),
+            )
+        })
+    }
+
+    let without_child_take = run_case(PerU16::zero());
+    let with_child_take = run_case(PerU16::from_parts(u16::MAX));
+
+    let owner_increase = with_child_take.0.saturating_sub(without_child_take.0);
+    let parent_reduction = without_child_take.1.saturating_sub(with_child_take.1);
+    let total_without = without_child_take.0 + without_child_take.1 + without_child_take.2;
+    let total_with = with_child_take.0 + with_child_take.1 + with_child_take.2;
+
+    assert_eq!(without_child_take.0, AlphaBalance::ZERO);
+    assert!(owner_increase > AlphaBalance::ZERO);
+    assert_abs_diff_eq!(owner_increase, parent_reduction, epsilon = 10.into());
+    assert_abs_diff_eq!(with_child_take.2, without_child_take.2, epsilon = 10.into());
+    assert_abs_diff_eq!(total_with, total_without, epsilon = 10.into());
 }
 
 // // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::coinbase::test_get_root_children_with_weights --exact --show-output --nocapture

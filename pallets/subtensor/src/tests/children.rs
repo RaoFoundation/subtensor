@@ -2886,15 +2886,17 @@ fn test_set_weights_no_parent() {
     });
 }
 
-/// Test that distribute_emission sends childkey take fully to the nominators if childkey
-/// doesn't have its own stake, independently of parent hotkey take.
+/// Test that distribute_emission sends childkey take exclusively to the childkey owner,
+/// independently of the childkey's own stake and the parent hotkey take.
 /// cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_take_drain --exact --show-output
 #[allow(clippy::assertions_on_constants)]
 #[test]
 fn test_childkey_take_drain() {
-    // Test cases: parent_hotkey_take
-    [0_u16, u16::MAX / 5].iter().for_each(|parent_hotkey_take| {
-        new_test_ext(1).execute_with(|| {
+    fn run_case(
+        parent_hotkey_take: u16,
+        childkey_take: u16,
+    ) -> (TaoBalance, TaoBalance, TaoBalance) {
+        new_test_ext(1).execute_with(move || {
             let parent_coldkey = U256::from(1);
             let parent_hotkey = U256::from(3);
             let child_coldkey = U256::from(2);
@@ -2930,19 +2932,19 @@ fn test_childkey_take_drain() {
             // Set children
             mock_set_children_no_epochs(netuid, &parent_hotkey, &[(proportion, child_hotkey)]);
 
-            // Set 20% childkey take
+            // Set the requested childkey take, up to 20%.
             let max_take: u16 = 0xFFFF / 5;
             SubtensorModule::set_max_childkey_take(PerU16::from_parts(max_take));
             assert_ok!(SubtensorModule::set_childkey_take(
                 RuntimeOrigin::signed(child_coldkey),
                 child_hotkey,
                 netuid,
-                PerU16::from_parts(max_take)
+                PerU16::from_parts(childkey_take)
             ));
 
             // Set hotkey take for parent
-            SubtensorModule::set_max_delegate_take(PerU16::from_parts(*parent_hotkey_take));
-            Delegates::<Test>::insert(parent_hotkey, PerU16::from_parts(*parent_hotkey_take));
+            SubtensorModule::set_max_delegate_take(PerU16::from_parts(parent_hotkey_take));
+            Delegates::<Test>::insert(parent_hotkey, PerU16::from_parts(parent_hotkey_take));
 
             // Set 0% for childkey-as-a-delegate take
             Delegates::<Test>::insert(child_hotkey, PerU16::zero());
@@ -2982,36 +2984,35 @@ fn test_childkey_take_drain() {
 
             step_block(subnet_tempo);
 
-            // Verify how emission is split between keys
-            //   - Child stake remains 0
-            //   - Childkey take is 20% of its total emission that rewards both inherited from
-            //     parent stake and nominated stake, which all goes to nominators. Because child
-            //     validator emission is 50% of total emission, 20% of it is 10% of total emission
-            //     and it all goes to nominator. If childkey take was 0%, then only 5% would go to
-            //     the nominator, so the final solit is:
-            //   - Parent stake increases by 45% of total emission
-            //   - Nominator stake increases by 55% of total emission
+            // Measure each participant's emission so the caller can compare this
+            // scenario with an otherwise identical zero-childkey-take baseline.
             let child_emission =
                 SubtensorModule::get_total_stake_for_coldkey(&child_coldkey) - child_stake_before;
             let parent_emission =
                 SubtensorModule::get_total_stake_for_coldkey(&parent_coldkey) - parent_stake_before;
             let nominator_emission =
                 SubtensorModule::get_total_stake_for_coldkey(&nominator) - nominator_stake_before;
-            let total_emission = child_emission + parent_emission + nominator_emission;
 
-            assert_abs_diff_eq!(child_emission, TaoBalance::ZERO, epsilon = 10.into());
-            assert_abs_diff_eq!(
-                parent_emission,
-                total_emission * 9.into() / 20.into(),
-                epsilon = 10.into()
-            );
-            assert_abs_diff_eq!(
-                nominator_emission,
-                total_emission * 11.into() / 20.into(),
-                epsilon = 10.into()
-            );
-        });
-    });
+            (child_emission, parent_emission, nominator_emission)
+        })
+    }
+
+    // Parent delegate take must not affect where childkey take is paid.
+    for parent_hotkey_take in [0_u16, u16::MAX / 5] {
+        let without_child_take = run_case(parent_hotkey_take, 0);
+        let with_child_take = run_case(parent_hotkey_take, u16::MAX / 5);
+
+        let child_increase = with_child_take.0.saturating_sub(without_child_take.0);
+        let parent_reduction = without_child_take.1.saturating_sub(with_child_take.1);
+        let total_without = without_child_take.0 + without_child_take.1 + without_child_take.2;
+        let total_with = with_child_take.0 + with_child_take.1 + with_child_take.2;
+
+        assert_abs_diff_eq!(without_child_take.0, TaoBalance::ZERO, epsilon = 10.into());
+        assert!(child_increase > TaoBalance::ZERO);
+        assert_abs_diff_eq!(child_increase, parent_reduction, epsilon = 10.into());
+        assert_abs_diff_eq!(with_child_take.2, without_child_take.2, epsilon = 10.into());
+        assert_abs_diff_eq!(total_with, total_without, epsilon = 10.into());
+    }
 }
 
 // 44: Test with a chain of parent-child relationships (e.g., A -> B -> C)
