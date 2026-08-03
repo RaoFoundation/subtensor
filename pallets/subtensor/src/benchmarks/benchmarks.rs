@@ -10,6 +10,7 @@
 use crate::Pallet as Subtensor;
 use crate::staking::lock::LockState;
 use crate::subnets::mechanism::GLOBAL_MAX_SUBNET_COUNT;
+use crate::subnets::subnet::{NetworkRegistrationInfo, RefusalWindow};
 use crate::*;
 use codec::{Compact, Encode};
 use frame_benchmarking::v2::*;
@@ -301,8 +302,48 @@ mod pallet_benchmarks {
         let amount: u64 = 100_000_000_000_000u64.saturating_mul(2);
         add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
 
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        fill_subnets_below_limit::<T>(&account("FillOwner", 0, seed));
+
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
+    }
+
+    /// The queueing outcome of `do_register_network`: at `SubnetLimit` the call prunes a subnet and
+    /// queues rather than creating one. Not an extrinsic; it exists so the dispatches that can reach
+    /// this branch have a worst case to charge.
+    ///
+    /// This also covers the third outcome, `wait_to_cleanup`. That path reaches the same queueing
+    /// block without running `get_network_to_prune` or `do_dissolve_network`, so at equal queue
+    /// depth it is strictly cheaper than this one. Queue depth itself is measured at neither: both
+    /// queues are decoded unconditionally on every call and neither is a `BoundedVec`, so there is
+    /// no maximum to benchmark against.
+    #[benchmark]
+    fn register_network_pruning() {
+        let seed: u32 = 1;
+        let coldkey: T::AccountId = account("Test", 0, seed);
+        let hotkey: T::AccountId = account("TestHotkey", 0, seed);
+
+        Subtensor::<T>::set_network_rate_limit(1);
+        let amount: u64 = 100_000_000_000_000u64.saturating_mul(2);
+        add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
+
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        fill_subnets_to_limit::<T>(&account("FillOwner", 0, seed));
+
+        #[block]
+        {
+            assert_ok!(Subtensor::<T>::do_register_network(
+                RawOrigin::Signed(coldkey.clone()).into(),
+                &hotkey,
+                1,
+                Some(max_subnet_identity()),
+            ));
+        }
+
+        // The prune branch specifically. `NetworkRegistrationQueue` grows on the window branch
+        // too, so its length alone cannot tell the two apart; a started teardown can.
+        assert!(!DissolveCleanupQueue::<T>::get().is_empty());
     }
 
     #[benchmark]
@@ -1449,12 +1490,15 @@ mod pallet_benchmarks {
     fn register_network_with_identity() {
         let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("Alice", 0, 1);
-        let identity: Option<SubnetIdentityOfV3> = None;
+        let identity: Option<SubnetIdentityOfV3> = Some(max_subnet_identity());
 
         Subtensor::<T>::set_network_registration_allowed(1.into(), true);
         Subtensor::<T>::set_network_rate_limit(1);
         let amount: u64 = 9_999_999_999_999;
         add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
+
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        fill_subnets_below_limit::<T>(&account("FillOwner", 0, 1));
 
         #[extrinsic_call]
         _(
@@ -1898,6 +1942,112 @@ mod pallet_benchmarks {
         _(RawOrigin::Signed(coldkey), netuid, new_symbol.clone());
 
         assert_eq!(TokenSymbol::<T>::get(netuid), new_symbol);
+    }
+
+    /// Answering a challenge scans the queue for the challenger, removes them and releases their
+    /// lock, so the queue is filled to its bound and the matching entry put last, which is the
+    /// worst case for both the scan and the write-back. The bound is one queued challenge per
+    /// subnet that can have a window open at once.
+    #[benchmark]
+    fn exercise_first_refusal() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let netuid = NetUid::from(1);
+        Subtensor::<T>::init_new_network(netuid, 1);
+        SubnetOwner::<T>::insert(netuid, coldkey.clone());
+        NetworkImmunityPeriod::<T>::set(1);
+
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        let offer = TaoBalance::from(1_000_000_u64);
+        add_balance_to_coldkey_account::<T>(&coldkey, offer.saturating_mul(2.into()));
+        TotalIssuance::<T>::mutate(|total| *total = total.saturating_add(offer));
+
+        let challenger_lock_id = u32::from(Subtensor::<T>::get_max_subnets());
+        NetworkRegistrationQueue::<T>::set(
+            (0..=challenger_lock_id)
+                .map(|lock_id| NetworkRegistrationInfo::<T::AccountId> {
+                    coldkey: account("Challenger", 0, lock_id),
+                    hotkey: account("ChallengerHotkey", 0, lock_id),
+                    mechid: 1,
+                    identity: Some(max_subnet_identity()),
+                    lock_amount: offer,
+                    median_subnet_alpha_price: U64F64::saturating_from_num(1),
+                    registration_block: 1,
+                    lock_id,
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        SubnetRefusalWindow::<T>::insert(
+            netuid,
+            RefusalWindow {
+                offer,
+                expires_at: u64::MAX,
+                challenger_lock_id,
+                immunity_period: 1,
+            },
+        );
+
+        // The lock the call releases has to exist, or the `Locks` write is not measured.
+        let challenger: T::AccountId = account("Challenger", 0, challenger_lock_id);
+        add_balance_to_coldkey_account::<T>(&challenger, offer.saturating_mul(2.into()));
+        assert_ok!(Subtensor::<T>::lock_network_registration_cost(
+            &challenger,
+            offer.into(),
+            challenger_lock_id
+        ));
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey), netuid);
+
+        assert!(!SubnetRefusalWindow::<T>::contains_key(netuid));
+        assert!(NetworkImmuneUntil::<T>::get(netuid) > 1);
+        assert!(
+            !NetworkRegistrationQueue::<T>::get()
+                .iter()
+                .any(|entry| entry.lock_id == challenger_lock_id)
+        );
+    }
+
+    /// Cancelling scans the queue for the caller's entry and writes back what is left, so the queue
+    /// is filled to its bound and the caller's entry put last, the worst case for both.
+    #[benchmark]
+    fn cancel_network_registration() {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let lock_amount = TaoBalance::from(1_000_000_u64);
+        add_balance_to_coldkey_account::<T>(&coldkey, lock_amount.saturating_mul(2.into()));
+
+        let lock_id = u32::from(Subtensor::<T>::get_max_subnets());
+        NetworkRegistrationQueue::<T>::set(
+            (0..=lock_id)
+                .map(|id| NetworkRegistrationInfo::<T::AccountId> {
+                    coldkey: if id == lock_id {
+                        coldkey.clone()
+                    } else {
+                        account("Queued", 0, id)
+                    },
+                    hotkey: account("QueuedHotkey", 0, id),
+                    mechid: 1,
+                    identity: Some(max_subnet_identity()),
+                    lock_amount,
+                    median_subnet_alpha_price: U64F64::saturating_from_num(1),
+                    registration_block: 1,
+                    lock_id: id,
+                })
+                .collect::<Vec<_>>(),
+        );
+        assert_ok!(Subtensor::<T>::lock_network_registration_cost(
+            &coldkey,
+            lock_amount.into(),
+            lock_id
+        ));
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(coldkey), lock_id);
+
+        assert_eq!(
+            NetworkRegistrationQueue::<T>::get().len(),
+            usize::from(Subtensor::<T>::get_max_subnets())
+        );
     }
 
     #[benchmark]

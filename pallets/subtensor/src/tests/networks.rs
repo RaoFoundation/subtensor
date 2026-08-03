@@ -3,8 +3,11 @@
 use super::mock::*;
 use crate::migrations::migrate_network_immunity_period;
 use crate::staking::lock::LockState;
+use crate::subnets::subnet::RefusalWindow;
 use crate::*;
-use frame_support::{assert_err, assert_ok, weights::Weight};
+use frame_support::{
+    assert_err, assert_noop, assert_ok, traits::Currency, weights::Weight, weights::WeightMeter,
+};
 use frame_system::Config;
 use sp_core::U256;
 use sp_runtime::PerU16;
@@ -1590,6 +1593,741 @@ fn prune_tie_on_price_earlier_registration_wins() {
         SubnetMovingPrice::<Test>::insert(n2, I96F32::from_num(7));
 
         assert_eq!(SubtensorModule::get_network_to_prune(), Some(n1));
+    });
+}
+
+/// Two mature subnets whose prices make `low` the eviction candidate. `low`'s owner is funded
+/// for one match; tests that care about an unfunded owner drain them.
+fn refusal_setup(seed: u64) -> (NetUid, NetUid, U256, U256) {
+    SubnetLimit::<Test>::put(2u16);
+
+    let low_cold = U256::from(seed);
+    let low = add_dynamic_network(&U256::from(seed.saturating_add(1)), &low_cold);
+    let high = add_dynamic_network(
+        &U256::from(seed.saturating_add(3)),
+        &U256::from(seed.saturating_add(2)),
+    );
+
+    let imm = SubtensorModule::get_network_immunity_period();
+    System::set_block_number(imm.saturating_add(10));
+
+    SubnetMovingPrice::<Test>::insert(low, I96F32::from_num(1));
+    SubnetMovingPrice::<Test>::insert(high, I96F32::from_num(10));
+    assert_eq!(SubtensorModule::get_network_to_prune(), Some(low));
+
+    let price = SubtensorModule::get_network_lock_cost();
+    add_balance_to_coldkey_account(&low_cold, price.into());
+    TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(price));
+
+    let registrant = U256::from(seed.saturating_add(4));
+    let funding = price.saturating_mul(10.into());
+    add_balance_to_coldkey_account(&registrant, funding.into());
+    TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(funding));
+
+    (low, high, low_cold, registrant)
+}
+
+fn register_from(registrant: U256, hotkey: u64) -> DispatchResult {
+    frame_support::storage::with_storage_layer(|| {
+        SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(registrant),
+            &U256::from(hotkey),
+            1,
+            None,
+        )
+    })
+}
+
+/// The core of the mechanism: reaching the cap no longer evicts anybody. It records what the
+/// challenger locked and gives the owner a window to answer it.
+#[test]
+fn a_challenge_opens_a_window_instead_of_evicting() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, _low_cold, registrant) = refusal_setup(4000);
+        let price = SubtensorModule::get_network_lock_cost();
+
+        assert_ok!(register_from(registrant, 4005));
+
+        // Nobody lost a slot.
+        assert!(NetworksAdded::<Test>::get(low));
+        assert!(NetworksAdded::<Test>::get(high));
+        assert!(DissolveCleanupQueue::<Test>::get().is_empty());
+
+        let window = SubnetRefusalWindow::<Test>::get(low).unwrap();
+        let (offer, expires_at) = (window.offer, window.expires_at);
+        assert_eq!(offer, price);
+        assert_eq!(
+            expires_at,
+            System::block_number().saturating_add(SubtensorModule::FIRST_REFUSAL_WINDOW)
+        );
+
+        // The challenger is in line rather than turned away, at the price they were quoted.
+        let queue = NetworkRegistrationQueue::<Test>::get();
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].coldkey, registrant);
+        assert_eq!(queue[0].lock_amount, price);
+    });
+}
+
+/// The right of first refusal itself: the owner is asked for the challenger's own figure, never
+/// one of their own naming, so answering cannot cost more than a real buyer just committed.
+#[test]
+fn the_owner_pays_no_more_than_the_challenger_committed() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, low_cold, registrant) = refusal_setup(4010);
+
+        assert_ok!(register_from(registrant, 4015));
+        let offer = SubnetRefusalWindow::<Test>::get(low).unwrap().offer;
+        let balance_before = SubtensorModule::get_coldkey_balance(&low_cold);
+        let issuance_before = TotalIssuance::<Test>::get();
+
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+
+        // The owner pays the challenger's own figure, and it is burned rather than banked.
+        let paid = balance_before.saturating_sub(SubtensorModule::get_coldkey_balance(&low_cold));
+        assert_eq!(paid, offer.into());
+        assert_eq!(
+            issuance_before.saturating_sub(TotalIssuance::<Test>::get()),
+            offer
+        );
+
+        // The refused challenger is out of the queue with their lock released.
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert_eq!(
+            Balances::usable_balance(registrant),
+            Balances::free_balance(registrant)
+        );
+
+        assert!(NetworksAdded::<Test>::get(low));
+        assert!(NetworksAdded::<Test>::get(high));
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(low));
+        assert!(NetworkImmuneUntil::<Test>::get(low) > System::block_number());
+    });
+}
+
+/// Why the decision is a signed call in a window rather than a standing authorization. An owner
+/// holding nothing when the challenge lands can still answer it, so there is no balance for a
+/// challenger to read and no moment at which their intent is on chain. Without this, somebody
+/// with no interest in a slot could wait for the decaying price to pass under a visible balance
+/// and register purely to make the owner burn it.
+#[test]
+fn an_owner_who_was_broke_when_challenged_can_still_answer() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4020);
+
+        // Nothing to see, and nothing to extract.
+        Balances::make_free_balance_be(&low_cold, TaoBalance::from(0u64));
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&low_cold),
+            TaoBalance::from(0u64)
+        );
+
+        assert_ok!(register_from(registrant, 4025));
+        let offer = SubnetRefusalWindow::<Test>::get(low).unwrap().offer;
+
+        // Funded only after seeing a real offer. The extra existential deposit is there because
+        // no account may spend itself out of existence, not because the price is any higher.
+        let funded = offer.saturating_add(ExistentialDeposit::get());
+        add_balance_to_coldkey_account(&low_cold, funded.into());
+        TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(funded));
+
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+        assert!(NetworksAdded::<Test>::get(low));
+        assert!(NetworkImmuneUntil::<Test>::get(low) > System::block_number());
+    });
+}
+
+/// Declining is allowed and costs the owner nothing. The next registration takes the slot.
+#[test]
+fn an_unanswered_window_lapses_and_the_slot_is_taken() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, low_cold, registrant) = refusal_setup(4030);
+
+        assert_ok!(register_from(registrant, 4035));
+        let expires_at = SubnetRefusalWindow::<Test>::get(low).unwrap().expires_at;
+        let balance_before = SubtensorModule::get_coldkey_balance(&low_cold);
+
+        System::set_block_number(expires_at.saturating_add(1));
+        assert_ok!(register_from(registrant, 4036));
+
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(low));
+        assert!(!DissolveCleanupQueue::<Test>::get().is_empty());
+        assert!(NetworksAdded::<Test>::get(high));
+        // Letting it lapse is free.
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&low_cold),
+            balance_before
+        );
+    });
+}
+
+/// A challenge on one subnet does not reprice a window already open on another.
+///
+/// The scan passes over a subnet whose owner is still deciding, so two windows can stand at once
+/// and the second registration moves the lock cost while the first owner is still inside their
+/// deadline. The offer is recorded when the window opens, so that owner answers the figure they
+/// were shown rather than a number somebody else's registration set afterwards.
+///
+/// One queue entry per outstanding challenge is the honest bound here. It used to be one
+/// chain-wide, enforced by refusing the second registration outright, and that turned a single
+/// lock into a hold on every at-cap registration.
+#[test]
+fn a_challenge_elsewhere_does_not_reprice_an_open_window() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, low_cold, registrant) = refusal_setup(4040);
+
+        let big = SubtensorModule::get_network_lock_cost().saturating_mul(10_000.into());
+        add_balance_to_coldkey_account(&registrant, big.into());
+        add_balance_to_coldkey_account(&low_cold, big.into());
+        TotalIssuance::<Test>::mutate(|t| *t = t.saturating_add(big.saturating_mul(2.into())));
+
+        assert_ok!(register_from(registrant, 4045));
+        let first_window = SubnetRefusalWindow::<Test>::get(low).unwrap();
+
+        // The other subnet is a live eviction candidate with nothing standing on it.
+        assert!(NetworksAdded::<Test>::get(high));
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(high));
+
+        System::set_block_number(System::block_number().saturating_add(10));
+
+        // Diverted to that candidate, not refused.
+        assert_ok!(register_from(registrant, 4046));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(high));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 2);
+        assert_eq!(SubnetRefusalWindow::<Test>::get(low).unwrap(), first_window);
+
+        // And the first owner is charged the figure their window recorded.
+        let balance_before = SubtensorModule::get_coldkey_balance(&low_cold);
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+        let paid = balance_before.saturating_sub(SubtensorModule::get_coldkey_balance(&low_cold));
+        assert_eq!(paid, first_window.offer.into());
+    });
+}
+
+/// What bounds the queue.
+///
+/// A challenge is the one path that appends to `NetworkRegistrationQueue` without dissolving
+/// anything, so the "every entry is paid for by a teardown" argument that bounds the unchallenged
+/// path does not cover it. Answering refunds and dequeues the challenger, so the append is undone
+/// by the same call that ends the challenge and the queue is back where it started. Answering also
+/// makes the subnet immune, so it leaves the eviction pool; once nothing is evictable
+/// `get_network_to_prune` yields `None` and registrations are refused outright rather than queued.
+///
+/// `matched_challengers_do_not_accumulate_across_immunity_cycles` covers the same property once
+/// the bought immunity has lapsed and the subnet is back in the pool.
+#[test]
+fn challenges_cannot_grow_the_queue() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, low_cold, registrant) = refusal_setup(4090);
+
+        // `refusal_setup` funds `low`'s owner for one match; the other owner needs the same.
+        let high_cold = U256::from(4092u64);
+        let funding = SubtensorModule::get_network_lock_cost().saturating_mul(8.into());
+        add_balance_to_coldkey_account(&high_cold, funding.into());
+        TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(funding));
+
+        // The candidate is challenged and its owner answers, so it leaves the eviction pool.
+        assert_ok!(register_from(registrant, 4095));
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+
+        // Only the other subnet is left to challenge, and its owner answers too.
+        assert_ok!(register_from(registrant, 4096));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(high));
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(high_cold),
+            high
+        ));
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+
+        // The pool is empty, so the next registration is turned away instead of queued.
+        assert_eq!(SubtensorModule::get_network_to_prune(), None);
+        assert_noop!(
+            register_from(registrant, 4097),
+            Error::<Test>::SubnetLimitReached
+        );
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+    });
+}
+
+/// The other place a stale figure is settled, and the same rule as the queued path.
+///
+/// The offer is quoted when the window opens and can be a full `FIRST_REFUSAL_WINDOW` old by the
+/// time it is answered. Registrations landing on other subnets in the meantime move the price up.
+/// Letting the owner's stale figure reset the accumulator down to it would hand every incumbent a
+/// way to cancel an escalation they took no part in, for the price they were quoted a day earlier.
+#[test]
+fn answering_an_old_challenge_does_not_lower_the_lock_cost() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4100);
+
+        assert_ok!(register_from(registrant, 4105));
+        let offer = SubnetRefusalWindow::<Test>::get(low).unwrap().offer;
+
+        // Demand elsewhere moves the price up while this owner is still deciding.
+        let raised = offer.saturating_mul(3.into());
+        SubtensorModule::set_network_last_lock(raised);
+
+        let balance_before = SubtensorModule::get_coldkey_balance(&low_cold);
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+
+        // The owner is still charged only the figure they were shown.
+        let paid = balance_before.saturating_sub(SubtensorModule::get_coldkey_balance(&low_cold));
+        assert_eq!(paid, offer.into());
+
+        // The accumulator holds where the market left it.
+        assert_eq!(SubtensorModule::get_network_last_lock(), raised);
+    });
+}
+
+/// A window is only worth answering while the challenger who opened it is still waiting.
+///
+/// If that registration is served from some other slot that came free, nothing is threatening this
+/// subnet any more. The owner must not be able to burn the offer for immunity nobody was
+/// contesting, and the next registration to arrive should open a fresh window at its own price
+/// rather than evict on the strength of a challenge that has already dissolved.
+#[test]
+fn a_window_whose_challenger_left_the_queue_cannot_be_answered() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4040);
+
+        assert_ok!(register_from(registrant, 4045));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(low));
+
+        // The challenger's registration is served from somewhere else.
+        NetworkRegistrationQueue::<Test>::set(vec![]);
+
+        assert_noop!(
+            SubtensorModule::exercise_first_refusal(RuntimeOrigin::signed(low_cold), low),
+            Error::<Test>::NoChallengeToAnswer
+        );
+    });
+}
+
+/// The same rule, on the eviction side and after the deadline has also passed.
+///
+/// A challenger leaving the queue ends the challenge, and it ends it whether or not the window has
+/// since expired. If expiry were checked first, a subnet could be evicted on the strength of a
+/// challenge that had already dissolved: the owner would be pruned for declining an offer that
+/// withdrew itself, and the registration actually taking the slot would never have put its own
+/// price to them.
+#[test]
+fn a_lapsed_window_whose_challenger_left_does_not_evict() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, _low_cold, registrant) = refusal_setup(4050);
+
+        assert_ok!(register_from(registrant, 4055));
+        let expires_at = SubnetRefusalWindow::<Test>::get(low).unwrap().expires_at;
+
+        // Served from a slot that came free elsewhere, so nothing contests `low` any more. Only
+        // then does the deadline pass.
+        NetworkRegistrationQueue::<Test>::set(vec![]);
+        System::set_block_number(expires_at.saturating_add(1));
+
+        assert_ok!(register_from(registrant, 4056));
+
+        assert!(NetworksAdded::<Test>::get(low));
+        assert!(NetworksAdded::<Test>::get(high));
+        assert!(DissolveCleanupQueue::<Test>::get().is_empty());
+
+        let fresh = SubnetRefusalWindow::<Test>::get(low).expect("a fresh window at its own price");
+        assert!(fresh.expires_at > expires_at);
+    });
+}
+
+/// Serving the cheap head of the queue must not undo a refusal that raised the price.
+///
+/// A queued registration settles at the price it locked, which can be far behind the market by the
+/// time a slot reaches it. If that figure were written straight back into `NetworkLastLockCost`,
+/// the escalation refusals are supposed to produce would collapse the moment the oldest entry is
+/// served, which would make answering a challenge worth much less than it looks.
+#[test]
+fn serving_an_old_queued_registration_does_not_lower_the_lock_cost() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4040);
+
+        assert_ok!(register_from(registrant, 4045));
+        let offer = SubnetRefusalWindow::<Test>::get(low).unwrap().offer;
+
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+        assert_eq!(SubtensorModule::get_network_last_lock(), offer);
+
+        // That challenger was refunded and dequeued, so the entry under test is the next one: a
+        // second registration, which lands on the other subnet now that `low` is immune.
+        assert_ok!(register_from(registrant, 4046));
+
+        // It is served from a slot that came free. Raising the limit stands in for the dissolution
+        // that would have freed one; what is under test is the price the serving writes back, not
+        // the slot accounting that got it there.
+        SubnetLimit::<Test>::put(3u16);
+
+        // The market moves further up while the entry waits, so the figure it locked is now stale.
+        let market = offer.saturating_mul(4.into());
+        SubtensorModule::set_network_last_lock(market);
+
+        let queued = NetworkRegistrationQueue::<Test>::get();
+        let entry = queued
+            .first()
+            .expect("the second challenger is queued")
+            .clone();
+        assert!(entry.lock_amount < market);
+
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &entry.coldkey,
+            &entry.hotkey,
+            entry.mechid,
+            entry.identity.clone(),
+            entry.lock_amount,
+            entry.median_subnet_alpha_price,
+            Some(entry.lock_id),
+        ));
+
+        assert_eq!(SubtensorModule::get_network_last_lock(), market);
+    });
+}
+
+/// Answering is the same demand for a scarce slot as a registration that lands, so it moves the
+/// price ladder the same way. Otherwise an incumbent holds a slot at the floor forever.
+#[test]
+fn answering_doubles_the_next_registration_price() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4050);
+
+        assert_ok!(register_from(registrant, 4055));
+        let offer = SubnetRefusalWindow::<Test>::get(low).unwrap().offer;
+
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+
+        assert_eq!(SubtensorModule::get_network_last_lock(), offer);
+        assert_eq!(
+            SubtensorModule::get_network_last_lock_block(),
+            System::block_number()
+        );
+        assert_eq!(
+            SubtensorModule::get_network_lock_cost(),
+            offer.saturating_mul(2.into())
+        );
+    });
+}
+
+/// Recycled, not pooled. `SubnetTAO` pays out pro rata on dissolution and the owner is usually
+/// the largest alpha holder, so pooling would hand the payment back to the payer.
+#[test]
+fn answering_recycles_the_price_instead_of_pooling_it() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4060);
+
+        assert_ok!(register_from(registrant, 4065));
+        let offer = SubnetRefusalWindow::<Test>::get(low).unwrap().offer;
+        let issuance_before = TotalIssuance::<Test>::get();
+        let subnet_tao_before = SubnetTAO::<Test>::get(low);
+        let locked_before = SubnetLocked::<Test>::get(low);
+
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+
+        assert_eq!(
+            issuance_before.saturating_sub(TotalIssuance::<Test>::get()),
+            offer
+        );
+        assert_eq!(SubnetTAO::<Test>::get(low), subnet_tao_before);
+        assert_eq!(SubnetLocked::<Test>::get(low), locked_before);
+    });
+}
+
+/// Inside the period it paid for, the subnet is not a candidate at all, so the next registration
+/// asks the next subnet rather than the same owner again.
+#[test]
+fn an_owner_is_not_challenged_again_inside_the_immunity_period() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, low_cold, registrant) = refusal_setup(4070);
+
+        assert_ok!(register_from(registrant, 4075));
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(high));
+        assert_ok!(register_from(registrant, 4076));
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(low));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(high));
+
+        // Back in line once the cover lapses.
+        System::set_block_number(NetworkImmuneUntil::<Test>::get(low).saturating_add(1));
+        assert_eq!(SubtensorModule::get_network_to_prune(), Some(low));
+    });
+}
+
+/// A zero `NetworkImmunityPeriod` switches immunity off protocol-wide, so there is nothing to
+/// buy and no point parking a registration behind a window that buys nothing.
+#[test]
+fn a_zero_immunity_period_prunes_without_opening_a_window() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, _low_cold, registrant) = refusal_setup(4080);
+        NetworkImmunityPeriod::<Test>::put(0u64);
+
+        assert_ok!(register_from(registrant, 4085));
+
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(low));
+        assert!(!DissolveCleanupQueue::<Test>::get().is_empty());
+    });
+}
+
+/// The owner gets the immunity they were promised when the window opened, not whatever the
+/// parameter happens to say when they pay.
+///
+/// Reading `NetworkImmunityPeriod` at exercise time instead would let governance lowering it
+/// mid-window turn a full-price answer into nothing: the payment is burned, `immune_until` is set
+/// to the current block, and `current_block < immune_until` is false immediately, so the owner
+/// buys zero protection and can be challenged again in the same block.
+#[test]
+fn shortening_the_immunity_period_mid_window_does_not_shrink_what_was_bought() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4100);
+        let promised = SubtensorModule::get_network_immunity_period();
+        assert!(promised > 0);
+
+        assert_ok!(register_from(registrant, 4105));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(low));
+
+        // Governance switches immunity off while the owner is deciding.
+        NetworkImmunityPeriod::<Test>::put(0u64);
+
+        let at = System::block_number();
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+
+        assert_eq!(
+            NetworkImmuneUntil::<Test>::get(low),
+            at.saturating_add(promised)
+        );
+    });
+}
+
+/// Answering after the window shuts is refused, so a lapsed right cannot be revived by an owner
+/// who notices late and races the next registration.
+#[test]
+fn answering_after_the_window_closes_fails() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4090);
+
+        assert_ok!(register_from(registrant, 4095));
+        let expires_at = SubnetRefusalWindow::<Test>::get(low).unwrap().expires_at;
+        System::set_block_number(expires_at.saturating_add(1));
+
+        assert_err!(
+            SubtensorModule::exercise_first_refusal(RuntimeOrigin::signed(low_cold), low),
+            Error::<Test>::NoChallengeToAnswer
+        );
+    });
+}
+
+/// Nothing to answer means nothing to pay. Without this an owner could buy immunity whenever they
+/// liked and move everybody else's price with it.
+#[test]
+fn answering_without_a_challenge_fails() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, _registrant) = refusal_setup(4100);
+
+        assert_err!(
+            SubtensorModule::exercise_first_refusal(RuntimeOrigin::signed(low_cold), low),
+            Error::<Test>::NoChallengeToAnswer
+        );
+        assert_eq!(NetworkImmuneUntil::<Test>::get(low), 0);
+    });
+}
+
+/// Answering for someone else's subnet would be a way to burn their TAO.
+#[test]
+fn only_the_owner_can_answer_a_challenge() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, _low_cold, registrant) = refusal_setup(4110);
+
+        assert_ok!(register_from(registrant, 4115));
+
+        assert_err!(
+            SubtensorModule::exercise_first_refusal(RuntimeOrigin::signed(U256::from(4199)), low),
+            DispatchError::BadOrigin
+        );
+        assert!(SubnetRefusalWindow::<Test>::contains_key(low));
+    });
+}
+
+#[test]
+fn answering_requires_an_existing_subnet() {
+    new_test_ext(0).execute_with(|| {
+        assert_err!(
+            SubtensorModule::exercise_first_refusal(
+                RuntimeOrigin::signed(U256::from(4120)),
+                NetUid::from(999)
+            ),
+            Error::<Test>::SubnetNotExists
+        );
+    });
+}
+
+/// A netuid handed to somebody else must not carry the previous owner's cover or their open
+/// window.
+#[test]
+fn a_reused_netuid_inherits_neither_immunity_nor_a_window() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4130);
+
+        assert_ok!(register_from(registrant, 4135));
+        assert_ok!(SubtensorModule::exercise_first_refusal(
+            RuntimeOrigin::signed(low_cold),
+            low
+        ));
+        assert!(NetworkImmuneUntil::<Test>::get(low) > 0);
+
+        let mut meter = WeightMeter::new();
+        SubtensorModule::remove_network_parameters(low, &mut meter);
+
+        assert_eq!(NetworkImmuneUntil::<Test>::get(low), 0);
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(low));
+    });
+}
+
+/// A registration that fails for any other reason must not leave a window behind, since dispatch
+/// unwinds the whole call and the challenge it recorded no longer exists.
+#[test]
+fn a_failed_registration_leaves_no_window() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, _low_cold, registrant) = refusal_setup(4140);
+
+        // Broke registrant: step 6's affordability check fails after step 5 opened the window.
+        Balances::make_free_balance_be(&registrant, TaoBalance::from(0u64));
+
+        assert_err!(
+            register_from(registrant, 4145),
+            Error::<Test>::CannotAffordLockCost
+        );
+        assert!(!SubnetRefusalWindow::<Test>::contains_key(low));
+    });
+}
+
+/// The way out of the queue. A registration that has not been served is the registrant's to
+/// withdraw, and withdrawing has to return the lock, not merely drop the entry.
+#[test]
+fn a_queued_registrant_can_withdraw_and_get_their_lock_back() {
+    new_test_ext(0).execute_with(|| {
+        let (_low, _high, _low_cold, registrant) = refusal_setup(4150);
+
+        let lock_id = NetworkRegistrationLockId::<Test>::get();
+        let mut identifier = [0u8; 8];
+        identifier[..4].copy_from_slice(b"rglk");
+        identifier[4..8].copy_from_slice(&lock_id.to_le_bytes());
+
+        assert_ok!(register_from(registrant, 4155));
+        let free_before = pallet_balances::Pallet::<Test>::free_balance(registrant);
+        assert!(
+            pallet_balances::Locks::<Test>::get(registrant)
+                .iter()
+                .any(|lock| lock.id == identifier)
+        );
+
+        assert_ok!(SubtensorModule::cancel_network_registration(
+            RuntimeOrigin::signed(registrant),
+            lock_id
+        ));
+
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert!(
+            pallet_balances::Locks::<Test>::get(registrant)
+                .iter()
+                .all(|lock| lock.id != identifier)
+        );
+        assert_eq!(
+            pallet_balances::Pallet::<Test>::free_balance(registrant),
+            free_before
+        );
+
+        // The lock is gone, so there is nothing left to release a second time.
+        assert_noop!(
+            SubtensorModule::cancel_network_registration(
+                RuntimeOrigin::signed(registrant),
+                lock_id
+            ),
+            Error::<Test>::NoQueuedRegistration
+        );
+    });
+}
+
+/// Withdrawing an offer retracts the ultimatum behind it.
+///
+/// The subnet it was aimed at is not evicted for declining an offer that is no longer on the table.
+/// A later registration has to open its own window at its own price, which is what stops a
+/// withdrawn challenge from being worth as much to the attacker as a real one.
+#[test]
+fn withdrawing_a_challenge_leaves_the_subnet_standing() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, _low_cold, registrant) = refusal_setup(4160);
+
+        let lock_id = NetworkRegistrationLockId::<Test>::get();
+        assert_ok!(register_from(registrant, 4165));
+        let retracted = SubnetRefusalWindow::<Test>::get(low)
+            .expect("the challenge opened a window")
+            .expires_at;
+
+        assert_ok!(SubtensorModule::cancel_network_registration(
+            RuntimeOrigin::signed(registrant),
+            lock_id
+        ));
+
+        // Past the deadline the retracted offer carried, so a window that survived its challenger
+        // would read as lapsed here and evict.
+        System::set_block_number(retracted.saturating_add(1));
+        assert_ok!(register_from(registrant, 4166));
+
+        assert!(NetworksAdded::<Test>::get(low));
+        assert!(NetworksAdded::<Test>::get(high));
+        assert!(DissolveCleanupQueue::<Test>::get().is_empty());
+        let fresh = SubnetRefusalWindow::<Test>::get(low).expect("a fresh window at its own price");
+        assert!(fresh.expires_at > retracted);
+    });
+}
+
+/// A lock is only the account holder's to release, so the queue is matched on both the lock and the
+/// coldkey that owns it.
+#[test]
+fn only_the_registrant_can_withdraw_their_registration() {
+    new_test_ext(0).execute_with(|| {
+        let (_low, _high, low_cold, registrant) = refusal_setup(4170);
+
+        let lock_id = NetworkRegistrationLockId::<Test>::get();
+        assert_ok!(register_from(registrant, 4175));
+
+        assert_noop!(
+            SubtensorModule::cancel_network_registration(RuntimeOrigin::signed(low_cold), lock_id),
+            Error::<Test>::NoQueuedRegistration
+        );
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
     });
 }
 
@@ -3508,6 +4246,22 @@ fn register_network_prune_registers_registration_queued() {
         ));
 
         assert!(NetworkRegistrationQueue::<Test>::get().len() == 1);
+
+        // The first registration to reach the cap opens the owner's window rather than pruning,
+        // so n1 is still here and the challenger waits.
+        let expires_at = SubnetRefusalWindow::<Test>::get(n1)
+            .expect("window should open")
+            .expires_at;
+        assert!(!DissolveCleanupQueue::<Test>::get().contains(&n1));
+        assert!(NetworksAdded::<Test>::get(n1));
+
+        // Unanswered, so the next registration takes the slot.
+        System::set_block_number(expires_at.saturating_add(1));
+        let cold2 = U256::from(9903);
+        add_balance_to_coldkey_account(&cold2, lock_amount.saturating_mul(10.into()).into());
+        TotalIssuance::<Test>::mutate(|total| *total = total.saturating_add(lock_amount));
+        assert_ok!(register_from(cold2, 9904));
+
         assert!(DissolveCleanupQueue::<Test>::get().contains(&n1));
         assert!(!NetworksAdded::<Test>::get(n1));
     });
@@ -3859,5 +4613,207 @@ fn process_network_registration_queue_unlocks_funds_and_charges_coldkey() {
             .expect("queued registration should create a new subnet");
         assert_eq!(SubnetOwner::<Test>::get(new_netuid), cold);
         assert_eq!(SubnetLocked::<Test>::get(new_netuid), queued_lock);
+    });
+}
+
+/// Queue depth is not a function of elapsed time.
+///
+/// Immunity bought by answering a challenge does lapse, and the subnet then returns to the
+/// eviction pool and can be challenged again. Were a matched challenger left queued, one subnet
+/// would add an entry every cycle forever, and nothing in the eviction pool would bound a list
+/// that every registration on the chain decodes. Dequeueing on match is what stops that.
+#[test]
+fn matched_challengers_do_not_accumulate_across_immunity_cycles() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, low_cold, registrant) = refusal_setup(4200);
+
+        let big = SubtensorModule::get_network_lock_cost().saturating_mul(10_000.into());
+        add_balance_to_coldkey_account(&low_cold, big.into());
+        add_balance_to_coldkey_account(&registrant, big.into());
+        TotalIssuance::<Test>::mutate(|t| *t = t.saturating_add(big.saturating_mul(2.into())));
+
+        // Two subnets exist, so the evictable pool is never larger than two.
+        for cycle in 0..4u64 {
+            assert_eq!(SubtensorModule::get_network_to_prune(), Some(low));
+            assert_ok!(register_from(registrant, 4300u64.saturating_add(cycle)));
+            assert_ok!(SubtensorModule::exercise_first_refusal(
+                RuntimeOrigin::signed(low_cold),
+                low
+            ));
+            assert!(
+                NetworkRegistrationQueue::<Test>::get().is_empty(),
+                "cycle {cycle}: the answered challenger was refunded and dequeued"
+            );
+            System::set_block_number(NetworkImmuneUntil::<Test>::get(low).saturating_add(1));
+        }
+    });
+}
+
+/// The answered path is bounded. The unanswered path is not, and this pins the difference.
+///
+/// A challenger opens a window and is queued, but nothing is pruned yet. Nobody answers. The next
+/// registration to arrive clears the lapsed window, prunes, and joins the queue behind that
+/// challenger. Two entries in, one slot out. Depth climbs by one per unanswered cycle, and every
+/// registration decodes the queue, so this is a real cost rather than a cosmetic one. Stated in
+/// the PR body rather than fixed: closing it means handing a lapsed window's challenger the slot
+/// without waiting for a second registration to trigger the prune.
+#[test]
+fn an_unanswered_cycle_queues_two_and_frees_one() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, _low_cold, registrant) = refusal_setup(4500);
+
+        let big = SubtensorModule::get_network_lock_cost().saturating_mul(10_000.into());
+        add_balance_to_coldkey_account(&registrant, big.into());
+        TotalIssuance::<Test>::mutate(|t| *t = t.saturating_add(big));
+
+        assert_ok!(register_from(registrant, 4510));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(low));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+
+        let expires = SubnetRefusalWindow::<Test>::get(low).unwrap().expires_at;
+        System::set_block_number(expires.saturating_add(1));
+
+        assert_ok!(register_from(registrant, 4511));
+        assert_eq!(
+            NetworkRegistrationQueue::<Test>::get().len(),
+            2,
+            "the lapsed window's challenger is still queued when the pruner joins"
+        );
+
+        DissolveCleanupQueue::<Test>::kill();
+        run_network_registration_queue();
+        assert_eq!(
+            NetworkRegistrationQueue::<Test>::get().len(),
+            1,
+            "one entry outlives the cycle that created it"
+        );
+    });
+}
+
+/// One open window diverts the next registration rather than holding up the chain.
+///
+/// `get_network_to_prune` passes over a subnet whose owner is still inside the deadline, so the
+/// scan names the next candidate instead. Refusing here rather than skipping would have let a
+/// single lock freeze every at-cap registration, and cancelling refunds in full, so the same lock
+/// could be recycled indefinitely. Skipping prices the attack properly: freezing the chain now
+/// takes a live window on every evictable subnet at once, each backed by its own full lock.
+#[test]
+fn a_live_window_diverts_the_next_registration_instead_of_blocking_it() {
+    new_test_ext(0).execute_with(|| {
+        let (low, high, _low_cold, registrant) = refusal_setup(4600);
+
+        let big = SubtensorModule::get_network_lock_cost().saturating_mul(10_000.into());
+        add_balance_to_coldkey_account(&registrant, big.into());
+        TotalIssuance::<Test>::mutate(|t| *t = t.saturating_add(big));
+
+        assert_ok!(register_from(registrant, 4610));
+        assert!(SubnetRefusalWindow::<Test>::contains_key(low));
+
+        // Not refused with `SubnetChallengeInProgress`: the scan skips `low` and names `high`.
+        assert_ok!(register_from(registrant, 4611));
+        assert!(
+            SubnetRefusalWindow::<Test>::contains_key(high),
+            "the second challenge landed on the next candidate"
+        );
+        assert!(
+            SubnetRefusalWindow::<Test>::contains_key(low),
+            "and the first window is untouched, so its owner keeps the full deadline"
+        );
+    });
+}
+
+/// Guards the benchmark fixture: a window with no challenger behind it does not prune.
+///
+/// `refusal_state` tests challenger presence before expiry, so a window whose `challenger_lock_id`
+/// is absent from `NetworkRegistrationQueue` resolves to `Unchallenged` rather than `Lapsed`, and
+/// the registration opens a fresh window instead of pruning. `register_network_pruning` used to
+/// build exactly that state and so measured the wrong branch, and its old
+/// `assert!(!queue.is_empty())` passed on both, which is why it went unnoticed. `fill_subnets` now
+/// queues the matching entry; this pins the behavior that made the omission matter.
+#[test]
+fn a_window_with_no_queued_challenger_opens_afresh_instead_of_pruning() {
+    new_test_ext(0).execute_with(|| {
+        let (low, _high, _low_cold, registrant) = refusal_setup(4400);
+
+        // exactly what benchmarks::helpers::lapsed_refusal_window() writes
+        SubnetRefusalWindow::<Test>::insert(
+            low,
+            RefusalWindow {
+                offer: TaoBalance::from(0u64),
+                expires_at: 0,
+                challenger_lock_id: 0,
+                immunity_period: 0,
+            },
+        );
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+
+        assert_ok!(register_from(registrant, 4500));
+
+        // the benchmark's assertion -- passes either way
+        assert!(!NetworkRegistrationQueue::<Test>::get().is_empty());
+
+        // but nothing was pruned
+        assert!(
+            DissolveCleanupQueue::<Test>::get().is_empty(),
+            "no teardown was started, so the prune branch never ran"
+        );
+        let fresh = SubnetRefusalWindow::<Test>::get(low).expect("a fresh window was opened");
+        assert!(
+            fresh.expires_at > 0,
+            "the fixture's lapsed window (expires_at 0) was replaced by a live one, \
+             so the registration opened a window rather than pruning"
+        );
+    });
+}
+
+/// Documents pre-existing base behavior. This PR neither introduces it nor relies on it, and the
+/// test is here because the collateral behind a queued registration is what an owner is deciding
+/// against. Reported separately rather than patched here.
+///
+/// Registration collateral uses `LockableCurrency::set_lock` under a per-lock-id identifier, and
+/// Substrate locks overlap rather than stack. `lock_network_registration_cost` guards with
+/// `can_remove_balance_from_coldkey_account`, which nets out already-frozen funds, so a coldkey
+/// cannot open a second lock for its whole balance. It CAN open two locks of unequal size: the
+/// pair freezes max(a, b) while promising a + b, leaving the difference spendable.
+#[test]
+fn unequal_registration_locks_freeze_max_not_sum() {
+    new_test_ext(0).execute_with(|| {
+        let coldkey = U256::from(9001u64);
+        let big: u64 = 100_000_000_000;
+        let small: u64 = 50_000_000_000;
+        add_balance_to_coldkey_account(&coldkey, big.saturating_add(small).into());
+
+        assert_ok!(SubtensorModule::lock_network_registration_cost(
+            &coldkey,
+            big.into(),
+            0
+        ));
+        // The guard rejects a second lock for the full balance -- overlap is not freely exploitable.
+        assert_err!(
+            SubtensorModule::lock_network_registration_cost(&coldkey, big.into(), 1),
+            Error::<Test>::InsufficientTaoBalance
+        );
+        // But an unequal second lock fits inside what the first one left reducible.
+        assert_ok!(SubtensorModule::lock_network_registration_cost(
+            &coldkey,
+            small.into(),
+            1
+        ));
+
+        let free: u64 = Balances::free_balance(coldkey).into();
+        let usable: u64 = Balances::usable_balance(coldkey).into();
+        let frozen = free.saturating_sub(usable);
+
+        assert_eq!(
+            frozen,
+            big,
+            "two locks promising {} freeze only max(a, b) = {}",
+            big.saturating_add(small),
+            big
+        );
+        assert_eq!(
+            usable, small,
+            "the {small} difference stays spendable while still promised to a queued offer"
+        );
     });
 }

@@ -15,6 +15,147 @@ pub(super) fn set_reserves<T: Config>(
     SubnetAlphaIn::<T>::insert(netuid, alpha_in);
 }
 
+/// The lock held by the challenger behind every window `fill_subnets` stamps.
+///
+/// Nonzero so it cannot collide with the id `NetworkRegistrationLockId` hands the registration
+/// under measurement, which would put two entries in the queue under one lock.
+pub(super) const LAPSED_CHALLENGER_LOCK_ID: u32 = 1;
+
+/// A refusal window that closed at block zero, so the candidate is evictable at any later block.
+///
+/// The at-limit benchmark uses this because clearing a lapsed window and then evicting is the
+/// heaviest way step 5 can go. Opening a fresh window instead does strictly less work, and being
+/// refused for a live one does less still.
+///
+/// A window is only lapsed while its challenger is still queued: `refusal_state` tests challenger
+/// presence first, so a window naming a lock id absent from `NetworkRegistrationQueue` reports as
+/// `Unchallenged` and the registration opens a fresh window rather than pruning. `fill_subnets`
+/// therefore queues the matching entry, and without it this fixture measures the wrong branch.
+pub(super) fn lapsed_refusal_window() -> RefusalWindow {
+    RefusalWindow {
+        offer: TaoBalance::from(0u64),
+        expires_at: 0,
+        challenger_lock_id: LAPSED_CHALLENGER_LOCK_ID,
+        immunity_period: 0,
+    }
+}
+
+/// The largest identity `is_valid_subnet_identity` accepts: 6,656 bytes across the eight fields.
+///
+/// Both registration outcomes carry the identity. Creation writes it to `SubnetIdentitiesV3`;
+/// queueing encodes it into the `NetworkRegistrationQueue` entry and again into the event. `None`
+/// measures neither.
+pub(super) fn max_subnet_identity() -> SubnetIdentityOfV3 {
+    SubnetIdentityOfV3 {
+        subnet_name: vec![b'n'; 256],
+        github_repo: vec![b'g'; 1024],
+        subnet_contact: vec![b'c'; 1024],
+        subnet_url: vec![b'u'; 1024],
+        discord: vec![b'd'; 256],
+        description: vec![b'e'; 1024],
+        logo_url: vec![b'l'; 1024],
+        additional: vec![b'a'; 1024],
+    }
+}
+
+/// Fill the chain with prunable subnets so a registration benchmark runs against a realistic
+/// `NetworksAdded` map rather than an empty one.
+///
+/// `do_register_network` counts every entry in `NetworksAdded` on every call, and once that count
+/// reaches `SubnetLimit` it also walks `get_network_to_prune`. Registering into an empty chain
+/// measures neither. Callers pick which outcome they are measuring via `subnets`: below the limit
+/// the call creates a subnet (many writes), at the limit it prunes and queues instead (far more
+/// reads). Neither dominates the other.
+///
+/// Immunity is set to one block and `NetworkRegisteredAt` to zero so no candidate is skipped.
+/// Requires a current block above zero.
+///
+/// Every subnet is made dynamic with a funded pool, and both prices are staggered per subnet.
+///
+/// Two independent scans walk `NetworksAdded`, and a fixture of stable, empty-pool subnets makes
+/// both of them exit early on every entry:
+///
+/// - `get_network_to_prune` calls `get_moving_alpha_price`, which returns on `SubnetMechanism == 0`
+///   without reading `SubnetMovingPrice`.
+/// - `get_median_subnet_alpha_price` calls swap `current_price`, which returns on a non-dynamic
+///   mechanism, and on a dynamic one still returns before reading the TAO reserve or the balancer
+///   unless the alpha reserve is nonzero.
+///
+/// So the scans would walk 128 entries while pricing none, which is the same class of mistake as
+/// benchmarking against an empty chain. Staggering matters as well as seeding: the median builds a
+/// `BTreeMap` keyed on price, and identical reserves collapse it to a single entry.
+pub(super) fn fill_subnets<T: Config>(owner: &T::AccountId, subnets: u16) {
+    NetworkImmunityPeriod::<T>::set(1);
+
+    for netuid in 1..=subnets {
+        let offset = u64::from(netuid);
+        let netuid = NetUid::from(netuid);
+
+        Subtensor::<T>::init_new_network(netuid, 1);
+        NetworkRegisteredAt::<T>::insert(netuid, 0);
+        SubnetOwner::<T>::insert(netuid, owner.clone());
+        SubnetMechanism::<T>::insert(netuid, 1);
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(150_000_000_000_u64.saturating_add(offset.saturating_mul(1_000_000))),
+            AlphaBalance::from(100_000_000_000_u64),
+        );
+        SubnetMovingPrice::<T>::insert(
+            netuid,
+            I96F32::saturating_from_num(1_000_u64.saturating_add(offset))
+                .saturating_div(I96F32::saturating_from_num(1_000)),
+        );
+        SubnetRefusalWindow::<T>::insert(netuid, lapsed_refusal_window());
+    }
+
+    // Queue depth is measured at one entry per subnet slot, and two paths reach it. The scan skips
+    // a subnet whose window is still live and names the next candidate, so every evictable subnet
+    // can carry its own window and its own queued challenger at the same time. The
+    // `wait_to_cleanup` path reaches the same depth from the other direction, with registrations
+    // queued behind dissolutions already in flight and `DissolveCleanupQueue` unbounded. Every
+    // entry carries a maximum identity because the whole queue is decoded and written back when
+    // the registration under measurement is pushed. `LAPSED_CHALLENGER_LOCK_ID` goes last, the
+    // worst case for the scan that resolves the window.
+    let mut queued: Vec<NetworkRegistrationInfo<T::AccountId>> = (0..subnets)
+        .map(|index| NetworkRegistrationInfo::<T::AccountId> {
+            coldkey: account("QueuedChallenger", 0, u32::from(index)),
+            hotkey: account("QueuedChallengerHotkey", 0, u32::from(index)),
+            mechid: 1,
+            identity: Some(max_subnet_identity()),
+            lock_amount: TaoBalance::from(0u64),
+            median_subnet_alpha_price: U64F64::saturating_from_num(1),
+            registration_block: 0,
+            lock_id: LAPSED_CHALLENGER_LOCK_ID
+                .saturating_add(u32::from(index))
+                .saturating_add(1),
+        })
+        .collect();
+    if let Some(last) = queued.last_mut() {
+        last.lock_id = LAPSED_CHALLENGER_LOCK_ID;
+    }
+    let next_lock_id = LAPSED_CHALLENGER_LOCK_ID
+        .saturating_add(u32::from(subnets))
+        .saturating_add(1);
+    NetworkRegistrationQueue::<T>::set(queued);
+    NetworkRegistrationLockId::<T>::set(next_lock_id);
+
+    let price = Subtensor::<T>::get_network_lock_cost();
+    add_balance_to_coldkey_account::<T>(owner, price.saturating_mul(2.into()));
+    TotalIssuance::<T>::mutate(|total| *total = total.saturating_add(price));
+}
+
+/// One below `SubnetLimit`: the registration still creates a subnet, but pays the full count.
+pub(super) fn fill_subnets_below_limit<T: Config>(owner: &T::AccountId) {
+    let limit = Subtensor::<T>::get_max_subnets();
+    fill_subnets::<T>(owner, limit.saturating_sub(1));
+}
+
+/// At `SubnetLimit`: the registration prunes a subnet and queues instead of creating one.
+pub(super) fn fill_subnets_to_limit<T: Config>(owner: &T::AccountId) {
+    let limit = Subtensor::<T>::get_max_subnets();
+    fill_subnets::<T>(owner, limit);
+}
+
 pub(super) fn benchmark_registration_burn() -> TaoBalance {
     TaoBalance::from(1_000_000)
 }

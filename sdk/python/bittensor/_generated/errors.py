@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 440
+Spec version: 441
 """
 from dataclasses import dataclass
 
@@ -198,6 +198,10 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 154): ErrorInfo('SubtensorModule', 'InsufficientAlphaBalance', 'The caller does not have enough Alpha stake for the operation.'),
     (7, 155): ErrorInfo('SubtensorModule', 'ColdkeyCollateralIncomplete', "Coldkey swap could not fully migrate miner collateral: the old coldkey's [`ColdkeyMinerCollateral`] aggregate remained non-zero after migrating every indexed collateral hotkey. Failing closed avoids under-locking the destination unstake guard."),
     (7, 156): ErrorInfo('SubtensorModule', 'ColdkeyCollateralPositionsFull', 'This coldkey already has the maximum number of distinct hotkeys with miner collateral on the subnet ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).'),
+    (7, 157): ErrorInfo('SubtensorModule', 'TooManyRootClaimHotkeys', 'The coldkey has too many staking hotkeys for a single manual root claim.'),
+    (7, 158): ErrorInfo('SubtensorModule', 'NoChallengeToAnswer', "No registration is currently waiting on this subnet's owner, or the window in which the owner could have answered one has already closed."),
+    (7, 159): ErrorInfo('SubtensorModule', 'SubnetChallengeInProgress', "A registration is already waiting on this subnet's owner to decide. At most one challenge stands against a given subnet, so this registration is refused rather than queued behind it. Retry once the window closes or the owner answers."),
+    (7, 160): ErrorInfo('SubtensorModule', 'NoQueuedRegistration', 'This coldkey holds no queued network registration under the given lock id. Either it was already served or cancelled, or the lock belongs to somebody else.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),

@@ -125,7 +125,7 @@ pub mod pallet {
     use crate::staking::lock::LockState;
     use crate::subnets::dissolution::DissolveCleanupStatus;
     use crate::subnets::leasing::{LeaseId, SubnetLeaseOf};
-    use crate::subnets::subnet::NetworkRegistrationInfo;
+    use crate::subnets::subnet::{NetworkRegistrationInfo, RefusalWindow};
     use crate::weights::WeightInfo;
     use crate::{
         MAX_ASSOCIATED_UIDS_PER_EVM_ADDRESS, MAX_COLDKEY_COLLATERAL_HOTKEYS, RateLimitKey,
@@ -2078,6 +2078,31 @@ pub mod pallet {
     #[pallet::storage]
     pub type NetworkRegisteredAt<T: Config> =
         StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultNetworkRegisteredAt<T>>;
+
+    /// MAP ( netuid ) --> block before which the subnet cannot be pruned
+    ///
+    /// Written when an owner exercises first refusal by matching a challenger's price.
+    /// Deliberately separate from [`NetworkRegisteredAt`], which the `start_call` delay, the
+    /// legacy lock-refund flag and the conviction-based ownership handover all read; none of
+    /// those should move just because a challenge was answered. Zero means the subnet has only
+    /// the immunity its registration block grants it.
+    #[pallet::storage]
+    pub type NetworkImmuneUntil<T: Config> =
+        StorageMap<_, Identity, NetUid, u64, ValueQuery, DefaultZeroU64<T>>;
+
+    /// MAP ( netuid ) --> the open right of first refusal on that subnet
+    ///
+    /// Present only while a registration is waiting on this subnet's owner. A registration that
+    /// would have taken the slot opens the window and queues instead of evicting, and the owner
+    /// answers with [`Pallet::exercise_first_refusal`] or loses the slot when it lapses.
+    ///
+    /// The price is the challenger's own lock, recorded when the window opens. The owner
+    /// therefore names no figure in advance and nothing about their intent is on chain until
+    /// they act, which is the point: a number stored here ahead of time, or inferred from the
+    /// owner's balance, is a reservation price that a challenger can read and charge them.
+    #[pallet::storage]
+    pub type SubnetRefusalWindow<T: Config> =
+        StorageMap<_, Identity, NetUid, RefusalWindow, OptionQuery>;
 
     /// MAP ( netuid ) --> registered_subnet_counter
     ///

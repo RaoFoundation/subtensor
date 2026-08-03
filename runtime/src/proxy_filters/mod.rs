@@ -66,6 +66,7 @@ type NonTransferAllowed = (
     RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    SubnetImmunityCalls,
     SubtensorCommonCalls,
 );
 
@@ -322,7 +323,8 @@ mod tests {
             | &(&group_calls::<StakeManagementCalls>() | &group_calls::<StakeTransferCalls>()))
             | &(&(&group_calls::<BurnedRegistrationCalls>()
                 | &group_calls::<RootRegistrationCalls>())
-                | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
+                | &(&(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>())
+                    | &group_calls::<SubnetImmunityCalls>()));
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -333,7 +335,7 @@ mod tests {
     fn non_critical_is_everything_but_sudo_and_critical_ops() {
         let denied = &(&(&group_calls::<SudoCalls>() | &group_calls::<BurnedRegistrationCalls>())
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
-            | &group_calls::<ColdkeySwapCalls>();
+            | &(&group_calls::<ColdkeySwapCalls>() | &group_calls::<SubnetImmunityCalls>());
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -538,6 +540,28 @@ mod tests {
             !allowed_calls(ProxyType::NonCritical)
                 .contains("SubtensorModule::root_dissolve_network")
         );
+    }
+
+    // Answering a challenge spends the owner's TAO through `recycle_tao`, which destroys it. A
+    // proxy that promises not to move value must not reach it, and neither must one that cannot
+    // dissolve the subnet in the first place. Asserted directly rather than left to the three
+    // superset identities above, because those compare whole sets: a call landing in the wrong
+    // group there is indistinguishable from any other inventory gap.
+    #[test]
+    fn subnet_first_refusal_stays_out_of_non_spending_proxies() {
+        let call = "SubtensorModule::exercise_first_refusal";
+        for proxy_type in [
+            ProxyType::NonFungible,
+            ProxyType::NonCritical,
+            ProxyType::Owner,
+            ProxyType::SubnetLeaseBeneficiary,
+        ] {
+            assert!(
+                !allowed_calls(proxy_type).contains(call),
+                "{proxy_type:?} must not be able to spend the owner's TAO via {call}"
+            );
+        }
+        assert!(allowed_calls(ProxyType::NonTransfer).contains(call));
     }
 
     // The SmallTransfer / SudoUncheckedSetCode metadata must carry their

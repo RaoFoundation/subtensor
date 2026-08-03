@@ -435,6 +435,18 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::start_call),]
 );
 
+// Buying a subnet out of the pruning queue. It spends the owner's TAO through `recycle_tao`,
+// which destroys it, so it belongs on the same side of the line as `burned_register` rather than
+// with the rest of the subnet-owner calls: `NonFungible` must not reach it because it promises to
+// move no value, and `NonCritical` must not because it cannot dissolve a subnet either, so it has
+// no business spending to keep one alive.
+call_filter_group!(
+    SubnetImmunityCalls,
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::exercise_first_refusal
+    ),]
+);
+
 // Residual pallet-subtensor calls that no proxy needs to grant on their own:
 // weights, serving, delegate-take, alpha lock/burn/preferences, network
 // registration, childkey admin, account association, tempo control, voting
@@ -463,6 +475,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::burn_alpha),
         RuntimeCall::SubtensorModule(SubtensorCall::register_network),
         RuntimeCall::SubtensorModule(SubtensorCall::register_network_with_identity),
+        RuntimeCall::SubtensorModule(SubtensorCall::cancel_network_registration),
         RuntimeCall::SubtensorModule(SubtensorCall::register_leased_network),
         RuntimeCall::SubtensorModule(SubtensorCall::decrease_take),
         RuntimeCall::SubtensorModule(SubtensorCall::increase_take),
@@ -690,6 +703,7 @@ type SubtensorSplitCalls = (
     RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    SubnetImmunityCalls,
     SubtensorCommonCalls,
 );
 

@@ -226,6 +226,13 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AddStakeBurnRateLimitExceeded": _C.RATE_LIMITED,
     "ColdkeyCollateralIncomplete": _C.INTERNAL,
     "ColdkeyCollateralPositionsFull": _C.LIMIT_EXCEEDED,
+    # Declared on the chain but absent from the committed catalog before this
+    # branch regenerated it. Classified here so `codegen.check --names` stays
+    # green; unrelated to this PR otherwise.
+    "TooManyRootClaimHotkeys": _C.LIMIT_EXCEEDED,
+    "NoChallengeToAnswer": _C.NOT_FOUND,
+    "SubnetChallengeInProgress": _C.ALREADY_EXISTS,
+    "NoQueuedRegistration": _C.NOT_FOUND,
     # Pending announcement blocks nearly all signed calls until the swap is
     # executed or the announcement is cleared (guards/check_coldkey_swap.rs).
     # Bucketed as disabled (feature/path blocked), not already_exists.

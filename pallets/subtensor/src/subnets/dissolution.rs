@@ -262,9 +262,10 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
-        // Flat write charge for the `::remove(netuid)` list below. Bump this when
+        // Flat charge for the `::remove(netuid)` list below: 90 unconditional removals, plus
+        // the conditional `SubnetIdentitiesV3` read and removal at the end. Bump this when
         // adding or removing entries from that list so the weight stays in step.
-        let removal_weight = T::DbWeight::get().writes(82);
+        let removal_weight = T::DbWeight::get().reads_writes(1, 91);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -272,6 +273,10 @@ impl<T: Config> Pallet<T> {
         SubnetOwner::<T>::remove(netuid);
         SubnetworkN::<T>::remove(netuid);
         NetworkRegisteredAt::<T>::remove(netuid);
+        // Netuids are reused, so neither paid immunity nor an authorization to buy more may
+        // outlive the subnet they were given for.
+        NetworkImmuneUntil::<T>::remove(netuid);
+        SubnetRefusalWindow::<T>::remove(netuid);
         Active::<T>::remove(netuid);
         Emission::<T>::remove(netuid);
         Consensus::<T>::remove(netuid);

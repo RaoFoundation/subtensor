@@ -111,6 +111,13 @@ RAW_ONLY: dict[str, set[str]] = {
         "recycle_alpha",
         "remove_stake_full_limit",
         "register_limit",
+        # owner authorizes spending its own TAO to keep a subnet slot. Whether
+        # that spend should be agent-executable is a policy call, so raw-only
+        # until maintainers ask for an intent.
+        "exercise_first_refusal",
+        # withdraws a queued network registration; same class as the
+        # register_network variants below, which are raw-only too
+        "cancel_network_registration",
         # identity / metadata / misc (set_identity / set_subnet_identity /
         # update_symbol are wrapped)
         "register_network_with_identity",
