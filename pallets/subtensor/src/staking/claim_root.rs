@@ -163,7 +163,7 @@ impl<T: Config> Pallet<T> {
     /// Shared tail of both dividend deposit flows: attribute the value added between real
     /// stakers and the fund's own escrow slot, mint fund shares at the pre-deposit NAV, and
     /// advance the per-validator claimable rate. Errors on a dust deposit so the caller rolls
-    /// back and recycles.
+    /// back and re-queues (or recycles only when the credit is unapportionable).
     pub(super) fn mint_basket_dividend_shares(
         hotkey: &T::AccountId,
         nav_before: u64,
@@ -194,8 +194,9 @@ impl<T: Config> Pallet<T> {
             .checked_div(I96F32::saturating_from_num(total_root))
             .unwrap_or(I96F32::saturating_from_num(0));
 
-        // Dust deposit (shares or rate round to zero): roll everything back and recycle, so
-        // `Σ owed == BasketShares` is never broken by uncredited value.
+        // Dust deposit (shares or rate round to zero): roll everything back so
+        // `Σ owed == BasketShares` is never broken by uncredited value. The caller
+        // re-queues the credit for a later attempt.
         ensure!(
             shares > 0 && increment != I96F32::saturating_from_num(0),
             DispatchError::Other("basket deposit too small")

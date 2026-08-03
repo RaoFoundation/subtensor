@@ -386,10 +386,12 @@ fn test_flush_happy_path_ops_bounded_for_curated_batch() {
     });
 }
 
-/// Failure path: a multi-origin batch that cannot mint recycles the whole batch once.
-/// Ops stay at one attempt — no per-credit singleton retry storm.
+/// Failure path: a multi-origin batch that cannot mint splits into per-origin retries and
+/// re-queues every still-failing credit. Soft failure must not recycle healthy (or dust)
+/// dividends — they stay pending to merge / retry later. Work is bounded by one batch
+/// attempt plus one singleton attempt per credit.
 #[test]
-fn test_flush_failure_path_ops_bounded_no_singleton_retry() {
+fn test_flush_failure_path_requeues_and_splits() {
     new_test_ext(1).execute_with(|| {
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
@@ -438,40 +440,32 @@ fn test_flush_failure_path_ops_bounded_no_singleton_retry() {
 
         assert_eq!(BasketShares::<Test>::get(hotkey), 0);
         for netuid in origins {
-            assert!(
-                !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
-                "failed batch must not leave credits queued"
+            assert_eq!(
+                PendingBasketDeposits::<Test>::get(hotkey, netuid).to_u64(),
+                credit_alpha,
+                "soft-failed credit must be re-queued, not recycled"
             );
         }
-        // Whole batch recycled once.
+        // Soft failure must not touch origin issuance.
         for (netuid, before) in origins.iter().zip(alpha_before.iter()) {
-            assert_eq!(
-                SubnetAlphaOut::<Test>::get(*netuid),
-                before.saturating_sub(credit_alpha.into())
-            );
+            assert_eq!(SubnetAlphaOut::<Test>::get(*netuid), *before);
         }
 
-        // One-shot work: scan(credits) + uncurated deposit(holdings=0 + credits*2).
-        // A singleton-retry fallback would charge roughly credits times that deposit term.
-        let one_shot = credits + credits.saturating_mul(2);
-        let retry_storm = credits + credits.saturating_mul(credits.saturating_mul(2));
-        assert_eq!(work, one_shot);
-        assert!(
-            work < retry_storm,
-            "failure must not replay per-credit deposits: work={work} retry_bound={retry_storm}"
-        );
+        // Scan + batch attempt + one singleton attempt per credit.
+        let batch_work = credits.saturating_mul(2);
+        let singleton_work = credits.saturating_mul(2); // holdings=0, one credit each
+        let expected_work = credits + batch_work + singleton_work;
+        assert_eq!(work, expected_work);
         assert_eq!(basket_swap_ops(), 0, "uncurated failure does no swaps");
-        // Spot quotes per origin + NAV/origin realizable quotes inside the rolled-back attempt.
+        // Spot quotes per origin on the scan, plus quotes inside the batch attempt and each
+        // singleton retry — keep this O(credits), not quadratic.
         assert!(
-            basket_quote_ops() <= credits.saturating_mul(4),
-            "quotes must stay one-attempt bounded, got {}",
+            basket_quote_ops() <= credits.saturating_mul(8),
+            "quotes must stay split-retry bounded, got {}",
             basket_quote_ops()
         );
-        assert_eq!(
-            basket_write_ops(),
-            credits,
-            "only the pre-deposit pending-row removes"
-        );
+        // Pre-deposit removes + re-queue writes after each singleton failure.
+        assert_eq!(basket_write_ops(), credits.saturating_mul(2));
     });
 }
 

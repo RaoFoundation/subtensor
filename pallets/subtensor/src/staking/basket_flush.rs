@@ -199,8 +199,9 @@ impl<T: Config> Pallet<T> {
     /// leaking to root stakers as free shares.
     ///
     /// The whole operation is transactional: if any swap fails (or the deposit is dust), it is
-    /// rolled back and the original alpha is recycled. Dividends are recycled only when the
-    /// validator has no root stake to apportion against.
+    /// rolled back and the original alpha is re-queued for a later flush (multi-credit batches
+    /// split into per-origin retries first). Dividends are recycled only when the validator
+    /// has no root stake to apportion against.
     ///
     /// Protocol-flow accounting is symmetric with redemption: the origin sell is booked as an
     /// outflow on the origin subnet and each redistribution buy as an inflow on its dest subnet,
@@ -225,10 +226,11 @@ impl<T: Config> Pallet<T> {
     /// epochs share one full-NAV valuation instead of paying one per origin.
     ///
     /// Semantics are those of [`Self::distribute_root_alpha_to_basket`] generalized to a
-    /// batch. The batch is transactional as a whole; on failure the entire batch is
-    /// recycled (no per-credit retry). That keeps flush work bounded to one deposit
-    /// attempt — a thin/borked origin can drop that flush's credits, including good
-    /// origins sharing the batch, rather than replaying a full singleton deposit storm.
+    /// batch. The batch is transactional as a whole; on soft failure a multi-credit batch
+    /// splits into per-origin retries so one borked origin cannot sink healthy credits, and
+    /// any credit that still fails is re-queued for a later flush (it may merge with future
+    /// dividends and become depositable). Credits are recycled only when demonstrably
+    /// unapportionable (no root stake) or when the seed migration owns the basket maps.
     ///
     /// Returns the approximate quote work performed (holdings valued plus origin quotes),
     /// scan-priced into claim weights by callers that flush inside an extrinsic.
@@ -305,20 +307,45 @@ impl<T: Config> Pallet<T> {
             }
         });
 
-        // Rolled back: recycle the whole batch. Do not retry credits as singletons — that
-        // recreates the per-origin hot-block deposit path the queue exists to remove.
-        if outcome.is_err() {
-            Self::recycle_basket_deposit_batch(batch);
+        if outcome.is_ok() {
+            return work;
         }
+
+        // Soft failure: split a multi-credit batch so one bad origin cannot sink the rest.
+        // Singleton failures re-queue — recoverable later (merge with future dividends, or a
+        // healthier pool) rather than recycling healthy work away.
+        if credits > 1 {
+            let mut total = work;
+            for credit in batch.iter().copied() {
+                if credit.1.is_zero() {
+                    continue;
+                }
+                total = total.saturating_add(Self::deposit_root_alpha_batch(hotkey, &[credit]));
+            }
+            return total;
+        }
+
+        Self::requeue_basket_deposit_batch(hotkey, batch);
         work
     }
 
-    /// Recycle every credit in a failed (or unapportionable) deposit batch back into its
-    /// origin subnet.
+    /// Recycle every credit in an unapportionable deposit batch back into its origin subnet.
     fn recycle_basket_deposit_batch(batch: &[(NetUid, AlphaBalance)]) {
         for (origin_netuid, root_alpha) in batch {
             if !root_alpha.is_zero() {
                 Self::recycle_subnet_alpha(*origin_netuid, *root_alpha);
+            }
+        }
+    }
+
+    /// Put rolled-back deposit credits back onto the pending queue so a later flush can
+    /// retry them (they may merge with future origin dividends and clear the dust bar).
+    fn requeue_basket_deposit_batch(hotkey: &T::AccountId, batch: &[(NetUid, AlphaBalance)]) {
+        for (origin_netuid, root_alpha) in batch {
+            Self::enqueue_basket_deposit(hotkey, *origin_netuid, *root_alpha);
+            #[cfg(test)]
+            if !root_alpha.is_zero() {
+                crate::tests::mock::inc_basket_write_ops();
             }
         }
     }
@@ -346,7 +373,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Transactional body of [`Self::deposit_root_alpha_batch`]'s curated flow; any error
-    /// rolls the whole batch back (the caller recycles).
+    /// rolls the whole batch back (the caller splits / re-queues).
     fn try_distribute_root_alpha_batch(
         hotkey: &T::AccountId,
         batch: &[(NetUid, AlphaBalance)],
@@ -424,9 +451,10 @@ impl<T: Config> Pallet<T> {
 
     /// Transactional body of [`Self::deposit_root_alpha_batch`]'s uncurated flow: each
     /// dividend credit is applied directly to the fund's holding on the subnet it arrived on.
-    /// No swap runs — the alpha is already counted in `SubnetAlphaOut` (the recycle fallback
-    /// decrements it), it just is not assigned to any stake position yet, so the whole deposit
-    /// is a share-pool credit. Any error rolls the batch back (the caller recycles).
+    /// No swap runs — the alpha is already counted in `SubnetAlphaOut` (the recycle path
+    /// decrements it when a credit is truly dropped), it just is not assigned to any stake
+    /// position yet, so the whole deposit is a share-pool credit. Any error rolls the batch
+    /// back (the caller splits / re-queues).
     ///
     /// Each credit is valued as the realizable delta on its origin holding alone: crediting
     /// stake moves no pool, so every other holding's quote is unchanged and the full-fund
