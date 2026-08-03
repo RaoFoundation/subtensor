@@ -4416,7 +4416,18 @@
       "description": "`set_root_weights` is disabled network-wide: Root Reborn launched gated, so every fund runs the null strategy (dividends accumulate in place on their origin subnet) until weight setting is switched on by governance or a later upgrade. No action available \u2014 wait for the enable; dividends keep accruing meanwhile.",
       "docs_url": "/docs/errors/chain/RootWeightSettingDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightSettingDisabled/content.md",
-      "pallets": []
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 363,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L363",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
     },
     "SameAutoStakeHotkeyAlreadySet": {
       "code": "already_exists",

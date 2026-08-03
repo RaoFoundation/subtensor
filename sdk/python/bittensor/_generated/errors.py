@@ -199,6 +199,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 155): ErrorInfo('SubtensorModule', 'BasketHasNoWeights', 'The validator has no usable basket weights (no root uid, or every weight entry is zero / points at a nonexistent subnet), so a direct basket deposit cannot be routed.'),
     (7, 156): ErrorInfo('SubtensorModule', 'RootStakeLocked', 'Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window (measured from the last stake add/remove) and cannot be unstaked yet. Prevents epoch-boundary just-in-time dividend sniping.'),
     (7, 157): ErrorInfo('SubtensorModule', 'BetaBasketSeedInProgress', 'The multi-block `migrate_seed_beta_basket_v2` migration is still running. Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes so snapshotted conversion cannot desync from live stake (`Σ owed == BasketShares`).'),
+    (7, 158): ErrorInfo('SubtensorModule', 'RootWeightSettingDisabled', '`set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`] is false). Root Reborn launches gated: every fund runs the null strategy (dividends accumulate in place) until weight setting is switched on by governance or a later upgrade.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
