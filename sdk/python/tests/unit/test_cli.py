@@ -435,9 +435,7 @@ class TestResolveHotkeySs58:
 
     @pytest.fixture()
     def alt_hotkey(self, wallet_dir) -> str:
-        wallets.new_hotkey(
-            name=_WALLET_NAME, hotkey="hotkey1", path=wallet_dir, overwrite=True
-        )
+        wallets.new_hotkey(name=_WALLET_NAME, hotkey="hotkey1", path=wallet_dir, overwrite=True)
         return wallets.open_wallet(_WALLET_NAME, "hotkey1", wallet_dir).hotkey.ss58_address
 
     def test_subnets_register_resolves_local_hotkey_name(
@@ -450,9 +448,7 @@ class TestResolveHotkeySs58:
             return None
 
         monkeypatch.setattr(cli_context.AppContext, "submit", capture)
-        result = invoke(
-            "subnets", "register", "--netuid", "18", "--hotkey", "hotkey1"
-        )
+        result = invoke("subnets", "register", "--netuid", "18", "--hotkey", "hotkey1")
         assert result.exit_code == 0, result.output
         assert len(captured) == 1
         assert captured[0].op == "burned_register"

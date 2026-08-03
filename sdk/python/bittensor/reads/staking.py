@@ -224,9 +224,7 @@ async def stake_availability(view, coldkey_ss58: str, netuid: int) -> dict:
         "netuids": "Subnets to query (empty list returns no rows).",
     },
 )
-async def stake_availability_for_coldkey(
-    view, coldkey_ss58: str, netuids: list[int]
-) -> list[dict]:
+async def stake_availability_for_coldkey(view, coldkey_ss58: str, netuids: list[int]) -> list[dict]:
     """Free vs locked stake for a coldkey across many subnets (one runtime call)."""
     if not netuids:
         return []

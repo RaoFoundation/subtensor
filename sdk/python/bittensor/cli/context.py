@@ -525,8 +525,7 @@ class AppContext:
                 if shortfall is not None:
                     if shield_forced or intent.mev_shield_required:
                         self.output.error(
-                            "MEV-shielded submission needs free TAO for the outer "
-                            "carrier fee",
+                            "MEV-shielded submission needs free TAO for the outer carrier fee",
                             help=(
                                 f"{intent.op} cannot submit unshielded"
                                 if intent.mev_shield_required
@@ -622,9 +621,7 @@ class AppContext:
                 )
 
                 async def _shield_fee_warning(client):
-                    return await self._shield_outer_fee_shortfall(
-                        client, plan.signer_address
-                    )
+                    return await self._shield_outer_fee_shortfall(client, plan.signer_address)
 
                 shortfall = self.run(_shield_fee_warning)
                 if shortfall is not None:
@@ -883,9 +880,7 @@ class AppContext:
             outer = await client.compose(
                 generated_calls.MevShield.submit_encrypted(ciphertext=bytes(8192))
             )
-            fee = await client._substrate.estimate_fee(
-                outer, _FeeAddressView(fee_payer_ss58)
-            )
+            fee = await client._substrate.estimate_fee(outer, _FeeAddressView(fee_payer_ss58))
         except Exception:
             # Best-effort: if we only know free is zero, that is enough to warn.
             try:
