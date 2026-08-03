@@ -56,12 +56,14 @@ pub enum DissolveCleanupPhase {
     /// escrow alpha still exist. Appended (not inserted) so in-flight cleanup discriminants stay
     /// stable; new dissolves start here via [`Default`].
     SubnetBasketHoldingsToRoot,
-    /// Phase 5.13: Drop queued [`PendingBasketDeposits`] credits originating from this netuid.
-    /// Without this, a stale credit (dust can sit queued indefinitely) would survive
-    /// dissolution and — once a new subnet reuses the netuid, making `if_subnet_exist` true
-    /// again — deposit the old subnet's alpha against the new subnet's pool. Must complete
-    /// before cleanup finishes because netuid reuse is only possible after that. Appended
-    /// (not inserted) so in-flight cleanup discriminants stay stable.
+    /// Phase 5.13: Recycle and drop queued [`PendingBasketDeposits`] credits originating
+    /// from this netuid. Without this, a stale credit (dust can sit queued indefinitely)
+    /// would survive dissolution and — once a new subnet reuses the netuid, making
+    /// `if_subnet_exist` true again — deposit the old subnet's alpha against the new
+    /// subnet's pool. Credits are recycled (issuance conservation) rather than silently
+    /// deleted. Must complete before cleanup finishes because netuid reuse is only
+    /// possible after that. Appended (not inserted) so in-flight cleanup discriminants
+    /// stay stable.
     NetworkPendingBasketDeposits,
 }
 
@@ -584,13 +586,15 @@ impl<T: Config> Pallet<T> {
             None => PendingBasketDeposits::<T>::iter(),
         };
 
+        // Recycle + remove: three writes typical (PendingBasketDeposits remove, AlphaAssets
+        // recycle, and SubnetAlphaOut when it still exists). Charge the upper bound.
         let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
             weight_meter,
             iter,
             |(_, nu, _)| *nu == netuid,
-            |(hot, _, _)| hot,
-            |hot| PendingBasketDeposits::<T>::remove(hot, netuid),
-            1,
+            |(hot, _, alpha)| (hot, alpha),
+            |(hot, alpha)| Self::drop_pending_basket_deposit(hot, netuid, *alpha),
+            3,
         );
 
         (
