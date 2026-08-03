@@ -56,10 +56,11 @@ def check_proxy_type(proxy_type: str) -> str:
 PROXY_TYPE_HELP = (
     "Scope of calls the delegation covers. One of: "
     + ", ".join(PROXY_TYPES)
-    + ". Triumvirate, Senate, Governance, and RootWeights are deprecated on "
-    "the current runtime: they deny all calls, so a proxy of those types can "
-    "dispatch nothing. Prefer the narrowest type that covers your use; Any "
-    "can do everything the account can, including transfers."
+    + ". Triumvirate, Senate, and Governance are deprecated on the current "
+    "runtime: they deny all calls, so a proxy of those types can dispatch "
+    "nothing. RootWeights covers exactly SubtensorModule.set_root_weights. "
+    "Prefer the narrowest type that covers your use; Any can do everything "
+    "the account can, including transfers."
 )
 
 DELAY_HELP = (

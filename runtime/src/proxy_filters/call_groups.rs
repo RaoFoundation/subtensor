@@ -630,6 +630,17 @@ call_filter_group!(SudoSetCodeCalls, [
         where nested(call) == RuntimeCall::System(SystemCall::set_code),
 ]);
 
+// `RootWeights`: exactly the root-weight vector call. Deliberately not the
+// whole `SubtensorCommonCalls` group it overlaps: the delegator hands out the
+// right to publish their root weights, not the validator's consensus-weight
+// surface (`set_weights`, batch/commit/reveal) that lives alongside it.
+call_filter_group!(
+    RootWeightCalls,
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::set_root_weights
+    ),]
+);
+
 // Full inventory of every runtime call, used only by the coverage test that
 // checks it against `RuntimeCall` metadata. Nested in three blocks so the
 // flattened tuple stays within the `CallFilterMetadata` tuple-impl arity;

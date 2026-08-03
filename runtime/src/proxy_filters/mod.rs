@@ -117,11 +117,9 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::SwapHotkey => HotkeySwapCalls::contains(call),
         ProxyType::SubnetLeaseBeneficiary => SubnetLeaseAllowed::contains(call),
         ProxyType::RootClaim => RootClaimCalls::contains(call),
+        ProxyType::RootWeights => RootWeightCalls::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
-        ProxyType::Triumvirate
-        | ProxyType::Senate
-        | ProxyType::Governance
-        | ProxyType::RootWeights => false,
+        ProxyType::Triumvirate | ProxyType::Senate | ProxyType::Governance => false,
     }
 }
 
@@ -154,6 +152,10 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::SubnetLeaseBeneficiary
                 | ProxyType::RootClaim,
             ) => true,
+            // `NonFungible` already allows `set_root_weights` (via
+            // `SubtensorCommonCalls`), so it may also manage the
+            // strictly-narrower `RootWeights` delegation.
+            (ProxyType::NonFungible, ProxyType::RootWeights) => true,
             (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
             _ => false,
         }
@@ -183,11 +185,11 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::SwapHotkey => FilterMode::Allow(HotkeySwapCalls::call_infos()),
         ProxyType::SubnetLeaseBeneficiary => FilterMode::Allow(SubnetLeaseAllowed::call_infos()),
         ProxyType::RootClaim => FilterMode::Allow(RootClaimCalls::call_infos()),
+        ProxyType::RootWeights => FilterMode::Allow(RootWeightCalls::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
-        ProxyType::Triumvirate
-        | ProxyType::Senate
-        | ProxyType::Governance
-        | ProxyType::RootWeights => FilterMode::Allow(Vec::new()),
+        ProxyType::Triumvirate | ProxyType::Senate | ProxyType::Governance => {
+            FilterMode::Allow(Vec::new())
+        }
     }
 }
 
@@ -291,10 +293,68 @@ mod tests {
             ProxyType::Triumvirate,
             ProxyType::Senate,
             ProxyType::Governance,
-            ProxyType::RootWeights,
         ] {
             assert!(allowed_calls(deprecated).is_empty());
         }
+    }
+
+    // Re-enabled `RootWeights` is the narrowest weight grant: the root-weight
+    // vector call and nothing else — not consensus weights, stake movement,
+    // key rotation, or child keys.
+    #[test]
+    fn root_weights_grants_exactly_set_root_weights() {
+        use pallet_subtensor::Call as SubtensorCall;
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance};
+
+        let hotkey = AccountId::new([1u8; 32]);
+
+        let set_root_weights = RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights {
+            dests: vec![0],
+            weights: vec![0],
+        });
+        assert!(proxy_type_filter(
+            &ProxyType::RootWeights,
+            &set_root_weights
+        ));
+
+        let denied = [
+            RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
+                netuid: NetUid::from(1),
+                dests: vec![0],
+                weights: vec![0],
+                version_key: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::add_stake {
+                hotkey: hotkey.clone(),
+                netuid: NetUid::from(1),
+                amount_staked: TaoBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::remove_stake {
+                hotkey: hotkey.clone(),
+                netuid: NetUid::from(1),
+                amount_unstaked: AlphaBalance::from(1),
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::swap_hotkey {
+                hotkey: hotkey.clone(),
+                new_hotkey: AccountId::new([2u8; 32]),
+                netuid: None,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::set_children {
+                hotkey,
+                netuid: NetUid::from(1),
+                children: vec![],
+            }),
+        ];
+        for call in &denied {
+            assert!(
+                !proxy_type_filter(&ProxyType::RootWeights, call),
+                "RootWeights must not allow {:?}",
+                call
+            );
+        }
+
+        // The metadata view agrees: exactly one allowed call.
+        assert_eq!(allowed_calls(ProxyType::RootWeights).len(), 1);
     }
 
     // Broad proxies are specified subtractively here (all calls minus a few
@@ -406,6 +466,19 @@ mod tests {
     }
 
     #[test]
+    fn non_fungible_superset_is_explicit_allowlist() {
+        let actual = all_proxy_types()
+            .into_iter()
+            .filter(|proxy_type| ProxyType::NonFungible.is_superset(proxy_type))
+            .collect::<BTreeSet<_>>();
+        let expected = [ProxyType::NonFungible, ProxyType::RootWeights]
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn owner_allows_only_owner_settable_config() {
         let owner = allowed_calls(ProxyType::Owner);
         // Owner-settable subnet params + subnet identity.
@@ -512,6 +585,10 @@ mod tests {
                 "SubtensorModule::claim_root",
                 "SubtensorModule::claim_root_with_hotkey",
             ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::RootWeights),
+            expected(&["SubtensorModule::set_root_weights"])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),
