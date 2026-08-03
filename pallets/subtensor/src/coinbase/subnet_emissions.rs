@@ -490,31 +490,98 @@ impl<T: Config> Pallet<T> {
     }
 
     // Implementation of shares that uses subnet EMA prices (SubnetMovingPrice),
-    // not the active/spot alpha price.
+    // not the active/spot alpha price. Each subnet's EMA price is first passed through a
+    // depth-graduated cap (`emission_price_capped`): prices at or below the network median EMA
+    // price pass through unchanged, but the portion ABOVE the median is credited only in
+    // proportion to the pool's depth weight w(SubnetTAO). A shallow pool (w -> 0) is therefore
+    // capped at the median regardless of how far its price is pumped, while a deep pool
+    // (w -> 1) keeps its full price. This caps the TAO a small pool can earn without touching
+    // its alpha emission, and leaves large pools ~unchanged.
     fn get_shares_price_ema(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
-        // Get sum of alpha moving prices
-        let total_moving_prices = subnets_to_emit_to
+        // Median EMA price across the emit set = the cap anchor for shallow pools.
+        let median_ema = Self::get_median_moving_price(subnets_to_emit_to);
+
+        // Depth-capped price per subnet.
+        let capped: BTreeMap<NetUid, U64F64> = subnets_to_emit_to
             .iter()
-            .map(|netuid| U64F64::saturating_from_num(Self::get_moving_alpha_price(*netuid)))
-            .fold(U64F64::saturating_from_num(0.0), |acc, ema| {
-                acc.saturating_add(ema)
+            .map(|netuid| (*netuid, Self::emission_price_capped(*netuid, median_ema)))
+            .collect();
+
+        let total_capped = capped
+            .values()
+            .copied()
+            .fold(U64F64::saturating_from_num(0.0), |acc, p| {
+                acc.saturating_add(p)
             });
-        log::debug!("total_moving_prices: {total_moving_prices:?}");
+        log::debug!("total_capped_moving_prices: {total_capped:?}");
 
-        // Calculate shares.
-        subnets_to_emit_to
-            .iter()
-            .map(|netuid| {
-                let moving_price =
-                    U64F64::saturating_from_num(Self::get_moving_alpha_price(*netuid));
-                log::debug!("moving_price_i: {moving_price:?}");
-
-                let share = moving_price
-                    .checked_div(total_moving_prices)
+        capped
+            .into_iter()
+            .map(|(netuid, price)| {
+                let share = price
+                    .checked_div(total_capped)
                     .unwrap_or(U64F64::saturating_from_num(0));
-
-                (*netuid, share)
+                (netuid, share)
             })
             .collect::<BTreeMap<NetUid, U64F64>>()
+    }
+
+    /// Median of the EMA (moving) prices over the emit set — the anchor at which a shallow
+    /// pool's emission price is capped. Zero if the set is empty.
+    pub(crate) fn get_median_moving_price(subnets_to_emit_to: &[NetUid]) -> U64F64 {
+        let mut prices: Vec<U64F64> = subnets_to_emit_to
+            .iter()
+            .map(|netuid| Self::get_moving_alpha_price(*netuid))
+            .collect();
+        if prices.is_empty() {
+            return U64F64::saturating_from_num(0);
+        }
+        prices.sort();
+        let mid = prices.len() / 2;
+        if prices.len() % 2 == 1 {
+            prices[mid]
+        } else {
+            prices[mid.saturating_sub(1)]
+                .saturating_add(prices[mid])
+                .safe_div(U64F64::saturating_from_num(2))
+        }
+    }
+
+    /// A subnet's emission-relevant price after the depth-graduated cap.
+    /// - Prices at or below `median_ema` pass through unchanged.
+    /// - The portion above `median_ema` is credited only at fraction `w = emission_depth_weight`,
+    ///   so a shallow pool (w -> 0) is capped at the median and a deep pool (w -> 1) keeps its
+    ///   full price.
+    pub(crate) fn emission_price_capped(netuid: NetUid, median_ema: U64F64) -> U64F64 {
+        let ema = Self::get_moving_alpha_price(netuid);
+        if ema <= median_ema {
+            return ema;
+        }
+        let w = Self::emission_depth_weight(netuid);
+        let excess = ema.saturating_sub(median_ema);
+        median_ema.saturating_add(w.saturating_mul(excess))
+    }
+
+    /// Depth weight w(T) in [0, 1] where T = SubnetTAO reserve. Hill ramp
+    /// `w = T^k / (T^k + D^k)` with bar D = `EmissionDepthBar` (rao) and exponent
+    /// k = `EmissionDepthExponent`. w -> 0 for a shallow pool (hard cap at the median),
+    /// w -> 1 for a deep pool (full price).
+    pub(crate) fn emission_depth_weight(netuid: NetUid) -> U64F64 {
+        let d_u64 = EmissionDepthBar::<T>::get();
+        if d_u64 == 0 {
+            return U64F64::saturating_from_num(1);
+        }
+        let t = U64F64::saturating_from_num(SubnetTAO::<T>::get(netuid).to_u64());
+        let d = U64F64::saturating_from_num(d_u64);
+        let r = t.safe_div(d);
+        let k = u32::from(EmissionDepthExponent::<T>::get().clamp(1, 8));
+        let mut rk = r;
+        let mut i = 1u32;
+        while i < k {
+            rk = rk.saturating_mul(r);
+            i = i.saturating_add(1);
+        }
+        rk.checked_div(rk.saturating_add(U64F64::saturating_from_num(1)))
+            .unwrap_or(U64F64::saturating_from_num(0))
     }
 }

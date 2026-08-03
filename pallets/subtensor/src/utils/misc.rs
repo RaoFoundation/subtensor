@@ -1000,6 +1000,16 @@ impl<T: Config> Pallet<T> {
         EmissionGateExponent::<T>::set(exponent);
     }
 
+    /// Sets the emission depth bar (D)
+    pub fn set_emission_depth_bar(bar: u64) {
+        EmissionDepthBar::<T>::set(bar);
+    }
+
+    /// Sets the emission depth exponent (k)
+    pub fn set_emission_depth_exponent(exponent: u16) {
+        EmissionDepthExponent::<T>::set(exponent);
+    }
+
     /// Sets TAO flow smoothing factor (alpha)
     pub fn set_tao_flow_smoothing_factor(smoothing_factor: u64) {
         FlowEmaSmoothingFactor::<T>::set(smoothing_factor);
