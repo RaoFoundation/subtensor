@@ -221,8 +221,9 @@ export async function swapStakeLimit(
 }
 
 export async function claimRoot(api: TypedApi<typeof subtensor>, coldkey: KeyringPair): Promise<void> {
-    // Fund-level redemption: no per-subnet selection.
-    const tx = api.tx.SubtensorModule.claim_root();
+    // Fund-level redemption: the subnets argument is ignored on-chain (kept for
+    // call-data compatibility) but the codec still requires it.
+    const tx = api.tx.SubtensorModule.claim_root({ subnets: [] });
     await waitForTransactionWithRetry(api, tx, coldkey, "claim_root");
 }
 
@@ -294,8 +295,20 @@ export async function getRootClaimed(
     return await api.query.SubtensorModule.RootClaimed.getValue(netuid, hotkey, coldkey);
 }
 
+/// Root Reborn launches with `set_root_weights` gated off network-wide
+/// (`RootWeightSettingEnabled = false`); flip the switch on via sudo so tests can
+/// exercise curated baskets. Idempotent.
+async function sudoEnableRootWeightSetting(api: TypedApi<typeof subtensor>): Promise<void> {
+    const keyring = new Keyring({ type: "sr25519" });
+    const alice = keyring.addFromUri("//Alice");
+    const inner = api.tx.AdminUtils.sudo_set_root_weight_setting_enabled({ enabled: true });
+    const tx = api.tx.Sudo.sudo({ call: inner.decodedCall });
+    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_root_weight_setting_enabled");
+}
+
 /// Sets a root validator's beta-basket weight vector (the distribution its root dividends are
 /// deployed into). Signed by the validator hotkey; requires a root UID.
+/// Enables the network-wide weight-setting gate (off at launch) via sudo first.
 /// Pads with other live netuids at weight 1 when needed to satisfy MIN_ROOT_BASKET_WEIGHTS (8),
 /// softened to the number of available destinations.
 export async function setRootWeights(
@@ -304,6 +317,7 @@ export async function setRootWeights(
     dests: number[],
     weights: number[]
 ): Promise<void> {
+    await sudoEnableRootWeightSetting(api);
     const MIN_ROOT_BASKET_WEIGHTS = 8;
     const paddedDests = [...dests];
     const paddedWeights = [...weights];

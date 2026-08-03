@@ -56,6 +56,13 @@ pub enum DissolveCleanupPhase {
     /// escrow alpha still exist. Appended (not inserted) so in-flight cleanup discriminants stay
     /// stable; new dissolves start here via [`Default`].
     SubnetBasketHoldingsToRoot,
+    /// Phase 5.13: Drop queued [`PendingBasketDeposits`] credits originating from this netuid.
+    /// Without this, a stale credit (dust can sit queued indefinitely) would survive
+    /// dissolution and — once a new subnet reuses the netuid, making `if_subnet_exist` true
+    /// again — deposit the old subnet's alpha against the new subnet's pool. Must complete
+    /// before cleanup finishes because netuid reuse is only possible after that. Appended
+    /// (not inserted) so in-flight cleanup discriminants stay stable.
+    NetworkPendingBasketDeposits,
 }
 
 impl Default for DissolveCleanupPhase {
@@ -567,6 +574,31 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub fn remove_network_pending_basket_deposits(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let iter = match last_key {
+            Some(raw_key) => PendingBasketDeposits::<T>::iter_from(raw_key),
+            None => PendingBasketDeposits::<T>::iter(),
+        };
+
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |(_, nu, _)| *nu == netuid,
+            |(hot, _, _)| hot,
+            |hot| PendingBasketDeposits::<T>::remove(hot, netuid),
+            1,
+        );
+
+        (
+            read_all,
+            last_item.map(|(hot, nu, _)| PendingBasketDeposits::<T>::hashed_key_for(&hot, nu)),
+        )
+    }
+
     pub fn remove_network_transaction_key_last_block(
         netuid: NetUid,
         weight_meter: &mut WeightMeter,
@@ -984,6 +1016,21 @@ impl<T: Config> Pallet<T> {
                 }
                 DissolveCleanupPhase::NetworkDecayingLock => {
                     let (done, new_key) = Self::remove_network_decaying_lock(
+                        netuid,
+                        weight_meter,
+                        status.last_key.clone(),
+                    );
+
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::NetworkPendingBasketDeposits);
+                        status.last_key = None;
+                    } else {
+                        status.last_key = new_key;
+                    }
+                    done
+                }
+                DissolveCleanupPhase::NetworkPendingBasketDeposits => {
+                    let (done, new_key) = Self::remove_network_pending_basket_deposits(
                         netuid,
                         weight_meter,
                         status.last_key.clone(),

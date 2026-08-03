@@ -109,6 +109,14 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
             AlphaBalance::from(lock_tao),
         ));
 
+        // Queue pending basket-deposit credits: the one for the dissolving netuid must be
+        // purged by the `NetworkPendingBasketDeposits` phase (otherwise a subnet reusing
+        // the netuid would inherit the old subnet's queued alpha), while the credit for an
+        // unrelated netuid must survive untouched.
+        let other_netuid = NetUid::from(u16::from(netuid).saturating_add(1));
+        PendingBasketDeposits::<Test>::insert(owner_hot, netuid, AlphaBalance::from(12_345));
+        PendingBasketDeposits::<Test>::insert(owner_hot, other_netuid, AlphaBalance::from(777));
+
         // Now test the full dissolution cleanup process by running on_idle multiple times
         // until all phases complete
         let total_weight = Weight::from_parts(u64::MAX, u64::MAX);
@@ -145,6 +153,15 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
 
         // Verify the subnet no longer exists
         assert!(!SubtensorModule::if_subnet_exist(netuid));
+
+        // The dissolved netuid's queued credit is gone; the unrelated netuid's survives.
+        assert!(!PendingBasketDeposits::<Test>::contains_key(
+            owner_hot, netuid
+        ));
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(owner_hot, other_netuid),
+            AlphaBalance::from(777)
+        );
     });
 }
 
