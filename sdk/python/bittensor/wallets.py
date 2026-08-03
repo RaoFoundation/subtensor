@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -421,21 +422,45 @@ def _is_hotkey_companion_file(name: str) -> bool:
     return name.endswith(".lock") or name.endswith("pub.txt")
 
 
+_NATURAL_NAME_SPLIT = re.compile(r"(\d+)")
+
+
+def natural_name_key(name: str) -> tuple[tuple[int, int | str], ...]:
+    """Sort key for wallet / hotkey names with embedded numbers.
+
+    Digit runs compare as integers (``coldkey2`` before ``coldkey10``); text
+    runs compare case-insensitively. Each chunk is tagged so int and str
+    chunks never raise ``TypeError`` when compared.
+    """
+    pieces: list[tuple[int, int | str]] = []
+    for part in _NATURAL_NAME_SPLIT.split(name):
+        if not part:
+            continue
+        if part.isdigit():
+            pieces.append((0, int(part)))
+        else:
+            pieces.append((1, part.casefold()))
+    return tuple(pieces)
+
+
 def list_wallets(path: str = DEFAULT_WALLET_PATH) -> dict[str, list[str]]:
     """Map coldkey wallet name -> list of its hotkey names on disk."""
     root = Path(path).expanduser()
     if not root.is_dir():
         return {}
     out: dict[str, list[str]] = {}
-    for coldkey_dir in sorted(root.iterdir()):
+    for coldkey_dir in sorted(root.iterdir(), key=lambda p: natural_name_key(p.name)):
         if not coldkey_dir.is_dir():
             continue
         hotkeys_dir = coldkey_dir / "hotkeys"
         hotkeys = (
             sorted(
-                hk.name
-                for hk in hotkeys_dir.iterdir()
-                if hk.is_file() and not _is_hotkey_companion_file(hk.name)
+                (
+                    hk.name
+                    for hk in hotkeys_dir.iterdir()
+                    if hk.is_file() and not _is_hotkey_companion_file(hk.name)
+                ),
+                key=natural_name_key,
             )
             if hotkeys_dir.is_dir()
             else []
@@ -484,14 +509,14 @@ def list_wallets_detailed(path: str = DEFAULT_WALLET_PATH) -> list[ColdkeyInfo]:
     if not root.is_dir():
         return []
     coldkeys: list[ColdkeyInfo] = []
-    for coldkey_dir in sorted(root.iterdir()):
+    for coldkey_dir in sorted(root.iterdir(), key=lambda p: natural_name_key(p.name)):
         if not coldkey_dir.is_dir():
             continue
         ss58, crypto_type = _read_keyfile(coldkey_dir / "coldkeypub.txt")
         info = ColdkeyInfo(name=coldkey_dir.name, ss58=ss58, crypto_type=crypto_type)
         hotkeys_dir = coldkey_dir / "hotkeys"
         if hotkeys_dir.is_dir():
-            for hk in sorted(hotkeys_dir.iterdir(), key=lambda p: p.name):
+            for hk in sorted(hotkeys_dir.iterdir(), key=lambda p: natural_name_key(p.name)):
                 if hk.is_file() and not _is_hotkey_companion_file(hk.name):
                     hk_ss58, hk_crypto = _read_keyfile(hk)
                     info.hotkeys.append(

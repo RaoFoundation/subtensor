@@ -254,7 +254,8 @@ def set_auto_stake(
     default) instead of accruing unstaked.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(SetAutoStake(netuid=netuid, hotkey_ss58=hotkey_ss58))
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    app_ctx.submit(SetAutoStake(netuid=netuid, hotkey_ss58=hotkey))
 
 
 child_app = typer.Typer(no_args_is_help=True, help="Child hotkey delegation.")
@@ -301,13 +302,14 @@ def child_set(
     chain rate-limits how often the child list can change.
     """
     app_ctx: AppContext = ctx_of(ctx)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     try:
         parsed = json.loads(children)
     except json.JSONDecodeError as error:
         app_ctx.output.error(f"invalid --children JSON: {error}")
         raise typer.Exit(1)
     try:
-        intent = SetChildren(netuid=netuid, children=parsed, hotkey_ss58=hotkey_ss58)
+        intent = SetChildren(netuid=netuid, children=parsed, hotkey_ss58=hotkey)
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(2)
@@ -329,7 +331,8 @@ def child_revoke(
     weight. Subject to the same rate limit as `btcli stake child set`.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(SetChildren(netuid=netuid, children=[], hotkey_ss58=hotkey_ss58))
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    app_ctx.submit(SetChildren(netuid=netuid, children=[], hotkey_ss58=hotkey))
 
 
 @child_app.command("take")
@@ -349,8 +352,9 @@ def child_take(
     (e.g. 0.09) or the raw u16 proportion (0 to 65535).
     """
     app_ctx: AppContext = ctx_of(ctx)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     try:
-        intent = SetChildkeyTake(netuid=netuid, take=take, hotkey_ss58=hotkey_ss58)
+        intent = SetChildkeyTake(netuid=netuid, take=take, hotkey_ss58=hotkey)
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(2)

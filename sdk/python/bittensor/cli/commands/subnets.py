@@ -397,10 +397,11 @@ def register_subnet(
     member to make room.
     """
     app_ctx: AppContext = ctx_of(ctx)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     if netuid == 0:
-        app_ctx.submit(RootRegister(hotkey_ss58=hotkey_ss58))
+        app_ctx.submit(RootRegister(hotkey_ss58=hotkey))
     else:
-        app_ctx.submit(BurnedRegister(netuid=netuid, hotkey_ss58=hotkey_ss58))
+        app_ctx.submit(BurnedRegister(netuid=netuid, hotkey_ss58=hotkey))
 
 
 @app.command("create", rich_help_panel=PANEL_REGISTER)

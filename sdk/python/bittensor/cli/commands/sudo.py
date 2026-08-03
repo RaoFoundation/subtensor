@@ -368,12 +368,13 @@ def stake_burn(
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
         raise typer.Exit(2)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     app_ctx.submit(
         StakeBurn(
             netuid=netuid,
             amount_tao=amount,
             limit_price=limit_price,
-            hotkey_ss58=hotkey_ss58,
+            hotkey_ss58=hotkey,
         )
     )
 
