@@ -86,8 +86,8 @@ fn test_flush_drain_one_hotkey_per_block_advances_cursor() {
         reset_basket_op_counters();
         SubtensorModule::flush_pending_basket_deposits_block();
 
-        let first = order[0];
-        let second = order[1];
+        let first = *order.first().expect("queued hotkey order");
+        let second = *order.get(1).expect("queued hotkey order");
         assert!(
             fund_shares(&first) > 0,
             "first hotkey in storage order must be flushed"
@@ -179,8 +179,9 @@ fn test_flush_drain_dust_advances_cursor_without_deposit() {
         queue_credit(&hot_b, net_b, 1_000_000);
 
         let order = pending_hotkey_order();
-        let first = order[0];
-        let second = order[1];
+        assert_eq!(order.len(), 2, "both hotkeys must be queued");
+        let first = *order.first().expect("queued hotkey order");
+        let second = *order.get(1).expect("queued hotkey order");
 
         // Lower threshold only for the second hotkey's turn by flushing first (dust) then
         // opening the gate before the second drain.
@@ -314,8 +315,9 @@ fn test_flush_happy_path_ops_bounded_for_curated_batch() {
             hotkey, origin_b
         ));
 
-        // Scan (2) + curated deposit work: holdings(0)*2 + weights(1) + credits(2) = 3 → 5.
-        let expected_work = credits + /*deposit*/ (0 * 2 + 1 + credits);
+        // Scan (credits) + curated deposit work with empty holdings:
+        // holdings*3 + weights(1) + credits → 1 + credits; total = 2*credits + 1.
+        let expected_work = credits.saturating_mul(2).saturating_add(1);
         assert_eq!(work, expected_work);
 
         // One sell per origin + one buy on the sole destination.
