@@ -136,6 +136,9 @@ impl<T: Config> Pallet<T> {
                 // shares that must follow the coldkey or be orphaned on the dead key.
                 Self::transfer_basket_claimed_for_new_coldkey(&hotkey, old_coldkey, new_coldkey);
 
+                // Preserve root unlock age under the new coldkey (same hotkey).
+                Self::migrate_root_stake_age(old_coldkey, &hotkey, new_coldkey, &hotkey);
+
                 if !new_dest_alpha.is_zero() {
                     // Register new coldkey with root stake
                     Self::maybe_add_coldkey_index(new_coldkey);

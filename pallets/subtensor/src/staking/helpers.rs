@@ -261,6 +261,7 @@ impl<T: Config> Pallet<T> {
                     alpha_stake,
                     T::SwapInterface::min_price(),
                     false,
+                    false,
                 )
                 .is_err()
                 {

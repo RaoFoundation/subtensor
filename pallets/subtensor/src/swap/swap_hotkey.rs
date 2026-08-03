@@ -868,6 +868,14 @@ impl<T: Config> Pallet<T> {
                 );
                 weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
 
+                // Preserve root unlock age across the hotkey move — do not stamp `now`,
+                // which would restart the hold, and do not drop the stamp (unwrap_or(0)
+                // would clear it and bypass RootStakeLocked).
+                if netuid == NetUid::ROOT {
+                    Self::migrate_root_stake_age(coldkey, old_hotkey, coldkey, new_hotkey);
+                    weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
+                }
+
                 let mut staking_hotkeys = StakingHotkeys::<T>::get(coldkey);
                 weight.saturating_accrue(T::DbWeight::get().reads(1));
 

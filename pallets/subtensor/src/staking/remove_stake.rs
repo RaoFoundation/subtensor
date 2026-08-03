@@ -72,6 +72,7 @@ impl<T: Config> Pallet<T> {
             alpha_unstaked,
             T::SwapInterface::min_price(),
             false,
+            true,
         )?;
 
         // 5. If the stake is below the minimum, we clear the nomination from storage.
@@ -155,6 +156,7 @@ impl<T: Config> Pallet<T> {
                     alpha_unstaked,
                     T::SwapInterface::min_price(),
                     false,
+                    true,
                 )?;
 
                 // If the stake is below the minimum, we clear the nomination from storage.
@@ -240,6 +242,7 @@ impl<T: Config> Pallet<T> {
                         alpha_unstaked,
                         T::SwapInterface::min_price(),
                         false,
+                        true,
                     )?;
 
                     // Increment total
@@ -338,6 +341,7 @@ impl<T: Config> Pallet<T> {
             possible_alpha,
             limit_price,
             false,
+            true,
         )?;
 
         // 5. If the stake is below the minimum, we clear the nomination from storage.

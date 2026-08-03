@@ -348,8 +348,8 @@ mod errors {
         /// erroring.
         BasketHasNoWeights,
         /// Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window
-        /// (measured from the last stake add/remove) and cannot be unstaked yet. Prevents
-        /// epoch-boundary just-in-time dividend sniping.
+        /// (measured from the last root stake add/remove/claim for that coldkey/hotkey) and
+        /// cannot leave root yet. Prevents epoch-boundary just-in-time dividend sniping.
         RootStakeLocked,
         /// The `migrate_seed_beta_basket_v2` seed or its per-hotkey deferred-dividend release
         /// has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps,

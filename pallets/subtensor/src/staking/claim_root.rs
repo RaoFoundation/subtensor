@@ -661,6 +661,11 @@ impl<T: Config> Pallet<T> {
                 Self::credit_root_reserves(swapped_tao.into());
             }
 
+            // Claimed root stake must start (or refresh) the unlock hold, same as a
+            // direct add_stake on root — otherwise JIT snipers can deposit → epoch →
+            // claim → immediate remove_stake.
+            Self::touch_root_stake_age(coldkey, hotkey);
+
             // The staker's root stake just grew; rebase their claimed watermark so the new stake
             // does not retroactively inflate their claimable.
             Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, total_tao);

@@ -2750,7 +2750,9 @@ pub mod pallet {
     pub type RevealPeriodEpochs<T: Config> =
         StorageMap<_, Twox64Concat, NetUid, u64, ValueQuery, DefaultRevealPeriodEpochs<T>>;
 
-    /// Map (coldkey, hotkey) --> u64 the last block at which stake was added/removed.
+    /// Map (coldkey, hotkey) --> u64 the last block at which **root** stake was
+    /// added/removed/claimed for that pair. Used solely as the age basis for
+    /// `RootStakeUnlockInterval`. Non-root stake ops must not write this map.
     #[pallet::storage]
     pub type LastColdkeyHotkeyStakeBlock<T: Config> = StorageDoubleMap<
         _,
@@ -2763,11 +2765,12 @@ pub mod pallet {
     >;
 
     /// Minimum number of blocks root (netuid 0) stake must be held before it can be
-    /// unstaked, keyed off `LastColdkeyHotkeyStakeBlock`. `0` disables the hold (default),
+    /// removed from root (via `remove_stake`, move/swap/transfer off root, etc.),
+    /// keyed off `LastColdkeyHotkeyStakeBlock`. `0` disables the hold (default),
     /// preserving legacy behaviour. When set >= one tempo it neutralises epoch-boundary
     /// "just-in-time" dividend sniping: root stake is 1:1 TAO with no AMM slippage, so
     /// without this friction a sniper can stake right before a boundary, capture a full
-    /// tempo's root dividend pro-rata to instantaneous stake, and unstake immediately.
+    /// tempo's root dividend pro-rata to instantaneous stake, and exit immediately.
     #[pallet::storage]
     pub type RootStakeUnlockInterval<T> = StorageValue<_, u64, ValueQuery>;
 

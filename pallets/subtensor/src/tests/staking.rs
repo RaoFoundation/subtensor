@@ -4769,6 +4769,7 @@ fn test_unstake_from_subnet_low_amount() {
             alpha,
             TaoBalance::ZERO,
             false,
+            true,
         ));
 
         // Check if stake is zero
@@ -5535,6 +5536,7 @@ fn test_staking_records_flow() {
             alpha,
             TaoBalance::ZERO,
             false,
+            true,
         ));
 
         // Check that outflow has been recorded (less unstaking fees)
