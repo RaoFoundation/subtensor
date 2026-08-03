@@ -134,6 +134,12 @@ pub mod pallet {
             /// The new drain ratio (alpha released per alpha of emission earned).
             drain_ratio: U64F64,
         },
+
+        /// Event emitted when the childkey activation cooldown is set.
+        ChildKeyCooldownTemposSet {
+            /// The new cooldown, measured in subnet tempos.
+            tempos: u16,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2411,6 +2417,21 @@ pub mod pallet {
             ensure!(max_epochs_per_block >= 1, Error::<T>::ValueNotInBounds);
             pallet_subtensor::Pallet::<T>::set_max_epochs_per_block(max_epochs_per_block);
 
+            Ok(())
+        }
+
+        /// Sets the childkey activation cooldown as a number of subnet tempos.
+        /// Only callable by root.
+        #[pallet::call_index(102)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_childkey_cooldown_tempos())]
+        pub fn sudo_set_childkey_cooldown_tempos(
+            origin: OriginFor<T>,
+            tempos: u16,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::Pallet::<T>::set_childkey_cooldown_tempos(tempos);
+            Self::deposit_event(Event::ChildKeyCooldownTemposSet { tempos });
+            log::debug!("ChildKeyCooldownTemposSet( tempos: {tempos:?} ) ");
             Ok(())
         }
     }

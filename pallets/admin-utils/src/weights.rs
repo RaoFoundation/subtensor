@@ -116,6 +116,7 @@ pub trait WeightInfo {
 	fn sudo_set_net_tao_flow_enabled() -> Weight;
 	fn sudo_set_max_mechanism_count() -> Weight;
 	fn sudo_set_start_call_delay() -> Weight;
+	fn sudo_set_childkey_cooldown_tempos() -> Weight;
 	fn sudo_set_burn_half_life() -> Weight;
 	fn sudo_set_burn_increase_mult() -> Weight;
 	fn sudo_set_owner_cut_enabled() -> Weight;
@@ -1037,6 +1038,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `0`
 		// Minimum execution time: 5_600_000 picoseconds.
 		Weight::from_parts(5_831_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::ChildKeyCooldownTempos` (r:0 w:1)
+	/// Proof: `SubtensorModule::ChildKeyCooldownTempos` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_childkey_cooldown_tempos() -> Weight {
+		Weight::from_parts(5_731_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
@@ -2410,6 +2417,12 @@ impl WeightInfo for () {
 		//  Estimated: `0`
 		// Minimum execution time: 5_600_000 picoseconds.
 		Weight::from_parts(5_831_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `SubtensorModule::ChildKeyCooldownTempos` (r:0 w:1)
+	/// Proof: `SubtensorModule::ChildKeyCooldownTempos` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn sudo_set_childkey_cooldown_tempos() -> Weight {
+		Weight::from_parts(5_731_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)

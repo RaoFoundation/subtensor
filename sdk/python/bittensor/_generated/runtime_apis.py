@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 440
+Spec version: 441
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """
@@ -29,10 +29,6 @@ class BabeApi:
     next_epoch = Method('BabeApi', 'next_epoch')
     generate_key_ownership_proof = Method('BabeApi', 'generate_key_ownership_proof')
     submit_report_equivocation_unsigned_extrinsic = Method('BabeApi', 'submit_report_equivocation_unsigned_extrinsic')
-
-class Benchmark:
-    benchmark_metadata = Method('Benchmark', 'benchmark_metadata')
-    dispatch_benchmark = Method('Benchmark', 'dispatch_benchmark')
 
 class BlockBuilder:
     apply_extrinsic = Method('BlockBuilder', 'apply_extrinsic')
@@ -172,4 +168,3 @@ class TransactionPaymentCallApi:
     query_call_fee_details = Method('TransactionPaymentCallApi', 'query_call_fee_details')
     query_weight_to_fee = Method('TransactionPaymentCallApi', 'query_weight_to_fee')
     query_length_to_fee = Method('TransactionPaymentCallApi', 'query_length_to_fee')
-

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 440
+Spec version: 441
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -315,6 +315,7 @@ class SubtensorModule:
     AutoParentDelegationEnabled = Item('SubtensorModule', 'AutoParentDelegationEnabled', 'bool')
     HasMigrationRun = Item('SubtensorModule', 'HasMigrationRun', 'bool')
     PendingChildKeyCooldown = Item('SubtensorModule', 'PendingChildKeyCooldown', 'u64')
+    ChildKeyCooldownTempos = Item('SubtensorModule', 'ChildKeyCooldownTempos', 'u16')
 
 class Sudo:
     Key = Item('Sudo', 'Key', 'AccountId32')
@@ -436,4 +437,3 @@ class LimitOrders:
     Orders = Item('LimitOrders', 'Orders', 'OrderStatus')
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
-

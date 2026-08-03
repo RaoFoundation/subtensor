@@ -3484,8 +3484,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::StakeThreshold` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubtokenEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::PendingChildKeyCooldown` (r:1 w:0)
-	/// Proof: `SubtensorModule::PendingChildKeyCooldown` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ChildKeyCooldownTempos` (r:1 w:0)
+	/// Proof: `SubtensorModule::ChildKeyCooldownTempos` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::RevealPeriodEpochs` (r:1 w:0)
+	/// Proof: `SubtensorModule::RevealPeriodEpochs` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::PendingChildKeys` (r:0 w:1)
 	/// Proof: `SubtensorModule::PendingChildKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `c` is `[1, 5]`.
@@ -3495,7 +3499,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `9951`
 		// Minimum execution time: 50_000_000 picoseconds.
 		Weight::from_parts(55_660_572, 9951)
-			.saturating_add(T::DbWeight::get().reads(17_u64))
+			.saturating_add(T::DbWeight::get().reads(19_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	fn schedule_swap_coldkey() -> Weight {
@@ -7098,8 +7102,12 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::StakeThreshold` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubtokenEnabled` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubtokenEnabled` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::PendingChildKeyCooldown` (r:1 w:0)
-	/// Proof: `SubtensorModule::PendingChildKeyCooldown` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
+	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::ChildKeyCooldownTempos` (r:1 w:0)
+	/// Proof: `SubtensorModule::ChildKeyCooldownTempos` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::RevealPeriodEpochs` (r:1 w:0)
+	/// Proof: `SubtensorModule::RevealPeriodEpochs` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::PendingChildKeys` (r:0 w:1)
 	/// Proof: `SubtensorModule::PendingChildKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `c` is `[1, 5]`.
@@ -7109,7 +7117,7 @@ impl WeightInfo for () {
 		//  Estimated: `9951`
 		// Minimum execution time: 50_000_000 picoseconds.
 		Weight::from_parts(55_660_572, 9951)
-			.saturating_add(RocksDbWeight::get().reads(17_u64))
+			.saturating_add(RocksDbWeight::get().reads(19_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	fn schedule_swap_coldkey() -> Weight {

@@ -558,9 +558,12 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Calculate cool-down block
-        let cooldown_block =
-            Self::get_current_block_as_u64().saturating_add(PendingChildKeyCooldown::<T>::get());
+        // Keep a relationship pending for at least the commit-reveal window so one
+        // stake position cannot be moved between validator identities inside it.
+        let cooldown_tempos =
+            u64::from(ChildKeyCooldownTempos::<T>::get()).max(Self::get_reveal_period(netuid));
+        let cooldown = u64::from(Self::get_tempo(netuid)).saturating_mul(cooldown_tempos);
+        let cooldown_block = Self::get_current_block_as_u64().saturating_add(cooldown);
 
         // Insert or update PendingChildKeys
         PendingChildKeys::<T>::insert(netuid, hotkey.clone(), (children.clone(), cooldown_block));
@@ -604,7 +607,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_set_pending_children(netuid: NetUid) {
         let current_block = Self::get_current_block_as_u64();
 
-        // If the childkey cools down before the subnet start call + PendingChildKeyCooldown:
+        // If the childkey cools down before the subnet start call + configured cooldown:
         //   - If Start call happened: Normal track
         //   - If Start call didn't happen: Apply immediately
         // TODO: This check may be removed after all ck are applied after the runtime upgrade
@@ -615,7 +618,7 @@ impl<T: Config> Pallet<T> {
 
         PendingChildKeys::<T>::iter_prefix(netuid).for_each(
             |(hotkey, (children, cool_down_block))| {
-                if (cool_down_block < current_block) || !start_call_occured {
+                if (cool_down_block <= current_block) || !start_call_occured {
                     Self::persist_pending_chidren_ok(netuid, &hotkey, &children);
                     to_remove.push(hotkey);
                 }

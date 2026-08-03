@@ -3383,3 +3383,27 @@ fn test_sudo_set_start_call_delay_permissions_and_zero_delay() {
         );
     });
 }
+
+#[test]
+fn test_sudo_set_childkey_cooldown_tempos() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(pallet_subtensor::ChildKeyCooldownTempos::<Test>::get(), 2);
+
+        assert_noop!(
+            AdminUtils::sudo_set_childkey_cooldown_tempos(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                3,
+            ),
+            DispatchError::BadOrigin
+        );
+
+        assert_ok!(AdminUtils::sudo_set_childkey_cooldown_tempos(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            3,
+        ));
+        assert_eq!(pallet_subtensor::ChildKeyCooldownTempos::<Test>::get(), 3);
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::ChildKeyCooldownTemposSet { tempos: 3 },
+        ));
+    });
+}

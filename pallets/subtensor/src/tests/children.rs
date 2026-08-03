@@ -4088,8 +4088,6 @@ fn test_dividend_distribution_with_children_same_coldkey_owner() {
 #[test]
 fn test_pending_cooldown_as_expected() {
     let curr_block = 1;
-    // TODO: Fix when CHK splitting patched
-    // let expected_cooldown = prod_or_fast!(7200, 15);
 
     new_test_ext(curr_block).execute_with(|| {
         let coldkey = U256::from(1);
@@ -4099,10 +4097,13 @@ fn test_pending_cooldown_as_expected() {
         let netuid = NetUid::from(1);
         let proportion1: u64 = 1000;
         let proportion2: u64 = 2000;
-        let expected_cooldown = PendingChildKeyCooldown::<Test>::get();
+        let tempo = 13;
+        let cooldown_tempos = u64::from(ChildKeyCooldownTempos::<Test>::get())
+            .max(SubtensorModule::get_reveal_period(netuid));
+        let expected_cooldown = u64::from(tempo) * cooldown_tempos;
 
         // Add network and register hotkey
-        add_network(netuid, 13, 0);
+        add_network(netuid, tempo, 0);
         register_ok_neuron(netuid, hotkey, coldkey, 0);
 
         // Set multiple children
@@ -4120,6 +4121,135 @@ fn test_pending_cooldown_as_expected() {
             vec![(proportion1, child1), (proportion2, child2)]
         );
         assert_eq!(pending_children.1, curr_block + expected_cooldown);
+    });
+}
+
+#[test]
+fn test_pending_cooldown_respects_commit_reveal_period() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let parent = U256::from(2);
+        let child = U256::from(3);
+        let netuid = NetUid::from(1);
+        let tempo = 5;
+        let childkey_cooldown_tempos = 2;
+        let reveal_period = 3;
+
+        add_network(netuid, tempo, 0);
+        register_ok_neuron(netuid, parent, coldkey, 0);
+        ChildKeyCooldownTempos::<Test>::put(childkey_cooldown_tempos);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, reveal_period));
+
+        let scheduled_at = System::block_number();
+        LastEpochBlock::<Test>::insert(netuid, scheduled_at);
+        BlocksSinceLastStep::<Test>::insert(netuid, 0);
+
+        mock_schedule_children(&coldkey, &parent, netuid, &[(u64::MAX, child)]);
+
+        let deadline = scheduled_at + u64::from(tempo) * reveal_period;
+        assert_eq!(PendingChildKeys::<Test>::get(netuid, parent).1, deadline);
+
+        step_epochs(childkey_cooldown_tempos, netuid);
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert!(ChildKeys::<Test>::get(parent, netuid).is_empty());
+
+        step_epochs(1, netuid);
+        assert_eq!(System::block_number(), deadline);
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            ChildKeys::<Test>::get(parent, netuid),
+            vec![(u64::MAX, child)]
+        );
+    });
+}
+
+#[test]
+fn test_pending_children_activate_after_exactly_configured_tempos() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let parent = U256::from(2);
+        let child = U256::from(3);
+        let netuid = NetUid::from(1);
+        let tempo = 5;
+        let cooldown_tempos = 2;
+
+        add_network(netuid, tempo, 0);
+        register_ok_neuron(netuid, parent, coldkey, 0);
+        ChildKeyCooldownTempos::<Test>::put(cooldown_tempos);
+
+        // Anchor the next epoch to exactly one tempo after this block.
+        let scheduled_at = System::block_number();
+        LastEpochBlock::<Test>::insert(netuid, scheduled_at);
+        BlocksSinceLastStep::<Test>::insert(netuid, 0);
+
+        mock_schedule_children(&coldkey, &parent, netuid, &[(u64::MAX, child)]);
+
+        let deadline = scheduled_at + u64::from(tempo) * u64::from(cooldown_tempos);
+        assert_eq!(PendingChildKeys::<Test>::get(netuid, parent).1, deadline);
+
+        step_epochs(1, netuid);
+        assert_eq!(System::block_number(), scheduled_at + u64::from(tempo));
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert!(ChildKeys::<Test>::get(parent, netuid).is_empty());
+
+        step_epochs(1, netuid);
+        assert_eq!(System::block_number(), deadline);
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            ChildKeys::<Test>::get(parent, netuid),
+            vec![(u64::MAX, child)]
+        );
+    });
+}
+
+#[test]
+fn test_pending_children_zero_cooldown_uses_commit_reveal_floor() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let parent = U256::from(2);
+        let child = U256::from(3);
+        let netuid = NetUid::from(1);
+        let tempo = 5;
+        let reveal_period = 1;
+
+        add_network(netuid, tempo, 0);
+        register_ok_neuron(netuid, parent, coldkey, 0);
+        ChildKeyCooldownTempos::<Test>::put(0);
+        assert_ok!(SubtensorModule::set_reveal_period(netuid, reveal_period));
+
+        let scheduled_at = System::block_number();
+        LastEpochBlock::<Test>::insert(netuid, scheduled_at);
+        BlocksSinceLastStep::<Test>::insert(netuid, 0);
+        mock_schedule_children(&coldkey, &parent, netuid, &[(u64::MAX, child)]);
+
+        assert_eq!(
+            PendingChildKeys::<Test>::get(netuid, parent).1,
+            scheduled_at + u64::from(tempo) * reveal_period
+        );
+
+        SubtensorModule::do_set_pending_children(netuid);
+        assert!(PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert!(ChildKeys::<Test>::get(parent, netuid).is_empty());
+
+        step_epochs(1, netuid);
+        assert!(!PendingChildKeys::<Test>::contains_key(netuid, parent));
+        assert_eq!(
+            ChildKeys::<Test>::get(parent, netuid),
+            vec![(u64::MAX, child)]
+        );
+    });
+}
+
+#[test]
+#[allow(deprecated)]
+fn test_deprecated_pending_childkey_cooldown_is_retained() {
+    new_test_ext(1).execute_with(|| {
+        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
+            RuntimeOrigin::root(),
+            1,
+        ));
+
+        assert_eq!(PendingChildKeyCooldown::<Test>::get(), 1);
     });
 }
 
@@ -4419,15 +4549,11 @@ fn test_root_children_enable_subnet_owner_set_weights() {
         ));
 
         // --- Verify do_set_root_validators_for_subnet creates parent-child relationships ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
-
         assert_ok!(SubtensorModule::do_set_root_validators_for_subnet(netuid));
 
-        // Activate pending children (cooldown is 0, advance 1 block)
-        step_block(1);
+        // Activate pending children after the two-tempo cooldown.
+        let cooldown_block = PendingChildKeys::<Test>::get(netuid, root_val_hotkey_1).1;
+        run_to_block(cooldown_block.saturating_add(1));
         SubtensorModule::do_set_pending_children(netuid);
 
         // Each root validator should have the subnet owner hotkey as a child on netuid
@@ -4495,12 +4621,6 @@ fn test_register_network_schedules_root_validators() {
             NetUid::ROOT,
             root_stake,
         );
-
-        // --- Minimize cooldown so pending children activate quickly ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
 
         // --- Set a high stake threshold ---
         let high_threshold = 500_000_000u64;
@@ -4618,12 +4738,6 @@ fn test_register_network_schedules_root_validators_auto_parent_delegation_flag()
             NetUid::ROOT,
             root_stake,
         );
-
-        // --- Minimize cooldown so pending children activate quickly ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
 
         // --- Set a high stake threshold ---
         let high_threshold = 500_000_000u64;

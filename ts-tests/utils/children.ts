@@ -23,10 +23,19 @@ export async function getChildren(
     return (raw ?? []).map(([proportion, child]: [bigint, string]) => ({ proportion, child }));
 }
 
+/** @deprecated Use sudoSetChildKeyCooldownTempos. */
 export async function sudoSetPendingChildKeyCooldown(api: TypedApi<typeof subtensor>, cooldown: bigint): Promise<void> {
     const keyring = new Keyring({ type: "sr25519" });
     const alice = keyring.addFromUri("//Alice");
     const inner = api.tx.SubtensorModule.set_pending_childkey_cooldown({ cooldown });
     const tx = api.tx.Sudo.sudo({ call: inner.decodedCall });
     await waitForTransactionWithRetry(api, tx, alice, "sudo_set_pending_childkey_cooldown");
+}
+
+export async function sudoSetChildKeyCooldownTempos(api: TypedApi<typeof subtensor>, tempos: number): Promise<void> {
+    const keyring = new Keyring({ type: "sr25519" });
+    const alice = keyring.addFromUri("//Alice");
+    const inner = api.tx.AdminUtils.sudo_set_childkey_cooldown_tempos({ tempos });
+    const tx = api.tx.Sudo.sudo({ call: inner.decodedCall });
+    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_childkey_cooldown_tempos");
 }

@@ -730,6 +730,11 @@ DESCRIPTIONS: dict[str, str] = {
         "`TargetRegistrationsPerInterval` for the subnet. Compare `RegistrationsThisInterval` "
         "against that hyperparameter and wait for the next interval to start."
     ),
+    "TooManyRootClaimHotkeys": (
+        "The coldkey has more staking hotkeys than a single manual root claim can process. "
+        "Reduce the coldkey's staking-hotkey fanout below `MAX_ROOT_CLAIM_HOTKEYS`, or use "
+        "automatic root claiming instead."
+    ),
     "TooManyUIDsPerMechanism": (
         "Setting max UIDs or mechanism count would make max_uids times mechanism_count exceed "
         "the chain default of 256 UIDs per subnet. Check `MaxAllowedUids` and the subnet's "
