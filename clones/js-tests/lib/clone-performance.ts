@@ -57,6 +57,7 @@ export interface ParsedBlockChunk {
 
 export interface BlockLatencySummary {
   sampleCount: number;
+  meanMs: number | null;
   maximumMs: number | null;
   p50Ms: number | null;
   p95Ms: number | null;
@@ -192,6 +193,13 @@ export function summarizeBlockSamples(
 
   return {
     sampleCount: samples.length,
+    meanMs:
+      samples.length === 0
+        ? null
+        : Math.round(
+            (samples.reduce((total, { durationMs }) => total + durationMs, 0) / samples.length) *
+              10,
+          ) / 10,
     maximumMs: byDuration.at(-1)?.durationMs ?? null,
     p50Ms: percentile(byDuration, 50),
     p95Ms: percentile(byDuration, 95),

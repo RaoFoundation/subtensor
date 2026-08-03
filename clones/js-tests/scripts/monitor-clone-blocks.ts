@@ -247,7 +247,8 @@ async function main() {
   appendStepSummary(report);
   console.log(
     `Clone block monitor ${report.status}: samples=${latency.sampleCount} ` +
-      `max_ms=${latency.maximumMs ?? "none"} warnings=${latency.warnings.length} ` +
+      `mean_ms=${latency.meanMs ?? "none"} max_ms=${latency.maximumMs ?? "none"} ` +
+      `warnings=${latency.warnings.length} ` +
       `violations=${latency.violations.length} stalls=${report.bestHead.stalls.length}`,
   );
   if (failureReasons.length > 0) {
@@ -326,6 +327,7 @@ function appendStepSummary(report: MonitorReport) {
       "### Clone block performance",
       `- Status: **${report.status}**`,
       `- Samples: ${report.latency.sampleCount}`,
+      `- Mean: ${report.latency.meanMs ?? "n/a"}ms`,
       `- Maximum: ${report.latency.maximumMs ?? "n/a"}ms`,
       `- p50 / p95 / p99: ${report.latency.p50Ms ?? "n/a"} / ${report.latency.p95Ms ?? "n/a"} / ${report.latency.p99Ms ?? "n/a"} ms`,
       `- Warnings / violations: ${report.latency.warnings.length} / ${report.latency.violations.length}`,

@@ -69,12 +69,14 @@ test("classifies warning and hard-failure boundaries and calculates nearest-rank
   ]);
 
   assert.equal(summary.sampleCount, 5);
+  assert.equal(summary.meanMs, 2419.6);
   assert.equal(summary.maximumMs, 4000);
   assert.equal(summary.p50Ms, 2000);
   assert.equal(summary.p95Ms, 4000);
   assert.deepEqual(summary.warnings.map(({ block }) => block), [3, 4]);
   assert.deepEqual(summary.violations.map(({ block }) => block), [5]);
   const empty = summarizeBlockSamples([]);
+  assert.equal(empty.meanMs, null);
   assert.equal(empty.maximumMs, null);
   assert.match(blockLatencyFailureReasons(empty, 20)[0], /observed 0 proposer samples/);
   assert.match(blockLatencyFailureReasons(summary, 5)[0], /1 block\(s\)/);
