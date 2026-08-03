@@ -90,6 +90,13 @@ impl<T: Config> Pallet<T> {
         #[allow(unknown_lints)]
         Keys::<T>::remove(netuid, uid_to_replace);
 
+        // Root churn: the outgoing hotkey will not earn more dividends to merge
+        // sub-threshold dust. Recycle any still-queued pending credits (not basket
+        // holdings) and purge the rows so the deposit queue cannot grow with replacements.
+        if netuid.is_root() {
+            let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
+        }
+
         // 3. Create new set memberships.
         Self::set_active_for_uid(netuid, uid_to_replace, true); // Set to active by default.
         Keys::<T>::insert(netuid, uid_to_replace, new_hotkey.clone()); // Make hotkey - uid association.
@@ -219,6 +226,11 @@ impl<T: Config> Pallet<T> {
                         Axons::<T>::remove(netuid, &hotkey);
                         NeuronCertificates::<T>::remove(netuid, &hotkey);
                         Prometheus::<T>::remove(netuid, &hotkey);
+                        // Same root-churn finalization as `replace_neuron`: recycle queued
+                        // pending credits and purge so trimmed UIDs cannot leave stragglers.
+                        if netuid.is_root() {
+                            let _ = Self::flush_basket_deposits_for_hotkey(&hotkey);
+                        }
                     }
 
                     // Remove all storage items associated with this uid

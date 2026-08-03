@@ -49,6 +49,11 @@ impl<T: Config> Pallet<T> {
     /// the `NetworkPendingBasketDeposits` dissolution phase, which purges every queued
     /// credit for the netuid before the cleanup completes (and reuse becomes possible).
     ///
+    /// Hotkeys no longer registered on root cannot earn more dividends to merge dust past
+    /// the threshold, so every remaining queued credit is recycled and purged (the queued
+    /// alpha only — basket holdings are untouched). Root replacement calls this after
+    /// dropping membership so churn cannot leave permanent straggler rows.
+    ///
     /// Returns `(work, last_key)`: the approximate quote work done (scan-priced into claim
     /// weights by `root_claim_for_hotkey`) and the raw storage key of the hotkey's last
     /// queue entry, which the drain stores as its cursor so a hotkey whose credits are all
@@ -65,6 +70,7 @@ impl<T: Config> Pallet<T> {
 
         let threshold: u64 =
             RootClaimableThreshold::<T>::get(NetUid::ROOT).saturating_to_num::<u64>();
+        let on_root = Self::is_hotkey_registered_on_network(NetUid::ROOT, hotkey);
 
         let mut work: u64 = 0;
         let mut last_netuid: Option<NetUid> = None;
@@ -73,6 +79,13 @@ impl<T: Config> Pallet<T> {
             last_netuid = Some(netuid);
             work = work.saturating_add(1);
             if !Self::if_subnet_exist(netuid) {
+                PendingBasketDeposits::<T>::remove(hotkey, netuid);
+                continue;
+            }
+            // Root straggler: recycle the pending credit back into the origin subnet and
+            // drop the row. Do not touch basket holdings — only the unqueued dividend.
+            if !on_root {
+                Self::recycle_subnet_alpha(netuid, alpha);
                 PendingBasketDeposits::<T>::remove(hotkey, netuid);
                 continue;
             }
@@ -103,9 +116,9 @@ impl<T: Config> Pallet<T> {
     /// The per-block queue drain: flush exactly one queued hotkey per block, round-robin
     /// via the stored cursor (a block that finds the cursor at the end of the map spends
     /// its turn resetting it). One per block is enough because root dividends only accrue
-    /// to root-registered hotkeys, so the queue holds at most the root UID table's worth
-    /// of active keys (plus stragglers deregistered while their credits waited) — a full
-    /// cycle fits well inside a tempo, each flush is itself bounded work (holdings +
+    /// to root-registered hotkeys and root churn finalizes (recycles + purges) any queued
+    /// credits on the outgoing hotkey, so the queue stays capped by the root UID table —
+    /// a full cycle fits well inside a tempo, each flush is itself bounded work (holdings +
     /// 2 x origins quotes), and anything urgent is flushed eagerly by the touch hooks
     /// (claims, basket stakes, root stake changes). The drain is only the janitor for
     /// untouched funds. Runs right after coinbase.

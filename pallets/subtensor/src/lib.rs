@@ -1438,7 +1438,8 @@ pub mod pallet {
     /// so stake added after an epoch can never capture dividends earned before it arrived.
     /// Credits whose spot value is below `RootClaimableThreshold[ROOT]` stay queued and
     /// keep merging until they are worth a deposit, which is what keeps dust from ever
-    /// becoming a basket holding row.
+    /// becoming a basket holding row. Hotkeys deregistered from root have their remaining
+    /// queued credits recycled and purged (pending only — basket holdings are untouched).
     #[pallet::storage]
     pub type PendingBasketDeposits<T: Config> = StorageDoubleMap<
         _,
