@@ -20,9 +20,9 @@ class Call(NamedTuple):
 AccountId32 = Any
 AdjustmentDirection = Any
 AlphaBalance = Any
+BTreeSet = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
-BTreeSet = Any
 CommitmentInfo = Any
 Determinism = Any
 EquivocationProof = Any
@@ -256,12 +256,12 @@ class SubtensorModule:
 
     @staticmethod
     def claim_root(subnets: 'BTreeSet') -> Call:
-        "Claims the root emissions for a coldkey across every validator it root-stakes to.  Redemption is fund-level: for each validator, the staker's accrued entitlement is redeemed as their pro-rata fraction of that basket (sold to TAO and staked on root). The `subnets` argument is retained for call-data compatibility with pre-basket clients; it is ignored — baskets have no per-subnet claim selection.  Prefer `claim_root_with_hotkey` to claim a single validator.  # Arguments * `origin`: The signature of the caller's coldkey.  * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.  # Events * `RootClaimed`: On successfully claiming the root emissions for a coldkey."
+        "Claims the root emissions for a coldkey across every validator it root-stakes to.  Redemption is fund-level: for each validator, the staker's accrued entitlement is redeemed as their pro-rata fraction of that basket (sold to TAO and staked on root). The `subnets` argument is retained for call-data compatibility with pre-basket clients; it is ignored — baskets have no per-subnet claim selection.  Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.  # Arguments * `origin`: The signature of the caller's coldkey. * `subnets`: Ignored. Kept so old clients' encoded call data still decodes.  # Events * `RootClaimed`: On successfully claiming the root emissions for a coldkey."
         return Call('SubtensorModule', 'claim_root', {'subnets': subnets})
 
     @staticmethod
     def claim_root_with_hotkey(hotkey: 'AccountId32') -> Call:
-        "Claims the root emissions for a coldkey on one validator hotkey.  Redemption is fund-level for that validator: the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). Other validators' accrued yield is left untouched.  # Arguments * `origin`: The signature of the caller's coldkey.  * `hotkey`: The validator whose basket entitlement to redeem.  # Events * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey."
+        "Claims the root emissions for a coldkey on one validator hotkey.  Redemption is fund-level for that validator: the staker's accrued entitlement is redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked on root). Other validators' accrued yield is left untouched.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket entitlement to redeem.  # Events * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey."
         return Call('SubtensorModule', 'claim_root_with_hotkey', {'hotkey': hotkey})
 
     @staticmethod
@@ -511,7 +511,7 @@ class SubtensorModule:
 
     @staticmethod
     def stake_into_basket(hotkey: 'AccountId32', amount_staked: 'TaoBalance') -> Call:
-        "Stakes TAO from the caller's balance directly into a validator's basket.  The TAO is deployed across subnets per the validator's root weight vector (exactly like a dividend deposit) and the caller is credited a fund entitlement at the fund's pre-buy realizable NAV, priced against the realizable value the deposit added — the depositor bears their own entry slippage and swap fees. The credited entitlement is redeemable through [`Pallet::claim_root`] like any dividend-accrued entitlement; it does not require or affect root stake, and it does not change any staker's dividend accrual.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket to deposit into. * `amount_staked`: TAO to take from the caller's balance and deploy.  # Events * `BasketStakedIn`: On success, with the TAO taken, the realizable value added, and the entitlement credited.  # Errors * `HotKeyAccountNotExists`: The hotkey is not a registered account. * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value rounds to zero entitlement. * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`. * `BasketHasNoWeights`: The validator's weight vector filters to nothing."
+        "Stakes TAO from the caller's balance directly into a validator's basket.  The TAO is deployed across subnets per the validator's root weight vector (exactly like a dividend deposit) and the caller is credited a fund entitlement at the fund's pre-buy realizable NAV, priced against the realizable value the deposit added — the depositor bears their own entry slippage and swap fees. An uncurated fund (no usable weight vector) is mirrored instead: the deposit deploys pro-rata across the fund's current holdings by realizable value, keeping deposits symmetric with claims (which redeem pro-rata of every holding); a deposit into an empty uncurated fund is held as the fund's root (TAO cash) slot. The credited entitlement is redeemable through [`Pallet::claim_root_with_hotkey`] (or coldkey-wide [`Pallet::claim_root`]); it does not require or affect root stake, and it does not change any staker's dividend accrual.  # Arguments * `origin`: The signature of the caller's coldkey. * `hotkey`: The validator whose basket to deposit into. * `amount_staked`: TAO to take from the caller's balance and deploy.  # Events * `BasketStakedIn`: On success, with the TAO taken, the realizable value added, and the entitlement credited.  # Errors * `HotKeyAccountNotExists`: The hotkey is not a registered account. * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value rounds to zero entitlement. * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`."
         return Call('SubtensorModule', 'stake_into_basket', {'hotkey': hotkey, 'amount_staked': amount_staked})
 
     @staticmethod
@@ -1195,6 +1195,11 @@ class AdminUtils:
     def sudo_set_rho(netuid: 'NetUid', rho: 'u16') -> Call:
         'The extrinsic sets the rho for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the rho.'
         return Call('AdminUtils', 'sudo_set_rho', {'netuid': netuid, 'rho': rho})
+
+    @staticmethod
+    def sudo_set_root_weight_setting_enabled(enabled: 'bool') -> Call:
+        'Enables or disables root basket weight setting (`set_root_weights`) network-wide. Root Reborn launches with this OFF so every fund runs the null (accumulate in place) strategy as the observable baseline; flip it on later to open basket curation. Gates only the setter — existing vectors, dividend deployment, and reads are unaffected. Root-only.'
+        return Call('AdminUtils', 'sudo_set_root_weight_setting_enabled', {'enabled': enabled})
 
     @staticmethod
     def sudo_set_serving_rate_limit(netuid: 'NetUid', serving_rate_limit: 'u64') -> Call:

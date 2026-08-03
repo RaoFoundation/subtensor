@@ -247,7 +247,27 @@ async function exerciseSubnetDeregistrationByRegistration() {
       "NetworkRegisteredAt was not moved for pruning"
     );
 
-    const replacementNetuid = await registerSubnet(replacementOwner, replacementHotkey, "replacement subnet registration");
+    let replacementNetuid;
+    try {
+      replacementNetuid = await registerSubnet(replacementOwner, replacementHotkey, "replacement subnet registration");
+    } catch (error) {
+      if (!String(error).includes("BetaBasketSeedInProgress")) {
+        throw error;
+      }
+      // Subnet dissolution is hard-gated while `migrate_seed_beta_basket_v2` (or its
+      // deferred dividend release) is still running — exactly what mainnet will do in
+      // the window after the upgrade, which is when this clone test runs. Assert the
+      // gate rejected the prune atomically and leave the full prune assertions to a
+      // run where the seed has settled.
+      await assertIssuanceMatch("after gated replacement registration attempt");
+      assert.equal(
+        (await api.query.subtensorModule.networksAdded(firstNetuid)).isTrue,
+        true,
+        "gated replacement registration should leave the prune candidate in place"
+      );
+      console.log("subnet deregistration scenario: prune gated by BetaBasketSeedInProgress (expected post-upgrade)");
+      return;
+    }
     assert.equal(replacementNetuid, firstNetuid, "replacement registration should reuse the pruned netuid");
     await assertIssuanceMatch("after subnet prune and replacement registration");
 
