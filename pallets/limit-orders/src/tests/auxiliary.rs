@@ -430,7 +430,7 @@ fn validate_and_classify_stores_effective_swap_limit_for_buy() {
         // Override max_slippage on the inner order after signing — we need to rebuild
         // the signed order so the signature covers the updated payload.
         let new_inner = {
-            let mut o = order.order.inner().clone();
+            let mut o = order.order.as_v1().expect("v1 order").clone();
             o.max_slippage = Some(Perbill::from_percent(1));
             o
         };
@@ -1577,7 +1577,7 @@ fn is_order_valid_expired_order_returns_error() {
         let keyring = AccountKeyring::Alice;
         let order = crate::VersionedOrder::V1(crate::Order {
             expiry: 500_000,
-            ..signed.order.inner().clone()
+            ..signed.order.as_v1().expect("v1 order").clone()
         });
         let id2 = H256(sp_io::hashing::blake2_256(&order.encode()));
         let sig = keyring.pair().sign(&order_signing_payload(&order));
@@ -1640,7 +1640,12 @@ fn is_order_valid_wrong_chain_id_returns_error() {
         // Build an order with a chain_id that doesn't match the mock config (945).
         let order = crate::VersionedOrder::V1(crate::Order {
             chain_id: 9999,
-            ..make_valid_signed_order().0.order.inner().clone()
+            ..make_valid_signed_order()
+                .0
+                .order
+                .as_v1()
+                .expect("v1 order")
+                .clone()
         });
         let id = H256(sp_io::hashing::blake2_256(&order.encode()));
         let sig = keyring.pair().sign(&order_signing_payload(&order));

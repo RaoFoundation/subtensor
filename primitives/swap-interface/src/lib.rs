@@ -160,6 +160,26 @@ pub trait OrderSwapInterface<AccountId> {
         validate_receiver: bool,
     ) -> DispatchResult;
 
+    /// Spendable TAO balance of `coldkey` that can be moved without reaping the
+    /// account (i.e. leaving the existential deposit in place).
+    ///
+    /// Used to size percentage-denominated *buy* orders at execution time. The
+    /// keep-alive figure is deliberate: a 100% order should spend as much as
+    /// possible without destroying the signer's account.
+    fn transferable_tao_balance(coldkey: &AccountId) -> TaoBalance;
+
+    /// Alpha that `coldkey` has staked to `hotkey` on `netuid` and can unstake right
+    /// now — the `(hotkey, coldkey)` stake capped by whatever the coldkey's locks
+    /// leave withdrawable on that subnet.
+    ///
+    /// Used to size percentage-denominated *sell* orders at execution time, so a 100%
+    /// order resolves to an amount the subsequent unstake can actually satisfy.
+    fn available_staked_alpha(
+        coldkey: &AccountId,
+        hotkey: &AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance;
+
     /// Set up a subnet for benchmark execution.
     ///
     /// Called once per benchmark before any orders are built. Implementations

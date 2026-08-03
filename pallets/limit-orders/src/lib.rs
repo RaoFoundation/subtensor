@@ -9,7 +9,10 @@ mod benchmarking;
 pub(crate) mod migrations;
 #[cfg(test)]
 mod tests;
+pub mod v2;
 pub mod weights;
+
+pub use v2::{OrderAmount, OrderV2, OrderView};
 
 type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
 
@@ -125,21 +128,59 @@ pub struct Order<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> 
 
 /// Versioned wrapper around an order payload.
 ///
-/// Adding a new variant in the future (e.g. `V2`) lets the pallet accept orders
-/// signed against either schema simultaneously, preventing old signed orders from
-/// being invalidated by a schema upgrade.
+/// Multiple variants let the pallet accept orders signed against either schema
+/// simultaneously, so a schema upgrade never invalidates already-signed orders.
+/// The variant index is part of the SCALE encoding (and of the clear-signing
+/// message via [`VersionedOrder::version_tag`]), so a signature over one version
+/// can never be replayed as another.
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, PartialEq, Eq, Debug,
 )]
 pub enum VersionedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
     V1(Order<AccountId>),
+    /// Same fields as V1, but the amount may be a percentage of the signer's
+    /// input-side balance instead of a fixed amount. See [`v2`].
+    V2(OrderV2<AccountId>),
 }
 
 impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrder<AccountId> {
-    /// Returns a reference to the inner order regardless of version.
-    pub fn inner(&self) -> &Order<AccountId> {
+    /// Project into the version-agnostic [`OrderView`] every execution path reads.
+    pub fn view(&self) -> OrderView<AccountId> {
         match self {
-            VersionedOrder::V1(order) => order,
+            VersionedOrder::V1(order) => OrderView::from_v1(order),
+            VersionedOrder::V2(order) => OrderView::from_v2(order),
+        }
+    }
+
+    /// The order's signer, borrowed without cloning the rest of the payload.
+    pub fn signer(&self) -> &AccountId {
+        match self {
+            VersionedOrder::V1(order) => &order.signer,
+            VersionedOrder::V2(order) => &order.signer,
+        }
+    }
+
+    /// Short version tag used in the clear-signing message.
+    pub fn version_tag(&self) -> &'static str {
+        match self {
+            VersionedOrder::V1(_) => "v1",
+            VersionedOrder::V2(_) => "v2",
+        }
+    }
+
+    /// The inner v1 payload, or `None` for any other version.
+    pub fn as_v1(&self) -> Option<&Order<AccountId>> {
+        match self {
+            VersionedOrder::V1(order) => Some(order),
+            VersionedOrder::V2(_) => None,
+        }
+    }
+
+    /// The inner v2 payload, or `None` for any other version.
+    pub fn as_v2(&self) -> Option<&OrderV2<AccountId>> {
+        match self {
+            VersionedOrder::V2(order) => Some(order),
+            VersionedOrder::V1(_) => None,
         }
     }
 }
@@ -147,7 +188,7 @@ impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrd
 /// The envelope the admin submits on-chain: the versioned order payload plus
 /// the user's signature over the order.
 ///
-/// Signature verification is performed against `order.inner().signer` (the AccountId)
+/// Signature verification is performed against `order.signer()` (the AccountId)
 /// directly, and either signing form is accepted (see `verify_order` / `verify_wrapped`):
 ///   - raw: the SCALE-encoded `VersionedOrder`, or
 ///   - wrapped: `<Bytes>` + `blake2_256(SCALE_ENCODE(VersionedOrder))` (the `OrderId`) + `</Bytes>`,
@@ -188,7 +229,9 @@ pub(crate) struct OrderEntry<AccountId> {
     pub(crate) side: OrderType,
     /// Actual input amount being processed this execution (partial or full, before fee).
     pub(crate) gross: u64,
-    /// Full order amount as signed by the user. Used to determine terminal status.
+    /// Full order amount for this execution: the amount the user signed for a
+    /// `Fixed` order, or the percentage resolved against their balance for a
+    /// `Percentage` order. Used to determine terminal status.
     pub(crate) order_amount: u64,
     /// Net input amount (after fee).
     /// For buys: `gross - fee_rate * gross`. For sells: equals `gross` (fee on TAO output).
@@ -213,6 +256,8 @@ pub(crate) struct OrderEntry<AccountId> {
 pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo as _;
+    use alloc::format;
+    use alloc::string::String;
     use frame_support::{
         PalletId,
         pallet_prelude::*,
@@ -220,8 +265,6 @@ pub mod pallet {
         transactional,
     };
     use frame_system::pallet_prelude::*;
-    use alloc::format;
-    use alloc::string::String;
     use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
     use sp_runtime::traits::AccountIdConversion;
     use sp_std::collections::btree_set::BTreeSet;
@@ -378,6 +421,15 @@ pub mod pallet {
         /// delivering any output (conservation), and the order stays retryable in a
         /// differently-composed batch.
         ZeroShareInBatch,
+        /// A percentage-denominated amount floored to zero against the signer's
+        /// current input-side balance. Rejected rather than executed as a no-op
+        /// swap, which would mark the order terminal without trading anything.
+        PercentageAmountResolvedToZero,
+        /// A partial fill was submitted against a percentage-denominated order.
+        /// The resolved amount is re-derived from the signer's live balance on
+        /// every execution, so `sum(fills) <= amount` has no stable right-hand
+        /// side and the cumulative cap cannot be enforced.
+        PartialFillNotSupportedForPercentageAmount,
     }
 
     // ── Hooks ─────────────────────────────────────────────────────────────────
@@ -513,7 +565,7 @@ pub mod pallet {
             order: VersionedOrder<T::AccountId>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(order.inner().signer == who, Error::<T>::Unauthorized);
+            ensure!(*order.signer() == who, Error::<T>::Unauthorized);
 
             let order_id = Self::derive_order_id(&order);
 
@@ -621,13 +673,13 @@ pub mod pallet {
         /// non-Ledger form a software wallet signing arbitrary bytes produces.
         /// Accepts sr25519 and ed25519; rejects ecdsa.
         pub(crate) fn verify_order(signed_order: &SignedOrder<T::AccountId>) -> bool {
-            let order = signed_order.order.inner();
             matches!(
                 signed_order.signature,
                 MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
-            ) && signed_order
-                .signature
-                .verify(signed_order.order.encode().as_slice(), &order.signer)
+            ) && signed_order.signature.verify(
+                signed_order.order.encode().as_slice(),
+                signed_order.order.signer(),
+            )
         }
 
         /// Verify the signature over the **wrapped order hash** — the Ledger/`signRaw`
@@ -639,7 +691,6 @@ pub mod pallet {
             signed_order: &SignedOrder<T::AccountId>,
             order_id: H256,
         ) -> bool {
-            let order = signed_order.order.inner();
             let payload = [
                 b"<Bytes>".as_slice(),
                 order_id.as_bytes(),
@@ -651,7 +702,7 @@ pub mod pallet {
                 MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
             ) && signed_order
                 .signature
-                .verify(payload.as_slice(), &order.signer)
+                .verify(payload.as_slice(), signed_order.order.signer())
         }
 
         /// Render `who` into its SS58 (base58check) string, reproducing
@@ -672,9 +723,11 @@ pub mod pallet {
         /// load-bearing: it prevents a signature produced for an "any relayer" order
         /// from being transplanted onto an "empty relayer list" order (or vice versa).
         pub(crate) fn render_order(order: &VersionedOrder<T::AccountId>) -> Vec<u8> {
-            let (version, o) = match order {
-                VersionedOrder::V1(o) => ("v1", o),
-            };
+            // The version tag is rendered into the message, so a v1 signature can never
+            // be replayed as a v2 order (or vice versa) even if every other field
+            // happens to render identically.
+            let version = order.version_tag();
+            let o = order.view();
 
             let label = match o.order_type {
                 OrderType::LimitBuy => "Limit buy",
@@ -716,7 +769,10 @@ max slippage {max_slippage}, chain {chain_id}, \
 partial fills {partial}, signer {signer}",
                 version = version,
                 label = label,
-                amount = o.amount,
+                // `Fixed(n)` renders as the bare digits `n`, keeping every v1 message
+                // byte-identical to what it was before v2 existed. `Percentage` renders
+                // with a ` ppb of balance` suffix, which no fixed amount can produce.
+                amount = o.amount.render(),
                 netuid = netuid,
                 price_word = price_word,
                 limit_price = o.limit_price,
@@ -754,7 +810,6 @@ partial fills {partial}, signer {signer}",
         /// Ledger form at all — it has no `<Bytes>…</Bytes>` envelope, which the device's
         /// `tx_raw_parse` requires, so a Ledger can never produce it.
         pub(crate) fn verify_readable(signed_order: &SignedOrder<T::AccountId>) -> bool {
-            let order = signed_order.order.inner();
             let msg = Self::render_order(&signed_order.order);
             let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
             let signed_bytes = if payload.len() > LEDGER_MAX_SIGN_SIZE {
@@ -767,13 +822,54 @@ partial fills {partial}, signer {signer}",
                 MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
             ) && signed_order
                 .signature
-                .verify(signed_bytes.as_slice(), &order.signer)
+                .verify(signed_bytes.as_slice(), signed_order.order.signer())
+        }
+
+        /// Resolve an order's signed amount into the absolute raw input amount to trade
+        /// in this execution.
+        ///
+        /// [`OrderAmount::Fixed`] passes through unchanged — v1 orders always take this
+        /// branch and never read a balance. [`OrderAmount::Percentage`] is taken against
+        /// the signer's balance on the order's *input* side, read at execution time:
+        ///
+        /// - Buy:  the signer's transferable TAO balance (keep-alive, so a 100% order
+        ///   cannot reap the signer's account).
+        /// - Sell: the signer's alpha staked to `hotkey` on `netuid` that is currently
+        ///   available to unstake (so a 100% order is not defeated by locked stake).
+        ///
+        /// A percentage that floors to zero is rejected rather than executed: a
+        /// zero-amount execution would mark the order terminal without trading.
+        pub(crate) fn resolve_amount(
+            order: &OrderView<T::AccountId>,
+        ) -> Result<u64, DispatchError> {
+            // Short-circuit before touching state: a fixed amount must not pay for a
+            // balance read, so v1 orders cost exactly what they did before v2 existed.
+            if let Some(amount) = order.amount.fixed() {
+                return Ok(amount);
+            }
+
+            let balance = if order.order_type.is_buy() {
+                T::SwapInterface::transferable_tao_balance(&order.signer).to_u64()
+            } else {
+                T::SwapInterface::available_staked_alpha(&order.signer, &order.hotkey, order.netuid)
+                    .to_u64()
+            };
+
+            let resolved = order.amount.resolve(balance);
+            ensure!(resolved > 0, Error::<T>::PercentageAmountResolvedToZero);
+            Ok(resolved)
         }
 
         /// Validates all execution preconditions for a signed order.
         /// Checks that the order's netuid is not root (0), that the signature is valid,
         /// the order has not been processed, is not expired, and the price condition is met.
         /// The batch netuid match (order.netuid == batch netuid) is checked separately by callers.
+        ///
+        /// Thin wrapper over [`Self::validate_order`] for callers that only need the
+        /// yes/no verdict; execution paths use `validate_order` directly so they reuse
+        /// the resolved amount instead of reading the signer's balance a second time.
+        /// That leaves the tests as the only consumers of this form.
+        #[cfg(test)]
         pub(crate) fn is_order_valid(
             signed_order: &SignedOrder<T::AccountId>,
             order_id: H256,
@@ -781,7 +877,31 @@ partial fills {partial}, signer {signer}",
             current_price: U64F64,
             relayer: &T::AccountId,
         ) -> DispatchResult {
-            let order = signed_order.order.inner();
+            let order = signed_order.order.view();
+            Self::validate_order(
+                signed_order,
+                &order,
+                order_id,
+                now_ms,
+                current_price,
+                relayer,
+            )
+            .map(|_| ())
+        }
+
+        /// Validate `signed_order` and return the absolute input amount to trade.
+        ///
+        /// Takes the caller's already-built [`OrderView`] so the projection is done once
+        /// per order per dispatch, and returns the resolved amount so a percentage order
+        /// is priced against the signer's balance exactly once.
+        pub(crate) fn validate_order(
+            signed_order: &SignedOrder<T::AccountId>,
+            order: &OrderView<T::AccountId>,
+            order_id: H256,
+            now_ms: u64,
+            current_price: U64F64,
+            relayer: &T::AccountId,
+        ) -> Result<u64, DispatchError> {
             ensure!(!order.netuid.is_root(), Error::<T>::RootNetUidNotAllowed);
             ensure!(
                 order.chain_id == T::ChainId::get(),
@@ -834,7 +954,23 @@ partial fills {partial}, signer {signer}",
                     Error::<T>::RelayerMissMatch
                 );
             }
+            // Resolved here — after every cheap, deterministic check — so that a garbage
+            // or expired order still reports the precise reason it was rejected rather
+            // than a balance-derived error, and so the balance reads only happen for an
+            // order that is otherwise executable.
+            let amount = Self::resolve_amount(order)?;
+
             if let Some(partial_fill) = signed_order.partial_fill {
+                // A percentage amount is re-derived from the signer's live balance on
+                // every execution, so `sum(fills) <= amount` has no stable right-hand
+                // side: the cap would shrink as the balance drains (or grow if the signer
+                // is topped up), letting the cumulative fill over- or under-run the
+                // amount the user actually signed for. Reject the combination outright
+                // rather than enforce a moving cap.
+                ensure!(
+                    !order.amount.is_percentage(),
+                    Error::<T>::PartialFillNotSupportedForPercentageAmount
+                );
                 ensure!(
                     order.relayer.is_some(),
                     Error::<T>::RelayerRequiredForPartialFill
@@ -845,9 +981,9 @@ partial fills {partial}, signer {signer}",
                 );
                 let max_fill =
                     if let Some(OrderStatus::PartiallyFilled(already_filled)) = order_status {
-                        order.amount.saturating_sub(already_filled)
+                        amount.saturating_sub(already_filled)
                     } else {
-                        order.amount
+                        amount
                     };
                 ensure!(
                     partial_fill > 0 && partial_fill <= max_fill,
@@ -867,7 +1003,7 @@ partial fills {partial}, signer {signer}",
                     Error::<T>::IncorrectPartialFillAmount
                 );
             }
-            Ok(())
+            Ok(amount)
         }
 
         /// Compute the new `OrderStatus` to write after filling `fill_amount` of an order.
@@ -910,11 +1046,20 @@ partial fills {partial}, signer {signer}",
             order_id: H256,
             relayer: &T::AccountId,
         ) -> DispatchResult {
-            let order = signed_order.order.inner();
+            let order = signed_order.order.view();
             let now_ms = T::TimeProvider::now().as_millis() as u64;
             let current_price = T::SwapInterface::current_alpha_price(order.netuid);
 
-            Self::is_order_valid(&signed_order, order_id, now_ms, current_price, relayer)?;
+            // `amount` is the order's full signed size: the literal `Fixed` amount, or a
+            // percentage resolved against the signer's balance as of this block.
+            let amount = Self::validate_order(
+                &signed_order,
+                &order,
+                order_id,
+                now_ms,
+                current_price,
+                relayer,
+            )?;
 
             let effective_swap_limit = Self::compute_effective_swap_limit(
                 order.order_type.is_buy(),
@@ -928,7 +1073,7 @@ partial fills {partial}, signer {signer}",
             // limit is u64::MAX (buys) or 0 (sells), matching previous market-order behaviour.
             let (amount_in, amount_out) = if order.order_type.is_buy() {
                 // partial fill validations have passed, it is safe here to do this
-                let tao_in = TaoBalance::from(signed_order.partial_fill.unwrap_or(order.amount));
+                let tao_in = TaoBalance::from(signed_order.partial_fill.unwrap_or(amount));
                 // Deduct fee from TAO input before swapping.
                 let fee_tao = TaoBalance::from(order.fee_rate.mul_floor(tao_in.to_u64()));
                 let tao_after_fee = tao_in.saturating_sub(fee_tao);
@@ -947,8 +1092,7 @@ partial fills {partial}, signer {signer}",
                 (tao_after_fee.to_u64(), alpha_out.to_u64())
             } else {
                 // partial fill validations have passed, it is safe here to do this
-                let alpha_in =
-                    AlphaBalance::from(signed_order.partial_fill.unwrap_or(order.amount));
+                let alpha_in = AlphaBalance::from(signed_order.partial_fill.unwrap_or(amount));
 
                 // Sell the full alpha amount; fee is taken from the TAO output.
                 let tao_out = T::SwapInterface::sell_alpha(
@@ -967,8 +1111,7 @@ partial fills {partial}, signer {signer}",
             };
 
             // Mark as fulfilled or partially filled and emit event.
-            let status =
-                Self::compute_order_status(order_id, signed_order.partial_fill, order.amount);
+            let status = Self::compute_order_status(order_id, signed_order.partial_fill, amount);
             Orders::<T>::insert(order_id, status);
             Self::deposit_event(Event::OrderExecuted {
                 order_id,
@@ -1134,15 +1277,24 @@ partial fills {partial}, signer {signer}",
                     Error::<T>::DuplicateOrderInBatch
                 );
 
-                let order = signed_order.order.inner();
+                let order = signed_order.order.view();
 
                 // Hard-fail if the order targets a different subnet than the batch netuid.
                 ensure!(order.netuid == netuid, Error::<T>::OrderNetUidMismatch);
 
                 // Hard-fail on any per-order validation error (signature, expiry, price, root).
-                Self::is_order_valid(signed_order, order_id, now_ms, current_price, &relayer)?;
+                // A percentage-denominated order is priced here, against the signer's
+                // balance *before* `collect_assets` moves anything into the intermediary.
+                let amount = Self::validate_order(
+                    signed_order,
+                    &order,
+                    order_id,
+                    now_ms,
+                    current_price,
+                    &relayer,
+                )?;
 
-                let amount_in = signed_order.partial_fill.unwrap_or(order.amount);
+                let amount_in = signed_order.partial_fill.unwrap_or(amount);
                 let net = if order.order_type.is_buy() {
                     // Buy: fee on TAO input — net is the amount that reaches the pool.
                     amount_in.saturating_sub(order.fee_rate.mul_floor(amount_in))
@@ -1164,7 +1316,7 @@ partial fills {partial}, signer {signer}",
                     hotkey: order.hotkey.clone(),
                     side: order.order_type.clone(),
                     gross: amount_in,
-                    order_amount: order.amount,
+                    order_amount: amount,
                     net,
                     fee_rate: order.fee_rate,
                     fee_recipient: order.fee_recipient.clone(),
