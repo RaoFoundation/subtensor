@@ -139,7 +139,7 @@ async function main() {
           "successful-epoch polling",
       );
     }
-    const successTracker = new SuccessfulEpochTracker(baseline);
+    const successTracker = new SuccessfulEpochTracker(baseline, baselineBlock);
     const atBaseline = await api.at(baselineHeader.hash);
     const maxEpochsPerBlock = Number(
       (await atBaseline.query.subtensorModule.maxEpochsPerBlock()).toString(),
@@ -215,7 +215,10 @@ async function main() {
       lastCoverageBlock = block;
 
       const snapshot = await readCoverageAt(api, header.hash, baseline);
-      const successfulCycles = successTracker.observe(snapshot.currentSuccessfulEpochBlocks);
+      const successfulCycles = successTracker.observe(
+        snapshot.currentSuccessfulEpochBlocks,
+        block,
+      );
       const evaluation = evaluateEpochCoverage(
         baseline,
         snapshot.currentEpochIndices,

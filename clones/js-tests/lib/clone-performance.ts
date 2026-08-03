@@ -128,29 +128,54 @@ export interface EpochCoverageBudget {
 export class SuccessfulEpochTracker {
   private readonly previousBlocks = new Map<number, bigint>();
   private readonly completedCycles = new Map<number, bigint>();
+  private readonly sourceHeightPending = new Set<number>();
+  private readonly baselineBlock: bigint;
 
-  constructor(baseline: readonly EpochBaseline[]) {
+  constructor(baseline: readonly EpochBaseline[], baselineBlock: number) {
+    if (!Number.isSafeInteger(baselineBlock) || baselineBlock < 0) {
+      throw new Error(`invalid epoch coverage baseline block: ${baselineBlock}`);
+    }
+    this.baselineBlock = BigInt(baselineBlock);
     for (const { netuid, lastSuccessfulEpochBlock } of baseline) {
       this.previousBlocks.set(netuid, lastSuccessfulEpochBlock);
       this.completedCycles.set(netuid, 0n);
+      // A cloned snapshot retains mainnet block numbers in this storage item,
+      // while the clone itself starts near block zero. Its first successful
+      // local epoch therefore performs one legitimate coordinate-system reset.
+      if (lastSuccessfulEpochBlock > this.baselineBlock) {
+        this.sourceHeightPending.add(netuid);
+      }
     }
   }
 
-  observe(currentBlocks: ReadonlyMap<number, bigint>): ReadonlyMap<number, bigint> {
+  observe(
+    currentBlocks: ReadonlyMap<number, bigint>,
+    observedAtBlock: number,
+  ): ReadonlyMap<number, bigint> {
+    if (!Number.isSafeInteger(observedAtBlock) || BigInt(observedAtBlock) < this.baselineBlock) {
+      throw new Error(`invalid successful epoch observation block: ${observedAtBlock}`);
+    }
+    const observedAt = BigInt(observedAtBlock);
     for (const [netuid, previousBlock] of this.previousBlocks) {
       const currentBlock = currentBlocks.get(netuid);
       if (currentBlock === undefined) {
         continue;
       }
-      if (currentBlock < previousBlock) {
+      if (currentBlock === previousBlock) {
+        continue;
+      }
+      const validLocalSuccess =
+        currentBlock > this.baselineBlock && currentBlock <= observedAt;
+      const validSourceHeightReset =
+        currentBlock < previousBlock && this.sourceHeightPending.has(netuid);
+      if (!validLocalSuccess || (currentBlock < previousBlock && !validSourceHeightReset)) {
         throw new Error(
           `successful epoch block regressed for subnet ${netuid}: ${previousBlock} to ${currentBlock}`,
         );
       }
-      if (currentBlock > previousBlock) {
-        this.previousBlocks.set(netuid, currentBlock);
-        this.completedCycles.set(netuid, (this.completedCycles.get(netuid) ?? 0n) + 1n);
-      }
+      this.sourceHeightPending.delete(netuid);
+      this.previousBlocks.set(netuid, currentBlock);
+      this.completedCycles.set(netuid, (this.completedCycles.get(netuid) ?? 0n) + 1n);
     }
     return new Map(this.completedCycles);
   }
@@ -432,12 +457,6 @@ export function evaluateEpochCoverage(
       continue;
     }
     if (currentEpochIndex < subnet.epochIndex) {
-      regressedNetuids.push(subnet.netuid);
-    }
-    if (
-      currentSuccessfulEpochBlock < subnet.lastSuccessfulEpochBlock &&
-      !regressedNetuids.includes(subnet.netuid)
-    ) {
       regressedNetuids.push(subnet.netuid);
     }
     const attemptedCycles =

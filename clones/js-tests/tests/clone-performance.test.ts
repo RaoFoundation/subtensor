@@ -177,16 +177,16 @@ test("tracks complete epoch cycles and exposes removal, missing, and regression 
     { netuid: 1, tempo: 360, epochIndex: 4n, lastSuccessfulEpochBlock: 100n },
     { netuid: 2, tempo: 1800, epochIndex: 10n, lastSuccessfulEpochBlock: 200n },
   ];
-  const tracker = new SuccessfulEpochTracker(baseline);
-  tracker.observe(new Map([[1, 101n], [2, 201n]]));
-  const successfulCycles = tracker.observe(new Map([[1, 102n], [2, 202n]]));
+  const tracker = new SuccessfulEpochTracker(baseline, 200);
+  tracker.observe(new Map([[1, 201n], [2, 201n]]), 201);
+  const successfulCycles = tracker.observe(new Map([[1, 202n], [2, 202n]]), 202);
   const complete = evaluateEpochCoverage(
     baseline,
     new Map([
       [1, 6n],
       [2, 12n],
     ]),
-    new Map([[1, 102n], [2, 202n]]),
+    new Map([[1, 202n], [2, 202n]]),
     successfulCycles,
     new Set([1, 2]),
     2,
@@ -223,8 +223,8 @@ test("does not count skipped epoch attempts as successful coverage", () => {
   const baseline: EpochBaseline[] = [
     { netuid: 7, tempo: 360, epochIndex: 10n, lastSuccessfulEpochBlock: 500n },
   ];
-  const tracker = new SuccessfulEpochTracker(baseline);
-  const successfulCycles = tracker.observe(new Map([[7, 500n]]));
+  const tracker = new SuccessfulEpochTracker(baseline, 500);
+  const successfulCycles = tracker.observe(new Map([[7, 500n]]), 501);
   const skipped = evaluateEpochCoverage(
     baseline,
     new Map([[7, 11n]]),
@@ -237,6 +237,26 @@ test("does not count skipped epoch attempts as successful coverage", () => {
   assert.deepEqual(skipped.skippedNetuids, [7]);
   assert.equal(skipped.progress[0].attemptedCycles, 1n);
   assert.equal(skipped.progress[0].completedCycles, 0n);
+});
+
+test("accepts one source-to-clone block-coordinate reset, then fails closed", () => {
+  const baseline: EpochBaseline[] = [
+    {
+      netuid: 96,
+      tempo: 360,
+      epochIndex: 10n,
+      lastSuccessfulEpochBlock: 8_761_331n,
+    },
+  ];
+  const tracker = new SuccessfulEpochTracker(baseline, 29);
+
+  assert.equal(tracker.observe(new Map([[96, 8_761_331n]]), 31).get(96), 0n);
+  assert.equal(tracker.observe(new Map([[96, 32n]]), 39).get(96), 1n);
+  assert.equal(tracker.observe(new Map([[96, 40n]]), 45).get(96), 2n);
+  assert.throws(() => tracker.observe(new Map([[96, 39n]]), 50), /regressed/);
+
+  const invalidReset = new SuccessfulEpochTracker(baseline, 29);
+  assert.throws(() => invalidReset.observe(new Map([[96, 0n]]), 39), /regressed/);
 });
 
 test("fails closed when polling could miss more than one epoch transition", () => {
