@@ -7,7 +7,7 @@ supervisor_script="$repo_root/clones/scripts/clone-process-supervision.sh"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-mkdir -p "$tmp/repo/clones/scripts" "$tmp/repo/clones/js-tests" "$tmp/repo/sdk/python" "$tmp/bin"
+mkdir -p "$tmp/repo/clones/scripts" "$tmp/repo/clones/js-tests/temp" "$tmp/repo/sdk/python" "$tmp/bin"
 cp "$source_script" "$supervisor_script" "$tmp/repo/clones/scripts/"
 
 for helper in start-local-clone-and-wait.sh stop-local-clone.sh local-clone-checkpoint.sh; do
@@ -24,6 +24,10 @@ printf 'monitor start %s\n' "$*" >> "$HARNESS_LOG"
 if [[ "${MOCK_MONITOR_FAIL:-false}" == true ]]; then
   exit 1
 fi
+if [[ "${MOCK_MONITOR_EXIT_EARLY:-false}" == true ]]; then
+  exit 0
+fi
+[[ -z "${CLONE_MONITOR_READY_FILE:-}" ]] || printf '{}\n' > "$CLONE_MONITOR_READY_FILE"
 trap 'printf "monitor stop\n" >> "$HARNESS_LOG"; exit 0' TERM INT
 while true; do
   /bin/sleep 0.02
@@ -39,6 +43,15 @@ if [[ -n "${MOCK_NPM_FAIL_ONCE:-}" && "$*" == *"$MOCK_NPM_FAIL_ONCE"* && ! -e "$
 fi
 if [[ -n "${MOCK_NPM_FAIL:-}" && "$*" == *"$MOCK_NPM_FAIL"* ]]; then
   exit 1
+fi
+if [[ "$*" == *"runtime:update:alice"* ]]; then
+  previous=
+  for argument in "$@"; do
+    if [[ "$previous" == --report ]]; then
+      printf '{"upgradeBlock":22,"finalizedAtEpochMs":123456}\n' > "$argument"
+    fi
+    previous=$argument
+  done
 fi
 EOF
 cat > "$tmp/bin/sleep" <<'EOF'
@@ -78,23 +91,34 @@ assert_before() {
 run_phase pristine
 grep -Fq 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG"
 grep -Fq 'npm run runtime:update:alice' "$HARNESS_LOG"
-grep -Fq 'npm run wait:clone-readiness -- --label pristine --timeout-ms 2700000 --report temp/clone-readiness-pristine.json' "$HARNESS_LOG"
+assert_before 'monitor start fail-fast pristine' 'npm run runtime:update:alice'
+grep -Fq 'npm run wait:beta-basket-v2-readiness -- --label pristine --timeout-ms 2700000 --report temp/clone-readiness-pristine.json' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=pristine' "$HARNESS_LOG"
-assert_before 'npm run wait:clone-readiness' 'npm run test:clone-regressions'
+assert_before 'npm run wait:beta-basket-v2-readiness' 'npm run test:clone-regressions'
 grep -Fq 'monitor start fail-fast pristine ' "$HARNESS_LOG"
 grep -Fq 'monitor stop' "$HARNESS_LOG"
 grep -Fq 'stop-local-clone.sh ' "$HARNESS_LOG"
+
+: > "$HARNESS_LOG"
+if early_output=$(MOCK_MONITOR_EXIT_EARLY=true \
+  RUN_SDK_DRIFT=false \
+  "$tmp/repo/clones/scripts/run-clone-regression-phase.sh" pristine 2>&1); then
+  echo "early successful clone block monitor exit unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -Fq 'clone block monitor exited before becoming ready' <<< "$early_output"
 if grep -Fq 'npm test' "$HARNESS_LOG"; then
   echo "pristine phase unexpectedly ran remaining smoke tests" >&2
   exit 1
 fi
 
 run_phase remaining
-grep -Fq 'npm run wait:clone-readiness -- --label remaining --timeout-ms 2700000 --report temp/clone-readiness-remaining.json' "$HARNESS_LOG"
+grep -Fq 'npm run wait:beta-basket-v2-readiness -- --label remaining --timeout-ms 2700000 --report temp/clone-readiness-remaining.json' "$HARNESS_LOG"
 grep -Fq 'npm test phase=' "$HARNESS_LOG"
 grep -Fq 'npm run test:clone-regressions phase=remaining' "$HARNESS_LOG"
-assert_before 'npm run wait:clone-readiness' 'npm test phase='
+assert_before 'npm run wait:beta-basket-v2-readiness' 'npm test phase='
 grep -Fq 'monitor start fail-fast remaining ' "$HARNESS_LOG"
+assert_before 'monitor start fail-fast remaining' 'npm run runtime:update:alice'
 
 run_phase combined
 [[ $(grep -Fc 'start-local-clone-and-wait.sh accelerated' "$HARNESS_LOG") -eq 2 ]]

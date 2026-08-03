@@ -5,18 +5,22 @@ import path from "node:path";
 import test from "node:test";
 import type { ApiPromise } from "@polkadot/api";
 import {
-  evaluateMigrationReadiness,
-  waitForMigrationReadiness,
-  type MigrationReadinessSnapshot,
+  evaluateBetaBasketV2Readiness,
+  waitForBetaBasketV2ReleaseReadiness,
+  type BetaBasketV2ReadinessSnapshot,
 } from "../lib/clone-readiness.js";
+import { assertIssuanceMirror } from "../lib/clone-invariants.js";
 import {
   BestHeadLiveness,
   NodeLogTail,
+  SuccessfulEpochTracker,
+  assertReliableEpochPollingGap,
   bestHeadFailureReasons,
   blockLatencyFailureReasons,
   computeEpochCoverageBudget,
   evaluateEpochCoverage,
   parsePreparedBlockChunk,
+  postUpgradeBlockSamples,
   remainingRequiredBlockSamples,
   sampleDrainFailureReason,
   summarizeBlockSamples,
@@ -57,6 +61,21 @@ test("tails from the post-upgrade byte offset and handles appended partial lines
   assert.deepEqual(tail.read(), []);
   fs.appendFileSync(filename, " ms)\n");
   assert.deepEqual(tail.read(), [{ block: 2, durationMs: 250 }]);
+});
+
+test("excludes startup and upgrade-block proposer samples from post-upgrade enforcement", () => {
+  assert.deepEqual(
+    postUpgradeBlockSamples(
+      [
+        { block: 40, durationMs: 9_000 },
+        { block: 41, durationMs: 8_000 },
+        { block: 42, durationMs: 250 },
+      ],
+      41,
+    ),
+    [{ block: 42, durationMs: 250 }],
+  );
+  assert.throws(() => postUpgradeBlockSamples([], -1), /invalid runtime upgrade block/);
 });
 
 test("classifies warning and hard-failure boundaries and calculates nearest-rank percentiles", () => {
@@ -155,15 +174,20 @@ test("records a recoverable soak stall as a violation before its hard timeout", 
 
 test("tracks complete epoch cycles and exposes removal, missing, and regression failures", () => {
   const baseline: EpochBaseline[] = [
-    { netuid: 1, tempo: 360, epochIndex: 4n },
-    { netuid: 2, tempo: 1800, epochIndex: 10n },
+    { netuid: 1, tempo: 360, epochIndex: 4n, lastSuccessfulEpochBlock: 100n },
+    { netuid: 2, tempo: 1800, epochIndex: 10n, lastSuccessfulEpochBlock: 200n },
   ];
+  const tracker = new SuccessfulEpochTracker(baseline);
+  tracker.observe(new Map([[1, 101n], [2, 201n]]));
+  const successfulCycles = tracker.observe(new Map([[1, 102n], [2, 202n]]));
   const complete = evaluateEpochCoverage(
     baseline,
     new Map([
       [1, 6n],
       [2, 12n],
     ]),
+    new Map([[1, 102n], [2, 202n]]),
+    successfulCycles,
     new Set([1, 2]),
     2,
   );
@@ -175,6 +199,8 @@ test("tracks complete epoch cycles and exposes removal, missing, and regression 
       [1, 3n],
       [2, 11n],
     ]),
+    new Map([[1, 99n], [2, 201n]]),
+    new Map([[1, 0n], [2, 1n]]),
     new Set([1]),
     2,
   );
@@ -182,13 +208,46 @@ test("tracks complete epoch cycles and exposes removal, missing, and regression 
   assert.deepEqual(incomplete.removedNetuids, [2]);
   assert.deepEqual(incomplete.regressedNetuids, [1]);
 
-  const missing = evaluateEpochCoverage(baseline, new Map([[1, 6n]]), new Set([1, 2]), 2);
+  const missing = evaluateEpochCoverage(
+    baseline,
+    new Map([[1, 6n]]),
+    new Map([[1, 102n]]),
+    new Map([[1, 2n]]),
+    new Set([1, 2]),
+    2,
+  );
   assert.deepEqual(missing.missingNetuids, [2]);
+});
+
+test("does not count skipped epoch attempts as successful coverage", () => {
+  const baseline: EpochBaseline[] = [
+    { netuid: 7, tempo: 360, epochIndex: 10n, lastSuccessfulEpochBlock: 500n },
+  ];
+  const tracker = new SuccessfulEpochTracker(baseline);
+  const successfulCycles = tracker.observe(new Map([[7, 500n]]));
+  const skipped = evaluateEpochCoverage(
+    baseline,
+    new Map([[7, 11n]]),
+    new Map([[7, 500n]]),
+    successfulCycles,
+    new Set([7]),
+    1,
+  );
+  assert.equal(skipped.complete, false);
+  assert.deepEqual(skipped.skippedNetuids, [7]);
+  assert.equal(skipped.progress[0].attemptedCycles, 1n);
+  assert.equal(skipped.progress[0].completedCycles, 0n);
+});
+
+test("fails closed when polling could miss more than one epoch transition", () => {
+  assert.equal(assertReliableEpochPollingGap(100, 109, 10), 9);
+  assert.throws(() => assertReliableEpochPollingGap(100, 110, 10), /not strictly below/);
+  assert.throws(() => assertReliableEpochPollingGap(100, 99, 10), /regressed/);
 });
 
 test("supports absent, cursorless instant, and multi-block migration states", () => {
   assert.deepEqual(
-    evaluateMigrationReadiness({
+    evaluateBetaBasketV2Readiness({
       cursorExists: false,
       completionFlag: false,
       deferredEntriesExist: false,
@@ -199,14 +258,14 @@ test("supports absent, cursorless instant, and multi-block migration states", ()
     },
   );
 
-  const instant = evaluateMigrationReadiness({
+  const instant = evaluateBetaBasketV2Readiness({
     cursorExists: false,
     completionFlag: true,
     deferredEntriesExist: false,
   });
   assert.equal(instant.kind, "ready");
 
-  const migrating = evaluateMigrationReadiness({
+  const migrating = evaluateBetaBasketV2Readiness({
     cursorExists: true,
     completionFlag: false,
     deferredEntriesExist: true,
@@ -217,7 +276,7 @@ test("supports absent, cursorless instant, and multi-block migration states", ()
   }
   assert.equal(migrating.stage, "migration");
 
-  const draining = evaluateMigrationReadiness(
+  const draining = evaluateBetaBasketV2Readiness(
     { cursorExists: false, completionFlag: true, deferredEntriesExist: true },
     migrating.history,
   );
@@ -227,7 +286,7 @@ test("supports absent, cursorless instant, and multi-block migration states", ()
   }
   assert.equal(draining.stage, "deferred-release");
 
-  const ready = evaluateMigrationReadiness(
+  const ready = evaluateBetaBasketV2Readiness(
     { cursorExists: false, completionFlag: true, deferredEntriesExist: false },
     draining.history,
   );
@@ -235,7 +294,7 @@ test("supports absent, cursorless instant, and multi-block migration states", ()
   assert.deepEqual(ready.history, { sawCursor: true, sawDeferredEntries: true });
 
   assert.equal(
-    evaluateMigrationReadiness({
+    evaluateBetaBasketV2Readiness({
       cursorExists: true,
       completionFlag: true,
       deferredEntriesExist: false,
@@ -243,14 +302,14 @@ test("supports absent, cursorless instant, and multi-block migration states", ()
     "invalid",
   );
   assert.equal(
-    evaluateMigrationReadiness(
+    evaluateBetaBasketV2Readiness(
       { cursorExists: false, completionFlag: false, deferredEntriesExist: false },
       migrating.history,
     ).kind,
     "invalid",
   );
   assert.equal(
-    evaluateMigrationReadiness({
+    evaluateBetaBasketV2Readiness({
       cursorExists: false,
       completionFlag: false,
       deferredEntriesExist: true,
@@ -278,7 +337,7 @@ test("waits through cursor completion and deferred release before reporting read
     },
   ];
   const api = mockReadinessApi(snapshots);
-  const observation = await waitForMigrationReadiness(api, {
+  const observation = await waitForBetaBasketV2ReleaseReadiness(api, {
     deadlineEpochMs: Date.now() + 5_000,
     pollIntervalMs: 1,
   });
@@ -297,6 +356,7 @@ test("budgets tempo, two-per-block deferral, margin, and accelerated wall time",
     netuid: index + 1,
     tempo: index === 0 ? 1800 : 360,
     epochIndex: 0n,
+    lastSuccessfulEpochBlock: 0n,
   }));
   const budget = computeEpochCoverageBudget(baseline, 2, 2);
 
@@ -306,7 +366,12 @@ test("budgets tempo, two-per-block deferral, margin, and accelerated wall time",
   assert.equal(budget.blockBudget, 4101);
   assert.equal(budget.nominalWallMs, 1_025_250);
   assert.throws(
-    () => computeEpochCoverageBudget([{ netuid: 1, tempo: 0, epochIndex: 0n }], 2, 2),
+    () =>
+      computeEpochCoverageBudget(
+        [{ netuid: 1, tempo: 0, epochIndex: 0n, lastSuccessfulEpochBlock: 0n }],
+        2,
+        2,
+      ),
     /invalid tempo/,
   );
 });
@@ -315,7 +380,7 @@ function mockReadinessApi(
   snapshots: ReadonlyArray<{
     block: number;
     hash: string;
-    state: MigrationReadinessSnapshot;
+    state: BetaBasketV2ReadinessSnapshot;
   }>,
 ): ApiPromise {
   assert.ok(snapshots.length > 0);
@@ -358,3 +423,20 @@ function mockReadinessApi(
   };
   return api as unknown as ApiPromise;
 }
+
+test("checks the end-of-soak issuance mirror without mutating chain state", () => {
+  assert.doesNotThrow(() =>
+    assertIssuanceMirror(
+      { balancesTotalIssuance: 123n, subtensorTotalIssuance: 123n },
+      "test",
+    ),
+  );
+  assert.throws(
+    () =>
+      assertIssuanceMirror(
+        { balancesTotalIssuance: 123n, subtensorTotalIssuance: 122n },
+        "test",
+      ),
+    /does not match/,
+  );
+});

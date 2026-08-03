@@ -57,6 +57,7 @@ assert_classification clones/scripts/run-clone-epoch-soak.sh "$runtime_and_snaps
 assert_classification clones/scripts/run-clone-block-monitor.sh "$runtime_and_snapshot_only"
 assert_classification clones/scripts/clone-process-supervision.sh "$runtime_and_snapshot_only"
 assert_classification clones/js-tests/lib/clone-performance.ts "$runtime_and_snapshot_only"
+assert_classification clones/js-tests/lib/clone-invariants.ts "$runtime_and_snapshot_only"
 assert_classification clones/js-tests/lib/clone-readiness.ts "$runtime_and_snapshot_only"
 assert_classification clones/js-tests/scripts/wait-clone-readiness.ts "$runtime_and_snapshot_only"
 assert_classification .github/scripts/test-clone-regression-phase.sh "$runtime_and_snapshot_only"

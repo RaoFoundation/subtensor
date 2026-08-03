@@ -13,6 +13,29 @@ terminate_process_tree() {
   kill -TERM "$pid" 2>/dev/null || true
 }
 
+wait_for_monitor_ready() {
+  local monitor_pid=$1 ready_file=$2 timeout_seconds=${3:-60}
+  local elapsed_tenths=0
+
+  while (( elapsed_tenths < timeout_seconds * 10 )); do
+    [[ -s "$ready_file" ]] && return 0
+    if ! kill -0 "$monitor_pid" 2>/dev/null; then
+      local status=0
+      wait "$monitor_pid" || status=$?
+      if (( status == 0 )); then
+        echo "clone block monitor exited before becoming ready" >&2
+        return 1
+      fi
+      return "$status"
+    fi
+    sleep 0.1
+    elapsed_tenths=$((elapsed_tenths + 1))
+  done
+
+  echo "clone block monitor did not become ready within ${timeout_seconds}s" >&2
+  return 1
+}
+
 supervise_monitor_and_workload() {
   local monitor_pid=$1 workload_pid=$2 description=$3
   local monitor_ended_early=false monitor_status=0 workload_status=0

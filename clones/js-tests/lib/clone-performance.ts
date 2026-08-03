@@ -55,6 +55,16 @@ export interface ParsedBlockChunk {
   samples: BlockConstructionSample[];
 }
 
+export function postUpgradeBlockSamples(
+  samples: readonly BlockConstructionSample[],
+  upgradeBlock: number,
+): BlockConstructionSample[] {
+  if (!Number.isSafeInteger(upgradeBlock) || upgradeBlock < 0) {
+    throw new Error(`invalid runtime upgrade block: ${upgradeBlock}`);
+  }
+  return samples.filter(({ block }) => block > upgradeBlock);
+}
+
 export interface BlockLatencySummary {
   sampleCount: number;
   meanMs: number | null;
@@ -86,10 +96,13 @@ export interface EpochBaseline {
   netuid: number;
   tempo: number;
   epochIndex: bigint;
+  lastSuccessfulEpochBlock: bigint;
 }
 
 export interface EpochProgress extends EpochBaseline {
   currentEpochIndex: bigint;
+  currentSuccessfulEpochBlock: bigint;
+  attemptedCycles: bigint;
   completedCycles: bigint;
 }
 
@@ -99,6 +112,7 @@ export interface EpochCoverageEvaluation {
   removedNetuids: number[];
   missingNetuids: number[];
   regressedNetuids: number[];
+  skippedNetuids: number[];
 }
 
 export interface EpochCoverageBudget {
@@ -109,6 +123,58 @@ export interface EpochCoverageBudget {
   unpaddedBlocks: number;
   blockBudget: number;
   nominalWallMs: number;
+}
+
+export class SuccessfulEpochTracker {
+  private readonly previousBlocks = new Map<number, bigint>();
+  private readonly completedCycles = new Map<number, bigint>();
+
+  constructor(baseline: readonly EpochBaseline[]) {
+    for (const { netuid, lastSuccessfulEpochBlock } of baseline) {
+      this.previousBlocks.set(netuid, lastSuccessfulEpochBlock);
+      this.completedCycles.set(netuid, 0n);
+    }
+  }
+
+  observe(currentBlocks: ReadonlyMap<number, bigint>): ReadonlyMap<number, bigint> {
+    for (const [netuid, previousBlock] of this.previousBlocks) {
+      const currentBlock = currentBlocks.get(netuid);
+      if (currentBlock === undefined) {
+        continue;
+      }
+      if (currentBlock < previousBlock) {
+        throw new Error(
+          `successful epoch block regressed for subnet ${netuid}: ${previousBlock} to ${currentBlock}`,
+        );
+      }
+      if (currentBlock > previousBlock) {
+        this.previousBlocks.set(netuid, currentBlock);
+        this.completedCycles.set(netuid, (this.completedCycles.get(netuid) ?? 0n) + 1n);
+      }
+    }
+    return new Map(this.completedCycles);
+  }
+}
+
+export function assertReliableEpochPollingGap(
+  previousBlock: number,
+  currentBlock: number,
+  minimumTempo: number,
+): number {
+  if (![previousBlock, currentBlock, minimumTempo].every(Number.isSafeInteger)) {
+    throw new Error("epoch polling blocks and tempo must be safe integers");
+  }
+  const gap = currentBlock - previousBlock;
+  if (gap < 0) {
+    throw new Error(`epoch polling block regressed from ${previousBlock} to ${currentBlock}`);
+  }
+  if (minimumTempo < 1 || gap >= minimumTempo) {
+    throw new Error(
+      `epoch coverage polling skipped ${gap} blocks, which is not strictly below ` +
+        `the minimum subnet tempo ${minimumTempo}`,
+    );
+  }
+  return gap;
 }
 
 export class NodeLogTail {
@@ -335,6 +401,8 @@ export function bestHeadFailureReasons(
 export function evaluateEpochCoverage(
   baseline: readonly EpochBaseline[],
   currentEpochIndices: ReadonlyMap<number, bigint>,
+  currentSuccessfulEpochBlocks: ReadonlyMap<number, bigint>,
+  successfulCycles: ReadonlyMap<number, bigint>,
   activeNetuids: ReadonlySet<number>,
   requiredCycles: number,
 ): EpochCoverageEvaluation {
@@ -346,24 +414,43 @@ export function evaluateEpochCoverage(
   const removedNetuids: number[] = [];
   const missingNetuids: number[] = [];
   const regressedNetuids: number[] = [];
+  const skippedNetuids: number[] = [];
 
   for (const subnet of baseline) {
     if (!activeNetuids.has(subnet.netuid)) {
       removedNetuids.push(subnet.netuid);
     }
     const currentEpochIndex = currentEpochIndices.get(subnet.netuid);
-    if (currentEpochIndex === undefined) {
+    const currentSuccessfulEpochBlock = currentSuccessfulEpochBlocks.get(subnet.netuid);
+    const completedCycles = successfulCycles.get(subnet.netuid);
+    if (
+      currentEpochIndex === undefined ||
+      currentSuccessfulEpochBlock === undefined ||
+      completedCycles === undefined
+    ) {
       missingNetuids.push(subnet.netuid);
       continue;
     }
     if (currentEpochIndex < subnet.epochIndex) {
       regressedNetuids.push(subnet.netuid);
     }
+    if (
+      currentSuccessfulEpochBlock < subnet.lastSuccessfulEpochBlock &&
+      !regressedNetuids.includes(subnet.netuid)
+    ) {
+      regressedNetuids.push(subnet.netuid);
+    }
+    const attemptedCycles =
+      currentEpochIndex >= subnet.epochIndex ? currentEpochIndex - subnet.epochIndex : 0n;
+    if (attemptedCycles > completedCycles) {
+      skippedNetuids.push(subnet.netuid);
+    }
     progress.push({
       ...subnet,
       currentEpochIndex,
-      completedCycles:
-        currentEpochIndex >= subnet.epochIndex ? currentEpochIndex - subnet.epochIndex : 0n,
+      currentSuccessfulEpochBlock,
+      attemptedCycles,
+      completedCycles,
     });
   }
 
@@ -372,12 +459,14 @@ export function evaluateEpochCoverage(
       removedNetuids.length === 0 &&
       missingNetuids.length === 0 &&
       regressedNetuids.length === 0 &&
+      skippedNetuids.length === 0 &&
       progress.length === baseline.length &&
       progress.every(({ completedCycles }) => completedCycles >= BigInt(requiredCycles)),
     progress,
     removedNetuids,
     missingNetuids,
     regressedNetuids,
+    skippedNetuids,
   };
 }
 

@@ -757,6 +757,8 @@ jobs:
           path: |
             clones/js-tests/temp/clone-block-performance-*.log
             clones/js-tests/temp/clone-block-performance-*.json
+            clones/js-tests/temp/clone-block-diagnostics-*.log
+            clones/js-tests/temp/runtime-upgrade-*.json
             clones/js-tests/temp/clone-readiness-*.log
             clones/js-tests/temp/clone-readiness-*.json
           if-no-files-found: warn

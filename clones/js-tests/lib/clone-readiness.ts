@@ -1,40 +1,34 @@
 import type { ApiPromise } from "@polkadot/api";
 import { xxhashAsHex } from "@polkadot/util-crypto";
 
-export interface MigrationReadinessDescriptor {
-  name: string;
-  cursorStorageItem: string;
-  deferredStorageItems: readonly string[];
-}
+// Release-v438/PR #3019 gate. This is intentionally not a generic migration
+// detector: future multi-block migrations must add their own explicit gate.
+const MIGRATION_NAME = "migrate_seed_beta_basket_v2";
+const CURSOR_STORAGE_ITEM = "SeedBetaBasketV2Migration";
+const DEFERRED_STORAGE_ITEMS = ["DeferredRootAlphaDividends"] as const;
 
-export const BETA_BASKET_V2_MIGRATION: MigrationReadinessDescriptor = {
-  name: "migrate_seed_beta_basket_v2",
-  cursorStorageItem: "SeedBetaBasketV2Migration",
-  deferredStorageItems: ["DeferredRootAlphaDividends"],
-};
-
-export interface MigrationReadinessSnapshot {
+export interface BetaBasketV2ReadinessSnapshot {
   cursorExists: boolean;
   completionFlag: boolean;
   deferredEntriesExist: boolean;
 }
 
-export interface MigrationReadinessHistory {
+export interface BetaBasketV2ReadinessHistory {
   sawCursor: boolean;
   sawDeferredEntries: boolean;
 }
 
-export type MigrationReadinessEvaluation =
-  | { kind: "not-observed"; history: MigrationReadinessHistory }
+export type BetaBasketV2ReadinessEvaluation =
+  | { kind: "not-observed"; history: BetaBasketV2ReadinessHistory }
   | {
       kind: "waiting";
       stage: "migration" | "deferred-release";
-      history: MigrationReadinessHistory;
+      history: BetaBasketV2ReadinessHistory;
     }
-  | { kind: "ready"; history: MigrationReadinessHistory }
-  | { kind: "invalid"; history: MigrationReadinessHistory; reason: string };
+  | { kind: "ready"; history: BetaBasketV2ReadinessHistory }
+  | { kind: "invalid"; history: BetaBasketV2ReadinessHistory; reason: string };
 
-export interface MigrationReadinessObservation extends MigrationReadinessHistory {
+export interface BetaBasketV2ReadinessObservation extends BetaBasketV2ReadinessHistory {
   descriptor: string;
   mode: "not-observed" | "cursorless-complete" | "multi-block";
   startBlock: number;
@@ -44,22 +38,21 @@ export interface MigrationReadinessObservation extends MigrationReadinessHistory
   observedWallMs: number;
 }
 
-export interface WaitForMigrationReadinessOptions {
+export interface WaitForBetaBasketV2ReadinessOptions {
   deadlineEpochMs: number;
-  descriptor?: MigrationReadinessDescriptor;
   pollIntervalMs?: number;
   log?: (message: string) => void;
 }
 
-const EMPTY_HISTORY: MigrationReadinessHistory = {
+const EMPTY_HISTORY: BetaBasketV2ReadinessHistory = {
   sawCursor: false,
   sawDeferredEntries: false,
 };
 
-export function evaluateMigrationReadiness(
-  snapshot: MigrationReadinessSnapshot,
-  previous: MigrationReadinessHistory = EMPTY_HISTORY,
-): MigrationReadinessEvaluation {
+export function evaluateBetaBasketV2Readiness(
+  snapshot: BetaBasketV2ReadinessSnapshot,
+  previous: BetaBasketV2ReadinessHistory = EMPTY_HISTORY,
+): BetaBasketV2ReadinessEvaluation {
   const history = {
     sawCursor: previous.sawCursor || snapshot.cursorExists,
     sawDeferredEntries: previous.sawDeferredEntries || snapshot.deferredEntriesExist,
@@ -111,11 +104,10 @@ export function evaluateMigrationReadiness(
   return { kind: "ready", history };
 }
 
-export async function waitForMigrationReadiness(
+export async function waitForBetaBasketV2ReleaseReadiness(
   api: ApiPromise,
-  options: WaitForMigrationReadinessOptions,
-): Promise<MigrationReadinessObservation> {
-  const descriptor = options.descriptor ?? BETA_BASKET_V2_MIGRATION;
+  options: WaitForBetaBasketV2ReadinessOptions,
+): Promise<BetaBasketV2ReadinessObservation> {
   const pollIntervalMs = options.pollIntervalMs ?? 1_000;
   const log = options.log ?? (() => undefined);
   if (!Number.isSafeInteger(options.deadlineEpochMs) || options.deadlineEpochMs <= Date.now()) {
@@ -134,29 +126,28 @@ export async function waitForMigrationReadiness(
   let cursorCompletionBlock: number | null = null;
 
   for (;;) {
-    ensureDeadline(options.deadlineEpochMs, descriptor.name);
+    ensureDeadline(options.deadlineEpochMs, MIGRATION_NAME);
     if (header.block < lastBlock) {
       throw new Error(`best block regressed from ${lastBlock} to ${header.block}`);
     }
     lastBlock = header.block;
 
-    const snapshot = await readMigrationSnapshot(api, descriptor, header.hash);
-    const evaluation = evaluateMigrationReadiness(snapshot, history);
+    const snapshot = await readMigrationSnapshot(api, header.hash);
+    const evaluation = evaluateBetaBasketV2Readiness(snapshot, history);
     history = evaluation.history;
     if (!snapshot.cursorExists && snapshot.completionFlag && cursorCompletionBlock === null) {
       cursorCompletionBlock = header.block;
     }
 
     if (evaluation.kind === "invalid") {
-      throw new Error(`${descriptor.name}: ${evaluation.reason} at block ${header.block}`);
+      throw new Error(`${MIGRATION_NAME}: ${evaluation.reason} at block ${header.block}`);
     }
     if (evaluation.kind === "not-observed") {
       log(
-        `No ${descriptor.name} cursor, completion marker, or deferred work observed after ` +
+        `No ${MIGRATION_NAME} cursor, completion marker, or deferred work observed after ` +
           "the runtime upgrade; continuing immediately.",
       );
       return observation(
-        descriptor,
         "not-observed",
         start.block,
         header.block,
@@ -168,12 +159,11 @@ export async function waitForMigrationReadiness(
     if (evaluation.kind === "ready") {
       const mode = history.sawCursor ? "multi-block" : "cursorless-complete";
       log(
-        `${descriptor.name} ready at block ${header.block}; mode=${mode} ` +
+        `${MIGRATION_NAME} ready at block ${header.block}; mode=${mode} ` +
           `cursor_completion=${cursorCompletionBlock ?? "not-observed"} ` +
           `deferred_release_observed=${history.sawDeferredEntries}`,
       );
       return observation(
-        descriptor,
         mode,
         start.block,
         header.block,
@@ -185,7 +175,7 @@ export async function waitForMigrationReadiness(
     if (header.block >= lastReportedBlock + 50 || header.block === start.block) {
       lastReportedBlock = header.block;
       log(
-        `Waiting for ${descriptor.name}: block=${header.block} stage=${evaluation.stage} ` +
+        `Waiting for ${MIGRATION_NAME}: block=${header.block} stage=${evaluation.stage} ` +
           `cursor=${snapshot.cursorExists} completed=${snapshot.completionFlag} ` +
           `deferred=${snapshot.deferredEntriesExist}`,
       );
@@ -197,14 +187,13 @@ export async function waitForMigrationReadiness(
 
 async function readMigrationSnapshot(
   api: ApiPromise,
-  descriptor: MigrationReadinessDescriptor,
   hash: string,
-): Promise<MigrationReadinessSnapshot> {
+): Promise<BetaBasketV2ReadinessSnapshot> {
   const [cursorExists, completionFlag, deferredEntries] = await Promise.all([
-    storageValueExistsAt(api, storagePrefix(descriptor.cursorStorageItem), hash),
-    hasMigrationRunAt(api, descriptor.name, hash),
+    storageValueExistsAt(api, storagePrefix(CURSOR_STORAGE_ITEM), hash),
+    hasMigrationRunAt(api, MIGRATION_NAME, hash),
     Promise.all(
-      descriptor.deferredStorageItems.map((item) =>
+      DEFERRED_STORAGE_ITEMS.map((item) =>
         storageEntriesExistAt(api, storagePrefix(item), hash),
       ),
     ),
@@ -245,16 +234,15 @@ async function bestHeader(api: ApiPromise): Promise<{ block: number; hash: strin
 }
 
 function observation(
-  descriptor: MigrationReadinessDescriptor,
-  mode: MigrationReadinessObservation["mode"],
+  mode: BetaBasketV2ReadinessObservation["mode"],
   startBlock: number,
   readinessBlock: number,
   cursorCompletionBlock: number | null,
-  history: MigrationReadinessHistory,
+  history: BetaBasketV2ReadinessHistory,
   startedAtEpochMs: number,
-): MigrationReadinessObservation {
+): BetaBasketV2ReadinessObservation {
   return {
-    descriptor: descriptor.name,
+    descriptor: MIGRATION_NAME,
     mode,
     ...history,
     startBlock,

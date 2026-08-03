@@ -41,9 +41,14 @@ start_clone() {
 }
 
 upgrade_runtime() {
+  local activation_report=$1
+  rm -f "$activation_report"
   (
     cd "$JS_TESTS"
-    npm run runtime:update:alice || { sleep 15; npm run runtime:update:alice; }
+    npm run runtime:update:alice -- --report "$activation_report" || {
+      sleep 15
+      npm run runtime:update:alice -- --report "$activation_report"
+    }
   )
 }
 
@@ -66,7 +71,7 @@ wait_for_readiness() {
   }
   (
     cd "$JS_TESTS"
-    npm run wait:clone-readiness -- \
+    npm run wait:beta-basket-v2-readiness -- \
       --label "$phase_name" \
       --timeout-ms "$timeout_ms" \
       --report "temp/clone-readiness-$phase_name.json"
@@ -75,13 +80,21 @@ wait_for_readiness() {
 
 start_block_monitor() {
   local phase_name=$1
+  local activation_report=$2
   local node_log="$REPO_ROOT/clone-node.log"
-  local start_offset
+  local start_offset ready_file diagnostic_file
 
   [[ -f "$node_log" ]] || : > "$node_log"
   start_offset=$(wc -c < "$node_log" | tr -d '[:space:]')
-  "$SCRIPT_DIR/run-clone-block-monitor.sh" fail-fast "$phase_name" "$start_offset" &
+  ready_file="$JS_TESTS/temp/clone-block-monitor-$phase_name.ready.json"
+  diagnostic_file="$JS_TESTS/temp/clone-block-diagnostics-$phase_name.log"
+  rm -f "$ready_file" "$diagnostic_file"
+  CLONE_MONITOR_ACTIVATION_REPORT="$activation_report" \
+    CLONE_MONITOR_READY_FILE="$ready_file" \
+    CLONE_MONITOR_DIAGNOSTIC_FILE="$diagnostic_file" \
+    "$SCRIPT_DIR/run-clone-block-monitor.sh" fail-fast "$phase_name" "$start_offset" &
   monitor_pid=$!
+  wait_for_monitor_ready "$monitor_pid" "$ready_file"
 }
 
 run_monitored_workload() {
@@ -89,7 +102,6 @@ run_monitored_workload() {
   shift
   local status=0
 
-  start_block_monitor "$phase_name"
   "$@" &
   workload_pid=$!
 
@@ -100,8 +112,10 @@ run_monitored_workload() {
 }
 
 run_pristine() {
+  local activation_report="$JS_TESTS/temp/runtime-upgrade-pristine.json"
   start_clone
-  upgrade_runtime
+  start_block_monitor pristine "$activation_report"
+  upgrade_runtime "$activation_report"
   run_monitored_workload pristine run_pristine_workload
 }
 
@@ -134,8 +148,10 @@ run_remaining_workload() {
 }
 
 run_remaining() {
+  local activation_report="$JS_TESTS/temp/runtime-upgrade-remaining.json"
   start_clone
-  upgrade_runtime
+  start_block_monitor remaining "$activation_report"
+  upgrade_runtime "$activation_report"
   run_monitored_workload remaining run_remaining_workload
 }
 

@@ -150,6 +150,7 @@ jobs:
           ./clones/scripts/local-clone-checkpoint.sh restore \
             "$RUNNER_TEMP/mainnet-epoch-soak-snapshot/mainnet-snapshot.tar.gz"
           echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
+          echo "SOAK_CHECKPOINT=$RUNNER_TEMP/mainnet-epoch-soak-snapshot/mainnet-snapshot.tar.gz" >> "$GITHUB_ENV"
           {
             echo "### Mainnet clone snapshot"
             echo "- Artifact: ${{ steps.snapshot.outputs.artifact-id }}"
@@ -169,6 +170,14 @@ jobs:
             sleep 10
           done
           exit 1
+
+      - name: Checkpoint fresh clone state
+        if: github.event_name == 'workflow_dispatch' && inputs.fresh_state == true
+        run: |
+          checkpoint="$RUNNER_TEMP/mainnet-epoch-soak-fresh.tar"
+          ./clones/scripts/local-clone-checkpoint.sh create "$checkpoint"
+          echo "SOAK_CHECKPOINT=$checkpoint" >> "$GITHUB_ENV"
+          echo "KEEP_CLONE_DATA=1" >> "$GITHUB_ENV"
 
       - name: Run accelerated post-upgrade epoch soak
         # The release runtime still advances Timestamp by 12 seconds per block;
@@ -196,8 +205,12 @@ jobs:
         with:
           name: clone-epoch-soak-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            clones/js-tests/temp/clone-block-performance-soak.log
-            clones/js-tests/temp/clone-block-performance-soak.json
+            clones/js-tests/temp/clone-block-performance-*.log
+            clones/js-tests/temp/clone-block-performance-*.json
+            clones/js-tests/temp/clone-block-diagnostics-*.log
+            clones/js-tests/temp/runtime-upgrade-soak.json
+            clones/js-tests/temp/clone-epoch-baseline.log
+            clones/js-tests/temp/clone-epoch-coverage-baseline.json
             clones/js-tests/temp/clone-epoch-soak.log
             clones/js-tests/temp/clone-epoch-coverage.json
           if-no-files-found: warn

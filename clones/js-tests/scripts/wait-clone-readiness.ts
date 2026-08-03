@@ -3,8 +3,8 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { connectApi } from "../lib/api.js";
 import {
-  waitForMigrationReadiness,
-  type MigrationReadinessObservation,
+  waitForBetaBasketV2ReleaseReadiness,
+  type BetaBasketV2ReadinessObservation,
 } from "../lib/clone-readiness.js";
 import { createTempLogger } from "../lib/file-log.js";
 
@@ -20,7 +20,7 @@ interface ReadinessReport {
   startedAt: string;
   finishedAt: string;
   timeoutMs: number;
-  observation?: MigrationReadinessObservation;
+  observation?: BetaBasketV2ReadinessObservation;
   failure?: string;
 }
 
@@ -37,7 +37,7 @@ async function main() {
     api = await connectApi(process.env.WS_ENDPOINT ?? "ws://127.0.0.1:9944", {
       log: (message) => console.log(message),
     });
-    const observation = await waitForMigrationReadiness(api, {
+    const observation = await waitForBetaBasketV2ReleaseReadiness(api, {
       deadlineEpochMs: startedAt.getTime() + args.timeoutMs,
       log: (message) => console.log(message),
     });
@@ -50,7 +50,7 @@ async function main() {
       observation,
     };
     console.log(
-      `Clone readiness passed: mode=${observation.mode} start=${observation.startBlock} ` +
+      `Beta-basket v2 readiness passed: mode=${observation.mode} start=${observation.startBlock} ` +
         `cursor_completion=${observation.cursorCompletionBlock ?? "not-observed"} ` +
         `ready=${observation.readinessBlock}`,
     );
@@ -122,7 +122,7 @@ function appendStepSummary(report: ReadinessReport) {
   fs.appendFileSync(
     filename,
     `${[
-      "### Clone post-upgrade readiness",
+      "### Release-v438 beta-basket v2 readiness",
       `- Status: **${report.status}**`,
       `- Migration mode: ${observation?.mode ?? "unresolved"}`,
       `- Migration cursor completion block: ${observation?.cursorCompletionBlock ?? "not-observed"}`,

@@ -64,19 +64,22 @@ fi
 grep -Fq 'inputs.fresh_state != true' "$workflow"
 grep -Fq 'snapshot-artifact.sh select' "$workflow"
 grep -Fq 'run-clone-epoch-soak.sh "${{ inputs.epoch_cycles || '\''2'\'' }}"' "$workflow"
+grep -Fq 'SOAK_CHECKPOINT=' "$workflow"
+grep -Fq 'clone-block-diagnostics-*.log' "$workflow"
 
 grep -Fq 'start-local-clone-and-wait.sh" accelerated' "$soak_script"
-grep -Fq 'run-clone-block-monitor.sh" collect soak' "$soak_script"
+grep -Fq 'run-clone-block-monitor.sh" "$policy" "$label"' "$soak_script"
+grep -Fq 'minimum_post_upgrade_blocks=${MINIMUM_POST_UPGRADE_BLOCKS:-7200}' "$soak_script"
 if grep -Fq -- '--migration' "$soak_script"; then
   echo "epoch soak must not permit bypassing its migration gate" >&2
   exit 1
 fi
-grep -Fq 'waitForMigrationReadiness(api' "$epoch_script"
+grep -Fq 'waitForBetaBasketV2ReleaseReadiness(api' "$epoch_script"
 if grep -Fq 'getFinalizedHead' "$epoch_script"; then
   echo "single-node epoch coverage must use the same best-head state as readiness monitoring" >&2
   exit 1
 fi
-jq -e '.scripts["monitor:block-latency"] and .scripts["wait:clone-readiness"] and .scripts["soak:epochs"] and .scripts["test:clone-performance"]' \
+jq -e '.scripts["monitor:block-latency"] and .scripts["wait:beta-basket-v2-readiness"] and .scripts["soak:epochs"] and .scripts["test:clone-performance"]' \
   "$package" >/dev/null
 
 tmp=$(mktemp -d)
@@ -93,6 +96,7 @@ printf 'monitor start %s\n' "$*" >> "$HARNESS_LOG"
 if [[ "${MOCK_MONITOR_FAIL:-false}" == true ]]; then
   exit 1
 fi
+[[ -z "${CLONE_MONITOR_READY_FILE:-}" ]] || printf '{}\n' > "$CLONE_MONITOR_READY_FILE"
 trap 'printf "monitor stop\n" >> "$HARNESS_LOG"; exit 0' TERM INT
 while true; do
   /bin/sleep 0.02
@@ -108,26 +112,54 @@ cat > "$tmp/repo/clones/scripts/stop-local-clone.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'stop\n' >> "$HARNESS_LOG"
 EOF
+cat > "$tmp/repo/clones/scripts/local-clone-checkpoint.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'checkpoint %s\n' "$*" >> "$HARNESS_LOG"
+EOF
 cat > "$tmp/bin/npm" <<'EOF'
 #!/usr/bin/env bash
 printf 'npm %s\n' "$*" >> "$HARNESS_LOG"
 if [[ "$*" == *"soak:epochs"* ]]; then
   exit "${MOCK_EPOCH_STATUS:-0}"
 fi
+if [[ "$*" == *"runtime:update:alice"* ]]; then
+  previous=
+  for argument in "$@"; do
+    if [[ "$previous" == --report ]]; then
+      printf '{"upgradeBlock":25,"finalizedAtEpochMs":123456}\n' > "$argument"
+    fi
+    previous=$argument
+  done
+fi
 EOF
 chmod +x "$tmp/repo/clones/scripts/"*.sh "$tmp/bin/npm"
 
 export PATH="$tmp/bin:$PATH"
 export HARNESS_LOG="$tmp/harness.log"
+assert_before() {
+  local first=$1 second=$2 first_line second_line
+  first_line=$(grep -Fn -- "$first" "$HARNESS_LOG" | head -n 1 | cut -d: -f1)
+  second_line=$(grep -Fn -- "$second" "$HARNESS_LOG" | head -n 1 | cut -d: -f1)
+  [[ -n "$first_line" && -n "$second_line" && "$first_line" -lt "$second_line" ]]
+}
 deadline=$(( $(date +%s) * 1000 + 60000 ))
-SOAK_DEADLINE_EPOCH_MS="$deadline" "$tmp/repo/clones/scripts/run-clone-epoch-soak.sh" 2
-grep -Fq 'start accelerated' "$HARNESS_LOG"
+checkpoint="$tmp/checkpoint.tar.gz"
+: > "$checkpoint"
+SOAK_CHECKPOINT="$checkpoint" SOAK_DEADLINE_EPOCH_MS="$deadline" \
+  "$tmp/repo/clones/scripts/run-clone-epoch-soak.sh" 2
+[[ $(grep -Fc 'start accelerated' "$HARNESS_LOG") -eq 2 ]]
+grep -Fq 'monitor start baseline baseline ' "$HARNESS_LOG"
 grep -Fq 'monitor start collect soak ' "$HARNESS_LOG"
-grep -Fq 'npm run soak:epochs -- --epoch-cycles 2' "$HARNESS_LOG"
+[[ $(grep -Fc 'npm run soak:epochs -- --epoch-cycles 2' "$HARNESS_LOG") -eq 2 ]]
+grep -Fq 'checkpoint restore' "$HARNESS_LOG"
+grep -Fq -- '--release-gate beta-basket-v2 --upgrade-block 25 --minimum-post-upgrade-blocks 7200' "$HARNESS_LOG"
+assert_before 'monitor start baseline baseline' '--release-gate none'
+assert_before 'monitor start collect soak' 'npm run runtime:update:alice'
+assert_before 'npm run runtime:update:alice' '--release-gate beta-basket-v2'
 grep -Fq 'stop' "$HARNESS_LOG"
 
 : > "$HARNESS_LOG"
-if MOCK_EPOCH_STATUS=1 SOAK_DEADLINE_EPOCH_MS="$deadline" \
+if MOCK_EPOCH_STATUS=1 SOAK_CHECKPOINT="$checkpoint" SOAK_DEADLINE_EPOCH_MS="$deadline" \
   "$tmp/repo/clones/scripts/run-clone-epoch-soak.sh" 2; then
   echo "failed epoch coverage unexpectedly succeeded" >&2
   exit 1
@@ -135,7 +167,7 @@ fi
 grep -Fq 'stop' "$HARNESS_LOG"
 
 : > "$HARNESS_LOG"
-if MOCK_MONITOR_FAIL=true SOAK_DEADLINE_EPOCH_MS="$deadline" \
+if MOCK_MONITOR_FAIL=true SOAK_CHECKPOINT="$checkpoint" SOAK_DEADLINE_EPOCH_MS="$deadline" \
   "$tmp/repo/clones/scripts/run-clone-epoch-soak.sh" 2; then
   echo "failed soak block monitor unexpectedly succeeded" >&2
   exit 1

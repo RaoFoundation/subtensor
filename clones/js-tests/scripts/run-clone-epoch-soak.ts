@@ -4,11 +4,19 @@ import { parseArgs } from "node:util";
 import type { ApiPromise } from "@polkadot/api";
 import { connectApi } from "../lib/api.js";
 import {
-  waitForMigrationReadiness,
-  type MigrationReadinessObservation,
+  waitForBetaBasketV2ReleaseReadiness,
+  type BetaBasketV2ReadinessObservation,
 } from "../lib/clone-readiness.js";
 import {
+  assertIssuanceMirror,
+  readIssuanceMirror,
+  serializeIssuanceMirror,
+} from "../lib/clone-invariants.js";
+import {
+  ACCELERATED_SEALING_MS,
+  assertReliableEpochPollingGap,
   computeEpochCoverageBudget,
+  SuccessfulEpochTracker,
   evaluateEpochCoverage,
   type EpochBaseline,
   type EpochCoverageBudget,
@@ -20,21 +28,29 @@ const ROOT_NETUID = 0;
 const POLL_INTERVAL_MS = 1_000;
 const COVERAGE_POLL_BLOCKS = 10;
 const EXPECTED_CHAIN_BLOCK_TIME_MS = 12_000;
+type ReleaseGate = "none" | "beta-basket-v2";
 
 interface SoakArguments {
   epochCycles: number;
+  releaseGate: ReleaseGate;
+  upgradeBlock: number;
+  minimumPostUpgradeBlocks: number;
   deadlineEpochMs: number;
   reportFile: string;
+  logName: string;
 }
 
 interface EpochSoakReport {
-  schemaVersion: 2;
+  schemaVersion: 3;
   status: "running" | "passed" | "failed";
   startedAt: string;
   finishedAt?: string;
   requestedCycles: number;
+  releaseGate: ReleaseGate;
+  upgradeBlock: number;
+  minimumPostUpgradeBlocks: number;
   deadlineEpochMs: number;
-  migration?: MigrationReadinessObservation;
+  betaBasketV2Readiness?: BetaBasketV2ReadinessObservation;
   baselineBlock?: number;
   completionBlock?: number;
   budget?: EpochCoverageBudget;
@@ -51,14 +67,26 @@ interface EpochSoakReport {
     expectedElapsedMs: string;
     millisecondsPerBlock: number;
   };
-  baseline?: Array<{ netuid: number; tempo: number; epochIndex: string }>;
+  baseline?: Array<{
+    netuid: number;
+    tempo: number;
+    epochIndex: string;
+    lastSuccessfulEpochBlock: string;
+  }>;
   coverage?: Array<{
     netuid: number;
     tempo: number;
     baselineEpochIndex: string;
     currentEpochIndex: string;
+    baselineSuccessfulEpochBlock: string;
+    currentSuccessfulEpochBlock: string;
+    attemptedCycles: string;
     completedCycles: string;
   }>;
+  invariants?: {
+    baseline: ReturnType<typeof serializeIssuanceMirror>;
+    completion?: ReturnType<typeof serializeIssuanceMirror>;
+  };
   failure?: string;
 }
 
@@ -66,15 +94,18 @@ type ChainHash = Awaited<ReturnType<typeof bestHeader>>["hash"];
 
 async function main() {
   const args = parseArguments(process.argv.slice(2));
-  const logger = createTempLogger("clone-epoch-soak.log");
+  const logger = createTempLogger(args.logName);
   await logger.start();
   logger.captureConsole();
 
   const report: EpochSoakReport = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     status: "running",
     startedAt: new Date().toISOString(),
     requestedCycles: args.epochCycles,
+    releaseGate: args.releaseGate,
+    upgradeBlock: args.upgradeBlock,
+    minimumPostUpgradeBlocks: args.minimumPostUpgradeBlocks,
     deadlineEpochMs: args.deadlineEpochMs,
   };
   let api: ApiPromise | undefined;
@@ -83,30 +114,49 @@ async function main() {
     api = await connectApi(process.env.WS_ENDPOINT ?? "ws://127.0.0.1:9944", {
       log: (message) => console.log(message),
     });
-    report.migration = await waitForMigrationReadiness(api, {
-      deadlineEpochMs: args.deadlineEpochMs,
-      log: (message) => console.log(message),
-    });
-    console.log(
-      `Migration gate resolved at block ${report.migration.readinessBlock}; ` +
-        `mode=${report.migration.mode} saw_cursor=${report.migration.sawCursor} ` +
-        `saw_deferred=${report.migration.sawDeferredEntries}`,
-    );
+    if (args.releaseGate === "beta-basket-v2") {
+      report.betaBasketV2Readiness = await waitForBetaBasketV2ReleaseReadiness(api, {
+        deadlineEpochMs: args.deadlineEpochMs,
+        log: (message) => console.log(message),
+      });
+      console.log(
+        `Beta-basket v2 release gate resolved at block ${report.betaBasketV2Readiness.readinessBlock}; ` +
+          `mode=${report.betaBasketV2Readiness.mode} ` +
+          `saw_cursor=${report.betaBasketV2Readiness.sawCursor} ` +
+          `saw_deferred=${report.betaBasketV2Readiness.sawDeferredEntries}`,
+      );
+    } else {
+      console.log("Release-specific migration gate disabled for pre-upgrade baseline.");
+    }
 
     const baselineHeader = await bestHeader(api);
     const baselineBlock = baselineHeader.number.toNumber();
     const baseline = await readEpochBaseline(api, baselineHeader.hash);
+    const minimumTempo = Math.min(...baseline.map(({ tempo }) => tempo));
+    if (minimumTempo <= COVERAGE_POLL_BLOCKS) {
+      throw new Error(
+        `minimum subnet tempo ${minimumTempo} is too short for ${COVERAGE_POLL_BLOCKS}-block ` +
+          "successful-epoch polling",
+      );
+    }
+    const successTracker = new SuccessfulEpochTracker(baseline);
     const atBaseline = await api.at(baselineHeader.hash);
     const maxEpochsPerBlock = Number(
       (await atBaseline.query.subtensorModule.maxEpochsPerBlock()).toString(),
     );
     const baselineTimestampMs = BigInt((await atBaseline.query.timestamp.now()).toString());
+    const baselineIssuance = await readIssuanceMirror(api, baselineHeader.hash);
+    assertIssuanceMirror(baselineIssuance, "epoch soak baseline");
     const budget = computeEpochCoverageBudget(baseline, args.epochCycles, maxEpochsPerBlock);
     const coverageStartedAtEpochMs = Date.now();
     const remainingWallMs = Math.max(0, args.deadlineEpochMs - coverageStartedAtEpochMs);
-    if (budget.nominalWallMs > remainingWallMs) {
+    const minimumCompletionBlock = args.upgradeBlock + args.minimumPostUpgradeBlocks;
+    const remainingMinimumBlocks = Math.max(0, minimumCompletionBlock - baselineBlock);
+    const requiredCoverageBlocks = Math.max(budget.blockBudget, remainingMinimumBlocks);
+    const nominalRequiredWallMs = requiredCoverageBlocks * ACCELERATED_SEALING_MS;
+    if (nominalRequiredWallMs > remainingWallMs) {
       throw new Error(
-        `epoch coverage cannot fit: nominal ${formatDuration(budget.nominalWallMs)} exceeds ` +
+        `epoch coverage cannot fit: nominal ${formatDuration(nominalRequiredWallMs)} exceeds ` +
           `${formatDuration(Math.max(0, remainingWallMs))} remaining`,
       );
     }
@@ -118,20 +168,24 @@ async function main() {
       startedAtEpochMs: coverageStartedAtEpochMs,
       deadlineEpochMs: coverageDeadlineEpochMs,
       availableWallMs: remainingWallMs,
-      nominalWallMs: budget.nominalWallMs,
+      nominalWallMs: nominalRequiredWallMs,
     };
-    report.baseline = baseline.map(({ netuid, tempo, epochIndex }) => ({
+    report.baseline = baseline.map(({ netuid, tempo, epochIndex, lastSuccessfulEpochBlock }) => ({
       netuid,
       tempo,
       epochIndex: epochIndex.toString(),
+      lastSuccessfulEpochBlock: lastSuccessfulEpochBlock.toString(),
     }));
+    report.invariants = { baseline: serializeIssuanceMirror(baselineIssuance) };
     writeJson(args.reportFile, report);
 
     console.log(
       `Epoch baseline: block=${baselineBlock} active_non_root=${baseline.length} ` +
         `max_tempo=${budget.maxTempo} max_epochs_per_block=${maxEpochsPerBlock} ` +
         `cycles=${args.epochCycles} block_budget=${budget.blockBudget} ` +
-        `nominal=${formatDuration(budget.nominalWallMs)} ` +
+        `minimum_post_upgrade_blocks=${args.minimumPostUpgradeBlocks} ` +
+        `minimum_completion_block=${minimumCompletionBlock} ` +
+        `nominal=${formatDuration(nominalRequiredWallMs)} ` +
         `operational_window=${formatDuration(remainingWallMs)}`,
     );
 
@@ -157,9 +211,19 @@ async function main() {
         await delay(POLL_INTERVAL_MS);
         continue;
       }
+      assertReliableEpochPollingGap(lastCoverageBlock, block, minimumTempo);
       lastCoverageBlock = block;
 
-      const evaluation = await readCoverageAt(api, header.hash, baseline, args.epochCycles);
+      const snapshot = await readCoverageAt(api, header.hash, baseline);
+      const successfulCycles = successTracker.observe(snapshot.currentSuccessfulEpochBlocks);
+      const evaluation = evaluateEpochCoverage(
+        baseline,
+        snapshot.currentEpochIndices,
+        snapshot.currentSuccessfulEpochBlocks,
+        successfulCycles,
+        snapshot.activeNetuids,
+        args.epochCycles,
+      );
       assertCoverageState(evaluation, block);
       const completedSubnets = evaluation.progress.filter(
         ({ completedCycles }) => completedCycles >= BigInt(args.epochCycles),
@@ -172,7 +236,6 @@ async function main() {
       ) {
         lastCompletedSubnets = completedSubnets;
         lastReportBlock = block;
-        report.completionBlock = evaluation.complete ? block : undefined;
         report.coverage = serializeCoverage(evaluation);
         writeJson(args.reportFile, report);
         console.log(
@@ -181,7 +244,8 @@ async function main() {
         );
       }
 
-      if (evaluation.complete) {
+      const minimumBlockCoverageComplete = block >= minimumCompletionBlock;
+      if (evaluation.complete && minimumBlockCoverageComplete) {
         const completed = await api.at(header.hash);
         const completionTimestampMs = BigInt((await completed.query.timestamp.now()).toString());
         const elapsedMs = completionTimestampMs - baselineTimestampMs;
@@ -194,6 +258,8 @@ async function main() {
               `expected_ms=${expectedElapsedMs} blocks=${block - baselineBlock}`,
           );
         }
+        const completionIssuance = await readIssuanceMirror(api, header.hash);
+        assertIssuanceMirror(completionIssuance, "epoch soak completion");
         report.status = "passed";
         report.finishedAt = new Date().toISOString();
         report.completionBlock = block;
@@ -205,15 +271,23 @@ async function main() {
           expectedElapsedMs: expectedElapsedMs.toString(),
           millisecondsPerBlock: EXPECTED_CHAIN_BLOCK_TIME_MS,
         };
+        report.invariants = {
+          baseline: serializeIssuanceMirror(baselineIssuance),
+          completion: serializeIssuanceMirror(completionIssuance),
+        };
         writeJson(args.reportFile, report);
         appendStepSummary(report);
+        const completionScope =
+          args.releaseGate === "none"
+            ? "pre-upgrade baseline"
+            : `${block - args.upgradeBlock} post-upgrade blocks observed`;
         console.log(
           `Epoch soak complete at block ${block}: every baseline subnet advanced ` +
-            `${args.epochCycles} epoch(s).`,
+            `${args.epochCycles} successful epoch(s); ${completionScope}.`,
         );
         return;
       }
-      if (block > blockDeadline) {
+      if (!evaluation.complete && block > blockDeadline) {
         throw new Error(
           `epoch coverage exceeded block budget at ${block}; baseline=${baselineBlock} ` +
             `budget=${budget.blockBudget} completed=${completedSubnets}/${baseline.length}`,
@@ -249,14 +323,16 @@ async function readEpochBaseline(api: ApiPromise, hash: ChainHash): Promise<Epoc
     throw new Error("post-migration state has no active non-root subnets");
   }
 
-  const [tempos, epochIndices] = await Promise.all([
+  const [tempos, epochIndices, lastSuccessfulEpochBlocks] = await Promise.all([
     query.tempo.multi(netuids),
     query.subnetEpochIndex.multi(netuids),
+    query.lastMechansimStepBlock.multi(netuids),
   ]);
   return netuids.map((netuid, index) => ({
     netuid,
     tempo: Number(tempos[index].toString()),
     epochIndex: BigInt(epochIndices[index].toString()),
+    lastSuccessfulEpochBlock: BigInt(lastSuccessfulEpochBlocks[index].toString()),
   }));
 }
 
@@ -264,24 +340,33 @@ async function readCoverageAt(
   api: ApiPromise,
   hash: ChainHash,
   baseline: readonly EpochBaseline[],
-  requiredCycles: number,
-): Promise<EpochCoverageEvaluation> {
+): Promise<{
+  activeNetuids: Set<number>;
+  currentEpochIndices: Map<number, bigint>;
+  currentSuccessfulEpochBlocks: Map<number, bigint>;
+}> {
   const at = await api.at(hash);
   const query = at.query.subtensorModule;
   const netuids = baseline.map(({ netuid }) => netuid);
-  const [added, epochIndices] = await Promise.all([
+  const [added, epochIndices, lastSuccessfulEpochBlocks] = await Promise.all([
     query.networksAdded.multi(netuids),
     query.subnetEpochIndex.multi(netuids),
+    query.lastMechansimStepBlock.multi(netuids),
   ]);
   const activeNetuids = new Set<number>();
   const currentEpochIndices = new Map<number, bigint>();
+  const currentSuccessfulEpochBlocks = new Map<number, bigint>();
   netuids.forEach((netuid, index) => {
     if (added[index].toString() === "true") {
       activeNetuids.add(netuid);
     }
     currentEpochIndices.set(netuid, BigInt(epochIndices[index].toString()));
+    currentSuccessfulEpochBlocks.set(
+      netuid,
+      BigInt(lastSuccessfulEpochBlocks[index].toString()),
+    );
   });
-  return evaluateEpochCoverage(baseline, currentEpochIndices, activeNetuids, requiredCycles);
+  return { activeNetuids, currentEpochIndices, currentSuccessfulEpochBlocks };
 }
 
 function assertCoverageState(evaluation: EpochCoverageEvaluation, block: number) {
@@ -300,6 +385,12 @@ function assertCoverageState(evaluation: EpochCoverageEvaluation, block: number)
       `subnet epoch index regressed at block ${block}: ${evaluation.regressedNetuids.join(",")}`,
     );
   }
+  if (evaluation.skippedNetuids.length > 0) {
+    throw new Error(
+      `subnet epoch slot(s) advanced without successful execution at block ${block}: ` +
+        evaluation.skippedNetuids.join(","),
+    );
+  }
 }
 
 function serializeCoverage(evaluation: EpochCoverageEvaluation) {
@@ -308,6 +399,9 @@ function serializeCoverage(evaluation: EpochCoverageEvaluation) {
     tempo: subnet.tempo,
     baselineEpochIndex: subnet.epochIndex.toString(),
     currentEpochIndex: subnet.currentEpochIndex.toString(),
+    baselineSuccessfulEpochBlock: subnet.lastSuccessfulEpochBlock.toString(),
+    currentSuccessfulEpochBlock: subnet.currentSuccessfulEpochBlock.toString(),
+    attemptedCycles: subnet.attemptedCycles.toString(),
     completedCycles: subnet.completedCycles.toString(),
   }));
 }
@@ -323,8 +417,12 @@ function parseArguments(values: string[]): SoakArguments {
     strict: true,
     options: {
       "epoch-cycles": { type: "string" },
+      "release-gate": { type: "string" },
+      "upgrade-block": { type: "string" },
+      "minimum-post-upgrade-blocks": { type: "string" },
       "deadline-epoch-ms": { type: "string" },
       report: { type: "string" },
+      "log-name": { type: "string" },
     },
   });
   const required = (name: keyof typeof options): string => {
@@ -347,10 +445,22 @@ function parseArguments(values: string[]): SoakArguments {
   if (epochCycles > 3) {
     throw new Error(`--epoch-cycles must be 1, 2, or 3; got ${epochCycles}`);
   }
+  const releaseGate = required("release-gate");
+  if (releaseGate !== "none" && releaseGate !== "beta-basket-v2") {
+    throw new Error(`invalid --release-gate: ${releaseGate}`);
+  }
+  const logName = required("log-name");
+  if (path.basename(logName) !== logName) {
+    throw new Error(`--log-name must be a filename: ${logName}`);
+  }
   return {
     epochCycles,
+    releaseGate,
+    upgradeBlock: integer("upgrade-block", 0),
+    minimumPostUpgradeBlocks: integer("minimum-post-upgrade-blocks", 0),
     deadlineEpochMs: integer("deadline-epoch-ms", 1),
     reportFile: path.resolve(required("report")),
+    logName,
   };
 }
 
@@ -373,14 +483,18 @@ function appendStepSummary(report: EpochSoakReport) {
   fs.appendFileSync(
     filename,
     `${[
-      "### Post-upgrade epoch soak",
+      report.releaseGate === "none"
+        ? "### Pre-upgrade epoch baseline"
+        : "### Post-upgrade epoch soak",
       `- Status: **${report.status}**`,
       `- Requested cycles: ${report.requestedCycles}`,
-      `- Migration mode: ${report.migration?.mode ?? "unresolved"}`,
-      `- Migration cursor completion block: ${report.migration?.cursorCompletionBlock ?? "not-observed"}`,
-      `- Fully writable block: ${report.migration?.readinessBlock ?? "unresolved"}`,
-      `- Deferred release observed: ${report.migration?.sawDeferredEntries ?? false}`,
+      `- Release gate: ${report.releaseGate}`,
+      `- Migration mode: ${report.betaBasketV2Readiness?.mode ?? "not-applicable"}`,
+      `- Migration cursor completion block: ${report.betaBasketV2Readiness?.cursorCompletionBlock ?? "not-observed"}`,
+      `- Fully writable block: ${report.betaBasketV2Readiness?.readinessBlock ?? "not-applicable"}`,
+      `- Deferred release observed: ${report.betaBasketV2Readiness?.sawDeferredEntries ?? false}`,
       `- Baseline / completion block: ${report.baselineBlock ?? "n/a"} / ${report.completionBlock ?? "n/a"}`,
+      `- Upgrade block / minimum post-upgrade blocks: ${report.upgradeBlock} / ${report.minimumPostUpgradeBlocks}`,
       `- Active non-root subnets: ${report.budget?.activeSubnets ?? "n/a"}`,
       `- Maximum tempo: ${report.budget?.maxTempo ?? "n/a"}`,
       `- Block budget: ${report.budget?.blockBudget ?? "n/a"}`,
