@@ -12,8 +12,8 @@
 //! any flushable dividend. Only deliberately deferred sub-threshold dust ever crosses
 //! staker sets.
 
-use super::*;
 use super::claim_root::BasketFunding;
+use super::*;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use substrate_fixed::types::U64F64;
 use subtensor_swap_interface::SwapHandler;
