@@ -2,7 +2,7 @@ name: Mainnet Clone Epoch Soak
 
 on:
   pull_request:
-    types: [labeled]
+    types: [labeled, synchronize]
   workflow_dispatch:
     inputs:
       epoch_cycles:
@@ -19,8 +19,8 @@ on:
         default: false
 
 concurrency:
-  group: mainnet-clone-epoch-soak
-  cancel-in-progress: false
+  group: mainnet-clone-epoch-soak-${{ github.event.pull_request.head.repo.id || github.repository_id }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always

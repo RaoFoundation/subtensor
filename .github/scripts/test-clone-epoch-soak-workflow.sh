@@ -15,8 +15,15 @@ bash -n "$monitor_script"
 bash -n "$supervisor_script"
 
 grep -Fq 'workflow_dispatch:' "$workflow"
-grep -Fq 'types: [labeled]' "$workflow"
+grep -Fq 'types: [labeled, synchronize]' "$workflow"
 grep -Fq "github.event.label.name == 'run-clone-epoch-soak'" "$workflow"
+grep -Fq 'github.event.pull_request.head.repo.id || github.repository_id' "$workflow"
+grep -Fq 'github.event.pull_request.head.ref || github.ref_name' "$workflow"
+grep -Fq 'cancel-in-progress: true' "$workflow"
+if grep -Fq 'cancel-in-progress: false' "$workflow"; then
+  echo "clone epoch soak must cancel superseded branch runs" >&2
+  exit 1
+fi
 if grep -Eq 'uses: actions/(checkout|setup-node|upload-artifact)@v[0-9]+' "$workflow"; then
   echo "clone epoch soak actions must be pinned to full commit SHAs" >&2
   exit 1
