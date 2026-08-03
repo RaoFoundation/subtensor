@@ -302,7 +302,7 @@ fn test_swap_coldkey_announced_without_announcement_fails() {
         let who = U256::from(1);
         let new_coldkey = U256::from(2);
 
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey_announced(RuntimeOrigin::signed(who), new_coldkey),
             Error::<Test>::ColdkeySwapAnnouncementNotFound
         );
@@ -320,7 +320,7 @@ fn test_swap_coldkey_announced_with_mismatched_coldkey_hash_fails() {
 
         ColdkeySwapAnnouncements::<Test>::insert(who, (now, new_coldkey_hash));
 
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey_announced(RuntimeOrigin::signed(who), other_coldkey),
             Error::<Test>::AnnouncedColdkeyHashDoesNotMatch
         );
@@ -339,7 +339,7 @@ fn test_swap_coldkey_announced_too_early_fails() {
         let delay = ColdkeySwapAnnouncementDelay::<Test>::get();
         ColdkeySwapAnnouncements::<Test>::insert(who, (now + delay, new_coldkey_hash));
 
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey_announced(
                 <Test as frame_system::Config>::RuntimeOrigin::signed(who),
                 new_coldkey
@@ -350,7 +350,7 @@ fn test_swap_coldkey_announced_too_early_fails() {
         // Now + delay - 1 case
         run_to_block(now + delay - 1);
 
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey_announced(
                 <Test as frame_system::Config>::RuntimeOrigin::signed(who),
                 new_coldkey
@@ -383,7 +383,7 @@ fn test_swap_coldkey_announced_with_already_associated_coldkey_fails() {
 
         SubtensorModule::create_account_if_non_existent(&new_coldkey, &hotkey);
 
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey_announced(
                 <Test as frame_system::Config>::RuntimeOrigin::signed(who),
                 new_coldkey
@@ -410,7 +410,7 @@ fn test_swap_coldkey_announced_with_hotkey_fails() {
 
         SubtensorModule::create_account_if_non_existent(&new_coldkey, &hotkey);
 
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey_announced(
                 <Test as frame_system::Config>::RuntimeOrigin::signed(who),
                 hotkey
@@ -711,7 +711,7 @@ fn test_swap_coldkey_with_not_enough_balance_to_pay_swap_cost_fails() {
         let swap_cost = SubtensorModule::get_key_swap_cost();
 
         // No balance to pay swap cost
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey(
                 RuntimeOrigin::root(),
                 old_coldkey,
@@ -725,7 +725,7 @@ fn test_swap_coldkey_with_not_enough_balance_to_pay_swap_cost_fails() {
         let balance = SubtensorModule::get_key_swap_cost() + ExistentialDeposit::get() - 1.into();
         add_balance_to_coldkey_account(&old_coldkey, balance);
 
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey(
                 RuntimeOrigin::root(),
                 old_coldkey,

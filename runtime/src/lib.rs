@@ -62,7 +62,7 @@ use sp_runtime::{
     AccountId32, ApplyExtrinsicResult, ConsensusEngineId, Cow, Percent, generic, impl_opaque_keys,
     traits::{
         AccountIdConversion, AccountIdLookup, BlakeTwo256, Block as BlockT, DispatchInfoOf,
-        Dispatchable, One, PostDispatchInfoOf, UniqueSaturatedInto, Verify,
+        Dispatchable, One, PostDispatchInfoOf, TransactionExtension, UniqueSaturatedInto, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -235,10 +235,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 440,
+    spec_version: 442,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
-    transaction_version: 1,
+    transaction_version: 2,
     system_version: 1,
 };
 
@@ -943,6 +943,7 @@ impl pallet_subtensor::Config for Runtime {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = SubtensorMaxEpochsPerBlock;
     type WeightInfo = pallet_subtensor::weights::SubstrateWeight<Runtime>;
+    type MaxTransactionExtensionWeight = MaxSubtensorTransactionExtensionWeight;
 }
 
 parameter_types! {
@@ -1475,17 +1476,75 @@ pub type SystemTxExtension = (
     frame_system::CheckWeight<Runtime>,
 );
 pub type CustomTxExtension = (
-    ChargeTransactionPaymentWrapper<Runtime>,
     SudoTransactionExtension<Runtime>,
     pallet_shield::CheckShieldedTxValidity<Runtime>,
     pallet_subtensor::SubtensorTransactionExtension<Runtime>,
     pallet_drand::drand_priority::DrandPriority<Runtime>,
+    ChargeTransactionPaymentWrapper<Runtime>,
 );
 pub type TxExtension = (
     SystemTxExtension,
     CustomTxExtension,
     frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+    // CheckWeight runs before the custom extensions during post-dispatch.
+    // Reclaim once more at the end so the block meter sees their refunds.
+    frame_system::WeightReclaim<Runtime>,
 );
+
+pub struct MaxSubtensorTransactionExtensionWeight;
+
+impl Get<Weight> for MaxSubtensorTransactionExtensionWeight {
+    fn get() -> Weight {
+        // Use a fixed-weight call so calculating this static ceiling cannot
+        // recurse through the Subtensor extension's top-level dispatch reserve.
+        let call = RuntimeCall::System(frame_system::Call::remark {
+            remark: Default::default(),
+        });
+        let call_subtensor_extension_weight =
+            pallet_subtensor::SubtensorTransactionExtension::<Runtime>::validation_weight(&call);
+        let maximum_subtensor_extension_weight =
+            pallet_subtensor::SubtensorTransactionExtension::<Runtime>::maximum_weight();
+        let non_subtensor_extension_weight = |era| {
+            let extensions: TxExtension = (
+                (
+                    frame_system::CheckNonZeroSender::<Runtime>::new(),
+                    frame_system::CheckSpecVersion::<Runtime>::new(),
+                    frame_system::CheckTxVersion::<Runtime>::new(),
+                    frame_system::CheckGenesis::<Runtime>::new(),
+                    check_mortality::CheckMortality::<Runtime>::from(era),
+                    check_nonce::CheckNonce::<Runtime>::from(0),
+                    frame_system::CheckWeight::<Runtime>::new(),
+                ),
+                (
+                    SudoTransactionExtension::<Runtime>::new(),
+                    pallet_shield::CheckShieldedTxValidity::<Runtime>::new(),
+                    pallet_subtensor::SubtensorTransactionExtension::<Runtime>::new(),
+                    pallet_drand::drand_priority::DrandPriority::<Runtime>::new(),
+                    ChargeTransactionPaymentWrapper::<Runtime>::new(TaoBalance::ZERO),
+                ),
+                frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(true),
+                frame_system::WeightReclaim::<Runtime>::new(),
+            );
+            extensions
+                .weight(&call)
+                .saturating_sub(call_subtensor_extension_weight)
+        };
+        let mortal = non_subtensor_extension_weight(generic::Era::mortal(64, 0));
+        let immortal = non_subtensor_extension_weight(generic::Era::Immortal);
+        let non_subtensor_extension_weight = Weight::from_parts(
+            mortal.ref_time().max(immortal.ref_time()),
+            mortal.proof_size().max(immortal.proof_size()),
+        );
+
+        // FRAME's pallet dispatch extensions are accrued to the call weight by
+        // `GetDispatchInfo`. SubtensorTransactionExtension mirrors that same
+        // guard set in the signed transaction extension tuple. Account for the
+        // call-independent maximum once for each layer.
+        non_subtensor_extension_weight
+            .saturating_add(maximum_subtensor_extension_weight)
+            .saturating_add(maximum_subtensor_extension_weight)
+    }
+}
 
 type Migrations = (
     // Leave this migration in the runtime, so every runtime upgrade tiny rounding errors (fractions of fractions

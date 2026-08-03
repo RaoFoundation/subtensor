@@ -479,7 +479,7 @@ fn test_subtoken_enable_reject_trading_before_enable() {
         );
 
         // For unstake_all_alpha, the result is AmountTooLow because no re-staking happens.
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::unstake_all_alpha(
                 RuntimeOrigin::signed(coldkey_account_id),
                 hotkey_account_id

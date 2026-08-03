@@ -16,6 +16,7 @@ mod dispatches {
     use crate::MAX_ROOT_CLAIM_HOTKEYS;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
     use crate::MAX_SUBNET_CLAIMS;
+    use crate::weight_accounting::{WithBenchmarkWeight, encoded_collection_len};
 
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
@@ -67,19 +68,27 @@ mod dispatches {
         ///
         /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(0)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::set_weights(dests.len() as u32)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn set_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
             dests: Vec<u16>,
             weights: Vec<u16>,
             version_key: u64,
-        ) -> DispatchResult {
-            if Self::get_commit_reveal_weights_enabled(netuid) {
+        ) -> DispatchResultWithPostInfo {
+            let actual_weight = <T as Config>::WeightInfo::set_weights(dests.len() as u32);
+            let result = if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
                 Self::do_set_weights(origin, netuid, dests, weights, version_key)
-            }
+            };
+            result.with_benchmark_weight(actual_weight)
         }
 
         /// Sets the caller weights for the incentive mechanism for mechanisms. The call
@@ -127,7 +136,13 @@ mod dispatches {
         ///
         /// * `MaxWeightExceeded`: Attempting to set weights with max value exceeding limit.
         #[pallet::call_index(119)]
-        #[pallet::weight((<T as Config>::WeightInfo::set_mechanism_weights(dests.len() as u32), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::set_mechanism_weights(dests.len() as u32)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn set_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -135,12 +150,15 @@ mod dispatches {
             dests: Vec<u16>,
             weights: Vec<u16>,
             version_key: u64,
-        ) -> DispatchResult {
-            if Self::get_commit_reveal_weights_enabled(netuid) {
+        ) -> DispatchResultWithPostInfo {
+            let actual_weight =
+                <T as Config>::WeightInfo::set_mechanism_weights(dests.len() as u32);
+            let result = if Self::get_commit_reveal_weights_enabled(netuid) {
                 Err(Error::<T>::CommitRevealEnabled.into())
             } else {
                 Self::do_set_mechanism_weights(origin, netuid, mecid, dests, weights, version_key)
-            }
+            };
+            result.with_benchmark_weight(actual_weight)
         }
 
         /// Allows a hotkey to set weights for multiple netuids as a batch.
@@ -161,14 +179,33 @@ mod dispatches {
         /// * `BatchWeightItemFailed`: On failure for each failed item in the batch.
         ///
         #[pallet::call_index(80)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_set_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::batch_set_weights(netuids.len() as u32)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn batch_set_weights(
             origin: OriginFor<T>,
             netuids: Vec<Compact<NetUid>>,
             weights: Vec<Vec<(Compact<u16>, Compact<u16>)>>,
             version_keys: Vec<Compact<u64>>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            // The batch benchmark measures the per-row orchestration with one
+            // edge in each row. Add only the incremental edge work from the
+            // single-row benchmark; adding the whole row weight would charge
+            // its fixed cost twice.
+            let one_edge_weight = <T as Config>::WeightInfo::set_weights(1);
+            let actual_weight = <T as Config>::WeightInfo::batch_set_weights(netuids.len() as u32)
+                .saturating_add(weights.iter().fold(Weight::zero(), |weight, row| {
+                    weight.saturating_add(
+                        <T as Config>::WeightInfo::set_weights(row.len() as u32)
+                            .saturating_sub(one_edge_weight),
+                    )
+                }));
             Self::do_batch_set_weights(origin, netuids, weights, version_keys)
+                .with_benchmark_weight(actual_weight)
         }
 
         /// Used to commit a hash of your weight values to later be revealed.
@@ -186,13 +223,25 @@ mod dispatches {
         /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(96)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::commit_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::commit_weights(0)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn commit_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
             commit_hash: H256,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let hotkey = ensure_signed(origin.clone())?;
+            let netuid_index =
+                Self::get_mechanism_storage_index(netuid, subtensor_runtime_common::MechId::MAIN);
+            let commit_count =
+                encoded_collection_len(&WeightCommits::<T>::hashed_key_for(netuid_index, &hotkey));
             Self::do_commit_weights(origin, netuid, commit_hash)
+                .with_benchmark_weight(<T as Config>::WeightInfo::commit_weights(commit_count))
         }
 
         /// Used to commit a hash of your weight values to later be revealed for mechanisms.
@@ -212,14 +261,27 @@ mod dispatches {
         /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(115)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::commit_mechanism_weights(0)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn commit_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
             mecid: MechId,
             commit_hash: H256,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let hotkey = ensure_signed(origin.clone())?;
+            let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
+            let commit_count =
+                encoded_collection_len(&WeightCommits::<T>::hashed_key_for(netuid_index, &hotkey));
             Self::do_commit_mechanism_weights(origin, netuid, mecid, commit_hash)
+                .with_benchmark_weight(<T as Config>::WeightInfo::commit_mechanism_weights(
+                    commit_count,
+                ))
         }
 
         /// Allows a hotkey to commit weight hashes for multiple netuids as a batch.
@@ -238,13 +300,39 @@ mod dispatches {
         /// * `BatchWeightItemFailed`: On failure for each failed item in the batch.
         ///
         #[pallet::call_index(100)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_commit_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::batch_commit_weights(netuids.len() as u32)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn batch_commit_weights(
             origin: OriginFor<T>,
             netuids: Vec<Compact<NetUid>>,
             commit_hashes: Vec<H256>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let hotkey = ensure_signed(origin.clone())?;
+            let maximum_queue_weight = <T as Config>::WeightInfo::commit_weights(9);
+            let unused_weight = netuids.iter().fold(Weight::zero(), |weight, netuid| {
+                let netuid_index = Self::get_mechanism_storage_index(
+                    netuid.0,
+                    subtensor_runtime_common::MechId::MAIN,
+                );
+                let queue_len = encoded_collection_len(&WeightCommits::<T>::hashed_key_for(
+                    netuid_index,
+                    &hotkey,
+                ));
+                weight.saturating_add(
+                    maximum_queue_weight
+                        .saturating_sub(<T as Config>::WeightInfo::commit_weights(queue_len)),
+                )
+            });
+            let actual_weight =
+                <T as Config>::WeightInfo::batch_commit_weights(netuids.len() as u32)
+                    .saturating_sub(unused_weight);
             Self::do_batch_commit_weights(origin, netuids, commit_hashes)
+                .with_benchmark_weight(actual_weight)
         }
 
         /// Used to reveal the weights for a previously committed hash.
@@ -274,7 +362,13 @@ mod dispatches {
         /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(97)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::reveal_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::reveal_weights(uids.len() as u32, 1)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn reveal_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -282,8 +376,16 @@ mod dispatches {
             values: Vec<u16>,
             salt: Vec<u16>,
             version_key: u64,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let hotkey = ensure_signed(origin.clone())?;
+            let netuid_index =
+                Self::get_mechanism_storage_index(netuid, subtensor_runtime_common::MechId::MAIN);
+            let commit_count =
+                encoded_collection_len(&WeightCommits::<T>::hashed_key_for(netuid_index, &hotkey));
+            let actual_weight =
+                <T as Config>::WeightInfo::reveal_weights(uids.len() as u32, commit_count);
             Self::do_reveal_weights(origin, netuid, uids, values, salt, version_key)
+                .with_benchmark_weight(actual_weight)
         }
 
         /// Used to reveal the weights for a previously committed hash for mechanisms.
@@ -315,7 +417,13 @@ mod dispatches {
         /// * `InvalidRevealCommitHashNotMatch`: The revealed hash does not match any committed hash.
         ///
         #[pallet::call_index(116)]
-        #[pallet::weight((<T as Config>::WeightInfo::reveal_mechanism_weights(uids.len() as u32), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::reveal_mechanism_weights(uids.len() as u32, 1)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn reveal_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -324,7 +432,15 @@ mod dispatches {
             values: Vec<u16>,
             salt: Vec<u16>,
             version_key: u64,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let hotkey = ensure_signed(origin.clone())?;
+            let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
+            let commit_count =
+                encoded_collection_len(&WeightCommits::<T>::hashed_key_for(netuid_index, &hotkey));
+            let actual_weight = <T as Config>::WeightInfo::reveal_mechanism_weights(
+                uids.len() as u32,
+                commit_count,
+            );
             Self::do_reveal_mechanism_weights(
                 origin,
                 netuid,
@@ -334,6 +450,7 @@ mod dispatches {
                 salt,
                 version_key,
             )
+            .with_benchmark_weight(actual_weight)
         }
 
         // Used to commit encrypted commit-reveal v3 weight values to later be revealed.
@@ -398,14 +515,27 @@ mod dispatches {
         /// * `TooManyUnrevealedCommits`: Attempting to commit when the user has more than the allowed limit of unrevealed commits.
         ///
         #[pallet::call_index(117)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_crv3_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::commit_crv3_mechanism_weights(commit.len() as u32, 0)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn commit_crv3_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
             mecid: MechId,
             commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
             reveal_round: u64,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let commit_len = commit.len() as u32;
+            let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
+            let epoch = Self::current_epoch_with_lookahead(netuid);
+            let queue_len = encoded_collection_len(&TimelockedWeightCommits::<T>::hashed_key_for(
+                netuid_index,
+                epoch,
+            ));
             Self::do_commit_timelocked_mechanism_weights(
                 origin,
                 netuid,
@@ -413,6 +543,9 @@ mod dispatches {
                 commit,
                 reveal_round,
                 4,
+            )
+            .with_benchmark_weight(
+                <T as Config>::WeightInfo::commit_crv3_mechanism_weights(commit_len, queue_len),
             )
         }
 
@@ -444,7 +577,13 @@ mod dispatches {
         ///
         /// * `InvalidInputLengths`: The input vectors are of mismatched lengths.
         #[pallet::call_index(98)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::batch_reveal_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::batch_reveal_weights(uids_list.len() as u32)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn batch_reveal_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -452,7 +591,22 @@ mod dispatches {
             values_list: Vec<Vec<u16>>,
             salts_list: Vec<Vec<u16>>,
             version_keys: Vec<u64>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let reveal_count = uids_list.len() as u32;
+            // The batch benchmark runs every reveal at the full UID-domain
+            // workload. Subtract the measured single-reveal difference for
+            // each shorter row to obtain the work this call actually performs.
+            let maximum_row_weight = <T as Config>::WeightInfo::reveal_weights(
+                T::InitialMaxAllowedUids::get().into(),
+                10,
+            );
+            let unused_weight = uids_list.iter().fold(Weight::zero(), |weight, row| {
+                weight.saturating_add(maximum_row_weight.saturating_sub(
+                    <T as Config>::WeightInfo::reveal_weights(row.len() as u32, 10),
+                ))
+            });
+            let actual_weight = <T as Config>::WeightInfo::batch_reveal_weights(reveal_count)
+                .saturating_sub(unused_weight);
             Self::do_batch_reveal_weights(
                 origin,
                 netuid,
@@ -461,6 +615,7 @@ mod dispatches {
                 salts_list,
                 version_keys,
             )
+            .with_benchmark_weight(actual_weight)
         }
 
         /// Allows delegates to decrease its take value.
@@ -705,7 +860,13 @@ mod dispatches {
         /// * `ServingRateLimitExceeded`: Attempting to set prometheus information withing the rate limit min.
         ///
         #[pallet::call_index(40)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::serve_axon_tls(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::serve_axon_tls(certificate.len() as u32)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn serve_axon_tls(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -717,7 +878,8 @@ mod dispatches {
             placeholder1: u8,
             placeholder2: u8,
             certificate: Vec<u8>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let certificate_len = certificate.len() as u32;
             Self::do_serve_axon(
                 origin,
                 netuid,
@@ -730,6 +892,7 @@ mod dispatches {
                 placeholder2,
                 Some(certificate),
             )
+            .with_benchmark_weight(<T as Config>::WeightInfo::serve_axon_tls(certificate_len))
         }
 
         /// Set prometheus information for the neuron.
@@ -836,7 +999,9 @@ mod dispatches {
         )]
         #[pallet::call_index(70)]
         #[pallet::weight((
-            <T as crate::pallet::Config>::WeightInfo::swap_hotkey(),
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::swap_hotkey()
+            ),
             DispatchClass::Normal,
             Pays::Yes
         ))]
@@ -881,25 +1046,30 @@ mod dispatches {
         ///
         /// Only callable by root as it doesn't require an announcement and can be used to swap any coldkey.
         #[pallet::call_index(71)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_coldkey())]
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::swap_coldkey(0)
+        ))]
         pub fn swap_coldkey(
             origin: OriginFor<T>,
             old_coldkey: T::AccountId,
             new_coldkey: T::AccountId,
             swap_cost: TaoBalance,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             ensure_root(origin)?;
+            let work = Self::coldkey_swap_work(&old_coldkey);
+            (|| -> DispatchResult {
+                if !swap_cost.is_zero() {
+                    Self::charge_swap_cost(&old_coldkey, swap_cost)?;
+                }
+                Self::do_swap_coldkey(&old_coldkey, &new_coldkey)?;
 
-            if !swap_cost.is_zero() {
-                Self::charge_swap_cost(&old_coldkey, swap_cost)?;
-            }
-            Self::do_swap_coldkey(&old_coldkey, &new_coldkey)?;
+                // We also clear any announcement or dispute for security reasons
+                ColdkeySwapAnnouncements::<T>::remove(&old_coldkey);
+                ColdkeySwapDisputes::<T>::remove(old_coldkey);
 
-            // We also clear any announcement or dispute for security reasons
-            ColdkeySwapAnnouncements::<T>::remove(&old_coldkey);
-            ColdkeySwapDisputes::<T>::remove(old_coldkey);
-
-            Ok(())
+                Ok(())
+            })()
+            .with_benchmark_weight(<T as Config>::WeightInfo::swap_coldkey(work))
         }
 
         /// Sets the childkey take for a given hotkey.
@@ -957,9 +1127,11 @@ mod dispatches {
             origin: OriginFor<T>,
             tx_rate_limit: u64,
         ) -> DispatchResult {
-            ensure_root(origin)?;
-            Self::set_tx_childkey_take_rate_limit(tx_rate_limit);
-            Ok(())
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
+                Self::set_tx_childkey_take_rate_limit(tx_rate_limit);
+                Ok(())
+            })()
         }
 
         /// Sets the minimum allowed childkey take.
@@ -976,9 +1148,11 @@ mod dispatches {
         #[pallet::call_index(76)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_min_childkey_take())]
         pub fn sudo_set_min_childkey_take(origin: OriginFor<T>, take: PerU16) -> DispatchResult {
-            ensure_root(origin)?;
-            Self::set_min_childkey_take(take);
-            Ok(())
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
+                Self::set_min_childkey_take(take);
+                Ok(())
+            })()
         }
 
         /// Sets the maximum allowed childkey take.
@@ -995,9 +1169,11 @@ mod dispatches {
         #[pallet::call_index(77)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_max_childkey_take())]
         pub fn sudo_set_max_childkey_take(origin: OriginFor<T>, take: PerU16) -> DispatchResult {
-            ensure_root(origin)?;
-            Self::set_max_childkey_take(take);
-            Ok(())
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
+                Self::set_max_childkey_take(take);
+                Ok(())
+            })()
         }
 
         /// User register a new subnetwork
@@ -1037,8 +1213,10 @@ mod dispatches {
             _coldkey: T::AccountId,
             netuid: NetUid,
         ) -> DispatchResult {
-            ensure_root(origin)?;
-            Self::do_dissolve_network(netuid)
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
+                Self::do_dissolve_network(netuid)
+            })()
         }
 
         /// Set a single child for a given hotkey on a specified network.
@@ -1077,15 +1255,22 @@ mod dispatches {
         /// 8. **New Children Assignment**: Assigns the new child to the hotkey and updates the parent list for the new child.
         // TODO: Benchmark this call
         #[pallet::call_index(67)]
-        #[pallet::weight((<T as Config>::WeightInfo::set_children(children.len() as u32), DispatchClass::Normal, Pays::Yes))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::set_children(children.len() as u32)
+            ),
+            DispatchClass::Normal,
+            Pays::Yes
+        ))]
         pub fn set_children(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             netuid: NetUid,
             children: Vec<(u64, T::AccountId)>,
         ) -> DispatchResultWithPostInfo {
-            Self::do_schedule_children(origin, hotkey, netuid, children)?;
-            Ok(().into())
+            let actual_weight = <T as Config>::WeightInfo::set_children(children.len() as u32);
+            Self::do_schedule_children(origin, hotkey, netuid, children)
+                .with_benchmark_weight(actual_weight)
         }
 
         /// Schedules a coldkey swap operation to be executed at a future block.
@@ -1118,7 +1303,17 @@ mod dispatches {
         /// * `ip_type`: The ip type v4 or v6.
         ///
         #[pallet::call_index(68)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_identity())]
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::set_identity(
+                name.len()
+                    .saturating_add(url.len())
+                    .saturating_add(github_repo.len())
+                    .saturating_add(image.len())
+                    .saturating_add(discord.len())
+                    .saturating_add(description.len())
+                    .saturating_add(additional.len()) as u32
+            )
+        ))]
         pub fn set_identity(
             origin: OriginFor<T>,
             name: Vec<u8>,
@@ -1128,7 +1323,15 @@ mod dispatches {
             discord: Vec<u8>,
             description: Vec<u8>,
             additional: Vec<u8>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let identity_bytes = name
+                .len()
+                .saturating_add(url.len())
+                .saturating_add(github_repo.len())
+                .saturating_add(image.len())
+                .saturating_add(discord.len())
+                .saturating_add(description.len())
+                .saturating_add(additional.len()) as u32;
             Self::do_set_identity(
                 origin,
                 name,
@@ -1139,6 +1342,7 @@ mod dispatches {
                 description,
                 additional,
             )
+            .with_benchmark_weight(<T as Config>::WeightInfo::set_identity(identity_bytes))
         }
 
         /// Set the identity information for a subnet.
@@ -1153,7 +1357,18 @@ mod dispatches {
         ///
         /// * `subnet_contact`: The contact information for the subnet.
         #[pallet::call_index(78)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_subnet_identity())]
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::set_subnet_identity(
+                subnet_name.len()
+                    .saturating_add(github_repo.len())
+                    .saturating_add(subnet_contact.len())
+                    .saturating_add(subnet_url.len())
+                    .saturating_add(discord.len())
+                    .saturating_add(description.len())
+                    .saturating_add(logo_url.len())
+                    .saturating_add(additional.len()) as u32
+            )
+        ))]
         pub fn set_subnet_identity(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1165,7 +1380,16 @@ mod dispatches {
             description: Vec<u8>,
             logo_url: Vec<u8>,
             additional: Vec<u8>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let identity_bytes = subnet_name
+                .len()
+                .saturating_add(github_repo.len())
+                .saturating_add(subnet_contact.len())
+                .saturating_add(subnet_url.len())
+                .saturating_add(discord.len())
+                .saturating_add(description.len())
+                .saturating_add(logo_url.len())
+                .saturating_add(additional.len()) as u32;
             Self::do_set_subnet_identity(
                 origin,
                 netuid,
@@ -1178,17 +1402,41 @@ mod dispatches {
                 logo_url,
                 additional,
             )
+            .with_benchmark_weight(<T as Config>::WeightInfo::set_subnet_identity(
+                identity_bytes,
+            ))
         }
 
         /// User register a new subnetwork
         #[pallet::call_index(79)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_network_with_identity())]
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::register_network_with_identity(
+                identity.as_ref().map(|identity| identity.encoded_size() as u32).unwrap_or_default()
+            )
+        ))]
         pub fn register_network_with_identity(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             identity: Option<SubnetIdentityOfV3>,
-        ) -> DispatchResult {
-            Self::do_register_network(origin, &hotkey, 1, identity)
+        ) -> DispatchResultWithPostInfo {
+            let identity_bytes = identity
+                .as_ref()
+                .map(|identity| {
+                    identity
+                        .subnet_name
+                        .len()
+                        .saturating_add(identity.github_repo.len())
+                        .saturating_add(identity.subnet_contact.len())
+                        .saturating_add(identity.subnet_url.len())
+                        .saturating_add(identity.discord.len())
+                        .saturating_add(identity.description.len())
+                        .saturating_add(identity.logo_url.len())
+                        .saturating_add(identity.additional.len()) as u32
+                })
+                .unwrap_or_default();
+            Self::do_register_network(origin, &hotkey, 1, identity).with_benchmark_weight(
+                <T as Config>::WeightInfo::register_network_with_identity(identity_bytes),
+            )
         }
 
         /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
@@ -1210,9 +1458,18 @@ mod dispatches {
         ///
         /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
         #[pallet::call_index(83)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all())]
-        pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            Self::do_unstake_all(origin, hotkey)
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::unstake_all(0)
+        ))]
+        pub fn unstake_all(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let subnet_count = u32::from(TotalNetworks::<T>::get());
+            Self::do_unstake_all(origin, hotkey).with_benchmark_weight(
+                <T as Config>::WeightInfo::unstake_all(subnet_count)
+                    .saturating_add(T::DbWeight::get().reads(1)),
+            )
         }
 
         /// The implementation for the extrinsic unstake_all: Removes all stake from a hotkey account across all subnets and adds it onto a coldkey.
@@ -1234,9 +1491,18 @@ mod dispatches {
         ///
         /// * `TxRateLimitExceeded`: Thrown if key has hit transaction rate limit.
         #[pallet::call_index(84)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::unstake_all_alpha())]
-        pub fn unstake_all_alpha(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            Self::do_unstake_all_alpha(origin, hotkey)
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::unstake_all_alpha(0)
+        ))]
+        pub fn unstake_all_alpha(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+        ) -> DispatchResultWithPostInfo {
+            let subnet_count = u32::from(TotalNetworks::<T>::get());
+            Self::do_unstake_all_alpha(origin, hotkey).with_benchmark_weight(
+                <T as Config>::WeightInfo::unstake_all_alpha(subnet_count)
+                    .saturating_add(T::DbWeight::get().reads(1)),
+            )
         }
 
         /// The implementation for the extrinsic move_stake: Moves specified amount of stake from a hotkey to another across subnets.
@@ -1521,11 +1787,10 @@ mod dispatches {
         #[pallet::call_index(91)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::try_associate_hotkey())]
         pub fn try_associate_hotkey(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
-            let coldkey = ensure_signed(origin)?;
-
-            Self::do_try_associate_hotkey(&coldkey, &hotkey)?;
-
-            Ok(())
+            (|| -> DispatchResult {
+                let coldkey = ensure_signed(origin)?;
+                Self::do_try_associate_hotkey(&coldkey, &hotkey)
+            })()
         }
 
         /// Initiates a call on a subnet.
@@ -1539,8 +1804,7 @@ mod dispatches {
         #[pallet::call_index(92)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::start_call())]
         pub fn start_call(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
-            Self::do_start_call(origin, netuid)?;
-            Ok(())
+            Self::do_start_call(origin, netuid)
         }
 
         /// Attempts to associate a hotkey with an EVM key.
@@ -1637,9 +1901,11 @@ mod dispatches {
             origin: OriginFor<T>,
             cooldown: u64,
         ) -> DispatchResult {
-            ensure_root(origin)?;
-            PendingChildKeyCooldown::<T>::put(cooldown);
-            Ok(())
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
+                PendingChildKeyCooldown::<T>::put(cooldown);
+                Ok(())
+            })()
         }
 
         /// Removes all stake from a hotkey on a subnet with a price limit.
@@ -1725,16 +1991,18 @@ mod dispatches {
             netuid: NetUid,
             symbol: Vec<u8>,
         ) -> DispatchResult {
-            Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            (|| -> DispatchResult {
+                Self::ensure_subnet_owner_or_root(origin, netuid)?;
+                ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
-            Self::ensure_symbol_exists(&symbol)?;
-            Self::ensure_symbol_available(&symbol)?;
+                Self::ensure_symbol_exists(&symbol)?;
+                Self::ensure_symbol_available(&symbol)?;
 
-            TokenSymbol::<T>::insert(netuid, symbol.clone());
+                TokenSymbol::<T>::insert(netuid, symbol.clone());
 
-            Self::deposit_event(Event::SymbolUpdated { netuid, symbol });
-            Ok(())
+                Self::deposit_event(Event::SymbolUpdated { netuid, symbol });
+                Ok(())
+            })()
         }
 
         /// Used to commit timelock encrypted commit-reveal weight values to later be revealed.
@@ -1757,20 +2025,37 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(113)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::commit_timelocked_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::commit_timelocked_weights(commit.len() as u32, 0)
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn commit_timelocked_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
             commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
             reveal_round: u64,
             commit_reveal_version: u16,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let commit_len = commit.len() as u32;
+            let netuid_index =
+                Self::get_mechanism_storage_index(netuid, subtensor_runtime_common::MechId::MAIN);
+            let epoch = Self::current_epoch_with_lookahead(netuid);
+            let queue_len = encoded_collection_len(&TimelockedWeightCommits::<T>::hashed_key_for(
+                netuid_index,
+                epoch,
+            ));
             Self::do_commit_timelocked_weights(
                 origin,
                 netuid,
                 commit,
                 reveal_round,
                 commit_reveal_version,
+            )
+            .with_benchmark_weight(
+                <T as Config>::WeightInfo::commit_timelocked_weights(commit_len, queue_len),
             )
         }
 
@@ -1784,12 +2069,14 @@ mod dispatches {
         ///
         /// * `hotkey`: The hotkey account to designate as the autostake destination.
         #[pallet::call_index(114)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_coldkey_auto_stake_hotkey())]
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::set_coldkey_auto_stake_hotkey(0, 0)
+        ))]
         pub fn set_coldkey_auto_stake_hotkey(
             origin: OriginFor<T>,
             netuid: NetUid,
             hotkey: T::AccountId,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let coldkey = ensure_signed(origin)?;
             ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
             ensure!(
@@ -1798,33 +2085,49 @@ mod dispatches {
             );
 
             let current_hotkey = AutoStakeDestination::<T>::get(coldkey.clone(), netuid);
-            if let Some(current_hotkey) = current_hotkey {
-                ensure!(
-                    current_hotkey != hotkey,
-                    Error::<T>::SameAutoStakeHotkeyAlreadySet
-                );
+            let old_coldkeys = current_hotkey
+                .as_ref()
+                .and_then(|old_hotkey| {
+                    AutoStakeDestinationColdkeys::<T>::decode_len(old_hotkey, netuid)
+                })
+                .unwrap_or_default() as u32;
+            let new_coldkeys = AutoStakeDestinationColdkeys::<T>::decode_len(&hotkey, netuid)
+                .unwrap_or_default() as u32;
+            let actual_weight = <T as Config>::WeightInfo::set_coldkey_auto_stake_hotkey(
+                old_coldkeys,
+                new_coldkeys,
+            );
 
-                // Remove the coldkey from the old hotkey (if present)
-                AutoStakeDestinationColdkeys::<T>::mutate(current_hotkey.clone(), netuid, |v| {
-                    v.retain(|c| c != &coldkey);
-                });
-            }
+            let result = (|| -> DispatchResult {
+                if let Some(current_hotkey) = current_hotkey {
+                    ensure!(
+                        current_hotkey != hotkey,
+                        Error::<T>::SameAutoStakeHotkeyAlreadySet
+                    );
 
-            // Add the coldkey to the new hotkey (if not already present)
-            AutoStakeDestination::<T>::insert(coldkey.clone(), netuid, hotkey.clone());
-            AutoStakeDestinationColdkeys::<T>::mutate(hotkey.clone(), netuid, |v| {
-                if !v.contains(&coldkey) {
-                    v.push(coldkey.clone());
+                    // Remove the coldkey from the old hotkey (if present).
+                    AutoStakeDestinationColdkeys::<T>::mutate(current_hotkey, netuid, |v| {
+                        v.retain(|c| c != &coldkey);
+                    });
                 }
-            });
 
-            Self::deposit_event(Event::AutoStakeDestinationSet {
-                coldkey,
-                netuid,
-                hotkey,
-            });
+                // Add the coldkey to the new hotkey (if not already present).
+                AutoStakeDestination::<T>::insert(coldkey.clone(), netuid, hotkey.clone());
+                AutoStakeDestinationColdkeys::<T>::mutate(hotkey.clone(), netuid, |v| {
+                    if !v.contains(&coldkey) {
+                        v.push(coldkey.clone());
+                    }
+                });
 
-            Ok(())
+                Self::deposit_event(Event::AutoStakeDestinationSet {
+                    coldkey,
+                    netuid,
+                    hotkey,
+                });
+
+                Ok(())
+            })();
+            result.with_benchmark_weight(actual_weight)
         }
 
         /// Used to commit timelock encrypted commit-reveal weight values to later be revealed for
@@ -1850,7 +2153,16 @@ mod dispatches {
         ///
         /// * `commit_reveal_version`: The client (bittensor-drand) version.
         #[pallet::call_index(118)]
-        #[pallet::weight((<T as Config>::WeightInfo::commit_timelocked_mechanism_weights(), DispatchClass::Normal, Pays::No))]
+        #[pallet::weight((
+            crate::Pallet::<T>::precharge_maximum(
+                <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(
+                    commit.len() as u32,
+                    0
+                )
+            ),
+            DispatchClass::Normal,
+            Pays::No
+        ))]
         pub fn commit_timelocked_mechanism_weights(
             origin: OriginFor<T>,
             netuid: NetUid,
@@ -1858,7 +2170,14 @@ mod dispatches {
             commit: BoundedVec<u8, ConstU32<MAX_CRV3_COMMIT_SIZE_BYTES>>,
             reveal_round: u64,
             commit_reveal_version: u16,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
+            let commit_len = commit.len() as u32;
+            let netuid_index = Self::get_mechanism_storage_index(netuid, mecid);
+            let epoch = Self::current_epoch_with_lookahead(netuid);
+            let queue_len = encoded_collection_len(&TimelockedWeightCommits::<T>::hashed_key_for(
+                netuid_index,
+                epoch,
+            ));
             Self::do_commit_timelocked_mechanism_weights(
                 origin,
                 netuid,
@@ -1867,6 +2186,11 @@ mod dispatches {
                 reveal_round,
                 commit_reveal_version,
             )
+            .with_benchmark_weight(
+                <T as Config>::WeightInfo::commit_timelocked_mechanism_weights(
+                    commit_len, queue_len,
+                ),
+            )
         }
 
         /// Remove a subnetwork
@@ -1874,8 +2198,10 @@ mod dispatches {
         #[pallet::call_index(120)]
         #[pallet::weight(<T as Config>::WeightInfo::root_dissolve_network())]
         pub fn root_dissolve_network(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
-            ensure_root(origin)?;
-            Self::do_dissolve_network(netuid)
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
+                Self::do_dissolve_network(netuid)
+            })()
         }
 
         /// Claims the root emissions for a coldkey.
@@ -1890,13 +2216,9 @@ mod dispatches {
         /// * `TooManyRootClaimHotkeys`: The coldkey's hotkey fanout exceeds one claim's bound.
         ///
         #[pallet::call_index(121)]
-        // The benchmark covers one hotkey and one subnet. Manual claims bound both
-        // dimensions below and refund unused weight after execution.
-        #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root()
-                .saturating_mul(MAX_ROOT_CLAIM_HOTKEYS as u64)
-                .saturating_mul(MAX_SUBNET_CLAIMS as u64)
-        )]
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::claim_root(0, subnets.len() as u32)
+        ))]
         pub fn claim_root(
             origin: OriginFor<T>,
             subnets: BTreeSet<NetUid>,
@@ -1915,12 +2237,27 @@ mod dispatches {
                 Error::<T>::TooManyRootClaimHotkeys
             );
 
+            let coldkey_was_indexed = StakingColdkeys::<T>::contains_key(&coldkey);
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = T::DbWeight::get()
-                .reads(1)
-                .saturating_add(Self::do_root_claim(coldkey, Some(subnets))?);
-            Ok((Some(weight), Pays::Yes).into())
+            let index_weight = if coldkey_was_indexed {
+                T::DbWeight::get().reads(1)
+            } else {
+                T::DbWeight::get().reads_writes(3, 3)
+            };
+            let measured_weight =
+                index_weight.saturating_add(Self::do_root_claim(coldkey, Some(subnets.clone()))?);
+
+            // The generated two-component benchmark accounts for the CPU
+            // fanout; the operation-level meter remains a floor for DB/proof
+            // accounting and keeps this safe before the benchmark action
+            // refreshes the generated file.
+            let benchmark_weight = <T as crate::pallet::Config>::WeightInfo::claim_root(
+                hotkey_count as u32,
+                subnets.len() as u32,
+            );
+            let actual_weight = measured_weight.max(benchmark_weight);
+            Ok((Some(actual_weight), Pays::Yes).into())
         }
 
         /// Sets the root claim type for the coldkey.
@@ -1931,37 +2268,48 @@ mod dispatches {
         /// * `RootClaimTypeSet`: On the successfully setting the root claim type for the coldkey.
         ///
         #[pallet::call_index(122)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::set_root_claim_type())]
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::set_root_claim_type(0)
+        ))]
         pub fn set_root_claim_type(
             origin: OriginFor<T>,
             new_root_claim_type: RootClaimTypeEnum,
-        ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin)?;
+        ) -> DispatchResultWithPostInfo {
+            let subnet_count = match &new_root_claim_type {
+                RootClaimTypeEnum::KeepSubnets { subnets } => subnets.len() as u32,
+                RootClaimTypeEnum::Swap | RootClaimTypeEnum::Keep => 0,
+            };
+            (|| -> DispatchResult {
+                let coldkey: T::AccountId = ensure_signed(origin)?;
 
-            if let RootClaimTypeEnum::KeepSubnets { subnets } = &new_root_claim_type {
-                ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
-            }
+                if let RootClaimTypeEnum::KeepSubnets { subnets } = &new_root_claim_type {
+                    ensure!(!subnets.is_empty(), Error::<T>::InvalidSubnetNumber);
+                }
 
-            Self::maybe_add_coldkey_index(&coldkey);
+                Self::maybe_add_coldkey_index(&coldkey);
 
-            Self::change_root_claim_type(&coldkey, new_root_claim_type);
-            Ok(())
+                Self::change_root_claim_type(&coldkey, new_root_claim_type);
+                Ok(())
+            })()
+            .with_benchmark_weight(<T as Config>::WeightInfo::set_root_claim_type(subnet_count))
         }
 
         /// Sets root claim number (sudo extrinsic). Zero disables auto-claim.
         #[pallet::call_index(123)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::sudo_set_num_root_claims())]
         pub fn sudo_set_num_root_claims(origin: OriginFor<T>, new_value: u64) -> DispatchResult {
-            ensure_root(origin)?;
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
 
-            ensure!(
-                new_value <= MAX_NUM_ROOT_CLAIMS,
-                Error::<T>::InvalidNumRootClaim
-            );
+                ensure!(
+                    new_value <= MAX_NUM_ROOT_CLAIMS,
+                    Error::<T>::InvalidNumRootClaim
+                );
 
-            NumRootClaim::<T>::set(new_value);
+                NumRootClaim::<T>::set(new_value);
 
-            Ok(())
+                Ok(())
+            })()
         }
 
         /// Sets root claim threshold for subnet (sudo or owner origin).
@@ -1972,17 +2320,19 @@ mod dispatches {
             netuid: NetUid,
             new_value: u64,
         ) -> DispatchResult {
-            Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+            (|| -> DispatchResult {
+                Self::ensure_subnet_owner_or_root(origin, netuid)?;
+                ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
-            ensure!(
-                new_value <= I96F32::from(MAX_ROOT_CLAIM_THRESHOLD),
-                Error::<T>::InvalidRootClaimThreshold
-            );
+                ensure!(
+                    new_value <= I96F32::from(MAX_ROOT_CLAIM_THRESHOLD),
+                    Error::<T>::InvalidRootClaimThreshold
+                );
 
-            RootClaimableThreshold::<T>::set(netuid, new_value.into());
+                RootClaimableThreshold::<T>::set(netuid, new_value.into());
 
-            Ok(())
+                Ok(())
+            })()
         }
 
         /// Announces a coldkey swap using BlakeTwo256 hash of the new coldkey.
@@ -2005,28 +2355,33 @@ mod dispatches {
             origin: OriginFor<T>,
             new_coldkey_hash: T::Hash,
         ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            let now = <frame_system::Pallet<T>>::block_number();
+            (|| -> DispatchResult {
+                let who = ensure_signed(origin)?;
+                let now = <frame_system::Pallet<T>>::block_number();
 
-            if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
-                let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
-                let min_when = when.saturating_add(reannouncement_delay);
-                ensure!(now >= min_when, Error::<T>::ColdkeySwapReannouncedTooEarly);
-            } else {
-                // Only charge the swap cost on the first announcement
-                let swap_cost = Self::get_key_swap_cost();
-                Self::charge_swap_cost(&who, swap_cost)?;
-            }
+                if let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) {
+                    let reannouncement_delay = ColdkeySwapReannouncementDelay::<T>::get();
+                    let min_when = when.saturating_add(reannouncement_delay);
+                    ensure!(now >= min_when, Error::<T>::ColdkeySwapReannouncedTooEarly);
+                } else {
+                    // Only charge the swap cost on the first announcement
+                    let swap_cost = Self::get_key_swap_cost();
+                    Self::charge_swap_cost(&who, swap_cost)?;
+                }
 
-            let delay = ColdkeySwapAnnouncementDelay::<T>::get();
-            let when = now.saturating_add(delay);
-            ColdkeySwapAnnouncements::<T>::insert(who.clone(), (when, new_coldkey_hash.clone()));
+                let delay = ColdkeySwapAnnouncementDelay::<T>::get();
+                let when = now.saturating_add(delay);
+                ColdkeySwapAnnouncements::<T>::insert(
+                    who.clone(),
+                    (when, new_coldkey_hash.clone()),
+                );
 
-            Self::deposit_event(Event::ColdkeySwapAnnounced {
-                who,
-                new_coldkey_hash,
-            });
-            Ok(())
+                Self::deposit_event(Event::ColdkeySwapAnnounced {
+                    who,
+                    new_coldkey_hash,
+                });
+                Ok(())
+            })()
         }
 
         /// Performs a coldkey swap if an announcement has been made.
@@ -2038,27 +2393,32 @@ mod dispatches {
         ///
         /// The `ColdkeySwapped` event is emitted on successful swap.
         #[pallet::call_index(126)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::swap_coldkey_announced())]
+        #[pallet::weight(crate::Pallet::<T>::precharge_maximum(
+            <T as Config>::WeightInfo::swap_coldkey_announced(0)
+        ))]
         pub fn swap_coldkey_announced(
             origin: OriginFor<T>,
             new_coldkey: T::AccountId,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
+        ) -> DispatchResultWithPostInfo {
+            let who = ensure_signed(origin.clone())?;
+            let work = Self::coldkey_swap_work(&who);
+            (|| -> DispatchResult {
+                let who = ensure_signed(origin)?;
 
-            let (when, new_coldkey_hash) = ColdkeySwapAnnouncements::<T>::take(who.clone())
-                .ok_or(Error::<T>::ColdkeySwapAnnouncementNotFound)?;
+                let (when, new_coldkey_hash) = ColdkeySwapAnnouncements::<T>::take(who.clone())
+                    .ok_or(Error::<T>::ColdkeySwapAnnouncementNotFound)?;
 
-            ensure!(
-                new_coldkey_hash == T::Hashing::hash_of(&new_coldkey),
-                Error::<T>::AnnouncedColdkeyHashDoesNotMatch
-            );
+                ensure!(
+                    new_coldkey_hash == T::Hashing::hash_of(&new_coldkey),
+                    Error::<T>::AnnouncedColdkeyHashDoesNotMatch
+                );
 
-            let now = <frame_system::Pallet<T>>::block_number();
-            ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
+                let now = <frame_system::Pallet<T>>::block_number();
+                ensure!(now >= when, Error::<T>::ColdkeySwapTooEarly);
 
-            Self::do_swap_coldkey(&who, &new_coldkey)?;
-
-            Ok(())
+                Self::do_swap_coldkey(&who, &new_coldkey)
+            })()
+            .with_benchmark_weight(<T as Config>::WeightInfo::swap_coldkey_announced(work))
         }
 
         /// Dispute a coldkey swap.
@@ -2071,22 +2431,24 @@ mod dispatches {
         #[pallet::call_index(127)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::dispute_coldkey_swap())]
         pub fn dispute_coldkey_swap(origin: OriginFor<T>) -> DispatchResult {
-            let coldkey = ensure_signed(origin)?;
+            (|| -> DispatchResult {
+                let coldkey = ensure_signed(origin)?;
 
-            ensure!(
-                ColdkeySwapAnnouncements::<T>::contains_key(&coldkey),
-                Error::<T>::ColdkeySwapAnnouncementNotFound
-            );
-            ensure!(
-                !ColdkeySwapDisputes::<T>::contains_key(&coldkey),
-                Error::<T>::ColdkeySwapAlreadyDisputed
-            );
+                ensure!(
+                    ColdkeySwapAnnouncements::<T>::contains_key(&coldkey),
+                    Error::<T>::ColdkeySwapAnnouncementNotFound
+                );
+                ensure!(
+                    !ColdkeySwapDisputes::<T>::contains_key(&coldkey),
+                    Error::<T>::ColdkeySwapAlreadyDisputed
+                );
 
-            let now = <frame_system::Pallet<T>>::block_number();
-            ColdkeySwapDisputes::<T>::insert(&coldkey, now);
+                let now = <frame_system::Pallet<T>>::block_number();
+                ColdkeySwapDisputes::<T>::insert(&coldkey, now);
 
-            Self::deposit_event(Event::ColdkeySwapDisputed { coldkey });
-            Ok(())
+                Self::deposit_event(Event::ColdkeySwapDisputed { coldkey });
+                Ok(())
+            })()
         }
 
         /// Reset a coldkey swap by clearing the announcement and dispute status.
@@ -2098,13 +2460,15 @@ mod dispatches {
         #[pallet::call_index(128)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::reset_coldkey_swap())]
         pub fn reset_coldkey_swap(origin: OriginFor<T>, coldkey: T::AccountId) -> DispatchResult {
-            ensure_root(origin)?;
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
 
-            ColdkeySwapAnnouncements::<T>::remove(&coldkey);
-            ColdkeySwapDisputes::<T>::remove(&coldkey);
+                ColdkeySwapAnnouncements::<T>::remove(&coldkey);
+                ColdkeySwapDisputes::<T>::remove(&coldkey);
 
-            Self::deposit_event(Event::ColdkeySwapReset { who: coldkey });
-            Ok(())
+                Self::deposit_event(Event::ColdkeySwapReset { who: coldkey });
+                Ok(())
+            })()
         }
 
         /// Enables voting power tracking for a subnet.
@@ -2126,8 +2490,10 @@ mod dispatches {
             origin: OriginFor<T>,
             netuid: NetUid,
         ) -> DispatchResult {
-            Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            Self::do_enable_voting_power_tracking(netuid)
+            (|| -> DispatchResult {
+                Self::ensure_subnet_owner_or_root(origin, netuid)?;
+                Self::do_enable_voting_power_tracking(netuid)
+            })()
         }
 
         /// Schedules disabling of voting power tracking for a subnet.
@@ -2150,8 +2516,10 @@ mod dispatches {
             origin: OriginFor<T>,
             netuid: NetUid,
         ) -> DispatchResult {
-            Self::ensure_subnet_owner_or_root(origin, netuid)?;
-            Self::do_disable_voting_power_tracking(netuid)
+            (|| -> DispatchResult {
+                Self::ensure_subnet_owner_or_root(origin, netuid)?;
+                Self::do_disable_voting_power_tracking(netuid)
+            })()
         }
 
         /// Sets the EMA alpha value for voting power calculation on a subnet.
@@ -2176,8 +2544,10 @@ mod dispatches {
             netuid: NetUid,
             alpha: u64,
         ) -> DispatchResult {
-            ensure_root(origin)?;
-            Self::do_set_voting_power_ema_alpha(netuid, alpha)
+            (|| -> DispatchResult {
+                ensure_root(origin)?;
+                Self::do_set_voting_power_ema_alpha(netuid, alpha)
+            })()
         }
 
         /// The extrinsic is a combination of add_stake(add_stake_limit) and burn_alpha. We buy
@@ -2201,20 +2571,22 @@ mod dispatches {
         #[pallet::call_index(133)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::clear_coldkey_swap_announcement())]
         pub fn clear_coldkey_swap_announcement(origin: OriginFor<T>) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            let now = <frame_system::Pallet<T>>::block_number();
+            (|| -> DispatchResult {
+                let who = ensure_signed(origin)?;
+                let now = <frame_system::Pallet<T>>::block_number();
 
-            let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) else {
-                return Err(Error::<T>::ColdkeySwapAnnouncementNotFound.into());
-            };
-            let delay = ColdkeySwapReannouncementDelay::<T>::get();
-            let min_when = when.saturating_add(delay);
-            ensure!(now >= min_when, Error::<T>::ColdkeySwapClearTooEarly);
+                let Some((when, _)) = ColdkeySwapAnnouncements::<T>::get(who.clone()) else {
+                    return Err(Error::<T>::ColdkeySwapAnnouncementNotFound.into());
+                };
+                let delay = ColdkeySwapReannouncementDelay::<T>::get();
+                let min_when = when.saturating_add(delay);
+                ensure!(now >= min_when, Error::<T>::ColdkeySwapClearTooEarly);
 
-            ColdkeySwapAnnouncements::<T>::remove(&who);
+                ColdkeySwapAnnouncements::<T>::remove(&who);
 
-            Self::deposit_event(Event::ColdkeySwapCleared { who });
-            Ok(())
+                Self::deposit_event(Event::ColdkeySwapCleared { who });
+                Ok(())
+            })()
         }
 
         /// User register a new subnetwork via burning token, but only if the
@@ -2241,22 +2613,24 @@ mod dispatches {
             hotkey: T::AccountId,
             enabled: bool,
         ) -> DispatchResult {
-            let coldkey = ensure_signed(origin)?;
+            (|| -> DispatchResult {
+                let coldkey = ensure_signed(origin)?;
 
-            ensure!(
-                Self::coldkey_owns_hotkey(&coldkey, &hotkey),
-                Error::<T>::NonAssociatedColdKey
-            );
+                ensure!(
+                    Self::coldkey_owns_hotkey(&coldkey, &hotkey),
+                    Error::<T>::NonAssociatedColdKey
+                );
 
-            ensure!(
-                Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
-                Error::<T>::HotKeyNotRegisteredInSubNet
-            );
+                ensure!(
+                    Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
+                    Error::<T>::HotKeyNotRegisteredInSubNet
+                );
 
-            AutoParentDelegationEnabled::<T>::insert(&hotkey, enabled);
+                AutoParentDelegationEnabled::<T>::insert(&hotkey, enabled);
 
-            Self::deposit_event(Event::AutoParentDelegationEnabledSet { hotkey, enabled });
-            Ok(())
+                Self::deposit_event(Event::AutoParentDelegationEnabledSet { hotkey, enabled });
+                Ok(())
+            })()
         }
 
         /// Locks stake on a subnet to a specific hotkey, building conviction over time.
@@ -2278,8 +2652,10 @@ mod dispatches {
             netuid: NetUid,
             amount: AlphaBalance,
         ) -> DispatchResult {
-            let coldkey = ensure_signed(origin)?;
-            Self::do_lock_stake(&coldkey, netuid, &hotkey, amount)
+            (|| -> DispatchResult {
+                let coldkey = ensure_signed(origin)?;
+                Self::do_lock_stake(&coldkey, netuid, &hotkey, amount)
+            })()
         }
 
         /// Moves an existing lock for a coldkey on a subnet from one hotkey to another.
@@ -2301,8 +2677,10 @@ mod dispatches {
             destination_hotkey: T::AccountId,
             netuid: NetUid,
         ) -> DispatchResult {
-            let coldkey = ensure_signed(origin)?;
-            Self::do_move_lock(&coldkey, &destination_hotkey, netuid)
+            (|| -> DispatchResult {
+                let coldkey = ensure_signed(origin)?;
+                Self::do_move_lock(&coldkey, &destination_hotkey, netuid)
+            })()
         }
 
         /// Sets or clears the caller's perpetual lock flag for a subnet.
@@ -2317,8 +2695,10 @@ mod dispatches {
             netuid: NetUid,
             enabled: bool,
         ) -> DispatchResult {
-            let coldkey = ensure_signed(origin)?;
-            Self::do_set_perpetual_lock(&coldkey, netuid, enabled)
+            (|| -> DispatchResult {
+                let coldkey = ensure_signed(origin)?;
+                Self::do_set_perpetual_lock(&coldkey, netuid, enabled)
+            })()
         }
 
         /// Deprecated compatibility entry point retained for call-index stability.
@@ -2369,10 +2749,12 @@ mod dispatches {
         #[pallet::call_index(142)]
         #[pallet::weight((<T as Config>::WeightInfo::set_reject_locked_alpha(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_reject_locked_alpha(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
-            let coldkey = ensure_signed(origin)?;
-            Self::set_accept_locked_alpha(&coldkey, !enabled);
-            Self::deposit_event(Event::RejectLockedAlphaUpdated { coldkey, enabled });
-            Ok(())
+            (|| -> DispatchResult {
+                let coldkey = ensure_signed(origin)?;
+                Self::set_accept_locked_alpha(&coldkey, !enabled);
+                Self::deposit_event(Event::RejectLockedAlphaUpdated { coldkey, enabled });
+                Ok(())
+            })()
         }
 
         /// Transfers a specified amount of stake from one coldkey to another, landing it

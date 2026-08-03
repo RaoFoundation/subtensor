@@ -3,6 +3,39 @@ use frame_support::storage::{TransactionOutcome, with_transaction};
 use super::*;
 
 impl<T: Config> Pallet<T> {
+    /// Collapse every state-driven coldkey-swap fan-out into one conservative
+    /// benchmark component. The benchmark populates all dimensions together,
+    /// so taking their maximum never understates a sparse real-world shape.
+    pub fn coldkey_swap_work(old_coldkey: &T::AccountId) -> u32 {
+        let netuids = Self::get_all_subnet_netuids();
+        let network_count = netuids.len() as u32;
+        let staking_hotkeys =
+            StakingHotkeys::<T>::decode_len(old_coldkey).unwrap_or_default() as u32;
+        let stake_work = network_count.saturating_mul(staking_hotkeys);
+        let owned_hotkeys = OwnedHotkeys::<T>::decode_len(old_coldkey).unwrap_or_default() as u32;
+
+        let mut auto_stake_work = 0_u32;
+        let mut collateral_work = 0_u32;
+        for netuid in netuids {
+            if let Some(hotkey) = AutoStakeDestination::<T>::get(old_coldkey, netuid) {
+                auto_stake_work = auto_stake_work.saturating_add(
+                    AutoStakeDestinationColdkeys::<T>::decode_len(hotkey, netuid)
+                        .unwrap_or_default() as u32,
+                );
+            }
+            collateral_work = collateral_work.saturating_add(
+                ColdkeyCollateralHotkeys::<T>::decode_len(netuid, old_coldkey).unwrap_or_default()
+                    as u32,
+            );
+        }
+
+        network_count
+            .max(stake_work)
+            .max(owned_hotkeys)
+            .max(auto_stake_work)
+            .max(collateral_work)
+    }
+
     /// Transfer all assets, stakes, subnet ownerships, and hotkey associations from `old_coldkey` to
     /// to `new_coldkey`.
     pub fn do_swap_coldkey(
@@ -116,12 +149,13 @@ impl<T: Config> Pallet<T> {
                 netuid,
                 alpha_old,
             );
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                &hotkey,
-                new_coldkey,
-                netuid,
-                alpha_old,
-            );
+            // The association vector is migrated once after all subnet stake
+            // rows have moved. Updating it for every row would repeatedly
+            // decode and scan a growing vector, turning the swap into
+            // quadratic work that cannot be represented by a linear
+            // benchmark component.
+            let mut alpha_share_pool = Self::get_alpha_share_pool(hotkey.clone(), netuid);
+            alpha_share_pool.update_value_for_one(new_coldkey, alpha_old.to_u64() as i64);
             let new_dest_alpha =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, new_coldkey, netuid);
 
@@ -154,9 +188,10 @@ impl<T: Config> Pallet<T> {
     fn transfer_staking_hotkeys(old_coldkey: &T::AccountId, new_coldkey: &T::AccountId) {
         let old_staking_hotkeys: Vec<T::AccountId> = StakingHotkeys::<T>::get(old_coldkey);
         let mut new_staking_hotkeys: Vec<T::AccountId> = StakingHotkeys::<T>::get(new_coldkey);
+        let destination_was_empty = new_staking_hotkeys.is_empty();
         for hotkey in old_staking_hotkeys {
             // If the hotkey is not already in the new coldkey, add it.
-            if !new_staking_hotkeys.contains(&hotkey) {
+            if destination_was_empty || !new_staking_hotkeys.contains(&hotkey) {
                 new_staking_hotkeys.push(hotkey);
             }
         }
@@ -172,13 +207,18 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let old_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(old_coldkey);
         let mut new_owned_hotkeys: Vec<T::AccountId> = OwnedHotkeys::<T>::get(new_coldkey);
+        let destination_was_empty = new_owned_hotkeys.is_empty();
         for owned_hotkey in old_owned_hotkeys.iter() {
             // Remove the hotkey from the old coldkey.
             Owner::<T>::remove(owned_hotkey);
             // Add the hotkey to the new coldkey.
             Self::set_hotkey_owner(new_coldkey, owned_hotkey)?;
             // Addd the owned hotkey to the new set of owned hotkeys.
-            if !new_owned_hotkeys.contains(owned_hotkey) {
+            // A valid destination has no staking hotkeys (checked before the
+            // transaction), and therefore normally has no owned hotkeys
+            // either. Avoid repeatedly scanning the growing destination in
+            // that common and benchmarked path.
+            if destination_was_empty || !new_owned_hotkeys.contains(owned_hotkey) {
                 new_owned_hotkeys.push(owned_hotkey.clone());
             }
         }

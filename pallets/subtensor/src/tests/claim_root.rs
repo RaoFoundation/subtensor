@@ -133,7 +133,10 @@ fn test_claim_root_with_drain_emissions() {
 
         assert_abs_diff_eq!(
             new_stake,
-            (I96F32::from(root_stake) * claimable).saturating_to_num::<u64>(),
+            I96F32::from(root_stake)
+                .checked_mul(claimable)
+                .unwrap()
+                .to_num::<u64>(),
             epsilon = 10u64,
         );
 
@@ -1670,7 +1673,7 @@ fn test_claim_root_subnet_limits() {
 }
 
 #[test]
-fn test_claim_root_declared_weight_covers_stored_hotkey_fanout() {
+fn test_claim_root_maximum_reserve_covers_stored_hotkey_fanout() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let coldkey = U256::from(1003);
@@ -1714,9 +1717,11 @@ fn test_claim_root_declared_weight_covers_stored_hotkey_fanout() {
                 .actual_weight
                 .expect("claim reports actual weight");
 
+        let maximum_dispatch_weight = SubtensorModule::max_normal_dispatch_weight();
         assert!(
-            actual_weight.all_lte(declared_weight),
-            "actual weight {actual_weight:?} exceeds declared weight {declared_weight:?}"
+            actual_weight.all_lte(maximum_dispatch_weight),
+            "actual weight {actual_weight:?} exceeds maximum dispatch reserve \
+             {maximum_dispatch_weight:?}"
         );
 
         let max_extrinsic = BlockWeights::get()
@@ -1990,7 +1995,7 @@ fn test_claim_root_with_keep_subnets() {
             .expect("claimable must exist at this point");
 
         // Claim root alpha
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::set_root_claim_type(
                 RuntimeOrigin::signed(coldkey),
                 RootClaimTypeEnum::KeepSubnets {
@@ -2020,7 +2025,10 @@ fn test_claim_root_with_keep_subnets() {
 
         assert_abs_diff_eq!(
             new_stake,
-            (I96F32::from(root_stake) * claimable).saturating_to_num::<u64>(),
+            I96F32::from(root_stake)
+                .checked_mul(claimable)
+                .unwrap()
+                .to_num::<u64>(),
             epsilon = 10u64,
         );
     });

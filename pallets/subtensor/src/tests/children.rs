@@ -4,11 +4,12 @@
 use super::mock;
 use super::mock::*;
 use approx::assert_abs_diff_eq;
-use frame_support::{assert_err, assert_noop, assert_ok};
+use frame_support::{assert_err, assert_noop, assert_ok, dispatch::GetDispatchInfo};
 use substrate_fixed::types::{I64F64, I96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
+use crate::weights::WeightInfo;
 use crate::{utils::rate_limiting::TransactionType, *};
 use sp_core::U256;
 use sp_runtime::PerU16;
@@ -41,6 +42,44 @@ fn test_do_set_child_singular_success() {
         // Verify child assignment
         let children = SubtensorModule::get_children(&hotkey, netuid);
         assert_eq!(children, vec![(proportion, child)]);
+    });
+}
+
+#[test]
+fn set_children_declares_and_reports_benchmarked_component_weight() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let child = U256::from(3);
+        let netuid = NetUid::from(1);
+        add_network(netuid, 13, 0);
+        register_ok_neuron(netuid, hotkey, coldkey, 0);
+
+        let call = RuntimeCall::SubtensorModule(crate::Call::set_children {
+            hotkey,
+            netuid,
+            children: vec![(u64::MAX, child)],
+        });
+        let declared_weight = call.get_dispatch_info().call_weight;
+
+        let post_info = match SubtensorModule::set_children(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            netuid,
+            vec![(u64::MAX, child)],
+        ) {
+            Ok(post_info) => post_info,
+            Err(error) => panic!("set_children must succeed: {error:?}"),
+        };
+        assert_eq!(
+            post_info.actual_weight,
+            Some(<Test as Config>::WeightInfo::set_children(1))
+        );
+        assert!(
+            post_info
+                .actual_weight
+                .is_some_and(|actual| actual.all_lt(declared_weight))
+        );
     });
 }
 
@@ -2751,7 +2790,7 @@ fn test_childkey_set_weights_single_parent() {
         );
 
         // Check the child cannot set weights
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::set_weights(
                 RuntimeOrigin::signed(child),
                 netuid,
@@ -2846,7 +2885,7 @@ fn test_set_weights_no_parent() {
         );
 
         // Check the hotkey cannot set weights
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::set_weights(
                 RuntimeOrigin::signed(hotkey),
                 netuid,

@@ -1,6 +1,7 @@
 use super::mock::*;
 use frame_support::{
     assert_ok,
+    dispatch::GetDispatchInfo,
     traits::{Contains, Currency},
 };
 use frame_system::Config;
@@ -35,6 +36,36 @@ fn test_batch_txs() {
         assert_eq!(Balances::total_balance(&alice), 6_000_000_000_u64.into());
         assert_eq!(Balances::total_balance(&bob), 2_000_000_000_u64.into());
         assert_eq!(Balances::total_balance(&charlie), 2_000_000_000_u64.into());
+    });
+}
+
+#[test]
+fn test_nested_variable_work_call_refunds_from_its_own_declaration() {
+    let coldkey = U256::from(1);
+    let inner_call = RuntimeCall::SubtensorModule(crate::Call::swap_coldkey_announced {
+        new_coldkey: U256::from(2),
+    });
+    let outer_call = RuntimeCall::Utility(pallet_utility::Call::batch {
+        calls: vec![inner_call.clone()],
+    });
+    let declared_weight = outer_call.get_dispatch_info().call_weight;
+
+    new_test_ext(1).execute_with(|| {
+        let Ok(post_info) = Utility::batch(
+            <<Test as Config>::RuntimeOrigin>::signed(coldkey),
+            vec![inner_call],
+        ) else {
+            panic!("utility batch returns dispatch post info");
+        };
+        let Some(actual_weight) = post_info.actual_weight else {
+            panic!("utility batch reports its nested actual weight");
+        };
+
+        assert!(
+            actual_weight.all_lt(declared_weight),
+            "nested actual weight {actual_weight:?} must refund from declaration \
+             {declared_weight:?}"
+        );
     });
 }
 

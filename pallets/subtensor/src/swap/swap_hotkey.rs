@@ -1,4 +1,6 @@
 use super::*;
+use crate::weights::WeightInfo;
+use frame_support::dispatch::DispatchClass;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
 use share_pool::SafeFloat;
@@ -12,19 +14,44 @@ struct PreparedHotkeyStake<AccountId> {
 }
 
 impl<T: Config> Pallet<T> {
-    /// Use the generated all-subnet stake-moving benchmark for every v2 path
-    /// that scans and moves stake. Preserve the previous lightweight weight for
-    /// the single-subnet `keep_stake` path, which does not scan stake prefixes.
-    pub fn swap_hotkey_v2_dispatch_weight(netuid: &Option<NetUid>, keep_stake: bool) -> Weight {
-        if netuid.is_none() || !keep_stake {
-            <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey()
-        } else {
-            // +1 read / +4 writes vs the pre-lineage keep_stake path: root lookup,
-            // LastHotkeySwap, successor clear+insert, root insert.
-            Weight::from_parts(275_300_000, 0)
-                .saturating_add(T::DbWeight::get().reads(53_u64))
-                .saturating_add(T::DbWeight::get().writes(39_u64))
-        }
+    /// Reserve the largest call weight that can fit in a normal extrinsic after
+    /// accounting for the runtime's transaction extensions. This is a weight
+    /// ceiling, not an item-count cap: execution still meters the state it
+    /// actually touches and returns that amount for the refund.
+    pub fn max_normal_dispatch_weight() -> Weight {
+        let block_weights = T::BlockWeights::get();
+        let normal = block_weights.get(DispatchClass::Normal);
+        let max_extrinsic = normal
+            .max_extrinsic
+            .or(normal.max_total)
+            .unwrap_or(block_weights.max_block);
+
+        max_extrinsic.saturating_sub(T::MaxTransactionExtensionWeight::get())
+    }
+
+    /// Declare the maximum admissible weight for state-dependent dispatches.
+    ///
+    /// The declaration belongs to the call rather than a signed transaction
+    /// extension so wrappers inherit it when dispatching this call internally.
+    /// FRAME can then safely refund the measured post-dispatch weight without
+    /// capping nested accounting at a smaller benchmark-model declaration.
+    pub fn precharge_maximum(_benchmark_model: Weight) -> Weight {
+        Self::max_normal_dispatch_weight()
+    }
+
+    /// Reserve the maximum dispatch weight and refund the measured result.
+    pub fn swap_hotkey_v2_dispatch_weight(_netuid: &Option<NetUid>, _keep_stake: bool) -> Weight {
+        Self::precharge_maximum(<T as Config>::WeightInfo::swap_hotkey_v2())
+    }
+
+    /// Combine operation-level storage accounting with the benchmarked CPU and
+    /// proof-size floor. The larger value is the real post-dispatch charge:
+    /// small calls retain the benchmark floor, while calls with larger
+    /// state fan-out pay for every storage operation actually performed.
+    fn actual_hotkey_swap_weight(measured: Weight) -> Weight {
+        measured
+            .max(<T as Config>::WeightInfo::swap_hotkey())
+            .max(<T as Config>::WeightInfo::swap_hotkey_v2())
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
@@ -167,7 +194,9 @@ impl<T: Config> Pallet<T> {
         let prepared_stake = if keep_stake {
             None
         } else {
-            Some(Self::prepare_hotkey_stake(old_hotkey))
+            let prepared = Self::prepare_hotkey_stake(old_hotkey);
+            weight.saturating_accrue(T::DbWeight::get().reads(prepared.positions.len() as u64));
+            Some(prepared)
         };
 
         // Preflight collateral-index capacity before charging or writing so a
@@ -304,13 +333,7 @@ impl<T: Config> Pallet<T> {
                     new_hotkey: new_hotkey.clone(),
                 });
 
-                // Stake-moving paths retain the generated pre-dispatch benchmark weight.
-                // `keep_stake` does not inspect stake prefixes and may keep its dynamic refund.
-                if keep_stake {
-                    Ok(Some(weight).into())
-                } else {
-                    Ok(None.into())
-                }
+                Ok(Some(Self::actual_hotkey_swap_weight(weight)).into())
             })();
 
             match result {
@@ -577,11 +600,7 @@ impl<T: Config> Pallet<T> {
             netuid,
         });
 
-        if keep_stake {
-            Ok(Some(weight).into())
-        } else {
-            Ok(None.into())
-        }
+        Ok(Some(Self::actual_hotkey_swap_weight(weight)).into())
     }
 
     // do hotkey swap public part for both swap all subnets and just swap one subnet

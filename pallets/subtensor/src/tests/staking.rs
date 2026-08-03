@@ -17,6 +17,7 @@ use subtensor_swap_interface::{Order, SwapHandler};
 
 use super::mock;
 use super::mock::*;
+use crate::weights::WeightInfo as _;
 use crate::*;
 
 /***********************************************************
@@ -4509,7 +4510,7 @@ fn test_unstake_all_alpha_hits_liquidity_min() {
 
         // Try to unstake, but we reduce liquidity too far
 
-        assert_err!(
+        frame_support::assert_err_ignore_postinfo!(
             SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(coldkey), hotkey),
             Error::<Test>::AmountTooLow
         );
@@ -4551,10 +4552,16 @@ fn test_unstake_all_alpha_works() {
         );
 
         // Unstake all alpha to root
-        assert_ok!(SubtensorModule::unstake_all_alpha(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-        ));
+        let subnet_count = u32::from(TotalNetworks::<Test>::get());
+        let post_info =
+            SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        assert_eq!(
+            post_info.actual_weight,
+            Some(
+                <Test as Config>::WeightInfo::unstake_all_alpha(subnet_count)
+                    .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(1))
+            )
+        );
 
         let new_alpha =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
@@ -4597,10 +4604,16 @@ fn test_unstake_all_works() {
             u64::from(stake_amount * 100.into()).into(),
         );
         // Unstake all alpha to free balance
-        assert_ok!(SubtensorModule::unstake_all(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-        ));
+        let subnet_count = u32::from(TotalNetworks::<Test>::get());
+        let post_info =
+            SubtensorModule::unstake_all(RuntimeOrigin::signed(coldkey), hotkey).unwrap();
+        assert_eq!(
+            post_info.actual_weight,
+            Some(
+                <Test as Config>::WeightInfo::unstake_all(subnet_count)
+                    .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(1))
+            )
+        );
 
         let new_alpha =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);

@@ -9,10 +9,14 @@ pub mod types;
 
 use crate::types::{ColdkeyLock, FunctionId, Output, StakeAvailability, SubnetRegistrationState};
 use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::{DebugNoBound, traits::Get};
+use frame_support::{
+    DebugNoBound,
+    dispatch::{DispatchResult, DispatchResultWithPostInfo},
+    traits::Get,
+};
 use frame_system::RawOrigin;
 use pallet_contracts::chain_extension::{
-    BufInBufOutState, ChainExtension, Environment, Ext, InitState, RetVal, SysConfig,
+    BufInBufOutState, ChainExtension, ChargedAmount, Environment, Ext, InitState, RetVal, SysConfig,
 };
 use pallet_subtensor::weights::WeightInfo as SubtensorWeightInfo;
 use pallet_subtensor_proxy as pallet_proxy;
@@ -29,6 +33,43 @@ pub struct SubtensorChainExtension<T>(PhantomData<T>);
 impl<T> Default for SubtensorChainExtension<T> {
     fn default() -> Self {
         Self(PhantomData)
+    }
+}
+
+fn finish_subtensor_call<T, Env>(
+    env: &mut Env,
+    charged: Env::ChargedAmount,
+    declared_weight: Weight,
+    call_result: DispatchResultWithPostInfo,
+) -> Result<RetVal, DispatchError>
+where
+    T: pallet_contracts::Config,
+    Env: SubtensorExtensionEnv<T>,
+{
+    match call_result {
+        Ok(post_info) => {
+            env.adjust_weight(charged, post_info.actual_weight.unwrap_or(declared_weight));
+            Ok(RetVal::Converging(Output::Success as u32))
+        }
+        Err(error_with_post_info) => {
+            env.adjust_weight(
+                charged,
+                error_with_post_info
+                    .post_info
+                    .actual_weight
+                    .unwrap_or(declared_weight),
+            );
+            Ok(RetVal::Converging(
+                Output::from(error_with_post_info.error) as u32
+            ))
+        }
+    }
+}
+
+fn finish_fixed_subtensor_call(call_result: DispatchResult) -> Result<RetVal, DispatchError> {
+    match call_result {
+        Ok(()) => Ok(RetVal::Converging(Output::Success as u32)),
+        Err(error) => Ok(RetVal::Converging(Output::from(error) as u32)),
     }
 }
 
@@ -82,13 +123,7 @@ where
         let call_result =
             pallet_subtensor::Pallet::<T>::add_stake(origin.into(), hotkey, netuid, amount_staked);
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_remove_stake_v1<Env>(
@@ -116,13 +151,7 @@ where
             amount_unstaked,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_unstake_all_v1<Env>(
@@ -137,20 +166,18 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
+        let subnet_count = u32::from(pallet_subtensor::TotalNetworks::<T>::get());
         let weight =
-            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all();
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all(
+                subnet_count,
+            )
+            .saturating_add(T::DbWeight::get().reads(1));
 
         env.charge_weight(weight)?;
 
-        let call_result = pallet_subtensor::Pallet::<T>::unstake_all(origin.into(), hotkey);
+        let call_result = pallet_subtensor::Pallet::<T>::do_unstake_all(origin.into(), hotkey);
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_unstake_all_alpha_v1<Env>(
@@ -165,21 +192,19 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
+        let subnet_count = u32::from(pallet_subtensor::TotalNetworks::<T>::get());
         let weight =
             <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::unstake_all_alpha(
-            );
+                subnet_count,
+            )
+            .saturating_add(T::DbWeight::get().reads(1));
 
         env.charge_weight(weight)?;
 
-        let call_result = pallet_subtensor::Pallet::<T>::unstake_all_alpha(origin.into(), hotkey);
+        let call_result =
+            pallet_subtensor::Pallet::<T>::do_unstake_all_alpha(origin.into(), hotkey);
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_move_stake_v1<Env>(
@@ -214,13 +239,7 @@ where
             alpha_amount,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_transfer_stake_v1<Env>(
@@ -255,13 +274,7 @@ where
             alpha_amount,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_swap_stake_v1<Env>(
@@ -294,13 +307,7 @@ where
             alpha_amount,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_add_stake_limit_v1<Env>(
@@ -335,13 +342,7 @@ where
             allow_partial,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_remove_stake_limit_v1<Env>(
@@ -376,13 +377,7 @@ where
             allow_partial,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_swap_stake_limit_v1<Env>(
@@ -420,13 +415,7 @@ where
             allow_partial,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_remove_stake_full_limit_v1<Env>(
@@ -452,13 +441,7 @@ where
             limit_price,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_fixed_subtensor_call(call_result)
     }
 
     fn dispatch_set_coldkey_auto_stake_hotkey_v1<Env>(
@@ -473,9 +456,42 @@ where
             .read_as()
             .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-        let weight = <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey();
+        // Charge the state reads used to derive this nested call's conservative
+        // benchmark bound separately. The top-level extrinsic ceiling cannot be
+        // reserved inside a contract whose enclosing gas limit is smaller.
+        let metering_reserve = T::DbWeight::get().reads(3);
+        let metering_charged = env.charge_weight(metering_reserve)?;
+        let (weight, metering_reads) = match &origin {
+            RawOrigin::Signed(coldkey) => {
+                let current_hotkey =
+                    pallet_subtensor::AutoStakeDestination::<T>::get(coldkey, netuid);
+                let old_coldkeys = current_hotkey
+                    .as_ref()
+                    .and_then(|old_hotkey| {
+                        pallet_subtensor::AutoStakeDestinationColdkeys::<T>::decode_len(
+                            old_hotkey, netuid,
+                        )
+                    })
+                    .unwrap_or_default() as u32;
+                let new_coldkeys =
+                    pallet_subtensor::AutoStakeDestinationColdkeys::<T>::decode_len(&hotkey, netuid)
+                        .unwrap_or_default() as u32;
+                (
+                    <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey(
+                        old_coldkeys,
+                        new_coldkeys,
+                    ),
+                    if current_hotkey.is_some() { 3 } else { 2 },
+                )
+            }
+            _ => (
+                <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::set_coldkey_auto_stake_hotkey(0, 0),
+                0,
+            ),
+        };
+        env.adjust_weight(metering_charged, T::DbWeight::get().reads(metering_reads));
 
-        env.charge_weight(weight)?;
+        let charged = env.charge_weight(weight)?;
 
         let call_result = pallet_subtensor::Pallet::<T>::set_coldkey_auto_stake_hotkey(
             origin.into(),
@@ -483,13 +499,7 @@ where
             hotkey,
         );
 
-        match call_result {
-            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
-            Err(e) => {
-                let error_code = Output::from(e) as u32;
-                Ok(RetVal::Converging(error_code))
-            }
-        }
+        finish_subtensor_call::<T, Env>(env, charged, weight, call_result)
     }
 
     fn dispatch_add_proxy_v1<Env>(
@@ -925,8 +935,11 @@ trait SubtensorExtensionEnv<T>
 where
     T: pallet_contracts::Config,
 {
+    type ChargedAmount;
+
     fn func_id(&self) -> u16;
-    fn charge_weight(&mut self, weight: Weight) -> Result<(), DispatchError>;
+    fn charge_weight(&mut self, weight: Weight) -> Result<Self::ChargedAmount, DispatchError>;
+    fn adjust_weight(&mut self, charged: Self::ChargedAmount, actual_weight: Weight);
     fn read_as<U: Decode + MaxEncodedLen>(&mut self) -> Result<U, DispatchError>;
     fn write_output(&mut self, data: &[u8]) -> Result<(), DispatchError>;
     fn caller(&mut self) -> T::AccountId;
@@ -963,12 +976,18 @@ where
     T::AccountId: Clone,
     E: Ext<T = T>,
 {
+    type ChargedAmount = ChargedAmount;
+
     fn func_id(&self) -> u16 {
         self.env.func_id()
     }
 
-    fn charge_weight(&mut self, weight: Weight) -> Result<(), DispatchError> {
-        self.env.charge_weight(weight).map(|_| ())
+    fn charge_weight(&mut self, weight: Weight) -> Result<Self::ChargedAmount, DispatchError> {
+        self.env.charge_weight(weight)
+    }
+
+    fn adjust_weight(&mut self, charged: Self::ChargedAmount, actual_weight: Weight) {
+        self.env.adjust_weight(charged, actual_weight);
     }
 
     fn read_as<U: Decode + MaxEncodedLen>(&mut self) -> Result<U, DispatchError> {

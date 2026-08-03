@@ -3981,7 +3981,7 @@ fn test_failed_coldkey_swap_extrinsic_rolls_back_state_changes() {
             },
         );
 
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::swap_coldkey(
                 RuntimeOrigin::root(),
                 old_coldkey,

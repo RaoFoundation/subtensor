@@ -1,10 +1,11 @@
 use crate::{
     Call, CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
     CheckServingEndpoints, CheckWeights, Config, Error, guards::applicable_call,
+    weights::WeightInfo,
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
-    dispatch::{DispatchExtension, DispatchInfo, PostDispatchInfo},
+    dispatch::{DispatchExtension, DispatchInfo, GetDispatchInfo, PostDispatchInfo},
     traits::{IsSubType, OriginTrait},
     weights::Weight,
 };
@@ -12,10 +13,7 @@ use scale_info::TypeInfo;
 use sp_runtime::traits::{
     DispatchInfoOf, Dispatchable, Implication, TransactionExtension, ValidateResult,
 };
-use sp_runtime::{
-    impl_tx_ext_default,
-    transaction_validity::{TransactionSource, TransactionValidityError},
-};
+use sp_runtime::transaction_validity::{TransactionSource, TransactionValidityError};
 use sp_std::marker::PhantomData;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::CustomTransactionError;
@@ -75,6 +73,39 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
         Self(Default::default())
     }
 
+    /// Return a call-independent upper bound for the validation work performed
+    /// by this extension.
+    ///
+    /// Individual calls enable different guard combinations, and some calls
+    /// enable more than one guard. Summing every guard is deliberately
+    /// conservative.
+    pub fn maximum_weight() -> Weight {
+        <T as Config>::WeightInfo::check_coldkey_swap_extension()
+            .saturating_add(<T as Config>::WeightInfo::check_weights_extension())
+            .saturating_add(<T as Config>::WeightInfo::check_rate_limits_extension())
+            .saturating_add(<T as Config>::WeightInfo::check_delegate_take_extension())
+            .saturating_add(<T as Config>::WeightInfo::check_serving_endpoints_extension())
+            .saturating_add(<T as Config>::WeightInfo::check_evm_key_association_extension())
+    }
+
+    /// Weight consumed by the validation guards themselves, excluding any
+    /// top-level dispatch reserve.
+    pub fn validation_weight(call: &CallOf<T>) -> Weight
+    where
+        T: pallet_shield::Config,
+        CallOf<T>: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+            + IsSubType<Call<T>>
+            + IsSubType<pallet_shield::Call<T>>,
+    {
+        use DispatchExtension as DE;
+        <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
+            .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
+    }
+
     fn check(origin: &OriginOf<T>, call: &CallOf<T>) -> Result<(), Error<T>>
     where
         T: pallet_shield::Config,
@@ -113,6 +144,7 @@ impl<T> TransactionExtension<CallOf<T>> for SubtensorTransactionExtension<T>
 where
     T: Config + pallet_shield::Config + Send + Sync + TypeInfo,
     CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>, Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + GetDispatchInfo
         + IsSubType<Call<T>>
         + IsSubType<pallet_shield::Call<T>>,
     OriginOf<T>: Clone + OriginTrait<AccountId = T::AccountId>,
@@ -124,13 +156,7 @@ where
     type Pre = ();
 
     fn weight(&self, call: &CallOf<T>) -> Weight {
-        use DispatchExtension as DE;
-        <CheckColdkeySwap<T> as DE<CallOf<T>>>::weight(call)
-            .saturating_add(<CheckWeights<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckRateLimits<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
-            .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
+        Self::validation_weight(call)
     }
 
     fn validate(
@@ -148,7 +174,16 @@ where
             .map_err(|error| TransactionValidityError::from(CustomTransactionError::from(error)))
     }
 
-    impl_tx_ext_default!(CallOf<T>; prepare);
+    fn prepare(
+        self,
+        _val: Self::Val,
+        _origin: &OriginOf<T>,
+        _call: &CallOf<T>,
+        _info: &DispatchInfoOf<CallOf<T>>,
+        _len: usize,
+    ) -> Result<Self::Pre, TransactionValidityError> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -301,6 +336,28 @@ mod tests {
                     expected_transaction_extension_weight(&call)
                 );
             }
+        });
+    }
+
+    #[test]
+    fn dynamic_call_declares_the_maximum_dispatch_weight() {
+        new_test_ext(1).execute_with(|| {
+            let call = RuntimeCall::SubtensorModule(SubtensorCall::set_weights {
+                netuid: NetUid::from(1),
+                dests: vec![0],
+                weights: vec![1],
+                version_key: 0,
+            });
+            let call_weight = call.get_dispatch_info().call_weight;
+
+            assert!(
+                SubtensorModule::max_normal_dispatch_weight().all_lte(call_weight),
+                "dispatch metadata must include the maximum declaration"
+            );
+            assert_eq!(
+                TransactionExtension::weight(&SubtensorTransactionExtension::<Test>::new(), &call),
+                expected_transaction_extension_weight(&call)
+            );
         });
     }
 }

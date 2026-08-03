@@ -444,6 +444,7 @@ impl pallet_subtensor::Config for Test {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type MaxTransactionExtensionWeight = ();
 }
 
 // Swap-related parameter types

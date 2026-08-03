@@ -80,6 +80,8 @@ const EVM_DECIMALS_FACTOR: u64 = 1_000_000_000;
 parameter_types! {
     pub const BlockHashCount: u64 = 250;
     pub const SS58Prefix: u8 = 42;
+    pub MaxTransactionExtensionWeight: Weight =
+        <() as pallet_subtensor::weights::WeightInfo>::check_coldkey_swap_extension();
     pub BlockWeights: limits::BlockWeights = limits::BlockWeights::with_sensible_defaults(
         Weight::from_parts(2_000_000_000_000, u64::MAX),
         Perbill::from_percent(75),
@@ -525,6 +527,7 @@ impl pallet_subtensor::Config for Runtime {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
+    type MaxTransactionExtensionWeight = MaxTransactionExtensionWeight;
 }
 
 impl frame_support::traits::InstanceFilter<RuntimeCall> for ProxyType {

@@ -39,6 +39,7 @@
 use super::mock::*;
 use crate::coinbase::reveal_commits::WeightsTlockPayload;
 use crate::subnets::mechanism::{GLOBAL_MAX_SUBNET_COUNT, MAX_MECHANISM_COUNT_PER_SUBNET};
+use crate::weights::WeightInfo;
 use crate::*;
 use alloc::collections::BTreeMap;
 use approx::assert_abs_diff_eq;
@@ -1066,14 +1067,20 @@ fn test_set_mechanism_weights_happy_path_sets_row_under_subid() {
         // Call extrinsic
         let dests = vec![uid2, uid3];
         let weights = vec![88u16, 0xFFFF];
-        assert_ok!(SubtensorModule::set_mechanism_weights(
-            RawOrigin::Signed(hk1).into(),
-            netuid,
-            mecid,
-            dests.clone(),
-            weights.clone(),
-            0, // version_key
-        ));
+        assert_ok!(
+            SubtensorModule::set_mechanism_weights(
+                RawOrigin::Signed(hk1).into(),
+                netuid,
+                mecid,
+                dests.clone(),
+                weights.clone(),
+                0, // version_key
+            )
+            .map(|post_info| post_info.actual_weight),
+            Some(<Test as Config>::WeightInfo::set_mechanism_weights(
+                dests.len() as u32
+            ))
+        );
 
         // Verify row exists under the chosen mecid and not under a different mecid
         let idx1 = SubtensorModule::get_mechanism_storage_index(netuid, mecid);
@@ -1123,7 +1130,7 @@ fn test_set_mechanism_weights_above_mechanism_count_fails() {
         // Call extrinsic
         let dests = vec![uid2];
         let weights = vec![88u16];
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::set_mechanism_weights(
                 RawOrigin::Signed(hk1).into(),
                 netuid,
@@ -1204,15 +1211,22 @@ fn test_commit_reveal_mechanism_weights_ok() {
 
         // Advance one epoch, then reveal
         step_epochs(1, netuid);
-        assert_ok!(SubtensorModule::reveal_mechanism_weights(
-            RuntimeOrigin::signed(hk1),
-            netuid,
-            mecid,
-            dests.clone(),
-            weights.clone(),
-            salt,
-            version_key
-        ));
+        assert_ok!(
+            SubtensorModule::reveal_mechanism_weights(
+                RuntimeOrigin::signed(hk1),
+                netuid,
+                mecid,
+                dests.clone(),
+                weights.clone(),
+                salt,
+                version_key
+            )
+            .map(|post_info| post_info.actual_weight),
+            Some(<Test as Config>::WeightInfo::reveal_mechanism_weights(
+                dests.len() as u32,
+                1,
+            ))
+        );
 
         // Verify weights stored under the chosen mecid (normalized keeps max=0xFFFF here)
         assert_eq!(
@@ -1278,7 +1292,7 @@ fn test_commit_reveal_above_mechanism_count_fails() {
         ));
 
         // Commit in epoch 0
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::commit_mechanism_weights(
                 RuntimeOrigin::signed(hk1),
                 netuid,
@@ -1290,7 +1304,7 @@ fn test_commit_reveal_above_mechanism_count_fails() {
 
         // Advance one epoch, then attempt to reveal
         step_epochs(1, netuid);
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::reveal_mechanism_weights(
                 RuntimeOrigin::signed(hk1),
                 netuid,
@@ -1474,7 +1488,7 @@ fn test_crv3_above_mechanism_count_fails() {
         ct.serialize_compressed(&mut commit_bytes).expect("serialize");
 
         // Commit (sub variant)
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::commit_timelocked_mechanism_weights(
                 RuntimeOrigin::signed(hotkey1),
                 netuid,
@@ -1531,7 +1545,7 @@ fn test_do_commit_crv3_mechanism_weights_committing_too_fast() {
         ));
 
         // immediate second commit on SAME mecid blocked
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::commit_timelocked_mechanism_weights(
                 RuntimeOrigin::signed(hotkey),
                 netuid,
@@ -1558,7 +1572,7 @@ fn test_do_commit_crv3_mechanism_weights_committing_too_fast() {
 
         // still too fast on original mecid after 2 blocks
         step_block(2);
-        assert_noop!(
+        assert_noop_ignore_postinfo!(
             SubtensorModule::commit_timelocked_mechanism_weights(
                 RuntimeOrigin::signed(hotkey),
                 netuid,
