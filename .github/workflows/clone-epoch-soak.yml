@@ -39,12 +39,22 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     outputs:
       artifact_id: ${{ steps.release.outputs.artifact_id }}
+      artifact_name: ${{ steps.release.outputs.artifact_name }}
+      artifact_sha: ${{ steps.release.outputs.artifact_sha }}
       digest: ${{ steps.release.outputs.digest }}
       size: ${{ steps.release.outputs.size }}
       run_id: ${{ steps.release.outputs.run_id }}
+      deadline_epoch_ms: ${{ steps.deadline.outputs.deadline_epoch_ms }}
     steps:
+      # Keep the complete two-job workflow inside 150 minutes while reserving
+      # ten minutes for clone shutdown and report upload.
+      - name: Set workflow deadline
+        id: deadline
+        run: echo "deadline_epoch_ms=$(( $(date -u +%s) * 1000 + 140 * 60 * 1000 ))" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
 
       - name: Wait for exact release node from Runtime Checks
@@ -71,19 +81,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Reserve ten minutes inside the Actions timeout for cleanup and artifact upload.
-      - name: Set operational deadline
-        run: echo "SOAK_DEADLINE_EPOCH_MS=$(( $(date -u +%s) * 1000 + 140 * 60 * 1000 ))" >> "$GITHUB_ENV"
+      - name: Restore workflow deadline
+        env:
+          DEADLINE_EPOCH_MS: ${{ needs.select-node-release.outputs.deadline_epoch_ms }}
+        run: |
+          [[ "$DEADLINE_EPOCH_MS" =~ ^[1-9][0-9]*$ ]]
+          echo "SOAK_DEADLINE_EPOCH_MS=$DEADLINE_EPOCH_MS" >> "$GITHUB_ENV"
 
       - name: Download exact release node and runtime
         id: release-download
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          EXPECTED_RELEASE_SHA: ${{ needs.select-node-release.outputs.artifact_sha }}
         run: |
           .github/scripts/download-artifact.sh \
             "${{ needs.select-node-release.outputs.artifact_id }}" \
-            "node-subtensor-release-${GITHUB_SHA}" \
+            "${{ needs.select-node-release.outputs.artifact_name }}" \
             "${{ needs.select-node-release.outputs.digest }}" \
             "${{ needs.select-node-release.outputs.size }}" \
             target/release "$GITHUB_OUTPUT"
@@ -176,20 +190,12 @@ jobs:
             tail -n 300 "$file"
           done
 
-      - name: Compress node log
-        if: always()
-        run: |
-          if [ -f clone-node.log ]; then
-            gzip -9 -f clone-node.log
-          fi
-
       - name: Upload soak reports and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: clone-epoch-soak-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            clone-node.log.gz
             clones/js-tests/temp/clone-block-performance-soak.log
             clones/js-tests/temp/clone-block-performance-soak.json
             clones/js-tests/temp/clone-epoch-soak.log

@@ -19,14 +19,16 @@ output_file="$6"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}"
 : "${GITHUB_REPOSITORY_ID:?GITHUB_REPOSITORY_ID must be set}"
 
+release_sha="${EXPECTED_RELEASE_SHA:-${GITHUB_SHA:-}}"
+
 [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]] || usage
 [[ "$expected_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || usage
 [[ "$expected_size" =~ ^[1-9][0-9]*$ ]] || usage
 [[ -n "$destination" && "$destination" != / ]] || usage
 case "$artifact_name" in
   mainnet-snapshot|try-runtime-snap-v0.10.1-mainnet|try-runtime-snap-v0.10.1-testnet|try-runtime-snap-v0.10.1-devnet) ;;
-  "node-subtensor-release-${GITHUB_SHA:-invalid}")
-    [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || usage
+  "node-subtensor-release-${release_sha:-invalid}")
+    [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || usage
     ;;
   *) echo "artifact is outside the host-cache allowlist: $artifact_name" >&2; exit 2 ;;
 esac

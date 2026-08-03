@@ -9,11 +9,12 @@ import {
   bestHeadFailureReasons,
   blockLatencyFailureReasons,
   computeEpochCoverageBudget,
-  computeEpochCoverageTimeout,
   evaluateEpochCoverage,
+  evaluateInitialMigrationState,
   evaluateMigrationGate,
   parsePreparedBlockChunk,
   remainingRequiredBlockSamples,
+  sampleDrainFailureReason,
   summarizeBlockSamples,
   type EpochBaseline,
 } from "../lib/clone-performance.js";
@@ -81,6 +82,9 @@ test("graceful monitor shutdown drains exactly to the minimum sample count", () 
   assert.equal(remainingRequiredBlockSamples(20), 0);
   assert.equal(remainingRequiredBlockSamples(25), 0);
   assert.throws(() => remainingRequiredBlockSamples(-1), /invalid observed/);
+  assert.equal(sampleDrainFailureReason(19, 119_999), undefined);
+  assert.match(sampleDrainFailureReason(19, 120_000) ?? "", /expected proposer log format/);
+  assert.equal(sampleDrainFailureReason(20, 120_000), undefined);
 });
 
 test("flags the 4725ms proposer duration observed on PR 3019", () => {
@@ -176,7 +180,20 @@ test("tracks complete epoch cycles and exposes removal, missing, and regression 
   assert.deepEqual(missing.missingNetuids, [2]);
 });
 
-test("requires an internally consistent migration completion state", () => {
+test("supports absent, cursorless instant, and multi-block migration states", () => {
+  assert.deepEqual(evaluateInitialMigrationState(false, false), {
+    kind: "not-observed",
+  });
+  assert.deepEqual(evaluateInitialMigrationState(false, true), {
+    kind: "complete",
+    sawCursor: false,
+  });
+  assert.deepEqual(evaluateInitialMigrationState(true, false), {
+    kind: "waiting",
+    sawCursor: true,
+  });
+  assert.equal(evaluateInitialMigrationState(true, true).kind, "invalid");
+
   assert.deepEqual(evaluateMigrationGate(false, false, false), {
     kind: "waiting",
     sawCursor: false,
@@ -210,25 +227,4 @@ test("budgets tempo, two-per-block deferral, margin, and accelerated wall time",
     () => computeEpochCoverageBudget([{ netuid: 1, tempo: 0, epochIndex: 0n }], 2, 2),
     /invalid tempo/,
   );
-});
-
-test("sizes epoch coverage timeout from observed block pace with a two-times allowance", () => {
-  const budget = computeEpochCoverageBudget(
-    [{ netuid: 1, tempo: 1800, epochIndex: 0n }],
-    2,
-    2,
-  );
-  const timeout = computeEpochCoverageTimeout(budget, 100, 50_000, 10_000_000);
-
-  assert.equal(timeout.observedBlockWallMs, 500);
-  assert.equal(timeout.projectedBlockWallMs, 500);
-  assert.equal(timeout.projectedCoverageWallMs, budget.blockBudget * 500);
-  assert.equal(timeout.requestedTimeoutMs, budget.blockBudget * 1_000);
-  assert.equal(timeout.effectiveTimeoutMs, timeout.requestedTimeoutMs);
-  assert.equal(timeout.constrainedByOperationalDeadline, false);
-
-  const capped = computeEpochCoverageTimeout(budget, 0, 0, 60_000);
-  assert.equal(capped.projectedBlockWallMs, 250);
-  assert.equal(capped.effectiveTimeoutMs, 60_000);
-  assert.equal(capped.constrainedByOperationalDeadline, true);
 });

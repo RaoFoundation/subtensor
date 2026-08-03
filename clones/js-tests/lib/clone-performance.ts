@@ -7,8 +7,8 @@ export const DEFAULT_HEAD_VIOLATION_MS = 12_000;
 export const DEFAULT_HEAD_TIMEOUT_MS = 12_000;
 export const COLLECT_HEAD_TIMEOUT_MS = 120_000;
 export const DEFAULT_MIN_BLOCK_SAMPLES = 20;
+export const DEFAULT_SAMPLE_DRAIN_TIMEOUT_MS = 120_000;
 export const ACCELERATED_SEALING_MS = 250;
-export const SOAK_TIMEOUT_MULTIPLIER = 2;
 
 export function remainingRequiredBlockSamples(
   observedSamples: number,
@@ -21,6 +21,28 @@ export function remainingRequiredBlockSamples(
     throw new Error(`invalid minimum block samples: ${minimumSamples}`);
   }
   return Math.max(0, minimumSamples - observedSamples);
+}
+
+export function sampleDrainFailureReason(
+  observedSamples: number,
+  elapsedMs: number,
+  minimumSamples = DEFAULT_MIN_BLOCK_SAMPLES,
+  timeoutMs = DEFAULT_SAMPLE_DRAIN_TIMEOUT_MS,
+): string | undefined {
+  const missingSamples = remainingRequiredBlockSamples(observedSamples, minimumSamples);
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+    throw new Error(`invalid sample drain elapsed time: ${elapsedMs}`);
+  }
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`invalid sample drain timeout: ${timeoutMs}`);
+  }
+  if (missingSamples === 0 || elapsedMs < timeoutMs) {
+    return undefined;
+  }
+  return (
+    `expected proposer log format produced ${observedSamples} sample(s); ` +
+    `required ${minimumSamples} within ${timeoutMs}ms after the workload completed`
+  );
 }
 
 export interface BlockConstructionSample {
@@ -88,22 +110,14 @@ export interface EpochCoverageBudget {
   nominalWallMs: number;
 }
 
-export interface EpochCoverageTimeout {
-  observedBlocks: number;
-  observedWallMs: number;
-  observedBlockWallMs: number;
-  projectedBlockWallMs: number;
-  projectedCoverageWallMs: number;
-  timeoutMultiplier: number;
-  requestedTimeoutMs: number;
-  effectiveTimeoutMs: number;
-  constrainedByOperationalDeadline: boolean;
-}
-
 export type MigrationGateEvaluation =
   | { kind: "waiting"; sawCursor: boolean }
   | { kind: "complete"; sawCursor: boolean }
   | { kind: "invalid"; sawCursor: boolean; reason: string };
+
+export type InitialMigrationEvaluation =
+  | { kind: "not-observed" }
+  | MigrationGateEvaluation;
 
 export class NodeLogTail {
   private position: number;
@@ -394,6 +408,16 @@ export function evaluateMigrationGate(
   return { kind: "waiting", sawCursor };
 }
 
+export function evaluateInitialMigrationState(
+  cursorExists: boolean,
+  completionFlag: boolean,
+): InitialMigrationEvaluation {
+  if (!cursorExists && !completionFlag) {
+    return { kind: "not-observed" };
+  }
+  return evaluateMigrationGate(cursorExists, completionFlag, false);
+}
+
 export function computeEpochCoverageBudget(
   baseline: readonly EpochBaseline[],
   requiredCycles: number,
@@ -431,46 +455,6 @@ export function computeEpochCoverageBudget(
     unpaddedBlocks,
     blockBudget,
     nominalWallMs: blockBudget * ACCELERATED_SEALING_MS,
-  };
-}
-
-export function computeEpochCoverageTimeout(
-  budget: EpochCoverageBudget,
-  observedBlocks: number,
-  observedWallMs: number,
-  remainingWallMs: number,
-  timeoutMultiplier = SOAK_TIMEOUT_MULTIPLIER,
-): EpochCoverageTimeout {
-  if (!Number.isSafeInteger(observedBlocks) || observedBlocks < 0) {
-    throw new Error(`invalid observed migration blocks: ${observedBlocks}`);
-  }
-  if (!Number.isFinite(observedWallMs) || observedWallMs < 0) {
-    throw new Error(`invalid observed migration wall time: ${observedWallMs}`);
-  }
-  if (!Number.isFinite(remainingWallMs) || remainingWallMs < 0) {
-    throw new Error(`invalid remaining wall time: ${remainingWallMs}`);
-  }
-  if (!Number.isFinite(timeoutMultiplier) || timeoutMultiplier < 1) {
-    throw new Error(`invalid soak timeout multiplier: ${timeoutMultiplier}`);
-  }
-
-  const observedBlockWallMs =
-    observedBlocks === 0 ? ACCELERATED_SEALING_MS : Math.ceil(observedWallMs / observedBlocks);
-  const projectedBlockWallMs = Math.max(ACCELERATED_SEALING_MS, observedBlockWallMs);
-  const projectedCoverageWallMs = budget.blockBudget * projectedBlockWallMs;
-  const requestedTimeoutMs = Math.ceil(projectedCoverageWallMs * timeoutMultiplier);
-  const effectiveTimeoutMs = Math.min(requestedTimeoutMs, Math.floor(remainingWallMs));
-
-  return {
-    observedBlocks,
-    observedWallMs: Math.ceil(observedWallMs),
-    observedBlockWallMs,
-    projectedBlockWallMs,
-    projectedCoverageWallMs,
-    timeoutMultiplier,
-    requestedTimeoutMs,
-    effectiveTimeoutMs,
-    constrainedByOperationalDeadline: effectiveTimeoutMs < requestedTimeoutMs,
   };
 }
 

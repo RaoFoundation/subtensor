@@ -71,6 +71,13 @@ cmp "$tmp/payload/mainnet-snapshot.tar.gz" "$tmp/local/mainnet-snapshot.tar.gz"
 grep -qx 'source=local-hit' "$tmp/output"
 cmp "$tmp/payload/mainnet-snapshot.tar.gz" "$tmp/release/mainnet-snapshot.tar.gz"
 
+export EXPECTED_RELEASE_SHA=cccccccccccccccccccccccccccccccccccccccc
+: > "$tmp/output"
+"$helper" 123 node-subtensor-release-cccccccccccccccccccccccccccccccccccccccc "$digest" "$size" \
+  "$tmp/manual-release" "$tmp/output" >/dev/null
+grep -qx 'source=local-hit' "$tmp/output"
+unset EXPECTED_RELEASE_SHA
+
 : > "$tmp/output"
 "$helper" 123 try-runtime-snap-v0.10.1-mainnet "$digest" "$size" \
   "$tmp/try-runtime" "$tmp/output" >/dev/null

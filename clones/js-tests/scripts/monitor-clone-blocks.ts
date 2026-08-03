@@ -10,11 +10,13 @@ import {
   DEFAULT_HEAD_VIOLATION_MS,
   DEFAULT_HEAD_WARNING_MS,
   DEFAULT_MIN_BLOCK_SAMPLES,
+  DEFAULT_SAMPLE_DRAIN_TIMEOUT_MS,
   BestHeadLiveness,
   NodeLogTail,
   bestHeadFailureReasons,
   blockLatencyFailureReasons,
   remainingRequiredBlockSamples,
+  sampleDrainFailureReason,
   summarizeBlockSamples,
   type BlockConstructionSample,
 } from "../lib/clone-performance.js";
@@ -45,6 +47,7 @@ interface MonitorReport {
     headViolationMs: number;
     headTimeoutMs: number;
     minimumSamples: number;
+    sampleDrainTimeoutMs: number;
   };
   bestHead: {
     lastBlock: number | null;
@@ -72,6 +75,7 @@ async function main() {
     headTimeoutMs,
   );
   let shutdownRequested = false;
+  let shutdownRequestedAtMs: number | undefined;
   let shutdownNoticePrinted = false;
   let disconnecting = false;
   let fatalError: Error | undefined;
@@ -80,6 +84,7 @@ async function main() {
 
   const requestStop = () => {
     shutdownRequested = true;
+    shutdownRequestedAtMs ??= Date.now();
   };
   process.once("SIGINT", requestStop);
   process.once("SIGTERM", requestStop);
@@ -154,6 +159,16 @@ async function main() {
           `Graceful shutdown requested; waiting for ${missingSamples} more proposer sample(s).`,
         );
       }
+      if (shutdownRequestedAtMs !== undefined) {
+        const drainFailure = sampleDrainFailureReason(
+          samples.length,
+          Date.now() - shutdownRequestedAtMs,
+        );
+        if (drainFailure !== undefined) {
+          fatalError = new Error(drainFailure);
+          break;
+        }
+      }
 
       const tick = liveness.tick(Date.now());
       if (tick.kind === "warning") {
@@ -218,6 +233,7 @@ async function main() {
       headViolationMs: DEFAULT_HEAD_VIOLATION_MS,
       headTimeoutMs,
       minimumSamples: DEFAULT_MIN_BLOCK_SAMPLES,
+      sampleDrainTimeoutMs: DEFAULT_SAMPLE_DRAIN_TIMEOUT_MS,
     },
     bestHead: {
       lastBlock: liveness.getLastBlock() ?? null,

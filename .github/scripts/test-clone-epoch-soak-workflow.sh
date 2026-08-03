@@ -22,19 +22,33 @@ if grep -Eq '^[[:space:]]*(push|schedule):' "$workflow"; then
   exit 1
 fi
 grep -Fq 'default: "2"' "$workflow"
+dispatch=$(sed -n '/^  workflow_dispatch:/,/^concurrency:/p' "$workflow")
+[[ $(grep -Ec '^          - "[123]"$' <<< "$dispatch") -eq 3 ]]
+[[ $(grep -Ec '^      (epoch_cycles|fresh_state):$' <<< "$dispatch") -eq 2 ]]
+grep -Fq 'type: boolean' <<< "$dispatch"
+grep -Fq 'default: false' <<< "$dispatch"
 grep -Fq 'runs-on: ubuntu-latest' "$workflow"
 grep -Fq 'runs-on: [self-hosted, fireactions-turbo-8]' "$workflow"
+if grep -Fq 'fireactions-validatorbench' "$workflow"; then
+  echo "clone epoch soak must use the turbo-8 runner" >&2
+  exit 1
+fi
 grep -Fq 'select-shared-release-artifact.sh "$GITHUB_OUTPUT" 1200' "$workflow"
-grep -Fq '"node-subtensor-release-${GITHUB_SHA}"' "$workflow"
+grep -Fq 'needs.select-node-release.outputs.artifact_name' "$workflow"
+grep -Fq 'EXPECTED_RELEASE_SHA: ${{ needs.select-node-release.outputs.artifact_sha }}' "$workflow"
 grep -Fq 'needs.select-node-release.outputs.digest' "$workflow"
 if grep -Fq 'cargo build --release -p node-subtensor' "$workflow"; then
   echo "clone epoch soak must reuse the exact Runtime Checks release artifact" >&2
   exit 1
 fi
 grep -Fq 'timeout-minutes: 150' "$workflow"
+grep -Fq 'deadline_epoch_ms: ${{ steps.deadline.outputs.deadline_epoch_ms }}' "$workflow"
+grep -Fq 'DEADLINE_EPOCH_MS: ${{ needs.select-node-release.outputs.deadline_epoch_ms }}' "$workflow"
 grep -Fq 'retention-days: 14' "$workflow"
-grep -Fq 'gzip -9 -f clone-node.log' "$workflow"
-grep -Fq 'clone-node.log.gz' "$workflow"
+if grep -Fq 'clone-node.log.gz' "$workflow"; then
+  echo "the raw node log must not be retained as a soak artifact" >&2
+  exit 1
+fi
 grep -Fq 'inputs.fresh_state != true' "$workflow"
 grep -Fq 'snapshot-artifact.sh select' "$workflow"
 grep -Fq 'run-clone-epoch-soak.sh "${{ inputs.epoch_cycles || '\''2'\'' }}"' "$workflow"

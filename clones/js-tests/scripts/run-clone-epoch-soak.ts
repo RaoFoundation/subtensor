@@ -6,13 +6,12 @@ import { xxhashAsHex } from "@polkadot/util-crypto";
 import { connectApi } from "../lib/api.js";
 import {
   computeEpochCoverageBudget,
-  computeEpochCoverageTimeout,
   evaluateEpochCoverage,
+  evaluateInitialMigrationState,
   evaluateMigrationGate,
   type EpochBaseline,
   type EpochCoverageBudget,
   type EpochCoverageEvaluation,
-  type EpochCoverageTimeout,
 } from "../lib/clone-performance.js";
 import { createTempLogger } from "../lib/file-log.js";
 
@@ -29,6 +28,7 @@ interface SoakArguments {
 }
 
 interface MigrationObservation {
+  mode: "not-observed" | "cursorless-complete" | "multi-block";
   sawCursor: boolean;
   startBlock: number;
   completionBlock: number;
@@ -47,9 +47,11 @@ interface EpochSoakReport {
   baselineBlock?: number;
   completionBlock?: number;
   budget?: EpochCoverageBudget;
-  coverageTimeout?: EpochCoverageTimeout & {
+  coverageWindow?: {
     startedAtEpochMs: number;
     deadlineEpochMs: number;
+    availableWallMs: number;
+    nominalWallMs: number;
   };
   chainTiming?: {
     baselineTimestampMs: string;
@@ -90,10 +92,10 @@ async function main() {
     api = await connectApi(process.env.WS_ENDPOINT ?? "ws://127.0.0.1:9944", {
       log: (message) => console.log(message),
     });
-    report.migration = await waitForMigration(api, args.deadlineEpochMs);
+    report.migration = await resolveTrackedMigration(api, args.deadlineEpochMs);
     console.log(
-      `Migration completed at block ${report.migration.completionBlock}; ` +
-        `saw_cursor=${report.migration.sawCursor}`,
+      `Migration gate resolved at block ${report.migration.completionBlock}; ` +
+        `mode=${report.migration.mode} saw_cursor=${report.migration.sawCursor}`,
     );
 
     const baselineHeader = await finalizedHeader(api);
@@ -113,20 +115,15 @@ async function main() {
           `${formatDuration(Math.max(0, remainingWallMs))} remaining`,
       );
     }
-    const coverageTimeout = computeEpochCoverageTimeout(
-      budget,
-      report.migration.observedBlocks,
-      report.migration.observedWallMs,
-      remainingWallMs,
-    );
-    const coverageDeadlineEpochMs = coverageStartedAtEpochMs + coverageTimeout.effectiveTimeoutMs;
+    const coverageDeadlineEpochMs = args.deadlineEpochMs;
 
     report.baselineBlock = baselineBlock;
     report.budget = budget;
-    report.coverageTimeout = {
-      ...coverageTimeout,
+    report.coverageWindow = {
       startedAtEpochMs: coverageStartedAtEpochMs,
       deadlineEpochMs: coverageDeadlineEpochMs,
+      availableWallMs: remainingWallMs,
+      nominalWallMs: budget.nominalWallMs,
     };
     report.baseline = baseline.map(({ netuid, tempo, epochIndex }) => ({
       netuid,
@@ -140,10 +137,7 @@ async function main() {
         `max_tempo=${budget.maxTempo} max_epochs_per_block=${maxEpochsPerBlock} ` +
         `cycles=${args.epochCycles} block_budget=${budget.blockBudget} ` +
         `nominal=${formatDuration(budget.nominalWallMs)} ` +
-        `observed_block_wall=${coverageTimeout.observedBlockWallMs}ms ` +
-        `projected=${formatDuration(coverageTimeout.projectedCoverageWallMs)} ` +
-        `timeout=${formatDuration(coverageTimeout.effectiveTimeoutMs)}` +
-        (coverageTimeout.constrainedByOperationalDeadline ? " (workflow-capped)" : ""),
+        `operational_window=${formatDuration(remainingWallMs)}`,
     );
 
     const blockDeadline = baselineBlock + budget.blockBudget;
@@ -247,7 +241,7 @@ async function main() {
   }
 }
 
-async function waitForMigration(
+async function resolveTrackedMigration(
   api: ApiPromise,
   deadlineEpochMs: number,
 ): Promise<MigrationObservation> {
@@ -255,9 +249,47 @@ async function waitForMigration(
   const startBlock = start.number.toNumber();
   const startedAtEpochMs = Date.now();
   const cursorKey = storagePrefix("SeedBetaBasketV2Migration");
-  let sawCursor = false;
-  let lastBlock = -1;
+  const [initialCursorExists, initialMigrationRan] = await Promise.all([
+    storageExistsAt(api, cursorKey, start.hash),
+    hasMigrationRunAt(api, start.hash),
+  ]);
+  const initial = evaluateInitialMigrationState(initialCursorExists, initialMigrationRan);
+  if (initial.kind === "not-observed") {
+    console.log(
+      `No ${MIGRATION_NAME} cursor or completion marker observed after the runtime upgrade; ` +
+        "continuing with epoch coverage.",
+    );
+    return {
+      mode: "not-observed",
+      sawCursor: false,
+      startBlock,
+      completionBlock: startBlock,
+      observedBlocks: 0,
+      observedWallMs: Date.now() - startedAtEpochMs,
+    };
+  }
+  if (initial.kind === "invalid") {
+    throw new Error(`${initial.reason} at block ${startBlock}`);
+  }
+  if (initial.kind === "complete") {
+    return {
+      mode: "cursorless-complete",
+      sawCursor: false,
+      startBlock,
+      completionBlock: startBlock,
+      observedBlocks: 0,
+      observedWallMs: Date.now() - startedAtEpochMs,
+    };
+  }
+
+  let sawCursor = initial.sawCursor;
+  let lastBlock = startBlock;
   let lastReportedBlock = startBlock - 50;
+
+  console.log(
+    `Waiting for migration: block=${startBlock} cursor=${initialCursorExists} ` +
+      `completed=${initialMigrationRan}`,
+  );
 
   for (;;) {
     ensureWallDeadline(deadlineEpochMs);
@@ -278,6 +310,7 @@ async function waitForMigration(
     if (gate.kind === "complete") {
       const observedWallMs = Date.now() - startedAtEpochMs;
       return {
+        mode: "multi-block",
         sawCursor,
         startBlock,
         completionBlock: block,
@@ -457,15 +490,16 @@ function appendStepSummary(report: EpochSoakReport) {
       "### Post-upgrade epoch soak",
       `- Status: **${report.status}**`,
       `- Requested cycles: ${report.requestedCycles}`,
+      `- Migration mode: ${report.migration?.mode ?? "unresolved"}`,
       `- Migration completion block: ${report.migration?.completionBlock ?? "unresolved"}`,
       `- Baseline / completion block: ${report.baselineBlock ?? "n/a"} / ${report.completionBlock ?? "n/a"}`,
       `- Active non-root subnets: ${report.budget?.activeSubnets ?? "n/a"}`,
       `- Maximum tempo: ${report.budget?.maxTempo ?? "n/a"}`,
       `- Block budget: ${report.budget?.blockBudget ?? "n/a"}`,
-      `- Projected coverage / timeout: ${
-        report.coverageTimeout
-          ? `${formatDuration(report.coverageTimeout.projectedCoverageWallMs)} / ${formatDuration(
-              report.coverageTimeout.effectiveTimeoutMs,
+      `- Nominal coverage / available window: ${
+        report.coverageWindow
+          ? `${formatDuration(report.coverageWindow.nominalWallMs)} / ${formatDuration(
+              report.coverageWindow.availableWallMs,
             )}`
           : "n/a"
       }`,
