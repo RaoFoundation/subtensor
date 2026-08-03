@@ -50,6 +50,29 @@ class ConnectionNotReady(BittensorError):
     """Raised when the client is used before its connection is opened."""
 
 
+class RpcConnectionError(BittensorError):
+    """Raised when the public RPC transport cannot complete an operation."""
+
+
+class RpcPolicyError(RpcConnectionError):
+    """Raised when an RPC endpoint explicitly refuses traffic under a policy."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retry_after: str | None = None,
+        policy: str | None = None,
+        reason: str | None = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+        self.policy = policy
+        self.reason = reason
+
+
 # Rustc help conventions: lowercase, no trailing punctuation, states the fix.
 # Commands are backticked so the CLI renders them in the command style.
 REMEDIATION: dict[ErrorCode, str] = {

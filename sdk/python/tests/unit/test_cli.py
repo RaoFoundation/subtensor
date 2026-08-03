@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 import bittensor.cli.context as cli_context
-from bittensor import __version__, wallets
+from bittensor import RpcConnectionError, RpcPolicyError, __version__, wallets
 from bittensor.cli.main import app
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
@@ -108,6 +108,96 @@ class TestOffline:
 
 
 class TestQueries:
+    def test_rpc_policy_refusal_is_actionable(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError(
+                    "RPC endpoint rate limited this source (HTTP 429)",
+                    retry_after="60",
+                )
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "rate limited this source (HTTP 429)" in result.output
+        assert "wait 60 seconds, then retry" in result.output
+
+    def test_rpc_policy_refusal_without_retry_after_suggests_reducing_rate(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError("RPC endpoint rate limited this source (HTTP 429)")
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "reduce the request or connection rate, then retry" in result.output
+
+    def test_rpc_policy_http_date_retry_after_is_preserved(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError(
+                    "RPC endpoint rate limited this source (HTTP 429)",
+                    retry_after="Wed, 21 Oct 2026 07:28:00 GMT",
+                )
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "retry after Wed, 21 Oct 2026 07:28:00 GMT" in result.output
+
+    def test_public_rpc_connection_error_is_actionable(self, monkeypatch):
+        class FailedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcConnectionError("all configured endpoints refused the connection")
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", FailedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "could not reach finney: all configured endpoints refused" in result.output
+        assert "check the endpoint and network connection, then retry" in result.output
+
+    def test_bare_connection_timeout_is_not_blank(self, monkeypatch):
+        class TimeoutClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise TimeoutError
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", TimeoutClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert (
+            "could not reach finney: the connection timed out without a response" in result.output
+        )
+
     def test_scalar_query_json(self, fake: FakeSubstrate):
         fake.seed("SubtensorModule", "TxRateLimit", None, 1234)
         result = invoke("--json", "query", "tx-rate-limit")
