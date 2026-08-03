@@ -643,6 +643,8 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<SwapResult<TaoBalance, AlphaBalance>, DispatchError> {
+        #[cfg(test)]
+        crate::tests::mock::inc_basket_swap_ops();
         // Step 1: Get the mechanism type for the subnet (0 for Stable, 1 for Dynamic)
         let mechanism_id: u16 = SubnetMechanism::<T>::get(netuid);
         let swap_result = if mechanism_id == 1 {
@@ -694,6 +696,8 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<SwapResult<AlphaBalance, TaoBalance>, DispatchError> {
+        #[cfg(test)]
+        crate::tests::mock::inc_basket_swap_ops();
         // Step 1: Get the mechanism type for the subnet (0 for Stable, 1 for Dynamic)
         let mechanism_id: u16 = SubnetMechanism::<T>::get(netuid);
         // Step 2: Swap alpha and attain tao

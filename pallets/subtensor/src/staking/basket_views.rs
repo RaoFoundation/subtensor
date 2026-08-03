@@ -27,6 +27,8 @@ impl<T: Config> Pallet<T> {
         if SubnetMechanism::<T>::get(netuid) != 1 {
             return alpha;
         }
+        #[cfg(test)]
+        crate::tests::mock::inc_basket_quote_ops();
         let order = GetTaoForAlpha::<T>::with_amount(alpha);
         T::SwapInterface::sim_swap(netuid.into(), order)
             .map(|res| res.amount_paid_out.to_u64())

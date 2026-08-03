@@ -1,4 +1,5 @@
 mod auto_stake_hotkey;
+mod basket_flush;
 mod batch_tx;
 mod children;
 mod claim_root;

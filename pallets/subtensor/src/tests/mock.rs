@@ -31,7 +31,11 @@ use sp_runtime::{
     BuildStorage, Percent,
     traits::{BlakeTwo256, IdentityLookup},
 };
-use sp_std::{cell::RefCell, cmp::Ordering, sync::OnceLock};
+use sp_std::{
+    cell::{Cell, RefCell},
+    cmp::Ordering,
+    sync::OnceLock,
+};
 use sp_tracing::tracing_subscriber;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, TaoBalance};
@@ -487,6 +491,41 @@ impl pallet_preimage::Config for Test {
 
 thread_local! {
     pub static PROXIES: RefCell<FakeProxier> = const { RefCell::new(FakeProxier(vec![])) };
+    /// Deterministic op counters for basket-flush asymptotics tests.
+    static BASKET_SWAP_OPS: Cell<u64> = const { Cell::new(0) };
+    static BASKET_QUOTE_OPS: Cell<u64> = const { Cell::new(0) };
+    static BASKET_WRITE_OPS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Reset swap/quote/write counters used by pending-basket flush tests.
+pub fn reset_basket_op_counters() {
+    BASKET_SWAP_OPS.set(0);
+    BASKET_QUOTE_OPS.set(0);
+    BASKET_WRITE_OPS.set(0);
+}
+
+pub fn basket_swap_ops() -> u64 {
+    BASKET_SWAP_OPS.get()
+}
+
+pub fn basket_quote_ops() -> u64 {
+    BASKET_QUOTE_OPS.get()
+}
+
+pub fn basket_write_ops() -> u64 {
+    BASKET_WRITE_OPS.get()
+}
+
+pub(crate) fn inc_basket_swap_ops() {
+    BASKET_SWAP_OPS.set(BASKET_SWAP_OPS.get().saturating_add(1));
+}
+
+pub(crate) fn inc_basket_quote_ops() {
+    BASKET_QUOTE_OPS.set(BASKET_QUOTE_OPS.get().saturating_add(1));
+}
+
+pub(crate) fn inc_basket_write_ops() {
+    BASKET_WRITE_OPS.set(BASKET_WRITE_OPS.get().saturating_add(1));
 }
 
 pub struct FakeProxier(pub Vec<(U256, U256)>);

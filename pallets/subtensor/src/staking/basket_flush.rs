@@ -90,6 +90,8 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             let spot: U64F64 = T::SwapInterface::current_alpha_price(netuid.into());
+            #[cfg(test)]
+            crate::tests::mock::inc_basket_quote_ops();
             let value: u64 = spot
                 .saturating_mul(U64F64::saturating_from_num(alpha.to_u64()))
                 .saturating_to_num::<u64>();
@@ -107,6 +109,8 @@ impl<T: Config> Pallet<T> {
         }
         for (netuid, _) in batch.iter() {
             PendingBasketDeposits::<T>::remove(hotkey, netuid);
+            #[cfg(test)]
+            crate::tests::mock::inc_basket_write_ops();
         }
 
         work = work.saturating_add(Self::deposit_root_alpha_batch(hotkey, &batch));
@@ -135,16 +139,26 @@ impl<T: Config> Pallet<T> {
         let Some((hotkey, _)) = keys.next() else {
             // End of the map (or empty queue): restart from the top next block.
             PendingBasketFlushCursor::<T>::kill();
+            #[cfg(test)]
+            crate::tests::mock::inc_basket_write_ops();
             return;
         };
         drop(keys);
 
         let (_work, last_key) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         match last_key {
-            Some(last_key) => PendingBasketFlushCursor::<T>::put(last_key),
+            Some(last_key) => {
+                PendingBasketFlushCursor::<T>::put(last_key);
+                #[cfg(test)]
+                crate::tests::mock::inc_basket_write_ops();
+            }
             // Nothing was queued under this hotkey after all (racing removal);
             // clear the cursor so the next pass restarts cleanly.
-            None => PendingBasketFlushCursor::<T>::kill(),
+            None => {
+                PendingBasketFlushCursor::<T>::kill();
+                #[cfg(test)]
+                crate::tests::mock::inc_basket_write_ops();
+            }
         }
     }
 
@@ -160,14 +174,14 @@ impl<T: Config> Pallet<T> {
     /// buying each subnet's alpha and staking it to the validator under the global escrow
     /// coldkey (a root-destination slice is held directly as the fund's root-stake cash
     /// position). The deposit then mints *fund shares* against the whole basket:
-    /// `shares = value_added * P / N`, where `N` is the fund's pre-buy realizable NAV, `P` the
-    /// outstanding shares, and `value_added` the realizable NAV the deposit actually added
-    /// (post-buy NAV minus the pre-buy snapshot), so the deposit bears its own buy
-    /// slippage/fees instead of socializing them, and existing holders are neither diluted nor
-    /// taxed. Stakers accrue entitlement through the single per-validator
-    /// `BasketRate += shares / total_root_stake` accumulator; no entitlement is ever denominated
-    /// in a particular subnet's alpha, which is what allows holdings to be rebalanced without
-    /// touching staker claims.
+    /// `shares = value_added * P / N`, where `N` is the fund's pre-sale realizable NAV, `P` the
+    /// outstanding shares, and `value_added` the realizable NAV the full sell-and-redeploy
+    /// actually added (final NAV minus that pre-sale snapshot), so the deposit bears its own
+    /// sell impact, buy slippage, and fees instead of socializing them, and existing holders
+    /// are neither diluted nor taxed. Stakers accrue entitlement through the single
+    /// per-validator `BasketRate += shares / total_root_stake` accumulator; no entitlement is
+    /// ever denominated in a particular subnet's alpha, which is what allows holdings to be
+    /// rebalanced without touching staker claims.
     ///
     /// Uncurated flow (no stored root weights, or explicit weights filtered to nothing): the
     /// dividend *accumulates in place* — the origin alpha is credited directly to the fund's
@@ -255,15 +269,15 @@ impl<T: Config> Pallet<T> {
 
         // Approximate quote units executed, charged whether the deposit commits or rolls
         // back (the quotes ran either way). Uncurated: one NAV sweep plus two quotes per
-        // origin. Curated: the deployment sweeps NAV twice and buys each destination,
-        // plus one sell per origin.
+        // origin. Curated: pre-sale NAV, deployment's pre/post-buy NAV sweeps, one buy per
+        // destination, plus one sell per origin.
         let holdings = Self::get_basket_holdings(hotkey).len() as u64;
         let credits = batch.len() as u64;
         let work = if valid.is_empty() {
             holdings.saturating_add(credits.saturating_mul(2))
         } else {
             holdings
-                .saturating_mul(2)
+                .saturating_mul(3)
                 .saturating_add(valid.len() as u64)
                 .saturating_add(credits)
         };
@@ -319,6 +333,8 @@ impl<T: Config> Pallet<T> {
         alpha: AlphaBalance,
     ) {
         PendingBasketDeposits::<T>::remove(hotkey, netuid);
+        #[cfg(test)]
+        crate::tests::mock::inc_basket_write_ops();
         if alpha.is_zero() {
             return;
         }
@@ -353,11 +369,15 @@ impl<T: Config> Pallet<T> {
         let root_account =
             Self::get_subnet_account_id(NetUid::ROOT).ok_or(Error::<T>::RootNetworkDoesNotExist)?;
 
+        // Snapshot realizable NAV before any origin sell. The fund may already hold
+        // origin-subnet alpha; selling the dividend moves those pools against that holding.
+        // Minting against this pre-sale baseline (with value_added = final − pre-sale) makes
+        // the deposit bear that sale impact instead of taxing existing shareholders. A
+        // non-positive transformation fails the dust check in the mint and rolls back.
+        let pre_sale_nav: u64 = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+
         // 1. Sell each origin credit for TAO, booked as protocol outflow (TAO left that
-        // origin pool). The deployment below snapshots NAV only after all sells: the fund
-        // may itself hold origin-subnet alpha, and the sells move those prices, so marking
-        // N any earlier would misprice the mint against the state the deposit actually
-        // enters.
+        // origin pool).
         let mut tao_total: u64 = 0;
         for (origin_netuid, root_alpha) in batch {
             if root_alpha.is_zero() {
@@ -377,9 +397,10 @@ impl<T: Config> Pallet<T> {
             tao_total = tao_total.saturating_add(tao.to_u64());
         }
 
-        // 2. Deploy the TAO across the basket per the weight vector and value the deposit at
-        // the realizable NAV it actually added.
-        let (nav_before, value_added) = Self::deploy_tao_into_basket(
+        // 2. Deploy the TAO across the basket per the weight vector. `deploy_tao_into_basket`
+        // still returns its post-sale pre-buy snapshot and buy-side delta; fold those into
+        // the full-transformation value against the pre-sale NAV.
+        let (post_sale_nav, deploy_delta) = Self::deploy_tao_into_basket(
             hotkey,
             valid,
             tao_total,
@@ -387,9 +408,18 @@ impl<T: Config> Pallet<T> {
                 origin_netuid: funding_netuid,
             },
         )?;
+        let value_added = post_sale_nav
+            .saturating_add(deploy_delta)
+            .saturating_sub(pre_sale_nav);
 
         // 3. Mint fund shares for the stakers' fraction of the value added.
-        Self::mint_basket_dividend_shares(hotkey, nav_before, value_added, total_root, escrow_root)
+        Self::mint_basket_dividend_shares(
+            hotkey,
+            pre_sale_nav,
+            value_added,
+            total_root,
+            escrow_root,
+        )
     }
 
     /// Transactional body of [`Self::deposit_root_alpha_batch`]'s uncurated flow: each
