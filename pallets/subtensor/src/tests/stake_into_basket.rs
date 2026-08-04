@@ -577,11 +577,7 @@ fn test_root_slot_yield_accrues_to_share_holders() {
         // Bob buys in directly: all-root basket at N/P = 1, so his TAO mints 1:1 exactly.
         let b = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * b));
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
-            hotkey,
-            b.into(),
-        ));
+        assert_ok!(SubtensorModule::do_stake_into_basket(bob, hotkey, b.into(),));
         assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), b);
         let bob_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
         assert_eq!(bob_payout_before, b, "N/P = 1: payout == shares == TAO in");
