@@ -580,10 +580,18 @@ impl<T: Config> Pallet<T> {
                 // redirected to ALPHA (that diversion let thin ALPHA farm outsized yield
                 // off ineligible root stake). Unclaimed root pool then redistributes across
                 // root-registered validators or recycles when none qualify.
+                //
+                // Zero total stake (e.g. a childkey-take recipient with no local alpha/root)
+                // has nothing to split against: keep the whole dividend on the ALPHA path,
+                // matching the prior 0/0 → alpha_divs = dividend behaviour.
                 let weighted_root = root_stake.saturating_mul(tao_weight);
                 let total_alpha = alpha_stake.saturating_add(weighted_root);
-                let alpha_prop = alpha_stake.checked_div(total_alpha).unwrap_or(zero);
-                let alpha_divs = dividend.saturating_mul(alpha_prop);
+                let alpha_divs = if total_alpha == zero {
+                    dividend
+                } else {
+                    let alpha_prop = alpha_stake.checked_div(total_alpha).unwrap_or(zero);
+                    dividend.saturating_mul(alpha_prop)
+                };
                 let root_divs = if Uids::<T>::contains_key(NetUid::ROOT, &hotkey) {
                     dividend.saturating_sub(alpha_divs)
                 } else {
