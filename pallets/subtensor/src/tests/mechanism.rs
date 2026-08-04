@@ -29,6 +29,7 @@
 //   - [x] Mechanism limit can be set up to 8 (with admin pallet)
 //   - [x] When reduction of mechanism limit occurs, Weights, Incentive, LastUpdate, Bonds, and WeightCommits are cleared
 //   - [x] Epoch terms of subnet are weighted sum (or logical OR) of all mechanism epoch terms
+//   - [x] Emission is summed (not weighted) across mechanisms, matching paid emission
 //   - [x] Subnet epoch terms persist in state
 //   - [x] Mechanism epoch terms persist in state
 //   - [x] "Yuma Emergency Mode" (consensus sum is 0 for a mechanism), emission distributed by stake
@@ -803,10 +804,6 @@ fn epoch_with_mechanisms_persists_and_aggregates_all_terms() {
             (U64F64::saturating_from_num(a) * w0 + U64F64::saturating_from_num(b) * w1)
                 .saturating_to_num::<u16>()
         };
-        let wu64 = |a: u64, b: u64| -> u64 {
-            (U64F64::saturating_from_num(a) * w0 + U64F64::saturating_from_num(b) * w1)
-                .saturating_to_num::<u64>()
-        };
 
         // For each UID, compute expected aggregate from out0/out1 terms
         let check_uid = |uid: usize, hk: &U256| {
@@ -820,8 +817,9 @@ fn epoch_with_mechanisms_persists_and_aggregates_all_terms() {
                 t0.new_validator_permit || t1.new_validator_permit
             );
 
-            // Emission (u64)
-            let exp_em = wu64(u64::from(t0.emission), u64::from(t1.emission));
+            // Emission is an absolute alpha amount and is summed across mechanisms,
+            // not weighted, so it matches what the hotkey is actually paid.
+            let exp_em = u64::from(t0.emission).saturating_add(u64::from(t1.emission));
             assert_abs_diff_eq!(u64::from(emission_v[uid]), exp_em, epsilon = 1);
 
             // u16 terms
@@ -884,6 +882,64 @@ fn epoch_with_mechanisms_no_weight_no_incentive() {
         assert_eq!(actual_incentive_sub1[2], PerU16::zero());
         assert_eq!(actual_incentive_sub0.len(), 3);
         assert_eq!(actual_incentive_sub1.len(), 3);
+    });
+}
+
+// Persisted `Emission` is what the metagraph reports per UID. It has to equal the
+// alpha the hotkey is actually paid (server + validator emission summed over every
+// mechanism). Aggregating it as a weighted sum instead under-reported a multi-mechanism
+// subnet by roughly the mechanism count, and — because `Emission` also orders pruning
+// candidates — an uneven split could rank a higher earner below a lower one.
+#[test]
+fn epoch_with_mechanisms_persisted_emission_matches_paid_emission() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1u16);
+        let idx0 = SubtensorModule::get_mechanism_storage_index(netuid, MechId::from(0));
+        let idx1 = SubtensorModule::get_mechanism_storage_index(netuid, MechId::from(1));
+
+        let ck0 = U256::from(1);
+        let hk0 = U256::from(2);
+        let ck1 = U256::from(3);
+        let hk1 = U256::from(4);
+        let hk2 = U256::from(6);
+        let emission = AlphaBalance::from(1_000_000_000u64);
+
+        mock_epoch_state(netuid, ck0, hk0, ck1, hk1);
+        mock_3_neurons(netuid, hk2);
+
+        // Two mechanisms on an uneven 25/75 split, with each miner favored by a
+        // different mechanism so the weighting cannot cancel out.
+        MechanismCountCurrent::<Test>::insert(netuid, MechId::from(2u8));
+        let split0 = u16::MAX / 4;
+        MechanismEmissionSplit::<Test>::insert(netuid, vec![split0, u16::MAX - split0]);
+
+        ValidatorPermit::<Test>::insert(netuid, vec![true, false, false]);
+        Weights::<Test>::insert(
+            idx0,
+            0,
+            vec![(1u16, 0xFFFF / 5 * 3), (2u16, 0xFFFF / 5 * 2)],
+        );
+        Weights::<Test>::insert(idx1, 0, vec![(1u16, 0xFFFF / 5), (2u16, 0xFFFF / 5 * 4)]);
+
+        let agg = SubtensorModule::epoch_with_mechanisms(netuid, emission);
+
+        // What each hotkey is actually credited this epoch.
+        let paid: BTreeMap<U256, u64> = agg
+            .into_iter()
+            .map(|(hk, se, ve)| (hk, u64::from(se).saturating_add(u64::from(ve))))
+            .collect();
+
+        let emission_v = Emission::<Test>::get(netuid);
+
+        for (uid, hk) in [(0_usize, hk0), (1_usize, hk1), (2_usize, hk2)] {
+            let reported = u64::from(emission_v[uid]);
+            let credited = paid.get(&hk).copied().expect("hotkey present in aggregate");
+            assert_abs_diff_eq!(reported, credited, epsilon = 8);
+        }
+
+        // The whole epoch emission is accounted for, not a weighted fraction of it.
+        let total_reported: u64 = emission_v.iter().map(|e| u64::from(*e)).sum();
+        assert_abs_diff_eq!(total_reported, u64::from(emission), epsilon = 16);
     });
 }
 
