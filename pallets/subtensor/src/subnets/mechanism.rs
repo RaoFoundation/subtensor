@@ -264,17 +264,6 @@ impl<T: Config> Pallet<T> {
             .saturating_to_num::<u16>()
     }
 
-    fn weighted_acc_alpha(
-        existing: AlphaBalance,
-        added: AlphaBalance,
-        weight: U64F64,
-    ) -> AlphaBalance {
-        U64F64::saturating_from_num(existing)
-            .saturating_add(U64F64::saturating_from_num(added).saturating_mul(weight))
-            .saturating_to_num::<u64>()
-            .into()
-    }
-
     /// Splits rao_emission between different sub-subnets using `split_emissions` function.
     ///
     /// Runs the epoch function for each sub-subnet and consolidates hotkey_emission
@@ -323,7 +312,14 @@ impl<T: Config> Pallet<T> {
                                 .server_emission
                                 .saturating_add(terms.server_emission);
 
-                            // The rest of the terms need to be aggregated as weighted sum
+                            // Combined emission is an absolute alpha amount, not a ratio:
+                            // per mechanism it equals server_emission + validator_emission, so
+                            // it has to be summed like those two. Weighting it would report a
+                            // fraction of what the hotkey was actually paid.
+                            acc_terms.emission = acc_terms.emission.saturating_add(terms.emission);
+
+                            // The rest of the terms are normalized ratios and are aggregated
+                            // as a weighted sum
                             acc_terms.dividend = Self::weighted_acc_u16(
                                 acc_terms.dividend,
                                 terms.dividend,
@@ -335,11 +331,6 @@ impl<T: Config> Pallet<T> {
                                 sub_weight,
                             );
                             acc_terms.active |= terms.active;
-                            acc_terms.emission = Self::weighted_acc_alpha(
-                                acc_terms.emission,
-                                terms.emission,
-                                sub_weight,
-                            );
                             acc_terms.consensus = Self::weighted_acc_u16(
                                 acc_terms.consensus,
                                 terms.consensus,
@@ -367,11 +358,7 @@ impl<T: Config> Pallet<T> {
                                     sub_weight,
                                 ),
                                 active: terms.active, // booleans are ORed across subs
-                                emission: Self::weighted_acc_alpha(
-                                    0u64.into(),
-                                    terms.emission,
-                                    sub_weight,
-                                ),
+                                emission: terms.emission, // absolute amount, summed across subs
                                 consensus: Self::weighted_acc_u16(0, terms.consensus, sub_weight),
                                 validator_trust: Self::weighted_acc_u16(
                                     0,
