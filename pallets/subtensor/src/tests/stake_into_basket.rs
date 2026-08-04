@@ -64,8 +64,8 @@ fn test_stake_into_basket_round_trip_symmetric() {
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
 
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             amount.into(),
         ));
@@ -120,8 +120,8 @@ fn test_stake_into_basket_empty_fund_par_mint_equals_nav() {
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
 
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             amount.into(),
         ));
@@ -190,8 +190,8 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
         // Bob (no root stake at all) buys in directly.
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             amount.into(),
         ));
@@ -233,21 +233,29 @@ fn test_stake_into_basket_rejections() {
 
         // Hotkey with no account.
         assert_noop!(
-            SubtensorModule::do_stake_into_basket(bob, U256::from(777), 10_000_000u64.into(),),
+            SubtensorModule::stake_into_basket(
+                RuntimeOrigin::signed(bob),
+                U256::from(777),
+                10_000_000u64.into(),
+            ),
             Error::<Test>::HotKeyAccountNotExists
         );
 
         // Below the minimum stake.
         let dust = DefaultMinStake::<Test>::get().to_u64().saturating_sub(1);
         assert_noop!(
-            SubtensorModule::do_stake_into_basket(bob, hotkey, dust.into(),),
+            SubtensorModule::stake_into_basket(RuntimeOrigin::signed(bob), hotkey, dust.into(),),
             Error::<Test>::AmountTooLow
         );
 
         // No balance.
         let pauper = U256::from(2002);
         assert_noop!(
-            SubtensorModule::do_stake_into_basket(pauper, hotkey, 10_000_000u64.into(),),
+            SubtensorModule::stake_into_basket(
+                RuntimeOrigin::signed(pauper),
+                hotkey,
+                10_000_000u64.into(),
+            ),
             Error::<Test>::NotEnoughBalanceToStake
         );
 
@@ -257,8 +265,8 @@ fn test_stake_into_basket_rejections() {
         set_root_weights_direct(&hotkey, 0, &[(NetUid::from(99u16), u16::MAX)]);
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         let deposit = 10_000_000u64;
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             deposit.into(),
         ));
@@ -286,8 +294,8 @@ fn test_stake_into_basket_rejections() {
             deposit.into(),
         );
         let alpha_before = escrow_alpha(&hotkey, netuid);
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             deposit.into(),
         ));
@@ -345,8 +353,8 @@ fn test_stake_into_basket_credit_survives_stake_changes() {
         // Bob buys in directly with zero root stake.
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             amount.into(),
         ));
@@ -430,8 +438,8 @@ fn test_stake_into_basket_gets_no_dividend_accrual() {
 
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             amount.into(),
         ));
@@ -577,8 +585,8 @@ fn test_root_slot_yield_accrues_to_share_holders() {
         // Bob buys in directly: all-root basket at N/P = 1, so his TAO mints 1:1 exactly.
         let b = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * b));
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             b.into(),
         ));
@@ -688,8 +696,8 @@ fn test_stake_into_basket_cannot_skim_compounding() {
         // his immediate payout is ~his TAO — none of alice's compounding.
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
-        assert_ok!(SubtensorModule::do_stake_into_basket(
-            bob,
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(bob),
             hotkey,
             amount.into(),
         ));
@@ -709,5 +717,157 @@ fn test_stake_into_basket_cannot_skim_compounding() {
             epsilon = alice_payout_before / PAYOUT_EPS_DENOM
         );
         assert_shares_fully_owed(&hotkey, &[alice, bob], ROUNDING_EPS);
+    });
+}
+
+/// Extraction guard (the concavity skim): a fund holds a large alpha position on a *thin*
+/// pool, so its full-liquidation NAV mark sits well below the position's spot value. An
+/// attacker deposits, then immediately claims. Pricing the mint against that depressed NAV
+/// mark (the old behavior) would credit shares whose partial redemption — which sells only a
+/// small fraction of the position, at near-spot — realizes more TAO than was deposited,
+/// pulling the difference out of the existing holder. The physical-alpha mint prices the
+/// deposit so its shares redeem to at most the alpha it added: the round trip cannot profit
+/// and the existing holder is left whole.
+#[test]
+fn test_stake_into_basket_cannot_extract_from_existing_holder() {
+    new_test_ext(1).execute_with(|| {
+        let (owner_coldkey, hotkey, netuid) = setup_stake_in_env();
+        let alice = U256::from(2001);
+        let attacker = U256::from(2002);
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner_coldkey,
+            netuid,
+            10_000_000u64.into(),
+        );
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+
+        // Alice becomes the sole share holder via a dividend; the escrow now holds a real
+        // alpha position on `netuid`. Sized so the attacker's fractional deposit below still
+        // clears the min-stake gate.
+        SubtensorModule::distribute_emission(
+            netuid,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            20_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+        flush_baskets();
+        let held = escrow_alpha(&hotkey, netuid);
+        assert!(held > 0, "fund must hold an alpha position to skim");
+
+        // Thin the pool so the held position is large relative to reserves: a full
+        // liquidation now slips ~33%, opening a wide gap between the NAV mark and spot.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(2 * held));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(2 * held));
+
+        let alice_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        let held_before = escrow_alpha(&hotkey, netuid);
+
+        // Attacker deposits a fraction of the held size, then immediately claims back out.
+        let amount = held / 4;
+        add_balance_to_coldkey_account(&attacker, TaoBalance::from(2 * amount));
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(attacker),
+            hotkey,
+            amount.into(),
+        ));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(attacker),
+            hotkey
+        ));
+
+        // The round trip cannot create value: the attacker recovers at most what they put in.
+        let recovered = root_stake_of(&hotkey, &attacker);
+        assert!(
+            recovered <= amount,
+            "deposit->claim must not extract: recovered {recovered} of {amount}"
+        );
+
+        // And the existing holder is left whole — none of alice's alpha was pulled out.
+        let alice_payout_after = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        assert!(
+            alice_payout_after + ROUNDING_EPS >= alice_payout_before,
+            "existing holder must not be robbed: {alice_payout_after} < {alice_payout_before}"
+        );
+        assert!(
+            escrow_alpha(&hotkey, netuid) + ROUNDING_EPS >= held_before,
+            "fund's alpha position must not shrink below its pre-attack level"
+        );
+    });
+}
+
+/// Extraction guard (a large buy): an attacker whose deposit is large relative to both the
+/// pool and the fund's existing position still cannot profit from an immediate deposit->claim
+/// round trip, nor dilute the existing holder. The physical-alpha mint charges the attacker
+/// their own price impact on the way in, which their partial redemption cannot recoup.
+#[test]
+fn test_stake_into_basket_large_deposit_cannot_extract() {
+    new_test_ext(1).execute_with(|| {
+        let (owner_coldkey, hotkey, netuid) = setup_stake_in_env();
+        let alice = U256::from(2001);
+        let attacker = U256::from(2002);
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner_coldkey,
+            netuid,
+            10_000_000u64.into(),
+        );
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+
+        SubtensorModule::distribute_emission(
+            netuid,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            2_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+        flush_baskets();
+        let held = escrow_alpha(&hotkey, netuid);
+        assert!(held > 0);
+
+        // Thin pool + a deposit several times the reserve: the attacker's own buy moves the
+        // price hard against them.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(held));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(held));
+
+        let alice_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+
+        let amount = 4 * held;
+        add_balance_to_coldkey_account(&attacker, TaoBalance::from(2 * amount));
+        assert_ok!(SubtensorModule::stake_into_basket(
+            RuntimeOrigin::signed(attacker),
+            hotkey,
+            amount.into(),
+        ));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(attacker),
+            hotkey
+        ));
+
+        let recovered = root_stake_of(&hotkey, &attacker);
+        assert!(
+            recovered <= amount,
+            "large deposit->claim must not extract: recovered {recovered} of {amount}"
+        );
+        let alice_payout_after = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        assert!(
+            alice_payout_after + ROUNDING_EPS >= alice_payout_before,
+            "existing holder must not be diluted by a large deposit: {alice_payout_after} < {alice_payout_before}"
+        );
     });
 }
