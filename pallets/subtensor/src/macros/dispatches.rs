@@ -2009,9 +2009,14 @@ mod dispatches {
             hotkey: T::AccountId,
             amount_staked: TaoBalance,
         ) -> DispatchResultWithPostInfo {
+            // Temporarily gated pending a state-growth review: direct deposits open one
+            // escrow holding row per weight slot, so the per-call storage footprint is
+            // being reassessed before the path is re-enabled.
             let coldkey = ensure_signed(origin)?;
-            let weight = Self::do_stake_into_basket(coldkey, hotkey, amount_staked)?;
-            Ok((Some(weight), Pays::Yes).into())
+            log::debug!(
+                "stake_into_basket gated (c={coldkey:?} h={hotkey:?} amt={amount_staked:?})"
+            );
+            Err(Error::<T>::CallDisabled.into())
         }
 
         // Call indices 122 (`set_root_claim_type`) and 123 (`sudo_set_num_root_claims`) are

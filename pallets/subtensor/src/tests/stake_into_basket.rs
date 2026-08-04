@@ -64,8 +64,8 @@ fn test_stake_into_basket_round_trip_symmetric() {
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
 
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             amount.into(),
         ));
@@ -120,8 +120,8 @@ fn test_stake_into_basket_empty_fund_par_mint_equals_nav() {
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
 
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             amount.into(),
         ));
@@ -190,8 +190,8 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
         // Bob (no root stake at all) buys in directly.
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             amount.into(),
         ));
@@ -233,29 +233,21 @@ fn test_stake_into_basket_rejections() {
 
         // Hotkey with no account.
         assert_noop!(
-            SubtensorModule::stake_into_basket(
-                RuntimeOrigin::signed(bob),
-                U256::from(777),
-                10_000_000u64.into(),
-            ),
+            SubtensorModule::do_stake_into_basket(bob, U256::from(777), 10_000_000u64.into(),),
             Error::<Test>::HotKeyAccountNotExists
         );
 
         // Below the minimum stake.
         let dust = DefaultMinStake::<Test>::get().to_u64().saturating_sub(1);
         assert_noop!(
-            SubtensorModule::stake_into_basket(RuntimeOrigin::signed(bob), hotkey, dust.into(),),
+            SubtensorModule::do_stake_into_basket(bob, hotkey, dust.into(),),
             Error::<Test>::AmountTooLow
         );
 
         // No balance.
         let pauper = U256::from(2002);
         assert_noop!(
-            SubtensorModule::stake_into_basket(
-                RuntimeOrigin::signed(pauper),
-                hotkey,
-                10_000_000u64.into(),
-            ),
+            SubtensorModule::do_stake_into_basket(pauper, hotkey, 10_000_000u64.into(),),
             Error::<Test>::NotEnoughBalanceToStake
         );
 
@@ -265,8 +257,8 @@ fn test_stake_into_basket_rejections() {
         set_root_weights_direct(&hotkey, 0, &[(NetUid::from(99u16), u16::MAX)]);
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         let deposit = 10_000_000u64;
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             deposit.into(),
         ));
@@ -294,8 +286,8 @@ fn test_stake_into_basket_rejections() {
             deposit.into(),
         );
         let alpha_before = escrow_alpha(&hotkey, netuid);
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             deposit.into(),
         ));
@@ -353,8 +345,8 @@ fn test_stake_into_basket_credit_survives_stake_changes() {
         // Bob buys in directly with zero root stake.
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             amount.into(),
         ));
@@ -438,8 +430,8 @@ fn test_stake_into_basket_gets_no_dividend_accrual() {
 
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             amount.into(),
         ));
@@ -585,8 +577,8 @@ fn test_root_slot_yield_accrues_to_share_holders() {
         // Bob buys in directly: all-root basket at N/P = 1, so his TAO mints 1:1 exactly.
         let b = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * b));
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             b.into(),
         ));
@@ -696,8 +688,8 @@ fn test_stake_into_basket_cannot_skim_compounding() {
         // his immediate payout is ~his TAO — none of alice's compounding.
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
-        assert_ok!(SubtensorModule::stake_into_basket(
-            RuntimeOrigin::signed(bob),
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
             hotkey,
             amount.into(),
         ));
