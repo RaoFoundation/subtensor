@@ -12,7 +12,7 @@ import asyncio
 import inspect
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 # Module import + attribute access (not `from bittensor_core import ...`):
 # ty cannot see into the compiled extension, so named imports fail its check.
@@ -27,6 +27,7 @@ from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents.base import BuiltCall
 from .intents.proxy import check_proxy_type
+from .keyfiles import Keypair
 from .result import (
     BittensorError,
     ChainError,
@@ -52,6 +53,45 @@ _TRANSIENT_SUBSTRINGS = (
     "transaction is outdated",
     "stale",
 )
+
+
+class _ProxyBuildWallet:
+    """Public identity of the proxied account plus the delegate wallet's keys."""
+
+    def __init__(self, wallet: Any, role: str, address: str):
+        self._wallet = wallet
+        self._role = role
+        self._account = Keypair(ss58_address=address)
+
+    @property
+    def hotkey(self):
+        return self._account if self._role == "hotkey" else self._wallet.hotkey
+
+    @property
+    def coldkeypub(self):
+        return self._account if self._role == "coldkey" else self._wallet.coldkeypub
+
+    def __getattr__(self, name: str):
+        return getattr(self._wallet, name)
+
+
+def _proxy_targets(proxy_for: Sequence[str]) -> list[str]:
+    if isinstance(proxy_for, str):
+        raise TypeError("proxy_for must be a sequence of ss58 accounts, not one string")
+    targets = list(proxy_for)
+    if not targets:
+        raise ValueError("proxy_for must contain at least one account")
+    if len(targets) > 256:
+        raise ValueError("proxy_for supports at most 256 accounts per submission batch")
+    if any(not isinstance(target, str) or not target for target in targets):
+        raise TypeError("every proxy_for account must be a non-empty ss58 string")
+    if len(set(targets)) != len(targets):
+        raise ValueError("proxy_for accounts must be unique")
+    # Decode every address before the first submission so malformed input cannot
+    # leave a batch half-applied.
+    for target in targets:
+        Keypair(ss58_address=target)
+    return targets
 
 
 def _is_transient(result: ExtrinsicResult) -> bool:
@@ -101,7 +141,12 @@ async def _compose_intent_call(
 ) -> tuple[Any, dict]:
     """Compose semantic call -> sudo -> proxy -> execution adapter."""
     semantic = _coerce_addresses(intent.semantic_intent())
-    built = await semantic.build(substrate, wallet)
+    build_wallet = (
+        _ProxyBuildWallet(wallet, semantic.signer, proxy_for)
+        if proxy_for is not None
+        else wallet
+    )
+    built = await semantic.build(substrate, build_wallet)
     if isinstance(built, BuiltCall):
         call, extras = built.call, built.extras
     else:
@@ -662,6 +707,35 @@ class Executor:
                 timeout=registration_timeout,
             )
         return result
+
+    async def execute_for_proxies(
+        self,
+        intent: Intent,
+        wallet: WalletLike,
+        proxy_for: Sequence[str],
+        *,
+        proxy_type: str = "Validate",
+        **kwargs,
+    ) -> dict[str, ExtrinsicResult]:
+        """Submit one validator intent for each proxied account, sequentially.
+
+        The delegate wallet signs every outer ``Proxy.proxy`` call. Sequential
+        submission avoids nonce races when all calls use the same delegate key.
+        Chain dispatch failures are returned per account; a local build/signing
+        exception stops the remaining submissions.
+        """
+        check_proxy_type(proxy_type)
+        targets = _proxy_targets(proxy_for)
+        return {
+            target: await self.execute(
+                intent,
+                wallet,
+                proxy_for=target,
+                proxy_type=proxy_type,
+                **kwargs,
+            )
+            for target in targets
+        }
 
     async def execute_tool(
         self, op: str, args: dict, wallet: WalletLike, **kwargs

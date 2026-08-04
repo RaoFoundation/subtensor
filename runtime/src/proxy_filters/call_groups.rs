@@ -630,6 +630,29 @@ call_filter_group!(SudoSetCodeCalls, [
         where nested(call) == RuntimeCall::System(SystemCall::set_code),
 ]);
 
+// `Validate`: operate a validator hotkey without granting stake or value movement.
+call_filter_group!(
+    ValidateCalls,
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::serve_axon),
+        RuntimeCall::SubtensorModule(SubtensorCall::serve_axon_tls),
+        RuntimeCall::SubtensorModule(SubtensorCall::associate_evm_key),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::commit_mechanism_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::batch_commit_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::commit_crv3_mechanism_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::reveal_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::reveal_mechanism_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::batch_reveal_weights),
+        RuntimeCall::Commitments(CommitmentsCall::set_commitment),
+    ]
+);
+
 // Full inventory of every runtime call, used only by the coverage test that
 // checks it against `RuntimeCall` metadata. Nested in three blocks so the
 // flattened tuple stays within the `CallFilterMetadata` tuple-impl arity;

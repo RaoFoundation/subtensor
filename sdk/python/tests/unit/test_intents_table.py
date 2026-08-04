@@ -323,6 +323,45 @@ class TestExecuteFlow:
         assert "nested call failed" in result.message
 
     @pytest.mark.asyncio
+    async def test_validate_proxy_uses_each_real_hotkey_for_weights(
+        self, client: Client, substrate: FakeSubstrate, wallet, monkeypatch
+    ):
+        from bittensor.intents.weights import SetWeights
+        from bittensor.keyfiles import Keypair
+
+        encrypted_for = []
+
+        def encrypt(**kwargs):
+            encrypted_for.append(kwargs["hotkey"])
+            return b"encrypted", 123
+
+        monkeypatch.setattr("bittensor.intents.weights._core.get_encrypted_commit_v2", encrypt)
+
+        substrate.seed("SubtensorModule", "Uids", [1, wallet.hotkey.ss58_address], None)
+        substrate.seed("SubtensorModule", "Uids", [1, BOB_HOT], 0)
+        substrate.seed("SubtensorModule", "Uids", [1, BOB], 1)
+        substrate.seed_default("SubtensorModule", "CommitRevealWeightsEnabled", True)
+        results = await client.execute_for_proxies(
+            SetWeights(netuid=1, uids=[0], weights=[1.0]),
+            wallet,
+            [BOB_HOT, BOB],
+        )
+
+        assert list(results) == [BOB_HOT, BOB]
+        assert all(result.success for result in results.values())
+        assert len(substrate.submissions) == 2
+        assert encrypted_for == [
+            bytes(Keypair(ss58_address=BOB_HOT).public_key),
+            bytes(Keypair(ss58_address=BOB).public_key),
+        ]
+        call, signer, _ = substrate.submissions[-1]
+        assert signer == wallet.hotkey.ss58_address
+        assert (call.module, call.function) == ("Proxy", "proxy")
+        assert call.params["real"] == BOB
+        assert call.params["force_proxy_type"] == "Validate"
+        assert call.params["call"].function == "commit_timelocked_mechanism_weights"
+
+    @pytest.mark.asyncio
     async def test_transient_pool_rejection_is_retried(
         self, client: Client, substrate: FakeSubstrate, wallet
     ):

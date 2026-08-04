@@ -37,6 +37,7 @@ PROXY_TYPES = (
     "SwapHotkey",
     "SubnetLeaseBeneficiary",
     "RootClaim",
+    "Validate",
 )
 
 

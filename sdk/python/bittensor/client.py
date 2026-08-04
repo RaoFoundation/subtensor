@@ -428,6 +428,12 @@ class Client:
         """
         return await self._executor.execute(intent, wallet, **kwargs)
 
+    async def execute_for_proxies(
+        self, intent: Intent, wallet: WalletLike, proxy_for: list[str], **kwargs
+    ) -> dict[str, ExtrinsicResult]:
+        """Submit the same validator intent for a list of proxied hotkeys."""
+        return await self._executor.execute_for_proxies(intent, wallet, proxy_for, **kwargs)
+
     async def execute_tool(
         self, op: str, args: dict, wallet: WalletLike, **kwargs
     ) -> ExtrinsicResult:
