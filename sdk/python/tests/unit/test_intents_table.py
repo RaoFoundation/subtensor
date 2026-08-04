@@ -323,7 +323,7 @@ class TestExecuteFlow:
         assert "nested call failed" in result.message
 
     @pytest.mark.asyncio
-    async def test_validate_proxy_uses_each_real_hotkey_for_weights(
+    async def test_set_weights_transparently_uses_validate_proxies(
         self, client: Client, substrate: FakeSubstrate, wallet, monkeypatch
     ):
         from bittensor.intents.weights import SetWeights
@@ -337,29 +337,79 @@ class TestExecuteFlow:
 
         monkeypatch.setattr("bittensor.intents.weights._core.get_encrypted_commit_v2", encrypt)
 
-        substrate.seed("SubtensorModule", "Uids", [1, wallet.hotkey.ss58_address], None)
+        monkeypatch.setattr(
+            "bittensor.executor.config.load_proxies",
+            lambda: [
+                {
+                    "name": "validator-a",
+                    "address": BOB_HOT,
+                    "spawner": wallet.hotkey.ss58_address,
+                    "proxy_type": "Validate",
+                    "delay": 0,
+                },
+                {
+                    "name": "validator-b",
+                    "address": BOB,
+                    "spawner": wallet.hotkey.ss58_address,
+                    "proxy_type": "Validate",
+                    "delay": 0,
+                },
+            ],
+        )
+        substrate.seed(
+            "Proxy",
+            "Proxies",
+            [BOB_HOT],
+            (
+                [
+                    {
+                        "delegate": wallet.hotkey.ss58_address,
+                        "proxy_type": "Validate",
+                        "delay": 0,
+                    }
+                ],
+                0,
+            ),
+        )
+        substrate.seed(
+            "Proxy",
+            "Proxies",
+            [BOB],
+            (
+                [
+                    {
+                        "delegate": wallet.hotkey.ss58_address,
+                        "proxy_type": "Validate",
+                        "delay": 0,
+                    }
+                ],
+                0,
+            ),
+        )
+        substrate.seed("SubtensorModule", "Uids", [1, wallet.hotkey.ss58_address], 0)
         substrate.seed("SubtensorModule", "Uids", [1, BOB_HOT], 0)
         substrate.seed("SubtensorModule", "Uids", [1, BOB], 1)
         substrate.seed_default("SubtensorModule", "CommitRevealWeightsEnabled", True)
-        results = await client.execute_for_proxies(
-            SetWeights(netuid=1, uids=[0], weights=[1.0]),
-            wallet,
-            [BOB_HOT, BOB],
-        )
+        result = await client.execute(SetWeights(netuid=1, uids=[0], weights=[1.0]), wallet)
 
-        assert list(results) == [BOB_HOT, BOB]
-        assert all(result.success for result in results.values())
-        assert len(substrate.submissions) == 2
+        assert result.success
+        assert len(substrate.submissions) == 1
         assert encrypted_for == [
+            bytes(wallet.hotkey.public_key),
             bytes(Keypair(ss58_address=BOB_HOT).public_key),
             bytes(Keypair(ss58_address=BOB).public_key),
         ]
         call, signer, _ = substrate.submissions[-1]
         assert signer == wallet.hotkey.ss58_address
-        assert (call.module, call.function) == ("Proxy", "proxy")
-        assert call.params["real"] == BOB
-        assert call.params["force_proxy_type"] == "Validate"
-        assert call.params["call"].function == "commit_timelocked_mechanism_weights"
+        assert (call.module, call.function) == ("Utility", "batch_all")
+        direct, *proxied = call.params["calls"]
+        assert direct.function == "commit_timelocked_mechanism_weights"
+        assert [child.params["real"] for child in proxied] == [BOB_HOT, BOB]
+        assert all(child.params["force_proxy_type"] == "Validate" for child in proxied)
+        assert all(
+            child.params["call"].function == "commit_timelocked_mechanism_weights"
+            for child in proxied
+        )
 
     @pytest.mark.asyncio
     async def test_transient_pool_rejection_is_retried(

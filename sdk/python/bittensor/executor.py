@@ -12,13 +12,15 @@ import asyncio
 import inspect
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 
 # Module import + attribute access (not `from bittensor_core import ...`):
 # ty cannot see into the compiled extension, so named imports fail its check.
 import bittensor_core as _core
 
+from . import config
 from ._generated import calls as generated_calls
+from ._generated import storage as generated_storage
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
 from ._transport.utils.receipt import nested_dispatch_error
@@ -73,25 +75,6 @@ class _ProxyBuildWallet:
 
     def __getattr__(self, name: str):
         return getattr(self._wallet, name)
-
-
-def _proxy_targets(proxy_for: Sequence[str]) -> list[str]:
-    if isinstance(proxy_for, str):
-        raise TypeError("proxy_for must be a sequence of ss58 accounts, not one string")
-    targets = list(proxy_for)
-    if not targets:
-        raise ValueError("proxy_for must contain at least one account")
-    if len(targets) > 256:
-        raise ValueError("proxy_for supports at most 256 accounts per submission batch")
-    if any(not isinstance(target, str) or not target for target in targets):
-        raise TypeError("every proxy_for account must be a non-empty ss58 string")
-    if len(set(targets)) != len(targets):
-        raise ValueError("proxy_for accounts must be unique")
-    # Decode every address before the first submission so malformed input cannot
-    # leave a batch half-applied.
-    for target in targets:
-        Keypair(ss58_address=target)
-    return targets
 
 
 def _is_transient(result: ExtrinsicResult) -> bool:
@@ -533,6 +516,102 @@ class Executor:
         if violations:
             raise PolicyError(violations)
 
+    async def _build_validate_weights(self, intent: Any, wallet: Any, delegate: str):
+        """Build normal weights plus configured zero-delay Validate delegations.
+
+        The existing local proxy book is the operator's allowlist. Point reads
+        verify every entry on-chain without scanning the global proxy map or
+        accepting unsolicited delegations. Existing ``set_weights`` call sites
+        remain unchanged.
+        """
+        targets = []
+        for entry in config.load_proxies():
+            if (
+                str(entry.get("spawner")) != delegate
+                or entry.get("proxy_type") != "Validate"
+                or entry.get("delay", 0) != 0
+            ):
+                continue
+            target = entry.get("address")
+            if not isinstance(target, str) or not target:
+                raise BittensorError("configured Validate proxy has no real account address")
+            Keypair(ss58_address=target)
+            if target not in targets:
+                targets.append(target)
+
+        if not targets:
+            return await intent.build(self.substrate, wallet)
+
+        block = await self.substrate.block_number()
+        block_hash = await self.substrate.block_hash(block)
+        proxies_item = generated_storage.Proxy.Proxies
+        values = await self.substrate.query_batch(
+            proxies_item.container,
+            proxies_item.name,
+            [[target] for target in targets],
+            block_hash=block_hash,
+        )
+        if len(values) != len(targets):
+            raise ChainError("Proxy.Proxies returned an incomplete response")
+        for target, value in zip(targets, values):
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise ChainError(f"configured Validate proxy {target} is absent on-chain")
+            definitions = value[0]
+            if not isinstance(definitions, (list, tuple)):
+                raise ChainError("Proxy.Proxies returned invalid proxy definitions")
+            granted = any(
+                isinstance(definition, dict)
+                and str(definition.get("delegate")) == delegate
+                and str(definition.get("proxy_type")) == "Validate"
+                and definition.get("delay") == 0
+                for definition in definitions
+            )
+            if not granted:
+                raise ChainError(f"{target} has not granted {delegate} a zero-delay Validate proxy")
+
+        composed = []
+        extras: dict[str, Any] = {"validate_proxy_for": targets}
+        uids_item = generated_storage.SubtensorModule.Uids
+        registered = await self.substrate.query(
+            uids_item.container,
+            uids_item.name,
+            [intent.netuid, delegate],
+            block_hash=block_hash,
+        )
+        if registered is not None:
+            built = await intent.build(self.substrate, wallet)
+            if isinstance(built, BuiltCall):
+                composed.append(built.call)
+                extras.update(built.extras)
+            else:
+                composed.append(built)
+
+        for index, target in enumerate(targets):
+            built = await intent.build(
+                self.substrate, _ProxyBuildWallet(wallet, intent.signer, target)
+            )
+            if isinstance(built, BuiltCall):
+                inner = built.call
+                extras.update(
+                    {f"proxy:{index}.{key}": value for key, value in built.extras.items()}
+                )
+            else:
+                inner = built
+            composed.append(
+                await self.substrate.compose(
+                    generated_calls.Proxy.proxy(
+                        real=target, force_proxy_type="Validate", call=inner
+                    )
+                )
+            )
+
+        call = (
+            composed[0]
+            if len(composed) == 1
+            else await self.substrate.compose(generated_calls.Utility.batch_all(calls=composed))
+        )
+        return BuiltCall(call, extras)
+
     async def plan(
         self,
         intent: Intent,
@@ -552,15 +631,28 @@ class Executor:
         """
         wallet = as_wallet(wallet)
         intent = _coerce_addresses(intent)
-        call, extras = await _compose_intent_call(
-            self.substrate,
-            intent,
-            wallet,
-            proxy_for=proxy_for,
-            proxy_type=proxy_type,
-        )
         pub = self._public_keypair(wallet, intent.signer)
         signer_address = pub.ss58_address
+        if intent.op == "set_weights" and proxy_for is None:
+            built = await self._build_validate_weights(intent, wallet, signer_address)
+            if isinstance(built, BuiltCall):
+                call, extras = built.call, built.extras
+            else:
+                call, extras = built, {}
+            call = await _wrap_root_call(self.substrate, intent, call)
+            wrapped = await intent.wrap_call(self.substrate, wallet, call)
+            if isinstance(wrapped, BuiltCall):
+                call, extras = wrapped.call, {**extras, **wrapped.extras}
+            else:
+                call = wrapped
+        else:
+            call, extras = await _compose_intent_call(
+                self.substrate,
+                intent,
+                wallet,
+                proxy_for=proxy_for,
+                proxy_type=proxy_type,
+            )
         # The account whose state the call actually touches.
         origin = proxy_for or signer_address
 
@@ -576,6 +668,11 @@ class Executor:
         effects = list(await intent.effects(self.substrate, origin))
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
+        elif extras.get("validate_proxy_for"):
+            effects.append(
+                "also dispatched through Validate proxies for: "
+                + ", ".join(extras["validate_proxy_for"])
+            )
         violations = self._violations(intent, fee, policy)
 
         return Plan(
@@ -707,35 +804,6 @@ class Executor:
                 timeout=registration_timeout,
             )
         return result
-
-    async def execute_for_proxies(
-        self,
-        intent: Intent,
-        wallet: WalletLike,
-        proxy_for: Sequence[str],
-        *,
-        proxy_type: str = "Validate",
-        **kwargs,
-    ) -> dict[str, ExtrinsicResult]:
-        """Submit one validator intent for each proxied account, sequentially.
-
-        The delegate wallet signs every outer ``Proxy.proxy`` call. Sequential
-        submission avoids nonce races when all calls use the same delegate key.
-        Chain dispatch failures are returned per account; a local build/signing
-        exception stops the remaining submissions.
-        """
-        check_proxy_type(proxy_type)
-        targets = _proxy_targets(proxy_for)
-        return {
-            target: await self.execute(
-                intent,
-                wallet,
-                proxy_for=target,
-                proxy_type=proxy_type,
-                **kwargs,
-            )
-            for target in targets
-        }
 
     async def execute_tool(
         self, op: str, args: dict, wallet: WalletLike, **kwargs

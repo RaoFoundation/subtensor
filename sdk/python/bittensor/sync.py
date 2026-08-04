@@ -424,9 +424,6 @@ class SyncClient:
     def execute(self, intent, wallet, **kwargs):
         return self._call(self._client.execute(intent, wallet, **kwargs))
 
-    def execute_for_proxies(self, intent, wallet, proxy_for, **kwargs):
-        return self._call(self._client.execute_for_proxies(intent, wallet, proxy_for, **kwargs))
-
     def execute_tool(self, op, args, wallet, **kwargs):
         return self._call(self._client.execute_tool(op, args, wallet, **kwargs))
 
