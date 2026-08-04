@@ -535,10 +535,47 @@ fn test_root_basket_records_symmetric_protocol_flow() {
         // Now redeem the basket. The fund-level claim sells the staker's pro-rata slice of BOTH
         // holdings back to TAO, booking an outflow on each dest that nets the round-trip back
         // toward zero.
+        let root_account = SubtensorModule::get_subnet_account_id(NetUid::ROOT).unwrap();
+        let account_b = SubtensorModule::get_subnet_account_id(netuid_b).unwrap();
+        let account_c = SubtensorModule::get_subnet_account_id(netuid_c).unwrap();
+        let root_balance_before = SubtensorModule::get_coldkey_balance(&root_account);
+        let balance_b_before = SubtensorModule::get_coldkey_balance(&account_b);
+        let balance_c_before = SubtensorModule::get_coldkey_balance(&account_c);
+        System::reset_events();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey
         ));
+
+        let root_balance_after = SubtensorModule::get_coldkey_balance(&root_account);
+        let source_debits = balance_b_before
+            .saturating_sub(SubtensorModule::get_coldkey_balance(&account_b))
+            .saturating_add(
+                balance_c_before.saturating_sub(SubtensorModule::get_coldkey_balance(&account_c)),
+            );
+        assert_eq!(
+            root_balance_after.saturating_sub(root_balance_before),
+            source_debits,
+            "all source-account debits must land in the root account"
+        );
+        assert!(source_debits > TaoBalance::ZERO);
+        assert!(
+            System::events()
+                .iter()
+                .all(|record| !matches!(record.event, RuntimeEvent::Balances(_))),
+            "an internal basket claim must not emit per-holding Balances events"
+        );
+        assert_eq!(
+            System::events()
+                .iter()
+                .filter(|record| matches!(
+                    record.event,
+                    RuntimeEvent::SubtensorModule(crate::Event::BasketClaimed { .. })
+                ))
+                .count(),
+            1,
+            "the claim must retain one aggregate event"
+        );
 
         let flow_b_after = SubnetProtocolFlow::<Test>::get(netuid_b);
         let flow_c_after = SubnetProtocolFlow::<Test>::get(netuid_c);

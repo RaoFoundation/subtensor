@@ -1,6 +1,7 @@
 use super::*;
 use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
+use frame_support::traits::tokens::{Fortitude, Precision, Preservation, fungible::Unbalanced};
 use frame_support::weights::{Weight, WeightMeter};
 use sp_core::Get;
 use sp_runtime::DispatchError;
@@ -625,7 +626,7 @@ impl<T: Config> Pallet<T> {
                 }
 
                 // Sell the slice to TAO.
-                let tao = match Self::sell_basket_alpha_for_root_tao(*netuid, take.into()) {
+                let tao = match Self::sell_basket_alpha_and_debit_subnet(*netuid, take.into()) {
                     Ok(tao) => tao,
                     Err(err) => return TransactionOutcome::Rollback(Err(err)),
                 };
@@ -647,6 +648,15 @@ impl<T: Config> Pallet<T> {
             // shares would be burned for a zero payout.
             if total_tao == 0 {
                 return TransactionOutcome::Rollback(Ok(0));
+            }
+
+            // Every subnet sale debited its source account without emitting a balance event.
+            // Land the aggregate proceeds in the root account once, instead of writing the root
+            // account (and emitting a Transfer event) once per basket holding.
+            if swapped_tao > 0
+                && let Err(err) = Self::credit_root_account_without_event(swapped_tao.into())
+            {
+                return TransactionOutcome::Rollback(Err(err));
             }
 
             // Stake the redeemed TAO on root for the staker. Only the swapped portion is new TAO
@@ -1032,13 +1042,17 @@ impl<T: Config> Pallet<T> {
                 holding_alpha,
             );
 
-            let tao = match Self::sell_basket_alpha_for_root_tao(netuid, holding_alpha) {
+            let tao = match Self::sell_basket_alpha_and_debit_subnet(netuid, holding_alpha) {
                 Ok(tao) => tao,
                 Err(err) => {
                     log::error!("Error converting basket holding to root: {err:?}");
                     return TransactionOutcome::Rollback(Err(err));
                 }
             };
+
+            if let Err(err) = Self::credit_root_account_without_event(tao) {
+                return TransactionOutcome::Rollback(Err(err));
+            }
 
             // Hold the realized TAO as the fund's root-slot (cash) position.
             Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1060,10 +1074,11 @@ impl<T: Config> Pallet<T> {
         .is_ok()
     }
 
-    /// Sells basket `alpha` on `netuid` for TAO and lands it in the root subnet account, booking
-    /// the protocol outflow. The alpha must already have been removed from the escrow position.
-    /// Shared by claim redemption and dissolution conversion; callers stay transactional.
-    fn sell_basket_alpha_for_root_tao(
+    /// Sells basket `alpha` on `netuid` for TAO, silently debits the source subnet account, and
+    /// books the protocol outflow. The alpha must already have been removed from the escrow
+    /// position. Callers stay transactional and must credit the aggregate proceeds to the root
+    /// account before committing.
+    fn sell_basket_alpha_and_debit_subnet(
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
@@ -1075,15 +1090,30 @@ impl<T: Config> Pallet<T> {
         )
         .inspect_err(|err| log::error!("Error swapping basket alpha for TAO: {err:?}"))?;
 
-        let root_subnet_account_id =
-            Self::get_subnet_account_id(NetUid::ROOT).ok_or(Error::<T>::RootNetworkDoesNotExist)?;
-
-        Self::transfer_tao_from_subnet(netuid, &root_subnet_account_id, out.amount_paid_out.into())
-            .inspect_err(|err| log::error!("Error transferring basket TAO from subnet: {err:?}"))?;
+        let subnet_account =
+            Self::get_subnet_account_id(netuid).ok_or(Error::<T>::SubnetNotExists)?;
+        <T as Config>::Currency::decrease_balance(
+            &subnet_account,
+            out.amount_paid_out.into(),
+            Precision::Exact,
+            Preservation::Expendable,
+            Fortitude::Polite,
+        )
+        .inspect_err(|err| log::error!("Error debiting basket TAO from subnet: {err:?}"))?;
 
         Self::record_protocol_outflow(netuid, out.amount_paid_out);
 
         Ok(out.amount_paid_out)
+    }
+
+    /// Credits physically realized basket TAO to the root subnet account without a Balances
+    /// event. This is paired with the per-source raw debits above inside a storage transaction,
+    /// so issuance is unchanged and any failure rolls the whole move back.
+    fn credit_root_account_without_event(amount: TaoBalance) -> Result<(), DispatchError> {
+        let root_account =
+            Self::get_subnet_account_id(NetUid::ROOT).ok_or(Error::<T>::RootNetworkDoesNotExist)?;
+        <T as Config>::Currency::increase_balance(&root_account, amount.into(), Precision::Exact)?;
+        Ok(())
     }
 
     /// Drop a dissolving subnet's entries from the LEGACY per-subnet claimable rates. The
