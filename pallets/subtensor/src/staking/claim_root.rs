@@ -217,8 +217,9 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// The shared basket deployment engine: splits `tao` across the validator's weight vector
-    /// `valid` (last slot absorbs the rounding remainder so the split sums exactly), buys each
+    /// The shared basket deployment engine: splits `tao` across the slots in `valid` (the
+    /// validator weight vector for dividend deposits, the fund's own mirrored holdings for user
+    /// deposits; last slot absorbs the rounding remainder so the split sums exactly), buys each
     /// subnet slot's alpha into the escrow position, and holds root-slot slices as root stake
     /// (TAO at 1:1, mirroring `swap_tao_for_alpha`'s reserve bookkeeping by hand). Each buy is
     /// booked as protocol inflow: claims book the escrow's sells as outflow regardless of how
@@ -331,29 +332,32 @@ impl<T: Config> Pallet<T> {
         Ok((nav_before, nav_after.saturating_sub(nav_before)))
     }
 
-    /// Stakes `tao` from `coldkey`'s free balance directly into a validator's basket:
-    /// the TAO is deployed across subnets per the validator's root weight vector (exactly
-    /// like a dividend deposit), and the resulting fund shares are credited to the staker
-    /// through their signed claimed watermark — `owed = rate * root_stake - claimed`, so a
-    /// negative watermark credit is an unconditional share grant that needs no root stake
-    /// and survives stake-change rebasing (which is additive).
+    /// Stakes `tao` from `coldkey`'s free balance directly into a validator's basket, and
+    /// credits the resulting fund shares to the staker through their signed claimed watermark
+    /// — `owed = rate * root_stake - claimed`, so a negative watermark credit is an
+    /// unconditional share grant that needs no root stake and survives stake-change rebasing
+    /// (which is additive).
     ///
-    /// An uncurated fund (no usable weight vector — dividends accumulate in place) has no
-    /// vector to deploy a TAO deposit across, so the deposit *mirrors the fund*: it is
-    /// deployed pro-rata across the current holdings by realizable value. A deposit then
-    /// buys exactly the exposure the minted shares represent, existing holders' composition
-    /// is untouched, and the deposit-then-claim round trip stays symmetric with redemption
-    /// (claims redeem pro-rata of every holding) — without this, cycling cash deposits
-    /// through claims would let anyone convert an uncurated fund's alpha into cash and push
-    /// sell pressure through the escrow. An empty fund has nothing to mirror; that deposit
-    /// is held as the fund's root (TAO cash) slot at NAV.
+    /// Once shares exist the deposit *mirrors the fund*: the TAO is deployed pro-rata across
+    /// the current value-bearing holdings by realizable value (worthless rows carry no
+    /// weight), so it buys exactly the pro-rata basket a later claim will sell (claims redeem
+    /// a fraction of every holding). Deploying instead across the validator weight vector —
+    /// which need not match current holdings — would let a claim redeem holdings the deposit
+    /// never funded; the weight vector governs dividend deployment only, not user cash entry.
+    /// The very first deposit has no holders to protect and nothing to mirror, so it follows
+    /// the fund's intended exposure (the curated weight vector) like a dividend would; an
+    /// uncurated or empty fund with no vector holds the deposit as the fund's root (TAO cash)
+    /// slot.
     ///
-    /// Shares are minted at the pre-buy realizable NAV against the realizable value the
-    /// deposit added (`nav_after - nav_before`), so the depositor bears their own entry
-    /// slippage and fees, and a deposit-then-claim round trip nets to ~0 (minus swap fees)
-    /// at any basket size. Unlike dividend deposits there is no attribution split: the
-    /// whole deposit belongs to the depositor. `BasketRate` is untouched — direct shares
-    /// buy fund exposure, they do not change any staker's dividend accrual.
+    /// Shares are minted in physical-alpha space — `P * min_i(bought_i / pre_alpha_i)` over
+    /// the mirrored holdings (see `try_stake_into_basket`) — so a deposit's shares redeem to
+    /// at most the alpha the deposit itself added to every slot. The depositor bears their own
+    /// entry slippage and fees, a deposit-then-claim round trip can never extract an existing
+    /// holder's value at any basket size, and any cross-slot slack is donated to existing
+    /// holders. First deposits (par) and drained-fund revival keep the NAV/par rule. Unlike
+    /// dividend deposits there is no attribution split: the whole deposit belongs to the
+    /// depositor. `BasketRate` is untouched — direct shares buy fund exposure, they do not
+    /// change any staker's dividend accrual.
     pub fn do_stake_into_basket(
         coldkey: T::AccountId,
         hotkey: T::AccountId,
@@ -373,27 +377,38 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotEnoughBalanceToStake
         );
 
-        let mut valid = Self::get_valid_basket_weights(&hotkey);
-        if valid.is_empty() {
-            // Uncurated fund: mirror the fund — deploy pro-rata across current holdings by
-            // realizable value (worthless rows carry no weight). Empty fund: nothing to
-            // mirror, hold the deposit as the fund's root (TAO cash) slot.
-            valid = Self::get_basket_holdings(&hotkey)
-                .into_iter()
+        // Once shares exist, a deposit must mirror the fund: deploy pro-rata across the
+        // current value-bearing holdings by realizable value (worthless rows carry no weight),
+        // so it buys exactly the pro-rata basket a later claim sells (redemption redeems a
+        // fraction of *every* holding). That symmetry is what makes the physical-alpha mint in
+        // `try_stake_into_basket` extraction-proof: the deposit can only buy the exposure its
+        // shares will later redeem. Deploying across the validator weight vector instead —
+        // which need not match current holdings — would let a claim redeem holdings the
+        // deposit never funded, the core extraction vector.
+        //
+        // Before any shares exist there are no holders to protect and nothing to mirror, so
+        // the first deposit follows the fund's intended exposure (the curated weight vector)
+        // exactly as a dividend deposit would. An uncurated or empty fund has no vector and no
+        // holdings, so it falls through to the root (TAO cash) slot.
+        let holdings = Self::get_basket_holdings(&hotkey);
+        let mut valid: Vec<(NetUid, u64)> = if BasketShares::<T>::get(&hotkey) == 0 {
+            Self::get_valid_basket_weights(&hotkey)
+        } else {
+            holdings
+                .iter()
                 .filter_map(|(netuid, alpha)| {
-                    let value = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
-                    (value > 0).then_some((netuid, value))
+                    let value = Self::realizable_tao_for_alpha(*netuid, alpha.to_u64());
+                    (value > 0).then_some((*netuid, value))
                 })
-                .collect();
-            if valid.is_empty() {
-                valid = vec![(NetUid::ROOT, 1)];
-            }
+                .collect()
+        };
+        if valid.is_empty() {
+            valid = vec![(NetUid::ROOT, 1)];
         }
 
-        // Each weight slot can add at most one new holding, so pre-deploy holdings plus the
-        // slot count bounds the holdings the two NAV valuations will sweep.
-        let num_holdings =
-            (Self::get_basket_holdings(&hotkey).len() as u64).saturating_add(valid.len() as u64);
+        // Each slot deploys into at most one holding (mirror reuses existing ones), so
+        // pre-deploy holdings plus the slot count bounds the holdings the NAV valuations sweep.
+        let num_holdings = (holdings.len() as u64).saturating_add(valid.len() as u64);
 
         with_transaction(
             || match Self::try_stake_into_basket(&coldkey, &hotkey, tao, &valid) {
@@ -417,10 +432,24 @@ impl<T: Config> Pallet<T> {
         valid: &[(NetUid, u64)],
     ) -> DispatchResult {
         let shares_outstanding: u64 = BasketShares::<T>::get(hotkey);
+        let escrow = Self::get_beta_escrow_account_id();
 
-        // Deploy the staker's TAO across the basket per the weight vector. ΔNAV valuation
-        // means the depositor bears their own entry slippage/fees and cannot capture value
-        // beyond the TAO they brought.
+        // Snapshot each mirrored slot's escrow alpha before the buys so the mint below can be
+        // priced in the same physical-alpha units a claim later redeems in.
+        let pre_alpha: Vec<(NetUid, u64)> = valid
+            .iter()
+            .map(|(netuid, _)| {
+                (
+                    *netuid,
+                    Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, *netuid)
+                        .to_u64(),
+                )
+            })
+            .collect();
+
+        // Deploy the staker's TAO across the mirrored holdings. `value_added` (ΔNAV) still
+        // meters the deposit's realizable contribution for the par/revival paths, the event,
+        // and the deposited-TAO counter; the depositor bears their own entry slippage/fees.
         let (nav_before, value_added) = Self::deploy_tao_into_basket(
             hotkey,
             valid,
@@ -428,8 +457,55 @@ impl<T: Config> Pallet<T> {
             BasketFunding::User(coldkey),
         )?;
 
-        let shares: u64 =
-            Self::basket_shares_for_value(value_added, nav_before, shares_outstanding);
+        // Share mint. A claim redeems `owed / P` of *every* holding, so to guarantee a
+        // deposit->claim round trip can never pull an existing holder's alpha, the mint is
+        // priced in physical-alpha space rather than against the TAO/NAV mark:
+        //
+        //   shares = P * min_i( bought_i / pre_alpha_i )   over the mirrored holdings.
+        //
+        // With redeemable fraction `f = shares / (P + shares)`, this bounds `f` so that
+        // `f * (pre_alpha_i + bought_i) <= bought_i` for every slot — a claim returns at most
+        // the alpha the deposit itself added, never existing holders'. Valuing against NAV
+        // instead over-credits (on a concave AMM curve ΔNAV re-marks existing alpha up by
+        // exactly the buy's own slippage), which is the extraction vector this replaces. The
+        // `min` donates any cross-slot slack to existing holders — the safe direction.
+        //
+        // The par (first deposit, `P == 0`) and drained-fund revival (`nav_before == 0`)
+        // cases have no live per-share alpha to price against, so they keep the NAV/par rule.
+        let shares: u64 = if shares_outstanding == 0 || nav_before == 0 {
+            Self::basket_shares_for_value(value_added, nav_before, shares_outstanding)
+        } else {
+            // Pick the slot with the smallest fill ratio `bought_i / pre_alpha_i`, comparing
+            // the fractions cross-multiplied in u128 (no rounding), then mint
+            // `P * bought_min / pre_min` with a single flooring `mul_div_u64`. Flooring is the
+            // safe (under-crediting) direction and stays bit-exact for a single-slot fund, so
+            // an all-cash round trip nets to zero to the rao.
+            let mut min_fill: Option<(u64, u64)> = None;
+            for (netuid, pre) in pre_alpha.iter() {
+                if *pre == 0 {
+                    // A holding the deposit newly created: there is no pre-existing alpha for
+                    // a claim to extract, so it never constrains the fill ratio.
+                    continue;
+                }
+                let post =
+                    Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, *netuid)
+                        .to_u64();
+                let bought = post.saturating_sub(*pre);
+                min_fill = Some(match min_fill {
+                    Some((cur_bought, cur_pre))
+                        if u128::from(cur_bought).saturating_mul(u128::from(*pre))
+                            <= u128::from(bought).saturating_mul(u128::from(cur_pre)) =>
+                    {
+                        (cur_bought, cur_pre)
+                    }
+                    _ => (bought, *pre),
+                });
+            }
+            match min_fill {
+                Some((bought, pre)) => Self::mul_div_u64(shares_outstanding, bought, pre),
+                None => 0,
+            }
+        };
         ensure!(shares > 0, Error::<T>::AmountTooLow);
 
         BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_add(shares));
