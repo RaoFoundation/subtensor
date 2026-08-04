@@ -322,9 +322,10 @@ class SetWeights(Intent):
     minimum weight count) and submits via whichever path the subnet runs — a
     plain ``set_weights`` when commit-reveal is off, or a timelock-encrypted
     commit (auto-revealed by the chain at the drand reveal round) when it is on.
-    Zero-delay ``Validate`` delegations saved in the local proxy book are
-    verified on-chain and included automatically, so subnet call sites do not
-    change; the direct and proxied calls are submitted atomically.
+    When the client has ``weight_targets`` configured, its exact combination of
+    the signing hotkey and zero-delay ``Validate`` delegations is verified and
+    submitted atomically; an empty list is a no-op. Subnet call sites do not
+    change.
     Signed by the hotkey, which must be registered on the subnet. Before
     signing it preflights registration and the rate limit, so those failures
     are caught fast with the same error the chain would return; the rate-limit

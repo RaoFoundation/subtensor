@@ -18,7 +18,6 @@ from typing import Any, Optional
 # ty cannot see into the compiled extension, so named imports fail its check.
 import bittensor_core as _core
 
-from . import config
 from ._generated import calls as generated_calls
 from ._generated import storage as generated_storage
 from ._substrate import Substrate
@@ -482,9 +481,27 @@ def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
 
 
 class Executor:
-    def __init__(self, substrate: Substrate, policy: Optional[Policy] = None):
+    def __init__(
+        self,
+        substrate: Substrate,
+        policy: Optional[Policy] = None,
+        weight_targets: Optional[list[str]] = None,
+    ):
         self.substrate = substrate
         self.policy = policy
+        if weight_targets is not None:
+            if not isinstance(weight_targets, list):
+                raise TypeError("weight_targets must be a list of hotkey addresses")
+            if len(weight_targets) > 256:
+                raise ValueError("weight_targets supports at most 256 hotkeys")
+            for target in weight_targets:
+                if not isinstance(target, str) or not target:
+                    raise TypeError("every weight target must be a non-empty ss58 string")
+                Keypair(ss58_address=target)
+            if len(set(weight_targets)) != len(weight_targets):
+                raise ValueError("weight_targets must not contain duplicates")
+            weight_targets = list(weight_targets)
+        self.weight_targets = weight_targets
 
     @staticmethod
     def _public_keypair(wallet: WalletLike, signer: str):
@@ -517,93 +534,72 @@ class Executor:
             raise PolicyError(violations)
 
     async def _build_validate_weights(self, intent: Any, wallet: Any, delegate: str):
-        """Build normal weights plus configured zero-delay Validate delegations.
+        """Build weights for the exact hotkey list configured on this client.
 
-        The existing local proxy book is the operator's allowlist. Point reads
-        verify every entry on-chain without scanning the global proxy map or
-        accepting unsolicited delegations. Existing ``set_weights`` call sites
-        remain unchanged.
+        The signing hotkey is direct; every other target must have granted it a
+        zero-delay Validate proxy. ``None`` preserves the ordinary single-wallet
+        behavior, while an explicit empty list is a no-op.
         """
-        targets = []
-        for entry in config.load_proxies():
-            if (
-                str(entry.get("spawner")) != delegate
-                or entry.get("proxy_type") != "Validate"
-                or entry.get("delay", 0) != 0
-            ):
-                continue
-            target = entry.get("address")
-            if not isinstance(target, str) or not target:
-                raise BittensorError("configured Validate proxy has no real account address")
-            Keypair(ss58_address=target)
-            if target not in targets:
-                targets.append(target)
-
-        if not targets:
+        if self.weight_targets is None:
             return await intent.build(self.substrate, wallet)
+        if not self.weight_targets:
+            return BuiltCall(None, {"weight_targets": [], "no_op": True})
 
-        block = await self.substrate.block_number()
-        block_hash = await self.substrate.block_hash(block)
-        proxies_item = generated_storage.Proxy.Proxies
-        values = await self.substrate.query_batch(
-            proxies_item.container,
-            proxies_item.name,
-            [[target] for target in targets],
-            block_hash=block_hash,
-        )
-        if len(values) != len(targets):
-            raise ChainError("Proxy.Proxies returned an incomplete response")
-        for target, value in zip(targets, values):
-            if not isinstance(value, (list, tuple)) or len(value) != 2:
-                raise ChainError(f"configured Validate proxy {target} is absent on-chain")
-            definitions = value[0]
-            if not isinstance(definitions, (list, tuple)):
-                raise ChainError("Proxy.Proxies returned invalid proxy definitions")
-            granted = any(
-                isinstance(definition, dict)
-                and str(definition.get("delegate")) == delegate
-                and str(definition.get("proxy_type")) == "Validate"
-                and definition.get("delay") == 0
-                for definition in definitions
+        targets = self.weight_targets
+        proxied = [target for target in targets if target != delegate]
+        if proxied:
+            block = await self.substrate.block_number()
+            block_hash = await self.substrate.block_hash(block)
+            proxies_item = generated_storage.Proxy.Proxies
+            values = await self.substrate.query_batch(
+                proxies_item.container,
+                proxies_item.name,
+                [[target] for target in proxied],
+                block_hash=block_hash,
             )
-            if not granted:
-                raise ChainError(f"{target} has not granted {delegate} a zero-delay Validate proxy")
+            if len(values) != len(proxied):
+                raise ChainError("Proxy.Proxies returned an incomplete response")
+            for target, value in zip(proxied, values):
+                if not isinstance(value, (list, tuple)) or len(value) != 2:
+                    raise ChainError(f"configured Validate proxy {target} is absent on-chain")
+                definitions = value[0]
+                if not isinstance(definitions, (list, tuple)):
+                    raise ChainError("Proxy.Proxies returned invalid proxy definitions")
+                granted = any(
+                    isinstance(definition, dict)
+                    and str(definition.get("delegate")) == delegate
+                    and str(definition.get("proxy_type")) == "Validate"
+                    and definition.get("delay") == 0
+                    for definition in definitions
+                )
+                if not granted:
+                    raise ChainError(
+                        f"{target} has not granted {delegate} a zero-delay Validate proxy"
+                    )
 
         composed = []
-        extras: dict[str, Any] = {"validate_proxy_for": targets}
-        uids_item = generated_storage.SubtensorModule.Uids
-        registered = await self.substrate.query(
-            uids_item.container,
-            uids_item.name,
-            [intent.netuid, delegate],
-            block_hash=block_hash,
-        )
-        if registered is not None:
-            built = await intent.build(self.substrate, wallet)
-            if isinstance(built, BuiltCall):
-                composed.append(built.call)
-                extras.update(built.extras)
-            else:
-                composed.append(built)
-
+        extras: dict[str, Any] = {"weight_targets": targets}
         for index, target in enumerate(targets):
-            built = await intent.build(
-                self.substrate, _ProxyBuildWallet(wallet, intent.signer, target)
-            )
+            direct = target == delegate
+            build_wallet = wallet if direct else _ProxyBuildWallet(wallet, intent.signer, target)
+            built = await intent.build(self.substrate, build_wallet)
             if isinstance(built, BuiltCall):
                 inner = built.call
                 extras.update(
-                    {f"proxy:{index}.{key}": value for key, value in built.extras.items()}
+                    {f"target:{index}.{key}": value for key, value in built.extras.items()}
                 )
             else:
                 inner = built
-            composed.append(
-                await self.substrate.compose(
-                    generated_calls.Proxy.proxy(
-                        real=target, force_proxy_type="Validate", call=inner
+            if direct:
+                composed.append(inner)
+            else:
+                composed.append(
+                    await self.substrate.compose(
+                        generated_calls.Proxy.proxy(
+                            real=target, force_proxy_type="Validate", call=inner
+                        )
                     )
                 )
-            )
 
         call = (
             composed[0]
@@ -639,12 +635,6 @@ class Executor:
                 call, extras = built.call, built.extras
             else:
                 call, extras = built, {}
-            call = await _wrap_root_call(self.substrate, intent, call)
-            wrapped = await intent.wrap_call(self.substrate, wallet, call)
-            if isinstance(wrapped, BuiltCall):
-                call, extras = wrapped.call, {**extras, **wrapped.extras}
-            else:
-                call = wrapped
         else:
             call, extras = await _compose_intent_call(
                 self.substrate,
@@ -653,6 +643,26 @@ class Executor:
                 proxy_for=proxy_for,
                 proxy_type=proxy_type,
             )
+        if extras.get("no_op"):
+            return Plan(
+                op=intent.op,
+                summary=intent.summary(),
+                signer=intent.signer,
+                signer_address=signer_address,
+                fee=None,
+                effects=["no weight targets configured; nothing will be submitted"],
+                warnings=[],
+                violations=self._violations(intent, None, policy),
+                call=None,
+                extras=extras,
+            )
+        if intent.op == "set_weights" and proxy_for is None:
+            call = await _wrap_root_call(self.substrate, intent, call)
+            wrapped = await intent.wrap_call(self.substrate, wallet, call)
+            if isinstance(wrapped, BuiltCall):
+                call, extras = wrapped.call, {**extras, **wrapped.extras}
+            else:
+                call = wrapped
         # The account whose state the call actually touches.
         origin = proxy_for or signer_address
 
@@ -668,11 +678,8 @@ class Executor:
         effects = list(await intent.effects(self.substrate, origin))
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
-        elif extras.get("validate_proxy_for"):
-            effects.append(
-                "also dispatched through Validate proxies for: "
-                + ", ".join(extras["validate_proxy_for"])
-            )
+        elif extras.get("weight_targets"):
+            effects.append("weight targets: " + ", ".join(extras["weight_targets"]))
         violations = self._violations(intent, fee, policy)
 
         return Plan(
@@ -746,6 +753,12 @@ class Executor:
         )
         if not plan.ok:
             raise PolicyError(plan.violations)
+        if plan.extras.get("no_op"):
+            return ExtrinsicResult(
+                success=True,
+                message="No weight targets configured; nothing submitted.",
+                data=plan.extras,
+            )
 
         keypair = resolve_signer(wallet, intent.signer)
         attempts = max(0, int(retries)) + 1

@@ -144,6 +144,7 @@ class Client:
         fallback_endpoints: Optional[list[str]] = None,
         archive_endpoints: Optional[list[str]] = None,
         retry_forever: bool = False,
+        weight_targets: Optional[list[str]] = None,
         substrate: Optional[Substrate] = None,
     ):
         """Create a client for a network name (``finney``/``test``/``local``) or a
@@ -158,6 +159,11 @@ class Client:
         pass ``[]`` to pin the client to its single endpoint. With
         ``retry_forever`` connection failures never give up — the client keeps
         cycling through the endpoint pool until one answers.
+
+        ``weight_targets`` configures transparent multi-hotkey validation. The
+        signing hotkey may appear for a direct submission; every other address
+        must grant it a zero-delay ``Validate`` proxy. An explicit empty list
+        makes ``SetWeights`` a no-op; ``None`` keeps normal single-hotkey behavior.
 
         ``substrate`` swaps the chain-access backend: any :class:`Substrate`
         implementation (e.g. an in-memory fake for tests). When set, the
@@ -178,7 +184,7 @@ class Client:
                 archive_endpoints=archive_endpoints,
                 retry_forever=retry_forever,
             )
-        self._executor = Executor(self._substrate, policy=policy)
+        self._executor = Executor(self._substrate, policy=policy, weight_targets=weight_targets)
 
         # Typed read namespaces: projections over the read registry
         # (bittensor.reads), one per category — curated methods plus every

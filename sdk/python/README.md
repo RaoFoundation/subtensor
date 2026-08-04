@@ -271,18 +271,15 @@ These compose with any intent:
   On the CLI: `--proxy-for <ss58|wallet>` on any `btcli tx` command. Manage
   delegations with the `add-proxy` / `remove-proxy` intents and the `proxies` read.
 
-  A zero-delay `Validate` proxy needs no subnet code changes. Add each real
-  validator hotkey to the existing local proxy book once:
-
-  ```console
-  btcli proxy book add --name validator-a --address 5F...REAL \
-    --spawner 5F...DELEGATE --proxy-type Validate
-  ```
-
-  The usual weight call then verifies those grants on-chain and submits the
-  direct and proxied calls together atomically:
+  A zero-delay `Validate` proxy needs no subnet code changes. Configure the
+  exact hotkeys on the client: the signing hotkey is direct and every other
+  hotkey must have granted it a `Validate` proxy. Any mixture is supported;
+  `weight_targets=[]` disables weight submission entirely.
 
   ```python
+  client = bt.Client(
+      weight_targets=[delegate_wallet.hotkey.ss58_address, validator_a, validator_b]
+  )
   result = await client.execute(
       bt.SetWeights(netuid=1, weights={0: 0.2, 1: 0.8}), delegate_wallet
   )

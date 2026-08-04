@@ -324,7 +324,7 @@ class TestExecuteFlow:
 
     @pytest.mark.asyncio
     async def test_set_weights_transparently_uses_validate_proxies(
-        self, client: Client, substrate: FakeSubstrate, wallet, monkeypatch
+        self, substrate: FakeSubstrate, wallet, monkeypatch
     ):
         from bittensor.intents.weights import SetWeights
         from bittensor.keyfiles import Keypair
@@ -337,24 +337,10 @@ class TestExecuteFlow:
 
         monkeypatch.setattr("bittensor.intents.weights._core.get_encrypted_commit_v2", encrypt)
 
-        monkeypatch.setattr(
-            "bittensor.executor.config.load_proxies",
-            lambda: [
-                {
-                    "name": "validator-a",
-                    "address": BOB_HOT,
-                    "spawner": wallet.hotkey.ss58_address,
-                    "proxy_type": "Validate",
-                    "delay": 0,
-                },
-                {
-                    "name": "validator-b",
-                    "address": BOB,
-                    "spawner": wallet.hotkey.ss58_address,
-                    "proxy_type": "Validate",
-                    "delay": 0,
-                },
-            ],
+        client = Client(
+            "local",
+            substrate=substrate,
+            weight_targets=[BOB_HOT, wallet.hotkey.ss58_address, BOB],
         )
         substrate.seed(
             "Proxy",
@@ -395,21 +381,47 @@ class TestExecuteFlow:
         assert result.success
         assert len(substrate.submissions) == 1
         assert encrypted_for == [
-            bytes(wallet.hotkey.public_key),
             bytes(Keypair(ss58_address=BOB_HOT).public_key),
+            bytes(wallet.hotkey.public_key),
             bytes(Keypair(ss58_address=BOB).public_key),
         ]
         call, signer, _ = substrate.submissions[-1]
         assert signer == wallet.hotkey.ss58_address
         assert (call.module, call.function) == ("Utility", "batch_all")
-        direct, *proxied = call.params["calls"]
+        first, direct, last = call.params["calls"]
         assert direct.function == "commit_timelocked_mechanism_weights"
+        proxied = [first, last]
         assert [child.params["real"] for child in proxied] == [BOB_HOT, BOB]
         assert all(child.params["force_proxy_type"] == "Validate" for child in proxied)
         assert all(
             child.params["call"].function == "commit_timelocked_mechanism_weights"
             for child in proxied
         )
+
+    @pytest.mark.asyncio
+    async def test_set_weights_empty_target_list_is_noop(self, substrate: FakeSubstrate, wallet):
+        from bittensor.intents.weights import SetWeights
+
+        client = Client("local", substrate=substrate, weight_targets=[])
+        result = await client.execute(SetWeights(netuid=1, uids=[0], weights=[1.0]), wallet)
+
+        assert result.success
+        assert result.message == "No weight targets configured; nothing submitted."
+        assert result.data == {"weight_targets": [], "no_op": True}
+        assert substrate.submissions == []
+
+    @pytest.mark.asyncio
+    async def test_set_weights_rejects_unverified_proxy_target(
+        self, substrate: FakeSubstrate, wallet
+    ):
+        from bittensor.intents.weights import SetWeights
+        from bittensor.result import ChainError
+
+        client = Client("local", substrate=substrate, weight_targets=[BOB])
+
+        with pytest.raises(ChainError, match="absent on-chain"):
+            await client.execute(SetWeights(netuid=1, uids=[0], weights=[1.0]), wallet)
+        assert substrate.submissions == []
 
     @pytest.mark.asyncio
     async def test_transient_pool_rejection_is_retried(
