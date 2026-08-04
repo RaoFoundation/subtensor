@@ -1,13 +1,14 @@
 use crate::{
     Call, CheckColdkeySwap, CheckDelegateTake, CheckEvmKeyAssociation, CheckRateLimits,
-    CheckServingEndpoints, CheckWeights, Config, Error, Pallet, guards::applicable_call,
+    CheckServingEndpoints, CheckWeights, Config, Error, guards::applicable_call,
 };
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{
     dispatch::{DispatchExtension, DispatchInfo, PostDispatchInfo},
-    traits::{Get, IsSubType, OriginTrait},
+    traits::{IsSubType, OriginTrait},
     weights::Weight,
 };
+use pallet_commitments::CanCommit;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{
     DispatchInfoOf, Dispatchable, Implication, TransactionExtension, ValidateResult,
@@ -22,6 +23,7 @@ use subtensor_runtime_common::CustomTransactionError;
 
 type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
 type OriginOf<T> = <T as frame_system::Config>::RuntimeOrigin;
+type CommitmentPolicy<T> = <T as pallet_commitments::Config>::CanCommit;
 
 #[allow(deprecated)]
 impl<T: Config> From<Error<T>> for CustomTransactionError {
@@ -83,6 +85,7 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
             + IsSubType<pallet_commitments::Call<T>>
             + IsSubType<pallet_shield::Call<T>>,
         OriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+        CommitmentPolicy<T>: CanCommit<T::AccountId, Error = Error<T>>,
     {
         let Some(who) = origin.as_signer() else {
             return Ok(());
@@ -92,12 +95,7 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
         let commitment_call: Option<&pallet_commitments::Call<T>> = call.is_sub_type();
         if let Some(pallet_commitments::Call::set_commitment { netuid, .. }) = commitment_call {
-            if !Pallet::<T>::if_subnet_exist(*netuid) {
-                return Err(Error::<T>::SubnetNotExists);
-            }
-            if !Pallet::<T>::is_hotkey_registered_on_network(*netuid, who) {
-                return Err(Error::<T>::HotKeyNotRegisteredInSubNet);
-            }
+            CommitmentPolicy::<T>::validate(*netuid, who)?;
         }
 
         if let Some(call) = applicable_call(call, CheckWeights::<T>::applies_to) {
@@ -129,7 +127,7 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
             commitment_call,
             Some(pallet_commitments::Call::set_commitment { .. })
         ) {
-            T::DbWeight::get().reads(2)
+            CommitmentPolicy::<T>::validation_weight()
         } else {
             Weight::zero()
         }
@@ -144,6 +142,7 @@ where
         + IsSubType<pallet_commitments::Call<T>>
         + IsSubType<pallet_shield::Call<T>>,
     OriginOf<T>: Clone + OriginTrait<AccountId = T::AccountId>,
+    CommitmentPolicy<T>: CanCommit<T::AccountId, Error = Error<T>>,
 {
     const IDENTIFIER: &'static str = "SubtensorTransactionExtension";
 

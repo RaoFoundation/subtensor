@@ -712,15 +712,34 @@ impl Get<u32> for MaxCommitFields {
 #[subtensor_macros::freeze_struct("c39297f5eb97ee82")]
 pub struct AllowCommitments;
 impl CanCommit<AccountId> for AllowCommitments {
+    type Error = pallet_subtensor::Error<Runtime>;
+
     #[cfg(not(feature = "runtime-benchmarks"))]
-    fn can_commit(netuid: NetUid, address: &AccountId) -> bool {
-        SubtensorModule::if_subnet_exist(netuid)
-            && SubtensorModule::is_hotkey_registered_on_network(netuid, address)
+    fn validate(netuid: NetUid, address: &AccountId) -> Result<(), Self::Error> {
+        if !SubtensorModule::if_subnet_exist(netuid) {
+            return Err(pallet_subtensor::Error::<Runtime>::SubnetNotExists);
+        }
+        if !SubtensorModule::is_hotkey_registered_on_network(netuid, address) {
+            return Err(pallet_subtensor::Error::<Runtime>::HotKeyNotRegisteredInSubNet);
+        }
+        Ok(())
     }
 
     #[cfg(feature = "runtime-benchmarks")]
-    fn can_commit(_: NetUid, _: &AccountId) -> bool {
-        true
+    fn validate(_: NetUid, _: &AccountId) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn validation_weight() -> frame_support::weights::Weight {
+        #[cfg(not(feature = "runtime-benchmarks"))]
+        {
+            <Runtime as frame_system::Config>::DbWeight::get().reads(2)
+        }
+
+        #[cfg(feature = "runtime-benchmarks")]
+        {
+            frame_support::weights::Weight::zero()
+        }
     }
 }
 
