@@ -1168,8 +1168,7 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
-        // Root-registered: root stake only carries dividend weight for hotkeys holding a
-        // root UID.
+        // Root-registered: root-basket credit requires a root UID.
         Uids::<Test>::insert(NetUid::ROOT, hotkey1, 0u16);
         Uids::<Test>::insert(NetUid::ROOT, hotkey2, 1u16);
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
@@ -1253,8 +1252,7 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
-        // Root-registered: root stake only carries dividend weight for hotkeys holding a
-        // root UID.
+        // Root-registered: root-basket credit requires a root UID.
         Uids::<Test>::insert(NetUid::ROOT, hotkey1, 0u16);
         Uids::<Test>::insert(NetUid::ROOT, hotkey2, 1u16);
         SubtensorModule::set_tao_weight(u64::MAX / 2); // Set TAO weight to 0.5
@@ -2335,6 +2333,81 @@ fn test_calculate_dividend_distribution_total_only_alpha() {
             pending_tao.to_u64(),
             epsilon = 1_000
         );
+    });
+}
+
+/// Thin ALPHA + large root stake, hotkey not on root: ALPHA must only claim
+/// `alpha / (alpha + root*tao_weight)` of the dividend — never the whole thing.
+#[test]
+fn test_calculate_dividend_distribution_no_root_uid_does_not_divert_to_alpha() {
+    new_test_ext(1).execute_with(|| {
+        let mut stake_map: BTreeMap<U256, (AlphaBalance, AlphaBalance)> = BTreeMap::new();
+        let mut dividends: BTreeMap<U256, U96F32> = BTreeMap::new();
+
+        let pending_validator_alpha = AlphaBalance::from(1_000_000_000_u64);
+        let pending_root_alpha = AlphaBalance::from(1_000_000_000_u64);
+        let tao_weight: U96F32 = U96F32::from_num(0.18);
+
+        // ~2α / ~4083.7τ root → ~735 weighted root → ~737 eff (Finney-shaped).
+        let thin = U256::from(1);
+        let alpha_stake: u64 = 2_000_000_000;
+        let root_stake: u64 = 4_083_700_000_000;
+        stake_map.insert(thin, (alpha_stake.into(), root_stake.into()));
+        dividends.insert(thin, U96F32::from_num(1_000_000_000_u64));
+        // Intentionally no root UID for `thin`.
+
+        // Peer with only ALPHA and a root UID, same epoch dividend — baseline.
+        let peer = U256::from(2);
+        Uids::<Test>::insert(NetUid::ROOT, peer, 0u16);
+        stake_map.insert(peer, (alpha_stake.into(), 0.into()));
+        dividends.insert(peer, U96F32::from_num(1_000_000_000_u64));
+
+        let (alpha_dividends, root_alpha_dividends) =
+            SubtensorModule::calculate_dividend_distribution(
+                pending_validator_alpha,
+                pending_root_alpha,
+                tao_weight,
+                stake_map,
+                dividends,
+            );
+
+        let thin_alpha = alpha_dividends
+            .get(&thin)
+            .copied()
+            .unwrap_or(U96F32::from_num(0));
+        let peer_alpha = alpha_dividends
+            .get(&peer)
+            .copied()
+            .unwrap_or(U96F32::from_num(0));
+        let thin_root = root_alpha_dividends
+            .get(&thin)
+            .copied()
+            .unwrap_or(U96F32::from_num(0));
+
+        // No root UID ⇒ no root-basket credit.
+        assert_eq!(thin_root.to_num::<u64>(), 0);
+
+        // ALPHA claim is the alpha fraction of eff, not ~50% of the validator pool.
+        let weighted_root = U96F32::from_num(root_stake) * tao_weight;
+        let eff = U96F32::from_num(alpha_stake) + weighted_root;
+        let alpha_frac = U96F32::from_num(alpha_stake) / eff;
+        // peer has alpha_prop=1, thin has alpha_prop=alpha_frac; same D ⇒ shares.
+        let expected_thin_share = alpha_frac / (alpha_frac + U96F32::from_num(1));
+        let expected_thin_alpha =
+            U96F32::from_num(pending_validator_alpha.to_u64()) * expected_thin_share;
+
+        assert_abs_diff_eq!(
+            thin_alpha.to_num::<u64>(),
+            expected_thin_alpha.to_num::<u64>(),
+            epsilon = 1_000
+        );
+        // Must be far below the pre-fix diversion (~half the pool).
+        assert!(
+            thin_alpha.to_num::<u64>() < pending_validator_alpha.to_u64() / 20,
+            "thin α got {} — still diverting ineligible root into ALPHA",
+            thin_alpha.to_num::<u64>()
+        );
+        assert!(peer_alpha > thin_alpha);
     });
 }
 

@@ -572,27 +572,23 @@ impl<T: Config> Pallet<T> {
                 // Get hotkey TAO on root.
                 let root_stake = asfloat!(root_stake);
 
-                // Root dividends are restricted to hotkeys actively registered on the root
-                // network (holders of one of the root subnet's UIDs). Root stake delegated
-                // to an unregistered validator carries no dividend weight: the validator's
-                // whole epoch dividend flows to its alpha stakers instead, and the subnet's
-                // root allocation redistributes across the registered validators. This also
-                // caps the basket-fund population (and the pending-deposit queue) at the
-                // root UID table instead of every staked validator network-wide.
-                let root_alpha = if Uids::<T>::contains_key(NetUid::ROOT, &hotkey) {
-                    // Convert TAO to alpha with weight.
-                    root_stake.saturating_mul(tao_weight)
+                // Always convert root TAO to weighted alpha for the split denominator so
+                // ALPHA only ever claims the true alpha fraction of the hotkey's dividend.
+                // Root-basket credit additionally requires a root UID (caps the basket-fund
+                // population / pending-deposit queue at the root UID table). If the hotkey
+                // is not on root, that root-weighted slice is unassigned — it must not be
+                // redirected to ALPHA (that diversion let thin ALPHA farm outsized yield
+                // off ineligible root stake). Unclaimed root pool then redistributes across
+                // root-registered validators or recycles when none qualify.
+                let weighted_root = root_stake.saturating_mul(tao_weight);
+                let total_alpha = alpha_stake.saturating_add(weighted_root);
+                let alpha_prop = alpha_stake.checked_div(total_alpha).unwrap_or(zero);
+                let alpha_divs = dividend.saturating_mul(alpha_prop);
+                let root_divs = if Uids::<T>::contains_key(NetUid::ROOT, &hotkey) {
+                    dividend.saturating_sub(alpha_divs)
                 } else {
                     zero
                 };
-                // Get total from root and local
-                let total_alpha = alpha_stake.saturating_add(root_alpha);
-                // Compute root prop.
-                let root_prop = root_alpha.checked_div(total_alpha).unwrap_or(zero);
-                // Compute root dividends
-                let root_divs = dividend.saturating_mul(root_prop);
-                // Compute alpha dividends
-                let alpha_divs = dividend.saturating_sub(root_divs);
                 // Record the alpha dividends.
                 alpha_dividends
                     .entry(hotkey.clone())
@@ -998,9 +994,9 @@ impl<T: Config> Pallet<T> {
             );
 
         // If no dividend earner qualifies for root dividends (none is registered on the
-        // root network, or none holds root stake), the whole root allocation is
-        // unassignable: recycle it instead of leaving it counted in `SubnetAlphaOut`
-        // with no owner.
+        // root network, or eligible root-weighted slices are all zero), the whole root
+        // allocation is unassignable: recycle it instead of leaving it counted in
+        // `SubnetAlphaOut` with no owner.
         if !root_alpha.is_zero()
             && root_alpha_dividends
                 .values()
