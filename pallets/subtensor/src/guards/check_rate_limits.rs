@@ -108,20 +108,27 @@ impl<T: Config> CheckRateLimits<T> {
         }
     }
 
-    /// One pending commit per hotkey and mechanism. Calls sharing this tag also share the same
-    /// on-chain rate limit, so the pool keeps only one candidate instead of landing the rest as
-    /// deterministic `CommittingWeightsTooFast` failures.
+    /// One pending commit per hotkey and mechanism when commits are rate limited. Calls sharing
+    /// this tag also share the same on-chain rate limit, so the pool keeps only one candidate
+    /// instead of landing the rest as deterministic `CommittingWeightsTooFast` failures.
     pub(crate) fn provides_tags(who: &T::AccountId, call: &Call<T>) -> Vec<Vec<u8>> {
-        let netuid_index = match call {
+        let (netuid, netuid_index) = match call {
             Call::commit_weights { netuid, .. }
-            | Call::commit_timelocked_weights { netuid, .. } => NetUidStorageIndex::from(*netuid),
+            | Call::commit_timelocked_weights { netuid, .. } => {
+                (*netuid, NetUidStorageIndex::from(*netuid))
+            }
             Call::commit_mechanism_weights { netuid, mecid, .. }
             | Call::commit_timelocked_mechanism_weights { netuid, mecid, .. }
-            | Call::commit_crv3_mechanism_weights { netuid, mecid, .. } => {
-                Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid)
-            }
+            | Call::commit_crv3_mechanism_weights { netuid, mecid, .. } => (
+                *netuid,
+                Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+            ),
             _ => return Vec::new(),
         };
+
+        if Pallet::<T>::get_weights_set_rate_limit(netuid) == 0 {
+            return Vec::new();
+        }
 
         vec![(b"weight-commit", who, netuid_index).encode()]
     }

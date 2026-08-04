@@ -399,6 +399,39 @@ mod tests {
     }
 
     #[test]
+    fn timelocked_commits_with_zero_rate_limit_do_not_conflict_in_pool() {
+        new_test_ext(0).execute_with(|| {
+            let netuid = NetUid::from(1);
+            let hotkey = U256::from(1);
+            let coldkey = U256::from(2);
+
+            add_network(netuid, 1, 0);
+            setup_reserves(
+                netuid,
+                1_000_000_000_000_u64.into(),
+                1_000_000_000_000_u64.into(),
+            );
+            register_ok_neuron(netuid, hotkey, coldkey, 0);
+            SubtensorModule::set_stake_threshold(0);
+            SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+
+            let call =
+                RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights {
+                    netuid,
+                    mecid: MechId::MAIN,
+                    commit: Default::default(),
+                    reveal_round: 1,
+                    commit_reveal_version: 4,
+                });
+
+            let first = validate_signed(hotkey, &call).unwrap();
+            let second = validate_signed(hotkey, &call).unwrap();
+            assert!(first.provides.is_empty());
+            assert!(second.provides.is_empty());
+        });
+    }
+
+    #[test]
     fn weight_matches_top_level_dispatch_extension_checks() {
         new_test_ext(1).execute_with(|| {
             let extension = SubtensorTransactionExtension::<Test>::new();
