@@ -249,8 +249,7 @@ class AddStake(Intent):
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         if self.amount_tao == ALL:
             return [
-                "stakes the entire free balance (minus the existential deposit "
-                "and fee headroom)"
+                "stakes the entire free balance (minus the existential deposit and fee headroom)"
             ]
         return []
 

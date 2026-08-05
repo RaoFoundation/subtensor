@@ -128,8 +128,7 @@ def _resolve_key_secret(
     if private_key is not None:
         if not _PRIVATE_KEY_RE.fullmatch(private_key):
             app_ctx.output.error(
-                "private key must be 64 bytes of hex "
-                "(128 hex characters, optional 0x prefix)"
+                "private key must be 64 bytes of hex (128 hex characters, optional 0x prefix)"
             )
             raise typer.Exit(2)
         return None, None, private_key
@@ -150,9 +149,7 @@ def _resolve_key_secret(
             help="pass one explicitly, or run on a terminal to be prompted",
         )
         raise typer.Exit(2)
-    answer = typer.prompt(
-        f"{kind} mnemonic, hex seed, or private key", hide_input=True
-    ).strip()
+    answer = typer.prompt(f"{kind} mnemonic, hex seed, or private key", hide_input=True).strip()
     if _PRIVATE_KEY_RE.fullmatch(answer):
         return None, None, answer
     if _SEED_RE.fullmatch(answer):

@@ -399,9 +399,7 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         return intent
 
     threshold, signatories, _refs = resolve_multisig_preset(app_ctx, preset)
-    member_name, signer_ss58 = pick_local_signatory(
-        app_ctx, preset=preset, signatories=signatories
-    )
+    member_name, signer_ss58 = pick_local_signatory(app_ctx, preset=preset, signatories=signatories)
 
     # Remember the multisig account name for summaries; the signing wallet is
     # the local member that actually unlocks a coldkey.

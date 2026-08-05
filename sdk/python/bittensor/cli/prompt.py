@@ -184,8 +184,7 @@ def _parse_wallet(app_ctx: AppContext, raw: str, *, require_coldkey: bool = True
             app_ctx.wallet_given = True
             return raw
         suggestions = sorted(
-            set(known)
-            | {str(entry["name"]) for entry in cfg.load_multisigs() if entry.get("name")}
+            set(known) | {str(entry["name"]) for entry in cfg.load_multisigs() if entry.get("name")}
         )
         raise _unknown_name_error("wallet", raw, suggestions)
     try:

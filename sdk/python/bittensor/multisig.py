@@ -106,10 +106,7 @@ def _funding_error(
             f"opening this operation reserves a {_tao(deposit_rao)} deposit on "
             f"top of a ~{_tao(fee_rao)} fee"
         )
-        fund_help = (
-            f"fund {display} with ≥ {amount} — the deposit is returned "
-            "when the op executes"
-        )
+        fund_help = f"fund {display} with ≥ {amount} — the deposit is returned when the op executes"
     else:
         message = (
             "the signing account cannot cover the transaction fee: "
