@@ -523,6 +523,8 @@ class Executor:
             violations=violations,
             call=call,
             extras=extras,
+            spend=intent.spend(),
+            args={k: v for k, v in intent.to_dict().items() if k != "op"},
         )
 
     async def execute(

@@ -316,6 +316,21 @@ def signer_specs(
     return specs
 
 
+def replay_command() -> str:
+    """The command that submits this invocation for real: the current argv plus
+    any prompted answers, minus ``--dry-run`` and ``--json``, quoted for
+    copy-paste. This is what a dry run hands to whoever actually runs it — the
+    confirmation prompt is kept (no ``--yes`` is injected), so the human still
+    sees the summary before signing; automation can append ``--yes --json``.
+    """
+    drop = {"--dry-run", "--json"}
+    tokens = [
+        Path(sys.argv[0]).name,
+        *(token for token in [*sys.argv[1:], *_entered_tokens] if token not in drop),
+    ]
+    return " ".join(shlex.quote(part) for part in tokens)
+
+
 def _flush_command_hint(exit_code: int) -> None:
     """Echo the equivalent non-interactive command so the flags are learnable.
 
