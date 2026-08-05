@@ -37,12 +37,9 @@ fn sign_order<T: crate::Config>(
     } else {
         payload
     };
-    let sig = sp_io::crypto::sr25519_sign(
-        sp_core::crypto::key_types::ACCOUNT,
-        &public,
-        &signed_bytes,
-    )
-    .unwrap();
+    let sig =
+        sp_io::crypto::sr25519_sign(sp_core::crypto::key_types::ACCOUNT, &public, &signed_bytes)
+            .unwrap();
     crate::SignedOrder {
         order: order.clone(),
         signature: MultiSignature::Sr25519(sig),
@@ -217,6 +214,31 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), netuid, bounded_orders);
+    }
+
+    /// Worst case: the record exists and the caller is its signer, so both the
+    /// lookup and the authorisation check run in full before the removal.
+    #[benchmark]
+    fn prune_linked_output() {
+        let (_public, account_id) = benchmark_key(0);
+        let account: T::AccountId = account_id.into();
+        let id = H256::repeat_byte(0x11);
+
+        crate::LinkedOutputs::<T>::insert(
+            id,
+            crate::LinkedOutput {
+                signer: account.clone(),
+                asset: crate::LinkedAsset::Tao,
+                total: BENCHMARK_ORDER_AMOUNT,
+                consumed: 0,
+                expires_at: u64::MAX,
+            },
+        );
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(account), id);
+
+        assert!(crate::LinkedOutputs::<T>::get(id).is_none());
     }
 
     impl_benchmark_test_suite!(

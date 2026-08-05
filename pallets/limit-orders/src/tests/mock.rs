@@ -433,20 +433,6 @@ impl OrderSwapInterface<AccountId> for MockSwap {
         );
     }
 
-    fn transferable_tao_balance(coldkey: &AccountId) -> TaoBalance {
-        // The mock ledger has no existential deposit, so the whole balance is spendable.
-        TaoBalance::from(Self::tao_balance(coldkey))
-    }
-
-    fn available_staked_alpha(
-        coldkey: &AccountId,
-        hotkey: &AccountId,
-        netuid: NetUid,
-    ) -> AlphaBalance {
-        // The mock ledger has no stake locks, so the whole stake is withdrawable.
-        AlphaBalance::from(Self::alpha_balance(coldkey, hotkey, netuid))
-    }
-
     fn register_pallet_hotkey(
         coldkey: &AccountId,
         hotkey: &AccountId,
@@ -556,6 +542,9 @@ impl pallet_limit_orders::Config for Test {
     type PalletHotkey = PalletHotkeyAccount;
     type WeightInfo = ();
     type ChainId = ConstU64<945>;
+    /// One hour of provider-record lifetime. Long enough that a test never trips
+    /// the deadline by accident, short enough that `MockTime` can step past it.
+    type LinkedOutputTtl = ConstU64<3_600_000>;
 }
 
 // ── Shared test helpers ───────────────────────────────────────────────────────

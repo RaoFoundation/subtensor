@@ -1300,6 +1300,12 @@ impl pallet_crowdloan::Config for Runtime {
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
     pub const LimitOrdersMaxOrdersPerBatch: u32 = 100;
+    /// Seven days, in milliseconds. How long a provider order's recorded output
+    /// stays drawable by the linked orders the user signed against it, after which
+    /// anyone may prune the record. Long enough for a price-triggered linked order
+    /// to fire on its own schedule, short enough that abandoned records do not
+    /// accumulate indefinitely.
+    pub const LimitOrdersLinkedOutputTtl: u64 = 7 * 24 * 60 * 60 * 1_000;
 }
 
 pub struct LimitOrdersPalletHotkey;
@@ -1330,6 +1336,7 @@ impl pallet_limit_orders::Config for Runtime {
     type PalletHotkey = LimitOrdersPalletHotkey;
     type WeightInfo = pallet_limit_orders::weights::SubstrateWeight<Runtime>;
     type ChainId = ConfigurableChainId;
+    type LinkedOutputTtl = LimitOrdersLinkedOutputTtl;
 }
 
 fn contracts_schedule<T: pallet_contracts::Config>() -> pallet_contracts::Schedule<T> {

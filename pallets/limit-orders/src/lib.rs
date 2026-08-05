@@ -12,7 +12,7 @@ mod tests;
 pub mod v2;
 pub mod weights;
 
-pub use v2::{OrderAmount, OrderV2, OrderView};
+pub use v2::{LinkedAsset, LinkedOutput, OrderAmount, OrderV2, OrderView};
 
 type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
 
@@ -138,8 +138,10 @@ pub struct Order<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> 
 )]
 pub enum VersionedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
     V1(Order<AccountId>),
-    /// Same fields as V1, but the amount may be a percentage of the signer's
-    /// input-side balance instead of a fixed amount. See [`v2`].
+    /// Same fields as V1, plus **linked orders**: the amount may be a fraction of
+    /// an earlier order's recorded output instead of a fixed amount, and the order
+    /// may declare that its own output should be recorded for later linked orders
+    /// to draw against. See [`v2`].
     V2(OrderV2<AccountId>),
 }
 
@@ -230,8 +232,8 @@ pub(crate) struct OrderEntry<AccountId> {
     /// Actual input amount being processed this execution (partial or full, before fee).
     pub(crate) gross: u64,
     /// Full order amount for this execution: the amount the user signed for a
-    /// `Fixed` order, or the percentage resolved against their balance for a
-    /// `Percentage` order. Used to determine terminal status.
+    /// `Fixed` order, or the fraction resolved against the provider's recorded
+    /// output for a `LinkedPercentage` order. Used to determine terminal status.
     pub(crate) order_amount: u64,
     /// Net input amount (after fee).
     /// For buys: `gross - fee_rate * gross`. For sells: equals `gross` (fee on TAO output).
@@ -247,6 +249,9 @@ pub(crate) struct OrderEntry<AccountId> {
     pub(crate) effective_swap_limit: u64,
     /// Present when this execution covers only part of the order.
     pub(crate) partial_fill: Option<u64>,
+    /// The order declared `has_linked_order`, so its pro-rata output must be
+    /// recorded as a provider record once the distribution step knows the amount.
+    pub(crate) has_linked_order: bool,
 }
 
 // ── Pallet ───────────────────────────────────────────────────────────────────
@@ -308,6 +313,17 @@ pub mod pallet {
         /// EVM-compatible chain ID used to bind orders to a specific chain.
         /// Wire to `pallet_evm_chain_id` in the runtime via `ConfigurableChainId`.
         type ChainId: Get<u64>;
+
+        /// How long, in **milliseconds**, a provider order's recorded output stays
+        /// claimable by its linked orders.
+        ///
+        /// Measured from the execution that wrote (or last topped up) the record.
+        /// Past the deadline no linked order may draw against it and anyone may
+        /// prune it with `prune_linked_output`. Without a deadline a provider whose
+        /// linked orders never fire would leave a permanent, unreclaimable entry in
+        /// [`LinkedOutputs`].
+        #[pallet::constant]
+        type LinkedOutputTtl: Get<u64>;
     }
 
     // ── Storage ───────────────────────────────────────────────────────────────
@@ -322,6 +338,20 @@ pub mod pallet {
     /// Defaults to `false` so bare node deployments are safe; genesis sets it to `true`.
     #[pallet::storage]
     pub type LimitOrdersEnabled<T: Config> = StorageValue<_, bool, ValueQuery, ConstBool<false>>;
+
+    /// Output recorded by orders that declared `has_linked_order`, keyed by the
+    /// provider's `OrderId`.
+    ///
+    /// Written when such an order executes and removed by the single linked order
+    /// that draws against it. Entries nothing ever draws from are reclaimable after
+    /// [`Config::LinkedOutputTtl`] via `prune_linked_output`.
+    ///
+    /// Absent ⇒ nothing can link to that order, either because it never declared
+    /// itself a provider, has not executed yet, was already drawn from, or was
+    /// pruned.
+    #[pallet::storage]
+    pub type LinkedOutputs<T: Config> =
+        StorageMap<_, Blake2_128Concat, H256, LinkedOutput<T::AccountId>, OptionQuery>;
 
     /// Tracks which named migrations have already been applied.
     /// Keyed by a short migration name; value is always `true`.
@@ -372,6 +402,41 @@ pub mod pallet {
         },
         /// Root has either enabled(true) or disabled(false) the pallet
         LimitOrdersPalletStatusChanged { enabled: bool },
+        /// An order that declared `has_linked_order` recorded its output, making it
+        /// drawable by the linked order that names it.
+        LinkedOutputRecorded {
+            /// `OrderId` of the provider — what a linked order must name.
+            order_id: H256,
+            /// Coldkey the output was credited to; the linked order must share it.
+            signer: T::AccountId,
+            /// What the provider produced.
+            asset: LinkedAsset<T::AccountId>,
+            /// Output recorded — the denominator the linked order's percentage
+            /// resolves against.
+            total: u64,
+            /// Unix ms after which the record stops being drawable and may be pruned.
+            expires_at: u64,
+        },
+        /// A linked order drew against a provider's recorded output, consuming the
+        /// record. Any unspent remainder stays with the signer as ordinary balance.
+        LinkedOutputConsumed {
+            /// `OrderId` of the provider drawn from.
+            provider: H256,
+            /// `OrderId` of the linked order that drew.
+            consumer: H256,
+            /// Absolute amount drawn.
+            amount: u64,
+            /// Recorded output that went undrawn, i.e. `total - amount`.
+            undrawn: u64,
+        },
+        /// A provider record was removed without ever being drawn from — either by
+        /// its signer, or by anyone after it expired.
+        LinkedOutputPruned {
+            order_id: H256,
+            /// Output that was recorded and never claimed. It stays with the signer;
+            /// only the authorisation to spend it through a linked order is gone.
+            total: u64,
+        },
     }
 
     // ── Errors ────────────────────────────────────────────────────────────────
@@ -421,15 +486,45 @@ pub mod pallet {
         /// delivering any output (conservation), and the order stays retryable in a
         /// differently-composed batch.
         ZeroShareInBatch,
-        /// A percentage-denominated amount floored to zero against the signer's
-        /// current input-side balance. Rejected rather than executed as a no-op
-        /// swap, which would mark the order terminal without trading anything.
-        PercentageAmountResolvedToZero,
-        /// A partial fill was submitted against a percentage-denominated order.
-        /// The resolved amount is re-derived from the signer's live balance on
-        /// every execution, so `sum(fills) <= amount` has no stable right-hand
-        /// side and the cumulative cap cannot be enforced.
-        PartialFillNotSupportedForPercentageAmount,
+        /// A linked order named a provider with no recorded output. Either the
+        /// provider has not executed yet, never declared `has_linked_order`, was
+        /// already drawn from by another linked order, or was pruned.
+        ///
+        /// This is also what a batch containing both a provider and one of its
+        /// linked orders hits: `execute_batched_orders` resolves every amount up
+        /// front, before the netted swap that would produce the provider's output.
+        /// Split the two across separate calls.
+        NoLinkedOutput,
+        /// The linked order's signer differs from the provider's. The recorded
+        /// output sits in the provider's account, so a differently-signed order
+        /// would be spending its own funds against someone else's authorisation.
+        LinkedOutputSignerMismatch,
+        /// The provider's output asset is not what the linked order spends. A sell
+        /// provider yields TAO, spendable only by a `LimitBuy`; a buy provider
+        /// yields alpha on one `(netuid, hotkey)`, spendable only by a sell from
+        /// that same position.
+        LinkedOutputAssetMismatch,
+        /// The provider's recorded output has passed its `expires_at` deadline.
+        /// Rejected regardless of whether it has been pruned yet, so execution does
+        /// not depend on when someone got around to calling `prune_linked_output`.
+        LinkedOutputExpired,
+        /// A linked order's fraction floored to zero against the provider's
+        /// recorded output. Rejected rather than executed as a no-op swap, which
+        /// would mark the order terminal without trading anything.
+        LinkedAmountResolvedToZero,
+        /// A partial fill was submitted against a linked order — one that *draws*
+        /// from a provider. Its amount is derived from a record the first draw
+        /// removes, so `sum(fills) <= amount` has neither a stable right-hand side
+        /// nor a second fill that could ever resolve.
+        PartialFillNotSupportedForLinkedAmount,
+        /// A partial fill was submitted against a provider — an order declaring
+        /// `has_linked_order`. Filling it in instalments would make the recorded
+        /// output its linked order divides depend on how the relayer sliced the
+        /// fills, so a provider must execute in one shot.
+        PartialFillNotSupportedForProvider,
+        /// `prune_linked_output` was called by an account that is not the record's
+        /// signer, on a record that has not expired yet.
+        LinkedOutputNotPrunable,
     }
 
     // ── Hooks ─────────────────────────────────────────────────────────────────
@@ -609,6 +704,41 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Remove a provider's recorded output from [`LinkedOutputs`].
+        ///
+        /// Callable by the record's own signer at any time — revoking the
+        /// authorisation they gave their linked order — or by **anyone** once the
+        /// record has passed `expires_at`. The open-to-anyone branch is what keeps
+        /// the map bounded: a provider whose linked order never fires would
+        /// otherwise leave an entry nobody could reclaim.
+        ///
+        /// Deliberately not gated on `LimitOrdersEnabled`: disabling the pallet must
+        /// not also freeze cleanup of state it already wrote.
+        ///
+        /// This moves no funds. The unclaimed output was credited to the signer when
+        /// the provider executed and stays there; only the ability to spend it
+        /// through a linked order goes away.
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::WeightInfo::prune_linked_output())]
+        pub fn prune_linked_output(origin: OriginFor<T>, order_id: H256) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            let record = LinkedOutputs::<T>::get(order_id).ok_or(Error::<T>::NoLinkedOutput)?;
+            let now_ms = T::TimeProvider::now().as_millis() as u64;
+            ensure!(
+                record.signer == who || now_ms > record.expires_at,
+                Error::<T>::LinkedOutputNotPrunable
+            );
+
+            LinkedOutputs::<T>::remove(order_id);
+            Self::deposit_event(Event::LinkedOutputPruned {
+                order_id,
+                total: record.total,
+            });
+
+            Ok(())
+        }
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
@@ -761,17 +891,30 @@ pub mod pallet {
                 }
             };
 
+            // Version-specific tail. v1 has no linking concept, so it renders nothing
+            // and every v1 message stays byte-identical to what it was before v2
+            // existed. v2 always renders the field, so the two tails can never
+            // collide — and `has_linked_order` is a signed authorisation, which must
+            // therefore be visible in the message a hardware wallet displays.
+            let tail = match order {
+                VersionedOrder::V1(_) => String::new(),
+                VersionedOrder::V2(v2) => {
+                    format!(", records output {}", v2.has_linked_order)
+                }
+            };
+
             let msg = format!(
                 "TAO.com order {version}: {label} {amount} on subnet {netuid}, \
 {price_word} {limit_price}, expiry {expiry}, hotkey {hotkey}, \
 fee {fee_rate} to {fee_recipient}, relayer {relayer}, \
 max slippage {max_slippage}, chain {chain_id}, \
-partial fills {partial}, signer {signer}",
+partial fills {partial}, signer {signer}{tail}",
                 version = version,
                 label = label,
                 // `Fixed(n)` renders as the bare digits `n`, keeping every v1 message
-                // byte-identical to what it was before v2 existed. `Percentage` renders
-                // with a ` ppb of balance` suffix, which no fixed amount can produce.
+                // byte-identical to what it was before v2 existed. `LinkedPercentage`
+                // renders with a ` ppb of order 0x… output` suffix, which no fixed
+                // amount can produce.
                 amount = o.amount.render(),
                 netuid = netuid,
                 price_word = price_word,
@@ -785,6 +928,7 @@ partial fills {partial}, signer {signer}",
                 chain_id = o.chain_id,
                 partial = o.partial_fills_enabled,
                 signer = Self::render_account(&o.signer),
+                tail = tail,
             );
 
             msg.into_bytes()
@@ -825,39 +969,138 @@ partial fills {partial}, signer {signer}",
                 .verify(signed_bytes.as_slice(), signed_order.order.signer())
         }
 
-        /// Resolve an order's signed amount into the absolute raw input amount to trade
-        /// in this execution.
+        /// Resolve an order's signed amount into the absolute raw input amount to
+        /// trade, plus the `order_id` of the provider record that authorised it
+        /// (`None` for a fixed amount).
         ///
-        /// [`OrderAmount::Fixed`] passes through unchanged — v1 orders always take this
-        /// branch and never read a balance. [`OrderAmount::Percentage`] is taken against
-        /// the signer's balance on the order's *input* side, read at execution time:
+        /// [`OrderAmount::Fixed`] passes through unchanged and names no provider —
+        /// v1 orders always take this branch and never touch [`LinkedOutputs`].
         ///
-        /// - Buy:  the signer's transferable TAO balance (keep-alive, so a 100% order
-        ///   cannot reap the signer's account).
-        /// - Sell: the signer's alpha staked to `hotkey` on `netuid` that is currently
-        ///   available to unstake (so a 100% order is not defeated by locked stake).
+        /// [`OrderAmount::LinkedPercentage`] resolves to `pct` of the provider's
+        /// recorded `total`. Four things must hold for the draw to be authorised:
         ///
-        /// A percentage that floors to zero is rejected rather than executed: a
+        /// 1. the provider has a record at all — it executed with
+        ///    `has_linked_order`, and nothing has drawn against it yet;
+        /// 2. the record's signer is this order's signer — the output sits in that
+        ///    account, so anyone else would be spending their own funds;
+        /// 3. the record's asset is what this order spends — TAO for a buy, alpha on
+        ///    this exact `(netuid, hotkey)` for a sell;
+        /// 4. the record has not expired, checked independently of whether anyone has
+        ///    pruned it yet so that execution never depends on pruning timing.
+        ///
+        /// No "is there enough left?" check is needed: `pct <= 100%` and a record is
+        /// drawn from at most once, so `drawn <= produced` holds by construction.
+        ///
+        /// Read-only by construction: the record is consumed later, by
+        /// [`Self::consume_linked_output`], and only once the order has actually
+        /// traded.
+        ///
+        /// A fraction that floors to zero is rejected rather than executed: a
         /// zero-amount execution would mark the order terminal without trading.
         pub(crate) fn resolve_amount(
             order: &OrderView<T::AccountId>,
-        ) -> Result<u64, DispatchError> {
+            now_ms: u64,
+        ) -> Result<(u64, Option<H256>), DispatchError> {
             // Short-circuit before touching state: a fixed amount must not pay for a
-            // balance read, so v1 orders cost exactly what they did before v2 existed.
-            if let Some(amount) = order.amount.fixed() {
-                return Ok(amount);
-            }
-
-            let balance = if order.order_type.is_buy() {
-                T::SwapInterface::transferable_tao_balance(&order.signer).to_u64()
-            } else {
-                T::SwapInterface::available_staked_alpha(&order.signer, &order.hotkey, order.netuid)
-                    .to_u64()
+            // storage read, so v1 orders cost exactly what they did before v2 existed.
+            let Some((provider, pct)) = order.amount.linked() else {
+                return Ok((order.amount.fixed().unwrap_or_default(), None));
             };
 
-            let resolved = order.amount.resolve(balance);
-            ensure!(resolved > 0, Error::<T>::PercentageAmountResolvedToZero);
-            Ok(resolved)
+            let record = LinkedOutputs::<T>::get(provider).ok_or(Error::<T>::NoLinkedOutput)?;
+            ensure!(
+                record.signer == order.signer,
+                Error::<T>::LinkedOutputSignerMismatch
+            );
+            ensure!(
+                record.asset == order.input_asset(),
+                Error::<T>::LinkedOutputAssetMismatch
+            );
+            ensure!(now_ms <= record.expires_at, Error::<T>::LinkedOutputExpired);
+
+            let amount = pct.mul_floor(record.total);
+            ensure!(amount > 0, Error::<T>::LinkedAmountResolvedToZero);
+
+            Ok((amount, Some(provider)))
+        }
+
+        /// Consume a provider's recorded output: remove the record and emit the draw.
+        ///
+        /// A record is single-use. Removing it outright — rather than debiting a
+        /// counter — is what enforces `drawn <= produced` with no arithmetic: a
+        /// second linked order naming the same provider finds nothing and fails
+        /// `NoLinkedOutput`. Any `total - amount` the drawing order did not spend
+        /// simply stays with the signer, where the provider's execution already put
+        /// it.
+        ///
+        /// Called only after the drawing order has traded, so a linked order that
+        /// validates but fails to swap leaves the provider's record intact. Both call
+        /// sites run inside a storage layer that rolls back on `Err` —
+        /// `try_execute_order` is `#[transactional]`, and `do_execute_batched_orders`
+        /// relies on FRAME's per-dispatch layer — so the removal and the trade it
+        /// paid for always commit or revert together.
+        pub(crate) fn consume_linked_output(
+            provider: H256,
+            consumer: H256,
+            amount: u64,
+        ) -> DispatchResult {
+            let record = LinkedOutputs::<T>::take(provider).ok_or(Error::<T>::NoLinkedOutput)?;
+
+            Self::deposit_event(Event::LinkedOutputConsumed {
+                provider,
+                consumer,
+                amount,
+                undrawn: record.total.saturating_sub(amount),
+            });
+
+            Ok(())
+        }
+
+        /// Record `amount_out` as drawable output for a provider order.
+        ///
+        /// A no-op unless the order declared `has_linked_order` — that flag, signed by
+        /// the user, is the authorisation for their linked orders to spend these
+        /// proceeds. Also a no-op for a zero output, which nothing could draw against.
+        ///
+        /// `amount_out` must be the **post-fee** output, i.e. what actually landed with
+        /// the signer. Recording the gross would authorise spending TAO that already
+        /// left the account, and the linked order would then fail on funds.
+        ///
+        /// A plain insert rather than a merge: a provider is barred from partial
+        /// fills (`PartialFillNotSupportedForProvider`), so it executes exactly once
+        /// and this runs exactly once per `order_id`. `Orders` marking it `Fulfilled`
+        /// is what rules out a second execution.
+        pub(crate) fn record_linked_output(
+            order_id: H256,
+            signer: &T::AccountId,
+            asset: LinkedAsset<T::AccountId>,
+            has_linked_order: bool,
+            amount_out: u64,
+        ) {
+            if !has_linked_order || amount_out == 0 {
+                return;
+            }
+
+            let now_ms = T::TimeProvider::now().as_millis() as u64;
+            let expires_at = now_ms.saturating_add(T::LinkedOutputTtl::get());
+
+            LinkedOutputs::<T>::insert(
+                order_id,
+                LinkedOutput {
+                    signer: signer.clone(),
+                    asset: asset.clone(),
+                    total: amount_out,
+                    expires_at,
+                },
+            );
+
+            Self::deposit_event(Event::LinkedOutputRecorded {
+                order_id,
+                signer: signer.clone(),
+                asset,
+                total: amount_out,
+                expires_at,
+            });
         }
 
         /// Validates all execution preconditions for a signed order.
@@ -867,8 +1110,8 @@ partial fills {partial}, signer {signer}",
         ///
         /// Thin wrapper over [`Self::validate_order`] for callers that only need the
         /// yes/no verdict; execution paths use `validate_order` directly so they reuse
-        /// the resolved amount instead of reading the signer's balance a second time.
-        /// That leaves the tests as the only consumers of this form.
+        /// the resolved amount and the provider it came from. That leaves the tests as
+        /// the only consumers of this form.
         #[cfg(test)]
         pub(crate) fn is_order_valid(
             signed_order: &SignedOrder<T::AccountId>,
@@ -889,11 +1132,14 @@ partial fills {partial}, signer {signer}",
             .map(|_| ())
         }
 
-        /// Validate `signed_order` and return the absolute input amount to trade.
+        /// Validate `signed_order` and return the absolute input amount to trade,
+        /// together with the `order_id` of the provider record that authorised it
+        /// (`None` for a fixed amount).
         ///
-        /// Takes the caller's already-built [`OrderView`] so the projection is done once
-        /// per order per dispatch, and returns the resolved amount so a percentage order
-        /// is priced against the signer's balance exactly once.
+        /// Takes the caller's already-built [`OrderView`] so the projection is done
+        /// once per order per dispatch. The provider record is *not* yet consumed —
+        /// the caller passes it to [`Self::consume_linked_output`] after the order
+        /// has actually traded.
         pub(crate) fn validate_order(
             signed_order: &SignedOrder<T::AccountId>,
             order: &OrderView<T::AccountId>,
@@ -901,7 +1147,7 @@ partial fills {partial}, signer {signer}",
             now_ms: u64,
             current_price: U64F64,
             relayer: &T::AccountId,
-        ) -> Result<u64, DispatchError> {
+        ) -> Result<(u64, Option<H256>), DispatchError> {
             ensure!(!order.netuid.is_root(), Error::<T>::RootNetUidNotAllowed);
             ensure!(
                 order.chain_id == T::ChainId::get(),
@@ -956,20 +1202,29 @@ partial fills {partial}, signer {signer}",
             }
             // Resolved here — after every cheap, deterministic check — so that a garbage
             // or expired order still reports the precise reason it was rejected rather
-            // than a balance-derived error, and so the balance reads only happen for an
+            // than a link-derived error, and so the provider lookup only happens for an
             // order that is otherwise executable.
-            let amount = Self::resolve_amount(order)?;
+            let (amount, provider) = Self::resolve_amount(order, now_ms)?;
 
             if let Some(partial_fill) = signed_order.partial_fill {
-                // A percentage amount is re-derived from the signer's live balance on
-                // every execution, so `sum(fills) <= amount` has no stable right-hand
-                // side: the cap would shrink as the balance drains (or grow if the signer
-                // is topped up), letting the cumulative fill over- or under-run the
-                // amount the user actually signed for. Reject the combination outright
-                // rather than enforce a moving cap.
+                // Partial fills and linking are mutually exclusive, on both sides.
+                //
+                // Consuming: the amount is `pct` of a provider record that the first
+                // draw removes outright, so a second fill could never resolve — and
+                // even the first has no stable `sum(fills) <= amount` right-hand side,
+                // because the total is derived rather than signed.
                 ensure!(
-                    !order.amount.is_percentage(),
-                    Error::<T>::PartialFillNotSupportedForPercentageAmount
+                    !order.amount.is_linked(),
+                    Error::<T>::PartialFillNotSupportedForLinkedAmount
+                );
+                // Providing: a partially filled provider would produce output in
+                // instalments, so the recorded `total` its linked order divides would
+                // depend on how the relayer chose to slice the fills. Requiring one
+                // full execution makes the denominator a function of the order alone,
+                // and lets `record_linked_output` be a single insert.
+                ensure!(
+                    !order.has_linked_order,
+                    Error::<T>::PartialFillNotSupportedForProvider
                 );
                 ensure!(
                     order.relayer.is_some(),
@@ -1003,7 +1258,7 @@ partial fills {partial}, signer {signer}",
                     Error::<T>::IncorrectPartialFillAmount
                 );
             }
-            Ok(amount)
+            Ok((amount, provider))
         }
 
         /// Compute the new `OrderStatus` to write after filling `fill_amount` of an order.
@@ -1038,8 +1293,13 @@ partial fills {partial}, signer {signer}",
         ///
         /// `#[transactional]` makes the whole body a single storage layer: the
         /// swap (`buy_alpha`/`sell_alpha`, themselves transactional), the fee
-        /// transfer, and the `Orders::insert` either all commit together or all
-        /// roll back together.
+        /// transfer, the `Orders::insert`, and the [`LinkedOutputs`] debit/credit
+        /// either all commit together or all roll back together.
+        ///
+        /// Linked orders chain naturally within a single `execute_orders` call: a
+        /// provider earlier in the vector has already written its record by the time
+        /// a consumer later in the same vector resolves against it, because each
+        /// order is executed to completion before the next is validated.
         #[transactional]
         fn try_execute_order(
             signed_order: SignedOrder<T::AccountId>,
@@ -1050,9 +1310,10 @@ partial fills {partial}, signer {signer}",
             let now_ms = T::TimeProvider::now().as_millis() as u64;
             let current_price = T::SwapInterface::current_alpha_price(order.netuid);
 
-            // `amount` is the order's full signed size: the literal `Fixed` amount, or a
-            // percentage resolved against the signer's balance as of this block.
-            let amount = Self::validate_order(
+            // `amount` is the order's full signed size: the literal `Fixed` amount, or
+            // a fraction of the provider's recorded output. `provider` is the record
+            // that authorised it, consumed further down once the swap has landed.
+            let (amount, provider) = Self::validate_order(
                 &signed_order,
                 &order,
                 order_id,
@@ -1110,9 +1371,27 @@ partial fills {partial}, signer {signer}",
                 (alpha_in.to_u64(), tao_out.saturating_sub(fee_tao).to_u64())
             };
 
+            // The trade landed, so the record that authorised this order's amount is
+            // spent and comes off the map.
+            if let Some(provider) = provider {
+                Self::consume_linked_output(provider, order_id, amount)?;
+            }
+
             // Mark as fulfilled or partially filled and emit event.
             let status = Self::compute_order_status(order_id, signed_order.partial_fill, amount);
             Orders::<T>::insert(order_id, status);
+
+            // `amount_out` is already post-fee on both sides — the alpha a buy received
+            // (its fee came out of the TAO input) or the TAO a sell kept — so it is
+            // exactly what landed with the signer and therefore what may be drawn.
+            Self::record_linked_output(
+                order_id,
+                &order.signer,
+                order.output_asset(),
+                order.has_linked_order,
+                amount_out,
+            );
+
             Self::deposit_event(Event::OrderExecuted {
                 order_id,
                 signer: order.signer.clone(),
@@ -1247,6 +1526,12 @@ partial fills {partial}, signer {signer}",
         ///
         /// Returns an error immediately if any order fails validation (wrong netuid,
         /// invalid signature, expired, already processed, or price condition not met).
+        ///
+        /// Linked orders are supported here as *consumers* of providers that executed
+        /// in an **earlier** dispatch. A provider and one of its consumers in the same
+        /// batch is rejected with `NoLinkedOutput`, and structurally so: every amount
+        /// is resolved and frozen in this pass, before the single netted pool swap that
+        /// would produce the provider's output even exists. Split them across two calls.
         pub(crate) fn validate_and_classify(
             netuid: NetUid,
             orders: &BoundedVec<SignedOrder<T::AccountId>, T::MaxOrdersPerBatch>,
@@ -1283,9 +1568,9 @@ partial fills {partial}, signer {signer}",
                 ensure!(order.netuid == netuid, Error::<T>::OrderNetUidMismatch);
 
                 // Hard-fail on any per-order validation error (signature, expiry, price, root).
-                // A percentage-denominated order is priced here, against the signer's
-                // balance *before* `collect_assets` moves anything into the intermediary.
-                let amount = Self::validate_order(
+                // A linked order is sized here, against its provider's recorded output,
+                // *before* `collect_assets` moves anything into the intermediary.
+                let (amount, provider) = Self::validate_order(
                     signed_order,
                     &order,
                     order_id,
@@ -1293,6 +1578,15 @@ partial fills {partial}, signer {signer}",
                     current_price,
                     &relayer,
                 )?;
+
+                // Consume the record here rather than after distribution. The whole
+                // dispatch is one storage layer, so a later failure reverts this along
+                // with everything else; consuming here is what makes a second linked
+                // order naming the same provider in the same batch fail
+                // `NoLinkedOutput` instead of drawing against an already-spent record.
+                if let Some(provider) = provider {
+                    Self::consume_linked_output(provider, order_id, amount)?;
+                }
 
                 let amount_in = signed_order.partial_fill.unwrap_or(amount);
                 let net = if order.order_type.is_buy() {
@@ -1322,6 +1616,7 @@ partial fills {partial}, signer {signer}",
                     fee_recipient: order.fee_recipient.clone(),
                     effective_swap_limit,
                     partial_fill: signed_order.partial_fill,
+                    has_linked_order: order.has_linked_order,
                 };
 
                 // try_push cannot fail: both vecs share the same bound as `orders`.
@@ -1468,6 +1763,21 @@ partial fills {partial}, signer {signer}",
                 )?;
                 let status = Self::compute_order_status(e.order_id, e.partial_fill, e.order_amount);
                 Orders::<T>::insert(e.order_id, status);
+
+                // A buy produces alpha on its own `(netuid, hotkey)`, and `share` is
+                // what the buyer actually received — the fee was already taken off the
+                // TAO input — so it is exactly what a linked sell may draw against.
+                Self::record_linked_output(
+                    e.order_id,
+                    &e.signer,
+                    LinkedAsset::Alpha {
+                        netuid,
+                        hotkey: e.hotkey.clone(),
+                    },
+                    e.has_linked_order,
+                    share,
+                );
+
                 Self::deposit_event(Event::OrderExecuted {
                     order_id: e.order_id,
                     signer: e.signer.clone(),
@@ -1541,6 +1851,18 @@ partial fills {partial}, signer {signer}",
                 )?;
                 let status = Self::compute_order_status(e.order_id, e.partial_fill, e.order_amount);
                 Orders::<T>::insert(e.order_id, status);
+
+                // A sell produces TAO, and `net_share` is the post-fee payout that
+                // actually reached the seller — so it is exactly what a linked buy may
+                // draw against.
+                Self::record_linked_output(
+                    e.order_id,
+                    &e.signer,
+                    LinkedAsset::Tao,
+                    e.has_linked_order,
+                    net_share,
+                );
+
                 Self::deposit_event(Event::OrderExecuted {
                     order_id: e.order_id,
                     signer: e.signer.clone(),

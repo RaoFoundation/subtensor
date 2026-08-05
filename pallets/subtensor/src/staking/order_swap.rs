@@ -161,25 +161,6 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
         Ok(())
     }
 
-    fn transferable_tao_balance(coldkey: &T::AccountId) -> TaoBalance {
-        // Keep-alive rather than expendable: a 100% percentage buy order must not reap
-        // the signer's account and burn their existential deposit.
-        Self::get_keep_alive_balance(coldkey)
-    }
-
-    fn available_staked_alpha(
-        coldkey: &T::AccountId,
-        hotkey: &T::AccountId,
-        netuid: NetUid,
-    ) -> AlphaBalance {
-        // The stake sitting on this specific hotkey, capped by what the coldkey's locks
-        // (conviction model) actually leave withdrawable on the subnet — otherwise a
-        // 100% percentage sell order would resolve to an amount `sell_alpha` rejects
-        // with `StakeUnavailable`.
-        let staked = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
-        staked.min(Self::available_to_unstake(coldkey, netuid))
-    }
-
     fn register_pallet_hotkey(coldkey: &T::AccountId, hotkey: &T::AccountId) -> DispatchResult {
         Self::create_account_if_non_existent(coldkey, hotkey)
     }

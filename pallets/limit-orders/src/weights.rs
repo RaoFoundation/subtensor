@@ -40,6 +40,7 @@ pub trait WeightInfo {
 	fn set_pallet_status() -> Weight;
 	fn execute_orders(n: u32, ) -> Weight;
 	fn execute_batched_orders(n: u32, ) -> Weight;
+	fn prune_linked_output() -> Weight;
 }
 
 /// Weights for `pallet_limit_orders` using the Substrate node and recommended hardware.
@@ -200,6 +201,19 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes((7_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
+	/// Storage: `LimitOrders::LinkedOutputs` (r:1 w:1)
+	/// Proof: `LimitOrders::LinkedOutputs` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	fn prune_linked_output() -> Weight {
+		// Hand-written pending a real benchmark run: one `LinkedOutputs` read, one
+		// `Timestamp::Now` read, one `LinkedOutputs` removal. Modelled on
+		// `cancel_order`, whose shape (single map read + single map write) matches,
+		// with a second read added for the timestamp.
+		Weight::from_parts(16_030_000, 3522)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -358,5 +372,18 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(15_u64))
 			.saturating_add(RocksDbWeight::get().writes((7_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
+	}
+	/// Storage: `LimitOrders::LinkedOutputs` (r:1 w:1)
+	/// Proof: `LimitOrders::LinkedOutputs` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	fn prune_linked_output() -> Weight {
+		// Hand-written pending a real benchmark run: one `LinkedOutputs` read, one
+		// `Timestamp::Now` read, one `LinkedOutputs` removal. Modelled on
+		// `cancel_order`, whose shape (single map read + single map write) matches,
+		// with a second read added for the timestamp.
+		Weight::from_parts(16_030_000, 3522)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 }
