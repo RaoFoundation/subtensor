@@ -46,6 +46,7 @@ from ..helpers import (
     wallet_overview_rows,
 )
 from ..prompt import PromptSpec, confirm_wallet, fill_missing, interactive
+from ..secrets import copy_secret_to_clipboard, warn_argv_secrets
 from ..tx import _parse_money
 
 app = typer.Typer(no_args_is_help=True, help="Create and manage wallets.")
@@ -431,6 +432,15 @@ def regen_coldkey(
     --crypto-type applies only to mnemonic/seed/private-key regeneration.
     """
     app_ctx: AppContext = ctx_of(ctx)
+    warn_argv_secrets(
+        app_ctx.output,
+        {
+            "--mnemonic": mnemonic,
+            "--seed": seed,
+            "--private-key": private_key,
+            "--json-password": json_password,
+        },
+    )
     mnemonic, seed, private_key, json_keystore = _resolve_coldkey_source(
         app_ctx,
         mnemonic,
@@ -491,6 +501,10 @@ def regen_hotkey(
     created with, or the regenerated key will have a different address.
     """
     app_ctx: AppContext = ctx_of(ctx)
+    warn_argv_secrets(
+        app_ctx.output,
+        {"--mnemonic": mnemonic, "--seed": seed, "--private-key": private_key},
+    )
     mnemonic, seed, private_key = _resolve_key_secret(
         app_ctx, "Hotkey", mnemonic, seed, private_key
     )
@@ -697,14 +711,26 @@ def decrypt(
     use_hotkey: bool = typer.Option(
         False, "--use-hotkey", help="Decrypt with the hotkey instead of the coldkey."
     ),
+    copy: bool = typer.Option(
+        False,
+        "--copy",
+        help="Copy the decrypted message to the clipboard instead of printing it "
+        "(keeps secrets out of terminal scrollback).",
+    ),
 ):
     """Decrypt a message with the wallet key.
 
     Uses the coldkey by default, which requires unlocking it (you may be
     prompted for the wallet password). The decrypted plaintext is printed to
-    the terminal.
+    the terminal, or copied to the clipboard with --copy.
     """
     app_ctx: AppContext = ctx_of(ctx)
+    if copy and app_ctx.output.json_mode:
+        app_ctx.output.error(
+            "`--copy` does not apply in --json mode",
+            help="drop --copy; JSON output prints the decrypted message",
+        )
+        raise typer.Exit(2)
     confirm_wallet(
         app_ctx, help_text="Wallet that decrypts the message.", require_coldkey=not use_hotkey
     )
@@ -720,6 +746,8 @@ def decrypt(
     except Exception as error:
         app_ctx.output.error(f"decryption failed: {error}")
         raise typer.Exit(1)
+    if copy and copy_secret_to_clipboard(app_ctx.output, plaintext, "decrypted message"):
+        return
     app_ctx.output.detail("decrypted", {"message": plaintext})
 
 
