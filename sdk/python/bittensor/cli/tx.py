@@ -26,6 +26,7 @@ from ..intents.base import Intent, is_money
 from ..intents.proxy import ProxyTypeChoice
 from ..settings import tx_docs_url
 from . import globals as g
+from .call_names import resolve_intent_args
 from .context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from .prompt import PromptSpec, fill_missing, interactive, signer_specs
 from .root_helpers import claim_root_source_spec
@@ -359,6 +360,10 @@ def _make_command(intent_cls: type[Intent]):
             for f in specs
             if kwargs.get(f.name) is not None
         }
+        # Flag-level resolution above only covers top-level *_ss58 options;
+        # this pass reaches names inside JSON-shaped fields too (signatory
+        # lists, a multisig inner --call, batch children).
+        args = resolve_intent_args(app_ctx, args)
         app_ctx.submit(
             intent_cls.from_args(args), proxy_for=proxy_for, force_proxy_type=force_proxy_type
         )
