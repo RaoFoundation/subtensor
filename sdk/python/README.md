@@ -271,19 +271,27 @@ These compose with any intent:
   On the CLI: `--proxy-for <ss58|wallet>` on any `btcli tx` command. Manage
   delegations with the `add-proxy` / `remove-proxy` intents and the `proxies` read.
 
-  A zero-delay `Validate` proxy needs no subnet code changes. Configure the
-  exact hotkeys on the client: the signing hotkey is direct and every other
-  hotkey must have granted it a `Validate` proxy. Any mixture is supported;
-  `weight_targets=[]` disables weight submission entirely.
+  A zero-delay `Validate` proxy needs no subnet code changes. Set the exact
+  targets through the environment: the signing hotkey is direct and every
+  other hotkey must have granted it a `Validate` proxy. Any mixture is
+  supported; an empty value disables weight submission entirely.
+
+  ```console
+  WEIGHT_TARGETS=5F...DELEGATE,5F...VALIDATOR_A,5F...VALIDATOR_B
+  ```
+
+  The existing subnet call remains unchanged:
 
   ```python
-  client = bt.Client(
-      weight_targets=[delegate_wallet.hotkey.ss58_address, validator_a, validator_b]
-  )
   result = await client.execute(
       bt.SetWeights(netuid=1, weights={0: 0.2, 1: 0.8}), delegate_wallet
   )
   ```
+
+  Targets are dispatched with `Utility.force_batch`: one revoked or invalid
+  target is reported in `result.data["weight_results"]` without preventing the
+  remaining validators from setting weights. The client constructor's
+  `weight_targets=` option overrides the environment when supplied.
 
 - **Atomic batch** — several intents in one all-or-nothing extrinsic:
 

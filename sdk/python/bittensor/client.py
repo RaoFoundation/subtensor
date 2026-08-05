@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional, Union
@@ -68,6 +69,18 @@ WhenLike = Union[datetime, str, int, float]
 
 # Slot duration of a fast-blocks chain (local/e2e testing mode), in seconds.
 FAST_BLOCK_TIME = 0.25
+
+
+def _weight_targets_from_env() -> Optional[list[str]]:
+    raw = os.getenv("WEIGHT_TARGETS")
+    if raw is None:
+        return None
+    if not raw.strip():
+        return []
+    targets = [target.strip() for target in raw.split(",")]
+    if any(not target for target in targets):
+        raise ValueError("WEIGHT_TARGETS must be comma-separated ss58 addresses")
+    return targets
 
 
 @dataclass
@@ -163,7 +176,9 @@ class Client:
         ``weight_targets`` configures transparent multi-hotkey validation. The
         signing hotkey may appear for a direct submission; every other address
         must grant it a zero-delay ``Validate`` proxy. An explicit empty list
-        makes ``SetWeights`` a no-op; ``None`` keeps normal single-hotkey behavior.
+        makes ``SetWeights`` a no-op. When omitted, the comma-separated
+        ``WEIGHT_TARGETS`` environment variable is used; if that is also unset,
+        normal single-hotkey behavior is preserved.
 
         ``substrate`` swaps the chain-access backend: any :class:`Substrate`
         implementation (e.g. an in-memory fake for tests). When set, the
@@ -184,7 +199,13 @@ class Client:
                 archive_endpoints=archive_endpoints,
                 retry_forever=retry_forever,
             )
-        self._executor = Executor(self._substrate, policy=policy, weight_targets=weight_targets)
+        self._executor = Executor(
+            self._substrate,
+            policy=policy,
+            weight_targets=(
+                weight_targets if weight_targets is not None else _weight_targets_from_env()
+            ),
+        )
 
         # Typed read namespaces: projections over the read registry
         # (bittensor.reads), one per category — curated methods plus every

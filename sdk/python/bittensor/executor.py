@@ -19,7 +19,6 @@ from typing import Any, Optional
 import bittensor_core as _core
 
 from ._generated import calls as generated_calls
-from ._generated import storage as generated_storage
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
 from ._transport.utils.receipt import nested_dispatch_error
@@ -173,6 +172,36 @@ def _event_parts(entry: Any) -> tuple[Optional[str], Optional[str], Any, Optiona
     except (TypeError, ValueError):
         index = None
     return event.get("module_id"), event.get("event_id"), event.get("attributes"), index
+
+
+def _weight_batch_results(events: list, targets: list[str]) -> Optional[list[dict[str, Any]]]:
+    """Per-item outcomes from a completed ``Utility.force_batch``."""
+    results = []
+    proxy_error = None
+    completed = False
+    for entry in events:
+        module, event, attributes, _ = _event_parts(entry)
+        if module == "Proxy" and event == "ProxyExecuted":
+            dispatch = attributes.get("result") if isinstance(attributes, dict) else attributes
+            if isinstance(dispatch, dict) and "Err" in dispatch:
+                proxy_error = dispatch["Err"]
+        elif module == "Utility" and event in {"ItemCompleted", "ItemFailed"}:
+            if len(results) >= len(targets):
+                return None
+            error = proxy_error
+            if event == "ItemFailed":
+                error = attributes.get("error") if isinstance(attributes, dict) else attributes
+            item = {"target": targets[len(results)], "success": error is None}
+            if error is not None:
+                item["error"] = chain_error_from_dispatch(error).message
+            results.append(item)
+            proxy_error = None
+        elif module == "Utility" and event in {
+            "BatchCompleted",
+            "BatchCompletedWithErrors",
+        }:
+            completed = True
+    return results if completed and len(results) == len(targets) else None
 
 
 def _event_netuid(attributes: Any) -> Optional[int]:
@@ -543,49 +572,32 @@ class Executor:
         if self.weight_targets is None:
             return await intent.build(self.substrate, wallet)
         if not self.weight_targets:
-            return BuiltCall(None, {"weight_targets": [], "no_op": True})
+            return BuiltCall(
+                None,
+                {
+                    "weight_targets": [],
+                    "submitted_weight_targets": [],
+                    "weight_build_errors": {},
+                    "no_op": True,
+                },
+            )
 
         targets = self.weight_targets
-        proxied = [target for target in targets if target != delegate]
-        if proxied:
-            block = await self.substrate.block_number()
-            block_hash = await self.substrate.block_hash(block)
-            proxies_item = generated_storage.Proxy.Proxies
-            values = await self.substrate.query_batch(
-                proxies_item.container,
-                proxies_item.name,
-                [[target] for target in proxied],
-                block_hash=block_hash,
-            )
-            if len(values) != len(proxied):
-                raise ChainError("Proxy.Proxies returned an incomplete response")
-            for target, value in zip(proxied, values):
-                if not isinstance(value, (list, tuple)) or len(value) != 2:
-                    raise ChainError(f"configured Validate proxy {target} is absent on-chain")
-                definitions = value[0]
-                if not isinstance(definitions, (list, tuple)):
-                    raise ChainError("Proxy.Proxies returned invalid proxy definitions")
-                granted = any(
-                    isinstance(definition, dict)
-                    and str(definition.get("delegate")) == delegate
-                    and str(definition.get("proxy_type")) == "Validate"
-                    and definition.get("delay") == 0
-                    for definition in definitions
-                )
-                if not granted:
-                    raise ChainError(
-                        f"{target} has not granted {delegate} a zero-delay Validate proxy"
-                    )
-
         composed = []
-        extras: dict[str, Any] = {"weight_targets": targets}
+        submitted = []
+        build_errors = {}
+        build_extras = {}
         for index, target in enumerate(targets):
             direct = target == delegate
             build_wallet = wallet if direct else _ProxyBuildWallet(wallet, intent.signer, target)
-            built = await intent.build(self.substrate, build_wallet)
+            try:
+                built = await intent.build(self.substrate, build_wallet)
+            except ChainError as error:
+                build_errors[target] = error.message
+                continue
             if isinstance(built, BuiltCall):
                 inner = built.call
-                extras.update(
+                build_extras.update(
                     {f"target:{index}.{key}": value for key, value in built.extras.items()}
                 )
             else:
@@ -600,12 +612,17 @@ class Executor:
                         )
                     )
                 )
+            submitted.append(target)
 
-        call = (
-            composed[0]
-            if len(composed) == 1
-            else await self.substrate.compose(generated_calls.Utility.batch_all(calls=composed))
-        )
+        extras: dict[str, Any] = {
+            "weight_targets": targets,
+            "submitted_weight_targets": submitted,
+            "weight_build_errors": build_errors,
+            **build_extras,
+        }
+        if not composed:
+            return BuiltCall(None, {**extras, "no_op": True})
+        call = await self.substrate.compose(generated_calls.Utility.force_batch(calls=composed))
         return BuiltCall(call, extras)
 
     async def plan(
@@ -754,10 +771,21 @@ class Executor:
         if not plan.ok:
             raise PolicyError(plan.violations)
         if plan.extras.get("no_op"):
+            build_errors = plan.extras.get("weight_build_errors", {})
             return ExtrinsicResult(
                 success=True,
-                message="No weight targets configured; nothing submitted.",
-                data=plan.extras,
+                message=(
+                    "No valid weight targets; nothing submitted."
+                    if build_errors
+                    else "No weight targets configured; nothing submitted."
+                ),
+                data={
+                    **plan.extras,
+                    "weight_results": [
+                        {"target": target, "success": False, "error": error}
+                        for target, error in build_errors.items()
+                    ],
+                },
             )
 
         keypair = resolve_signer(wallet, intent.signer)
@@ -774,10 +802,37 @@ class Executor:
                 break
             # One block, as the chain measures it (0.25s on fast-blocks localnets).
             await asyncio.sleep(await self.substrate.block_time())
+        batch_results = _weight_batch_results(
+            result.events, plan.extras.get("submitted_weight_targets", [])
+        )
+        tolerant_batch = batch_results is not None
+        if tolerant_batch:
+            submitted_results = iter(batch_results)
+            build_errors = plan.extras.get("weight_build_errors", {})
+            ordered = [
+                (
+                    {"target": target, "success": False, "error": build_errors[target]}
+                    if target in build_errors
+                    else next(submitted_results)
+                )
+                for target in plan.extras["weight_targets"]
+            ]
+            failures = sum(not item["success"] for item in ordered)
+            result = replace(
+                result,
+                success=True,
+                message=(
+                    "All weight targets completed."
+                    if failures == 0
+                    else f"Weight submission completed with {failures} target failure(s)."
+                ),
+                error=None,
+                data={**result.data, "weight_results": ordered},
+            )
         # Defense for backends that mark ExtrinsicSuccess without decoding
         # nested Sudo/Proxy/Multisig Results (e.g. in-memory fakes). The RPC
         # path already fails these in resolve_outcome.
-        if result.success:
+        if result.success and not tolerant_batch:
             inner_error = nested_dispatch_error(result.events)
             if inner_error is not None:
                 error = chain_error_from_dispatch(inner_error)
