@@ -474,6 +474,10 @@ def print_command_hint(console: Console, argv_prefix: list[str]) -> None:
 def render_validator_detail(
     app_ctx: AppContext, summary: dict, yours: Optional[RootPosition]
 ) -> None:
+    if app_ctx.output.json_mode:
+        app_ctx.output.value(summary)
+        return
+
     hotkey = summary["hotkey"]
     weights = summary.get("weights") or []
     holdings = summary.get("holdings") or []
@@ -491,7 +495,6 @@ def render_validator_detail(
             f"weights of {hotkey}",
             ["netuid", "share", "weight (u16)"],
             weight_rows,
-            weights,
         )
     else:
         app_ctx.output.message(
@@ -513,7 +516,6 @@ def render_validator_detail(
             f"fund holdings of {hotkey}",
             ["netuid", "holding", "realizable", "spot"],
             table_rows,
-            summary,
         )
 
     lifetime = summary.get("lifetime_return")
@@ -524,10 +526,10 @@ def render_validator_detail(
     )
 
 
-def position_rows(positions: list[RootPosition]) -> list[list[str]]:
+def position_rows(positions: list[RootPosition], all_wallets: bool) -> list[list[str]]:
     return [
-        [
-            pos.wallet or "—",
+        ([pos.wallet or "—"] if all_wallets else [])
+        + [
             pos.hotkey,
             str(pos.staked),
             str(pos.accrued),

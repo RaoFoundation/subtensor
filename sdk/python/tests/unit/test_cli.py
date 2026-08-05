@@ -14,9 +14,12 @@ import json
 import pytest
 from typer.testing import CliRunner
 
+import bittensor.cli.commands.root as root_commands
 import bittensor.cli.context as cli_context
 from bittensor import RpcConnectionError, RpcPolicyError, __version__, wallets
+from bittensor.balance import Balance
 from bittensor.cli.main import app
+from bittensor.cli.root_helpers import RootPosition, position_columns, position_rows
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
 from tests.harness.fake_substrate import FakeSubstrate
@@ -63,6 +66,29 @@ def fake(tmp_path, monkeypatch, wallet_dir) -> FakeSubstrate:
 
 def invoke(*args: str):
     return runner.invoke(app, list(args))
+
+
+def seed_root_validator_summary(fake: FakeSubstrate) -> None:
+    fake.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_validator_basket_summary",
+        {
+            "hotkey": BOB,
+            "nav_tao": 1_250_000_000,
+            "spot_nav_tao": 1_500_000_000,
+            "deposited_tao": 1_000_000_000,
+            "redeemed_tao": 0,
+            "weights": [(1, 65535)],
+            "holdings": [
+                {
+                    "netuid": 1,
+                    "alpha": 2_000_000_000,
+                    "spot_tao": 1_500_000_000,
+                    "realizable_tao": 1_250_000_000,
+                }
+            ],
+        },
+    )
 
 
 class TestOffline:
@@ -217,6 +243,91 @@ class TestQueries:
         payload = json.loads(result.output)
         assert payload["coldkey"] == BOB
         assert payload["free_tao"] == pytest.approx(2.5)
+
+
+class TestRoot:
+    @pytest.mark.parametrize("all_wallets", [False, True])
+    def test_position_rows_match_columns(self, all_wallets):
+        position = RootPosition(
+            hotkey=BOB,
+            staked=Balance.from_tao(1),
+            accrued=Balance.from_tao("0.25"),
+            wallet=_WALLET_NAME if all_wallets else None,
+        )
+
+        rows = position_rows([position], all_wallets)
+
+        assert all(len(row) == len(position_columns(all_wallets)) for row in rows)
+
+    def test_list_single_coldkey_renders_human_table(self, fake: FakeSubstrate, monkeypatch):
+        async def root_positions(_client, _coldkey_ss58):
+            return [
+                RootPosition(
+                    hotkey=BOB,
+                    staked=Balance.from_tao(1),
+                    accrued=Balance.from_tao("0.25"),
+                )
+            ]
+
+        monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
+
+        result = invoke("root", "list", "--coldkey", BOB)
+
+        assert result.exit_code == 0, result.exception
+        assert "root positions of" in result.output
+        assert "staked (τ)" in result.output
+        assert "τ1.250000000" in result.output
+
+    def test_list_all_wallets_renders_wallet_column(self, fake: FakeSubstrate, monkeypatch):
+        async def all_root_positions(_client, _coldkeys):
+            return [
+                RootPosition(
+                    hotkey=BOB,
+                    staked=Balance.from_tao(1),
+                    accrued=Balance.from_tao("0.25"),
+                    wallet=_WALLET_NAME,
+                    coldkey=BOB,
+                )
+            ]
+
+        monkeypatch.setattr(root_commands, "list_coldkeys", lambda _path: [(_WALLET_NAME, BOB)])
+        monkeypatch.setattr(root_commands, "fetch_all_root_positions", all_root_positions)
+
+        result = invoke("root", "list", "--all")
+
+        assert result.exit_code == 0, result.exception
+        assert "wallet" in result.output
+        assert _WALLET_NAME in result.output
+        assert "τ1.250000000" in result.output
+
+    def test_show_explicit_hotkey_renders_human_detail(self, fake: FakeSubstrate, monkeypatch):
+        async def root_positions(_client, _coldkey_ss58):
+            return []
+
+        monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
+        seed_root_validator_summary(fake)
+
+        result = invoke("root", "show", "--hotkey", BOB, "--coldkey", BOB)
+
+        assert result.exit_code == 0, result.exception
+        assert "weights of" in result.output
+        assert "fund holdings of" in result.output
+        assert "fund nav: τ1.250000000" in result.output
+
+    def test_show_explicit_hotkey_json_emits_one_document(self, fake: FakeSubstrate, monkeypatch):
+        async def root_positions(_client, _coldkey_ss58):
+            return []
+
+        monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
+        seed_root_validator_summary(fake)
+
+        result = invoke("--json", "root", "show", "--hotkey", BOB, "--coldkey", BOB)
+
+        assert result.exit_code == 0, result.exception
+        payload = json.loads(result.output)
+        assert payload["hotkey"] == BOB
+        assert payload["nav_tao"] == "τ1.250000000"
+        assert payload["weights"] == [{"netuid": 1, "weight": 65535, "share": 1.0}]
 
 
 class TestTransactions:
