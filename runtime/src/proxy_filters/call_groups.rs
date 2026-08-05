@@ -175,6 +175,7 @@ call_filter_group!(
         RuntimeCall::LimitOrders(LimitOrdersCall::execute_batched_orders),
         RuntimeCall::LimitOrders(LimitOrdersCall::cancel_order),
         RuntimeCall::LimitOrders(LimitOrdersCall::set_pallet_status),
+        RuntimeCall::LimitOrders(LimitOrdersCall::prune_linked_output),
     ]
 );
 

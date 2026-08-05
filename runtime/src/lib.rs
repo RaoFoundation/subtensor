@@ -1300,12 +1300,17 @@ impl pallet_crowdloan::Config for Runtime {
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
     pub const LimitOrdersMaxOrdersPerBatch: u32 = 100;
-    /// Seven days, in milliseconds. How long a provider order's recorded output
-    /// stays drawable by the linked orders the user signed against it, after which
-    /// anyone may prune the record. Long enough for a price-triggered linked order
-    /// to fire on its own schedule, short enough that abandoned records do not
-    /// accumulate indefinitely.
-    pub const LimitOrdersLinkedOutputTtl: u64 = 7 * 24 * 60 * 60 * 1_000;
+    /// 180 days, in milliseconds. How long a provider order's recorded output stays
+    /// drawable by the linked order the user signed against it, after which anyone
+    /// may prune the record.
+    ///
+    /// Sized for the long-horizon case: a linked take-profit or stop-loss is a
+    /// standing instruction that may legitimately wait months for its trigger, and
+    /// an expiry that fires first would strand the user holding the provider's
+    /// proceeds with an unexecutable second leg. The only cost of the long window is
+    /// how long an abandoned record sits in `LinkedOutputs` before anyone can
+    /// reclaim it — a single entry per abandoned rotation, prunable by any caller.
+    pub const LimitOrdersLinkedOutputTtl: u64 = 180 * 24 * 60 * 60 * 1_000;
 }
 
 pub struct LimitOrdersPalletHotkey;
