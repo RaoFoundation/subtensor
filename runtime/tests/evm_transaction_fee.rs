@@ -38,7 +38,7 @@ fn initialize_block_with_aura_authority(authority: AuraId, slot: u64) {
 }
 
 #[test]
-fn evm_fee_refund_does_not_change_total_issuance() {
+fn evm_fees_are_burned_without_total_issuance_drift() {
     new_test_ext().execute_with(|| {
         initialize_block_with_aura_authority(AuraId::from(sr25519::Public::from_raw([1u8; 32])), 0);
 
@@ -59,6 +59,8 @@ fn evm_fee_refund_does_not_change_total_issuance() {
         let balances_issuance_before = Balances::total_issuance();
         let subtensor_issuance_before = pallet_subtensor::Pallet::<Runtime>::get_total_issuance();
         let balance_before = Balances::total_balance(&account_id);
+        let substrate_author_balance_before = Balances::total_balance(&substrate_author);
+        let evm_author_balance_before = Balances::total_balance(&evm_author);
 
         assert_eq!(balances_issuance_before, subtensor_issuance_before);
 
@@ -82,13 +84,28 @@ fn evm_fee_refund_does_not_change_total_issuance() {
             Runtime,
         >>::pay_priority_fee(tip);
 
-        assert_eq!(
-            Balances::total_issuance(),
-            pallet_subtensor::Pallet::<Runtime>::get_total_issuance()
-        );
+        let balances_issuance_after = Balances::total_issuance();
+        let subtensor_issuance_after = pallet_subtensor::Pallet::<Runtime>::get_total_issuance();
+        assert_eq!(balances_issuance_after, subtensor_issuance_after);
         assert_eq!(
             Balances::total_balance(&account_id),
             balance_before - TaoBalance::from(5)
+        );
+        assert_eq!(
+            balances_issuance_before - balances_issuance_after,
+            TaoBalance::from(5)
+        );
+        assert_eq!(
+            subtensor_issuance_before - subtensor_issuance_after,
+            TaoBalance::from(5)
+        );
+        assert_eq!(
+            Balances::total_balance(&substrate_author),
+            substrate_author_balance_before
+        );
+        assert_eq!(
+            Balances::total_balance(&evm_author),
+            evm_author_balance_before
         );
     });
 }

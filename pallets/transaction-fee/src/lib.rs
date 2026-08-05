@@ -21,7 +21,7 @@ use pallet_evm::{
 // Runtime
 use sp_runtime::{
     DispatchError, Perbill, Saturating,
-    traits::{DispatchInfoOf, PostDispatchInfoOf},
+    traits::{AccountIdConversion, DispatchInfoOf, PostDispatchInfoOf},
     transaction_validity::{InvalidTransaction, TransactionValidityError},
 };
 
@@ -37,7 +37,7 @@ use smallvec::smallvec;
 use sp_core::H160;
 use sp_runtime::traits::SaturatedConversion;
 use sp_std::vec::Vec;
-use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance};
 
 // Tests
 #[cfg(test)]
@@ -97,27 +97,21 @@ type BalancesImbalanceOf<T> = FungibleImbalance<
 
 impl<T> OnUnbalanced<BalancesImbalanceOf<T>> for TransactionFeeHandler<T>
 where
-    T: frame_system::Config
-        + pallet_balances::Config
-        + pallet_subtensor::Config
-        + AuthorshipInfo<AccountIdOf<T>>,
+    T: frame_system::Config + pallet_balances::Config + pallet_subtensor::Config,
     <T as pallet_balances::Config>::Balance: Into<TaoBalance> + Copy,
 {
     fn on_nonzero_unbalanced(imbalance: BalancesImbalanceOf<T>) {
-        if let Some(author) = T::author() {
-            // Pay block author
-            let _ = <pallet_balances::Pallet<T> as Balanced<_>>::resolve(&author, imbalance);
-        } else {
-            // Fallback: if no author, burn (or just drop).
-            drop(imbalance);
-        }
+        let amount = imbalance.peek().into();
+        pallet_subtensor::TotalIssuance::<T>::mutate(|total| {
+            *total = total.saturating_sub(amount);
+        });
+        drop(imbalance);
     }
 }
 
 /// Handle Alpha fees
 impl<T> AlphaFeeHandler<T> for TransactionFeeHandler<T>
 where
-    T: AuthorshipInfo<AccountIdOf<T>>,
     T: frame_system::Config,
     T: pallet_subtensor::Config,
     T: pallet_subtensor_swap::Config,
@@ -184,34 +178,30 @@ where
                 return Err(InvalidTransaction::Payment.into());
             }
 
-            // Sell alpha_fee and burn received tao (ignore unstake_from_subnet return).
-            if let Some(author) = T::author() {
-                with_transaction(
-                    || -> TransactionOutcome<Result<TaoBalance, DispatchError>> {
-                        match pallet_subtensor::Pallet::<T>::unstake_from_subnet(
-                            hotkey,
-                            coldkey,
-                            &author,
-                            *netuid,
-                            alpha_fee,
-                            0.into(),
-                            true,
-                            false,
-                        ) {
-                            Ok(tao_amount) => TransactionOutcome::Commit(Ok(tao_amount)),
-                            Err(err) => TransactionOutcome::Rollback(Err(err)),
-                        }
-                    },
-                )
-                .map(|tao_amount| (alpha_fee, tao_amount, *netuid))
-                .map_err(|err| {
-                    log::warn!("Error withdrawing transaction fee in alpha: {err:?}");
-                    InvalidTransaction::Payment.into()
-                })
-            } else {
-                // Fallback: no author => no fees (do nothing)
-                Ok((0.into(), 0.into(), NetUid::ROOT))
-            }
+            // Sell the Alpha fee and send the resulting TAO to the burn account.
+            let burn_account: AccountIdOf<T> = T::BurnAccountId::get().into_account_truncating();
+            with_transaction(
+                || -> TransactionOutcome<Result<TaoBalance, DispatchError>> {
+                    match pallet_subtensor::Pallet::<T>::unstake_from_subnet(
+                        hotkey,
+                        coldkey,
+                        &burn_account,
+                        *netuid,
+                        alpha_fee,
+                        0.into(),
+                        true,
+                        false,
+                    ) {
+                        Ok(tao_amount) => TransactionOutcome::Commit(Ok(tao_amount)),
+                        Err(err) => TransactionOutcome::Rollback(Err(err)),
+                    }
+                },
+            )
+            .map(|tao_amount| (alpha_fee, tao_amount, *netuid))
+            .map_err(|err| {
+                log::warn!("Error withdrawing transaction fee in alpha: {err:?}");
+                InvalidTransaction::Payment.into()
+            })
         } else {
             Ok((0.into(), 0.into(), NetUid::ROOT))
         }
@@ -257,7 +247,7 @@ impl<F, OU> SubtensorTxFeeHandler<F, OU> {
     /// distributed evenly between subnets in case of multiple subnets.
     pub fn fees_in_alpha<T>(who: &AccountIdOf<T>, call: &CallOf<T>) -> Vec<(AccountIdOf<T>, NetUid)>
     where
-        T: frame_system::Config + pallet_subtensor::Config + AuthorshipInfo<AccountIdOf<T>>,
+        T: frame_system::Config + pallet_subtensor::Config,
         CallOf<T>: IsSubType<pallet_subtensor::Call<T>>,
         OU: AlphaFeeHandler<T>,
     {
@@ -362,7 +352,7 @@ impl<F, OU> SubtensorTxFeeHandler<F, OU> {
 
 impl<T, F, OU> OnChargeTransaction<T> for SubtensorTxFeeHandler<F, OU>
 where
-    T: PTPConfig + pallet_subtensor::Config + AuthorshipInfo<AccountIdOf<T>>,
+    T: PTPConfig + pallet_subtensor::Config,
     CallOf<T>: IsSubType<pallet_subtensor::Call<T>>,
     F: Balanced<T::AccountId>,
     OU: OnUnbalanced<Credit<T::AccountId, F>> + AlphaFeeHandler<T>,
@@ -465,7 +455,6 @@ where
                     OU::on_unbalanceds(Some(fee).into_iter().chain(Some(tip)));
                 }
                 WithdrawnFee::Alpha((alpha_fee, tao_amount, netuid)) => {
-                    // Block author already received the fee in withdraw_in_alpha, nothing to do here.
                     frame_system::Pallet::<T>::deposit_event(
                         pallet_subtensor::Event::<T>::TransactionFeePaidWithAlpha {
                             who: who.clone(),
@@ -560,10 +549,7 @@ where
 
     fn pay_priority_fee(tip: Self::LiquidityInfo) {
         if let Some(tip) = tip {
-            let author = <T::AddressMapping as AddressMapping<T::AccountId>>::into_account_id(
-                pallet_evm::Pallet::<T>::find_author(),
-            );
-            let _ = F::resolve(&author, tip);
+            OU::on_unbalanced(tip);
         }
     }
 }
