@@ -13,8 +13,8 @@ use subtensor_runtime_common::AlphaBalance;
 use subtensor_swap_interface::SwapHandler;
 
 use mock::*;
-mod burning;
 mod mock;
+mod recycling;
 
 fn mark_collateral(netuid: NetUid, hotkey: &U256, coldkey: &U256, locked: AlphaBalance) {
     MinerCollateral::<Test>::insert(
@@ -322,6 +322,9 @@ fn test_remove_stake_fees_alpha() {
 
         let burn_account: U256 = BurnAccountId::get().into_account_truncating();
         let burn_balance_before = Balances::free_balance(burn_account);
+        let balances_issuance_before = Balances::total_issuance();
+        let subtensor_issuance_before = SubtensorModule::get_total_issuance();
+        assert_eq!(balances_issuance_before, subtensor_issuance_before);
 
         // Remove stake
         let balance_before = Balances::free_balance(sn.coldkey);
@@ -365,7 +368,7 @@ fn test_remove_stake_fees_alpha() {
         assert!(actual_alpha_fee > 0.into());
 
         let events = System::events();
-        let (alpha_event, burned_tao) = events
+        let (alpha_event, recycled_tao) = events
             .iter()
             .enumerate()
             .find_map(|(index, event_record)| match &event_record.event {
@@ -383,10 +386,19 @@ fn test_remove_stake_fees_alpha() {
                 _ => None,
             })
             .expect("expected TransactionFeePaidWithAlpha event");
-        assert!(!burned_tao.is_zero());
+        assert!(!recycled_tao.is_zero());
+        assert_eq!(Balances::free_balance(burn_account), burn_balance_before);
         assert_eq!(
-            Balances::free_balance(burn_account) - burn_balance_before,
-            burned_tao
+            balances_issuance_before - Balances::total_issuance(),
+            recycled_tao
+        );
+        assert_eq!(
+            subtensor_issuance_before - SubtensorModule::get_total_issuance(),
+            recycled_tao
+        );
+        assert_eq!(
+            Balances::total_issuance(),
+            SubtensorModule::get_total_issuance()
         );
         let tao_event = events
             .iter()
@@ -1904,6 +1916,9 @@ fn test_alpha_fee_only_from_free_stake_above_collateral() {
         let burn_account: U256 = BurnAccountId::get().into_account_truncating();
         let block_builder_balance_before = Balances::free_balance(block_builder);
         let burn_balance_before = Balances::free_balance(burn_account);
+        let balances_issuance_before = Balances::total_issuance();
+        let subtensor_issuance_before = SubtensorModule::get_total_issuance();
+        assert_eq!(balances_issuance_before, subtensor_issuance_before);
         let collateral_before = MinerCollateral::<Test>::get((netuid, hotkey, sn.coldkey))
             .expect("collateral entry")
             .locked;
@@ -1918,9 +1933,18 @@ fn test_alpha_fee_only_from_free_stake_above_collateral() {
         assert_eq!(taken, alpha_for_small);
         assert!(!tao_out.is_zero());
         assert_eq!(Balances::free_balance(block_builder), block_builder_balance_before);
+        assert_eq!(Balances::free_balance(burn_account), burn_balance_before);
         assert_eq!(
-            Balances::free_balance(burn_account).saturating_sub(burn_balance_before),
+            balances_issuance_before - Balances::total_issuance(),
             tao_out
+        );
+        assert_eq!(
+            subtensor_issuance_before - SubtensorModule::get_total_issuance(),
+            tao_out
+        );
+        assert_eq!(
+            Balances::total_issuance(),
+            SubtensorModule::get_total_issuance()
         );
 
         let alpha_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(

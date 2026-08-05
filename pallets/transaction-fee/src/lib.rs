@@ -21,7 +21,7 @@ use pallet_evm::{
 // Runtime
 use sp_runtime::{
     DispatchError, Perbill, Saturating,
-    traits::{AccountIdConversion, DispatchInfoOf, PostDispatchInfoOf},
+    traits::{DispatchInfoOf, PostDispatchInfoOf},
     transaction_validity::{InvalidTransaction, TransactionValidityError},
 };
 
@@ -178,21 +178,38 @@ where
                 return Err(InvalidTransaction::Payment.into());
             }
 
-            // Sell the Alpha fee and send the resulting TAO to the burn account.
-            let burn_account: AccountIdOf<T> = T::BurnAccountId::get().into_account_truncating();
+            // Sell the Alpha fee and recycle the resulting TAO directly from the subnet
+            // account. This avoids relying on the payer having enough TAO to keep an account
+            // alive. Keeping both operations in one storage transaction ensures that a failure
+            // to recycle the TAO also rolls back the Alpha withdrawal and AMM updates.
             with_transaction(
                 || -> TransactionOutcome<Result<TaoBalance, DispatchError>> {
+                    let Some(subnet_account) =
+                        pallet_subtensor::Pallet::<T>::get_subnet_account_id(*netuid)
+                    else {
+                        return TransactionOutcome::Rollback(Err(
+                            pallet_subtensor::Error::<T>::SubnetNotExists.into(),
+                        ));
+                    };
                     match pallet_subtensor::Pallet::<T>::unstake_from_subnet(
                         hotkey,
                         coldkey,
-                        &burn_account,
+                        &subnet_account,
                         *netuid,
                         alpha_fee,
                         0.into(),
                         true,
                         false,
                     ) {
-                        Ok(tao_amount) => TransactionOutcome::Commit(Ok(tao_amount)),
+                        Ok(tao_amount) => {
+                            match pallet_subtensor::Pallet::<T>::recycle_tao(
+                                &subnet_account,
+                                tao_amount,
+                            ) {
+                                Ok(()) => TransactionOutcome::Commit(Ok(tao_amount)),
+                                Err(err) => TransactionOutcome::Rollback(Err(err)),
+                            }
+                        }
                         Err(err) => TransactionOutcome::Rollback(Err(err)),
                     }
                 },

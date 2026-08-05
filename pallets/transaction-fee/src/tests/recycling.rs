@@ -5,7 +5,7 @@ use sp_runtime::traits::{AccountIdConversion, DispatchTransaction};
 use subtensor_runtime_common::AlphaBalance;
 
 #[test]
-fn tao_transaction_fees_are_burned() {
+fn tao_transaction_fees_are_recycled() {
     new_test_ext().execute_with(|| {
         let payer = U256::from(42u64);
         let block_builder = U256::from(MOCK_BLOCK_BUILDER);
@@ -50,7 +50,7 @@ fn tao_transaction_fees_are_burned() {
 }
 
 #[test]
-fn alpha_transaction_fees_are_burned_without_a_block_author() {
+fn alpha_transaction_fees_are_recycled_without_a_block_author() {
     new_test_ext().execute_with(|| {
         let stake_amount = TAO;
         let unstake_amount = AlphaBalance::from(TAO / 50);
@@ -60,10 +60,8 @@ fn alpha_transaction_fees_are_burned_without_a_block_author() {
         setup_stake(netuid, &setup.coldkey, &hotkey, stake_amount);
 
         let current_balance = Balances::free_balance(setup.coldkey);
-        remove_balance_from_coldkey_account(
-            &setup.coldkey,
-            current_balance - ExistentialDeposit::get(),
-        );
+        remove_balance_from_coldkey_account(&setup.coldkey, current_balance);
+        assert_eq!(Balances::free_balance(setup.coldkey), TaoBalance::ZERO);
 
         let block_builder = U256::from(MOCK_BLOCK_BUILDER);
         let block_builder_balance_before = Balances::free_balance(block_builder);
@@ -102,7 +100,7 @@ fn alpha_transaction_fees_are_burned_without_a_block_author() {
         let alpha_fee = alpha_before - alpha_after - unstake_amount;
         assert!(!alpha_fee.is_zero());
 
-        let burned_tao = System::events()
+        let recycled_tao = System::events()
             .iter()
             .find_map(|event_record| match &event_record.event {
                 RuntimeEvent::SubtensorModule(SubtensorEvent::TransactionFeePaidWithAlpha {
@@ -120,19 +118,19 @@ fn alpha_transaction_fees_are_burned_without_a_block_author() {
             })
             .expect("expected TransactionFeePaidWithAlpha event");
 
-        assert!(!burned_tao.is_zero());
-        assert_eq!(
-            Balances::free_balance(burn_account) - burn_balance_before,
-            burned_tao
-        );
+        assert!(!recycled_tao.is_zero());
+        assert_eq!(Balances::free_balance(burn_account), burn_balance_before);
         assert_eq!(
             Balances::free_balance(block_builder),
             block_builder_balance_before
         );
-        assert_eq!(Balances::total_issuance(), balances_issuance_before);
         assert_eq!(
-            SubtensorModule::get_total_issuance(),
-            subtensor_issuance_before
+            balances_issuance_before - Balances::total_issuance(),
+            recycled_tao
+        );
+        assert_eq!(
+            subtensor_issuance_before - SubtensorModule::get_total_issuance(),
+            recycled_tao
         );
         assert_eq!(
             Balances::total_issuance(),

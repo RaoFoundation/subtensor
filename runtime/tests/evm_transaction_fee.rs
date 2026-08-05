@@ -38,7 +38,7 @@ fn initialize_block_with_aura_authority(authority: AuraId, slot: u64) {
 }
 
 #[test]
-fn evm_fees_are_burned_without_total_issuance_drift() {
+fn evm_fees_are_recycled_without_total_issuance_drift() {
     new_test_ext().execute_with(|| {
         initialize_block_with_aura_authority(AuraId::from(sr25519::Public::from_raw([1u8; 32])), 0);
 
