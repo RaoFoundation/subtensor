@@ -78,6 +78,9 @@ const TOTAL_HOTKEY_STAKE_READS_PER_SUBNET: u64 = 5;
 // current-price reads.
 const TOTAL_COLDKEY_POSITION_BASE_READS: u64 = 2;
 const TOTAL_COLDKEY_MATCHED_POSITION_READS: u64 = STAKE_INFO_READS_PER_HOTKEY + 9 + 4;
+// BasketRate + root stake + BasketClaimed + BasketShares + escrow holding and quote state.
+// This is deliberately conservative so each bounded request pays for its per-hotkey work.
+const ROOT_UNCLAIMED_READS_PER_HOTKEY: u64 = 20;
 
 /// Prefix for the Allowances map in Substrate storage.
 pub struct AllowancesPrefix;
@@ -1137,28 +1140,68 @@ where
         dispatch_subtensor(handle, pallet_subtensor::Call::<R>::claim_root { subnets })
     }
 
-    #[precompile::public("setRootClaimType(uint8,uint16[])")]
-    fn set_root_claim_type(
-        handle: &mut impl PrecompileHandle,
-        claim_type: u8,
-        subnets: BoundedVec<u16, ConstU32<5>>,
-    ) -> EvmResult<()> {
-        let subnets = Vec::<u16>::from(subnets)
-            .into_iter()
-            .map(NetUid::from)
-            .collect::<BTreeSet<_>>();
-        let new_root_claim_type = match claim_type {
-            0 => pallet_subtensor::RootClaimTypeEnum::Swap,
-            1 => pallet_subtensor::RootClaimTypeEnum::Keep,
-            2 => pallet_subtensor::RootClaimTypeEnum::KeepSubnets { subnets },
-            _ => return Err(revert("invalid root claim type")),
-        };
+    #[precompile::public("claimRootWithHotkey(bytes32)")]
+    fn claim_root_with_hotkey(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<()> {
         dispatch_subtensor(
             handle,
-            pallet_subtensor::Call::<R>::set_root_claim_type {
-                new_root_claim_type,
+            pallet_subtensor::Call::<R>::claim_root_with_hotkey {
+                hotkey: hotkey.0.into(),
             },
         )
+    }
+
+    /// Returns the realizable TAO currently owed to `coldkey` by one validator basket.
+    #[precompile::public("getUnclaimedRootTaoByHotkey(bytes32,bytes32)")]
+    #[precompile::view]
+    fn get_unclaimed_root_tao_by_hotkey(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+        hotkey: H256,
+    ) -> EvmResult<U256> {
+        // A basket can contain at most one holding per subnet. Charge against the configured
+        // subnet ceiling so the prefix scan remains fully paid without first scanning it.
+        let subnet_limit = u64::from(pallet_subtensor::SubnetLimit::<R>::get()).saturating_add(1);
+        handle.record_db_reads::<R>(
+            1_u64.saturating_add(subnet_limit.saturating_mul(ROOT_UNCLAIMED_READS_PER_HOTKEY)),
+        )?;
+
+        let coldkey = R::AccountId::from(coldkey.0);
+        let hotkey = R::AccountId::from(hotkey.0);
+        let tao = pallet_subtensor::Pallet::<R>::get_basket_payout_tao(&hotkey, &coldkey);
+        tao_to_evm::<R>(tao)
+    }
+
+    /// Returns the realizable TAO currently owed to `coldkey` from the supplied validator
+    /// baskets' holdings on `netuid`. Supply at most 64 distinct hotkeys per call.
+    #[precompile::public("getUnclaimedRootTaoBySubnet(bytes32,uint16,bytes32[])")]
+    #[precompile::view]
+    fn get_unclaimed_root_tao_by_subnet(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+        netuid: u16,
+        hotkeys: BoundedVec<H256, ConstU32<64>>,
+    ) -> EvmResult<U256> {
+        let hotkeys = Vec::<H256>::from(hotkeys);
+        handle.record_db_reads::<R>(
+            u64::try_from(hotkeys.len())
+                .unwrap_or(u64::MAX)
+                .saturating_mul(ROOT_UNCLAIMED_READS_PER_HOTKEY),
+        )?;
+        let coldkey = R::AccountId::from(coldkey.0);
+        let netuid = NetUid::from(netuid);
+        let mut seen = BTreeSet::new();
+        let mut tao = 0_u64;
+        for hotkey in hotkeys {
+            if !seen.insert(hotkey) {
+                return Err(revert("duplicate unclaimed root hotkey"));
+            }
+            let hotkey = R::AccountId::from(hotkey.0);
+            tao = tao.saturating_add(pallet_subtensor::Pallet::<R>::get_basket_subnet_payout_tao(
+                &hotkey, &coldkey, netuid,
+            ));
+        }
+
+        tao_to_evm::<R>(tao)
     }
 
     #[precompile::public("setRootClaimThreshold(uint16,uint64)")]
@@ -2042,6 +2085,12 @@ fn try_u64_from_u256(value: U256) -> Result<u64, PrecompileFailure> {
     })
 }
 
+fn tao_to_evm<R: pallet_evm::Config>(value: u64) -> EvmResult<U256> {
+    <R as pallet_evm::Config>::BalanceConverter::into_evm_balance(SubstrateBalance::from(value))
+        .map(EvmBalance::into_u256)
+        .ok_or_else(|| ExitError::InvalidRange.into())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -2125,6 +2174,30 @@ mod tests {
 
     fn ensure_hotkey_exists(hotkey: &AccountId) {
         pallet_subtensor::Owner::<Runtime>::insert(hotkey, hotkey.clone());
+    }
+
+    fn setup_root_basket_position(
+        coldkey: &AccountId,
+        hotkey: &AccountId,
+        netuid: NetUid,
+        owed_shares: u64,
+        shares_total: u64,
+        holding_alpha: u64,
+    ) {
+        ensure_hotkey_exists(hotkey);
+        pallet_subtensor::BasketShares::<Runtime>::insert(hotkey, shares_total);
+        pallet_subtensor::BasketClaimed::<Runtime>::insert(
+            hotkey,
+            coldkey,
+            -i128::from(owed_shares),
+        );
+        let escrow = pallet_subtensor::Pallet::<Runtime>::get_beta_escrow_account_id();
+        pallet_subtensor::Pallet::<Runtime>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            &escrow,
+            netuid,
+            AlphaBalance::from(holding_alpha),
+        );
     }
 
     fn stake_for(hotkey: &AccountId, coldkey: &AccountId, netuid: NetUid) -> u64 {
@@ -4183,6 +4256,167 @@ mod tests {
                     pallet_subtensor::CollateralDrainRatio::<Runtime>::get(netuid).to_bits(),
                 )
             );
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_claims_root_for_one_hotkey_and_all_hotkeys() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let subnet_account = pallet_subtensor::Pallet::<Runtime>::get_subnet_account_id(netuid)
+                .expect("test subnet has an account");
+            fund_account(&subnet_account, RESERVE_TAO);
+            let caller = addr_from_index(0x3060);
+            let coldkey = mapped_account(caller);
+            let hotkey_a = AccountId::from([0x81; 32]);
+            let hotkey_b = AccountId::from([0x82; 32]);
+            let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+
+            setup_root_basket_position(&coldkey, &hotkey_a, netuid, 25, 100, 100_000_000_000);
+            setup_root_basket_position(&coldkey, &hotkey_b, netuid, 40, 100, 100_000_000_000);
+            pallet_subtensor::StakingHotkeys::<Runtime>::insert(
+                &coldkey,
+                vec![hotkey_a.clone(), hotkey_b.clone()],
+            );
+            pallet_subtensor::RootClaimableThreshold::<Runtime>::insert(
+                NetUid::ROOT,
+                substrate_fixed::types::I96F32::from_num(0),
+            );
+
+            assert!(
+                pallet_subtensor::Pallet::<Runtime>::get_basket_payout_tao(&hotkey_a, &coldkey) > 0
+            );
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("claimRootWithHotkey(bytes32)"),
+                        (H256::from_slice(hotkey_a.as_ref()),),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::Pallet::<Runtime>::get_basket_payout_tao(&hotkey_a, &coldkey),
+                0
+            );
+            assert!(
+                pallet_subtensor::Pallet::<Runtime>::get_basket_payout_tao(&hotkey_b, &coldkey) > 0
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("claimRoot(uint16[])"),
+                        (vec![TEST_NETUID_U16],),
+                    ),
+                )
+                .execute_returns(());
+            assert_eq!(
+                pallet_subtensor::Pallet::<Runtime>::get_basket_payout_tao(&hotkey_b, &coldkey),
+                0
+            );
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_reads_unclaimed_root_value_by_hotkey_and_subnet() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x3061);
+            let coldkey = mapped_account(caller);
+            let hotkey_a = AccountId::from([0x83; 32]);
+            let hotkey_b = AccountId::from([0x84; 32]);
+            let coldkey_word = H256::from_slice(coldkey.as_ref());
+            let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+
+            setup_root_basket_position(&coldkey, &hotkey_a, netuid, 20, 100, 80_000_000_000);
+            setup_root_basket_position(&coldkey, &hotkey_b, netuid, 30, 100, 60_000_000_000);
+            pallet_subtensor::StakingHotkeys::<Runtime>::insert(
+                &coldkey,
+                vec![hotkey_a.clone(), hotkey_b.clone()],
+            );
+
+            let hotkey_payout =
+                pallet_subtensor::Pallet::<Runtime>::get_basket_payout_tao(&hotkey_a, &coldkey);
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getUnclaimedRootTaoByHotkey(bytes32,bytes32)"),
+                        (coldkey_word, H256::from_slice(hotkey_a.as_ref())),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns(substrate_to_evm(hotkey_payout));
+
+            let subnet_payout_a = pallet_subtensor::Pallet::<Runtime>::get_basket_subnet_payout_tao(
+                &hotkey_a, &coldkey, netuid,
+            );
+            let subnet_payout_b = pallet_subtensor::Pallet::<Runtime>::get_basket_subnet_payout_tao(
+                &hotkey_b, &coldkey, netuid,
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getUnclaimedRootTaoBySubnet(bytes32,uint16,bytes32[])"),
+                        (
+                            coldkey_word,
+                            TEST_NETUID_U16,
+                            vec![
+                                H256::from_slice(hotkey_a.as_ref()),
+                                H256::from_slice(hotkey_b.as_ref()),
+                            ],
+                        ),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_returns(substrate_to_evm(
+                    subnet_payout_a.saturating_add(subnet_payout_b),
+                ));
+        });
+    }
+
+    #[test]
+    fn staking_precompile_v2_bounds_and_deduplicates_unclaimed_root_hotkeys() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x3062);
+            let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+            let coldkey = H256::repeat_byte(0x85);
+            let too_many = vec![H256::repeat_byte(0x86); 65];
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getUnclaimedRootTaoBySubnet(bytes32,uint16,bytes32[])"),
+                        (coldkey, TEST_NETUID_U16, too_many),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_reverts(|output| output == b"hotkeys: Value is too large for length");
+
+            let duplicate = H256::repeat_byte(0x87);
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getUnclaimedRootTaoBySubnet(bytes32,uint16,bytes32[])"),
+                        (coldkey, TEST_NETUID_U16, vec![duplicate, duplicate]),
+                    ),
+                )
+                .with_static_call(true)
+                .execute_reverts(|output| output == b"duplicate unclaimed root hotkey");
         });
     }
 }

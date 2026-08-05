@@ -424,6 +424,7 @@ impl<T: Config> Pallet<T> {
                 move_amount,
                 T::SwapInterface::min_price(),
                 drop_fee_origin,
+                true,
             )?;
 
             // Transfer unstaked TAO from origin_coldkey to destination_coldkey

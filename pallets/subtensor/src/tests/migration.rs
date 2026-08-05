@@ -16,7 +16,7 @@ use frame_support::{
     StorageHasher, Twox64Concat, assert_ok,
     storage::unhashed::{get, get_raw, put, put_raw},
     storage_alias,
-    traits::{Currency, StorageInstance, StoredMap, fungible::Inspect},
+    traits::{Currency, Hooks, StorageInstance, StoredMap, fungible::Inspect},
     weights::Weight,
 };
 use safe_math::SafeDiv;
@@ -2871,6 +2871,63 @@ fn test_migrate_kappa_map_to_default() {
 }
 
 #[test]
+fn test_migrate_clear_root_basket_weights() {
+    new_test_ext(1).execute_with(|| {
+        const MIG_NAME: &[u8] = b"clear_root_basket_weights_v2";
+        let root = NetUidStorageIndex::ROOT;
+        let subnet_idx = NetUidStorageIndex::from(NetUid::from(1u16));
+
+        // Two live non-root subnets so root vectors have real destinations to point at.
+        let hotkey_a = U256::from(1);
+        let hotkey_b = U256::from(2);
+        let netuid_a = add_dynamic_network(&hotkey_a, &U256::from(10));
+        let netuid_b = add_dynamic_network(&hotkey_b, &U256::from(11));
+        assert!(!netuid_a.is_root() && !netuid_b.is_root());
+
+        // Root uid map entries (bypass root_register).
+        let uid_a = 0u16;
+        let uid_b = 1u16;
+        Uids::<Test>::insert(NetUid::ROOT, hotkey_a, uid_a);
+        Keys::<Test>::insert(NetUid::ROOT, uid_a, hotkey_a);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey_b, uid_b);
+        Keys::<Test>::insert(NetUid::ROOT, uid_b, hotkey_b);
+
+        // Legacy root vectors (including a superseded balanced 1/n seed) — must be wiped.
+        Weights::<Test>::insert(root, uid_a, vec![(1u16, u16::MAX), (2u16, 32768)]);
+        Weights::<Test>::insert(
+            root,
+            uid_b,
+            vec![(u16::from(netuid_a), u16::MAX), (u16::from(netuid_b), u16::MAX)],
+        );
+        // Non-root subnet weights must be left alone.
+        Weights::<Test>::insert(subnet_idx, 0u16, vec![(1u16, 1000)]);
+
+        assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+
+        let w = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
+        assert!(!w.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+
+        // Clear-only: no vector is seeded in place of the wiped ones — an empty stored
+        // vector means the fund is uncurated and dividends accumulate in place.
+        assert!(Weights::<Test>::get(root, uid_a).is_empty());
+        assert!(Weights::<Test>::get(root, uid_b).is_empty());
+        assert_eq!(
+            Weights::<Test>::get(subnet_idx, 0u16),
+            vec![(1u16, 1000)],
+            "subnet weights must be untouched"
+        );
+
+        // Idempotent: a vector set after the migration ran survives a re-run.
+        let curated = vec![(u16::from(netuid_a), u16::MAX)];
+        Weights::<Test>::insert(root, uid_a, curated.clone());
+        let w2 = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
+        assert_eq!(Weights::<Test>::get(root, uid_a), curated);
+        assert!(w2.ref_time() <= w.ref_time());
+    });
+}
+
+#[test]
 fn test_migrate_remove_tao_dividends() {
     const MIGRATION_NAME: &str = "migrate_remove_tao_dividends";
     let pallet_name = "SubtensorModule";
@@ -5163,5 +5220,1392 @@ fn test_migrate_dynamic_tempo_idempotent() {
             last_epoch_first,
             "second migration call must be a no-op"
         );
+    });
+}
+
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::migration::test_migrate_seed_beta_basket --exact --nocapture
+fn register_seed_migration_root_staker(hotkey: U256, coldkey: U256) {
+    StakingHotkeys::<Test>::mutate(coldkey, |hotkeys| {
+        if !hotkeys.contains(&hotkey) {
+            hotkeys.push(hotkey);
+        }
+    });
+    SubtensorModule::maybe_add_coldkey_index(&coldkey);
+}
+
+#[test]
+fn test_migrate_seed_beta_basket() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+
+        // Validator has root stake; a legacy claimable rate exists on `netuid` with no claims yet.
+        let root_stake = 2_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            root_stake.into(),
+        );
+        register_seed_migration_root_staker(hotkey, coldkey);
+
+        // rate = 0.5 alpha-principal per unit root stake => gross = 1_000_000 alpha.
+        let rate = I96F32::from_num(0.5);
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, rate);
+        });
+
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            0
+        );
+
+        let w = migrate_seed_beta_basket_v2::<Test>();
+        assert!(!w.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        // remaining = rate * total_root - claimed = 0.5 * 2_000_000 - 0 = 1_000_000 alpha,
+        // now held by the escrow as the fund's holding on this subnet.
+        let expected_alpha = 1_000_000u64;
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            expected_alpha,
+            epsilon = 10u64,
+        );
+
+        // The legacy per-subnet state was converted into the unified fund and drained.
+        let shares = BasketShares::<Test>::get(hotkey);
+        let fund_rate = BasketRate::<Test>::get(hotkey);
+        assert!(shares > 0, "fund shares must be seeded");
+        assert!(fund_rate > I96F32::from_num(0), "fund rate must be seeded");
+        assert!(
+            RootClaimable::<Test>::get(hotkey).is_empty(),
+            "legacy claimable must be drained"
+        );
+
+        // Conservation: the sole staker's owed shares equal the outstanding fund shares
+        // (Σ owed == P), so the whole seeded fund is claimable and nothing is stranded.
+        assert_abs_diff_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
+            shares,
+            epsilon = 10u64,
+        );
+
+        // Idempotent: a second run is a no-op (only reads the flag).
+        let w2 = migrate_seed_beta_basket_v2::<Test>();
+        assert_eq!(w2, <Test as frame_system::Config>::DbWeight::get().reads(1));
+        assert!(
+            !crate::migrations::migrate_seed_beta_basket::SeedBetaBasketV2Migration::<Test>::exists(
+            ),
+            "progress cursor must be cleared when migration finishes"
+        );
+    });
+}
+
+/// Chunked / resumable path: with a 1-hotkey-per-pass limit the migration must leave a cursor,
+/// finish across subsequent passes (as a re-run after an interrupted one-shot would), set
+/// `HasMigrationRun` only at the end, and remain idempotent afterwards.
+#[test]
+fn test_migrate_seed_beta_basket_chunked_resumable() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        SeedBetaBasketV2Migration, SeedBetaBasketV2Progress, deprecated,
+        migrate_seed_beta_basket_v2_limited, seed_beta_basket_v2_in_progress,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+
+        let owner = U256::from(1001);
+        let hotkey_a = U256::from(1002);
+        let cold_a = U256::from(1003);
+        let hotkey_b = U256::from(2002);
+        let cold_b = U256::from(2003);
+        let hotkey_c = U256::from(3002);
+        let cold_c = U256::from(3003);
+
+        let netuid_a = add_dynamic_network(&hotkey_a, &owner);
+        let netuid_b = add_dynamic_network(&hotkey_b, &U256::from(2001));
+        let netuid_c = add_dynamic_network(&hotkey_c, &U256::from(3001));
+        SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1.0));
+        SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(1.0));
+        SubnetMovingPrice::<Test>::insert(netuid_c, I96F32::from_num(1.0));
+
+        for (hot, cold) in [(hotkey_a, cold_a), (hotkey_b, cold_b), (hotkey_c, cold_c)] {
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hot,
+                &cold,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+            );
+            register_seed_migration_root_staker(hot, cold);
+        }
+
+        RootClaimable::<Test>::mutate(hotkey_a, |m| {
+            m.insert(netuid_a, I96F32::from_num(0.5));
+        });
+        RootClaimable::<Test>::mutate(hotkey_b, |m| {
+            m.insert(netuid_b, I96F32::from_num(0.5));
+        });
+        RootClaimable::<Test>::mutate(hotkey_c, |m| {
+            m.insert(netuid_c, I96F32::from_num(0.5));
+        });
+
+        // Orphaned v1 principal rows — cleared in the second phase across passes.
+        deprecated::BasketPrincipal::<Test>::insert(hotkey_a, netuid_a, AlphaBalance::from(1u64));
+        deprecated::BasketPrincipal::<Test>::insert(hotkey_b, netuid_b, AlphaBalance::from(1u64));
+        deprecated::BasketPrincipal::<Test>::insert(hotkey_c, netuid_c, AlphaBalance::from(1u64));
+
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+
+        // Pass 1: convert exactly one hotkey, leave a Convert cursor.
+        let w1 = migrate_seed_beta_basket_v2_limited::<Test>(1, 1, 10);
+        assert!(!w1.is_zero());
+        assert!(
+            !HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "must not mark complete while hotkeys remain"
+        );
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+        assert!(matches!(
+            SeedBetaBasketV2Migration::<Test>::get(),
+            Some(SeedBetaBasketV2Progress::Convert {
+                after: Some(_),
+                hotkey: None
+            })
+        ));
+
+        // Drive remaining convert + bounded principal-clear passes (mirrors an interrupted-run resume).
+        let mut passes = 1u32;
+        while seed_beta_basket_v2_in_progress::<Test>() && passes < 32 {
+            migrate_seed_beta_basket_v2_limited::<Test>(1, 1, 10);
+            passes = passes.saturating_add(1);
+        }
+
+        assert!(
+            HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "flag set only after full completion"
+        );
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert!(SeedBetaBasketV2Migration::<Test>::get().is_none());
+
+        // All three hotkeys converted; legacy maps drained; principal cleared.
+        for (hot, netuid, cold) in [
+            (hotkey_a, netuid_a, cold_a),
+            (hotkey_b, netuid_b, cold_b),
+            (hotkey_c, netuid_c, cold_c),
+        ] {
+            assert!(RootClaimable::<Test>::get(hot).is_empty());
+            assert!(BasketShares::<Test>::get(hot) > 0);
+            assert!(!deprecated::BasketPrincipal::<Test>::contains_key(
+                hot, netuid
+            ));
+            assert_abs_diff_eq!(
+                SubtensorModule::get_basket_owed_shares(&hot, &cold),
+                BasketShares::<Test>::get(hot),
+                epsilon = 10u64,
+            );
+        }
+
+        // Idempotent after completion.
+        let w_done = migrate_seed_beta_basket_v2_limited::<Test>(1, 1, 10);
+        assert_eq!(
+            w_done,
+            <Test as frame_system::Config>::DbWeight::get().reads(1)
+        );
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+    });
+}
+
+/// Bounded / resumable `RootClaimed` draining: a single hotkey with many claimant coldkeys on
+/// one subnet slot must have its drain spread across several passes when the per-pass
+/// `RootClaimed`-row budget is tight, rather than draining the whole (otherwise-unbounded)
+/// prefix in one shot. `RootClaimable[hotkey]` must survive untouched until the hotkey is fully
+/// converted, and the final result must match a single-shot conversion exactly.
+#[test]
+fn test_migrate_seed_beta_basket_claimed_drain_bounded_resumable() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        SeedBetaBasketV2Migration, SeedBetaBasketV2Progress, migrate_seed_beta_basket_v2_limited,
+        seed_beta_basket_v2_in_progress,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+        const NUM_COLDKEYS: u64 = 12;
+        const CLAIMED_DRAINS_PER_PASS: u32 = 3;
+
+        let owner = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1.0));
+
+        // Many coldkeys have historically claimed against this single hotkey/netuid slot.
+        let mut total_claimed = 0u128;
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(5_000 + i);
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+            );
+            register_seed_migration_root_staker(hotkey, coldkey);
+            let claimed = 1_000u128 * u128::from(i + 1);
+            RootClaimed::<Test>::insert((netuid, hotkey, coldkey), claimed);
+            total_claimed = total_claimed.saturating_add(claimed);
+        }
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+
+        // Generous hotkey/principal caps, but a tight claimed-drain cap: the single hotkey here
+        // must span multiple passes purely because of the `RootClaimed` budget.
+        let w1 = migrate_seed_beta_basket_v2_limited::<Test>(8, 8, CLAIMED_DRAINS_PER_PASS);
+        assert!(!w1.is_zero());
+        assert!(
+            !HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "must not mark complete mid-hotkey"
+        );
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+
+        // Mid-hotkey: `RootClaimable[hotkey]` must NOT have been taken/removed yet, and the
+        // cursor must carry a nested in-progress hotkey state (not just the outer `after`).
+        assert!(
+            !RootClaimable::<Test>::get(hotkey).is_empty(),
+            "RootClaimable must survive untouched until the hotkey is fully converted"
+        );
+        match SeedBetaBasketV2Migration::<Test>::get() {
+            Some(SeedBetaBasketV2Progress::Convert {
+                hotkey: Some(_), ..
+            }) => {}
+            other => panic!("expected an in-progress nested hotkey cursor, got {other:?}"),
+        }
+        // At most `CLAIMED_DRAINS_PER_PASS` rows can have been drained so far.
+        let remaining_rows = (0..NUM_COLDKEYS)
+            .filter(|i| RootClaimed::<Test>::get((netuid, hotkey, U256::from(5_000 + i))) != 0)
+            .count();
+        assert_eq!(
+            remaining_rows as u64,
+            NUM_COLDKEYS - u64::from(CLAIMED_DRAINS_PER_PASS)
+        );
+        // Claimant watermarks are written incrementally (not deferred in the cursor map): the
+        // drained rows must already have BasketClaimed entries mid-hotkey.
+        let mid_claimed_rows = (0..NUM_COLDKEYS)
+            .filter(|i| BasketClaimed::<Test>::get(hotkey, U256::from(5_000 + i)) != 0)
+            .count();
+        assert_eq!(mid_claimed_rows as u32, CLAIMED_DRAINS_PER_PASS);
+
+        // Snapshot the first drained coldkey's watermark (priced at p=1), then move the
+        // subnet's moving price. Resumed drains must keep using the snapshotted slot price
+        // so later BasketClaimed rows stay consistent with the early ones.
+        let first_ck = U256::from(5_000u64);
+        let first_claimed_at_p1 = BasketClaimed::<Test>::get(hotkey, first_ck);
+        assert_eq!(first_claimed_at_p1, 1_000i128); // claimed=1000 * price=1
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(2.0));
+
+        // Drive remaining passes (mirrors an interrupted-run resume) until fully converted.
+        let mut passes = 1u32;
+        while seed_beta_basket_v2_in_progress::<Test>() && passes < 64 {
+            migrate_seed_beta_basket_v2_limited::<Test>(8, 8, CLAIMED_DRAINS_PER_PASS);
+            passes = passes.saturating_add(1);
+        }
+        assert!(
+            passes > 1,
+            "the tight claimed-drain cap must force multiple passes"
+        );
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+
+        // Fully converted: legacy state drained for every coldkey, RootClaimable removed.
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(5_000 + i);
+            assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, coldkey)), 0u128);
+            // All claimants must be valued at the snapshotted p=1, not the post-pause p=2.
+            let expected = 1_000i128 * i128::from(i + 1);
+            assert_eq!(BasketClaimed::<Test>::get(hotkey, coldkey), expected);
+        }
+        assert_eq!(
+            BasketClaimed::<Test>::get(hotkey, first_ck),
+            first_claimed_at_p1
+        );
+
+        // Conservation: Σ owed across every staker equals the seeded fund shares, matching the
+        // same math a single-shot (unbounded) conversion would have produced.
+        let shares = BasketShares::<Test>::get(hotkey);
+        assert!(shares > 0);
+        let mut owed_sum: u64 = 0;
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(5_000 + i);
+            owed_sum =
+                owed_sum.saturating_add(SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey));
+        }
+        assert_abs_diff_eq!(owed_sum, shares, epsilon = 20u64);
+
+        // Sanity: gross - total_claimed matches the escrow's outstanding alpha holding.
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        let gross = 0.5f64 * (NUM_COLDKEYS as f64) * 1_000_000.0;
+        let expected_alpha = (gross - total_claimed as f64) as u64;
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            expected_alpha,
+            epsilon = 20u64,
+        );
+
+        // Idempotent after completion.
+        let w_done = migrate_seed_beta_basket_v2_limited::<Test>(8, 8, CLAIMED_DRAINS_PER_PASS);
+        assert_eq!(
+            w_done,
+            <Test as frame_system::Config>::DbWeight::get().reads(1)
+        );
+    });
+}
+
+/// Mainnet can contain `RootClaimed` watermarks whose `(hotkey, netuid)` no longer has a
+/// corresponding `RootClaimable` rate. They carry no convertible entitlement, but the
+/// migration must clear them in bounded passes before declaring the legacy maps fully drained.
+#[test]
+fn test_migrate_seed_beta_basket_clears_orphaned_claimed_rows_bounded() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        SeedBetaBasketV2Migration, SeedBetaBasketV2Progress, migrate_seed_beta_basket_v2_limited,
+        seed_beta_basket_v2_in_progress,
+    };
+
+    const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+    const ORPHAN_ROWS: u64 = 5;
+    const CLAIMED_DRAINS_PER_PASS: u32 = 2;
+    let netuid = NetUid::from(123);
+    let hotkey = U256::from(11_001);
+
+    let mut ext = new_test_ext(1);
+    ext.execute_with(|| {
+        for i in 0..ORPHAN_ROWS {
+            RootClaimed::<Test>::insert((netuid, hotkey, U256::from(12_000 + i)), 1_000u128);
+        }
+    });
+    ext.commit_all().expect("fixture storage commits");
+
+    ext.execute_with(|| {
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+
+        migrate_seed_beta_basket_v2_limited::<Test>(8, 8, CLAIMED_DRAINS_PER_PASS);
+
+        assert!(
+            !HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()),
+            "must not declare completion while orphaned RootClaimed rows remain"
+        );
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+        assert!(matches!(
+            SeedBetaBasketV2Migration::<Test>::get(),
+            Some(SeedBetaBasketV2Progress::ClearClaimed { cursor: Some(_) })
+        ));
+        assert_eq!(
+            RootClaimed::<Test>::iter().count(),
+            ORPHAN_ROWS as usize - CLAIMED_DRAINS_PER_PASS as usize
+        );
+    });
+    ext.commit_all().expect("first clear pass commits");
+
+    for _ in 1..16 {
+        let in_progress = ext.execute_with(|| {
+            if seed_beta_basket_v2_in_progress::<Test>() {
+                migrate_seed_beta_basket_v2_limited::<Test>(8, 8, CLAIMED_DRAINS_PER_PASS);
+            }
+            seed_beta_basket_v2_in_progress::<Test>()
+        });
+        ext.commit_all().expect("resumed clear pass commits");
+        if !in_progress {
+            break;
+        }
+    }
+
+    ext.execute_with(|| {
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert_eq!(RootClaimed::<Test>::iter().count(), 0);
+        assert_eq!(
+            BasketClaimed::<Test>::iter_prefix(hotkey).count(),
+            0,
+            "an orphaned watermark has no corresponding rate and must not mint a basket claim"
+        );
+    });
+}
+
+#[test]
+fn test_migrate_seed_beta_basket_corrupt_hotkey_cursor_fails_closed() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        HotkeyConvertState, SeedBetaBasketV2Migration, SeedBetaBasketV2Progress,
+        migrate_seed_beta_basket_v2_limited,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(13_001);
+        let netuid = NetUid::from(1);
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        let corrupt_progress = SeedBetaBasketV2Progress::Convert {
+            after: None,
+            hotkey: Some(HotkeyConvertState {
+                hotkey: vec![0xff],
+                done_through: None,
+                total_root: I96F32::from_num(0),
+                partial: None,
+                fund_rate: I96F32::from_num(0),
+                fund_shares: 0,
+                seeded_slots: 0,
+            }),
+        };
+        SeedBetaBasketV2Migration::<Test>::put(&corrupt_progress);
+
+        migrate_seed_beta_basket_v2_limited::<Test>(8, 8, 8);
+
+        assert_eq!(
+            SeedBetaBasketV2Migration::<Test>::get(),
+            Some(corrupt_progress),
+            "an undecodable cursor must remain available for operator recovery"
+        );
+        assert!(!HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+        assert!(
+            !RootClaimable::<Test>::get(hotkey).is_empty(),
+            "fail-closed recovery must not discard unconverted legacy state"
+        );
+    });
+}
+
+#[test]
+fn test_migrate_seed_beta_basket_pauses_dissolution_cleanup_until_complete() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        kickoff_seed_beta_basket_v2, seed_beta_basket_v2_in_progress,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(14_001);
+        let hotkey = U256::from(14_002);
+        let coldkey = U256::from(14_003);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid, I96F32::from_num(0.5));
+        });
+        RootClaimed::<Test>::insert((netuid, hotkey, coldkey), 100u128);
+
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&netuid));
+        assert!(!RootClaimable::<Test>::get(hotkey).is_empty());
+        kickoff_seed_beta_basket_v2::<Test>();
+
+        // A zero idle budget still advances one migration item, but dissolution must not touch
+        // its source maps first.
+        SubtensorModule::on_idle(1, Weight::zero());
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&netuid));
+        assert_eq!(CurrentDissolveCleanupStatus::<Test>::get(), None);
+        assert!(
+            !RootClaimable::<Test>::get(hotkey).is_empty(),
+            "the partially converted hotkey must remain intact for migration resume"
+        );
+        assert_eq!(
+            RootClaimed::<Test>::get((netuid, hotkey, coldkey)),
+            0,
+            "the migration must receive the idle budget and advance its claimed-row cursor"
+        );
+
+        // The block that begins with the cursor still gives the migration exclusive ownership.
+        SubtensorModule::on_idle(2, Weight::MAX);
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert!(DissolveCleanupQueue::<Test>::get().contains(&netuid));
+
+        // Cleanup resumes on the first later idle block.
+        SubtensorModule::on_idle(3, Weight::MAX);
+        assert!(
+            !DissolveCleanupQueue::<Test>::get().contains(&netuid)
+                || CurrentDissolveCleanupStatus::<Test>::get().is_some()
+        );
+    });
+}
+
+#[test]
+fn test_migrate_seed_beta_basket_rejects_all_new_dissolution_paths() {
+    use crate::migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(14_101);
+        let hotkey = U256::from(14_102);
+        let coldkey = U256::from(14_103);
+        let claimant = U256::from(14_104);
+        let replacement_hotkey = U256::from(14_105);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid, I96F32::from_num(0.5));
+        });
+        RootClaimed::<Test>::insert((netuid, hotkey, claimant), 100u128);
+        PendingRootAlphaDivs::<Test>::insert(netuid, AlphaBalance::from(500u64));
+
+        // Make this subnet the deterministic registration-prune candidate at the subnet cap.
+        SubnetLimit::<Test>::put(1u16);
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(0));
+        let mature_block = NetworkRegisteredAt::<Test>::get(netuid)
+            .saturating_add(SubtensorModule::get_network_immunity_period())
+            .saturating_add(1);
+        System::set_block_number(mature_block);
+        let lock_cost = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&coldkey, lock_cost.saturating_mul(TaoBalance::from(2u64)));
+
+        let total_networks = TotalNetworks::<Test>::get();
+        let total_stake = TotalStake::<Test>::get();
+        kickoff_seed_beta_basket_v2::<Test>();
+
+        // Both root dissolution dispatches must fail before touching any source or network state.
+        assert_eq!(
+            SubtensorModule::dissolve_network(RuntimeOrigin::root(), owner, netuid),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+        assert_eq!(
+            SubtensorModule::root_dissolve_network(RuntimeOrigin::root(), netuid),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+        assert!(NetworksAdded::<Test>::get(netuid));
+        assert_eq!(TotalNetworks::<Test>::get(), total_networks);
+        assert_eq!(TotalStake::<Test>::get(), total_stake);
+        assert!(DissolveCleanupQueue::<Test>::get().is_empty());
+        assert_eq!(PendingRootAlphaDivs::<Test>::get(netuid).to_u64(), 500);
+        assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, claimant)), 100);
+        assert!(RootClaimable::<Test>::get(hotkey).contains_key(&netuid));
+
+        // A signed registration at the cap reaches the same shared guard instead of pruning.
+        assert_eq!(
+            SubtensorModule::do_register_network(
+                RuntimeOrigin::signed(coldkey),
+                &replacement_hotkey,
+                1,
+                None,
+            ),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+        assert!(NetworksAdded::<Test>::get(netuid));
+        assert_eq!(TotalNetworks::<Test>::get(), total_networks);
+        assert_eq!(TotalStake::<Test>::get(), total_stake);
+        assert!(DissolveCleanupQueue::<Test>::get().is_empty());
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert_eq!(PendingRootAlphaDivs::<Test>::get(netuid).to_u64(), 500);
+        assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, claimant)), 100);
+        assert!(RootClaimable::<Test>::get(hotkey).contains_key(&netuid));
+
+        // Registration itself is not disabled: when capacity exists, no dissolution is needed
+        // and the caller receives the new subnet normally during the migration.
+        SubnetLimit::<Test>::put(2u16);
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(coldkey),
+            &replacement_hotkey,
+            1,
+            None,
+        ));
+        assert_eq!(
+            TotalNetworks::<Test>::get(),
+            total_networks.saturating_add(1)
+        );
+        assert_eq!(SubnetOwner::<Test>::get(NetUid::from(2)), coldkey);
+    });
+}
+
+/// Adaptive production entrypoint must scale work to the remaining on_idle weight while always
+/// making progress. In particular, a zero remaining budget must still execute one indivisible
+/// row/hotkey iteration instead of persisting the same cursor forever.
+#[test]
+fn test_migrate_seed_beta_basket_adaptive_budget_and_overweight_progress() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS, MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS,
+        MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS, migrate_seed_beta_basket_v2_with_limit,
+        seed_beta_basket_v2_in_progress,
+    };
+    use frame_support::weights::Weight;
+
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_seed_beta_basket_v2";
+        const NUM_COLDKEYS: u64 = 200;
+
+        assert_eq!(MAX_SEED_BETA_BASKET_HOTKEYS_PER_PASS, u32::MAX);
+        assert_eq!(MAX_SEED_BETA_BASKET_PRINCIPAL_CLEAR_PER_PASS, u32::MAX);
+        assert_eq!(MAX_SEED_BETA_BASKET_CLAIMED_DRAINS_PER_PASS, u32::MAX);
+
+        let owner = U256::from(7_001);
+        let hotkey = U256::from(7_002);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1.0));
+
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(8_000 + i);
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+            );
+            RootClaimed::<Test>::insert((netuid, hotkey, coldkey), 1_000u128);
+        }
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        // Zero remaining weight still processes one claimed row and persists a later cursor.
+        let overweight = migrate_seed_beta_basket_v2_with_limit::<Test>(Weight::zero());
+        assert!(
+            !overweight.is_zero(),
+            "one overweight iteration must be reported, not clamped to zero"
+        );
+        assert!(
+            seed_beta_basket_v2_in_progress::<Test>(),
+            "200 claimed rows cannot finish in the fail-open single-item pass"
+        );
+        let remaining_after_zero = (0..NUM_COLDKEYS)
+            .filter(|i| RootClaimed::<Test>::get((netuid, hotkey, U256::from(8_000 + i))) != 0)
+            .count();
+        assert_eq!(
+            remaining_after_zero as u64,
+            NUM_COLDKEYS - 1,
+            "zero-budget pass must advance by exactly one claimed row"
+        );
+
+        // A real remaining-weight budget processes a larger adaptive batch, but not the
+        // type-level ceiling or the entire fixture.
+        let adaptive_limit = Weight::from_parts(20_000_000_000, u64::MAX);
+        let adaptive = migrate_seed_beta_basket_v2_with_limit::<Test>(adaptive_limit);
+        assert!(!adaptive.is_zero());
+        assert!(
+            adaptive.all_lte(adaptive_limit),
+            "a multi-item pass should stay inside its available weight"
+        );
+        let remaining_after_adaptive = (0..NUM_COLDKEYS)
+            .filter(|i| RootClaimed::<Test>::get((netuid, hotkey, U256::from(8_000 + i))) != 0)
+            .count();
+        assert!(
+            remaining_after_adaptive < remaining_after_zero,
+            "adaptive pass must advance beyond the fail-open item"
+        );
+        assert!(
+            remaining_after_adaptive > 0,
+            "finite adaptive budget should leave part of this fixture for another pass"
+        );
+
+        let mut passes = 0u32;
+        while seed_beta_basket_v2_in_progress::<Test>() && passes < 32 {
+            migrate_seed_beta_basket_v2_with_limit::<Test>(Weight::MAX);
+            passes = passes.saturating_add(1);
+        }
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(8_000 + i);
+            assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, coldkey)), 0);
+            assert_eq!(BasketClaimed::<Test>::get(hotkey, coldkey), 1_000);
+        }
+    });
+}
+
+/// Every active phase is fail-open for one indivisible item. Even with no remaining weight, a
+/// hotkey conversion or principal-clear iteration advances instead of persisting the same cursor
+/// forever. Claimed-row progress under the same condition is covered by the adaptive test above.
+#[test]
+fn test_migrate_seed_beta_basket_zero_budget_advances_each_phase() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        deprecated, migrate_seed_beta_basket_v2_with_limit, seed_beta_basket_v2_in_progress,
+    };
+    use frame_support::weights::Weight;
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(8_901);
+        let hotkey = U256::from(8_902);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        let used = migrate_seed_beta_basket_v2_with_limit::<Test>(Weight::zero());
+        assert!(!used.is_zero());
+        assert!(
+            RootClaimable::<Test>::get(hotkey).is_empty(),
+            "zero-budget pass must still complete one indivisible hotkey"
+        );
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+    });
+
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(8_903);
+        deprecated::BasketPrincipal::<Test>::insert(
+            hotkey,
+            NetUid::from(1),
+            AlphaBalance::from(10u64),
+        );
+        deprecated::BasketPrincipal::<Test>::insert(
+            hotkey,
+            NetUid::from(2),
+            AlphaBalance::from(20u64),
+        );
+
+        let used = migrate_seed_beta_basket_v2_with_limit::<Test>(Weight::zero());
+        assert!(!used.is_zero());
+        assert!(
+            deprecated::BasketPrincipal::<Test>::iter().count() < 2,
+            "zero-budget pass must still advance principal cleanup"
+        );
+        assert!(
+            seed_beta_basket_v2_in_progress::<Test>()
+                || HasMigrationRun::<Test>::get(b"migrate_seed_beta_basket_v2".to_vec())
+        );
+    });
+}
+
+/// Repeated coldkeys across subnet slots are aggregated in memory and flushed once per bounded
+/// pass. This lets the adaptive migration finish work that would exceed the limit if every
+/// RootClaimed row independently mutated BasketClaimed.
+#[test]
+fn test_migrate_seed_beta_basket_batches_repeated_coldkey_writes() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2_with_limit;
+    use frame_support::weights::Weight;
+
+    new_test_ext(1).execute_with(|| {
+        const NUM_COLDKEYS: u64 = 50;
+
+        let owner = U256::from(9_001);
+        let hotkey = U256::from(9_002);
+        let netuid_a = add_dynamic_network(&hotkey, &owner);
+        let netuid_b = add_dynamic_network(&hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1.0));
+        SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(1.0));
+
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(10_000 + i);
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+            );
+            RootClaimed::<Test>::insert((netuid_a, hotkey, coldkey), 1_000u128);
+            RootClaimed::<Test>::insert((netuid_b, hotkey, coldkey), 1_000u128);
+        }
+        RootClaimable::<Test>::mutate(hotkey, |claimable| {
+            claimable.insert(netuid_a, I96F32::from_num(0.5));
+            claimable.insert(netuid_b, I96F32::from_num(0.5));
+        });
+
+        // One independent BasketClaimed mutation per row would cost 25B ref-time for the
+        // 100 rows alone. Aggregating the 50 repeated coldkeys lets conversion finish below
+        // this 22B per-pass limit; the claimant-reconciliation phase may use a later pass.
+        let limit = Weight::from_parts(22_000_000_000, u64::MAX);
+        let mut used = migrate_seed_beta_basket_v2_with_limit::<Test>(limit);
+        assert!(used.all_lte(limit));
+        for _ in 0..4 {
+            if HasMigrationRun::<Test>::get(b"migrate_seed_beta_basket_v2".to_vec()) {
+                break;
+            }
+            used = migrate_seed_beta_basket_v2_with_limit::<Test>(limit);
+            assert!(used.all_lte(limit));
+        }
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+
+        for i in 0..NUM_COLDKEYS {
+            let coldkey = U256::from(10_000 + i);
+            assert_eq!(RootClaimed::<Test>::get((netuid_a, hotkey, coldkey)), 0);
+            assert_eq!(RootClaimed::<Test>::get((netuid_b, hotkey, coldkey)), 0);
+            assert_eq!(BasketClaimed::<Test>::get(hotkey, coldkey), 2_000);
+        }
+    });
+}
+
+/// While the multi-block seed is in progress, coinbase basket deposits must recycle (not mint
+/// into BasketRate/Shares that a later pass would overwrite).
+#[test]
+fn test_migrate_seed_beta_basket_gates_live_deposits() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        migrate_seed_beta_basket_v2_limited, seed_beta_basket_v2_in_progress,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1.0));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            netuid,
+            1_000_000u64.into(),
+        );
+        // Many claimants so a tight drain budget leaves the migration in progress.
+        for i in 0..8u64 {
+            RootClaimed::<Test>::insert((netuid, hotkey, U256::from(5_000 + i)), 100u128);
+        }
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+
+        migrate_seed_beta_basket_v2_limited::<Test>(8, 8, 2);
+        assert!(seed_beta_basket_v2_in_progress::<Test>());
+
+        let shares_before = BasketShares::<Test>::get(hotkey);
+        let rate_before = BasketRate::<Test>::get(hotkey);
+        // Would mint into the basket if not gated.
+        SubtensorModule::distribute_root_alpha_to_basket(&hotkey, netuid, 1_000_000u64.into());
+        assert_eq!(
+            BasketShares::<Test>::get(hotkey),
+            shares_before,
+            "deposit must not mint shares while seed migration is in progress"
+        );
+        assert_eq!(BasketRate::<Test>::get(hotkey), rate_before);
+
+        // Root stake add must also be rejected during the seed window.
+        assert_eq!(
+            SubtensorModule::validate_add_stake(
+                &coldkey,
+                &hotkey,
+                NetUid::ROOT,
+                1_000_000u64.into(),
+                1_000_000u64.into(),
+                false,
+            ),
+            Err(Error::<Test>::BetaBasketSeedInProgress)
+        );
+
+        let alpha_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+        let root_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        );
+        assert_eq!(
+            SubtensorModule::unstake_all_alpha(RuntimeOrigin::signed(coldkey), hotkey),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+        let alpha_after =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+        let root_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        );
+        assert_eq!(alpha_after, alpha_before);
+        assert_eq!(root_after, root_before);
+
+        // Finish the migration; deposits must work again afterward.
+        let mut passes = 0u32;
+        while seed_beta_basket_v2_in_progress::<Test>() && passes < 64 {
+            migrate_seed_beta_basket_v2_limited::<Test>(8, 8, 2);
+            passes = passes.saturating_add(1);
+        }
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+    });
+}
+
+/// Migration edge case: a legacy slot whose claimed watermark exceeds its gross accrual (the
+/// historical overclaim bug) must seed nothing negative — no shares, no escrow position — and
+/// the staker's owed must floor at zero rather than underflow.
+#[test]
+fn test_migrate_seed_beta_basket_overclaimed_slot() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+
+        let root_stake = 2_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            root_stake.into(),
+        );
+
+        // gross = 0.5 * 2_000_000 = 1_000_000, but claimed = 5_000_000 (overclaimed).
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+        RootClaimed::<Test>::insert((netuid, hotkey, coldkey), 5_000_000u128);
+
+        let w = migrate_seed_beta_basket_v2::<Test>();
+        assert!(!w.is_zero());
+
+        // remaining is negative -> floored: no escrow position, no shares.
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            0
+        );
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+
+        // The converted watermark exceeds the converted rate * stake, so owed floors at zero.
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
+            0
+        );
+
+        // Legacy state drained.
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+        assert_eq!(RootClaimed::<Test>::get((netuid, hotkey, coldkey)), 0u128);
+    });
+}
+
+/// Mainnet contains legacy overclaims distributed unevenly across subnet slots and coldkeys.
+/// Flooring each slot's backing before aggregating the signed claimant watermarks can make the
+/// provisional per-slot supply either smaller or larger than the unified model's actual owed
+/// positions. The final reconciliation must rebuild `BasketShares` from those positions so
+/// every fund is fully claimable without a first-claimant race or stranded shares.
+#[test]
+fn test_migrate_seed_beta_basket_reconciles_cross_subnet_overclaims() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(20_001);
+
+        // Under-backed provisional fund: the overclaim belongs to the small staker, so after
+        // subnet claims are unified the large staker is owed more than the backed slot total.
+        let under_hotkey = U256::from(20_002);
+        let under_small = U256::from(20_003);
+        let under_large = U256::from(20_004);
+        let under_a = add_dynamic_network(&under_hotkey, &owner);
+        let under_b = add_dynamic_network(&under_hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(under_a, I96F32::from_num(1));
+        SubnetMovingPrice::<Test>::insert(under_b, I96F32::from_num(1));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &under_hotkey,
+            &under_small,
+            NetUid::ROOT,
+            50_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &under_hotkey,
+            &under_large,
+            NetUid::ROOT,
+            150_000u64.into(),
+        );
+        RootClaimable::<Test>::mutate(under_hotkey, |claimable| {
+            claimable.insert(under_a, I96F32::from_num(1));
+            claimable.insert(under_b, I96F32::from_num(1));
+        });
+        RootClaimed::<Test>::insert((under_a, under_hotkey, under_small), 300_000u128);
+
+        // Stranded provisional fund: the same overclaim belongs to the large staker, so only
+        // the small staker remains owed after unification.
+        let over_hotkey = U256::from(21_002);
+        let over_large = U256::from(21_003);
+        let over_small = U256::from(21_004);
+        let over_a = add_dynamic_network(&over_hotkey, &owner);
+        let over_b = add_dynamic_network(&over_hotkey, &owner);
+        SubnetMovingPrice::<Test>::insert(over_a, I96F32::from_num(1));
+        SubnetMovingPrice::<Test>::insert(over_b, I96F32::from_num(1));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &over_hotkey,
+            &over_large,
+            NetUid::ROOT,
+            150_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &over_hotkey,
+            &over_small,
+            NetUid::ROOT,
+            50_000u64.into(),
+        );
+        RootClaimable::<Test>::mutate(over_hotkey, |claimable| {
+            claimable.insert(over_a, I96F32::from_num(1));
+            claimable.insert(over_b, I96F32::from_num(1));
+        });
+        RootClaimed::<Test>::insert((over_a, over_hotkey, over_large), 300_000u128);
+
+        // Mirror current mainnet's incomplete auxiliary dense index: the large under-backed
+        // claimant is present in authoritative StakingHotkeys but absent from that index.
+        StakingHotkeys::<Test>::insert(under_large, vec![under_hotkey]);
+        for (coldkey, hotkey) in [
+            (under_small, under_hotkey),
+            (over_large, over_hotkey),
+            (over_small, over_hotkey),
+        ] {
+            register_seed_migration_root_staker(hotkey, coldkey);
+        }
+        assert!(!StakingColdkeys::<Test>::contains_key(under_large));
+
+        migrate_seed_beta_basket_v2::<Test>();
+
+        let under_small_owed = SubtensorModule::get_basket_owed_shares(&under_hotkey, &under_small);
+        let under_large_owed = SubtensorModule::get_basket_owed_shares(&under_hotkey, &under_large);
+        assert_eq!(under_small_owed, 0);
+        assert_eq!(under_large_owed, 300_000);
+        assert_eq!(
+            BasketShares::<Test>::get(under_hotkey),
+            under_small_owed.saturating_add(under_large_owed),
+            "under-backed provisional supply must expand to the exact claimant total"
+        );
+
+        let over_large_owed = SubtensorModule::get_basket_owed_shares(&over_hotkey, &over_large);
+        let over_small_owed = SubtensorModule::get_basket_owed_shares(&over_hotkey, &over_small);
+        assert_eq!(over_large_owed, 0);
+        assert_eq!(over_small_owed, 100_000);
+        assert_eq!(
+            BasketShares::<Test>::get(over_hotkey),
+            over_large_owed.saturating_add(over_small_owed),
+            "stranded provisional supply must shrink to the exact claimant total"
+        );
+
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &under_hotkey,
+                &escrow,
+                under_b,
+            )
+            .to_u64(),
+            200_000,
+            "reconciliation changes share supply, not the migrated backing"
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &over_hotkey,
+                &escrow,
+                over_b,
+            )
+            .to_u64(),
+            200_000,
+            "reconciliation changes share supply, not the migrated backing"
+        );
+    });
+}
+
+#[test]
+fn test_migrate_seed_beta_basket_keeps_reconciliation_index_stable() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        SeedBetaBasketV2Migration, kickoff_seed_beta_basket_v2,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(22_001);
+        let coldkey = U256::from(22_002);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        assert_eq!(NumStakingColdkeys::<Test>::get(), 0);
+
+        kickoff_seed_beta_basket_v2::<Test>();
+        assert!(SeedBetaBasketV2Migration::<Test>::exists());
+        run_to_block(2);
+        assert_eq!(
+            NumStakingColdkeys::<Test>::get(),
+            0,
+            "background index population must pause while reconciliation owns its snapshot"
+        );
+
+        SeedBetaBasketV2Migration::<Test>::kill();
+        run_to_block(3);
+        assert_eq!(
+            NumStakingColdkeys::<Test>::get(),
+            1,
+            "normal root-staker index maintenance must resume after the seed"
+        );
+        assert_eq!(StakingColdkeysByIndex::<Test>::get(0), Some(coldkey));
+    });
+}
+
+#[test]
+fn test_migrate_seed_beta_basket_corrupt_claimant_cursor_fails_closed() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        SeedBetaBasketV2Migration, SeedBetaBasketV2Progress, migrate_seed_beta_basket_v2_limited,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let corrupt = SeedBetaBasketV2Progress::ReconcileClaimants {
+            after: None,
+            coldkey: Some(vec![0xff]),
+            hotkey_index: 0,
+        };
+        SeedBetaBasketV2Migration::<Test>::put(corrupt.clone());
+
+        migrate_seed_beta_basket_v2_limited::<Test>(10, 10, 10);
+
+        assert_eq!(SeedBetaBasketV2Migration::<Test>::get(), Some(corrupt));
+        assert!(!HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+    });
+}
+
+/// Migration edge case: multi-subnet legacy state with different prices and a partially-claimed
+/// staker. Each staker's owed TAO value must be preserved exactly through the conversion
+/// (`owed_new = Σ pₛ (rateₛ·stake − claimedₛ)`), and `Σ owed == BasketShares` must hold so the
+/// seeded fund is exactly claimable — nothing stranded, nothing over-promised.
+#[test]
+fn test_migrate_seed_beta_basket_multi_subnet_preserves_owed() {
+    use crate::migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2;
+
+    new_test_ext(1).execute_with(|| {
+        let owner_a = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let alice = U256::from(1003);
+        let bob = U256::from(1004);
+        let owner_b = U256::from(2001);
+        let hotkey_b = U256::from(2002);
+
+        let netuid_a = add_dynamic_network(&hotkey, &owner_a);
+        let netuid_b = add_dynamic_network(&hotkey_b, &owner_b);
+
+        // Different fixed conversion prices: p_a = 2.0, p_b = 0.5.
+        SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(2.0));
+        SubnetMovingPrice::<Test>::insert(netuid_b, I96F32::from_num(0.5));
+
+        // Alice 1_000_000, Bob 3_000_000 root stake => total 4_000_000.
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &bob,
+            NetUid::ROOT,
+            3_000_000u64.into(),
+        );
+        register_seed_migration_root_staker(hotkey, alice);
+        register_seed_migration_root_staker(hotkey, bob);
+
+        // Legacy rates: 0.5 alpha/stake on A, 0.25 on B. Alice has already claimed part of A.
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid_a, I96F32::from_num(0.5));
+            m.insert(netuid_b, I96F32::from_num(0.25));
+        });
+        let alice_claimed_a = 100_000u128;
+        RootClaimed::<Test>::insert((netuid_a, hotkey, alice), alice_claimed_a);
+
+        // Expected owed in TAO-valued shares at the fixed prices:
+        // Alice: p_a*(0.5*1e6 - 1e5) + p_b*(0.25*1e6) = 2*400_000 + 0.5*250_000 = 925_000
+        // Bob:   p_a*(0.5*3e6)       + p_b*(0.25*3e6) = 2*1_500_000 + 0.5*750_000 = 3_375_000
+        let expected_alice = 925_000u64;
+        let expected_bob = 3_375_000u64;
+
+        let w = migrate_seed_beta_basket_v2::<Test>();
+        assert!(!w.is_zero());
+
+        let owed_alice = SubtensorModule::get_basket_owed_shares(&hotkey, &alice);
+        let owed_bob = SubtensorModule::get_basket_owed_shares(&hotkey, &bob);
+        assert_abs_diff_eq!(owed_alice, expected_alice, epsilon = 5u64);
+        assert_abs_diff_eq!(owed_bob, expected_bob, epsilon = 5u64);
+
+        // Conservation: the outstanding fund shares equal the sum of all owed (Σ owed == P).
+        let shares = BasketShares::<Test>::get(hotkey);
+        assert_abs_diff_eq!(shares, owed_alice + owed_bob, epsilon = 10u64);
+
+        // Holdings: the still-outstanding legacy alpha per subnet, unpriced.
+        // A: 0.5*4e6 - 1e5 = 1_900_000 alpha; B: 0.25*4e6 = 1_000_000 alpha.
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid_a)
+                .to_u64(),
+            1_900_000u64,
+            epsilon = 5u64
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid_b)
+                .to_u64(),
+            1_000_000u64,
+            epsilon = 5u64
+        );
+
+        // Legacy maps fully drained for this hotkey.
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+        assert_eq!(RootClaimed::<Test>::get((netuid_a, hotkey, alice)), 0u128);
+    });
+}
+
+/// Migration regression: a chain that already ran the superseded v1 seed migration (which
+/// consumed the key `"migrate_seed_beta_basket"` and seeded the abandoned per-slot
+/// `BasketPrincipal` model) must still be converted by v2 — this is exactly the name-collision
+/// scenario that would have silently stranded every basket had v2 reused the v1 key.
+///
+/// v1-state specifics v2 must tolerate:
+/// * the escrow already holds the slot alpha (possibly MORE than `remaining`, from
+///   compounding) — no double-staking, and the surplus carries the old `E/P` into `N/P`;
+/// * orphaned `BasketPrincipal` entries — cleared;
+/// * a legacy root-slot (netuid 0) rate with escrow root stake — converted at price 1, capped
+///   at the escrow's actual root stake, and the escrow's root stake is excluded from the
+///   claimant base.
+#[test]
+fn test_migrate_seed_beta_basket_v2_after_v1_already_ran() {
+    use crate::migrations::migrate_seed_beta_basket::{deprecated, migrate_seed_beta_basket_v2};
+
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(1.0));
+
+        // The v1 migration already ran and consumed its key.
+        HasMigrationRun::<Test>::insert(b"migrate_seed_beta_basket".to_vec(), true);
+
+        // Staker root stake.
+        let root_stake = 2_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            root_stake.into(),
+        );
+        register_seed_migration_root_staker(hotkey, coldkey);
+
+        // Legacy v1 state: subnet slot with rate 0.5 => remaining = 1_000_000 alpha, but the
+        // escrow ALREADY holds 1_200_000 (v1 staked 1_000_000 and it compounded by 200_000),
+        // plus the orphaned per-slot principal record.
+        let remaining = 1_000_000u64;
+        let compounded_escrow = 1_200_000u64;
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(netuid, I96F32::from_num(0.5));
+        });
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            compounded_escrow.into(),
+        );
+        deprecated::BasketPrincipal::<Test>::insert(hotkey, netuid, AlphaBalance::from(remaining));
+
+        // Legacy v1 root-slot state: rate 0.1 => gross 200_000, but the escrow only actually
+        // holds 150_000 root stake — the conversion must cap at the real backing.
+        let root_slot_backing = 150_000u64;
+        RootClaimable::<Test>::mutate(hotkey, |m| {
+            m.insert(NetUid::ROOT, I96F32::from_num(0.1));
+        });
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            root_slot_backing.into(),
+        );
+
+        let w = migrate_seed_beta_basket_v2::<Test>();
+        assert!(!w.is_zero());
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+
+        // v2 ran despite v1's consumed key: the fund is seeded.
+        let shares = BasketShares::<Test>::get(hotkey);
+        let rate = BasketRate::<Test>::get(hotkey);
+        assert!(rate > I96F32::from_num(0), "fund rate must be seeded");
+
+        // Shares = remaining*p (subnet, p=1) + min(gross, backing) (root slot, p=1).
+        assert_abs_diff_eq!(shares, remaining + root_slot_backing, epsilon = 5u64);
+
+        // No double-staking: the escrow's compounded holding is untouched, and the surplus
+        // carries the old slot's E/P multiplier into the fund's N/P (> 1).
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid)
+                .to_u64(),
+            compounded_escrow,
+            epsilon = 1u64
+        );
+
+        // Orphaned per-slot principal cleared.
+        assert!(!deprecated::BasketPrincipal::<Test>::contains_key(
+            hotkey, netuid
+        ));
+
+        // Legacy claim state drained.
+        assert!(RootClaimable::<Test>::get(hotkey).is_empty());
+
+        // The staker's owed is fully backed and claimable: owed == shares (sole staker, no
+        // prior claims), and claiming realizes ~the whole fund.
+        assert_abs_diff_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
+            shares,
+            epsilon = 5u64
+        );
+        RootClaimableThreshold::<Test>::insert(NetUid::ROOT, I96F32::from_num(0));
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000_000u64));
+        let root_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        )
+        .to_u64();
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
+        let gain = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+        )
+        .to_u64()
+        .saturating_sub(root_before);
+        // Compounded subnet holding (1_200_000 at price ~1) + root slot backing (150_000).
+        assert!(
+            gain > remaining + root_slot_backing,
+            "claim must realize the compounded fund, got {gain}"
+        );
+    });
+}
+
+#[test]
+fn test_migrate_reset_emission_gate_bar() {
+    new_test_ext(1).execute_with(|| {
+        const MIG_NAME: &[u8] = b"reset_emission_gate_bar_rank_32";
+
+        // Pre-state: a stale quantile-derived bar is in place.
+        EmissionGateBar::<Test>::put(U64F64::from_num(0.009));
+        assert!(
+            !HasMigrationRun::<Test>::get(MIG_NAME.to_vec()),
+            "migration flag should be false before run"
+        );
+
+        let w = crate::migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<Test>();
+        assert!(!w.is_zero(), "weight must be non-zero");
+
+        // The stale bar is killed so the first recompute after the upgrade
+        // rebuilds it under the rank-32 default.
+        assert_eq!(EmissionGateBar::<Test>::get(), U64F64::from_num(0));
+        assert!(
+            HasMigrationRun::<Test>::get(MIG_NAME.to_vec()),
+            "migration flag not set"
+        );
+
+        // Second run is a no-op: a freshly recomputed bar survives.
+        EmissionGateBar::<Test>::put(U64F64::from_num(0.003));
+        crate::migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<Test>();
+        assert_eq!(EmissionGateBar::<Test>::get(), U64F64::from_num(0.003));
     });
 }

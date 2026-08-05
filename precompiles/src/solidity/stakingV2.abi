@@ -890,6 +890,19 @@
         "internalType": "bytes32",
         "name": "hotkey",
         "type": "bytes32"
+      }
+    ],
+    "name": "claimRootWithHotkey",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
       },
       {
         "internalType": "uint16",
@@ -1093,24 +1106,6 @@
       }
     ],
     "name": "setRootClaimThreshold",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint8",
-        "name": "claimType",
-        "type": "uint8"
-      },
-      {
-        "internalType": "uint16[]",
-        "name": "subnets",
-        "type": "uint16[]"
-      }
-    ],
-    "name": "setRootClaimType",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1864,6 +1859,59 @@
         "internalType": "uint16",
         "name": "maxChildkeyTake",
         "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getUnclaimedRootTaoByHotkey",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "taoValue",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "hotkeys",
+        "type": "bytes32[]"
+      }
+    ],
+    "name": "getUnclaimedRootTaoBySubnet",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "taoValue",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",

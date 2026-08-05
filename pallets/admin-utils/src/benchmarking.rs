@@ -855,6 +855,12 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_emission_bar_rank() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 64u16);
+    }
+
+    #[benchmark]
     fn sudo_set_emission_gate_exponent() {
         #[extrinsic_call]
         _(RawOrigin::Root, U64F64::from_num(3));

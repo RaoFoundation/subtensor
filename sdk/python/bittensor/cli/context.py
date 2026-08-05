@@ -19,6 +19,7 @@ import typer
 
 from .. import config as cfg
 from .. import wallets
+from .._generated import calls as generated_calls
 from .._generated import runtime_apis, storage
 from ..client import Client
 from ..extension.client import BridgeError
@@ -30,14 +31,28 @@ from ..result import (
     ErrorCode,
     ExtrinsicResult,
     PolicyError,
+    RpcConnectionError,
+    RpcPolicyError,
 )
 from ..settings import error_docs_url
+from ..signing import public_view
+from ..sp_core import ss58_decode
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
-from .output import Output
+from .output import STYLE_WARNING, Output
 
 T = TypeVar("T")
+
+
+class _FeeAddressView:
+    """Public-only keypair shape for ``estimate_fee`` (zeroed signature)."""
+
+    crypto_type = 1  # sr25519
+
+    def __init__(self, address: str):
+        self.ss58_address = address
+        self.public_key = bytes(ss58_decode(address))
 
 
 def address_cli_name(param: str) -> str:
@@ -493,6 +508,41 @@ class AppContext:
         )
         wallet = self.wallet()
         self._register_local_names(wallet)
+        # Outer MevShield.submit_encrypted has no netuid, so fees_in_alpha cannot
+        # route — free TAO must cover the carrier. Bare remove_stake (etc.) can
+        # pay in alpha; downgrade the stake default before confirm so the summary
+        # is honest and α-only coldkeys still unstake. External signers resolve
+        # the fee payer later; _execute repeats this check for them.
+        if shield and not self.uses_external_signer():
+            try:
+                fee_payer = public_view(wallet, intent.signer).ss58_address
+            except Exception:
+                fee_payer = None
+            if fee_payer is not None:
+
+                async def _shield_fee_preflight(client):
+                    return await self._shield_outer_fee_shortfall(client, fee_payer)
+
+                shortfall = self.run(_shield_fee_preflight)
+                if shortfall is not None:
+                    if shield_forced or intent.mev_shield_required:
+                        self.output.error(
+                            "MEV-shielded submission needs free TAO for the outer carrier fee",
+                            help=(
+                                f"{intent.op} cannot submit unshielded"
+                                if intent.mev_shield_required
+                                else "pass --no-mev-shield to submit unshielded "
+                                "(alpha fees work on the bare call), or fund the "
+                                "signing account with free TAO"
+                            ),
+                        )
+                        raise typer.Exit(2)
+                    self.output.message(
+                        "[dim]MEV shield skipped: free TAO cannot cover the outer "
+                        "carrier fee (alpha fees only work on the unshielded call) "
+                        "— submitting unshielded[/dim]"
+                    )
+                    shield = False
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
         registration_quote = None
         registration_flow = None
@@ -571,10 +621,34 @@ class AppContext:
                     "submitted MEV-shielded: the call stays encrypted in the "
                     "mempool until the block author decrypts and executes it"
                 )
+
+                async def _shield_fee_warning(client):
+                    return await self._shield_outer_fee_shortfall(client, plan.signer_address)
+
+                shortfall = self.run(_shield_fee_warning)
+                if shortfall is not None:
+                    plan.warnings.append(shortfall)
             self.output.plan(plan)
             if not plan.ok:
                 raise typer.Exit(1)
             return None
+
+        # Surface intent warnings before the user confirms (dry-run already
+        # prints them via ``output.plan``). Keep this cheap: warnings-only, no
+        # fee estimation. Skip when an external signer still needs its account
+        # picker — those paths resolve the origin later.
+        if not self.uses_external_signer():
+
+            async def _warnings(client):
+                try:
+                    origin = public_view(wallet, intent.signer).ss58_address
+                except Exception:
+                    return []
+                return list(await intent.warnings(client._substrate, proxy_for or origin))
+
+            for warning in self.run(_warnings):
+                rendered = self.output.with_subnets(self.output.with_names(warning))
+                self.output.message(f"[{STYLE_WARNING}]warning:[/{STYLE_WARNING}] {rendered}")
 
         if self.uses_extension_signer():
 
@@ -597,25 +671,26 @@ class AppContext:
                 self.output.message(f"[dim]{registration_flow}[/dim]")
             self.confirm(f"{summary}?")
 
-        # Native keyfiles unlock synchronously on their first signature.  Do it
-        # before starting the registration status display so an encrypted
-        # coldkey's password prompt remains visible and usable.  Reuse the
-        # unlocked keypair for planning/signing; otherwise the lazy SDK signer
-        # would prompt underneath the live spinner and appear to hang forever.
+        # Native keyfiles unlock synchronously on their first signature. Unlock
+        # encrypted coldkeys eagerly instead: a wrong password can be retried
+        # on the spot (instead of aborting and losing every prompt answer),
+        # and the password prompt stays visible — the lazy SDK signer would
+        # prompt underneath register_subnet's live spinner and appear to hang.
         local_signer = None
-        if intent.op == "register_subnet" and not self.uses_external_signer():
-            signing_key = wallets.signing_keypair(
-                wallet,
-                intent.signer,
-                password_file=self.wallet_password_file,
-                macos_prompt=self.macos_password,
-                keychain=self.keychain_password,
-            )
+        if (
+            intent.signer == "coldkey"
+            and not self.uses_external_signer()
+            and (intent.op == "register_subnet" or _coldkey_encrypted(wallet))
+        ):
+            signing_key = self._unlock_coldkey(wallet)
             try:
                 hotkey = wallet.hotkeypub
             except FileNotFoundError:
-                hotkey = wallet.hotkey
-            # Keep the wallet shape because register_subnet defaults its hotkey
+                try:
+                    hotkey = wallet.hotkey
+                except Exception:
+                    hotkey = None  # coldkey-only wallet; intents needing it fail on use
+            # Keep the wallet shape because intents may default their hotkey
             # from it, while replacing the signing side with the keypair that
             # was already unlocked above.
             local_signer = SimpleNamespace(
@@ -674,6 +749,36 @@ class AppContext:
                 )
                 use_shield = False
             signer = local_signer or await self.resolve_signing_wallet(intent.signer)
+            if use_shield and self.uses_external_signer():
+                # Local wallets already preflighted before confirm; external
+                # signers only know the fee payer after account pick.
+                try:
+                    fee_payer = public_view(signer, intent.signer).ss58_address
+                except Exception:
+                    fee_payer = None
+                shortfall = (
+                    await self._shield_outer_fee_shortfall(client, fee_payer)
+                    if fee_payer is not None
+                    else None
+                )
+                if shortfall is not None:
+                    if shield_forced or intent.mev_shield_required:
+                        raise BittensorError(
+                            "MEV-shielded submission needs free TAO for the outer "
+                            "carrier fee; "
+                            + (
+                                f"{intent.op} cannot submit unshielded"
+                                if intent.mev_shield_required
+                                else "pass --no-mev-shield to submit unshielded "
+                                "(alpha fees work on the bare call)"
+                            )
+                        )
+                    self.output.message(
+                        "[dim]MEV shield skipped: free TAO cannot cover the outer "
+                        "carrier fee (alpha fees only work on the unshielded call) "
+                        "— submitting unshielded[/dim]"
+                    )
+                    use_shield = False
             if use_shield and self.uses_vault_signer():
                 # Shielded signing runs against an 8-block (~96 s) era, and
                 # a shielded submission means two QR scans (the shielded
@@ -746,10 +851,12 @@ class AppContext:
         if not rendered:
             if shield and result.data.get("shielded") is not True:
                 # The failure happened at (or before) the encrypted pool
-                # submission, so the shield itself may be the blocker.
+                # submission. Outer carrier fees need free TAO; alpha fees only
+                # apply to the bare call.
                 self.output.message(
-                    "[dim]the submission was MEV-shielded; retry with "
-                    "--no-mev-shield to rule the shield out[/dim]"
+                    "[dim]the submission was MEV-shielded; the outer carrier needs "
+                    "free TAO (alpha fees only work unshielded) — retry with "
+                    "--no-mev-shield[/dim]"
                 )
             raise typer.Exit(1)
         if intent.verify:
@@ -758,6 +865,90 @@ class AppContext:
                 f"[dim]verify: `btcli query {intent.verify.replace('_', '-')} ...`[/dim]"
             )
         return result
+
+    async def _shield_outer_fee_shortfall(
+        self, client: Client, fee_payer_ss58: str
+    ) -> Optional[str]:
+        """Warning text when free TAO cannot cover a MevShield carrier fee.
+
+        Returns ``None`` when the payer looks able to cover it (or the check
+        cannot run). The outer ``submit_encrypted`` call has no netuid, so the
+        fee pallet cannot fall back to alpha — unlike bare ``remove_stake``.
+        """
+        try:
+            free = await client.balances.get(fee_payer_ss58)
+            # Exact ciphertext size is unknown until encrypt; length fee is
+            # 1 rao/byte so a padded dummy keeps the estimate conservative.
+            outer = await client.compose(
+                generated_calls.MevShield.submit_encrypted(ciphertext=bytes(8192))
+            )
+            fee = await client._substrate.estimate_fee(outer, _FeeAddressView(fee_payer_ss58))
+        except Exception:
+            # Best-effort: if we only know free is zero, that is enough to warn.
+            try:
+                free = await client.balances.get(fee_payer_ss58)
+            except Exception:
+                return None
+            if free.rao > 0:
+                return None
+            return (
+                "free TAO cannot cover the MEV-shield outer carrier fee; alpha "
+                "fees only apply to the unshielded call — use --no-mev-shield"
+            )
+        if free.rao >= fee.rao:
+            return None
+        return (
+            f"free TAO ({free}) cannot cover the MEV-shield outer carrier fee "
+            f"(~{fee}); alpha fees only apply to the unshielded call — use "
+            "--no-mev-shield"
+        )
+
+    def _unlock_coldkey(self, wallet):
+        """Unlock the wallet coldkey, re-prompting on a wrong password.
+
+        The retry only applies when the password came from an interactive
+        prompt; non-interactive sources (env var, password file, Keychain,
+        the macOS dialog) would fail identically on a retry, so they keep
+        the single attempt and the usual remediation hint.
+        """
+        try:
+            password = wallets.resolve_wallet_password(
+                wallet,
+                password_file=self.wallet_password_file,
+                macos_prompt=self.macos_password,
+                keychain=self.keychain_password,
+            )
+        except ValueError as error:
+            self.output.error(str(error))
+            raise typer.Exit(1)
+        prompted = password is None and sys.stdin.isatty()
+        for attempts_left in (2, 1, 0):
+            try:
+                return wallets.signing_keypair(
+                    wallet,
+                    "coldkey",
+                    password=password,
+                    macos_prompt=self.macos_password,
+                    keychain=self.keychain_password,
+                )
+            except ValueError as error:
+                wrong = str(error).lower().startswith("wrong password")
+                if wrong and prompted and attempts_left:
+                    self.output.error("wrong password")
+                    continue
+                if wrong:
+                    self.output.error(
+                        "wrong password",
+                        help=(
+                            "re-save with `btcli wallet keychain save`"
+                            if self.keychain_password
+                            else "re-run and enter the coldkey password used when "
+                            "the key was created"
+                        ),
+                    )
+                else:
+                    self.output.error(str(error))
+                raise typer.Exit(1)
 
     async def _attach_multisig_followup(self, client, intent, result: ExtrinsicResult) -> None:
         """After a multisig approve/execute intent, cache the inner call locally
@@ -828,6 +1019,23 @@ class AppContext:
             # — print them instead of the bare message.
             if isinstance(error, ChainError):
                 self.output.chain_error(error)
+            elif isinstance(error, RpcPolicyError):
+                retry = None
+                if error.retry_after:
+                    retry = (
+                        f"wait {error.retry_after} seconds, then retry"
+                        if error.retry_after.isdigit()
+                        else f"retry after {error.retry_after}"
+                    )
+                self.output.error(
+                    str(error),
+                    help=retry or "reduce the request or connection rate, then retry",
+                )
+            elif isinstance(error, RpcConnectionError):
+                self.output.error(
+                    f"could not reach {self.network}: {error}",
+                    help="check the endpoint and network connection, then retry",
+                )
             elif isinstance(error, PolicyError):
                 self.output.error(
                     str(error),
@@ -864,7 +1072,8 @@ class AppContext:
             self.output.error(str(error))
             raise typer.Exit(1)
         except (ConnectionError, TimeoutError, OSError) as error:
-            self.output.error(f"could not reach {self.network}: {error}")
+            detail = str(error).strip() or "the connection timed out without a response"
+            self.output.error(f"could not reach {self.network}: {detail}")
             raise typer.Exit(1)
         except KeyboardInterrupt:
             self.output.message("aborted.")
@@ -889,6 +1098,14 @@ class AppContext:
         if not accepted:
             self.output.message("aborted.")
             raise typer.Exit(1)
+
+
+def _coldkey_encrypted(wallet) -> bool:
+    """Whether the wallet's coldkey file exists and is password-protected."""
+    try:
+        return bool(wallet.coldkey_file.is_encrypted())
+    except Exception:
+        return False
 
 
 def _endpoint_pool(value: Optional[str]) -> Optional[list[str]]:

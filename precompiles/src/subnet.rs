@@ -1320,6 +1320,8 @@ fn dissolution_cleanup_phase_code(phase: &DissolveCleanupPhase) -> u8 {
         DissolveCleanupPhase::NetworkTransactionKeyLastBlock => 21,
         DissolveCleanupPhase::NetworkLock => 22,
         DissolveCleanupPhase::NetworkDecayingLock => 23,
+        DissolveCleanupPhase::SubnetBasketHoldingsToRoot => 24,
+        DissolveCleanupPhase::NetworkPendingBasketDeposits => 25,
     }
 }
 
@@ -2015,6 +2017,8 @@ mod tests {
             (DissolveCleanupPhase::NetworkTransactionKeyLastBlock, 21),
             (DissolveCleanupPhase::NetworkLock, 22),
             (DissolveCleanupPhase::NetworkDecayingLock, 23),
+            (DissolveCleanupPhase::SubnetBasketHoldingsToRoot, 24),
+            (DissolveCleanupPhase::NetworkPendingBasketDeposits, 25),
         ];
 
         for (phase, expected) in phases {

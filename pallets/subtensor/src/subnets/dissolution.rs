@@ -51,11 +51,25 @@ pub enum DissolveCleanupPhase {
     NetworkLock,
     /// Phase 5.12: Remove decaying lock entries for this netuid.
     NetworkDecayingLock,
+    /// Phase 0: Convert each validator's beta-basket holding on this subnet into the fund's
+    /// root (TAO) slot. Must finish before stake / protocol-liquidity teardown so the AMM and
+    /// escrow alpha still exist. Appended (not inserted) so in-flight cleanup discriminants stay
+    /// stable; new dissolves start here via [`Default`].
+    SubnetBasketHoldingsToRoot,
+    /// Phase 5.13: Recycle and drop queued [`PendingBasketDeposits`] credits originating
+    /// from this netuid. Without this, a stale credit (dust can sit queued indefinitely)
+    /// would survive dissolution and — once a new subnet reuses the netuid, making
+    /// `if_subnet_exist` true again — deposit the old subnet's alpha against the new
+    /// subnet's pool. Credits are recycled (issuance conservation) rather than silently
+    /// deleted. Must complete before cleanup finishes because netuid reuse is only
+    /// possible after that. Appended (not inserted) so in-flight cleanup discriminants
+    /// stay stable.
+    NetworkPendingBasketDeposits,
 }
 
 impl Default for DissolveCleanupPhase {
     fn default() -> Self {
-        Self::SubnetRootDividendsRootClaimable
+        Self::SubnetBasketHoldingsToRoot
     }
 }
 
@@ -123,6 +137,9 @@ impl<T: Config> Pallet<T> {
             !dissolved_networks.contains(&netuid),
             Error::<T>::NetworkDissolveAlreadyQueued
         );
+
+        // Basket holdings are converted to each fund's root slot in the metered
+        // `SubnetBasketHoldingsToRoot` cleanup phase (before stake / AMM teardown).
 
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
@@ -559,6 +576,33 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub fn remove_network_pending_basket_deposits(
+        netuid: NetUid,
+        weight_meter: &mut WeightMeter,
+        last_key: Option<Vec<u8>>,
+    ) -> (bool, Option<Vec<u8>>) {
+        let iter = match last_key {
+            Some(raw_key) => PendingBasketDeposits::<T>::iter_from(raw_key),
+            None => PendingBasketDeposits::<T>::iter(),
+        };
+
+        // Recycle + remove: three writes typical (PendingBasketDeposits remove, AlphaAssets
+        // recycle, and SubnetAlphaOut when it still exists). Charge the upper bound.
+        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
+            weight_meter,
+            iter,
+            |(_, nu, _)| *nu == netuid,
+            |(hot, _, alpha)| (hot, alpha),
+            |(hot, alpha)| Self::drop_pending_basket_deposit(hot, netuid, *alpha),
+            3,
+        );
+
+        (
+            read_all,
+            last_item.map(|(hot, nu, _)| PendingBasketDeposits::<T>::hashed_key_for(&hot, nu)),
+        )
+    }
+
     pub fn remove_network_transaction_key_last_block(
         netuid: NetUid,
         weight_meter: &mut WeightMeter,
@@ -661,6 +705,22 @@ impl<T: Config> Pallet<T> {
             );
 
             let done = match &status.phase {
+                DissolveCleanupPhase::SubnetBasketHoldingsToRoot => {
+                    let (done, new_key) = Self::convert_subnet_basket_holdings_to_root(
+                        netuid,
+                        weight_meter,
+                        status.last_key.clone(),
+                    );
+
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::SubnetRootDividendsRootClaimable);
+                        status.last_key = None;
+                    } else {
+                        status.last_key = new_key;
+                    }
+                    done
+                }
+
                 DissolveCleanupPhase::SubnetRootDividendsRootClaimable => {
                     let (done, new_key) = Self::clean_up_root_claimable_for_subnet(
                         netuid,
@@ -960,6 +1020,21 @@ impl<T: Config> Pallet<T> {
                 }
                 DissolveCleanupPhase::NetworkDecayingLock => {
                     let (done, new_key) = Self::remove_network_decaying_lock(
+                        netuid,
+                        weight_meter,
+                        status.last_key.clone(),
+                    );
+
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::NetworkPendingBasketDeposits);
+                        status.last_key = None;
+                    } else {
+                        status.last_key = new_key;
+                    }
+                    done
+                }
+                DissolveCleanupPhase::NetworkPendingBasketDeposits => {
+                    let (done, new_key) = Self::remove_network_pending_basket_deposits(
                         netuid,
                         weight_meter,
                         status.last_key.clone(),

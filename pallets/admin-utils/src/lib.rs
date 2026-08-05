@@ -134,6 +134,13 @@ pub mod pallet {
             /// The new drain ratio (alpha released per alpha of emission earned).
             drain_ratio: U64F64,
         },
+
+        /// Root basket weight setting (`set_root_weights`) was enabled or disabled
+        /// network-wide.
+        RootWeightSettingToggled {
+            /// Whether validators can now set root basket weights.
+            enabled: bool,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2046,6 +2053,22 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Sets the emission bar rank (N): when non-zero, the emission gate bar
+        /// (theta) is pinned to the Nth-largest demand share instead of the
+        /// q-mass quantile, so the eligible set tracks rank N as the demand
+        /// distribution shifts. Setting 0 restores quantile mode. Also forces a
+        /// bar recompute on the next block so the change takes effect
+        /// immediately.
+        #[pallet::call_index(102)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_bar_rank())]
+        pub fn sudo_set_emission_bar_rank(origin: OriginFor<T>, rank: u16) -> DispatchResult {
+            ensure_root(origin)?;
+
+            pallet_subtensor::Pallet::<T>::set_emission_bar_rank(rank);
+            log::debug!("set_emission_bar_rank( {rank:?} ) ");
+            Ok(())
+        }
+
         /// Sets the emission gate Hill exponent (h): cliff sharpness at the bar.
         #[pallet::call_index(101)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_gate_exponent())]
@@ -2407,6 +2430,24 @@ pub mod pallet {
                 &[Hyperparameter::CollateralDrainRatio.into()],
             );
 
+            Ok(())
+        }
+
+        /// Enables or disables root basket weight setting (`set_root_weights`)
+        /// network-wide. Root Reborn launches with this OFF so every fund runs the
+        /// null (accumulate in place) strategy as the observable baseline; flip it on
+        /// later to open basket curation. Gates only the setter — existing vectors,
+        /// dividend deployment, and reads are unaffected. Root-only.
+        #[pallet::call_index(103)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_commit_reveal_weights_enabled())]
+        pub fn sudo_set_root_weight_setting_enabled(
+            origin: OriginFor<T>,
+            enabled: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::RootWeightSettingEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::RootWeightSettingToggled { enabled });
+            log::debug!("RootWeightSettingToggled( enabled: {enabled:?} )");
             Ok(())
         }
 

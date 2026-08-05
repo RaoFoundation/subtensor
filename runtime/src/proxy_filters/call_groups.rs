@@ -305,6 +305,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::move_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake_limit),
+        RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket),
         RuntimeCall::SubtensorModule(SubtensorCall::add_collateral),
         RuntimeCall::SubtensorModule(SubtensorCall::set_min_collateral),
     ]
@@ -409,15 +410,10 @@ call_filter_group!(
 // Claiming accumulated root dividends.
 call_filter_group!(
     RootClaimCalls,
-    [RuntimeCall::SubtensorModule(SubtensorCall::claim_root),]
-);
-
-// Selecting how root dividends are claimed (a staking-side setting).
-call_filter_group!(
-    RootClaimTypeCalls,
-    [RuntimeCall::SubtensorModule(
-        SubtensorCall::set_root_claim_type
-    ),]
+    [
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_root),
+        RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey),
+    ]
 );
 
 // A subnet's public identity and token symbol.
@@ -443,6 +439,7 @@ call_filter_group!(
     SubtensorCommonCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),
@@ -480,7 +477,6 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_max_childkey_take),
         RuntimeCall::SubtensorModule(SubtensorCall::terminate_lease),
         RuntimeCall::SubtensorModule(SubtensorCall::trigger_epoch),
-        RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_num_root_claims),
         RuntimeCall::SubtensorModule(SubtensorCall::sudo_set_root_claim_threshold),
         RuntimeCall::SubtensorModule(SubtensorCall::enable_voting_power_tracking),
         RuntimeCall::SubtensorModule(SubtensorCall::disable_voting_power_tracking),
@@ -581,6 +577,9 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_min_non_immune_uids),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_flow_cutoff),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_flow_normalization_exponent),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_emission_bar_quantile),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_emission_bar_rank),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_emission_gate_exponent),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_tao_flow_smoothing_factor),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_net_tao_flow_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_mechanism_count),
@@ -589,6 +588,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_coldkey_swap_reannouncement_delay),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_epochs_per_block),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weight_setting_enabled),
     ]
 );
 
@@ -687,7 +687,6 @@ type SubtensorSplitCalls = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,

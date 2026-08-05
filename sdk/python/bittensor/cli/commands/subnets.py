@@ -10,7 +10,7 @@ import typer
 
 from ..._generated import storage
 from ...balance import Balance
-from ...intents import BurnedRegister, RegisterSubnet
+from ...intents import BurnedRegister, RegisterSubnet, RootRegister
 from ...settings import BLOCKTIME
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -130,7 +130,10 @@ def burn_cost(
     ctx: typer.Context,
     netuid: int = typer.Argument(..., help=_NETUID_HELP),
 ):
-    """Show the current cost to register a hotkey on a subnet by burning TAO."""
+    """Show the current cost to register a hotkey on a subnet by burning TAO.
+
+    Netuid 0 shows the root network's registration price.
+    """
     app_ctx: AppContext = ctx_of(ctx)
 
     async def _op(client):
@@ -388,9 +391,17 @@ def register_subnet(
     that share is staked and locked as miner collateral (released only
     through earned emission). Check the current cost with
     `btcli subnets burn-cost`.
+
+    Netuid 0 registers on the root network: the cost is fully recycled, no
+    prior stake is needed, and a full root network prunes its lowest-staked
+    member to make room.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    app_ctx.submit(BurnedRegister(netuid=netuid, hotkey_ss58=hotkey_ss58))
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    if netuid == 0:
+        app_ctx.submit(RootRegister(hotkey_ss58=hotkey))
+    else:
+        app_ctx.submit(BurnedRegister(netuid=netuid, hotkey_ss58=hotkey))
 
 
 @app.command("create", rich_help_panel=PANEL_REGISTER)

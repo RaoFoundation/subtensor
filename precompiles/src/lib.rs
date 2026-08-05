@@ -593,7 +593,7 @@ mod address_and_selector_tests {
             "recycleAlpha(bytes32,uint64,uint16)",
             "setColdkeyAutoStakeHotkey(uint16,bytes32)",
             "claimRoot(uint16[])",
-            "setRootClaimType(uint8,uint16[])",
+            "claimRootWithHotkey(bytes32)",
             "setRootClaimThreshold(uint16,uint64)",
             "addStakeBurn(bytes32,uint16,uint64,bool,uint64)",
             "setAutoParentDelegationEnabled(bytes32,bool)",
@@ -667,6 +667,8 @@ mod address_and_selector_tests {
             "getMinerCollateral(uint16,bytes32,bytes32)",
             "getColdkeyCollateral(uint16,bytes32)",
             "getCollateralConfig(uint16)",
+            "getUnclaimedRootTaoByHotkey(bytes32,bytes32)",
+            "getUnclaimedRootTaoBySubnet(bytes32,uint16,bytes32[])",
         ] {
             assert!(
                 staking::StakingPrecompileV2Call::<Runtime>::supports_selector(selector_u32(

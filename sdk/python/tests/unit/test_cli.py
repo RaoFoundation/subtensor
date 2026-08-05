@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 import bittensor.cli.context as cli_context
-from bittensor import __version__, wallets
+from bittensor import RpcConnectionError, RpcPolicyError, __version__, wallets
 from bittensor.cli.main import app
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
@@ -108,6 +108,96 @@ class TestOffline:
 
 
 class TestQueries:
+    def test_rpc_policy_refusal_is_actionable(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError(
+                    "RPC endpoint rate limited this source (HTTP 429)",
+                    retry_after="60",
+                )
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "rate limited this source (HTTP 429)" in result.output
+        assert "wait 60 seconds, then retry" in result.output
+
+    def test_rpc_policy_refusal_without_retry_after_suggests_reducing_rate(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError("RPC endpoint rate limited this source (HTTP 429)")
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "reduce the request or connection rate, then retry" in result.output
+
+    def test_rpc_policy_http_date_retry_after_is_preserved(self, monkeypatch):
+        class RefusedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcPolicyError(
+                    "RPC endpoint rate limited this source (HTTP 429)",
+                    retry_after="Wed, 21 Oct 2026 07:28:00 GMT",
+                )
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", RefusedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "retry after Wed, 21 Oct 2026 07:28:00 GMT" in result.output
+
+    def test_public_rpc_connection_error_is_actionable(self, monkeypatch):
+        class FailedClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise RpcConnectionError("all configured endpoints refused the connection")
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", FailedClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert "could not reach finney: all configured endpoints refused" in result.output
+        assert "check the endpoint and network connection, then retry" in result.output
+
+    def test_bare_connection_timeout_is_not_blank(self, monkeypatch):
+        class TimeoutClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                raise TimeoutError
+
+            async def __aexit__(self, *args):
+                pass
+
+        monkeypatch.setattr(cli_context, "Client", TimeoutClient)
+        result = invoke("query", "tx-rate-limit")
+        assert result.exit_code == 1
+        assert (
+            "could not reach finney: the connection timed out without a response" in result.output
+        )
+
     def test_scalar_query_json(self, fake: FakeSubstrate):
         fake.seed("SubtensorModule", "TxRateLimit", None, 1234)
         result = invoke("--json", "query", "tx-rate-limit")
@@ -415,3 +505,110 @@ class TestTransactions:
         ) in updates
         assert "subnet 6 registered" in result.output
         assert "queued · registered after deregistration of subnet 6" in result.output
+
+
+def test_local_hotkey_name_is_not_valid_ss58():
+    """Local wallet names must be resolved before ss58 decode.
+
+    Passing a name like ``hotkey1`` straight into the codec raises Substrate's
+    opaque ``Length is bad`` — the failure mode ``btcli s register --hotkey
+    hotkey1`` hit before CLI call sites resolved ``*_ss58`` options.
+    """
+    from bittensor._transport.codec import ss58_decode
+
+    with pytest.raises(ValueError, match="Length is bad"):
+        ss58_decode("hotkey1")
+
+
+class TestResolveHotkeySs58:
+    """Hand-written CLI commands must resolve ``--hotkey`` like generated ``tx``."""
+
+    @pytest.fixture()
+    def alt_hotkey(self, wallet_dir) -> str:
+        wallets.new_hotkey(name=_WALLET_NAME, hotkey="hotkey1", path=wallet_dir, overwrite=True)
+        return wallets.open_wallet(_WALLET_NAME, "hotkey1", wallet_dir).hotkey.ss58_address
+
+    def test_subnets_register_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke("subnets", "register", "--netuid", "18", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert len(captured) == 1
+        assert captured[0].op == "burned_register"
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_set_auto_stake_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke("stake", "set-auto", "--netuid", "1", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_lock_add_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke(
+            "lock", "add", "--netuid", "1", "--amount-alpha", "1", "--hotkey", "hotkey1"
+        )
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_stake_burn_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke(
+            "sudo",
+            "stake-burn",
+            "--netuid",
+            "1",
+            "--amount-tao",
+            "1",
+            "--limit-price",
+            "1000",
+            "--hotkey",
+            "hotkey1",
+        )
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey
+
+    def test_child_revoke_resolves_local_hotkey_name(
+        self, fake: FakeSubstrate, monkeypatch, alt_hotkey: str
+    ):
+        captured: list = []
+
+        def capture(self, intent, **kwargs):
+            captured.append(intent)
+            return None
+
+        monkeypatch.setattr(cli_context.AppContext, "submit", capture)
+        result = invoke("stake", "child", "revoke", "--netuid", "1", "--hotkey", "hotkey1")
+        assert result.exit_code == 0, result.output
+        assert captured[0].hotkey_ss58 == alt_hotkey

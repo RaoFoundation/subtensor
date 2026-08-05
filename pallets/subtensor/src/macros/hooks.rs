@@ -185,7 +185,21 @@ mod hooks {
                 // Backfill ColdkeyCollateralHotkeys from standing MinerCollateral rows.
                 .saturating_add(migrations::migrate_coldkey_collateral_hotkeys::migrate_coldkey_collateral_hotkeys::<T>())
                 // Backfill the O(1) aggregate used by the voting-power precompile.
-                .saturating_add(migrations::migrate_total_voting_power::migrate_total_voting_power::<T>());
+                .saturating_add(migrations::migrate_total_voting_power::migrate_total_voting_power::<T>())
+                // Kick off the unified beta-basket seed (cursor only — conversion is on_idle
+                // so ORU stays idempotent for try-runtime). Fresh key so chains that ran the
+                // superseded per-slot v1 seed still convert.
+                .saturating_add(migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2::<T>())
+                // Drop legacy root weight vectors (no reseed: an empty vector means the
+                // fund is uncurated and dividends accumulate in place on their origin
+                // subnet, trade-free).
+                .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>())
+                // Floor root basket curation at MIN_ROOT_BASKET_WEIGHTS destinations.
+                .saturating_add(migrations::migrate_set_root_min_allowed_weights::migrate_set_root_min_allowed_weights::<T>())
+                // Kill the stale quantile-derived emission gate bar so the
+                // rank-32 bar (DefaultEmissionBarRank) applies from the first
+                // recompute after the upgrade instead of the next cadence boundary.
+                .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>());
             weight
         }
 
@@ -197,10 +211,32 @@ mod hooks {
         }
 
         fn on_idle(_block: BlockNumberFor<T>, limit: Weight) -> Weight {
-            let mut weight = Self::remove_data_for_dissolved_networks(limit);
+            let seed_in_progress =
+                migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
+
+            // Dissolution removes RootClaimable/RootClaimed state that the seed still needs.
+            // Give the migration exclusive ownership of those legacy maps until it completes;
+            // queued dissolutions resume on the first subsequent idle block.
+            let mut weight = if seed_in_progress {
+                Weight::zero()
+            } else {
+                Self::remove_data_for_dissolved_networks(limit)
+            };
 
             if weight.all_lt(limit) {
                 weight.saturating_accrue(Self::process_network_registration_queue());
+            }
+
+            // Continue the multi-block beta-basket seed migration until HasMigrationRun is set.
+            // Always call it while the cursor exists: its adaptive limits normally respect the
+            // remaining weight, but it deliberately performs one overweight item when needed
+            // so an individually oversized row/hotkey cannot stall the migration forever.
+            if seed_in_progress {
+                weight.saturating_accrue(
+                    migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2_with_limit::<
+                        T,
+                    >(limit.saturating_sub(weight)),
+                );
             }
 
             weight

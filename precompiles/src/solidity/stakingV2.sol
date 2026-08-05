@@ -582,11 +582,7 @@ interface IStaking {
     function recycleAlpha(bytes32 hotkey, uint64 amount, uint16 netuid) external;
     function setColdkeyAutoStakeHotkey(uint16 netuid, bytes32 hotkey) external;
     function claimRoot(uint16[] calldata subnets) external;
-    /// claimType: 0 = swap, 1 = keep, 2 = keep only listed subnets.
-    function setRootClaimType(
-        uint8 claimType,
-        uint16[] calldata subnets
-    ) external;
+    function claimRootWithHotkey(bytes32 hotkey) external;
     function setRootClaimThreshold(uint16 netuid, uint64 threshold) external;
     function addStakeBurn(
         bytes32 hotkey,
@@ -725,4 +721,15 @@ interface IStaking {
     function getCollateralConfig(
         uint16 netuid
     ) external view returns (uint16 lockShare, uint128 drainRatio);
+    /// Realizable TAO owed by one validator basket, in 18-decimal EVM units.
+    function getUnclaimedRootTaoByHotkey(
+        bytes32 coldkey,
+        bytes32 hotkey
+    ) external view returns (uint256 taoValue);
+    /// A bounded subtotal for a coldkey's owed value on a subnet.
+    function getUnclaimedRootTaoBySubnet(
+        bytes32 coldkey,
+        uint16 netuid,
+        bytes32[] calldata hotkeys
+    ) external view returns (uint256 taoValue);
 }

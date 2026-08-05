@@ -128,7 +128,7 @@ encoding of the allowance mutations.
 | `recycleAlpha` | `SubtensorModule.recycle_alpha` |
 | `setColdkeyAutoStakeHotkey` | `SubtensorModule.set_coldkey_auto_stake_hotkey` |
 | `claimRoot` | `SubtensorModule.claim_root` |
-| `setRootClaimType` | `SubtensorModule.set_root_claim_type` |
+| `claimRootWithHotkey` | `SubtensorModule.claim_root_with_hotkey` |
 | `setRootClaimThreshold` | `SubtensorModule.sudo_set_root_claim_threshold` |
 | `addStakeBurn` | `SubtensorModule.add_stake_burn` |
 | `setAutoParentDelegationEnabled` | `SubtensorModule.set_auto_parent_delegation_enabled` |
@@ -139,6 +139,23 @@ encoding of the allowance mutations.
 `recycleAlpha` is distinct from deployed `burnAlpha`: recycling reduces
 `SubnetAlphaOut` and Alpha issuance, while burning does not reduce
 `SubnetAlphaOut`.
+
+`claimRoot` redeems every validator basket for the mapped caller. Its subnet
+array is retained by the runtime for old call-data compatibility and is
+ignored. `claimRootWithHotkey` redeems only the specified validator basket.
+
+## Root claim views
+
+```text
+getUnclaimedRootTaoByHotkey(bytes32,bytes32)
+getUnclaimedRootTaoBySubnet(bytes32,uint16,bytes32[])
+```
+
+Both views return realizable TAO in 18-decimal EVM units.
+`getUnclaimedRootTaoBySubnet` accepts at most 64 distinct validator hotkeys per
+call. For coldkeys with more validators, sum the results from multiple
+caller-supplied batches. This keeps every contract read bounded without
+decoding the coldkey's potentially unbounded historical hotkey list.
 
 ## Added AdminUtils operations
 

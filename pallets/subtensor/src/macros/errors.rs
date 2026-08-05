@@ -105,7 +105,8 @@ mod errors {
         NotSubnetOwner,
         /// Operation is not permitted on the root subnet.
         RegistrationNotPermittedOnRootSubnet,
-        /// A hotkey with too little stake is attempting to join the root subnet.
+        /// Retired: root admission is burn-based and no longer stake-gated.
+        /// Kept so later error variants keep their metadata indices.
         StakeTooLowForRoot,
         /// All subnets are in the immunity period.
         AllNetworksInImmunity,
@@ -271,12 +272,8 @@ mod errors {
         TrimmingWouldExceedMaxImmunePercentage,
         /// Violating the rules of Childkey-Parentkey consistency
         ChildParentInconsistency,
-        /// Invalid number of root claims
-        InvalidNumRootClaim,
         /// Invalid value of root claim threshold
         InvalidRootClaimThreshold,
-        /// Exceeded subnet limit number or zero.
-        InvalidSubnetNumber,
         /// The maximum allowed UIDs times mechanism count should not exceed 256.
         TooManyUIDsPerMechanism,
         /// Voting power tracking is not enabled for this subnet.
@@ -346,7 +343,23 @@ mod errors {
         /// with miner collateral on the subnet
         /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
         ColdkeyCollateralPositionsFull,
-        /// The coldkey has too many staking hotkeys for a single manual root claim.
-        TooManyRootClaimHotkeys,
+        /// Retired (kept for SCALE index stability): direct basket deposits into an
+        /// uncurated fund are now held as the fund's root (TAO cash) slot instead of
+        /// erroring.
+        BasketHasNoWeights,
+        /// Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window
+        /// (measured from the last root stake add/remove/claim for that coldkey/hotkey) and
+        /// cannot leave root yet. Prevents epoch-boundary just-in-time dividend sniping.
+        RootStakeLocked,
+        /// The `migrate_seed_beta_basket_v2` seed or its per-hotkey deferred-dividend release
+        /// has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps,
+        /// and root stake add/remove/transfer/swap are paused until it finishes so snapshotted
+        /// conversion cannot desync from live stake (`Σ owed == BasketShares`).
+        BetaBasketSeedInProgress,
+        /// `set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`]
+        /// is false). Root Reborn launches gated: every fund runs the null strategy
+        /// (dividends accumulate in place) until weight setting is switched on by
+        /// governance or a later upgrade.
+        RootWeightSettingDisabled,
     }
 }

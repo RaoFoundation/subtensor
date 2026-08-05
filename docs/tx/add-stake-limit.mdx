@@ -15,7 +15,7 @@ for large amounts or thin pools, where the swap itself moves the price.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1392-L1411) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1416-L1435) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("add_stake_limit", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1394`](/code/pallets/subtensor/src/macros/dispatches.rs#L1392-L1411):
+`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1418`](/code/pallets/subtensor/src/macros/dispatches.rs#L1416-L1435):
 
 ```rust
 #[pallet::call_index(88)]

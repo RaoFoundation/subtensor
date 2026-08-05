@@ -386,6 +386,8 @@ fn test_coinbase_tao_issuance_different_prices() {
         // so it should receive twice the TAO emission.
         SubnetMovingPrice::<Test>::insert(netuid1, I96F32::from_num(0.1));
         SubnetMovingPrice::<Test>::insert(netuid2, I96F32::from_num(0.2));
+        // Pin to q-mass (quantile) mode; this test asserts quantile gate math.
+        EmissionBarRank::<Test>::set(0);
         // Keep root_proportion ~1 so the injection cap does not bind.
         set_full_injection_root_stake();
 
@@ -670,6 +672,8 @@ fn test_coinbase_alpha_issuance_different() {
         // Price-based shares with prices 1 and 2 (1:2 ratio).
         SubnetMovingPrice::<Test>::insert(netuid1, I96F32::from_num(1));
         SubnetMovingPrice::<Test>::insert(netuid2, I96F32::from_num(2));
+        // Pin to q-mass (quantile) mode; this test asserts quantile gate math.
+        EmissionBarRank::<Test>::set(0);
         // Keep root_proportion ~1 so the injection cap does not bind.
         set_full_injection_root_stake();
         // Run coinbase
@@ -1164,6 +1168,9 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
+        // Root-registered: root-basket credit requires a root UID.
+        Uids::<Test>::insert(NetUid::ROOT, hotkey1, 0u16);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey2, 1u16);
         SubtensorModule::set_tao_weight(u64::MAX); // Set TAO weight to 1.0
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey1,
@@ -1245,6 +1252,9 @@ fn test_drain_base_with_subnet_with_two_stakers_registered_and_root_different_am
         Delegates::<Test>::insert(hotkey2, PerU16::zero());
         register_ok_neuron(netuid, hotkey1, coldkey, 0);
         register_ok_neuron(netuid, hotkey2, coldkey, 0);
+        // Root-registered: root-basket credit requires a root UID.
+        Uids::<Test>::insert(NetUid::ROOT, hotkey1, 0u16);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey2, 1u16);
         SubtensorModule::set_tao_weight(u64::MAX / 2); // Set TAO weight to 0.5
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey1,
@@ -1379,14 +1389,8 @@ fn test_get_root_children() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold, 0);
         register_ok_neuron(alpha, bob, cold, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold);
+        root_register_ok(bob, cold);
 
         // Add stake for Alice and Bob on root.
         let alice_root_stake = AlphaBalance::from(1_000_000_000);
@@ -1504,14 +1508,8 @@ fn test_get_root_children_drain() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold_alice, 0);
         register_ok_neuron(alpha, bob, cold_bob, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_alice).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_bob).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold_alice);
+        root_register_ok(bob, cold_bob);
         // Add stake for Alice and Bob on root.
         let alice_root_stake = 1_000_000_000;
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1650,14 +1648,8 @@ fn test_get_root_children_drain_half_proportion() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold_alice, 0);
         register_ok_neuron(alpha, bob, cold_bob, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_alice).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_bob).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold_alice);
+        root_register_ok(bob, cold_bob);
         // Add stake for Alice and Bob on root.
         let alice_root_stake = AlphaBalance::from(1_000_000_000);
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1738,14 +1730,8 @@ fn test_get_root_children_drain_with_take() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold_alice, 0);
         register_ok_neuron(alpha, bob, cold_bob, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_alice).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_bob).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold_alice);
+        root_register_ok(bob, cold_bob);
         // Add stake for Alice and Bob on root.
         let alice_root_stake = AlphaBalance::from(1_000_000_000);
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -1826,14 +1812,8 @@ fn test_get_root_children_drain_with_half_take() {
         // Register Alice and Bob to the root network and alpha subnet.
         register_ok_neuron(alpha, alice, cold_alice, 0);
         register_ok_neuron(alpha, bob, cold_bob, 0);
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_alice).clone(),
-            alice,
-        ));
-        assert_ok!(SubtensorModule::root_register(
-            RuntimeOrigin::signed(cold_bob).clone(),
-            bob,
-        ));
+        root_register_ok(alice, cold_alice);
+        root_register_ok(bob, cold_bob);
         // Add stake for Alice and Bob on root.
         let alice_root_stake = AlphaBalance::from(1_000_000_000);
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -2185,6 +2165,9 @@ fn test_calculate_dividend_distribution_totals() {
         let tao_weight: U96F32 = U96F32::from_num(0.18); // 18%
 
         let hotkeys = [U256::from(0), U256::from(1)];
+        // Root dividends only accrue to root-registered hotkeys.
+        Uids::<Test>::insert(NetUid::ROOT, hotkeys[0], 0u16);
+        Uids::<Test>::insert(NetUid::ROOT, hotkeys[1], 1u16);
 
         // Stake map and dividends shouldn't matter for this test.
         stake_map.insert(hotkeys[0], (4_859_302.into(), 2_342_352.into()));
@@ -2229,6 +2212,9 @@ fn test_calculate_dividend_distribution_total_only_tao() {
         let tao_weight: U96F32 = U96F32::from_num(0.18); // 18%
 
         let hotkeys = [U256::from(0), U256::from(1)];
+        // Root dividends only accrue to root-registered hotkeys.
+        Uids::<Test>::insert(NetUid::ROOT, hotkeys[0], 0u16);
+        Uids::<Test>::insert(NetUid::ROOT, hotkeys[1], 1u16);
 
         // Stake map and dividends shouldn't matter for this test.
         stake_map.insert(hotkeys[0], (4_859_302.into(), 2_342_352.into()));
@@ -2347,6 +2333,81 @@ fn test_calculate_dividend_distribution_total_only_alpha() {
             pending_tao.to_u64(),
             epsilon = 1_000
         );
+    });
+}
+
+/// Thin ALPHA + large root stake, hotkey not on root: ALPHA must only claim
+/// `alpha / (alpha + root*tao_weight)` of the dividend — never the whole thing.
+#[test]
+fn test_calculate_dividend_distribution_no_root_uid_does_not_divert_to_alpha() {
+    new_test_ext(1).execute_with(|| {
+        let mut stake_map: BTreeMap<U256, (AlphaBalance, AlphaBalance)> = BTreeMap::new();
+        let mut dividends: BTreeMap<U256, U96F32> = BTreeMap::new();
+
+        let pending_validator_alpha = AlphaBalance::from(1_000_000_000_u64);
+        let pending_root_alpha = AlphaBalance::from(1_000_000_000_u64);
+        let tao_weight: U96F32 = U96F32::from_num(0.18);
+
+        // ~2α / ~4083.7τ root → ~735 weighted root → ~737 eff (Finney-shaped).
+        let thin = U256::from(1);
+        let alpha_stake: u64 = 2_000_000_000;
+        let root_stake: u64 = 4_083_700_000_000;
+        stake_map.insert(thin, (alpha_stake.into(), root_stake.into()));
+        dividends.insert(thin, U96F32::from_num(1_000_000_000_u64));
+        // Intentionally no root UID for `thin`.
+
+        // Peer with only ALPHA and a root UID, same epoch dividend — baseline.
+        let peer = U256::from(2);
+        Uids::<Test>::insert(NetUid::ROOT, peer, 0u16);
+        stake_map.insert(peer, (alpha_stake.into(), 0.into()));
+        dividends.insert(peer, U96F32::from_num(1_000_000_000_u64));
+
+        let (alpha_dividends, root_alpha_dividends) =
+            SubtensorModule::calculate_dividend_distribution(
+                pending_validator_alpha,
+                pending_root_alpha,
+                tao_weight,
+                stake_map,
+                dividends,
+            );
+
+        let thin_alpha = alpha_dividends
+            .get(&thin)
+            .copied()
+            .unwrap_or(U96F32::from_num(0));
+        let peer_alpha = alpha_dividends
+            .get(&peer)
+            .copied()
+            .unwrap_or(U96F32::from_num(0));
+        let thin_root = root_alpha_dividends
+            .get(&thin)
+            .copied()
+            .unwrap_or(U96F32::from_num(0));
+
+        // No root UID ⇒ no root-basket credit.
+        assert_eq!(thin_root.to_num::<u64>(), 0);
+
+        // ALPHA claim is the alpha fraction of eff, not ~50% of the validator pool.
+        let weighted_root = U96F32::from_num(root_stake) * tao_weight;
+        let eff = U96F32::from_num(alpha_stake) + weighted_root;
+        let alpha_frac = U96F32::from_num(alpha_stake) / eff;
+        // peer has alpha_prop=1, thin has alpha_prop=alpha_frac; same D ⇒ shares.
+        let expected_thin_share = alpha_frac / (alpha_frac + U96F32::from_num(1));
+        let expected_thin_alpha =
+            U96F32::from_num(pending_validator_alpha.to_u64()) * expected_thin_share;
+
+        assert_abs_diff_eq!(
+            thin_alpha.to_num::<u64>(),
+            expected_thin_alpha.to_num::<u64>(),
+            epsilon = 1_000
+        );
+        // Must be far below the pre-fix diversion (~half the pool).
+        assert!(
+            thin_alpha.to_num::<u64>() < pending_validator_alpha.to_u64() / 20,
+            "thin α got {} — still diverting ineligible root into ALPHA",
+            thin_alpha.to_num::<u64>()
+        );
+        assert!(peer_alpha > thin_alpha);
     });
 }
 
@@ -3984,6 +4045,140 @@ fn test_coinbase_drain_pending_gets_counters_and_resets_them() {
             AlphaBalance::ZERO
         );
         assert_eq!(PendingOwnerCut::<Test>::get(netuid0), AlphaBalance::ZERO);
+    });
+}
+
+#[test]
+fn test_coinbase_keeps_root_dividends_in_the_epoch_that_earned_them_during_seed() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        kickoff_seed_beta_basket_v2, migrate_seed_beta_basket_v2,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+        Tempo::<Test>::insert(netuid, 100);
+        LastEpochBlock::<Test>::insert(netuid, 0);
+        let pending_root = AlphaBalance::from(12_222_222);
+        PendingRootAlphaDivs::<Test>::insert(netuid, pending_root);
+        kickoff_seed_beta_basket_v2::<Test>();
+
+        let during_seed = SubtensorModule::drain_pending(&[netuid], 102);
+        assert_eq!(during_seed.len(), 1);
+        assert_eq!(
+            during_seed[&netuid].2, pending_root,
+            "the epoch must calculate the hotkeys that earned its root dividend"
+        );
+        assert_eq!(
+            PendingRootAlphaDivs::<Test>::get(netuid),
+            AlphaBalance::ZERO,
+            "the subnet-wide ledger must not aggregate rewards across epochs"
+        );
+
+        migrate_seed_beta_basket_v2::<Test>();
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_seed_beta_basket_v2".to_vec()
+        ));
+        assert!(SubtensorModule::should_run_epoch(netuid, 203));
+
+        let after_seed = SubtensorModule::drain_pending(&[netuid], 203);
+        assert_eq!(after_seed[&netuid].2, AlphaBalance::ZERO);
+        assert_eq!(
+            PendingRootAlphaDivs::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+#[test]
+fn test_coinbase_releases_deferred_root_dividend_to_original_hotkey() {
+    use crate::migrations::migrate_seed_beta_basket::{
+        kickoff_seed_beta_basket_v2, migrate_seed_beta_basket_v2, seed_beta_basket_v2_in_progress,
+    };
+    use crate::tests::claim_root::{fund_pool, set_root_weights_direct};
+
+    new_test_ext(1).execute_with(|| {
+        let owner = U256::from(20_001);
+        let earned_hotkey = U256::from(20_002);
+        let other_hotkey = U256::from(20_003);
+        let staker = U256::from(20_004);
+        let netuid = add_dynamic_network(&earned_hotkey, &owner);
+        fund_pool(netuid);
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        set_root_weights_direct(&earned_hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
+        set_root_weights_direct(&other_hotkey, 1, &[(NetUid::ROOT, u16::MAX)]);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &earned_hotkey,
+            &staker,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &other_hotkey,
+            &staker,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+
+        kickoff_seed_beta_basket_v2::<Test>();
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::from([(earned_hotkey, U96F32::from_num(1_000_000u64))]),
+        );
+
+        let deferred = DeferredRootAlphaDividends::<Test>::get(netuid, earned_hotkey);
+        assert!(deferred > AlphaBalance::ZERO);
+        assert_eq!(
+            DeferredRootAlphaDividends::<Test>::get(netuid, other_hotkey),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(BasketShares::<Test>::get(earned_hotkey), 0);
+
+        migrate_seed_beta_basket_v2::<Test>();
+        assert!(!seed_beta_basket_v2_in_progress::<Test>());
+        assert_eq!(
+            SubtensorModule::ensure_beta_basket_seed_idle(),
+            Err(Error::<Test>::BetaBasketSeedInProgress),
+            "stake and dissolution must remain frozen until deferred credits are released"
+        );
+        assert_eq!(
+            SubtensorModule::root_dissolve_network(RuntimeOrigin::root(), netuid),
+            Err(Error::<Test>::BetaBasketSeedInProgress.into())
+        );
+
+        // A different hotkey earns the current epoch. The stored credit must still go to the
+        // hotkey selected by the skipped epoch instead of being reassigned to this one.
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            BTreeMap::new(),
+            BTreeMap::from([(other_hotkey, U96F32::from_num(2_000_000u64))]),
+        );
+        // Released deferred credits and the current epoch's credit both land in the
+        // pending queue; the drain flushes one hotkey per block, so run it once per
+        // queued hotkey.
+        crate::tests::claim_root::flush_baskets();
+
+        assert!(BasketShares::<Test>::get(earned_hotkey) > 0);
+        assert!(BasketShares::<Test>::get(other_hotkey) > 0);
+        assert!(
+            RootAlphaDividendsPerSubnet::<Test>::get(netuid, other_hotkey)
+                > RootAlphaDividendsPerSubnet::<Test>::get(netuid, earned_hotkey),
+            "the current epoch's larger independent credit must remain attributed separately"
+        );
+        assert!(
+            DeferredRootAlphaDividends::<Test>::iter_prefix(netuid)
+                .next()
+                .is_none()
+        );
+        assert!(
+            DeferredRootAlphaDividends::<Test>::iter().next().is_none(),
+            "temporary deferred-dividend storage must be fully cleared after release"
+        );
+        assert_ok!(SubtensorModule::ensure_beta_basket_seed_idle());
     });
 }
 
