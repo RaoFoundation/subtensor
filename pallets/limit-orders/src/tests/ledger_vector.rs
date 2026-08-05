@@ -410,7 +410,7 @@ fn executable_vector_is_accepted_by_verify_readable_and_is_order_valid() {
             LimitOrders::<Test>::verify_readable(&signed),
             "a signature in the form a Ledger emits must pass verify_readable"
         );
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
+        assert_ok!(is_order_valid(
             &signed,
             id,
             1_000_000,

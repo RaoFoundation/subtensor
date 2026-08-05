@@ -662,6 +662,37 @@ pub fn order_id(order: &crate::VersionedOrder<AccountId>) -> H256 {
     crate::pallet::Pallet::<Test>::derive_order_id(order)
 }
 
+/// Run every execution precondition over `signed_order` and return only the
+/// yes/no verdict: netuid is not root, chain id matches, the signature verifies
+/// in one of the three accepted forms, the order is neither fulfilled nor
+/// cancelled, it has not expired, the price condition holds, the relayer is
+/// allowed, the amount resolves, and any partial fill is in bounds.
+///
+/// A test-side view of `Pallet::validate_order`, which the pallet itself always
+/// calls for its two outputs — the resolved amount and the provider record that
+/// authorised it. The tests below predate those outputs and assert only
+/// accept/reject, so this discards them rather than making every call site
+/// destructure a pair it ignores. Coverage of the discarded half lives in
+/// `tests::linked`, which drives it through the extrinsics.
+pub fn is_order_valid(
+    signed_order: &crate::SignedOrder<AccountId>,
+    order_id: H256,
+    now_ms: u64,
+    current_price: U64F64,
+    relayer: &AccountId,
+) -> frame_support::pallet_prelude::DispatchResult {
+    let order = signed_order.order.view();
+    crate::pallet::Pallet::<Test>::validate_order(
+        signed_order,
+        &order,
+        order_id,
+        now_ms,
+        current_price,
+        relayer,
+    )
+    .map(|_| ())
+}
+
 // ── Test externalities ────────────────────────────────────────────────────────
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

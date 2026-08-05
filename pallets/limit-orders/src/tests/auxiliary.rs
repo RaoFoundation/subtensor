@@ -1451,13 +1451,7 @@ fn is_order_valid_returns_ok_for_well_formed_order() {
         MockSwap::set_price(1.0);
         let (signed, id) = make_valid_signed_order();
         let price = MockSwap::current_alpha_price(netuid());
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
-            &signed,
-            id,
-            1_000_000,
-            price,
-            &bob()
-        ));
+        assert_ok!(is_order_valid(&signed, id, 1_000_000, price, &bob()));
     });
 }
 
@@ -1474,7 +1468,7 @@ fn is_order_valid_invalid_signature_returns_error() {
         signed.signature = MultiSignature::Sr25519(wrong_sig);
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::InvalidSignature
         );
     });
@@ -1515,13 +1509,7 @@ fn is_order_valid_accepts_ed25519_signature() {
         };
 
         let price = MockSwap::current_alpha_price(netuid());
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
-            &signed,
-            id,
-            1_000_000,
-            price,
-            &bob()
-        ));
+        assert_ok!(is_order_valid(&signed, id, 1_000_000, price, &bob()));
     });
 }
 
@@ -1547,7 +1535,7 @@ fn is_order_valid_rejects_ecdsa_signature() {
 
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::InvalidSignature
         );
     });
@@ -1562,7 +1550,7 @@ fn is_order_valid_already_processed_returns_error() {
         Orders::<Test>::insert(id, crate::OrderStatus::Fulfilled);
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::OrderAlreadyProcessed
         );
     });
@@ -1589,7 +1577,7 @@ fn is_order_valid_expired_order_returns_error() {
         };
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed2, id2, 1_000_000, price, &bob()),
+            is_order_valid(&signed2, id2, 1_000_000, price, &bob()),
             Error::<Test>::OrderExpired
         );
     });
@@ -1626,7 +1614,7 @@ fn is_order_valid_price_condition_not_met_returns_error() {
         };
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::PriceConditionNotMet
         );
     });
@@ -1657,7 +1645,7 @@ fn is_order_valid_wrong_chain_id_returns_error() {
         };
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::ChainIdMismatch
         );
     });
@@ -1698,13 +1686,7 @@ fn is_order_valid_accepts_raw_sr25519_signature() {
         };
 
         let price = MockSwap::current_alpha_price(netuid());
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
-            &signed,
-            id,
-            1_000_000,
-            price,
-            &bob()
-        ));
+        assert_ok!(is_order_valid(&signed, id, 1_000_000, price, &bob()));
     });
 }
 
@@ -1744,13 +1726,7 @@ fn is_order_valid_accepts_raw_ed25519_signature() {
         };
 
         let price = MockSwap::current_alpha_price(netuid());
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
-            &signed,
-            id,
-            1_000_000,
-            price,
-            &bob()
-        ));
+        assert_ok!(is_order_valid(&signed, id, 1_000_000, price, &bob()));
     });
 }
 

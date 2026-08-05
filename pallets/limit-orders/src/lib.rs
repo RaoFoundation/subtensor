@@ -1103,38 +1103,16 @@ partial fills {partial}, signer {signer}{tail}",
             });
         }
 
-        /// Validates all execution preconditions for a signed order.
-        /// Checks that the order's netuid is not root (0), that the signature is valid,
-        /// the order has not been processed, is not expired, and the price condition is met.
-        /// The batch netuid match (order.netuid == batch netuid) is checked separately by callers.
+        /// Validate every execution precondition for `signed_order` and return the
+        /// absolute input amount to trade, together with the `order_id` of the
+        /// provider record that authorised it (`None` for a fixed amount).
         ///
-        /// Thin wrapper over [`Self::validate_order`] for callers that only need the
-        /// yes/no verdict; execution paths use `validate_order` directly so they reuse
-        /// the resolved amount and the provider it came from. That leaves the tests as
-        /// the only consumers of this form.
-        #[cfg(test)]
-        pub(crate) fn is_order_valid(
-            signed_order: &SignedOrder<T::AccountId>,
-            order_id: H256,
-            now_ms: u64,
-            current_price: U64F64,
-            relayer: &T::AccountId,
-        ) -> DispatchResult {
-            let order = signed_order.order.view();
-            Self::validate_order(
-                signed_order,
-                &order,
-                order_id,
-                now_ms,
-                current_price,
-                relayer,
-            )
-            .map(|_| ())
-        }
-
-        /// Validate `signed_order` and return the absolute input amount to trade,
-        /// together with the `order_id` of the provider record that authorised it
-        /// (`None` for a fixed amount).
+        /// Checks that the order's netuid is not root (0), that the chain id matches,
+        /// that the signature verifies in one of the three accepted forms, that the
+        /// order is neither already processed nor expired, that the price condition
+        /// is met, that the relayer is allowed, and that any partial fill is in
+        /// bounds. The batch netuid match (order.netuid == batch netuid) is checked
+        /// separately by callers.
         ///
         /// Takes the caller's already-built [`OrderView`] so the projection is done
         /// once per order per dispatch. The provider record is *not* yet consumed —

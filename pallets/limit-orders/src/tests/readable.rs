@@ -353,13 +353,7 @@ fn is_order_valid_accepts_readable_sr25519_signature() {
         );
         // And through the full validation chain.
         let price = MockSwap::current_alpha_price(netuid());
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
-            &signed,
-            id,
-            1_000_000,
-            price,
-            &bob()
-        ));
+        assert_ok!(is_order_valid(&signed, id, 1_000_000, price, &bob()));
     });
 }
 
@@ -391,13 +385,7 @@ fn is_order_valid_accepts_readable_ed25519_signature() {
             "ed25519 readable-signed order must pass verify_readable"
         );
         let price = MockSwap::current_alpha_price(netuid());
-        assert_ok!(LimitOrders::<Test>::is_order_valid(
-            &signed,
-            id,
-            1_000_000,
-            price,
-            &bob()
-        ));
+        assert_ok!(is_order_valid(&signed, id, 1_000_000, price, &bob()));
     });
 }
 
@@ -447,7 +435,7 @@ fn assert_field_mutation_rejected(mutate: impl FnOnce(&mut Order<AccountId>)) {
         let (signed, id) = transplant_signature(AccountKeyring::Alice, base, mutated);
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::InvalidSignature
         );
     });
@@ -543,7 +531,7 @@ fn mutation_chain_id_pre_empted_by_chain_id_guard() {
         let (signed, id) = transplant_signature(AccountKeyring::Alice, base, mutated);
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::ChainIdMismatch
         );
     });
@@ -576,7 +564,7 @@ fn relayer_none_to_empty_transplant_rejected() {
         let (signed, id) = transplant_signature(AccountKeyring::Alice, base, mutated);
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::InvalidSignature
         );
     });
@@ -611,7 +599,7 @@ fn readable_ecdsa_signature_rejected() {
         );
         let price = MockSwap::current_alpha_price(netuid());
         assert_noop!(
-            LimitOrders::<Test>::is_order_valid(&signed, id, 1_000_000, price, &bob()),
+            is_order_valid(&signed, id, 1_000_000, price, &bob()),
             Error::<Test>::InvalidSignature
         );
     });
