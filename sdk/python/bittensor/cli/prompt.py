@@ -37,6 +37,7 @@ except ImportError:  # older typer uses the external click package
         exceptions as click_exceptions,
     )
 
+from .. import config as cfg
 from .. import wallets
 from .context import AppContext
 from .output import STYLE_COMMAND, STYLE_HINT
@@ -324,8 +325,7 @@ def confirm_wallet(
             if known:
                 listing = ", ".join(known[:8]) + (", …" if len(known) > 8 else "")
                 hotkey_help += (
-                    f" A local hotkey ({listing}), a pasted ss58 address, "
-                    "or an address-book name."
+                    f" A local hotkey ({listing}), a pasted ss58 address, or an address-book name."
                 )
             else:
                 hotkey_help += (

@@ -248,6 +248,18 @@ def _make_command(intent_cls: type[Intent]):
                     if kwargs.get(netuid_field) is None:
                         kwargs[netuid_field] = netuid
         missing = [spec for spec in prompt_specs if kwargs.get(spec.field) is None]
+        # `--amount all` empties ONE subnet; people with the v9 "unstake
+        # everything" reflex land here without a netuid, so point at the real
+        # all-subnets command before demanding one.
+        if (
+            intent_cls.op == "remove_stake"
+            and kwargs.get("netuid") is None
+            and str(kwargs.get("amount_alpha") or "").strip().lower() == "all"
+        ):
+            app_ctx.output.message(
+                "note: `--amount all` unstakes everything on a single subnet (--netuid); "
+                "to unstake every position across all subnets, use `btcli stake unstake-all`"
+            )
         # Unstake-style ops pick their source hotkey from the coldkey's live
         # stake positions instead of a bare text prompt (or, worse, a silent
         # fallback to the wallet's own hotkey, which rarely holds the stake).
@@ -293,8 +305,7 @@ def _make_command(intent_cls: type[Intent]):
             missing.insert(index, stake_target_spec(target_field))
         if balance_field is not None and prompts_ok:
             missing = [
-                with_free_balance(spec) if spec.field == balance_field else spec
-                for spec in missing
+                with_free_balance(spec) if spec.field == balance_field else spec for spec in missing
             ]
         # The signing wallet is confirmed too (Enter accepts the configured
         # default); --yes and the extension signer keep the flag-only flow.
