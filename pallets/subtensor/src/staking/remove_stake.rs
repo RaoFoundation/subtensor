@@ -72,6 +72,7 @@ impl<T: Config> Pallet<T> {
             alpha_unstaked,
             T::SwapInterface::min_price(),
             false,
+            true,
         )?;
 
         // 5. If the stake is below the minimum, we clear the nomination from storage.
@@ -155,6 +156,7 @@ impl<T: Config> Pallet<T> {
                     alpha_unstaked,
                     T::SwapInterface::min_price(),
                     false,
+                    true,
                 )?;
 
                 // If the stake is below the minimum, we clear the nomination from storage.
@@ -191,6 +193,7 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // 1. We check the transaction is signed by the caller and retrieve the T::AccountId coldkey information.
         let coldkey = ensure_signed(origin)?;
+        Self::ensure_beta_basket_seed_idle()?;
         log::debug!("do_unstake_all( origin:{coldkey:?} hotkey:{hotkey:?} )");
 
         // 2. Ensure that the hotkey account exists this is only possible through registration.
@@ -239,6 +242,7 @@ impl<T: Config> Pallet<T> {
                         alpha_unstaked,
                         T::SwapInterface::min_price(),
                         false,
+                        true,
                     )?;
 
                     // Increment total
@@ -337,6 +341,7 @@ impl<T: Config> Pallet<T> {
             possible_alpha,
             limit_price,
             false,
+            true,
         )?;
 
         // 5. If the stake is below the minimum, we clear the nomination from storage.

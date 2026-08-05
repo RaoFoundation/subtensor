@@ -14,6 +14,7 @@ from ...vault import VaultPageError, scan_vault_address
 from ...wallets import is_bittensor_address
 from ..context import AppContext, ctx_of
 from ..globals import with_globals
+from ..prompt import PromptSpec, fill_missing, interactive
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -31,6 +32,36 @@ def _save(app_ctx: AppContext, name: str, ss58: str, note: str) -> None:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
     app_ctx.output.detail("saved address", {"entry": entry, "path": str(cfg.addresses_path())})
+
+
+def _parse_ss58(_app_ctx: AppContext, raw: str) -> str:
+    if not is_bittensor_address(raw):
+        raise ValueError(f"invalid ss58 address {raw!r}")
+    return raw
+
+
+def _prompt_for_ss58(app_ctx: AppContext) -> str:
+    """Ask for the ss58 interactively; error out in non-interactive sessions."""
+    if not interactive(app_ctx):
+        app_ctx.output.error(
+            "missing address", help="pass the ss58, or --vault to scan it from your phone"
+        )
+        raise typer.Exit(2)
+    answers: dict = {}
+    fill_missing(
+        app_ctx,
+        [
+            PromptSpec(
+                field="ss58",
+                flag="ss58",
+                help="ss58 address for that name (or re-run with --vault to scan it).",
+                parse=_parse_ss58,
+                positional=True,
+            )
+        ],
+        answers,
+    )
+    return answers["ss58"]
 
 
 def _scan_from_vault(app_ctx: AppContext) -> str:
@@ -85,10 +116,7 @@ def add_address(
     if from_vault:
         ss58 = _scan_from_vault(app_ctx)
     if ss58 is None:
-        app_ctx.output.error(
-            "missing address", help="pass the ss58, or --vault to scan it from your phone"
-        )
-        raise typer.Exit(2)
+        ss58 = _prompt_for_ss58(app_ctx)
     _save(app_ctx, name, ss58, note)
 
 

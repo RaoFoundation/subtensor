@@ -1451,10 +1451,7 @@ fn test_do_swap_coldkey_effect_on_delegations() {
         add_network(netuid, 13, 0); // root
         add_network(netuid2, 13, 0);
 
-        assert_ok!(SubtensorModule::root_register(
-            <<Test as Config>::RuntimeOrigin>::signed(owner),
-            delegate
-        )); // register on root
+        root_register_ok(delegate, owner); // register on root
         register_ok_neuron(netuid2, delegate, owner, 0);
         add_balance_to_coldkey_account(&coldkey, stake * 10.into());
 

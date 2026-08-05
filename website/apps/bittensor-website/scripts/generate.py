@@ -637,7 +637,10 @@ def intent_page(op: str, cls) -> str:
     wraps = ", ".join(wrap_link(p, c) for p, c in cls.wraps) or "—"
     body = mdx_escape(body_after_summary(description))
 
-    cli_parts = [f"btcli tx {kebab(op)}"]
+    # Intents may pin a friendlier CLI spelling (e.g. root registration goes
+    # through the ordinary `subnets register` command); default to the
+    # generic tx command.
+    cli_parts = [getattr(cls, "cli_example", None) or f"btcli tx {kebab(op)}"]
     for name in required:
         cli_parts.append(cli_arg(name, props[name]))
     cli_cmd = " \\\n  ".join(cli_parts)

@@ -23,7 +23,7 @@ from ...settings import U16_MAX
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
-from ..prompt import PromptSpec, fill_missing, interactive
+from ..prompt import PromptSpec, confirm_wallet, fill_missing, interactive
 from ..tx import _parse_money
 
 app = typer.Typer(no_args_is_help=True, help="Subnet-owner config and governance.")
@@ -112,6 +112,8 @@ def sudo_set(
     """
     app_ctx: AppContext = ctx_of(ctx)
     if name is None or value is None:
+        # Wallet first, so prompts narrow down (submit skips its own ask).
+        confirm_wallet(app_ctx, help_text="Wallet whose coldkey signs this transaction.")
         name, value = _prompt_set_args(app_ctx, netuid, name, value)
     try:
         intent = SetHyperparameter(netuid=netuid, name=name, value=value)
@@ -366,12 +368,13 @@ def stake_burn(
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
         raise typer.Exit(2)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     app_ctx.submit(
         StakeBurn(
             netuid=netuid,
             amount_tao=amount,
             limit_price=limit_price,
-            hotkey_ss58=hotkey_ss58,
+            hotkey_ss58=hotkey,
         )
     )
 

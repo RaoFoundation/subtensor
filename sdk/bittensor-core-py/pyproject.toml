@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "bittensor-core"
 # Static (not read from Cargo.toml) so the release train can stamp PEP 440
 # rc/dev suffixes that cargo's semver would reject.
-version = "0.1.1"
+version = "0.1.2"
 description = "The chain-defined compute core for Bittensor clients: sp-core keys, keyfiles, drand timelock, ML-KEM, SCALE codec, and RFC-0078 metadata digest, built from the bittensor monorepo"
 readme = "README.md"
 requires-python = ">=3.10"

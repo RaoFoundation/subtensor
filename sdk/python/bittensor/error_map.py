@@ -214,9 +214,11 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "UidMapCouldNotBeCleared": _C.INTERNAL,
     "TrimmingWouldExceedMaxImmunePercentage": _C.LIMIT_EXCEEDED,
     "ChildParentInconsistency": _C.INVALID_ARGUMENT,
-    "InvalidNumRootClaim": _C.INVALID_ARGUMENT,
     "InvalidRootClaimThreshold": _C.INVALID_ARGUMENT,
-    "InvalidSubnetNumber": _C.INVALID_ARGUMENT,
+    "BasketHasNoWeights": _C.INVALID_ARGUMENT,
+    "BetaBasketSeedInProgress": _C.TOO_EARLY,
+    "RootWeightSettingDisabled": _C.DISABLED,
+    "RootStakeLocked": _C.TOO_EARLY,
     "TooManyUIDsPerMechanism": _C.LIMIT_EXCEEDED,
     "VotingPowerTrackingNotEnabled": _C.DISABLED,
     "InvalidVotingPowerEmaAlpha": _C.INVALID_ARGUMENT,
@@ -612,7 +614,9 @@ DISPATCH_ERRORS: dict[str, tuple[ErrorCode, str]] = {
     "Payment": (
         _C.INSUFFICIENT_BALANCE,
         "The signing account cannot cover the transaction fee (and tip). Fund the "
-        "account or lower the tip; check with `btcli wallet balance`.",
+        "account with free TAO or lower the tip; check with `btcli wallet balance`. "
+        "MEV-shielded submissions charge the outer carrier in TAO only — if you "
+        "only hold staked alpha, retry with `--no-mev-shield`.",
     ),
     "Future": (
         _C.TOO_EARLY,

@@ -727,6 +727,12 @@ class Executor:
                 result,
                 data={**result.data, "shielded": True, "inner_extrinsic_hash": inner_hash},
             )
+        if result.success and (wait_for_inclusion or wait_for_finalization):
+            # The carrier's success only proves the ciphertext was accepted;
+            # the decrypted inner extrinsic executes separately and can still
+            # fail. Follow it so success, block, extrinsic id, and explorer
+            # link all describe the actual call, not the carrier.
+            result = await self._resolve_shielded_inner(result, inner_hash, period)
         if (
             result.success
             and intent.op == "register_subnet"
@@ -745,6 +751,56 @@ class Executor:
                 deferred_dispatch=True,
             )
         return result
+
+    async def _resolve_shielded_inner(
+        self, outer: ExtrinsicResult, inner_hash: str, period: int
+    ) -> ExtrinsicResult:
+        """Follow a shielded carrier to the decrypted inner extrinsic's receipt.
+
+        The block author decrypts ``submit_encrypted`` and includes the inner
+        extrinsic as a regular extrinsic — normally in the carrier's own block.
+        Scan from the carrier's block until the inner hash is found and return
+        its receipt (success flag, block, extrinsic id, error) merged with the
+        carrier's shield metadata. If the inner extrinsic has not appeared by
+        the end of its mortal era, report the submission failed rather than
+        letting the carrier's success stand in for it.
+        """
+        included_at = _result_block(outer)
+        if included_at is None:
+            return outer  # inclusion was not awaited; nothing to follow
+        # The inner extrinsic's era opened at signing, one or two blocks before
+        # the carrier's inclusion; past included_at + period it cannot land.
+        deadline = included_at + max(1, int(period))
+        block = included_at
+        # Bounded so a wedged node (block_hash never resolving) cannot hang the
+        # follow-up forever: ~4 block-times of slack per remaining block.
+        waits_left = 4 * (deadline - included_at + 1)
+        while block <= deadline:
+            try:
+                block_hash = await self.substrate.block_hash(block)
+            except Exception:
+                block_hash = None
+            if not block_hash:
+                # Chain head has not reached this height yet.
+                waits_left -= 1
+                if waits_left <= 0:
+                    break
+                await asyncio.sleep(await self.substrate.block_time())
+                continue
+            inner = await self.substrate.find_extrinsic(inner_hash, block_hash)
+            if inner is not None:
+                return replace(inner, data={**inner.data, **outer.data})
+            block += 1
+        message = (
+            "the MEV shield accepted the encrypted submission, but the decrypted "
+            f"extrinsic ({inner_hash}) was not included before its era expired"
+        )
+        return replace(
+            outer,
+            success=False,
+            message=message,
+            error=ChainError(message),
+        )
 
     async def submit_call(
         self,

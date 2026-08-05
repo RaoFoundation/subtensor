@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 440,
+    spec_version: 443,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -2347,6 +2347,36 @@ impl_runtime_apis! {
     impl subtensor_custom_rpc_runtime_api::SubnetRegistrationRuntimeApi<Block> for Runtime {
         fn get_network_registration_cost() -> TaoBalance {
             SubtensorModule::get_network_lock_cost()
+        }
+    }
+
+    impl subtensor_custom_rpc_runtime_api::BetaBasketRuntimeApi<Block> for Runtime {
+        fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance {
+            SubtensorModule::get_root_basket_owed_tao(&coldkey)
+        }
+        fn get_basket_payout(hotkey: AccountId32, coldkey: AccountId32) -> TaoBalance {
+            SubtensorModule::get_basket_payout_tao(&hotkey, &coldkey).into()
+        }
+        fn get_validator_basket_nav(hotkey: AccountId32) -> TaoBalance {
+            SubtensorModule::get_validator_basket_nav_tao(&hotkey)
+        }
+        fn get_validator_basket(hotkey: AccountId32) -> Vec<(NetUid, AlphaBalance, TaoBalance)> {
+            SubtensorModule::get_validator_basket(&hotkey)
+        }
+        fn get_root_basket_total_nav() -> TaoBalance {
+            SubtensorModule::get_root_basket_total_nav_tao()
+        }
+        fn get_validator_weights(hotkey: AccountId32) -> Vec<(NetUid, u16)> {
+            SubtensorModule::get_validator_root_weights(&hotkey)
+        }
+        fn get_validator_basket_summary(hotkey: AccountId32) -> pallet_subtensor::rpc_info::basket_info::BasketSummary<AccountId32> {
+            SubtensorModule::get_validator_basket_summary(&hotkey)
+        }
+        fn get_all_validator_baskets() -> Vec<pallet_subtensor::rpc_info::basket_info::BasketSummary<AccountId32>> {
+            SubtensorModule::get_all_validator_baskets()
+        }
+        fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)> {
+            SubtensorModule::get_root_basket_positions(&coldkey)
         }
     }
 

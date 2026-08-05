@@ -31,7 +31,11 @@ use sp_runtime::{
     BuildStorage, Percent,
     traits::{BlakeTwo256, IdentityLookup},
 };
-use sp_std::{cell::RefCell, cmp::Ordering, sync::OnceLock};
+use sp_std::{
+    cell::{Cell, RefCell},
+    cmp::Ordering,
+    sync::OnceLock,
+};
 use sp_tracing::tracing_subscriber;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, TaoBalance};
@@ -487,6 +491,41 @@ impl pallet_preimage::Config for Test {
 
 thread_local! {
     pub static PROXIES: RefCell<FakeProxier> = const { RefCell::new(FakeProxier(vec![])) };
+    /// Deterministic op counters for basket-flush asymptotics tests.
+    static BASKET_SWAP_OPS: Cell<u64> = const { Cell::new(0) };
+    static BASKET_QUOTE_OPS: Cell<u64> = const { Cell::new(0) };
+    static BASKET_WRITE_OPS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Reset swap/quote/write counters used by pending-basket flush tests.
+pub fn reset_basket_op_counters() {
+    BASKET_SWAP_OPS.set(0);
+    BASKET_QUOTE_OPS.set(0);
+    BASKET_WRITE_OPS.set(0);
+}
+
+pub fn basket_swap_ops() -> u64 {
+    BASKET_SWAP_OPS.get()
+}
+
+pub fn basket_quote_ops() -> u64 {
+    BASKET_QUOTE_OPS.get()
+}
+
+pub fn basket_write_ops() -> u64 {
+    BASKET_WRITE_OPS.get()
+}
+
+pub(crate) fn inc_basket_swap_ops() {
+    BASKET_SWAP_OPS.set(BASKET_SWAP_OPS.get().saturating_add(1));
+}
+
+pub(crate) fn inc_basket_quote_ops() {
+    BASKET_QUOTE_OPS.set(BASKET_QUOTE_OPS.get().saturating_add(1));
+}
+
+pub(crate) fn inc_basket_write_ops() {
+    BASKET_WRITE_OPS.set(BASKET_WRITE_OPS.get().saturating_add(1));
 }
 
 pub struct FakeProxier(pub Vec<(U256, U256)>);
@@ -814,6 +853,22 @@ pub(crate) fn next_block() -> u64 {
     run_to_block(block);
     assert_eq!(System::block_number(), block);
     block
+}
+
+/// Fund `coldkey` for the current root burn price and register `hotkey` on
+/// the root network. Root admission is burn-based; this mirrors the
+/// `register_ok_neuron` top-up so tests don't have to fund the burn by hand.
+pub fn root_register_ok(hotkey_account_id: U256, coldkey_account_id: U256) {
+    let burn: TaoBalance = SubtensorModule::get_burn(NetUid::ROOT);
+    let ed: TaoBalance = ExistentialDeposit::get();
+    let min_balance_needed: TaoBalance = burn + ed.max(1.into()) + TaoBalance::from(10);
+    let bal: TaoBalance = SubtensorModule::get_coldkey_balance(&coldkey_account_id);
+    if bal < min_balance_needed {
+        add_balance_to_coldkey_account(&coldkey_account_id, min_balance_needed - bal);
+    }
+    let origin = <<Test as frame_system::Config>::RuntimeOrigin>::signed(coldkey_account_id);
+    SubtensorModule::root_register(origin, hotkey_account_id)
+        .expect("funded root registration should succeed");
 }
 
 pub fn register_ok_neuron(

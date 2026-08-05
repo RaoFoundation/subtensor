@@ -12,7 +12,7 @@ from ....evm import precompiles as evm_precompiles
 from ....evm import rpc as evm_rpc
 from ....intents import FundEvmKey
 from ...context import ctx_of
-from ...globals import with_globals, with_tx_globals
+from ...globals import evm_key_signed, with_globals, with_tx_globals
 from ._shared import (
     EVM_ADDRESS_HELP,
     EVM_KEY_HELP,
@@ -81,6 +81,7 @@ def fund(
 
 
 @with_tx_globals
+@evm_key_signed
 def send(
     ctx: typer.Context,
     to: str = typer.Option(..., "--to", help=EVM_ADDRESS_HELP),
@@ -103,6 +104,7 @@ def send(
 
 
 @with_tx_globals
+@evm_key_signed
 def send_to_ss58(
     ctx: typer.Context,
     to: Optional[str] = typer.Option(

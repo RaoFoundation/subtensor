@@ -15,8 +15,13 @@ impl<T: Config> Pallet<T> {
     /// Use the generated all-subnet stake-moving benchmark for every v2 path
     /// that scans and moves stake. Preserve the previous lightweight weight for
     /// the single-subnet `keep_stake` path, which does not scan stake prefixes.
-    pub fn swap_hotkey_v2_dispatch_weight(netuid: &Option<NetUid>, keep_stake: bool) -> Weight {
-        if netuid.is_none() || !keep_stake {
+    /// Root-touching swaps also reserve weight for migrating `BasketClaimed` rows.
+    pub fn swap_hotkey_v2_dispatch_weight(
+        old_hotkey: &T::AccountId,
+        netuid: &Option<NetUid>,
+        keep_stake: bool,
+    ) -> Weight {
+        let base = if netuid.is_none() || !keep_stake {
             <<T as crate::pallet::Config>::WeightInfo as crate::weights::WeightInfo>::swap_hotkey()
         } else {
             // +1 read / +4 writes vs the pre-lineage keep_stake path: root lookup,
@@ -24,7 +29,30 @@ impl<T: Config> Pallet<T> {
             Weight::from_parts(275_300_000, 0)
                 .saturating_add(T::DbWeight::get().reads(53_u64))
                 .saturating_add(T::DbWeight::get().writes(39_u64))
+        };
+        base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
+    }
+
+    /// Pre-dispatch weight for moving `BasketClaimed` on a root-touching hotkey swap.
+    /// Counts the prefix and charges per row so the block scheduler reserves the work up
+    /// front (post-dispatch accrual alone does not expand the inclusion reservation).
+    pub fn basket_claimed_swap_weight(
+        old_hotkey: &T::AccountId,
+        netuid: &Option<NetUid>,
+    ) -> Weight {
+        let touches_root = match netuid {
+            None => true,
+            Some(n) => *n == NetUid::ROOT,
+        };
+        if !touches_root {
+            return Weight::zero();
         }
+        let claimed_rows = BasketClaimed::<T>::iter_prefix(old_hotkey).count() as u64;
+        // One read per scanned row + remove/insert pair per row.
+        T::DbWeight::get().reads_writes(
+            claimed_rows.saturating_mul(2).saturating_add(1),
+            claimed_rows.saturating_mul(2),
+        )
     }
 
     /// Read and merge the old hotkey's V1/V2 stake rows once. V2 keeps the
@@ -67,7 +95,8 @@ impl<T: Config> Pallet<T> {
     /// * `NewHotKeyIsSameWithOld`: If the new hotkey is the same as the old hotkey.
     /// * `HotKeyAlreadyRegisteredInSubNet`: If the new hotkey is already registered in the subnet.
     /// * `NewHotKeyNotCleanForRootSwap`: If the swap touches root and the new hotkey
-    ///   has outstanding `RootClaimable` entries or non-zero root stake.
+    ///   has an outstanding basket fund (`BasketRate`/`BasketShares`), residual legacy
+    ///   claim state, or non-zero root stake.
     /// * `NotEnoughBalanceToPaySwapHotKey`: If there is not enough balance to pay for the swap.
     pub fn do_swap_hotkey(
         origin: OriginFor<T>,
@@ -152,9 +181,19 @@ impl<T: Config> Pallet<T> {
             Some(n) => n == NetUid::ROOT,
         };
         if touches_root {
+            // The multi-block seed keeps `RootClaimable`/`RootClaimed` and any
+            // `HotkeyConvertState` keyed to the old hotkey until that hotkey finishes
+            // converting. Moving root stake/basket mid-migration would value those
+            // leftovers against zero stake under the retired key.
+            Self::ensure_beta_basket_seed_idle()?;
             ensure!(
-                RootClaimable::<T>::get(new_hotkey).is_empty()
+                !BasketRate::<T>::contains_key(new_hotkey)
+                    && BasketShares::<T>::get(new_hotkey) == 0
                     && Self::get_stake_for_hotkey_on_subnet(new_hotkey, NetUid::ROOT).is_zero()
+                    // Legacy claim state (drained by `migrate_seed_beta_basket`) must also be
+                    // clean: a residual watermark would be seeded into the basket fund and
+                    // inflate the merged claim total (GHSA-2026-010).
+                    && RootClaimable::<T>::get(new_hotkey).is_empty()
                     && RootClaimed::<T>::iter_prefix((NetUid::ROOT, new_hotkey))
                         .next()
                         .is_none(),
@@ -484,16 +523,22 @@ impl<T: Config> Pallet<T> {
         keep_stake: bool,
         prepared_stake: Option<&PreparedHotkeyStake<T::AccountId>>,
     ) -> DispatchResultWithPostInfo {
-        // 1. Ensure coldkey not swap hotkey too frequently
+        // 1. Ensure coldkey not swap hotkey too frequently on this subnet.
+        // Mirror the all-subnets path: only enforce when a prior swap was recorded.
+        // A first swap (default 0) must not be gated by chain age / interval size —
+        // otherwise young clones and fresh coldkeys fail with
+        // `HotKeySwapOnSubnetIntervalNotPassed` whenever `interval >= block`.
         let mut weight: Weight = init_weight;
         let block: u64 = Self::get_current_block_as_u64();
         let hotkey_swap_interval = T::HotkeySwapOnSubnetInterval::get();
         let last_hotkey_swap_block = LastHotkeySwapOnNetuid::<T>::get(netuid, coldkey);
 
-        ensure!(
-            last_hotkey_swap_block.saturating_add(hotkey_swap_interval) < block,
-            Error::<T>::HotKeySwapOnSubnetIntervalNotPassed
-        );
+        if last_hotkey_swap_block != 0 {
+            ensure!(
+                last_hotkey_swap_block.saturating_add(hotkey_swap_interval) < block,
+                Error::<T>::HotKeySwapOnSubnetIntervalNotPassed
+            );
+        }
         weight.saturating_accrue(T::DbWeight::get().reads_writes(3, 0));
 
         // Check that new hotkey is a non-system hotkey
@@ -801,9 +846,18 @@ impl<T: Config> Pallet<T> {
             Self::swap_voting_power_for_hotkey(old_hotkey, new_hotkey, netuid);
             weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
 
+            // The beta escrow's basket positions are tied to the validator's root identity, not
+            // to per-subnet membership. Skip it here and migrate baskets atomically in the root
+            // branch below, so a non-root single-subnet swap never moves a basket out from under
+            // its (unchanged) root accounting.
+            let beta_escrow = Self::get_beta_escrow_account_id();
+
             // Move only the positions prepared for this subnet. The V1/V2
             // prefixes were already scanned and deduplicated once during preflight.
             for coldkey in stake_coldkeys {
+                if *coldkey == beta_escrow {
+                    continue;
+                }
                 let alpha_old =
                     Self::get_stake_for_hotkey_and_coldkey_on_subnet(old_hotkey, coldkey, netuid);
                 Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
@@ -813,6 +867,14 @@ impl<T: Config> Pallet<T> {
                     new_hotkey, coldkey, netuid, alpha_old,
                 );
                 weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
+
+                // Preserve root unlock age across the hotkey move — do not stamp `now`,
+                // which would restart the hold, and do not drop the stamp (unwrap_or(0)
+                // would clear it and bypass RootStakeLocked).
+                if netuid == NetUid::ROOT {
+                    Self::migrate_root_stake_age(coldkey, old_hotkey, coldkey, new_hotkey);
+                    weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
+                }
 
                 let mut staking_hotkeys = StakingHotkeys::<T>::get(coldkey);
                 weight.saturating_accrue(T::DbWeight::get().reads(1));
@@ -825,35 +887,18 @@ impl<T: Config> Pallet<T> {
             }
 
             if netuid == NetUid::ROOT {
-                // 9. Transfer root claimable and root claimed only for the root subnet
-                // NOTE: we shouldn't transfer root claimable and root claimed for other subnets,
-                // otherwise root stakers won't be able to receive dividends.
-                Self::transfer_root_claimable_for_new_hotkey(old_hotkey, new_hotkey);
-                weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
-
-                // After transfer, new_hotkey has the full RootClaimable map.
-                // We use it to know which subnets have outstanding claims.
-                let subnets: Vec<NetUid> = RootClaimable::<T>::get(new_hotkey)
-                    .keys()
-                    .copied()
-                    .collect();
-                weight.saturating_accrue(T::DbWeight::get().reads(1));
-
-                for subnet in subnets {
-                    let claimed_coldkeys: Vec<T::AccountId> =
-                        RootClaimed::<T>::iter_prefix((subnet, old_hotkey))
-                            .map(|(coldkey, _)| coldkey)
-                            .collect();
-                    weight
-                        .saturating_accrue(T::DbWeight::get().reads(claimed_coldkeys.len() as u64));
-
-                    for coldkey in claimed_coldkeys {
-                        Self::transfer_root_claimed_for_new_keys(
-                            subnet, old_hotkey, new_hotkey, &coldkey, &coldkey,
-                        );
-                        weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
-                    }
-                }
+                // 9. Migrate the validator's whole basket fund only for the root subnet: shares,
+                // rate, per-coldkey claimed watermarks, and every escrow holding move by value.
+                // The clean-hotkey guard above makes this a move, not a merge. Claimant rows are
+                // unbounded (like stake coldkeys); charge weight for each watermark moved.
+                let num_holdings = Self::get_basket_holdings(old_hotkey).len() as u64;
+                let claimed_count =
+                    Self::transfer_basket_for_new_hotkey(old_hotkey, new_hotkey) as u64;
+                let ops = num_holdings
+                    .saturating_mul(2)
+                    .saturating_add(4)
+                    .saturating_add(claimed_count.saturating_mul(2));
+                weight.saturating_accrue(T::DbWeight::get().reads_writes(ops, ops));
 
                 // Transfer AutoParentDelegationEnabled flag from old_hotkey to new_hotkey.
                 // Only migrate if it was explicitly set, to preserve the storage default semantics.

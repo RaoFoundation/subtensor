@@ -220,56 +220,11 @@ export async function swapStakeLimit(
     await waitForTransactionWithRetry(api, tx, coldkey, "swap_stake_limit");
 }
 
-export type RootClaimType = "Swap" | "Keep" | { type: "KeepSubnets"; subnets: number[] };
-
-export async function getRootClaimType(api: TypedApi<typeof subtensor>, coldkey: string): Promise<RootClaimType> {
-    const result = await api.query.SubtensorModule.RootClaimType.getValue(coldkey);
-    if (result.type === "KeepSubnets") {
-        return { type: "KeepSubnets", subnets: result.value.subnets as number[] };
-    }
-    return result.type as "Swap" | "Keep";
-}
-
-export async function setRootClaimType(
-    api: TypedApi<typeof subtensor>,
-    coldkey: KeyringPair,
-    claimType: RootClaimType
-): Promise<void> {
-    let newRootClaimType;
-    if (typeof claimType === "string") {
-        newRootClaimType = { type: claimType, value: undefined };
-    } else {
-        newRootClaimType = { type: "KeepSubnets", value: { subnets: claimType.subnets } };
-    }
-    const tx = api.tx.SubtensorModule.set_root_claim_type({
-        new_root_claim_type: newRootClaimType,
-    });
-    await waitForTransactionWithRetry(api, tx, coldkey, "set_root_claim_type");
-}
-
-export async function claimRoot(
-    api: TypedApi<typeof subtensor>,
-    coldkey: KeyringPair,
-    subnets: number[]
-): Promise<void> {
-    const tx = api.tx.SubtensorModule.claim_root({
-        subnets: subnets,
-    });
+export async function claimRoot(api: TypedApi<typeof subtensor>, coldkey: KeyringPair): Promise<void> {
+    // Fund-level redemption: the subnets argument is ignored on-chain (kept for
+    // call-data compatibility) but the codec still requires it.
+    const tx = api.tx.SubtensorModule.claim_root({ subnets: [] });
     await waitForTransactionWithRetry(api, tx, coldkey, "claim_root");
-}
-
-export async function getNumRootClaims(api: TypedApi<typeof subtensor>): Promise<bigint> {
-    return await api.query.SubtensorModule.NumRootClaim.getValue();
-}
-
-export async function sudoSetNumRootClaims(api: TypedApi<typeof subtensor>, newValue: bigint): Promise<void> {
-    const keyring = new Keyring({ type: "sr25519" });
-    const alice = keyring.addFromUri("//Alice");
-    const internalCall = api.tx.SubtensorModule.sudo_set_num_root_claims({
-        new_value: newValue,
-    });
-    const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
-    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_num_root_claims");
 }
 
 export async function getRootClaimThreshold(api: TypedApi<typeof subtensor>, netuid: number): Promise<bigint> {
@@ -319,6 +274,8 @@ export async function waitForBlocks(api: TypedApi<typeof subtensor>, numBlocks: 
     }
 }
 
+/// LEGACY per-subnet claimable rates; drained by the seed migration. Kept only for
+/// migration-era assertions.
 export async function getRootClaimable(api: TypedApi<typeof subtensor>, hotkey: string): Promise<Map<number, bigint>> {
     const result = await api.query.SubtensorModule.RootClaimable.getValue(hotkey);
     const claimableMap = new Map<number, bigint>();
@@ -328,6 +285,7 @@ export async function getRootClaimable(api: TypedApi<typeof subtensor>, hotkey: 
     return claimableMap;
 }
 
+/// LEGACY per-subnet claimed watermarks; drained by the seed migration.
 export async function getRootClaimed(
     api: TypedApi<typeof subtensor>,
     netuid: number,
@@ -335,6 +293,71 @@ export async function getRootClaimed(
     coldkey: string
 ): Promise<bigint> {
     return await api.query.SubtensorModule.RootClaimed.getValue(netuid, hotkey, coldkey);
+}
+
+/// Root Reborn launches with `set_root_weights` gated off network-wide
+/// (`RootWeightSettingEnabled = false`); flip the switch on via sudo so tests can
+/// exercise curated baskets. Idempotent.
+async function sudoEnableRootWeightSetting(api: TypedApi<typeof subtensor>): Promise<void> {
+    const keyring = new Keyring({ type: "sr25519" });
+    const alice = keyring.addFromUri("//Alice");
+    const inner = api.tx.AdminUtils.sudo_set_root_weight_setting_enabled({ enabled: true });
+    const tx = api.tx.Sudo.sudo({ call: inner.decodedCall });
+    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_root_weight_setting_enabled");
+}
+
+/// Sets a root validator's beta-basket weight vector (the distribution its root dividends are
+/// deployed into). Signed by the validator hotkey; requires a root UID.
+/// Enables the network-wide weight-setting gate (off at launch) via sudo first.
+/// Pads with other live netuids at weight 1 when needed to satisfy MIN_ROOT_BASKET_WEIGHTS (8),
+/// softened to the number of available destinations.
+export async function setRootWeights(
+    api: TypedApi<typeof subtensor>,
+    hotkey: KeyringPair,
+    dests: number[],
+    weights: number[]
+): Promise<void> {
+    await sudoEnableRootWeightSetting(api);
+    const MIN_ROOT_BASKET_WEIGHTS = 8;
+    const paddedDests = [...dests];
+    const paddedWeights = [...weights];
+    const totalNetworks = Number(await api.query.SubtensorModule.TotalNetworks.getValue());
+    const required = Math.min(MIN_ROOT_BASKET_WEIGHTS, totalNetworks);
+    for (let netuid = 0; paddedDests.length < required && netuid < 4096; netuid++) {
+        if (paddedDests.includes(netuid)) {
+            continue;
+        }
+        const exists = await api.query.SubtensorModule.NetworksAdded.getValue(netuid);
+        if (!exists) {
+            continue;
+        }
+        paddedDests.push(netuid);
+        paddedWeights.push(1);
+    }
+    const tx = api.tx.SubtensorModule.set_root_weights({
+        dests: paddedDests,
+        weights: paddedWeights,
+    });
+    await waitForTransactionWithRetry(api, tx, hotkey, "set_root_weights");
+}
+
+/// A validator's unified fund-shares-per-root-stake accumulator (I96F32 raw bits).
+export async function getBasketRate(api: TypedApi<typeof subtensor>, hotkey: string): Promise<bigint> {
+    return await api.query.SubtensorModule.BasketRate.getValue(hotkey);
+}
+
+/// A validator's total outstanding basket fund shares.
+export async function getBasketShares(api: TypedApi<typeof subtensor>, hotkey: string): Promise<bigint> {
+    return await api.query.SubtensorModule.BasketShares.getValue(hotkey);
+}
+
+/// A staker's claimed-shares watermark on a validator's fund.
+export async function getBasketClaimed(
+    api: TypedApi<typeof subtensor>,
+    hotkey: string,
+    coldkey: string
+): Promise<bigint> {
+    return await api.query.SubtensorModule.BasketClaimed.getValue(hotkey, coldkey);
 }
 
 export async function isSubtokenEnabled(api: TypedApi<typeof subtensor>, netuid: number): Promise<boolean> {
@@ -397,6 +420,21 @@ export async function sudoSetLockReductionInterval(api: TypedApi<typeof subtenso
     });
     const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
     await waitForTransactionWithRetry(api, tx, alice, "sudo_set_lock_reduction_interval");
+}
+
+export async function sudoSetWeightsSetRateLimit(
+    api: TypedApi<typeof subtensor>,
+    netuid: number,
+    weightsSetRateLimit: number
+): Promise<void> {
+    const keyring = new Keyring({ type: "sr25519" });
+    const alice = keyring.addFromUri("//Alice");
+    const internalCall = api.tx.AdminUtils.sudo_set_weights_set_rate_limit({
+        netuid: netuid,
+        weights_set_rate_limit: BigInt(weightsSetRateLimit),
+    });
+    const tx = api.tx.Sudo.sudo({ call: internalCall.decodedCall });
+    await waitForTransactionWithRetry(api, tx, alice, "sudo_set_weights_set_rate_limit");
 }
 
 export async function sudoSetSubnetMovingAlpha(api: TypedApi<typeof subtensor>, alpha: bigint): Promise<void> {

@@ -1,17 +1,15 @@
+#![allow(clippy::expect_used, clippy::panic)]
+
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use node_subtensor_runtime::{
     BlockWeights, Runtime, RuntimeCall, TxExtension, check_mortality, check_nonce, sudo_wrapper,
     transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
 };
 use sp_runtime::{generic::Era, traits::TransactionExtension};
-use std::collections::BTreeSet;
-use subtensor_runtime_common::{NetUid, TaoBalance};
+use sp_std::collections::btree_set::BTreeSet;
+use subtensor_runtime_common::{AccountId, NetUid, TaoBalance};
 
-#[test]
-fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
-    let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root {
-        subnets: BTreeSet::from([NetUid::from(1)]),
-    });
+fn assert_call_fits_normal_limit(call: RuntimeCall) {
     let extensions: TxExtension = (
         (
             frame_system::CheckNonZeroSender::<Runtime>::new(),
@@ -34,14 +32,29 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
 
     let mut dispatch_info = call.get_dispatch_info();
     dispatch_info.extension_weight = extensions.weight(&call);
-    let max_extrinsic = BlockWeights::get()
-        .get(DispatchClass::Normal)
-        .max_extrinsic
-        .expect("normal extrinsics have a configured maximum");
+    let Some(max_extrinsic) = BlockWeights::get().get(DispatchClass::Normal).max_extrinsic else {
+        panic!("normal extrinsics have a configured maximum");
+    };
 
     assert!(
         dispatch_info.total_weight().all_lte(max_extrinsic),
-        "claim_root total weight {:?} exceeds normal max extrinsic {max_extrinsic:?}",
+        "call total weight {:?} exceeds normal max extrinsic {max_extrinsic:?}",
         dispatch_info.total_weight()
     );
+}
+
+#[test]
+fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
+    let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root {
+        subnets: BTreeSet::from([NetUid::ROOT]),
+    });
+    assert_call_fits_normal_limit(call);
+}
+
+#[test]
+fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
+    let hotkey = AccountId::new([1u8; 32]);
+    let call =
+        RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey { hotkey });
+    assert_call_fits_normal_limit(call);
 }

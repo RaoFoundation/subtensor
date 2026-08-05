@@ -1,0 +1,283 @@
+---
+title: Root Reborn
+description: Validator-curated baskets — why root yield stopped being force-sold, how the fund works, and the btcli commands to subscribe, curate, and claim.
+---
+
+**Root Reborn** (runtime v441) turns the root network from a passive dividend
+pipe into a competitive allocation layer. Root stake's yield used to be sold
+to TAO mechanically, every block, the moment it arrived. Now it is deployed
+into **baskets** — per-validator, escrowed index funds of subnet alpha,
+curated by each validator's root weights — and realized only when a staker
+claims.
+
+This replaces the old per-subnet claimable system and retires
+`set_root_claim_type`. The `claim_root(subnets)` call keeps its SCALE
+signature for old clients, but `subnets` is ignored and the call claims
+fund-level across every validator; prefer
+[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) for a single
+validator. Root staking itself is unchanged: moving TAO in and out of root
+stake is not a pool swap — no fee, no slippage, no MEV exposure. For the
+thesis and live network numbers, see the
+[v441 release notes](/releases/v441-upgrade).
+
+## Why it exists
+
+TAO is a productive asset. The chain provides liquidity to its subnets and
+takes a share of each one's token emission back — the **root proportion**,
+paid in subnet alpha to root (netuid 0) stakers. Before v441 the protocol
+sold that alpha for TAO on arrival, which had three structural costs:
+
+- **Constant sell pressure.** Every subnet token absorbed a mechanical,
+  price-insensitive sell stream, distorting price discovery.
+- **Burned option value.** Ownership in early-stage subnets was converted
+  to short-term TAO flow on a schedule nobody chose.
+- **Forced realization.** Stakers received a continuous stream of taxable
+  events they could not defer.
+
+Off-chain validator "basket" products already reinvested root yield and
+outperformed the passive path — proving demand, but as manual, fee-bearing,
+non-comparable one-offs. Root Reborn makes the mechanism native,
+standardized, and competitive.
+
+## How the fund works
+
+Each root validator runs a single fund. Every epoch, its root alpha dividend
+on each subnet is sold to TAO once, then redeployed across the subnets in its
+**root weights** vector — buying each destination's alpha into the fund.
+Root stakers accrue an entitlement to the fund in proportion to their root
+stake; a claim pays it out as TAO staked back to root.
+
+- **Holdings are real stake.** Positions are ordinary stake entries held by
+  a chain-owned **escrow** account (a pallet sub-account with no private
+  key — it cannot act, sign, or be stolen). Because they are real stake on
+  the validator, they keep compounding with the validator's own dividends.
+- **Entitlement is a fund fraction, never specific alpha.** A staker's claim is a
+  fraction of the *whole fund*, not of any particular subnet position. That
+  decoupling lets holdings be rebalanced — or converted to TAO when a subnet
+  dissolves — without touching anyone's entitlement.
+- **NAV is realizable, not spot.** The fund is valued at what selling its
+  holdings would actually fetch at current pool depth, net of fees. A thin
+  pool cannot inflate book value; deposit pricing and redemption sizing use
+  the same quote.
+- **Deposits price at NAV.** New dividends enter at the fund's
+  pre-deposit value, so existing holders are neither diluted nor gifted, and
+  each deposit bears its own swap slippage.
+- **Claims are proportional.** A claim redeems the staker's owed fraction of
+  every holding pro-rata, preserving fund composition.
+- **Default is accumulate-in-place: hold what you earned.** A validator with
+  no custom weights still accrues — each subnet's dividend is credited
+  straight into the fund's holding on that subnet, with no sell and no
+  redeploy. The protocol executes zero trades (no swap fees, no slippage,
+  no mechanical sell pressure) on behalf of a validator that expressed no
+  preference, so the default basket is the emission-weighted portfolio the
+  dividends themselves describe. Setting a weight vector is what turns on
+  the sell-and-redeploy engine. Weight netuid 0 to hold a slice as TAO
+  instead of subnet alpha. `set_root_weights` requires at least 8 positive
+  destinations (softened when fewer networks exist), and netuid 0 remains a
+  valid destination to keep part of a curated basket in TAO.
+
+Root validators are transparent fund managers: weight vectors are public,
+fund NAV and lifetime return are queryable, and the scoreboard is who made
+their stakers the most TAO.
+
+## Becoming a root validator
+
+Admission is **burn-based**: your coldkey pays the root burn price and the
+hotkey is registered — no prior stake required. The price is demand-set like
+subnet registration: each registration bumps it (~×1.26) and it decays back
+toward the floor (τ1) with a ~72-minute half-life, so entry costs at least
+1 TAO when the network is quiet and more under registration pressure.
+
+```bash
+btcli subnets burn-cost 0                        # current root registration price
+btcli subnets register --netuid 0 --dry-run      # preview fee and effects
+btcli subnets register --netuid 0 -w my_coldkey -H my_hotkey  # register this hotkey
+```
+
+```python
+await client.execute(bt.RootRegister(), wallet)
+```
+
+Steps to a working fund:
+
+1. **Register** ([`root-register`](/docs/tx/root-register)). The burn is
+   recycled out of issuance; registrations are rate-limited per block and per
+   root tempo.
+2. **Stake your seat.** Root seats are limited (64): when the network is
+   full, each new registration prunes the **lowest-staked** member. A seat
+   with no stake behind it earns nothing and is the first to be evicted, so
+   subscribe TAO to your own hotkey right away
+   (`btcli root subscribe --amount ... --hotkey <your hotkey>`). Stake also
+   gates weight-setting: the hotkey must clear the minimum stake to set
+   weights.
+3. **Curate** your basket weights (next section) — once weight setting is
+   enabled network-wide. Until you set a vector, dividends accumulate in
+   place — each subnet's dividend stays in that subnet's alpha, trade-free.
+4. **Earn.** Registration marks the hotkey as a delegate with the default
+   18% take; your dividends deploy into the basket each epoch and your
+   stakers accrue the rest pro-rata.
+
+Losing the seat is not catastrophic: eviction never touches stake or basket
+state, and re-registering only costs the burn again. Stakers keep their
+principal and accrued entitlement throughout.
+
+## For validators: curate the basket
+
+**Weight setting is gated off at launch.** Root Reborn ships with
+`set_root_weights` disabled network-wide (`RootWeightSettingDisabled`), so
+every fund runs the null strategy — dividends accumulate in place — and the
+network gets a clean, uniform baseline before curation opens. Weight setting
+will be switched on in a later upgrade; until then the commands below fail
+with `RootWeightSettingDisabled`.
+
+Once enabled: set the distribution vector with your **hotkey** (it must be
+registered on the root network and hold the minimum stake to set weights;
+the root weights rate limit applies):
+
+```bash
+btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet
+btcli root get-weights --hotkey 5F...
+btcli root show --hotkey 5F...        # fund: weights, holdings, NAV, lifetime return
+```
+
+```python
+intent = bt.SetRootWeights(netuids=[0, 4, 8], weights=[0.2, 0.3, 0.5])
+await client.execute(intent, wallet)
+```
+
+Weights are relative — they are normalized and quantized to u16 before
+submission ([`set-root-weights`](/docs/tx/set-root-weights)). Every
+destination must be netuid 0 or an existing subnet. Read a vector back with
+[`validator-root-weights`](/docs/query/validator-root-weights); inspect the
+fund with [`validator-basket`](/docs/query/validator-basket) and
+[`validator-basket-nav`](/docs/query/validator-basket-nav).
+
+## For stakers: accrue and claim
+
+Yield accrues automatically — subscribing TAO to a validator's fund is all it
+takes. `btcli` presents root positions in TAO: *staked* is your principal on
+netuid 0, *accrued* is your fund yield marked at the realizable quote.
+
+```bash
+btcli root list                                   # staked + accrued τ per validator
+btcli root subscribe --amount 100 --hotkey 5F...  # assets in
+btcli root claim                                  # pick wallet → validator → claim / withdraw
+btcli root claim --hotkey 5F... --amount all      # withdraw full position (accrued + staked)
+btcli root claim --hotkey 5F...                   # claim accrued into stake only
+```
+
+`btcli root claim` is the exit path. Omit `--amount` to realize accrued yield
+into root stake on that validator. Pass `--amount` / `all` to withdraw to free
+balance — accrued yield is claimed first when needed. Under the hood that uses
+[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) (and
+[`remove-stake`](/docs/tx/remove-stake) when withdrawing).
+
+```python
+owed = await client.read(
+    "root_basket_owed_breakdown",
+    coldkey_ss58=wallet.coldkeypub.ss58_address,
+)
+await client.execute(bt.ClaimRootWithHotkey(hotkey_ss58=validator_hotkey), wallet)
+# coldkey-wide (compat): await client.execute(bt.ClaimRoot(subnets=[0]), wallet)
+```
+
+[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) takes the validator
+hotkey: it redeems your accrued entitlement on that validator only as a
+pro-rata slice of its basket (alpha holdings are sold to TAO at the pool
+price), and stakes the proceeds back to root on the same validator.
+[`claim-root`](/docs/tx/claim-root) still exists for old clients — it keeps the
+pre-basket `subnets` argument (ignored) and walks every validator the coldkey
+root-stakes to.
+
+- **Claim threshold.** Per-validator payouts below the network threshold
+  (default 500,000 rao = τ0.0005, at most τ0.01; read it with
+  [`root-claim-threshold`](/docs/query/root-claim-threshold)) are skipped —
+  the entitlement keeps accruing and pays out once it clears. There is no
+  deadline and nothing expires.
+- **Owed is a live quote.** [`root-basket-owed`](/docs/query/root-basket-owed)
+  marks your entitlement at current pool prices, so the number moves with the
+  market — a claim realizes whatever the pools pay at execution time.
+- **Orphaned dust self-consolidates, and fees follow real work.** Any basket
+  holding on a subnet the validator's current weight vector no longer points
+  at, worth less than the claim threshold, is folded into the fund's root
+  (TAO) slot as a side effect of the next claim, deleting the holding.
+  Curated positions are exempt — a deliberate small holding keeps compounding
+  instead of being flattened to TAO. The transaction fee is charged by what
+  the claim actually did: redeemed and consolidated holdings pay full weight,
+  holdings merely scanned pay a small per-row cost — so a fund littered with
+  stale dust positions gets cheaper to claim after its first claim, not more
+  expensive forever.
+
+### What existing root stakers should know
+
+- **Nothing to do on upgrade.** Your root stake keeps earning; anything you
+  had accrued under the old claim system was migrated into basket
+  entitlement on the same validator ([details below](#migrating-from-v437)).
+- **Your validator is now a fund manager.** Where your yield goes is their
+  root weight vector, and it differs per validator. Inspect it before — and
+  while — you delegate: `btcli root show --hotkey 5F...` shows weights,
+  holdings, NAV, and lifetime return. If you disagree with the curation,
+  claim out and subscribe to a different validator; your principal moves at
+  face value.
+- **Accrued yield is market-priced.** Until claimed, your entitlement is a
+  slice of a fund holding subnet alpha: its TAO quote moves with the pools.
+  Principal is unaffected — it stays plain TAO on netuid 0.
+- **Claiming compounds, holding defers.** A claim converts entitlement to
+  root stake (a realization event); unclaimed entitlement just keeps
+  accruing — there is no deadline and nothing expires.
+- **Withdrawals can have a hold window.** If the network sets
+  `RootStakeUnlockInterval`, root stake is locked for that many blocks after
+  your last stake change (anti-sniping around epoch boundaries). A claim
+  with `--amount` inside the window fails with `RootStakeLocked` — wait it
+  out and retry.
+
+## Queries and runtime APIs
+
+Every read is available under `btcli query`, the SDK (`client.read(...)`),
+and as `betaBasket_*` RPC methods for integrators:
+
+| Read | What it returns |
+|---|---|
+| [`root-basket-owed`](/docs/query/root-basket-owed) | Total TAO a coldkey would realize by claiming now |
+| [`root-basket-owed-breakdown`](/docs/query/root-basket-owed-breakdown) | The same, itemized per validator hotkey |
+| [`validator-basket`](/docs/query/validator-basket) | A validator's holdings: (netuid, alpha, TAO value) rows |
+| [`validator-basket-nav`](/docs/query/validator-basket-nav) | A validator's fund NAV in TAO |
+| [`root-basket-total-nav`](/docs/query/root-basket-total-nav) | Network-wide basket NAV |
+| [`validator-root-weights`](/docs/query/validator-root-weights) | A validator's distribution vector |
+| [`root-claim-threshold`](/docs/query/root-claim-threshold) | The minimum per-validator claim payout |
+
+## History of `set_root_weights`
+
+The name is reused; the economic purpose is not.
+
+The historical `set_root_weights` extrinsic was added as an active call in
+commit `4fac11ea5` on 2024-04-15, at call index 8. A root validator's
+coldkey submitted subnet weights for its hotkey; those weights were
+aggregated by root stake and passed through rank/trust/consensus to set the
+global emission allocation between subnets. It became a deprecated no-op in
+commit `2303a8d07` on 2024-07-18, was renamed to `set_tao_weights` in
+`1e2437b9`, and was removed in August 2025 (`d57ebd4a2`).
+
+Root Reborn reintroduced `set_root_weights` in `b3de5f31e` on 2026-06-15
+with new arguments and semantics (call index 146): the hotkey publishes a
+basket distribution vector for its own fund, not a vote on network-wide
+emission.
+
+## Migrating from v437
+
+The per-subnet claim model is retired, and the v441 upgrade migrates all
+previously accrued claimable alpha into basket holdings — nothing is lost,
+it simply becomes fund entitlement on the same validator.
+
+- `claim_root(subnets)` keeps the same SCALE signature for old clients; the
+  `subnets` set is **ignored** and the call claims every validator fund-level.
+  Prefer [`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) for a
+  single validator.
+- `set_root_claim_type` (Swap / Keep / KeepSubnets) is **removed**: payouts
+  are always TAO staked back to root. To hold subnet alpha, stake on the
+  subnet directly.
+- `sudo_set_num_root_claims` is removed; the automatic per-block claim sweep
+  is replaced by explicit claims against the fund.
+- Hotkey and coldkey swaps carry basket state (holdings, entitlements, watermarks)
+  to the new key; subnet dissolution converts that subnet's basket holdings
+  into TAO (root stake) inside each fund.

@@ -392,6 +392,116 @@ class SetWeights(Intent):
         return f"set weights on netuid {self.netuid} for {len(self.uids)} uids"
 
 
+async def _root_weights_preflight(substrate, hotkey_ss58: str) -> None:
+    """Check root registration and the root weights rate limit before signing.
+
+    The root path has no commit-reveal and no max-weight/min-count
+    hyperparameters, so only the two checks that would reject an otherwise
+    well-formed submission are preflighted; stake and version-key checks stay
+    chain-side.
+    """
+    current_block = await substrate.block_number()
+    block_hash = await substrate.block_hash(current_block)
+    uid_raw, rate_raw, last_raw = await asyncio.gather(
+        substrate.query(*st.Uids, [0, hotkey_ss58], block_hash=block_hash),
+        substrate.query(*st.WeightsSetRateLimit, [0], block_hash=block_hash),
+        substrate.query(*st.LastUpdate, [0], block_hash=block_hash),
+    )
+    if uid_raw is None:
+        raise ChainError(
+            f"Hotkey {hotkey_ss58} is not registered on the root network (netuid 0).",
+            code=ErrorCode.NOT_REGISTERED,
+        )
+    uid = int(uid_raw)
+
+    rate_limit = int(rate_raw or 0)
+    if (
+        rate_limit
+        and isinstance(last_raw, (list, tuple))
+        and uid < len(last_raw)
+        and int(last_raw[uid]) > 0
+    ):
+        since = current_block - int(last_raw[uid])
+        if since < rate_limit:
+            remaining = rate_limit - since
+            seconds = remaining * await substrate.block_time()
+            raise ChainError(
+                f"Root weights were last set {since} blocks ago; the rate limit is "
+                f"{rate_limit} blocks. Retry in ~{remaining} blocks (~{int(seconds)}s).",
+                code=ErrorCode.RATE_LIMITED,
+            )
+
+
+@register
+@dataclass
+class SetRootWeights(Intent):
+    """Set how your root dividends are deployed across subnets (basket weights).
+
+    Declares the root validator's dividend distribution vector: each epoch
+    the chain sells the validator's root alpha dividend for TAO and splits it
+    across the listed subnets in proportion to these weights, buying each
+    subnet's alpha into the validator's basket — the escrowed
+    per-validator index fund that root stakers redeem with
+    ``claim_root_with_hotkey`` (or coldkey-wide ``claim_root``).
+    Netuid 0 is a valid destination: that share is held as TAO (root stake)
+    instead of subnet alpha, letting a validator keep part of the basket out
+    of subnet exposure. Weights are relative; they are max-upscaled and
+    quantized to u16 before submission, and zero weights are dropped. Signed
+    by the hotkey, which must be registered on the root network and hold the
+    minimum stake to set weights; the root weights rate limit applies, and
+    every destination must be netuid 0 or an existing subnet. At least 8
+    positive destinations are required (softened when fewer networks exist).
+    Validators with no stored root weights accumulate dividends in place —
+    each subnet's dividend stays in that subnet's alpha, trade-free; setting
+    this vector is what turns on the sell-and-redeploy engine.
+    Weight setting launched gated off network-wide (every call fails with
+    ``RootWeightSettingDisabled`` until governance or a later upgrade enables
+    it), so all funds start on the null accumulate strategy.
+    Read it back with the ``validator_root_weights`` read.
+    """
+
+    op = "set_root_weights"
+    signer = "hotkey"
+    wraps = (("SubtensorModule", "set_root_weights"),)
+
+    netuids: Optional[list[int]] = field(
+        default=None,
+        metadata={
+            "help": "Destination subnets, as a list parallel to weights (0 = hold as "
+            "TAO / root stake). Omit when weights is given as a netuid-to-weight mapping."
+        },
+    )
+    weights: Optional[list[float]] = field(
+        default=None,
+        metadata={
+            "help": "Relative weight per destination subnet: either a JSON object "
+            "mapping netuid to weight, or a list parallel to netuids. Values are "
+            "normalized and quantized before submission."
+        },
+    )
+
+    def __post_init__(self):
+        self.netuids, self.weights = _as_pairs(self.netuids, self.weights)
+
+    async def build(self, substrate, wallet: Any):
+        await _root_weights_preflight(substrate, self.hotkey_address(wallet))
+        dests, values = normalize(self.netuids, self.weights)
+        if not dests:
+            raise BittensorError("All weights are zero; nothing to set.")
+        return await substrate.compose(
+            calls.SubtensorModule.set_root_weights(
+                dests=dests,
+                weights=values,
+            )
+        )
+
+    def summary(self) -> str:
+        return f"set root dividend weights across {len(self.netuids)} destinations"
+
+    def touches_netuids(self) -> list[int]:
+        return list(self.netuids or [])
+
+
 @register
 @dataclass
 class CommitWeights(Intent):

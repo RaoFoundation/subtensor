@@ -31,6 +31,7 @@ from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals, with_unlock_globals
 from ..helpers import (
     STAKE_LIST_TITLE,
+    annotate_stake_groups_with_locks,
     chain_identity_names,
     dust_note,
     filter_stakes,
@@ -919,7 +920,7 @@ def wallet_balance(
 
         rows_data = app_ctx.run(_all)
         key_map = {
-            "name": lambda r: r["wallet"].lower(),
+            "name": lambda r: wallets.natural_name_key(r["wallet"]),
             "free": lambda r: r["free_tao"],
             "stake-value": lambda r: r["stake_value_tao"],
             "total-value": lambda r: r["total_value_tao"],
@@ -1002,13 +1003,17 @@ def wallet_overview(
     known_names = local_address_names(app_ctx.wallet_path)
 
     async def _fetch(client):
-        rows, valuations = await wallet_overview_rows(client, targets, netuid=netuid)
+        rows, valuations, lock_ctx = await wallet_overview_rows(client, targets, netuid=netuid)
         unnamed = [
             s["hotkey"] for row in rows for s in row["stakes"] if s["hotkey"] not in known_names
         ]
-        return rows, valuations, await chain_identity_names(client, unnamed)
+        for locks_by_netuid, _ in lock_ctx.values():
+            for lock in locks_by_netuid.values():
+                if lock["hotkey"] not in known_names:
+                    unnamed.append(lock["hotkey"])
+        return rows, valuations, lock_ctx, await chain_identity_names(client, unnamed)
 
-    rows, valuations, identity_names = app_ctx.run(_fetch)
+    rows, valuations, lock_ctx, identity_names = app_ctx.run(_fetch)
     out = app_ctx.output
     if out.json_mode:
         out.value(rows)
@@ -1016,27 +1021,32 @@ def wallet_overview(
 
     if not all_wallets:
         row = rows[0]
-        out.detail(
-            None,
-            {
-                "wallet": f"{row['wallet']} ({row['coldkey']})",
-                "free": row["free"],
-                "stake_value": f"{row['stake_value']}  (spot, excl. slippage/fees)",
-            },
-        )
+        fields = {
+            "wallet": f"{row['wallet']} ({row['coldkey']})",
+            "free": row["free"],
+            "stake_value": f"{row['stake_value']}  (spot, excl. slippage/fees)",
+        }
+        if row["locked_subnets"]:
+            fields["locked_value"] = (
+                f"{row['locked_value']}  (conviction-locked; part of stake_value)"
+            )
+        out.detail(None, fields)
         out.message("")
 
-    groups = [
-        group
-        for name, ss58 in targets
-        for group in netuid_groups(
+    groups = []
+    for name, ss58 in targets:
+        wallet_groups = netuid_groups(
             filter_stakes(valuations[ss58].positions, netuid),
             valuations[ss58],
             known_names,
             identity_names,
             {"wallet": name} if all_wallets else None,
         )
-    ]
+        locks_by_netuid, availability_by_netuid = lock_ctx[ss58]
+        annotate_stake_groups_with_locks(
+            wallet_groups, locks_by_netuid, availability_by_netuid, known_names, identity_names
+        )
+        groups.extend(wallet_groups)
     shown, dust = (groups, []) if show_dust else split_dust(groups)
     total = Balance(
         sum(
