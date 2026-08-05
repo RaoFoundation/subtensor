@@ -37,6 +37,7 @@ except ImportError:  # older typer uses the external click package
         exceptions as click_exceptions,
     )
 
+from .. import config as cfg
 from .. import wallets
 from .context import AppContext
 from .output import STYLE_COMMAND, STYLE_HINT
@@ -172,11 +173,21 @@ def _parse_wallet(app_ctx: AppContext, raw: str, *, require_coldkey: bool = True
 
     A bad name re-prompts with the wallets that *are* available. The coldkey is
     only demanded when it is the signing key (hotkey-signed intents may use a
-    coldkey-less wallet dir).
+    coldkey-less wallet dir). Saved multisig book names are also accepted —
+    ``AppContext.submit`` rewrites the intent to a multisig approval signed by
+    a local member.
     """
     known = wallets.list_wallets(app_ctx.wallet_path)
     if raw not in known:
-        raise _unknown_name_error("wallet", raw, sorted(known))
+        if cfg.get_multisig(raw) is not None:
+            app_ctx.wallet_name = raw
+            app_ctx.wallet_given = True
+            return raw
+        suggestions = sorted(
+            set(known)
+            | {str(entry["name"]) for entry in cfg.load_multisigs() if entry.get("name")}
+        )
+        raise _unknown_name_error("wallet", raw, suggestions)
     try:
         address = wallets.open_wallet(
             raw, app_ctx.hotkey_name, app_ctx.wallet_path

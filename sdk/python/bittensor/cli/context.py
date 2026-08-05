@@ -95,6 +95,10 @@ class AppContext:
     # Same for --wallet-hotkey/-H (or BT_WALLET_HOTKEY): hotkey-scoped commands
     # confirm the hotkey name when it was only defaulted.
     hotkey_given: bool = False
+    # When ``-w`` named a saved multisig and submit rewrote the intent, the
+    # multisig book name lives here while ``wallet_name`` is the local member
+    # coldkey that actually signs.
+    multisig_wallet_name: Optional[str] = None
     # Diagnostic log verbosity (-v count); kept so per-command --quiet/--verbose
     # overrides can reconfigure logging without losing the root-level setting.
     verbosity: int = 0
@@ -448,6 +452,15 @@ class AppContext:
                     f"[dim]dispatching via configured proxy_for {configured!r} "
                     "— pass `--proxy-for self` to sign directly[/dim]"
                 )
+
+        # ``-w <multisig>``: rewrite any coldkey intent as a multisig approval
+        # signed by a local member. Must run before confirm_wallet / wallet()
+        # because the multisig name is not a coldkey directory.
+        try:
+            intent = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
+        except ValueError as error:
+            self.output.error(str(error))
+            raise typer.Exit(2) from error
 
         # MEV shielding: explicit flag > persistent config > the intent's own
         # default. `forced` distinguishes "the user asked for shielding" (hard
