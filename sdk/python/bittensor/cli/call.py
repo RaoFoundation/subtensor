@@ -54,6 +54,7 @@ import typer
 from .. import calls
 from ..intents.proxy import ProxyTypeChoice
 from . import multisig_helpers as ms_helpers
+from .call_names import resolve_builder_params
 from .context import ctx_of
 from .globals import with_tx_globals
 
@@ -195,7 +196,7 @@ def call(
         signer=signer,
     )
     builder = _resolve_builder(target)
-    params = _load_params(args, args_file)
+    params = resolve_builder_params(app_ctx, target, _load_params(args, args_file))
     if proxy_for is not None:
         proxy_for = app_ctx.resolve_address("proxy_for", proxy_for)
     proxy_type_value = force_proxy_type.value if force_proxy_type else None
