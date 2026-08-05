@@ -933,6 +933,8 @@ class Output:
                 if url:
                     label_style = f"{label_style} link {url}"
                 leaf.append(str(position["label"]), style=label_style)
+                if position.get("uid") is not None:
+                    leaf.append(f"  uid {position['uid']}", style="dim")
                 if position.get("take") is not None:
                     leaf.append(f"  take {position['take']:.1%}", style="dim")
                 if position.get("note"):

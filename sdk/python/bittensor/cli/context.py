@@ -334,11 +334,15 @@ class AppContext:
             # top-level import here would be circular.
             from .prompt import confirm_wallet
 
-            confirm_wallet(
+            # These keys are command *targets*, never signers, so a pasted ss58
+            # or address-book name is accepted and used directly (the key does
+            # not have to exist locally).
+            value = confirm_wallet(
                 self,
                 help_text=f"Wallet whose {kind} this command targets.",
                 require_coldkey=param == "coldkey_ss58",
                 hotkey_help=("Hotkey this command targets." if param == "hotkey_ss58" else None),
+                accept_address=True,
             )
         if value is not None and is_bittensor_address(value):
             booked = next(

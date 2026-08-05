@@ -1039,7 +1039,11 @@ def wallet_overview(
         "JSON always includes every position.",
     ),
 ):
-    """Show free TAO and per-subnet stake for a wallet (or all wallets with --all)."""
+    """Show free TAO and per-subnet stake for a wallet (or all wallets with --all).
+
+    Positions whose hotkey is registered on the subnet show the hotkey's UID
+    there, so registrations are visible at a glance.
+    """
     app_ctx: AppContext = ctx_of(ctx)
     if all_wallets:
         targets = list_coldkeys(app_ctx.wallet_path)
@@ -1051,7 +1055,9 @@ def wallet_overview(
     known_names = local_address_names(app_ctx.wallet_path)
 
     async def _fetch(client):
-        rows, valuations, lock_ctx = await wallet_overview_rows(client, targets, netuid=netuid)
+        rows, valuations, lock_ctx, uids = await wallet_overview_rows(
+            client, targets, netuid=netuid
+        )
         unnamed = [
             s["hotkey"] for row in rows for s in row["stakes"] if s["hotkey"] not in known_names
         ]
@@ -1059,9 +1065,9 @@ def wallet_overview(
             for lock in locks_by_netuid.values():
                 if lock["hotkey"] not in known_names:
                     unnamed.append(lock["hotkey"])
-        return rows, valuations, lock_ctx, await chain_identity_names(client, unnamed)
+        return rows, valuations, lock_ctx, uids, await chain_identity_names(client, unnamed)
 
-    rows, valuations, lock_ctx, identity_names = app_ctx.run(_fetch)
+    rows, valuations, lock_ctx, uids, identity_names = app_ctx.run(_fetch)
     out = app_ctx.output
     if out.json_mode:
         out.value(rows)
@@ -1089,6 +1095,7 @@ def wallet_overview(
             known_names,
             identity_names,
             {"wallet": name} if all_wallets else None,
+            uids=uids,
         )
         locks_by_netuid, availability_by_netuid = lock_ctx[ss58]
         annotate_stake_groups_with_locks(

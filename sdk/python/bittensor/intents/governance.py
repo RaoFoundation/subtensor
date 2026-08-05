@@ -9,6 +9,7 @@ from .._generated import calls
 from ._money import Money, Spend, tao_amount
 from .base import Intent
 from .registry import register
+from .staking import DEFAULT_RATE_TOLERANCE, _alpha_price_rao, _check_rate_tolerance
 
 
 @register
@@ -63,25 +64,35 @@ class StakeBurn(Intent):
     so this is not an investment call; use a regular add-stake intent to
     acquire a position. Fails on the root subnet
     (``CannotBurnOrRecycleOnRootSubnet``). The chain accepts an optional
-    limit (omitted = market order), but this intent always requires
-    ``limit_price`` and executes all-or-nothing: the swap fails instead of
-    partially filling at a worse rate. Counts against a configured spend
-    cap.
+    limit (omitted = market order), but this intent always submits one and
+    executes all-or-nothing: the swap fails instead of partially filling at
+    a worse rate. When ``limit_price`` is omitted, the limit is derived from
+    the current pool price plus ``rate_tolerance`` (5% by default). Counts
+    against a configured spend cap.
     """
 
     op = "stake_burn"
     signer = "coldkey"
     wraps = (("SubtensorModule", "add_stake_burn"),)
+    mev_shield_default = True
 
     netuid: int = field(metadata={"help": "Subnet whose alpha is bought and burned."})
     amount_tao: Money = field(
         metadata={"help": "Spent from the coldkey to buy alpha that is then burned."}
     )
-    limit_price: int = field(
+    limit_price: Optional[int] = field(
+        default=None,
         metadata={
             "help": "Worst acceptable price in rao per alpha; the call fails rather than "
-            "filling beyond it."
-        }
+            "filling beyond it. Defaults to the current pool price plus `rate_tolerance`."
+        },
+    )
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE,
+        metadata={
+            "help": "Maximum price move accepted when `limit_price` is omitted, as a "
+            "fraction (0.05 = 5%). Ignored when `limit_price` is given."
+        },
     )
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -90,15 +101,21 @@ class StakeBurn(Intent):
 
     def __post_init__(self):
         self.amount_tao = tao_amount(self.amount_tao)
+        _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        if self.limit_price is not None:
+            limit = self.limit_price
+        else:
+            price = await _alpha_price_rao(substrate, self.netuid)
+            limit = int(price * (1 + self.rate_tolerance))
         return await substrate.compose(
             calls.SubtensorModule.add_stake_burn(
                 hotkey=hotkey,
                 netuid=self.netuid,
                 amount=self.amount_tao.rao,
-                limit=self.limit_price,
+                limit=limit,
             )
         )
 
