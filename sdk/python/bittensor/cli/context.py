@@ -77,6 +77,15 @@ def ss58_param_help(param: str) -> str:
     return text
 
 
+@dataclass(frozen=True)
+class ResolvedAddress:
+    """A locally resolved account reference and how it was resolved."""
+
+    address: str
+    source: str
+    name: Optional[str] = None
+
+
 @dataclass
 class AppContext:
     network: str
@@ -310,6 +319,43 @@ class AppContext:
             keychain=self.keychain_password,
         )
 
+    def resolve_address_ref(self, param: str, value: str) -> ResolvedAddress:
+        """Resolve one explicit account reference without prompting or exiting.
+
+        This is the canonical lookup path shared by ordinary CLI flags and
+        account values nested inside raw-call / intent JSON. Callers own error
+        presentation; lookup failures from local wallet access are allowed to
+        propagate with their original context.
+        """
+        kind = "hotkey" if "hotkey" in param else "coldkey"
+        if is_bittensor_address(value):
+            booked = next(
+                (e["name"] for e in cfg.load_addresses() if e.get("address") == value), None
+            )
+            return ResolvedAddress(value, "ss58 address", booked)
+
+        booked = cfg.get_address(value)
+        if booked:
+            return ResolvedAddress(booked, f"address-book entry {value!r}", value)
+
+        proxy_entry = cfg.get_proxy(value)
+        proxied = proxy_entry.get("address") if proxy_entry else None
+        if isinstance(proxied, str) and proxied:
+            return ResolvedAddress(proxied, f"proxy-book entry {value!r}", value)
+
+        if kind == "coldkey":
+            derived = self._saved_multisig_address(value)
+            if derived:
+                return ResolvedAddress(derived, f"saved multisig {value!r}", value)
+
+        if kind == "hotkey":
+            wallet_name, _, hotkey = value.rpartition("/")
+            handle = wallets.open_wallet(wallet_name or self.wallet_name, hotkey, self.wallet_path)
+            return ResolvedAddress(handle.hotkey.ss58_address, f"hotkey {value!r}", value)
+
+        address = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub.ss58_address
+        return ResolvedAddress(address, f"wallet {value!r}", value)
+
     def resolve_address(self, param: str, value: Optional[str]) -> Optional[str]:
         """Resolve an address-typed CLI value (any ``*_ss58`` param) to an ss58 address.
 
@@ -344,65 +390,38 @@ class AppContext:
                 hotkey_help=("Hotkey this command targets." if param == "hotkey_ss58" else None),
                 accept_address=True,
             )
-        if value is not None and is_bittensor_address(value):
-            booked = next(
-                (e["name"] for e in cfg.load_addresses() if e.get("address") == value), None
-            )
-            self.output.name_address(value, booked)
-            self.output.classify_address(value, kind)
-            return value
         if value is not None:
-            booked = cfg.get_address(value)
-            if booked:
-                self.output.name_address(booked, value)
-                self.output.classify_address(booked, kind)
-                return booked
-            proxy_entry = cfg.get_proxy(value)
-            proxied = proxy_entry.get("address") if proxy_entry else None
-            if isinstance(proxied, str) and proxied:
-                self.output.name_address(proxied, value)
-                self.output.classify_address(proxied, kind)
-                return proxied
-            if kind == "coldkey":
-                derived = self._saved_multisig_address(value)
-                if derived:
-                    self.output.name_address(derived, value)
-                    self.output.classify_address(derived, kind)
-                    return derived
+            try:
+                resolved = self.resolve_address_ref(param, value)
+            except typer.Exit:
+                raise
+            except Exception as error:
+                self.output.error(f"cannot resolve {address_cli_name(param)} {value!r}: {error}")
+                raise typer.Exit(1)
+            self.output.name_address(resolved.address, resolved.name)
+            self.output.classify_address(resolved.address, kind)
+            return resolved.address
         try:
-            if value is None:
-                if param == "hotkey_ss58":
-                    address = self.wallet().hotkey.ss58_address
-                    self.output.name_address(address, f"{self.wallet_name}/{self.hotkey_name}")
-                    self.output.classify_address(address, "hotkey")
-                    return address
-                if param == "coldkey_ss58":
-                    # Same precedence as the write path: `-w <multisig>` means
-                    # the multisig account, even if a wallet dir shares the name.
-                    derived = self._saved_multisig_address(self.wallet_name)
-                    if derived:
-                        self.output.name_address(derived, self.wallet_name)
-                        self.output.classify_address(derived, "coldkey")
-                        return derived
-                    address = self.wallet().coldkeypub.ss58_address
-                    self.output.name_address(address, self.wallet_name)
-                    self.output.classify_address(address, "coldkey")
-                    return address
-                return None
-            if "hotkey" in param:
-                wallet_name, _, hotkey = value.rpartition("/")
-                handle = wallets.open_wallet(
-                    wallet_name or self.wallet_name, hotkey, self.wallet_path
-                )
-                self.output.name_address(handle.hotkey.ss58_address, value)
-                self.output.classify_address(handle.hotkey.ss58_address, "hotkey")
-                return handle.hotkey.ss58_address
-            address = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub.ss58_address
-            self.output.name_address(address, value)
-            self.output.classify_address(address, "coldkey")
-            return address
+            if param == "hotkey_ss58":
+                address = self.wallet().hotkey.ss58_address
+                self.output.name_address(address, f"{self.wallet_name}/{self.hotkey_name}")
+                self.output.classify_address(address, "hotkey")
+                return address
+            if param == "coldkey_ss58":
+                # Same precedence as the write path: `-w <multisig>` means
+                # the multisig account, even if a wallet dir shares the name.
+                derived = self._saved_multisig_address(self.wallet_name)
+                if derived:
+                    self.output.name_address(derived, self.wallet_name)
+                    self.output.classify_address(derived, "coldkey")
+                    return derived
+                address = self.wallet().coldkeypub.ss58_address
+                self.output.name_address(address, self.wallet_name)
+                self.output.classify_address(address, "coldkey")
+                return address
+            return None
         except Exception as error:
-            shown = value if value is not None else f"{self.wallet_name}/{self.hotkey_name}"
+            shown = f"{self.wallet_name}/{self.hotkey_name}"
             self.output.error(f"cannot resolve {address_cli_name(param)} {shown!r}: {error}")
             raise typer.Exit(1)
 

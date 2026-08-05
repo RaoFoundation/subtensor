@@ -269,11 +269,12 @@ fn keypair_from_raw_text(text: &str) -> Option<Keypair> {
     let trimmed = text.trim();
     let hex_body = trimmed.strip_prefix("0x").unwrap_or(trimmed);
     if matches!(hex_body.len(), 64 | 128) && hex_body.chars().all(|c| c.is_ascii_hexdigit()) {
-        if let Ok(bytes) = hex::decode(hex_body) {
-            if let Ok(keypair) = Keypair::from_seed(&bytes[..32], CRYPTO_SR25519) {
-                return Some(keypair);
-            }
+        if hex_body.len() == 64 {
+            return hex::decode(hex_body)
+                .ok()
+                .and_then(|bytes| Keypair::from_seed(&bytes, CRYPTO_SR25519).ok());
         }
+        return Keypair::from_private_key(trimmed, CRYPTO_SR25519).ok();
     }
     if looks_like_mnemonic(trimmed) {
         if let Ok(keypair) = Keypair::from_mnemonic(trimmed, CRYPTO_SR25519, None) {
@@ -527,7 +528,9 @@ mod tests {
             r#"{{"secretPhrase":"{}","ss58Address":"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"}}"#,
             test_mnemonic()
         );
-        let error = deserialize_keypair_from_keyfile_data(json.as_bytes()).err().expect("mismatch must fail");
+        let error = deserialize_keypair_from_keyfile_data(json.as_bytes())
+            .err()
+            .expect("mismatch must fail");
         assert!(error.to_string().contains("does not match"));
     }
 
@@ -536,6 +539,16 @@ mod tests {
         let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
         let seed_hex = format!("0x{}", hex::encode(keypair.seed_bytes().unwrap()));
         let restored = deserialize_keypair_from_keyfile_data(seed_hex.as_bytes()).unwrap();
+        assert_eq!(restored.ss58_address(), keypair.ss58_address());
+    }
+
+    #[test]
+    fn raw_hex_private_key_fallback() {
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let private_key = keypair.private_key_bytes().unwrap();
+        assert_eq!(private_key.len(), 64);
+        let private_hex = format!("0x{}", hex::encode(private_key));
+        let restored = deserialize_keypair_from_keyfile_data(private_hex.as_bytes()).unwrap();
         assert_eq!(restored.ss58_address(), keypair.ss58_address());
     }
 
@@ -549,13 +562,17 @@ mod tests {
     #[test]
     fn polkadotjs_export_gets_actionable_error() {
         let json = r#"{"encoded":"abc","encoding":{"content":["pkcs8","sr25519"],"type":["scrypt","xsalsa20-poly1305"],"version":"3"},"address":"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY","meta":{}}"#;
-        let error = deserialize_keypair_from_keyfile_data(json.as_bytes()).err().expect("polkadotjs export must fail");
+        let error = deserialize_keypair_from_keyfile_data(json.as_bytes())
+            .err()
+            .expect("polkadotjs export must fail");
         assert!(error.to_string().contains("regen-coldkey --json-path"));
     }
 
     #[test]
     fn unknown_json_error_names_found_fields() {
-        let error = deserialize_keypair_from_keyfile_data(br#"{"foo":1}"#).err().expect("unknown fields must fail");
+        let error = deserialize_keypair_from_keyfile_data(br#"{"foo":1}"#)
+            .err()
+            .expect("unknown fields must fail");
         assert!(error.to_string().contains("foo"));
     }
 }

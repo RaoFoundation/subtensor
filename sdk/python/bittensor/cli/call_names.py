@@ -6,15 +6,15 @@ where the flag-level name resolution never runs. A user who writes an
 address-book name ("izzi") where the chain expects an AccountId would only
 see the codec's cryptic "Base 58 requirement is violated".
 
-This module closes that gap with the same lookup order the flags use —
-address book, proxy book, local wallet keys — plus a did-you-mean error for
-anything unresolvable. Account-typed values are recognized two ways:
+This module closes that gap through the same canonical lookup the flags use —
+address book, proxy book, saved multisigs, and local wallet keys — plus a
+did-you-mean error for anything unresolvable. Account-typed values are
+recognized two ways:
 
 - generated call builders (``bittensor.calls``) annotate scalar account
-  params as ``AccountId32`` / ``MultiAddress``; account *lists*
-  (``Vec<AccountId32>``, e.g. ``other_signatories``) lose that annotation in
-  codegen, so they are detected by their contents (see
-  ``_resolve_account_list``);
+  params as ``AccountId32`` / ``MultiAddress``; known signatory-list fields
+  are resolved explicitly because structural ``Vec<AccountId32>`` annotations
+  currently degrade to ``Any`` in codegen;
 - intent specs resolve their ``*_ss58`` args and signatory lists.
 
 Both paths recurse through nested call structures: sudo-wrapped and batch
@@ -82,8 +82,8 @@ def _resolve_value(app_ctx, param: str, annotation: Optional[str], value: Any, h
     if isinstance(value, list) and value:
         if all(_is_nested_call(item) for item in value):
             return [_resolve_nested_call(app_ctx, item, hint) for item in value]
-        if all(isinstance(item, str) for item in value):
-            return _resolve_account_list(app_ctx, param, value, hint)
+        if param in _SIGNATORY_FIELDS and all(isinstance(item, str) for item in value):
+            return [_resolve_account(app_ctx, param, item, hint) for item in value]
     return value
 
 
@@ -135,21 +135,6 @@ def _resolve_nested_call(app_ctx, value: dict, hint: str) -> dict:
             function: resolve_builder_params(app_ctx, f"{module}.{function}", args, param_hint=hint)
         }
     }
-
-
-def _resolve_account_list(app_ctx, param: str, values: list, hint: str) -> list:
-    """Resolve a list of strings that is provably an account list.
-
-    Codegen annotates ``Vec<AccountId32>`` params as ``Any``, so the contents
-    decide: the list is treated as accounts only when at least one element is
-    an ss58 address or a known name. Then every element must resolve — a
-    straggler is a typo, not data.
-    """
-    if not any(
-        is_bittensor_address(item) or _lookup(app_ctx, param, item) is not None for item in values
-    ):
-        return values
-    return [_resolve_account(app_ctx, param, item, hint) for item in values]
 
 
 # --- intent specs (`btcli tx` args, multisig inner calls, batch children) ------------------
@@ -208,28 +193,14 @@ def _resolve_account(app_ctx, param: str, value: str, hint: str) -> str:
 def _lookup(app_ctx, param: str, name: str) -> Optional[tuple[str, str]]:
     """(address, source description) for a known name, or None.
 
-    Mirrors ``AppContext.resolve_address``'s order: address book, proxy book,
-    then local wallet keys (hotkey-named params take HOTKEY or WALLET/HOTKEY;
-    everything else takes a wallet name, resolved to its coldkey).
+    Uses the same canonical lookup as ordinary CLI flags, including saved
+    multisig names for coldkey parameters.
     """
-    booked = cfg.get_address(name)
-    if booked:
-        return booked, f"address-book entry {name!r}"
-    proxy_entry = cfg.get_proxy(name)
-    proxied = proxy_entry.get("address") if proxy_entry else None
-    if isinstance(proxied, str) and proxied:
-        return proxied, f"proxy-book entry {name!r}"
     try:
-        if "hotkey" in param:
-            wallet_name, _, hotkey = name.rpartition("/")
-            handle = wallets.open_wallet(
-                wallet_name or app_ctx.wallet_name, hotkey, app_ctx.wallet_path
-            )
-            return handle.hotkey.ss58_address, f"hotkey {name!r}"
-        address = wallets.open_wallet(name=name, path=app_ctx.wallet_path).coldkeypub.ss58_address
-        return address, f"wallet {name!r}"
+        resolved = app_ctx.resolve_address_ref(param, name)
     except Exception:
         return None
+    return resolved.address, resolved.source
 
 
 def _unresolved(app_ctx, param: str, value: str) -> str:

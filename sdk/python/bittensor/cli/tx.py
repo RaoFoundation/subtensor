@@ -28,16 +28,8 @@ from ..settings import tx_docs_url
 from . import globals as g
 from .call_names import resolve_intent_args
 from .context import AppContext, address_cli_name, ctx_of, ss58_param_help
-from .prompt import PromptSpec, fill_missing, interactive, signer_specs
-from .root_helpers import claim_root_source_spec
-from .stake_picker import (
-    FREE_BALANCE_AMOUNT_FIELDS,
-    STAKE_SOURCE_FIELDS,
-    STAKE_TARGET_FIELDS,
-    stake_source_spec,
-    stake_target_spec,
-    with_free_balance,
-)
+from .intent_prompts import apply_intent_prompt_policy, validate_intent_prompt_policy
+from .prompt import PromptSpec, fill_missing, signer_specs
 
 # Field annotation (as a string, under PEP 563) -> the Python type Typer should
 # parse the option as. List/complex fields are taken as strings and parsed in the
@@ -249,65 +241,7 @@ def _make_command(intent_cls: type[Intent]):
                     if kwargs.get(netuid_field) is None:
                         kwargs[netuid_field] = netuid
         missing = [spec for spec in prompt_specs if kwargs.get(spec.field) is None]
-        # `--amount all` empties ONE subnet; people with the v9 "unstake
-        # everything" reflex land here without a netuid, so point at the real
-        # all-subnets command before demanding one.
-        if (
-            intent_cls.op == "remove_stake"
-            and kwargs.get("netuid") is None
-            and str(kwargs.get("amount_alpha") or "").strip().lower() == "all"
-        ):
-            app_ctx.output.message(
-                "note: `--amount all` unstakes everything on a single subnet (--netuid); "
-                "to unstake every position across all subnets, use `btcli stake unstake-all`"
-            )
-        # Unstake-style ops pick their source hotkey from the coldkey's live
-        # stake positions instead of a bare text prompt (or, worse, a silent
-        # fallback to the wallet's own hotkey, which rarely holds the stake).
-        source = STAKE_SOURCE_FIELDS.get(intent_cls.op)
-        if (
-            source is not None
-            and kwargs.get(source[0]) is None
-            and not app_ctx.assume_yes
-            and not app_ctx.uses_extension_signer()
-            and interactive(app_ctx)
-        ):
-            hotkey_field, netuid_field = source
-            missing = [spec for spec in missing if spec.field != hotkey_field]
-            missing.insert(0, stake_source_spec(hotkey_field, netuid_field))
-        # claim_root_with_hotkey targets one validator; pick from accrued yield,
-        # not the wallet's own hotkey (which rarely holds the claimable position).
-        if (
-            intent_cls.op == "claim_root_with_hotkey"
-            and kwargs.get("hotkey_ss58") is None
-            and not app_ctx.assume_yes
-            and not app_ctx.uses_extension_signer()
-            and interactive(app_ctx)
-        ):
-            missing = [spec for spec in missing if spec.field != "hotkey_ss58"]
-            missing.insert(0, claim_root_source_spec("hotkey_ss58"))
-        # Stake-destination ops (add_stake & co) pick their target hotkey from
-        # the wallet's own hotkeys — but any pasted ss58 / address-book name
-        # works, since the destination never has to exist locally — and their
-        # amount prompt leads with the coldkey's free balance so the answer
-        # (including `all`) can be an informed one.
-        prompts_ok = (
-            not app_ctx.assume_yes and not app_ctx.uses_extension_signer() and interactive(app_ctx)
-        )
-        target_field = STAKE_TARGET_FIELDS.get(intent_cls.op)
-        balance_field = FREE_BALANCE_AMOUNT_FIELDS.get(intent_cls.op)
-        if target_field is not None and kwargs.get(target_field) is None and prompts_ok:
-            # The picker slots in just before the amount, so the prompt order
-            # narrows down naturally: subnet, then validator, then how much.
-            index = next(
-                (i for i, spec in enumerate(missing) if spec.field == balance_field),
-                len(missing),
-            )
-            missing.insert(index, stake_target_spec(target_field))
-        if balance_field is not None and prompts_ok:
-            missing = [
-                with_free_balance(spec) if spec.field == balance_field else spec for spec in missing
-            ]
+        missing = apply_intent_prompt_policy(app_ctx, intent_cls.op, missing, kwargs)
         # The signing wallet is confirmed too (Enter accepts the configured
         # default); --yes and the extension signer keep the flag-only flow.
         if not app_ctx.assume_yes and not app_ctx.uses_extension_signer():
@@ -322,12 +256,7 @@ def _make_command(intent_cls: type[Intent]):
             )
         if missing:
             fill_missing(app_ctx, missing, kwargs)
-        if intent_cls.op == "claim_root_with_hotkey" and kwargs.get("hotkey_ss58") is None:
-            app_ctx.output.error(
-                "missing required option: `--hotkey`",
-                help="pass the validator hotkey to claim from, or run on a terminal to pick one",
-            )
-            raise typer.Exit(2)
+        validate_intent_prompt_policy(app_ctx, intent_cls.op, kwargs)
         # `self` is a sentinel (bypass the configured proxy_for default, see
         # AppContext.submit), so it must reach submit unresolved.
         raw_proxy_for = kwargs.pop("proxy_for", None)

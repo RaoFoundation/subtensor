@@ -25,40 +25,11 @@ from ..reads import StakePosition, StakeValuation
 from .context import AppContext, address_cli_name
 from .helpers import chain_identity_names, local_address_names
 from .output import STYLE_COMMAND, STYLE_HINT, STYLE_KEY, STYLE_NAME, Output
-from .prompt import PromptSpec, _ask
+from .prompt import PromptSpec, ask
 
 # Positions whose spot value is below this are dust: hidden from the pickers
 # (unless everything is dust) but still selectable by typing the netuid/hotkey.
 _DUST_RAO = 1_000_000  # τ0.001
-
-# op -> (hotkey field the stake comes from, netuid field naming its subnet).
-# A None netuid field means the op spans every subnet the hotkey is staked on.
-STAKE_SOURCE_FIELDS: dict[str, tuple[str, Optional[str]]] = {
-    "remove_stake": ("hotkey_ss58", "netuid"),
-    "remove_stake_limit": ("hotkey_ss58", "netuid"),
-    "unstake_all": ("hotkey_ss58", None),
-    "unstake_all_alpha": ("hotkey_ss58", None),
-    "swap_stake": ("hotkey_ss58", "origin_netuid"),
-    "transfer_stake": ("hotkey_ss58", "origin_netuid"),
-    "move_stake": ("origin_hotkey_ss58", "origin_netuid"),
-}
-
-# op -> hotkey field naming the *destination* validator. Unlike the source
-# picker above, this hotkey need not be local or hold stake: the wallet's own
-# hotkeys are offered for convenience, but any pasted ss58 / address-book name
-# works (staking to a validator does not require its keyfile).
-STAKE_TARGET_FIELDS: dict[str, str] = {
-    "add_stake": "hotkey_ss58",
-    "add_stake_limit": "hotkey_ss58",
-}
-
-# op -> money field whose interactive prompt should lead with the coldkey's
-# free balance (the amount these ops spend comes straight out of it).
-FREE_BALANCE_AMOUNT_FIELDS: dict[str, str] = {
-    "add_stake": "amount_tao",
-    "add_stake_limit": "amount_tao",
-    "stake_burn": "amount_tao",
-}
 
 
 def stake_target_spec(hotkey_field: str) -> PromptSpec:
@@ -170,7 +141,7 @@ def with_free_balance(spec: PromptSpec) -> PromptSpec:
         with console.status("[dim]reading balance…[/dim]"):
             balance = app_ctx.run(lambda c: c.read("balance", coldkey_ss58=owner))
         console.print(f"  [dim]free balance of {owner_label}: {balance}[/dim]")
-        value, raw = _ask(console, app_ctx, replace(spec, custom=None))
+        value, raw = ask(console, app_ctx, replace(spec, custom=None))
         kwargs[spec.field] = value
         return [spec.flag, raw]
 

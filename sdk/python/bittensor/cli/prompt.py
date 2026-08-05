@@ -89,7 +89,7 @@ def _missing_error(app_ctx: AppContext, flags: list[str]) -> None:
     raise typer.Exit(2)
 
 
-def _ask(console: Console, app_ctx: AppContext, spec: PromptSpec) -> tuple[Any, str]:
+def ask(console: Console, app_ctx: AppContext, spec: PromptSpec) -> tuple[Any, str]:
     """Prompt for one option until an answer parses; returns (value, raw text)."""
     if spec.help:
         hint = Text("  ")
@@ -152,7 +152,7 @@ def fill_missing(app_ctx: AppContext, missing: list[PromptSpec], kwargs: dict[st
             _entered_tokens.extend(spec.custom(console, app_ctx, kwargs))
             console.print()
             continue
-        kwargs[spec.field], raw = _ask(console, app_ctx, spec)
+        kwargs[spec.field], raw = ask(console, app_ctx, spec)
         _entered_tokens.extend([raw] if spec.positional else [spec.flag, raw])
         console.print()
 
@@ -594,7 +594,7 @@ def _run_app(app: typer.Typer) -> None:
             console = Console(stderr=True, highlight=False)
             console.print()
             for spec in specs:
-                _, raw = _ask(console, app_ctx, spec)
+                _, raw = ask(console, app_ctx, spec)
                 entered = [raw] if spec.positional else [spec.flag, raw]
                 args += entered
                 _entered_tokens.extend(entered)

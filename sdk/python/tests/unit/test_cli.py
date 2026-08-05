@@ -16,9 +16,11 @@ from typer.testing import CliRunner
 
 import bittensor.cli.commands.root as root_commands
 import bittensor.cli.context as cli_context
-from bittensor import RpcConnectionError, RpcPolicyError, __version__, wallets
+from bittensor import RpcConnectionError, RpcPolicyError, __version__, config, wallets
 from bittensor.balance import Balance
+from bittensor.cli.call_names import resolve_builder_params
 from bittensor.cli.main import app
+from bittensor.cli.output import Output
 from bittensor.cli.root_helpers import RootPosition, position_columns, position_rows
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
@@ -243,6 +245,40 @@ class TestQueries:
         payload = json.loads(result.output)
         assert payload["coldkey"] == BOB
         assert payload["free_tao"] == pytest.approx(2.5)
+
+
+class TestAddressResolution:
+    @staticmethod
+    def app_context(wallet_dir: str) -> cli_context.AppContext:
+        return cli_context.AppContext(
+            network="finney",
+            wallet_name=_WALLET_NAME,
+            hotkey_name="default",
+            wallet_path=wallet_dir,
+            assume_yes=True,
+            dry_run=False,
+            output=Output(json_mode=True),
+        )
+
+    def test_raw_call_uses_canonical_saved_multisig_resolution(self, fake, wallet_dir):
+        config.add_multisig({"name": "treasury", "threshold": 1, "signatories": [BOB]})
+        app_ctx = self.app_context(wallet_dir)
+        expected = app_ctx.resolve_address_ref("new_coldkey", "treasury")
+
+        params = resolve_builder_params(
+            app_ctx,
+            "SubtensorModule.schedule_swap_coldkey",
+            {"new_coldkey": "treasury"},
+        )
+
+        assert params["new_coldkey"] == expected.address
+        assert expected.source == "saved multisig 'treasury'"
+
+    def test_raw_call_does_not_guess_arbitrary_string_lists_are_accounts(self, fake, wallet_dir):
+        app_ctx = self.app_context(wallet_dir)
+        params = {"remark": [BOB, "ordinary memo text"]}
+
+        assert resolve_builder_params(app_ctx, "System.remark", params) == params
 
 
 class TestRoot:
