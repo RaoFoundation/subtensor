@@ -17,7 +17,7 @@ use sodiumoxide::crypto::secretbox;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::CoreError;
-use crate::keys::{ensure_sodium, Keypair, CRYPTO_SR25519};
+use crate::keys::{ensure_sodium, Keypair, CRYPTO_ED25519, CRYPTO_SR25519};
 
 const NACL_SALT: &[u8] = b"\x13q\x83\xdf\xf1Z\t\xbc\x9c\x90\xb5Q\x879\xe9\xb1";
 const LEGACY_SALT: &[u8] = b"Iguesscyborgslikemyselfhaveatendencytobeparanoidaboutourorigins";
@@ -184,6 +184,17 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> Result<Vec<u8>, 
     data.insert("accountId", json!(format!("0x{public_key_str}")));
     data.insert("publicKey", json!(format!("0x{public_key_str}")));
 
+    // Legacy btwallet keyfiles always carried secretPhrase/secretSeed, and
+    // third-party parsers (subnet tooling, struct-based Rust readers) can
+    // require them. Write them whenever the keypair retained them so files
+    // created here stay parseable by legacy readers.
+    if let Some(mnemonic) = keypair.mnemonic() {
+        data.insert("secretPhrase", json!(mnemonic));
+    }
+    if let Some(seed) = keypair.seed_bytes() {
+        data.insert("secretSeed", json!(format!("0x{}", hex::encode(seed))));
+    }
+
     if let Some(private_key) = keypair.private_key_bytes() {
         let private_key_str = hex::encode(private_key);
         data.insert("privateKey", json!(format!("0x{private_key_str}")));
@@ -197,17 +208,119 @@ pub fn serialized_keypair_to_keyfile_data(keypair: &Keypair) -> Result<Vec<u8>, 
         .map_err(|error| key_err(format!("serialization error: {error}")))
 }
 
+/// Stored ss58Address, including the legacy leading-space `" ss58Address"`
+/// key some old btwallet files carry.
+fn stored_ss58(keyfile_dict: &serde_json::Value) -> Option<&str> {
+    keyfile_dict
+        .get("ss58Address")
+        .or_else(|| keyfile_dict.get(" ss58Address"))
+        .and_then(|value| value.as_str())
+}
+
+/// Derive a keypair and cross-check it against the keyfile's stored
+/// ss58Address. Legacy keyfiles sometimes omit or mislabel cryptoType, so on
+/// a mismatch the other crypto type is tried before giving up: the stored
+/// address is the ground truth for which key the file holds.
+fn resolve_checked<F>(
+    keyfile_dict: &serde_json::Value,
+    crypto_type: u8,
+    derived_from: &str,
+    derive: F,
+) -> Result<Keypair, CoreError>
+where
+    F: Fn(u8) -> Result<Keypair, CoreError>,
+{
+    let keypair = derive(crypto_type)?;
+    let Some(stored) = stored_ss58(keyfile_dict) else {
+        return Ok(keypair);
+    };
+    if keypair.ss58_address() == stored {
+        return Ok(keypair);
+    }
+    let alternate = if crypto_type == CRYPTO_SR25519 {
+        CRYPTO_ED25519
+    } else {
+        CRYPTO_SR25519
+    };
+    if let Ok(alternate_keypair) = derive(alternate) {
+        if alternate_keypair.ss58_address() == stored {
+            return Ok(alternate_keypair);
+        }
+    }
+    Err(key_err(format!(
+        "ss58Address in keyfile does not match the address derived from {derived_from} \
+         (check the keyfile's cryptoType)",
+    )))
+}
+
+/// Whether raw (non-JSON) keyfile content looks like a bare BIP39 phrase, as
+/// written by pre-JSON-era bittensor wallets.
+fn looks_like_mnemonic(text: &str) -> bool {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    matches!(words.len(), 12 | 15 | 18 | 21 | 24)
+        && words
+            .iter()
+            .all(|word| word.chars().all(|c| c.is_ascii_lowercase()))
+}
+
+/// Fallback for raw (non-JSON) keyfile payloads: a bare hex seed/private key
+/// or a bare mnemonic, as written by pre-JSON-era bittensor wallets.
+fn keypair_from_raw_text(text: &str) -> Option<Keypair> {
+    let trimmed = text.trim();
+    let hex_body = trimmed.strip_prefix("0x").unwrap_or(trimmed);
+    if matches!(hex_body.len(), 64 | 128) && hex_body.chars().all(|c| c.is_ascii_hexdigit()) {
+        if let Ok(bytes) = hex::decode(hex_body) {
+            if let Ok(keypair) = Keypair::from_seed(&bytes[..32], CRYPTO_SR25519) {
+                return Some(keypair);
+            }
+        }
+    }
+    if looks_like_mnemonic(trimmed) {
+        if let Ok(keypair) = Keypair::from_mnemonic(trimmed, CRYPTO_SR25519, None) {
+            return Some(keypair);
+        }
+    }
+    None
+}
+
 pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keypair, CoreError> {
-    let decoded =
-        std::str::from_utf8(keyfile_data).map_err(|_| key_err("failed to decode keyfile data"))?;
+    let decoded = std::str::from_utf8(keyfile_data).map_err(|_| {
+        if keyfile_data_is_encrypted(keyfile_data) {
+            key_err("keyfile is encrypted; decrypt it with its password first")
+        } else {
+            key_err("failed to decode keyfile data: not utf-8 text (unknown or corrupt format)")
+        }
+    })?;
 
-    let keyfile_dict: serde_json::Value =
-        serde_json::from_str(decoded).map_err(|_| key_err("failed to parse keyfile data"))?;
+    let keyfile_dict: serde_json::Value = match serde_json::from_str(decoded) {
+        Ok(value) => value,
+        Err(_) => {
+            if let Some(keypair) = keypair_from_raw_text(decoded) {
+                return Ok(keypair);
+            }
+            return Err(key_err(
+                "failed to parse keyfile data: not keyfile JSON, a raw hex seed, or a mnemonic",
+            ));
+        }
+    };
 
+    // A polkadot.js / mobile-app keystore export is valid JSON but a wholly
+    // different (password-encrypted) format; name it instead of failing with
+    // a generic parse error.
+    if keyfile_dict.get("encoded").is_some() && keyfile_dict.get("encoding").is_some() {
+        return Err(key_err(
+            "this keyfile is a polkadot.js / mobile-app JSON export, not a btcli keyfile; \
+             import it with `btcli wallet regen-coldkey --json-path <file>`",
+        ));
+    }
+
+    // Historical writers disagree on the cryptoType JSON type: python btwallet
+    // wrote a number, some JS tooling wrote a numeric string.
     let crypto_type = keyfile_dict
         .get("cryptoType")
         .and_then(|value| match value {
             serde_json::Value::Number(number) => number.to_string().parse::<u8>().ok(),
+            serde_json::Value::String(text) => text.trim().parse::<u8>().ok(),
             _ => None,
         })
         .unwrap_or(CRYPTO_SR25519);
@@ -216,7 +329,9 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
         .get("secretPhrase")
         .and_then(|value| value.as_str())
     {
-        return Keypair::from_mnemonic(secret_phrase, crypto_type, None);
+        return resolve_checked(&keyfile_dict, crypto_type, "secretPhrase", |ct| {
+            Keypair::from_mnemonic(secret_phrase, ct, None)
+        });
     }
 
     if let Some(seed) = keyfile_dict
@@ -226,27 +341,18 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
         let seed = seed.trim_start_matches("0x");
         let seed_bytes =
             hex::decode(seed).map_err(|error| key_err(format!("invalid secret seed: {error}")))?;
-        return Keypair::from_seed(&seed_bytes, crypto_type);
+        return resolve_checked(&keyfile_dict, crypto_type, "secretSeed", |ct| {
+            Keypair::from_seed(&seed_bytes, ct)
+        });
     }
 
     if let Some(private_key) = keyfile_dict
         .get("privateKey")
         .and_then(|value| value.as_str())
     {
-        let keypair = Keypair::from_private_key(private_key, crypto_type)?;
-        // Some legacy btwallet keyfiles use a leading-space " ss58Address" key.
-        if let Some(stored_ss58) = keyfile_dict
-            .get("ss58Address")
-            .or_else(|| keyfile_dict.get(" ss58Address"))
-            .and_then(|value| value.as_str())
-        {
-            if keypair.ss58_address() != stored_ss58 {
-                return Err(key_err(
-                    "ss58Address in keyfile does not match the address derived from privateKey",
-                ));
-            }
-        }
-        return Ok(keypair);
+        return resolve_checked(&keyfile_dict, crypto_type, "privateKey", |ct| {
+            Keypair::from_private_key(private_key, ct)
+        });
     }
 
     if let Some(ss58) = keyfile_dict
@@ -256,7 +362,14 @@ pub fn deserialize_keypair_from_keyfile_data(keyfile_data: &[u8]) -> Result<Keyp
         return Keypair::new(Some(ss58), None, crypto_type, 42);
     }
 
-    Err(key_err("keypair could not be created from keyfile data"))
+    let found_fields = keyfile_dict
+        .as_object()
+        .map(|object| object.keys().cloned().collect::<Vec<_>>().join(", "))
+        .unwrap_or_else(|| "none".to_string());
+    Err(key_err(format!(
+        "keypair could not be created from keyfile data: no secretPhrase, secretSeed, \
+         privateKey, or ss58Address field (found: {found_fields})",
+    )))
 }
 
 #[cfg(test)]
@@ -324,9 +437,15 @@ mod tests {
 
     #[test]
     fn legacy_keyfile_without_crypto_type_defaults_sr25519() {
-        let json = r#"{"secretPhrase":"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about","ss58Address":"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"}"#;
+        let expected = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let json = format!(
+            r#"{{"secretPhrase":"{}","ss58Address":"{}"}}"#,
+            test_mnemonic(),
+            expected.ss58_address()
+        );
         let keypair = deserialize_keypair_from_keyfile_data(json.as_bytes()).unwrap();
         assert_eq!(keypair.crypto_type(), CRYPTO_SR25519);
+        assert_eq!(keypair.ss58_address(), expected.ss58_address());
     }
 
     #[test]
@@ -336,5 +455,107 @@ mod tests {
         let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
         assert_eq!(restored.crypto_type(), CRYPTO_ED25519);
         assert_eq!(restored.ss58_address(), original.ss58_address());
+    }
+
+    #[test]
+    fn mnemonic_keypair_writes_legacy_secret_fields() {
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let data = serialized_keypair_to_keyfile_data(&keypair).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        assert_eq!(
+            parsed.get("secretPhrase").and_then(|v| v.as_str()),
+            Some(test_mnemonic().as_str())
+        );
+        let seed = parsed
+            .get("secretSeed")
+            .and_then(|v| v.as_str())
+            .expect("secretSeed present");
+        assert!(seed.starts_with("0x") && seed.len() == 66);
+        assert!(parsed.get("privateKey").is_some());
+        assert!(parsed.get("accountId").is_some());
+
+        // The seed alone re-derives the same key.
+        let seed_bytes = hex::decode(seed.trim_start_matches("0x")).unwrap();
+        let from_seed = Keypair::from_seed(&seed_bytes, CRYPTO_SR25519).unwrap();
+        assert_eq!(from_seed.ss58_address(), keypair.ss58_address());
+    }
+
+    #[test]
+    fn mnemonic_with_derivation_password_omits_phrase_keeps_seed() {
+        let keypair =
+            Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, Some("hunter2")).unwrap();
+        let data = serialized_keypair_to_keyfile_data(&keypair).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        assert!(parsed.get("secretPhrase").is_none());
+        assert!(parsed.get("secretSeed").is_some());
+        let restored = deserialize_keypair_from_keyfile_data(&data).unwrap();
+        assert_eq!(restored.ss58_address(), keypair.ss58_address());
+    }
+
+    #[test]
+    fn crypto_type_as_string_is_accepted() {
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_ED25519, None).unwrap();
+        let json = format!(
+            r#"{{"secretPhrase":"{}","cryptoType":"{}","ss58Address":"{}"}}"#,
+            test_mnemonic(),
+            CRYPTO_ED25519,
+            keypair.ss58_address()
+        );
+        let restored = deserialize_keypair_from_keyfile_data(json.as_bytes()).unwrap();
+        assert_eq!(restored.crypto_type(), CRYPTO_ED25519);
+        assert_eq!(restored.ss58_address(), keypair.ss58_address());
+    }
+
+    #[test]
+    fn missing_crypto_type_recovered_from_stored_ss58() {
+        // A legacy ed25519 keyfile without cryptoType: the sr25519 default
+        // mismatches the stored address, so the reader retries as ed25519.
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_ED25519, None).unwrap();
+        let json = format!(
+            r#"{{"secretPhrase":"{}","ss58Address":"{}"}}"#,
+            test_mnemonic(),
+            keypair.ss58_address()
+        );
+        let restored = deserialize_keypair_from_keyfile_data(json.as_bytes()).unwrap();
+        assert_eq!(restored.crypto_type(), CRYPTO_ED25519);
+        assert_eq!(restored.ss58_address(), keypair.ss58_address());
+    }
+
+    #[test]
+    fn stored_ss58_mismatch_is_rejected() {
+        let json = format!(
+            r#"{{"secretPhrase":"{}","ss58Address":"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"}}"#,
+            test_mnemonic()
+        );
+        let error = deserialize_keypair_from_keyfile_data(json.as_bytes()).err().expect("mismatch must fail");
+        assert!(error.to_string().contains("does not match"));
+    }
+
+    #[test]
+    fn raw_hex_seed_fallback() {
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let seed_hex = format!("0x{}", hex::encode(keypair.seed_bytes().unwrap()));
+        let restored = deserialize_keypair_from_keyfile_data(seed_hex.as_bytes()).unwrap();
+        assert_eq!(restored.ss58_address(), keypair.ss58_address());
+    }
+
+    #[test]
+    fn raw_mnemonic_fallback() {
+        let keypair = Keypair::from_mnemonic(&test_mnemonic(), CRYPTO_SR25519, None).unwrap();
+        let restored = deserialize_keypair_from_keyfile_data(test_mnemonic().as_bytes()).unwrap();
+        assert_eq!(restored.ss58_address(), keypair.ss58_address());
+    }
+
+    #[test]
+    fn polkadotjs_export_gets_actionable_error() {
+        let json = r#"{"encoded":"abc","encoding":{"content":["pkcs8","sr25519"],"type":["scrypt","xsalsa20-poly1305"],"version":"3"},"address":"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY","meta":{}}"#;
+        let error = deserialize_keypair_from_keyfile_data(json.as_bytes()).err().expect("polkadotjs export must fail");
+        assert!(error.to_string().contains("regen-coldkey --json-path"));
+    }
+
+    #[test]
+    fn unknown_json_error_names_found_fields() {
+        let error = deserialize_keypair_from_keyfile_data(br#"{"foo":1}"#).err().expect("unknown fields must fail");
+        assert!(error.to_string().contains("foo"));
     }
 }
