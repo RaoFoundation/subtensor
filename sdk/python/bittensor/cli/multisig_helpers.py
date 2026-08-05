@@ -11,6 +11,7 @@ from typing import Any, Optional
 from .. import config as cfg
 from .. import wallets
 from .._generated import storage as st
+from .._transport.codec import multisig_account
 from ..result import ChainError, ExtrinsicResult
 from ..wallets import is_bittensor_address
 
@@ -243,6 +244,21 @@ def resolve_multisig(
     else:
         raise ValueError("with --multisig-threshold, pass --signatories or --other-signatories")
     return threshold, sigs, None, refs
+
+
+def derive_saved_multisig_address(app_ctx, name: str) -> Optional[str]:
+    """Derived ss58 of the saved multisig ``name``, or None when not in the book.
+
+    Fully offline: signatory refs (ss58, book names, wallet names) resolve
+    locally and the account id derivation is deterministic, so read-only
+    commands can treat a multisig book name like any other address without a
+    chain connection.
+    """
+    entry = cfg.get_multisig(name)
+    if entry is None:
+        return None
+    signatories = _resolve_stored_signatories(app_ctx, list(entry["signatories"]))
+    return multisig_account(signatories, int(entry["threshold"])).ss58_address
 
 
 def resolve_multisig_preset(app_ctx, name: str) -> tuple[int, list[str], list[str]]:

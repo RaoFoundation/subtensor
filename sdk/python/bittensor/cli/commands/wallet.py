@@ -929,8 +929,8 @@ def wallet_balance(
     ctx: typer.Context,
     address: Optional[str] = typer.Argument(
         None,
-        help="Coldkey ss58 address or a local wallet name. "
-        "Defaults to the configured wallet's coldkey.",
+        help="Coldkey ss58 address, a local wallet name, or an address-book / "
+        "saved multisig name. Defaults to the configured wallet's coldkey.",
     ),
     all_wallets: bool = typer.Option(
         False, "--all", "-a", help="Show balances for every wallet under --wallet-path."
@@ -1015,7 +1015,14 @@ def wallet_balance(
         return
 
     resolved = app_ctx.resolve_address("coldkey_ss58", address)
-    row = app_ctx.run(lambda client: wallet_balance_row(client, app_ctx.wallet_name, resolved))
+    # Label the row with the name that was actually queried, not the configured
+    # wallet, when a positional name (wallet, book, or multisig) was given.
+    label = (
+        address
+        if address is not None and not wallets.is_bittensor_address(address)
+        else app_ctx.wallet_name
+    )
+    row = app_ctx.run(lambda client: wallet_balance_row(client, label, resolved))
     app_ctx.output.detail(None, human_balance_fields(row), json_fields=row)
 
 
