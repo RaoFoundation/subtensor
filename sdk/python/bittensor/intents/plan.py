@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from ..balance import Balance
 from ..settings import tx_docs_url
-from ._money import UNBOUNDED, Money, tao_amount
+from ._money import UNBOUNDED, Money, Spend, tao_amount
 from .base import Intent
 
 
@@ -86,7 +86,15 @@ class Policy:
 
 @dataclass
 class Plan:
-    """A previewed, not-yet-submitted intent."""
+    """A previewed, not-yet-submitted intent.
+
+    ``to_dict`` is the machine-readable pre-approval record: alongside the
+    fee, effects, warnings, and policy verdict it carries the exact spend
+    (``spend_tao``, or ``spend_unbounded`` when the amount cannot be bounded
+    before execution — full-balance sweeps and ownership transfers) and the
+    intent's exact parsed arguments, so an agent can verify precisely what
+    would run before anyone signs.
+    """
 
     op: str
     summary: str
@@ -98,6 +106,10 @@ class Plan:
     violations: list[str] = field(default_factory=list)
     call: Any = field(default=None, repr=False)  # built call; not serialized
     extras: dict[str, Any] = field(default_factory=dict)  # build-time data for the result
+    # TAO leaving the signer: a Balance when bounded, UNBOUNDED, or None.
+    spend: Spend = None
+    # The intent's own parameters, JSON-native (money as exact decimal strings).
+    args: Optional[dict[str, Any]] = None
 
     @property
     def ok(self) -> bool:
@@ -110,7 +122,10 @@ class Plan:
             "summary": self.summary,
             "signer": self.signer,
             "signer_address": self.signer_address,
+            "args": self.args,
             "fee_tao": self.fee.tao if self.fee is not None else None,
+            "spend_tao": self.spend.tao if isinstance(self.spend, Balance) else None,
+            "spend_unbounded": self.spend is UNBOUNDED,
             "effects": self.effects,
             "warnings": self.warnings,
             "violations": self.violations,

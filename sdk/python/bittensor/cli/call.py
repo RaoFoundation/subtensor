@@ -56,6 +56,7 @@ from ..intents.proxy import ProxyTypeChoice
 from . import multisig_helpers as ms_helpers
 from .context import ctx_of
 from .globals import with_tx_globals
+from .prompt import replay_command
 
 _MAX_SHOWN = 80  # truncate long param values (e.g. a wasm blob) in dry-run output
 
@@ -270,6 +271,7 @@ def call(
                 fields["multisig_preset"] = preset
         else:
             app_ctx.run(lambda client: _compose_only(client, prepare))
+        fields["command"] = replay_command()
         app_ctx.output.detail("dry run: raw call", fields)
         return
 

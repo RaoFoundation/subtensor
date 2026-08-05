@@ -490,7 +490,7 @@ class AppContext:
         """
         # Inline import: prompt.py imports AppContext from this module, so a
         # top-level import here would be circular.
-        from .prompt import confirm_wallet
+        from .prompt import confirm_wallet, replay_command
 
         if proxy_for == "self":
             proxy_for = None
@@ -691,7 +691,7 @@ class AppContext:
                 shortfall = self.run(_shield_fee_warning)
                 if shortfall is not None:
                     plan.warnings.append(shortfall)
-            self.output.plan(plan)
+            self.output.plan(plan, command=replay_command())
             if not plan.ok:
                 raise typer.Exit(1)
             return None
