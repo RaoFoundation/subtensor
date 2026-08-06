@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 
+use alloc::vec::Vec;
 use frame_support::{
     dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo},
     traits::{ConstU32, IsSubType},

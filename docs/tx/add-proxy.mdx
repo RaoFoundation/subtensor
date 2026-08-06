@@ -14,7 +14,7 @@ only to keys you control or fully trust.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.add_proxy`](/code/pallets/proxy/src/lib.rs#L265-L276) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.add_proxy`](/code/pallets/proxy/src/lib.rs#L279-L290) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("add_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.add_proxy` — [`pallets/proxy/src/lib.rs#L267`](/code/pallets/proxy/src/lib.rs#L265-L276):
+`Proxy.add_proxy` — [`pallets/proxy/src/lib.rs#L281`](/code/pallets/proxy/src/lib.rs#L279-L290):
 
 ```rust
 #[pallet::call_index(1)]
@@ -82,6 +82,6 @@ pub fn add_proxy(
 }
 ```
 
-Delegates to [`add_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L941).
+Delegates to [`add_proxy_delegate`](/code/pallets/proxy/src/lib.rs#L955).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
