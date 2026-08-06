@@ -252,6 +252,7 @@ class SubtensorModule:
     NetworkRegistrationQueue = Item('SubtensorModule', 'NetworkRegistrationQueue', 'Vec<NetworkRegistrationInfo>')
     NetworkRegistrationLockId = Item('SubtensorModule', 'NetworkRegistrationLockId', 'u32')
     VotingPower = Item('SubtensorModule', 'VotingPower', 'u64')
+    TotalVotingPower = Item('SubtensorModule', 'TotalVotingPower', 'u64')
     VotingPowerTrackingEnabled = Item('SubtensorModule', 'VotingPowerTrackingEnabled', 'bool')
     VotingPowerDisableAtBlock = Item('SubtensorModule', 'VotingPowerDisableAtBlock', 'u64')
     VotingPowerEmaAlpha = Item('SubtensorModule', 'VotingPowerEmaAlpha', 'u64')
