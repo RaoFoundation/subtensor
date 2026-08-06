@@ -737,9 +737,10 @@ impl<T: Config> Pallet<T> {
                     "incentives: hotkey: {hotkey:?} is SN owner hotkey or associated hotkey, skipping {incentive:?}"
                 );
                 // Miner emission directed to an owner (immune) hotkey is withheld from
-                // miners whether it is recycled or burned. Count both toward the withheld
-                // proportion so the emission penalty cannot be dodged by choosing Recycle
-                // and an unset RecycleOrBurn config is not uniquely penalized.
+                // miners whether it is recycled or burned. Count both toward the recorded
+                // withheld proportion so the metric is independent of the subnet's
+                // RecycleOrBurn configuration. The proportion is informational only and
+                // does not affect the subnet's emission share.
                 withheld_incentive = withheld_incentive.saturating_add(incentive);
                 // Check if we should recycle or burn the incentive
                 match RecycleOrBurn::<T>::try_get(netuid) {
