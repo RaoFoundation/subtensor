@@ -1,0 +1,24 @@
+---
+title: UID lookup
+description: Reference for the deployed UidLookupPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `UidLookupPrecompile` |
+| Solidity interface | `IUidLookup` |
+| Address | `0x0000000000000000000000000000000000000806` |
+| Status | Deployed |
+
+## Views
+
+```text
+uidLookup(uint16,address,uint16)
+getAssociatedEvmAddress(uint16,uint16)
+```
+
+`uidLookup` returns the bounded reverse association list for an EVM address.
+`getAssociatedEvmAddress` returns the forward address and the block at which
+ownership was last proved, with an explicit `exists` flag.
+
+Source: [`uidLookup.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/uidLookup.sol)

@@ -40,4 +40,7 @@ interface IVotingPower {
     /// useful for computing voting thresholds (e.g. a 51% quorum).
     /// @param netuid The subnet identifier.
     function getTotalVotingPower(uint16 netuid) external view returns (uint256);
+
+    function enableVotingPowerTracking(uint16 netuid) external;
+    function disableVotingPowerTracking(uint16 netuid) external;
 }

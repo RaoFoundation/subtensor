@@ -1,0 +1,37 @@
+---
+title: Balance transfer
+description: Reference for the deployed BalanceTransferPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `BalanceTransferPrecompile` |
+| Solidity interface | `ISubtensorBalanceTransfer` |
+| Address | `0x0000000000000000000000000000000000000800` |
+| Status | Deployed |
+
+Transfers the EVM call value to the Substrate account supplied as a 32-byte
+public key.
+
+## Functions
+
+| Function | Mutability |
+|---|---|
+| `transfer(bytes32)` | `payable` |
+
+## Added operations
+
+| Function | Source extrinsic |
+|---|---|
+| `transferKeepAlive` | `Balances.transfer_keep_alive` |
+| `transferAll` | `Balances.transfer_all` |
+
+The existing `transfer(bytes32)` semantically covers
+`Balances.transfer_allow_death` by taking the amount from attached EVM value.
+The added functions use explicit typed arguments where attached value does
+not express the complete source operation. They dispatch the highest-level
+Balances call as the mapped signer. `force_transfer` requires Root and the
+feature-gated development faucet is not part of the production interface.
+
+
+Source: [`balanceTransfer.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/balanceTransfer.sol)

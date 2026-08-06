@@ -39,7 +39,11 @@ pallet-subtensor-swap.workspace = true
 pallet-admin-utils.workspace = true
 subtensor-swap-interface.workspace = true
 pallet-crowdloan.workspace = true
+pallet-drand.workspace = true
+pallet-evm-chain-id.workspace = true
 pallet-shield.workspace = true
+pallet-scheduler.workspace = true
+pallet-timestamp.workspace = true
 
 [lints]
 workspace = true
@@ -103,9 +107,5 @@ runtime-benchmarks = [
 ]
 
 [dev-dependencies]
-pallet-drand = { workspace = true, features = ["std"] }
-pallet-evm-chain-id = { workspace = true, features = ["std"] }
 pallet-preimage = { workspace = true, features = ["std"] }
-pallet-scheduler = { workspace = true, features = ["std"] }
-pallet-timestamp = { workspace = true, features = ["std"] }
 precompile-utils = { workspace = true, features = ["std", "testing"] }

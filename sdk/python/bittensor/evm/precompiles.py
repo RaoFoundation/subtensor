@@ -66,7 +66,7 @@ PRECOMPILES: dict[str, Precompile] = {
             "balance-transfer",
             2048,
             "balanceTransfer.json",
-            "Send TAO from an EVM account to any ss58 address (payable transfer(bytes32 pubkey)).",
+            "Transfer TAO from an EVM account to an ss58 account.",
         ),
         Precompile(
             "staking",
@@ -109,7 +109,7 @@ PRECOMPILES: dict[str, Precompile] = {
             "alpha",
             2056,
             "alpha.json",
-            "Subnet alpha token info: prices, pool reserves, and alpha amounts.",
+            "Subnet Alpha pools, prices, issuance, emissions, and owner configuration.",
         ),
         Precompile(
             "crowdloan",
@@ -127,7 +127,7 @@ PRECOMPILES: dict[str, Precompile] = {
             "proxy",
             2059,
             "proxy.json",
-            "Add/remove proxy delegations from EVM.",
+            "Manage proxy delegations and delayed proxy announcements from EVM.",
         ),
         Precompile(
             "address-mapping",
@@ -145,7 +145,37 @@ PRECOMPILES: dict[str, Precompile] = {
             "balance",
             2062,
             "balance.json",
-            "Read native free TAO balance for any ss58 coldkey (getFreeBalance(bytes32) -> rao).",
+            "Read free TAO balances and dispatch signed Balances operations.",
+        ),
+        Precompile(
+            "scheduler",
+            2063,
+            "scheduler.json",
+            "Read stable metadata for scheduled runtime calls.",
+        ),
+        Precompile(
+            "drand",
+            2064,
+            "drand.json",
+            "Read stored Drand beacon configuration and pulse data.",
+        ),
+        Precompile(
+            "timestamp",
+            2065,
+            "timestamp.json",
+            "Read the runtime timestamp and its per-block update state.",
+        ),
+        Precompile(
+            "runtime-configuration",
+            2066,
+            "runtimeConfiguration.json",
+            "Read stable global runtime configuration.",
+        ),
+        Precompile(
+            "precompile-registry",
+            2067,
+            "registry.json",
+            "Inspect precompile lifecycle and operational availability.",
         ),
         Precompile(
             "ed25519-verify",
@@ -297,6 +327,16 @@ def coerce_argument(abi_type: str, raw: Any) -> Any:
     nobody should have to run the conversion by hand.
     """
     text = str(raw).strip()
+    if abi_type.endswith("[]"):
+        inner = abi_type[:-2]
+        parts = (
+            raw
+            if isinstance(raw, list)
+            else json.loads(text)
+            if text.startswith("[")
+            else text.split(",")
+        )
+        return [coerce_argument(inner, part) for part in parts]
     if abi_type.startswith(("uint", "int")):
         return int(text, 16 if text.startswith("0x") else 10)
     if abi_type == "bool":
@@ -308,10 +348,6 @@ def coerce_argument(abi_type: str, raw: Any) -> Any:
             # ss58 -> 32-byte public key, the shape hotkey/coldkey params take
             return bytes.fromhex(ss58_to_pubkey(text)[2:])
         return bytes.fromhex(text.removeprefix("0x"))
-    if abi_type.endswith("[]"):
-        inner = abi_type[:-2]
-        parts = json.loads(text) if text.startswith("[") else text.split(",")
-        return [coerce_argument(inner, part) for part in parts]
     return text
 
 

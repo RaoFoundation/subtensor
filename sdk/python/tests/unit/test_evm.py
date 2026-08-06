@@ -86,6 +86,16 @@ class TestPrecompileEncoding:
         data = precompiles.encode_call(fn_abi, [addresses.ss58_to_pubkey(ALICE)])
         assert data.startswith("0x")
 
+    def test_new_bounded_array_calls_encode(self):
+        claim_root = precompiles.get_precompile("staking-v2").function("claimRoot")
+        assert precompiles.encode_call(claim_root, ["[1, 2]"]).startswith("0x")
+
+        batch_commit = precompiles.get_precompile("neuron").function("batchCommitWeights")
+        assert precompiles.encode_call(
+            batch_commit,
+            ["[1, 2]", ["0x" + "11" * 32, "0x" + "22" * 32]],
+        ).startswith("0x")
+
 
 # The vendored ABIs in bittensor/evm/abi must stay in sync with the canonical
 # .abi artifacts in precompiles/src/solidity (see the bittensor.evm.precompiles

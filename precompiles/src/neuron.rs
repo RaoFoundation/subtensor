@@ -1,13 +1,20 @@
 use core::marker::PhantomData;
 
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
-use frame_support::traits::IsSubType;
+use frame_support::traits::{ConstU32, IsSubType};
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, PrecompileHandle};
-use precompile_utils::{EvmResult, prelude::UnboundedBytes};
-use sp_core::H256;
+use precompile_utils::{
+    EvmResult,
+    prelude::{
+        Address, BoundedBytes, BoundedString, BoundedVec as SolidityBoundedVec, UnboundedBytes,
+        revert,
+    },
+};
+use sp_core::{H256, ecdsa::Signature};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
 use sp_std::vec::Vec;
+use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex};
 
 use crate::{PrecompileExt, PrecompileHandleExt};
 
@@ -32,7 +39,7 @@ where
         + Send
         + Sync
         + scale_info::TypeInfo,
-    R::AccountId: From<[u8; 32]>,
+    R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
     <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
     <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
         + GetDispatchInfo
@@ -58,7 +65,7 @@ where
         + Send
         + Sync
         + scale_info::TypeInfo,
-    R::AccountId: From<[u8; 32]>,
+    R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
     <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
     <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
         + GetDispatchInfo
@@ -386,6 +393,872 @@ where
             RawOrigin::Signed(handle.caller_account_id::<R>()),
         )
     }
+
+    #[precompile::public("setMechanismWeights(uint16,uint8,uint16[],uint16[],uint64)")]
+    fn set_mechanism_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mecid: u8,
+        dests: SolidityBoundedVec<u16, ConstU32<4096>>,
+        weights: SolidityBoundedVec<u16, ConstU32<4096>>,
+        version_key: u64,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::set_mechanism_weights {
+                netuid: netuid.into(),
+                mecid: MechId::from(mecid),
+                dests: dests.into(),
+                weights: weights.into(),
+                version_key,
+            },
+        )
+    }
+
+    #[precompile::public("commitMechanismWeights(uint16,uint8,bytes32)")]
+    fn commit_mechanism_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mecid: u8,
+        commit_hash: H256,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::commit_mechanism_weights {
+                netuid: netuid.into(),
+                mecid: mecid.into(),
+                commit_hash,
+            },
+        )
+    }
+
+    #[precompile::public("revealMechanismWeights(uint16,uint8,uint16[],uint16[],uint16[],uint64)")]
+    fn reveal_mechanism_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mecid: u8,
+        uids: SolidityBoundedVec<u16, ConstU32<4096>>,
+        values: SolidityBoundedVec<u16, ConstU32<4096>>,
+        salt: SolidityBoundedVec<u16, ConstU32<4096>>,
+        version_key: u64,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::reveal_mechanism_weights {
+                netuid: netuid.into(),
+                mecid: mecid.into(),
+                uids: uids.into(),
+                values: values.into(),
+                salt: salt.into(),
+                version_key,
+            },
+        )
+    }
+
+    #[precompile::public("commitCrv3MechanismWeights(uint16,uint8,bytes,uint64)")]
+    fn commit_crv3_mechanism_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mecid: u8,
+        commit: BoundedBytes<ConstU32<5000>>,
+        reveal_round: u64,
+    ) -> EvmResult<()> {
+        let commit =
+            frame_support::BoundedVec::<u8, ConstU32<5000>>::try_from(Vec::<u8>::from(commit))
+                .map_err(|_| revert("commit exceeds runtime bound"))?;
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::commit_crv3_mechanism_weights {
+                netuid: netuid.into(),
+                mecid: mecid.into(),
+                commit,
+                reveal_round,
+            },
+        )
+    }
+
+    #[precompile::public("commitTimelockedWeights(uint16,bytes,uint64,uint16)")]
+    fn commit_timelocked_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        commit: BoundedBytes<ConstU32<5000>>,
+        reveal_round: u64,
+        commit_reveal_version: u16,
+    ) -> EvmResult<()> {
+        let commit =
+            frame_support::BoundedVec::<u8, ConstU32<5000>>::try_from(Vec::<u8>::from(commit))
+                .map_err(|_| revert("commit exceeds runtime bound"))?;
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::commit_timelocked_weights {
+                netuid: netuid.into(),
+                commit,
+                reveal_round,
+                commit_reveal_version,
+            },
+        )
+    }
+
+    #[precompile::public("commitTimelockedMechanismWeights(uint16,uint8,bytes,uint64,uint16)")]
+    fn commit_timelocked_mechanism_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mecid: u8,
+        commit: BoundedBytes<ConstU32<5000>>,
+        reveal_round: u64,
+        commit_reveal_version: u16,
+    ) -> EvmResult<()> {
+        let commit =
+            frame_support::BoundedVec::<u8, ConstU32<5000>>::try_from(Vec::<u8>::from(commit))
+                .map_err(|_| revert("commit exceeds runtime bound"))?;
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::commit_timelocked_mechanism_weights {
+                netuid: netuid.into(),
+                mecid: mecid.into(),
+                commit,
+                reveal_round,
+                commit_reveal_version,
+            },
+        )
+    }
+
+    #[precompile::public("batchSetWeights(uint16[],uint16[][],uint16[][],uint64[])")]
+    fn batch_set_weights(
+        handle: &mut impl PrecompileHandle,
+        netuids: SolidityBoundedVec<u16, ConstU32<16>>,
+        dests: SolidityBoundedVec<SolidityBoundedVec<u16, ConstU32<4096>>, ConstU32<16>>,
+        values: SolidityBoundedVec<SolidityBoundedVec<u16, ConstU32<4096>>, ConstU32<16>>,
+        version_keys: SolidityBoundedVec<u64, ConstU32<16>>,
+    ) -> EvmResult<()> {
+        let netuids = Vec::<u16>::from(netuids);
+        let dests = Vec::<SolidityBoundedVec<u16, ConstU32<4096>>>::from(dests);
+        let values = Vec::<SolidityBoundedVec<u16, ConstU32<4096>>>::from(values);
+        let version_keys = Vec::<u64>::from(version_keys);
+        if netuids.len() != dests.len()
+            || netuids.len() != values.len()
+            || netuids.len() != version_keys.len()
+        {
+            return Err(revert("batch weight arrays must have equal outer lengths"));
+        }
+        let mut weights = Vec::with_capacity(netuids.len());
+        for (batch_dests, batch_values) in dests.into_iter().zip(values) {
+            let batch_dests = Vec::<u16>::from(batch_dests);
+            let batch_values = Vec::<u16>::from(batch_values);
+            if batch_dests.len() != batch_values.len() {
+                return Err(revert(
+                    "batch destination and value arrays must have equal lengths",
+                ));
+            }
+            weights.push(
+                batch_dests
+                    .into_iter()
+                    .zip(batch_values)
+                    .map(|(uid, value)| (codec::Compact(uid), codec::Compact(value)))
+                    .collect(),
+            );
+        }
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::batch_set_weights {
+                netuids: netuids
+                    .into_iter()
+                    .map(|netuid| codec::Compact(NetUid::from(netuid)))
+                    .collect(),
+                weights,
+                version_keys: version_keys.into_iter().map(codec::Compact).collect(),
+            },
+        )
+    }
+
+    #[precompile::public("batchCommitWeights(uint16[],bytes32[])")]
+    fn batch_commit_weights(
+        handle: &mut impl PrecompileHandle,
+        netuids: SolidityBoundedVec<u16, ConstU32<16>>,
+        commit_hashes: SolidityBoundedVec<H256, ConstU32<16>>,
+    ) -> EvmResult<()> {
+        let netuids = Vec::<u16>::from(netuids);
+        let commit_hashes = Vec::<H256>::from(commit_hashes);
+        if netuids.len() != commit_hashes.len() {
+            return Err(revert(
+                "batch netuid and commitment arrays must have equal lengths",
+            ));
+        }
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::batch_commit_weights {
+                netuids: netuids
+                    .into_iter()
+                    .map(|netuid| codec::Compact(NetUid::from(netuid)))
+                    .collect(),
+                commit_hashes,
+            },
+        )
+    }
+
+    #[precompile::public("batchRevealWeights(uint16,uint16[][],uint16[][],uint16[][],uint64[])")]
+    fn batch_reveal_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        uids_list: SolidityBoundedVec<SolidityBoundedVec<u16, ConstU32<4096>>, ConstU32<16>>,
+        values_list: SolidityBoundedVec<SolidityBoundedVec<u16, ConstU32<4096>>, ConstU32<16>>,
+        salts_list: SolidityBoundedVec<SolidityBoundedVec<u16, ConstU32<4096>>, ConstU32<16>>,
+        version_keys: SolidityBoundedVec<u64, ConstU32<16>>,
+    ) -> EvmResult<()> {
+        let uids_list = Vec::<SolidityBoundedVec<u16, ConstU32<4096>>>::from(uids_list);
+        let values_list = Vec::<SolidityBoundedVec<u16, ConstU32<4096>>>::from(values_list);
+        let salts_list = Vec::<SolidityBoundedVec<u16, ConstU32<4096>>>::from(salts_list);
+        let version_keys = Vec::<u64>::from(version_keys);
+        if uids_list.len() != values_list.len()
+            || uids_list.len() != salts_list.len()
+            || uids_list.len() != version_keys.len()
+        {
+            return Err(revert("batch reveal arrays must have equal outer lengths"));
+        }
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::batch_reveal_weights {
+                netuid: netuid.into(),
+                uids_list: uids_list.into_iter().map(Into::into).collect(),
+                values_list: values_list.into_iter().map(Into::into).collect(),
+                salts_list: salts_list.into_iter().map(Into::into).collect(),
+                version_keys,
+            },
+        )
+    }
+
+    #[precompile::public("register(uint16,uint64,uint64,bytes,bytes32,bytes32)")]
+    fn register(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        block_number: u64,
+        nonce: u64,
+        work: BoundedBytes<ConstU32<64>>,
+        hotkey: H256,
+        coldkey: H256,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::register {
+                netuid: netuid.into(),
+                block_number,
+                nonce,
+                work: work.into(),
+                hotkey: hotkey.0.into(),
+                coldkey: coldkey.0.into(),
+            },
+        )
+    }
+
+    #[precompile::public("rootRegister(bytes32)")]
+    fn root_register(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::root_register {
+                hotkey: hotkey.0.into(),
+            },
+        )
+    }
+
+    #[precompile::public("swapHotkey(bytes32,bytes32,bool,uint16)")]
+    fn swap_hotkey(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        new_hotkey: H256,
+        has_netuid: bool,
+        netuid: u16,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::swap_hotkey {
+                hotkey: hotkey.0.into(),
+                new_hotkey: new_hotkey.0.into(),
+                netuid: has_netuid.then_some(NetUid::from(netuid)),
+            },
+        )
+    }
+
+    #[precompile::public("swapHotkeyV2(bytes32,bytes32,bool,uint16,bool)")]
+    fn swap_hotkey_v2(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        new_hotkey: H256,
+        has_netuid: bool,
+        netuid: u16,
+        keep_stake: bool,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::swap_hotkey_v2 {
+                hotkey: hotkey.0.into(),
+                new_hotkey: new_hotkey.0.into(),
+                netuid: has_netuid.then_some(NetUid::from(netuid)),
+                keep_stake,
+            },
+        )
+    }
+
+    #[precompile::public("setChildren(bytes32,uint16,uint64[],bytes32[])")]
+    fn set_children(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+        proportions: SolidityBoundedVec<u64, ConstU32<5>>,
+        children: SolidityBoundedVec<H256, ConstU32<5>>,
+    ) -> EvmResult<()> {
+        let proportions = Vec::<u64>::from(proportions);
+        let children = Vec::<H256>::from(children);
+        if proportions.len() != children.len() {
+            return Err(revert(
+                "child proportions and hotkeys must have equal length",
+            ));
+        }
+        let children = proportions
+            .into_iter()
+            .zip(children)
+            .map(|(proportion, child)| (proportion, child.0.into()))
+            .collect();
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::set_children {
+                hotkey: hotkey.0.into(),
+                netuid: netuid.into(),
+                children,
+            },
+        )
+    }
+
+    #[precompile::public("setIdentity(string,string,string,string,string,string,string)")]
+    #[allow(clippy::too_many_arguments)]
+    fn set_identity(
+        handle: &mut impl PrecompileHandle,
+        name: BoundedString<ConstU32<256>>,
+        url: BoundedString<ConstU32<256>>,
+        github_repo: BoundedString<ConstU32<256>>,
+        image: BoundedString<ConstU32<1024>>,
+        discord: BoundedString<ConstU32<256>>,
+        description: BoundedString<ConstU32<1024>>,
+        additional: BoundedString<ConstU32<1024>>,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::set_identity {
+                name: name.into(),
+                url: url.into(),
+                github_repo: github_repo.into(),
+                image: image.into(),
+                discord: discord.into(),
+                description: description.into(),
+                additional: additional.into(),
+            },
+        )
+    }
+
+    #[precompile::public("tryAssociateHotkey(bytes32)")]
+    fn try_associate_hotkey(handle: &mut impl PrecompileHandle, hotkey: H256) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::try_associate_hotkey {
+                hotkey: hotkey.0.into(),
+            },
+        )
+    }
+
+    #[precompile::public("associateEvmKey(uint16,address,uint64,bytes)")]
+    fn associate_evm_key(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        evm_key: Address,
+        block_number: u64,
+        signature: BoundedBytes<ConstU32<65>>,
+    ) -> EvmResult<()> {
+        let bytes = Vec::<u8>::from(signature);
+        let signature: [u8; 65] = bytes
+            .try_into()
+            .map_err(|_| revert("ECDSA signature must be exactly 65 bytes"))?;
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::associate_evm_key {
+                netuid: netuid.into(),
+                evm_key: evm_key.0,
+                block_number,
+                signature: Signature::from_raw(signature),
+            },
+        )
+    }
+
+    #[precompile::public("announceColdkeySwap(bytes32)")]
+    fn announce_coldkey_swap(
+        handle: &mut impl PrecompileHandle,
+        new_coldkey_hash: H256,
+    ) -> EvmResult<()> {
+        let new_coldkey_hash = codec::Decode::decode(&mut new_coldkey_hash.as_bytes())
+            .map_err(|_| revert("runtime hash is not compatible with bytes32"))?;
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::announce_coldkey_swap { new_coldkey_hash },
+        )
+    }
+
+    #[precompile::public("executeAnnouncedColdkeySwap(bytes32)")]
+    fn execute_announced_coldkey_swap(
+        handle: &mut impl PrecompileHandle,
+        new_coldkey: H256,
+    ) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::swap_coldkey_announced {
+                new_coldkey: new_coldkey.0.into(),
+            },
+        )
+    }
+
+    #[precompile::public("disputeColdkeySwap()")]
+    fn dispute_coldkey_swap(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
+        dispatch_neuron(handle, pallet_subtensor::Call::<R>::dispute_coldkey_swap {})
+    }
+
+    #[precompile::public("clearColdkeySwapAnnouncement()")]
+    fn clear_coldkey_swap_announcement(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
+        dispatch_neuron(
+            handle,
+            pallet_subtensor::Call::<R>::clear_coldkey_swap_announcement {},
+        )
+    }
+
+    #[precompile::public("getUid(uint16,bytes32)")]
+    #[precompile::view]
+    fn get_uid(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+    ) -> EvmResult<(bool, u16)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::Uids::<R>::get(
+                NetUid::from(netuid),
+                R::AccountId::from(hotkey.0),
+            ) {
+                Some(uid) => (true, uid),
+                None => (false, 0),
+            },
+        )
+    }
+
+    #[precompile::public("isNetworkMember(bytes32,uint16)")]
+    #[precompile::view]
+    fn is_network_member(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+    ) -> EvmResult<bool> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::IsNetworkMember::<R>::get(
+            R::AccountId::from(hotkey.0),
+            NetUid::from(netuid),
+        ))
+    }
+
+    #[precompile::public("getWeights(uint16,uint16)")]
+    #[precompile::view]
+    fn get_weights(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        uid: u16,
+    ) -> EvmResult<Vec<(u16, u16)>> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::Weights::<R>::get(
+            NetUidStorageIndex::from(NetUid::from(netuid)),
+            uid,
+        ))
+    }
+
+    #[precompile::public("getBonds(uint16,uint16)")]
+    #[precompile::view]
+    fn get_bonds(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        uid: u16,
+    ) -> EvmResult<Vec<(u16, u16)>> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::Bonds::<R>::get(
+            NetUidStorageIndex::from(NetUid::from(netuid)),
+            uid,
+        ))
+    }
+
+    #[precompile::public("getBlockAtRegistration(uint16,uint16)")]
+    #[precompile::view]
+    fn get_block_at_registration(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        uid: u16,
+    ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::BlockAtRegistration::<R>::get(
+            NetUid::from(netuid),
+            uid,
+        ))
+    }
+
+    #[precompile::public("getNeuronCertificate(uint16,bytes32)")]
+    #[precompile::view]
+    fn get_neuron_certificate(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+    ) -> EvmResult<(bool, u8, UnboundedBytes)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::NeuronCertificates::<R>::get(
+                NetUid::from(netuid),
+                R::AccountId::from(hotkey.0),
+            ) {
+                Some(certificate) => (
+                    true,
+                    certificate.algorithm,
+                    UnboundedBytes::from(certificate.public_key.into_inner()),
+                ),
+                None => (false, 0, UnboundedBytes::default()),
+            },
+        )
+    }
+
+    #[precompile::public("getPrometheus(uint16,bytes32)")]
+    #[precompile::view]
+    fn get_prometheus(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+    ) -> EvmResult<(bool, u64, u32, u128, u16, u8)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::Prometheus::<R>::get(
+                NetUid::from(netuid),
+                R::AccountId::from(hotkey.0),
+            ) {
+                Some(info) => (
+                    true,
+                    info.block,
+                    info.version,
+                    info.ip,
+                    info.port,
+                    info.ip_type,
+                ),
+                None => (false, 0, 0, 0, 0, 0),
+            },
+        )
+    }
+
+    #[precompile::public("getChainIdentity(bytes32)")]
+    #[precompile::view]
+    fn get_chain_identity(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+    ) -> EvmResult<(
+        bool,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+    )> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::IdentitiesV2::<R>::get(R::AccountId::from(coldkey.0)) {
+                Some(identity) => (
+                    true,
+                    identity.name.into(),
+                    identity.url.into(),
+                    identity.github_repo.into(),
+                    identity.image.into(),
+                    identity.discord.into(),
+                    identity.description.into(),
+                    identity.additional.into(),
+                ),
+                None => (
+                    false,
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                ),
+            },
+        )
+    }
+
+    #[precompile::public("getSubnetIdentity(uint16)")]
+    #[precompile::view]
+    fn get_subnet_identity(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(
+        bool,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+        UnboundedBytes,
+    )> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::SubnetIdentitiesV3::<R>::get(NetUid::from(netuid)) {
+                Some(identity) => (
+                    true,
+                    identity.subnet_name.into(),
+                    identity.github_repo.into(),
+                    identity.subnet_contact.into(),
+                    identity.subnet_url.into(),
+                    identity.discord.into(),
+                    identity.description.into(),
+                    identity.logo_url.into(),
+                    identity.additional.into(),
+                ),
+                None => (
+                    false,
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                ),
+            },
+        )
+    }
+
+    #[precompile::public("getLoadedEmission(uint16)")]
+    #[precompile::view]
+    fn get_loaded_emission(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<(bool, Vec<(H256, u64, u64)>)> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(
+            match pallet_subtensor::LoadedEmission::<R>::get(NetUid::from(netuid)) {
+                Some(emission) => (
+                    true,
+                    emission
+                        .into_iter()
+                        .map(|(hotkey, server, validator)| {
+                            (H256::from(hotkey.into()), server, validator)
+                        })
+                        .collect(),
+                ),
+                None => (false, Vec::new()),
+            },
+        )
+    }
+
+    #[precompile::public("getTransactionKeyLastBlock(bytes32,uint16,uint16)")]
+    #[precompile::view]
+    fn get_transaction_key_last_block(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+        netuid: u16,
+        transaction_key: u16,
+    ) -> EvmResult<u64> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::TransactionKeyLastBlock::<R>::get((
+            R::AccountId::from(hotkey.0),
+            NetUid::from(netuid),
+            transaction_key,
+        )))
+    }
+
+    #[allow(deprecated)]
+    #[precompile::public("getLegacyTransactionRateBlocks(bytes32)")]
+    #[precompile::view]
+    fn get_legacy_transaction_rate_blocks(
+        handle: &mut impl PrecompileHandle,
+        hotkey: H256,
+    ) -> EvmResult<(u64, u64, u64)> {
+        handle.record_db_reads::<R>(3)?;
+        let hotkey = R::AccountId::from(hotkey.0);
+        Ok((
+            pallet_subtensor::LastTxBlock::<R>::get(&hotkey),
+            pallet_subtensor::LastTxBlockChildKeyTake::<R>::get(&hotkey),
+            pallet_subtensor::LastTxBlockDelegateTake::<R>::get(hotkey),
+        ))
+    }
+
+    #[precompile::public("getWeightCommit(uint16,bytes32,uint32)")]
+    #[precompile::view]
+    fn get_weight_commit(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+        index: u32,
+    ) -> EvmResult<(bool, H256, u64, u64)> {
+        handle.record_db_reads::<R>(1)?;
+        let commits = pallet_subtensor::WeightCommits::<R>::get(
+            NetUidStorageIndex::from(NetUid::from(netuid)),
+            R::AccountId::from(hotkey.0),
+        );
+        Ok(commits
+            .and_then(|commits| commits.get(index as usize).copied())
+            .map(|(hash, epoch, block, _)| (true, hash, epoch, block))
+            .unwrap_or((false, H256::zero(), 0, 0)))
+    }
+
+    #[precompile::public("getWeightCommitCount(uint16,bytes32)")]
+    #[precompile::view]
+    fn get_weight_commit_count(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        hotkey: H256,
+    ) -> EvmResult<u32> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::WeightCommits::<R>::get(
+            NetUidStorageIndex::from(NetUid::from(netuid)),
+            R::AccountId::from(hotkey.0),
+        )
+        .map(|commits| commits.len() as u32)
+        .unwrap_or(0))
+    }
+
+    #[precompile::public("getTimelockedWeightCommit(uint16,uint64,uint32)")]
+    #[precompile::view]
+    fn get_timelocked_weight_commit(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        epoch: u64,
+        index: u32,
+    ) -> EvmResult<(bool, H256, u64, H256, u32, u64)> {
+        handle.record_db_reads::<R>(1)?;
+        let commits = pallet_subtensor::TimelockedWeightCommits::<R>::get(
+            NetUidStorageIndex::from(NetUid::from(netuid)),
+            epoch,
+        );
+        Ok(commits
+            .get(index as usize)
+            .map(|(who, block, ciphertext, round)| {
+                (
+                    true,
+                    H256::from(who.clone().into()),
+                    *block,
+                    H256::from(sp_io::hashing::keccak_256(ciphertext.as_slice())),
+                    ciphertext.len() as u32,
+                    *round,
+                )
+            })
+            .unwrap_or((false, H256::zero(), 0, H256::zero(), 0, 0)))
+    }
+
+    #[precompile::public("getTimelockedWeightCommitCount(uint16,uint64)")]
+    #[precompile::view]
+    fn get_timelocked_weight_commit_count(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        epoch: u64,
+    ) -> EvmResult<u32> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_subtensor::TimelockedWeightCommits::<R>::get(
+            NetUidStorageIndex::from(NetUid::from(netuid)),
+            epoch,
+        )
+        .len() as u32)
+    }
+
+    #[precompile::public("getLegacyTimelockedWeightCommit(uint8,uint16,uint64,uint32)")]
+    #[precompile::view]
+    fn get_legacy_timelocked_weight_commit(
+        handle: &mut impl PrecompileHandle,
+        version: u8,
+        netuid: u16,
+        epoch: u64,
+        index: u32,
+    ) -> EvmResult<(bool, H256, u64, H256, u32, u64)> {
+        handle.record_db_reads::<R>(1)?;
+        let netuid = NetUidStorageIndex::from(NetUid::from(netuid));
+        match version {
+            1 => Ok(pallet_subtensor::CRV3WeightCommits::<R>::get(netuid, epoch)
+                .get(index as usize)
+                .map(|(who, ciphertext, round)| {
+                    (
+                        true,
+                        H256::from(who.clone().into()),
+                        0,
+                        H256::from(sp_io::hashing::keccak_256(ciphertext.as_slice())),
+                        ciphertext.len() as u32,
+                        *round,
+                    )
+                })
+                .unwrap_or((false, H256::zero(), 0, H256::zero(), 0, 0))),
+            2 => Ok(
+                pallet_subtensor::CRV3WeightCommitsV2::<R>::get(netuid, epoch)
+                    .get(index as usize)
+                    .map(|(who, block, ciphertext, round)| {
+                        (
+                            true,
+                            H256::from(who.clone().into()),
+                            *block,
+                            H256::from(sp_io::hashing::keccak_256(ciphertext.as_slice())),
+                            ciphertext.len() as u32,
+                            *round,
+                        )
+                    })
+                    .unwrap_or((false, H256::zero(), 0, H256::zero(), 0, 0)),
+            ),
+            _ => Err(revert("unsupported legacy weight-commit version")),
+        }
+    }
+
+    #[precompile::public("getLegacyTimelockedWeightCommitCount(uint8,uint16,uint64)")]
+    #[precompile::view]
+    fn get_legacy_timelocked_weight_commit_count(
+        handle: &mut impl PrecompileHandle,
+        version: u8,
+        netuid: u16,
+        epoch: u64,
+    ) -> EvmResult<u32> {
+        handle.record_db_reads::<R>(1)?;
+        let netuid = NetUidStorageIndex::from(NetUid::from(netuid));
+        match version {
+            1 => Ok(pallet_subtensor::CRV3WeightCommits::<R>::get(netuid, epoch).len() as u32),
+            2 => Ok(pallet_subtensor::CRV3WeightCommitsV2::<R>::get(netuid, epoch).len() as u32),
+            _ => Err(revert("unsupported legacy weight-commit version")),
+        }
+    }
+}
+
+fn dispatch_neuron<R>(
+    handle: &mut impl PrecompileHandle,
+    call: pallet_subtensor::Call<R>,
+) -> EvmResult<()>
+where
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_evm::Config
+        + pallet_subtensor::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
+    R::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
+{
+    let caller = handle.caller_account_id::<R>();
+    handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
 }
 
 #[cfg(test)]
@@ -873,6 +1746,145 @@ mod tests {
             assert_eq!(prometheus.ip, SERVE_IP);
             assert_eq!(prometheus.port, SERVE_PORT);
             assert_eq!(prometheus.ip_type, SERVE_IP_TYPE);
+        });
+    }
+
+    #[test]
+    fn neuron_state_views_return_typed_values_and_missing_state() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x8234);
+            let address = addr_from_index(NeuronPrecompile::<Runtime>::INDEX);
+            let precompiles = precompiles::<NeuronPrecompile<Runtime>>();
+            let netuid = NetUid::from(TEST_NETUID_U16);
+            let netuid_index = NetUidStorageIndex::from(netuid);
+            let hotkey = AccountId::from([0x81; 32]);
+            let hotkey_word = H256::from_slice(hotkey.as_ref());
+            let uid = 7_u16;
+            let weights = vec![(1_u16, 2_u16), (3_u16, 4_u16)];
+            let bonds = vec![(5_u16, 6_u16)];
+
+            pallet_subtensor::Uids::<Runtime>::insert(netuid, &hotkey, uid);
+            pallet_subtensor::IsNetworkMember::<Runtime>::insert(&hotkey, netuid, true);
+            pallet_subtensor::Weights::<Runtime>::insert(netuid_index, uid, weights.clone());
+            pallet_subtensor::Bonds::<Runtime>::insert(netuid_index, uid, bonds.clone());
+            pallet_subtensor::BlockAtRegistration::<Runtime>::insert(netuid, uid, 91_u64);
+
+            macro_rules! assert_view {
+                ($signature:literal, $arguments:expr, $expected:expr) => {
+                    precompiles
+                        .prepare_test(
+                            caller,
+                            address,
+                            encode_with_selector(selector_u32($signature), $arguments),
+                        )
+                        .with_static_call(true)
+                        .execute_returns($expected);
+                };
+            }
+
+            assert_view!(
+                "getUid(uint16,bytes32)",
+                (TEST_NETUID_U16, hotkey_word),
+                (true, uid)
+            );
+            assert_view!(
+                "isNetworkMember(bytes32,uint16)",
+                (hotkey_word, TEST_NETUID_U16),
+                true
+            );
+            assert_view!("getWeights(uint16,uint16)", (TEST_NETUID_U16, uid), weights);
+            assert_view!("getBonds(uint16,uint16)", (TEST_NETUID_U16, uid), bonds);
+            assert_view!(
+                "getBlockAtRegistration(uint16,uint16)",
+                (TEST_NETUID_U16, uid),
+                91_u64
+            );
+            assert_view!(
+                "getNeuronCertificate(uint16,bytes32)",
+                (TEST_NETUID_U16, hotkey_word),
+                (false, 0_u8, UnboundedBytes::default())
+            );
+            assert_view!(
+                "getPrometheus(uint16,bytes32)",
+                (TEST_NETUID_U16, hotkey_word),
+                (false, 0_u64, 0_u32, 0_u128, 0_u16, 0_u8)
+            );
+            assert_view!(
+                "getChainIdentity(bytes32)",
+                (hotkey_word,),
+                (
+                    false,
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                )
+            );
+            assert_view!(
+                "getSubnetIdentity(uint16)",
+                (TEST_NETUID_U16,),
+                (
+                    false,
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                    UnboundedBytes::default(),
+                )
+            );
+            assert_view!(
+                "getLoadedEmission(uint16)",
+                (TEST_NETUID_U16,),
+                (false, Vec::<(H256, u64, u64)>::new())
+            );
+            assert_view!(
+                "getTransactionKeyLastBlock(bytes32,uint16,uint16)",
+                (hotkey_word, TEST_NETUID_U16, 4_u16),
+                0_u64
+            );
+            assert_view!(
+                "getLegacyTransactionRateBlocks(bytes32)",
+                (hotkey_word,),
+                (0_u64, 0_u64, 0_u64)
+            );
+            assert_view!(
+                "getWeightCommit(uint16,bytes32,uint32)",
+                (TEST_NETUID_U16, hotkey_word, 0_u32),
+                (false, H256::zero(), 0_u64, 0_u64)
+            );
+            assert_view!(
+                "getWeightCommitCount(uint16,bytes32)",
+                (TEST_NETUID_U16, hotkey_word),
+                0_u32
+            );
+            assert_view!(
+                "getTimelockedWeightCommit(uint16,uint64,uint32)",
+                (TEST_NETUID_U16, 2_u64, 0_u32),
+                (false, H256::zero(), 0_u64, H256::zero(), 0_u32, 0_u64)
+            );
+            assert_view!(
+                "getTimelockedWeightCommitCount(uint16,uint64)",
+                (TEST_NETUID_U16, 2_u64),
+                0_u32
+            );
+            for version in [1_u8, 2_u8] {
+                assert_view!(
+                    "getLegacyTimelockedWeightCommit(uint8,uint16,uint64,uint32)",
+                    (version, TEST_NETUID_U16, 2_u64, 0_u32),
+                    (false, H256::zero(), 0_u64, H256::zero(), 0_u32, 0_u64)
+                );
+                assert_view!(
+                    "getLegacyTimelockedWeightCommitCount(uint8,uint16,uint64)",
+                    (version, TEST_NETUID_U16, 2_u64),
+                    0_u32
+                );
+            }
         });
     }
 }
