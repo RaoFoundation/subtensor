@@ -2445,6 +2445,12 @@ pub mod pallet {
         StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
 
     #[pallet::storage]
+    /// MAP ( netuid ) --> total_voting_power | Sum of all validator voting-power
+    /// entries on the subnet. Kept in sync with `VotingPower` so consumers can
+    /// read the aggregate without iterating the complete validator map.
+    pub type TotalVotingPower<T: Config> = StorageMap<_, Identity, NetUid, u64, ValueQuery>;
+
+    #[pallet::storage]
     /// MAP ( netuid ) --> bool | Whether voting power tracking is enabled for this subnet.
     /// When enabled, VotingPower EMA is updated every epoch. Default is false.
     /// When disabled with disable_at_block set, tracking continues until that block.

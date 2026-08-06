@@ -56,9 +56,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2526,
-        "end_line": 2534,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2524-L2534",
+        "line": 2531,
+        "end_line": 2539,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2529-L2539",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -106,9 +106,9 @@
         "pallet": "Proxy",
         "call": "add_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 267,
-        "end_line": 276,
-        "url": "/code/pallets/proxy/src/lib.rs#L265-L276",
+        "line": 281,
+        "end_line": 290,
+        "url": "/code/pallets/proxy/src/lib.rs#L279-L290",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -300,9 +300,9 @@
         "pallet": "SubtensorModule",
         "call": "announce_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2062,
-        "end_line": 2088,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2060-L2088",
+        "line": 2067,
+        "end_line": 2093,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2065-L2093",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -605,9 +605,9 @@
         "pallet": "SubtensorModule",
         "call": "clear_coldkey_swap_announcement",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2261,
-        "end_line": 2276,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2259-L2276",
+        "line": 2266,
+        "end_line": 2281,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2264-L2281",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -869,9 +869,9 @@
         "pallet": "Proxy",
         "call": "create_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 332,
-        "end_line": 364,
-        "url": "/code/pallets/proxy/src/lib.rs#L330-L364",
+        "line": 346,
+        "end_line": 378,
+        "url": "/code/pallets/proxy/src/lib.rs#L344-L378",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -954,9 +954,9 @@
         "pallet": "SubtensorModule",
         "call": "dispute_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2131,
-        "end_line": 2148,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2129-L2148",
+        "line": 2136,
+        "end_line": 2153,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2134-L2153",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1097,9 +1097,9 @@
         "pallet": "Proxy",
         "call": "proxy_announced",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 549,
-        "end_line": 573,
-        "url": "/code/pallets/proxy/src/lib.rs#L540-L573",
+        "line": 563,
+        "end_line": 587,
+        "url": "/code/pallets/proxy/src/lib.rs#L554-L587",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1298,9 +1298,9 @@
         "pallet": "Proxy",
         "call": "kill_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 384,
-        "end_line": 410,
-        "url": "/code/pallets/proxy/src/lib.rs#L382-L410",
+        "line": 398,
+        "end_line": 424,
+        "url": "/code/pallets/proxy/src/lib.rs#L396-L424",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1358,9 +1358,9 @@
         "pallet": "SubtensorModule",
         "call": "lock_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2333,
-        "end_line": 2341,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2331-L2341",
+        "line": 2338,
+        "end_line": 2346,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2336-L2346",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1405,9 +1405,9 @@
         "pallet": "SubtensorModule",
         "call": "move_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2357,
-        "end_line": 2364,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2355-L2364",
+        "line": 2362,
+        "end_line": 2369,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2360-L2369",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1815,9 +1815,9 @@
         "pallet": "Proxy",
         "call": "remove_proxies",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 306,
-        "end_line": 310,
-        "url": "/code/pallets/proxy/src/lib.rs#L304-L310",
+        "line": 320,
+        "end_line": 324,
+        "url": "/code/pallets/proxy/src/lib.rs#L318-L324",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1865,9 +1865,9 @@
         "pallet": "Proxy",
         "call": "remove_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 287,
-        "end_line": 296,
-        "url": "/code/pallets/proxy/src/lib.rs#L285-L296",
+        "line": 301,
+        "end_line": 310,
+        "url": "/code/pallets/proxy/src/lib.rs#L299-L310",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -2745,279 +2745,279 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_tempo",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1039,
-        "end_line": 1043,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1028-L1043",
+        "line": 1049,
+        "end_line": 1053,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1038-L1053",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_immunity_period",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 483,
-        "end_line": 509,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L481-L509",
+        "line": 493,
+        "end_line": 519,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L491-L519",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_allowed_weights",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 516,
-        "end_line": 542,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L514-L542",
+        "line": 526,
+        "end_line": 552,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L524-L552",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_weights_version_key",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 368,
-        "end_line": 396,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L366-L396",
+        "line": 378,
+        "end_line": 406,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L376-L406",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_activity_cutoff_factor",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 688,
-        "end_line": 702,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L686-L702",
+        "line": 698,
+        "end_line": 712,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L696-L712",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 770,
-        "end_line": 802,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L768-L802",
+        "line": 780,
+        "end_line": 812,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L778-L812",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_burn",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 809,
-        "end_line": 841,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L807-L841",
+        "line": 819,
+        "end_line": 851,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L817-L851",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_moving_average",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 901,
-        "end_line": 933,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L899-L933",
+        "line": 911,
+        "end_line": 943,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L909-L943",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_penalty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 940,
-        "end_line": 964,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L938-L964",
+        "line": 950,
+        "end_line": 974,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L948-L974",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_serving_rate_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 285,
-        "end_line": 304,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L283-L304",
+        "line": 295,
+        "end_line": 314,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L293-L314",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_interval",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1383,
-        "end_line": 1410,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1381-L1410",
+        "line": 1393,
+        "end_line": 1420,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1391-L1420",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 549,
-        "end_line": 592,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L547-L592",
+        "line": 559,
+        "end_line": 602,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L557-L602",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_increase_mult",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2218,
-        "end_line": 2256,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2216-L2256",
+        "line": 2228,
+        "end_line": 2266,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2226-L2266",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_burn_half_life",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2176,
-        "end_line": 2212,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2174-L2212",
+        "line": 2186,
+        "end_line": 2222,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2184-L2222",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_lock_share",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2342,
-        "end_line": 2375,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2340-L2375",
+        "line": 2352,
+        "end_line": 2385,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2350-L2385",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_collateral_drain_ratio",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2385,
-        "end_line": 2424,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2383-L2424",
+        "line": 2395,
+        "end_line": 2434,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2393-L2434",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_adjustment_alpha",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 452,
-        "end_line": 476,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L450-L476",
+        "line": 462,
+        "end_line": 486,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L460-L486",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_rho",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 615,
-        "end_line": 635,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L613-L635",
+        "line": 625,
+        "end_line": 645,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L623-L645",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_max_difficulty",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 335,
-        "end_line": 361,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L333-L361",
+        "line": 345,
+        "end_line": 371,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L343-L371",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_sigmoid_steepness",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1634,
-        "end_line": 1666,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1632-L1666",
+        "line": 1644,
+        "end_line": 1676,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1642-L1676",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_min_childkey_take_per_subnet",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1207,
-        "end_line": 1239,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1205-L1239",
+        "line": 1217,
+        "end_line": 1249,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1215-L1249",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_immune_neuron_limit",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1820,
-        "end_line": 1838,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1818-L1838",
+        "line": 1830,
+        "end_line": 1848,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1828-L1848",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_alpha_values",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1308,
-        "end_line": 1331,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1306-L1331",
+        "line": 1318,
+        "end_line": 1341,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1316-L1341",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_commit_reveal_weights_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1246,
-        "end_line": 1271,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1244-L1271",
+        "line": 1256,
+        "end_line": 1281,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1254-L1281",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_liquid_alpha_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1284,
-        "end_line": 1303,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1282-L1303",
+        "line": 1294,
+        "end_line": 1313,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1292-L1313",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_network_pow_registration_allowed",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 730,
-        "end_line": 736,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L728-L736",
+        "line": 740,
+        "end_line": 746,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L738-L746",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_yuma3_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1679,
-        "end_line": 1700,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1677-L1700",
+        "line": 1689,
+        "end_line": 1710,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1687-L1710",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_bonds_reset_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1713,
-        "end_line": 1734,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1711-L1734",
+        "line": 1723,
+        "end_line": 1744,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1721-L1744",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_toggle_transfer",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1472,
-        "end_line": 1492,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1470-L1492",
+        "line": 1482,
+        "end_line": 1502,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1480-L1502",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_cut_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2262,
-        "end_line": 2280,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2260-L2280",
+        "line": 2272,
+        "end_line": 2290,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2270-L2290",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       },
       {
         "pallet": "AdminUtils",
         "call": "sudo_set_owner_cut_auto_lock_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2286,
-        "end_line": 2304,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2284-L2304",
+        "line": 2296,
+        "end_line": 2314,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2294-L2314",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -3128,9 +3128,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_mechanism_count",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1880,
-        "end_line": 1900,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1878-L1900",
+        "line": 1890,
+        "end_line": 1910,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1888-L1910",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -3188,9 +3188,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2561,
-        "end_line": 2568,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2559-L2568",
+        "line": 2566,
+        "end_line": 2573,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2564-L2573",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3235,9 +3235,9 @@
         "pallet": "SubtensorModule",
         "call": "set_perpetual_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2373,
-        "end_line": 2380,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2371-L2380",
+        "line": 2378,
+        "end_line": 2385,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2376-L2385",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3290,9 +3290,9 @@
         "pallet": "SubtensorModule",
         "call": "sudo_set_root_claim_threshold",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2025,
-        "end_line": 2044,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2023-L2044",
+        "line": 2030,
+        "end_line": 2049,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2028-L2049",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3394,9 +3394,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_set_subnet_emission_enabled",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 2314,
-        "end_line": 2332,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L2312-L2332",
+        "line": 2324,
+        "end_line": 2342,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L2322-L2342",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]
@@ -3674,9 +3674,9 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_burn",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2245,
-        "end_line": 2253,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2243-L2253",
+        "line": 2250,
+        "end_line": 2258,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2248-L2258",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3758,9 +3758,9 @@
         "pallet": "SubtensorModule",
         "call": "swap_coldkey_announced",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2100,
-        "end_line": 2120,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2098-L2120",
+        "line": 2105,
+        "end_line": 2125,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2103-L2125",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4127,9 +4127,9 @@
         "pallet": "SubtensorModule",
         "call": "transfer_stake_and_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2468,
-        "end_line": 2486,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2466-L2486",
+        "line": 2473,
+        "end_line": 2491,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2471-L2491",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4174,9 +4174,9 @@
         "pallet": "AdminUtils",
         "call": "sudo_trim_to_max_allowed_uids",
         "path": "pallets/admin-utils/src/lib.rs",
-        "line": 1934,
-        "end_line": 1954,
-        "url": "/code/pallets/admin-utils/src/lib.rs#L1932-L1954",
+        "line": 1944,
+        "end_line": 1964,
+        "url": "/code/pallets/admin-utils/src/lib.rs#L1942-L1964",
         "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
       }
     ]

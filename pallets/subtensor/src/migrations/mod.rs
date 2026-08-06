@@ -77,6 +77,7 @@ pub mod migrate_subnet_volume;
 pub mod migrate_tao_in_refund_deployment_block;
 pub mod migrate_to_v1_separate_emission;
 pub mod migrate_to_v2_fixed_total_stake;
+pub mod migrate_total_voting_power;
 pub mod migrate_transfer_ownership_to_foundation;
 pub mod migrate_upgrade_revealed_commitments;
 

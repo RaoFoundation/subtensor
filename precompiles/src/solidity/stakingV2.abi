@@ -809,5 +809,1112 @@
     "outputs": [],
     "stateMutability": "payable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "alpha",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "limitPrice",
+        "type": "uint64"
+      }
+    ],
+    "name": "addCollateral",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "amount",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bool",
+        "name": "hasLimit",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "limit",
+        "type": "uint64"
+      }
+    ],
+    "name": "addStakeBurn",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16[]",
+        "name": "subnets",
+        "type": "uint16[]"
+      }
+    ],
+    "name": "claimRoot",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "claimRootWithHotkey",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "take",
+        "type": "uint16"
+      }
+    ],
+    "name": "decreaseTake",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "take",
+        "type": "uint16"
+      }
+    ],
+    "name": "increaseTake",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "amount",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "recycleAlpha",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "setAutoParentDelegationEnabled",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "take",
+        "type": "uint16"
+      }
+    ],
+    "name": "setChildkeyTake",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "setColdkeyAutoStakeHotkey",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint128",
+        "name": "rawRatio",
+        "type": "uint128"
+      }
+    ],
+    "name": "setCollateralDrainRatio",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "lockShare",
+        "type": "uint16"
+      }
+    ],
+    "name": "setCollateralLockShare",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "take",
+        "type": "uint16"
+      }
+    ],
+    "name": "setMinChildkeyTakePerSubnet",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "minLocked",
+        "type": "uint64"
+      }
+    ],
+    "name": "setMinCollateral",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "threshold",
+        "type": "uint64"
+      }
+    ],
+    "name": "setRootClaimThreshold",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "originNetuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "destinationNetuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "alphaAmount",
+        "type": "uint64"
+      }
+    ],
+    "name": "swapStake",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "originNetuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "destinationNetuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "alphaAmount",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "limitPrice",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bool",
+        "name": "allowPartial",
+        "type": "bool"
+      }
+    ],
+    "name": "swapStakeLimit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "destinationColdkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "originHotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "destinationHotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "originNetuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "destinationNetuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "alphaAmount",
+        "type": "uint64"
+      }
+    ],
+    "name": "transferStakeAndHotkey",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "unstakeAll",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "unstakeAllAlpha",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+{
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getAutoStakeDestination",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getAutoStakeDestinationColdkeys",
+    "outputs": [
+      {
+        "internalType": "bytes32[]",
+        "name": "",
+        "type": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "parent",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getChildKeys",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "proportion",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "account",
+            "type": "bytes32"
+          }
+        ],
+        "internalType": "struct IStaking.KeyLink[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getChildkeyTake",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getColdkeyCollateral",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "locked",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "hotkeys",
+        "type": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getColdkeyRoot",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "root",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getColdkeySuccessor",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "successor",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getColdkeySwapDelays",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "announcementDelay",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "reannouncementDelay",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getColdkeySwapStatus",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "hasAnnouncement",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "announcementBlock",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "callHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bool",
+        "name": "hasDispute",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "disputeBlock",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getCollateralConfig",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "lockShare",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint128",
+        "name": "drainRatio",
+        "type": "uint128"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getDelegate",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint16",
+        "name": "take",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getHotkeyOwner",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "owner",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getHotkeyRoot",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "root",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getHotkeySuccessor",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "successor",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getLastHotkeySwapOnSubnet",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getMinChildkeyTakePerSubnet",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getMinerCollateral",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint64",
+        "name": "locked",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint128",
+        "name": "drainRatio",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint64",
+        "name": "minLocked",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "earned",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getOwnedHotkeys",
+    "outputs": [
+      {
+        "internalType": "bytes32[]",
+        "name": "",
+        "type": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "child",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getParentKeys",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "proportion",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "account",
+            "type": "bytes32"
+          }
+        ],
+        "internalType": "struct IStaking.KeyLink[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getPendingChildKeyCooldown",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "parent",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getPendingChildKeys",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "proportion",
+            "type": "uint64"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "account",
+            "type": "bytes32"
+          }
+        ],
+        "internalType": "struct IStaking.KeyLink[]",
+        "name": "children",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint64",
+        "name": "cooldownBlock",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getStakeAccounting",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "totalIssuance",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "totalStake",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getTakeLimits",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "minDelegateTake",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxDelegateTake",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "minChildkeyTake",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxChildkeyTake",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "hotkey",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getUnclaimedRootTaoByHotkey",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "taoValue",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "hotkeys",
+        "type": "bytes32[]"
+      }
+    ],
+    "name": "getUnclaimedRootTaoBySubnet",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "taoValue",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ]

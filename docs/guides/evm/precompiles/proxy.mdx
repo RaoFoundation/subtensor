@@ -1,0 +1,59 @@
+---
+title: Proxy
+description: Reference for the deployed ProxyPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `ProxyPrecompile` |
+| Solidity interface | `IProxy` |
+| Address | `0x000000000000000000000000000000000000080b` |
+| Status | Deployed |
+
+## Functions
+
+| Function | Mutability |
+|---|---|
+| `createPureProxy(uint8,uint32,uint16)` | nonpayable |
+| `proxyCall(bytes32,uint8[],uint8[])` | nonpayable |
+| `killPureProxy(bytes32,uint8,uint16,uint32,uint32)` | nonpayable |
+| `addProxy(bytes32,uint8,uint32)` | nonpayable |
+| `removeProxy(bytes32,uint8,uint32)` | nonpayable |
+| `removeProxies()` | nonpayable |
+| `pokeDeposit()` | nonpayable |
+| `getProxies(bytes32)` | `view` |
+| `getProxyDeposit(bytes32)` | `view` |
+| `getAnnouncements(bytes32)` | `view` |
+| `getLastCallResult(bytes32)` | `view` |
+| `isRealPaysFee(bytes32,bytes32)` | `view` |
+
+`getLastCallResult` returns stable success/error metadata. Module errors expose
+the pallet index and four error bytes. Error kinds are `1` Other, `2`
+CannotLookup, `3` BadOrigin, `4` Module, `5` ConsumerRemaining, `6`
+NoProviders, `7` TooManyConsumers, `8` Token, `9` Arithmetic, `10`
+Transactional, `11` Exhausted, `12` Corruption, `13` Unavailable, `14`
+RootNotAllowed, and `15` Trie. This avoids returning SCALE-encoded runtime
+data.
+
+## Added operations
+
+| Function | Source extrinsic |
+|---|---|
+| `announce` | `Proxy.announce` |
+| `removeAnnouncement` | `Proxy.remove_announcement` |
+| `rejectAnnouncement` | `Proxy.reject_announcement` |
+| `setRealPaysFee` | `Proxy.set_real_pays_fee` |
+
+## Proposed operation
+
+| Function | Source extrinsic |
+|---|---|
+| `proxyAnnounced` | `Proxy.proxy_announced` |
+
+`proxyAnnounced` must use the same versioned, stable EVM call description as
+other typed proxy execution. A new interface must not introduce another
+dependency on SCALE-encoded `RuntimeCall`.
+
+No selector is reserved for `proxyAnnounced`.
+
+Source: [`proxy.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/proxy.sol)

@@ -435,6 +435,18 @@ class Staking(_ReadNamespace):
     async def stake(self, coldkey_ss58: str, hotkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Balance:
         """Alpha staked by a coldkey to a hotkey on a subnet (TAO when netuid is 0)."""
 
+    async def stake_availability(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> dict:
+        """Free vs locked stake for a coldkey on one subnet.
+
+        `locked` is conviction-locked mass (plus any miner collateral reserved
+        against the coldkey on that subnet). `available` is what can still be
+        unstaked or transferred without moving lock mass. Both are denominated in
+        the subnet's own currency (TAO on netuid 0).
+        """
+
+    async def stake_availability_for_coldkey(self, coldkey_ss58: str, netuids: list[int], *, block: Optional[int] = None) -> list[dict]:
+        """Free vs locked stake for a coldkey across many subnets (one runtime call)."""
+
     async def stake_for_coldkey(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[StakePosition]:
         """Every stake position held by a coldkey, across all hotkeys and subnets.
 
@@ -490,8 +502,9 @@ class Staking(_ReadNamespace):
         The `(netuid, weight)` pairs its root dividends are deployed into each
         epoch, exactly as stored (u16, max-upscaled), plus each destination's
         normalized `share` of the total.     Netuid 0 means "hold as TAO / root
-        stake". An empty list means no custom weights are set; dividends accrue
-        100% into the fund's root (TAO cash) slot.
+        stake". An empty list means no custom weights are set; the fund is
+        uncurated and each subnet's dividend accumulates in place on that
+        subnet, trade-free (no sell, no redeploy).
         """
 
 class Subnets(_ReadNamespace):

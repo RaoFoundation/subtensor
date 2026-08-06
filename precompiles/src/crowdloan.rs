@@ -244,6 +244,21 @@ where
 
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
     }
+
+    #[precompile::public("setMaxContribution(uint32,bool,uint64)")]
+    fn set_max_contribution(
+        handle: &mut impl PrecompileHandle,
+        crowdloan_id: u32,
+        has_max_contribution: bool,
+        max_contribution: u64,
+    ) -> EvmResult<()> {
+        let account_id = handle.caller_account_id::<R>();
+        let call = pallet_crowdloan::Call::<R>::set_max_contribution {
+            crowdloan_id,
+            new_max_contribution: has_max_contribution.then_some(max_contribution.into()),
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(account_id))
+    }
 }
 
 #[derive(Codec)]

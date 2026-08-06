@@ -1,0 +1,38 @@
+---
+title: Drand
+description: Typed EVM interface for stored Drand randomness.
+---
+
+| Property | Value |
+|---|---|
+| Implementation | `DrandPrecompile` |
+| Solidity interface | `IDrand` |
+| Address | `0x0000000000000000000000000000000000000810` |
+| Status | Deployed |
+
+This precompile exposes typed beacon configuration and pulse data instead
+of requiring callers to construct Drand storage keys and decode SCALE values.
+Contracts can use the runtime's stored randomness state deterministically
+without receiving permission to configure the beacon or submit pulses.
+
+## Views
+
+| Function | Replaces |
+|---|---|
+| `getBeaconConfig()` | `Drand.BeaconConfig` |
+| `getPulse(uint64 round)` | `Drand.Pulses` |
+| `getStoredRoundRange()` | `Drand.OldestStoredRound` and `Drand.LastStoredRound` |
+| `getNextUnsignedAt()` | `Drand.NextUnsignedAt` |
+| `hasMigrationRun(bytes key)` | `Drand.HasMigrationRun` |
+
+## State-changing operations
+
+`Drand.set_beacon_config` and `Drand.set_oldest_stored_round` require Root, and
+`Drand.write_pulse` requires `None` origin as an unsigned offchain-worker
+submission. None is exposed as a typed EVM operation because doing so would
+bypass the pallet's top-level origin checks.
+
+`hasMigrationRun(bytes)` bounds the supplied key to 128 bytes before reading
+storage.
+
+Source: [`drand.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/drand.sol)

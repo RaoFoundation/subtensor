@@ -1,0 +1,86 @@
+---
+title: Extrinsic coverage
+description: Audit of typed EVM coverage for every extrinsic in the authorized runtime pallets.
+---
+
+This audit covers the runtime's `SubtensorModule`, `AdminUtils`, `Balances`,
+`Proxy`, `Scheduler`, `Drand`, `Crowdloan`, `Timestamp`, and `Swap` pallets.
+Sudo and Multisig extrinsics are intentionally outside typed precompile
+coverage.
+
+Generic SCALE dispatch through the Frontier `Dispatch` precompile does not
+count as typed coverage. A covered operation must have a stable Solidity
+interface or an explicit proposed typed replacement.
+
+## Coverage summary
+
+| Pallet | Runtime extrinsics | Typed today | Proposed signed additions | Not exposed |
+|---|---:|---:|---:|---:|
+| `SubtensorModule` | 82 | 68 | 0 | 14 |
+| `AdminUtils` | 86 | 40 | 0 | 46 |
+| `Balances` | 9 | 5 | 0 | 4 |
+| `Proxy` | 12 | 11 | 1 | 0 |
+| `Scheduler` | 10 | 0 | 0 | 10 |
+| `Drand` | 3 | 0 | 0 | 3 |
+| `Crowdloan` | 10 | 10 | 0 | 0 |
+| `Timestamp` | 1 | 0 | 0 | 1 |
+| `Swap` | 6 | 0 | 0 | 6 |
+| **Total** | **219** | **134** | **1** | **84** |
+
+`Typed today` counts semantic coverage, not only direct dispatch to the same
+Rust call. For example, `registerNetwork(bytes32)` covers basic subnet
+registration by dispatching `register_network_with_identity` with empty
+identity fields.
+
+`Proposed signed additions` includes extrinsics whose highest-level pallet call
+accepts a non-Root signed origin. If a call also accepts Root, only its signed
+path is exposed: the mapped EVM caller is dispatched as `Signed`, and the
+pallet performs its normal authorization checks.
+
+## Signed additions
+
+Each implemented operation is listed on the page of its target precompile:
+
+| Target precompile | Missing extrinsics assigned |
+|---|---:|
+| [Subnet](/docs/guides/evm/precompiles/subnet) | 13 |
+| [Staking V2](/docs/guides/evm/precompiles/staking-v2) | 20 |
+| [Neuron](/docs/guides/evm/precompiles/neuron) | 21 |
+| [Alpha](/docs/guides/evm/precompiles/alpha) | 3 |
+| [Account balance](/docs/guides/evm/precompiles/account-balance) | 2 |
+| [Proxy](/docs/guides/evm/precompiles/proxy) | 4 |
+| [Balance transfer](/docs/guides/evm/precompiles/balance-transfer) | 2 |
+| [Voting power](/docs/guides/evm/precompiles/voting-power) | 2 |
+| [Leasing](/docs/guides/evm/precompiles/leasing) | 1 |
+| [Crowdloan](/docs/guides/evm/precompiles/crowdloan) | 1 |
+
+The only remaining proposed signed operation is `Proxy.proxy_announced`. It
+requires a stable, versioned EVM description of the proxied runtime call and
+must not add another SCALE-encoded `RuntimeCall` interface.
+
+## Extrinsics not exposed as EVM calls
+
+| Pallet extrinsic | Reason |
+|---|---|
+| Root-only `SubtensorModule` extrinsics | `dissolve_network`, `root_dissolve_network`, `swap_coldkey`, `sudo_set_tx_childkey_take_rate_limit`, `sudo_set_min_childkey_take`, `sudo_set_max_childkey_take`, `set_pending_childkey_cooldown`, `reset_coldkey_swap`, `sudo_set_num_root_claims`, and `sudo_set_voting_power_ema_alpha` require Root. |
+| `SubtensorModule.schedule_swap_coldkey` | Deprecated compatibility call that always returns `Deprecated`. |
+| `SubtensorModule.faucet` | Build-feature-only development call; it is not part of the production runtime interface. |
+| `SubtensorModule.set_tempo` | Retained call-index compatibility entry point that succeeds without changing state. The real setting is exposed as `SubnetPrecompile.setTempo` through `AdminUtils.sudo_set_tempo`. |
+| `SubtensorModule.set_activity_cutoff_factor` | Retained call-index compatibility entry point that succeeds without changing state. The active AdminUtils operation is already covered by `SubnetPrecompile.setActivityCutoffFactor`. |
+| Root-only `AdminUtils` extrinsics | Root-only administration is not delegated to EVM callers. For calls that also accept a signed subnet owner, the domain precompile dispatches the highest-level call as the mapped EVM signer and preserves its authorization checks. |
+| `AdminUtils.sudo_set_total_issuance` | Deprecated call that always returns `Deprecated`. |
+| Root-only `Balances` extrinsics | `force_unreserve`, `force_transfer`, `force_set_balance`, and `force_adjust_total_issuance` require Root. |
+| All `Scheduler` extrinsics | `Scheduler.ScheduleOrigin` is configured as Root in the runtime. |
+| `Drand.write_pulse` | Unsigned offchain-worker submission requiring `None` origin. An EVM caller cannot satisfy that origin without changing its security model. |
+| Drand configuration extrinsics | `set_beacon_config` and `set_oldest_stored_round` require Root. |
+| `Timestamp.set` | Block-production inherent requiring `None` origin. Contracts already receive the same time through `block.timestamp`. |
+| `Swap.set_fee_rate` | Requires Root. |
+| `Swap.add_liquidity` | Permanently disabled pallet call that always returns `Deprecated`. |
+| `Swap.remove_liquidity` | Permanently disabled pallet call that always returns `Deprecated`. |
+| `Swap.modify_position` | Permanently disabled pallet call that always returns `Deprecated`. |
+| `Swap.toggle_user_liquidity` | Permanently disabled pallet call that always returns `Deprecated`. |
+| `Swap.disable_lp` | Permanently disabled pallet call that always returns `Deprecated`. |
+
+These exclusions preserve the existing runtime origin and lifecycle semantics.
+A typed precompile must not manufacture Root or `None`, call an internal helper,
+or write storage directly to make one of these operations callable.

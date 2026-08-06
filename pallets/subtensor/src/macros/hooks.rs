@@ -184,6 +184,8 @@ mod hooks {
                 .saturating_add(migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<T>())
                 // Backfill ColdkeyCollateralHotkeys from standing MinerCollateral rows.
                 .saturating_add(migrations::migrate_coldkey_collateral_hotkeys::migrate_coldkey_collateral_hotkeys::<T>())
+                // Backfill the O(1) aggregate used by the voting-power precompile.
+                .saturating_add(migrations::migrate_total_voting_power::migrate_total_voting_power::<T>())
                 // Kick off the unified beta-basket seed (cursor only — conversion is on_idle
                 // so ORU stays idempotent for try-runtime). Fresh key so chains that ran the
                 // superseded per-slot v1 seed still convert.

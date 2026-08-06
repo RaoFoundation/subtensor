@@ -452,6 +452,13 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
+    /// Return the block at which the next unsigned pulse submission is accepted.
+    pub fn next_unsigned_at() -> BlockNumberFor<T> {
+        NextUnsignedAt::<T>::get()
+    }
+}
+
+impl<T: Config> Pallet<T> {
     /// fetch the latest public pulse from the configured drand beacon
     /// then send a signed transaction to include it on-chain
     fn fetch_drand_pulse_and_send_unsigned(

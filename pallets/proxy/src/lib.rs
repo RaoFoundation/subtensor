@@ -93,6 +93,20 @@ pub struct Announcement<AccountId, Hash, BlockNumber> {
     height: BlockNumber,
 }
 
+impl<AccountId, Hash, BlockNumber> Announcement<AccountId, Hash, BlockNumber> {
+    pub fn real(&self) -> &AccountId {
+        &self.real
+    }
+
+    pub fn call_hash(&self) -> &Hash {
+        &self.call_hash
+    }
+
+    pub fn height(&self) -> &BlockNumber {
+        &self.height
+    }
+}
+
 /// The type of deposit
 #[derive(
     Encode,

@@ -1,8 +1,15 @@
 use core::marker::PhantomData;
 
-use pallet_evm::PrecompileHandle;
-use precompile_utils::EvmResult;
+use alloc::vec::Vec;
+use frame_support::{
+    dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo},
+    traits::{ConstU32, IsSubType},
+};
+use frame_system::RawOrigin;
+use pallet_evm::{AddressMapping, PrecompileHandle};
+use precompile_utils::{EvmResult, prelude::BoundedVec};
 use sp_core::{H256, U256};
+use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
 
 use crate::PrecompileExt;
 use crate::PrecompileHandleExt;
@@ -11,9 +18,26 @@ pub struct BalancePrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for BalancePrecompile<R>
 where
-    R: frame_system::Config + pallet_balances::Config + pallet_evm::Config,
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_evm::Config
+        + pallet_subtensor::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
     R::AccountId: From<[u8; 32]>,
-    <R as pallet_balances::Config>::Balance: Into<U256>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     const INDEX: u64 = 2062;
 }
@@ -21,9 +45,26 @@ where
 #[precompile_utils::precompile]
 impl<R> BalancePrecompile<R>
 where
-    R: frame_system::Config + pallet_balances::Config + pallet_evm::Config,
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_evm::Config
+        + pallet_subtensor::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
     R::AccountId: From<[u8; 32]>,
-    <R as pallet_balances::Config>::Balance: Into<U256>,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_balances::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     #[precompile::public("getFreeBalance(bytes32)")]
     #[precompile::view]
@@ -31,6 +72,47 @@ where
         handle.record_db_reads::<R>(1)?;
         let coldkey = R::AccountId::from(coldkey.0);
         Ok(pallet_balances::Pallet::<R>::free_balance(&coldkey).into())
+    }
+
+    #[precompile::public("getTotalIssuance()")]
+    #[precompile::view]
+    fn get_total_issuance(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
+        handle.record_db_reads::<R>(1)?;
+        Ok(pallet_balances::Pallet::<R>::total_issuance().into())
+    }
+
+    #[precompile::public("burnBalance(uint256,bool)")]
+    fn burn_balance(
+        handle: &mut impl PrecompileHandle,
+        amount: U256,
+        keep_alive: bool,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let call = pallet_balances::Call::<R>::burn {
+            value: amount
+                .try_into()
+                .map_err(|_| fp_evm::PrecompileFailure::Error {
+                    exit_status: fp_evm::ExitError::Other(
+                        "balance amount does not fit runtime".into(),
+                    ),
+                })?,
+            keep_alive,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+    }
+
+    #[precompile::public("upgradeAccounts(bytes32[])")]
+    fn upgrade_accounts(
+        handle: &mut impl PrecompileHandle,
+        accounts: BoundedVec<H256, ConstU32<64>>,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let who = Vec::<H256>::from(accounts)
+            .into_iter()
+            .map(|account| R::AccountId::from(account.0))
+            .collect();
+        let call = pallet_balances::Call::<R>::upgrade_accounts { who };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 }
 
@@ -87,6 +169,17 @@ mod tests {
                 .with_static_call(true)
                 .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
                 .execute_returns_raw(abi_word(U256::from(amount)));
+
+            let total_issuance: U256 = pallet_balances::Pallet::<Runtime>::total_issuance().into();
+            precompiles::<BalancePrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(BalancePrecompile::<Runtime>::INDEX),
+                    selector_u32("getTotalIssuance()").to_be_bytes().to_vec(),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns(total_issuance);
         });
     }
 
