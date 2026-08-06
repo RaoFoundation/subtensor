@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 
+use alloc::string::String;
 use pallet_admin_utils::{PrecompileEnable, PrecompileEnum};
 use pallet_evm::PrecompileHandle;
 use precompile_utils::{
