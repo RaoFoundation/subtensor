@@ -35,7 +35,7 @@ type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 /// proxy is an explicit signal of trust that the proxy manages the coldkey's
 /// stake, and `claim_root` can only restake the payout on root for that same
 /// coldkey.
-type StakingAllowed = (StakeManagementCalls, RootClaimTypeCalls, RootClaimCalls);
+type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 
 /// `Registration`: acquire a slot (POW or by burn).
 type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
