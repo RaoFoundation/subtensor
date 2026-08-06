@@ -388,7 +388,13 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
 
     Raises ``ValueError`` when the preset or local signatory set is unusable.
     """
-    from ..intents.multisig import MultisigExecute, MultisigThreshold1, _compose_inner
+    from ..intents.multisig import (
+        MultisigExecute,
+        MultisigIntentAdapter,
+        MultisigThreshold1,
+        MultisigThreshold1IntentAdapter,
+        _compose_inner,
+    )
 
     if getattr(intent, "signer", None) != "coldkey":
         return intent
@@ -414,7 +420,8 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         app_ctx.output.message(
             f"[dim]dispatching via 1-of-{len(signatories)} multisig {preset}[/dim]"
         )
-        return MultisigThreshold1(other_signatories=others, call=call_dict)
+        dispatch = MultisigThreshold1(other_signatories=others, call=call_dict)
+        return MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=intent)
 
     async def _timepoint(client):
         wallet = wallets.open_wallet(member_name, path=app_ctx.wallet_path)
@@ -433,12 +440,13 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         f"[dim]{action} via {threshold}-of-{len(signatories)} multisig {preset} "
         f"as {format_signatory_display(signer_ss58, member_name)}[/dim]"
     )
-    return MultisigExecute(
+    dispatch = MultisigExecute(
         threshold=threshold,
         other_signatories=others,
         call=call_dict,
         timepoint=timepoint,
     )
+    return MultisigIntentAdapter(dispatch=dispatch, semantic=intent)
 
 
 async def multisig_list_records(

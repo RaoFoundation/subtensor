@@ -530,6 +530,7 @@ class AppContext:
         except ValueError as error:
             self.output.error(str(error))
             raise typer.Exit(2) from error
+        semantic_intent = intent.semantic_intent()
 
         # MEV shielding: explicit flag > persistent config > the intent's own
         # default. `forced` distinguishes "the user asked for shielding" (hard
@@ -538,10 +539,10 @@ class AppContext:
         # `mev_shield_required` intents (collateral AMM buys) refuse the
         # unshielded opt-out entirely.
         configured_shield = cfg.get("mev_shield")
-        if intent.mev_shield_required:
+        if semantic_intent.mev_shield_required:
             if self.mev_shield is False or configured_shield is False:
                 self.output.error(
-                    f"{intent.op} must be submitted MEV-shielded",
+                    f"{semantic_intent.op} must be submitted MEV-shielded",
                     help=(
                         "collateral / burned-registration AMM fills cannot run "
                         "unshielded; omit --no-mev-shield"
@@ -557,17 +558,17 @@ class AppContext:
             shield = bool(configured_shield)
             shield_forced = shield
         else:
-            shield = intent.mev_shield_default
+            shield = semantic_intent.mev_shield_default
             shield_forced = False
         if shield and (proxy_for is not None or self.uses_extension_signer()):
             blocker = "a proxied call" if proxy_for is not None else "the extension signer"
-            if shield_forced or intent.mev_shield_required:
+            if shield_forced or semantic_intent.mev_shield_required:
                 self.output.error(
                     f"MEV shielding cannot wrap {blocker}",
                     help=(
                         "collateral intents cannot fall back to unshielded; "
                         "sign directly without a proxy/extension"
-                        if intent.mev_shield_required
+                        if semantic_intent.mev_shield_required
                         else "pass --no-mev-shield to submit unshielded"
                     ),
                 )
@@ -607,12 +608,12 @@ class AppContext:
 
                 shortfall = self.run(_shield_fee_preflight)
                 if shortfall is not None:
-                    if shield_forced or intent.mev_shield_required:
+                    if shield_forced or semantic_intent.mev_shield_required:
                         self.output.error(
                             "MEV-shielded submission needs free TAO for the outer carrier fee",
                             help=(
-                                f"{intent.op} cannot submit unshielded"
-                                if intent.mev_shield_required
+                                f"{semantic_intent.op} cannot submit unshielded"
+                                if semantic_intent.mev_shield_required
                                 else "pass --no-mev-shield to submit unshielded "
                                 "(alpha fees work on the bare call), or fund the "
                                 "signing account with free TAO"
@@ -816,13 +817,13 @@ class AppContext:
                 # The MevShield pallet isn't active here (e.g. localnet). A
                 # forced / required shield must fail loudly; the built-in
                 # default degrades visibly so the command still works.
-                if shield_forced or intent.mev_shield_required:
+                if shield_forced or semantic_intent.mev_shield_required:
                     raise BittensorError(
                         "MEV shield is not active on this network "
                         "(MevShield.NextKey is unset); "
                         + (
-                            f"{intent.op} cannot submit unshielded"
-                            if intent.mev_shield_required
+                            f"{semantic_intent.op} cannot submit unshielded"
+                            if semantic_intent.mev_shield_required
                             else "pass --no-mev-shield to submit unshielded"
                         )
                     )
@@ -844,13 +845,13 @@ class AppContext:
                     else None
                 )
                 if shortfall is not None:
-                    if shield_forced or intent.mev_shield_required:
+                    if shield_forced or semantic_intent.mev_shield_required:
                         raise BittensorError(
                             "MEV-shielded submission needs free TAO for the outer "
                             "carrier fee; "
                             + (
-                                f"{intent.op} cannot submit unshielded"
-                                if intent.mev_shield_required
+                                f"{semantic_intent.op} cannot submit unshielded"
+                                if semantic_intent.mev_shield_required
                                 else "pass --no-mev-shield to submit unshielded "
                                 "(alpha fees work on the bare call)"
                             )

@@ -221,6 +221,65 @@ class MultisigExecute(Intent):
         )
 
 
+@dataclass
+class MultisigIntentAdapter(Intent):
+    """Keep an inner intent's safety contract while dispatching it by multisig.
+
+    Saved-multisig CLI wallets turn a regular coldkey intent into one of the
+    concrete multisig intents above. The concrete intent owns call composition,
+    while ``semantic`` remains authoritative for policy scope and MEV handling.
+    This adapter is internal and deliberately unregistered: it is execution
+    state, not a separate operation exposed by the SDK.
+    """
+
+    op = "multisig_execute"
+    signer = "coldkey"
+
+    dispatch: MultisigExecute | MultisigThreshold1 = field(repr=False)
+    semantic: Intent = field(repr=False)
+
+    @property
+    def threshold(self) -> int:
+        return int(getattr(self.dispatch, "threshold", 1))
+
+    @property
+    def other_signatories(self) -> list:
+        return self.dispatch.other_signatories
+
+    async def build(self, substrate, wallet: Any):
+        return await self.dispatch.build(substrate, wallet)
+
+    def summary(self) -> str:
+        return self.dispatch.summary()
+
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        return await self.dispatch.effects(substrate, signer_address)
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        return await self.dispatch.warnings(substrate, signer_address)
+
+    def spend(self):
+        return self.semantic.spend()
+
+    def touches_netuids(self) -> list[int]:
+        return self.semantic.touches_netuids()
+
+    def affects_all_subnets(self) -> bool:
+        return self.semantic.affects_all_subnets()
+
+    def semantic_intent(self) -> Intent:
+        return self.semantic
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.dispatch.to_dict()
+
+
+class MultisigThreshold1IntentAdapter(MultisigIntentAdapter):
+    """Safety-preserving adapter for immediate 1-of-N dispatch."""
+
+    op = "multisig_threshold_1"
+
+
 @register
 @dataclass
 class MultisigApprove(Intent):

@@ -49,6 +49,7 @@ class Policy:
         return ["raw call submission is disabled by policy (set allow_raw_calls=True)"]
 
     def check(self, intent: Intent, fee: Optional[Balance]) -> list[str]:
+        intent = intent.semantic_intent()
         violations: list[str] = []
         if self.max_fee_tao is not None:
             # A fee cap must not fail open: an unavailable estimate blocks

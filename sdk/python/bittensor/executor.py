@@ -523,7 +523,7 @@ class Executor:
             violations=violations,
             call=call,
             extras=extras,
-            spend=intent.spend(),
+            spend=intent.semantic_intent().spend(),
             args={k: v for k, v in intent.to_dict().items() if k != "op"},
         )
 
@@ -565,7 +565,7 @@ class Executor:
         return the queue receipt instead. ``registration_timeout`` and the
         optional ``on_progress(dict)`` callback apply only to that wait.
         """
-        if intent.mev_shield_required:
+        if intent.semantic_intent().mev_shield_required:
             if proxy_for is not None:
                 raise BittensorError(
                     f"{intent.op} must be submitted MEV-shielded and cannot "
