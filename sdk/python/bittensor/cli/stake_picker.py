@@ -12,35 +12,140 @@ stake are offered — so the position list covers just that subnet.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Optional
 
 import typer
 from rich.console import Console
 from rich.text import Text
 
+from .. import wallets
 from ..balance import Balance
 from ..reads import StakePosition, StakeValuation
 from .context import AppContext, address_cli_name
 from .helpers import chain_identity_names, local_address_names
 from .output import STYLE_COMMAND, STYLE_HINT, STYLE_KEY, STYLE_NAME, Output
-from .prompt import PromptSpec
+from .prompt import PromptSpec, ask
 
 # Positions whose spot value is below this are dust: hidden from the pickers
 # (unless everything is dust) but still selectable by typing the netuid/hotkey.
 _DUST_RAO = 1_000_000  # τ0.001
 
-# op -> (hotkey field the stake comes from, netuid field naming its subnet).
-# A None netuid field means the op spans every subnet the hotkey is staked on.
-STAKE_SOURCE_FIELDS: dict[str, tuple[str, Optional[str]]] = {
-    "remove_stake": ("hotkey_ss58", "netuid"),
-    "remove_stake_limit": ("hotkey_ss58", "netuid"),
-    "unstake_all": ("hotkey_ss58", None),
-    "unstake_all_alpha": ("hotkey_ss58", None),
-    "swap_stake": ("hotkey_ss58", "origin_netuid"),
-    "transfer_stake": ("hotkey_ss58", "origin_netuid"),
-    "move_stake": ("origin_hotkey_ss58", "origin_netuid"),
-}
+
+def stake_target_spec(hotkey_field: str) -> PromptSpec:
+    """A PromptSpec whose custom flow picks the destination hotkey to stake to."""
+    return PromptSpec(
+        field=hotkey_field,
+        flag=address_cli_name(hotkey_field),
+        help=None,
+        parse=lambda _app_ctx, raw: raw,  # unused: the custom flow does everything
+        custom=lambda console, app_ctx, kwargs: _pick_target(
+            console, app_ctx, kwargs, hotkey_field
+        ),
+    )
+
+
+def _pick_target(
+    console: Console,
+    app_ctx: AppContext,
+    kwargs: dict,
+    hotkey_field: str,
+) -> list[str]:
+    """List the wallet's local hotkeys and ask which validator to stake to.
+
+    Any answer the flag form would take also works: a list number, a local
+    hotkey name (or ``WALLET/HOTKEY``), an address-book name, or a pasted
+    ss58 — the target does not have to exist locally.
+    """
+    local = next(
+        (
+            ck.hotkeys
+            for ck in wallets.list_wallets_detailed(app_ctx.wallet_path)
+            if ck.name == app_ctx.wallet_name
+        ),
+        [],
+    )
+    local = [hk for hk in local if hk.ss58]
+    flag = address_cli_name(hotkey_field)
+
+    hint = Text("  ")
+    hint.append(flag, style=STYLE_COMMAND)
+    hint.append("  ")
+    hint.append(
+        "Validator hotkey the stake goes to — it does not have to be a local key.",
+        style=STYLE_HINT,
+    )
+    console.print(hint)
+    if local:
+        labels = [f"{app_ctx.wallet_name}/{hk.name}" for hk in local]
+        label_width = max(len(label) for label in labels)
+        number_width = len(str(len(local)))
+        for index, (hk, label) in enumerate(zip(local, labels), start=1):
+            line = Text("    ", overflow="ignore", no_wrap=True)
+            line.append(str(index).rjust(number_width), style=STYLE_COMMAND)
+            line.append("  ")
+            line.append(label.ljust(label_width), style=STYLE_NAME)
+            line.append(f"  {hk.ss58}", style="dim")
+            console.print(line, soft_wrap=True)
+        console.print(
+            "  [dim]a number above, or any hotkey: ss58 address, address-book name, "
+            "or WALLET/HOTKEY[/dim]"
+        )
+    else:
+        console.print(
+            f"  [dim]wallet {app_ctx.wallet_name!r} has no local hotkeys — paste the "
+            "validator's ss58 address or an address-book name[/dim]"
+        )
+
+    prompt = Text("  ")
+    prompt.append(flag.lstrip("-"), style=STYLE_COMMAND)
+    prompt.append(": ", style=STYLE_COMMAND)
+    while True:
+        try:
+            raw = console.input(prompt).strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print()
+            app_ctx.output.message("aborted.")
+            raise typer.Exit(130)
+        if not raw:
+            console.print("  a value is required", style=STYLE_HINT)
+            continue
+        if raw.isdigit() and local:
+            index = int(raw)
+            if 1 <= index <= len(local):
+                chosen = local[index - 1]
+                app_ctx.output.name_address(chosen.ss58, f"{app_ctx.wallet_name}/{chosen.name}")
+                kwargs[hotkey_field] = chosen.ss58
+                return [flag, chosen.ss58]
+            console.print(f"  enter a number between 1 and {len(local)}", style=STYLE_HINT)
+            continue
+        try:
+            address = app_ctx.resolve_address(hotkey_field, raw)
+        except typer.Exit:
+            continue  # the resolver already printed its own error
+        kwargs[hotkey_field] = address
+        return [flag, address]
+
+
+def with_free_balance(spec: PromptSpec) -> PromptSpec:
+    """Wrap an amount PromptSpec so the prompt leads with the free balance.
+
+    The amount these ops spend comes straight out of the coldkey's free
+    balance, so it is read (from the proxied account with --proxy-for,
+    otherwise the signing wallet) and shown before asking. Parsing and the
+    skip-the-prompts hint stay exactly as the plain spec would have them.
+    """
+
+    def _flow(console: Console, app_ctx: AppContext, kwargs: dict) -> list[str]:
+        owner, owner_label = _stake_owner(app_ctx, kwargs)
+        with console.status("[dim]reading balance…[/dim]"):
+            balance = app_ctx.run(lambda c: c.read("balance", coldkey_ss58=owner))
+        console.print(f"  [dim]free balance of {owner_label}: {balance}[/dim]")
+        value, raw = ask(console, app_ctx, replace(spec, custom=None))
+        kwargs[spec.field] = value
+        return [spec.flag, raw]
+
+    return replace(spec, custom=_flow)
 
 
 def stake_source_spec(hotkey_field: str, netuid_field: Optional[str]) -> PromptSpec:

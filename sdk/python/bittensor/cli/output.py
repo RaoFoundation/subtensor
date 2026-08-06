@@ -933,6 +933,8 @@ class Output:
                 if url:
                     label_style = f"{label_style} link {url}"
                 leaf.append(str(position["label"]), style=label_style)
+                if position.get("uid") is not None:
+                    leaf.append(f"  uid {position['uid']}", style="dim")
                 if position.get("take") is not None:
                     leaf.append(f"  take {position['take']:.1%}", style="dim")
                 if position.get("note"):
@@ -1378,10 +1380,19 @@ class Output:
         line.append(text, style=STYLE_COMMAND)
         self._out.print(line, soft_wrap=True)
 
-    def plan(self, plan: Plan) -> None:
-        """Render a dry-run plan (fee, effects, warnings, policy)."""
+    def plan(self, plan: Plan, *, command: Optional[str] = None) -> None:
+        """Render a dry-run plan (fee, effects, warnings, policy).
+
+        ``command`` is the replay command that submits this exact invocation
+        for real: shown as a copy-paste line, and carried in the JSON record
+        so an agent can pre-approve the plan and hand a human (or a later
+        automation step) the one command to run.
+        """
         if self.json_mode:
-            self._json(plan.to_dict())
+            record = plan.to_dict()
+            if command:
+                record["command"] = command
+            self._json(record)
             return
         summary = Text()
         summary.append("dry run:", style="dim")
@@ -1417,6 +1428,11 @@ class Output:
             )
         if not plan.ok:
             self._out.print(f"  [{STYLE_ERROR}]blocked by policy[/{STYLE_ERROR}]")
+        if command and plan.ok:
+            line = Text("  ")
+            line.append("run for real  ", style=STYLE_HINT)
+            line.append(command, style=STYLE_COMMAND)
+            self._out.print(line, soft_wrap=True)
         # The docs page carries parameters, verify reads, and the on-chain
         # implementation with source links.
         self._sub_diag("see", tx_docs_url(plan.op), console=self._out)

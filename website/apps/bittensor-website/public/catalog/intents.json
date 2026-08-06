@@ -116,7 +116,7 @@
   {
     "name": "add_stake",
     "summary": "Stake TAO from the coldkey onto a hotkey.",
-    "description": "Stake TAO from the coldkey onto a hotkey.\n\nSwaps TAO from the coldkey's free balance into the subnet's alpha at the\ncurrent pool price and credits the result to your stake on the hotkey; on\nnetuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,\nso large amounts incur slippage. By default the call is slippage-protected:\nit fails (`SlippageTooHigh`) instead of filling once the price rises more\nthan `rate_tolerance` (5%) above the price at submission \u2014 raise the\ntolerance or set `slippage_protection` to False to execute at any price,\nor use `add_stake_limit` to set an explicit limit price. The position's\nvalue then follows the pool price and the validator's performance, and can\nbe exited later with `remove_stake`. Fails if the coldkey's free balance\ncannot cover the amount plus the transaction fee, and with `AmountTooLow`\nwhen the amount is below the chain minimum of 0.002 TAO plus the swap fee.\nDynamic subnets also reject a single swap larger than 1000x the pool's TAO\nreserve (`InsufficientLiquidity`).",
+    "description": "Stake TAO from the coldkey onto a hotkey.\n\nSwaps TAO from the coldkey's free balance into the subnet's alpha at the\ncurrent pool price and credits the result to your stake on the hotkey; on\nnetuid 0 (root) the stake stays TAO-denominated. The swap moves the pool,\nso large amounts incur slippage. By default the call is slippage-protected:\nit fails (`SlippageTooHigh`) instead of filling once the price rises more\nthan `rate_tolerance` (5%) above the price at submission \u2014 raise the\ntolerance or set `slippage_protection` to False to execute at any price,\nor use `add_stake_limit` to set an explicit limit price. The position's\nvalue then follows the pool price and the validator's performance, and can\nbe exited later with `remove_stake`. Pass `all` to stake the whole free\nbalance minus the existential deposit and a small fee headroom. Fails if\nthe coldkey's free balance cannot cover the amount plus the transaction\nfee, and with `AmountTooLow` when the amount is below the chain minimum\nof 0.002 TAO plus the swap fee. Dynamic subnets also reject a single swap\nlarger than 1000x the pool's TAO reserve (`InsufficientLiquidity`).",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -151,9 +151,15 @@
               "type": "string",
               "pattern": "^\\d+(\\.\\d+)?$",
               "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
             }
           ],
-          "description": "How much of the coldkey's free balance to stake."
+          "description": "How much of the coldkey's free balance to stake, or `all` (everything minus the existential deposit and fee headroom)."
         },
         "slippage_protection": {
           "type": "boolean",
@@ -3619,7 +3625,7 @@
   {
     "name": "stake_burn",
     "summary": "Buy back / burn stake via the stake-burn extrinsic.",
-    "description": "Buy back / burn stake via the stake-burn extrinsic.\n\nSpends TAO from the signing coldkey to buy the subnet's alpha and burn it,\nreducing alpha supply (a buyback-and-burn) rather than adding to the\nsigner's stake. The TAO is spent permanently \u2014 nothing lands in your stake,\nso this is not an investment call; use a regular add-stake intent to\nacquire a position. Fails on the root subnet\n(`CannotBurnOrRecycleOnRootSubnet`). The chain accepts an optional\nlimit (omitted = market order), but this intent always requires\n`limit_price` and executes all-or-nothing: the swap fails instead of\npartially filling at a worse rate. Counts against a configured spend\ncap.",
+    "description": "Buy back / burn stake via the stake-burn extrinsic.\n\nSpends TAO from the signing coldkey to buy the subnet's alpha and burn it,\nreducing alpha supply (a buyback-and-burn) rather than adding to the\nsigner's stake. The TAO is spent permanently \u2014 nothing lands in your stake,\nso this is not an investment call; use a regular add-stake intent to\nacquire a position. Fails on the root subnet\n(`CannotBurnOrRecycleOnRootSubnet`). The chain accepts an optional\nlimit (omitted = market order), but this intent always submits one and\nexecutes all-or-nothing: the swap fails instead of partially filling at\na worse rate. When `limit_price` is omitted, the limit is derived from\nthe current pool price plus `rate_tolerance` (5% by default). Counts\nagainst a configured spend cap.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -3652,7 +3658,11 @@
         },
         "limit_price": {
           "type": "integer",
-          "description": "Worst acceptable price in rao per alpha; the call fails rather than filling beyond it."
+          "description": "Worst acceptable price in rao per alpha; the call fails rather than filling beyond it. Defaults to the current pool price plus `rate_tolerance`."
+        },
+        "rate_tolerance": {
+          "type": "number",
+          "description": "Maximum price move accepted when `limit_price` is omitted, as a fraction (0.05 = 5%). Ignored when `limit_price` is given."
         },
         "hotkey_ss58": {
           "type": "string",
@@ -3661,12 +3671,11 @@
       },
       "required": [
         "netuid",
-        "amount_tao",
-        "limit_price"
+        "amount_tao"
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx stake-burn --netuid <int> --amount-tao <amount|all> --limit-price <int>",
+    "cli": "btcli tx stake-burn --netuid <int> --amount-tao <amount|all>",
     "python_class": "StakeBurn",
     "markdown_url": "/llms.mdx/docs/tx/stake-burn/content.md",
     "sources": [

@@ -138,12 +138,40 @@ btcli wallet regen-coldkeypub -w team-treasury --ss58 5Fmulti...sigAddress
 btcli wallet balance team-treasury
 ```
 
-## Step 4 — spend: open the operation
+## Step 4 — spend: treat the multisig like a wallet
 
-Alice proposes paying 10 TAO out of the treasury. The inner call is an intent
-spec — `{"op": <intent name>, ...args}`, same shape as a batch child — with
-fully explicit arguments. As always, `--dry-run` previews fee and effects
-without submitting:
+Once the signer set is saved (`btcli multisig add`), pass the **multisig name**
+as `-w`. Any coldkey-signed command — transfer, stake, raw `call`, … — detects
+the book entry, picks a local member coldkey to sign, and opens or completes the
+approval round. Co-signers re-run the **same** command; the CLI fills the
+pending timepoint automatically:
+
+```bash
+# Alice (has the alice coldkey locally)
+btcli wallet transfer --dest 5DevPayee... --amount-tao 10 -w team-treasury
+
+# Bob (has the bob coldkey locally) — identical command
+btcli wallet transfer --dest 5DevPayee... --amount-tao 10 -w team-treasury
+```
+
+Works the same for intents and the raw-call escape hatch:
+
+```bash
+btcli tx add-stake --netuid 1 --amount-tao 5 -w team-treasury
+btcli call Balances.transfer_keep_alive \
+  --args '{"dest":"5DevPayee...","value":10000000000}' \
+  -w team-treasury
+```
+
+If several member coldkeys are present locally, the CLI prompts which one
+signs (or pass `-w alice --multisig team-treasury` to pin one). Each member
+still needs a little free TAO for fees and the opener's deposit.
+
+### Manual approval round (optional)
+
+You can still drive the round explicitly with intent specs — useful when you
+want to paste exact co-signer commands. `--other-signatories` lists every
+member *except* the signer:
 
 ```bash
 btcli tx multisig-execute \
@@ -159,16 +187,10 @@ btcli tx multisig-execute \
   -w alice
 ```
 
-`--other-signatories` lists every member *except* the signer; the CLI adds
-Alice's coldkey and sorts the set. Since no timepoint was passed, this opens
-the operation: Alice's deposit is reserved, and nothing executes yet.
-
 After submission the CLI prints the operation's `call_hash`, `call_data`, the
 opening `timepoint`, and **ready-to-run commands for each remaining
-co-signer** — copy-paste them to Bob and Carol over your team channel. The
-opening extrinsic embeds the full call, so co-signers can also recover
-everything from chain state alone (next step); no out-of-band call data is
-required.
+co-signer**. The opening extrinsic embeds the full call, so co-signers can also
+recover everything from chain state alone (next step).
 
 ## Step 5 — view pending operations
 
@@ -199,9 +221,13 @@ compromised — don't co-sign, and rotate that member out.
 
 ## Step 6 — approve and execute
 
-Bob was handed a ready-to-run command by `pending` (or by Alice). Because his
-approval is the one that reaches the threshold, it must be
-`multisig-execute` with the full call — the chain needs the call to run it.
+Prefer the short form from step 4: Bob runs the same `btcli wallet transfer
+-w team-treasury ...` (or whatever command Alice opened). The CLI finds the
+pending operation by call hash and supplies the timepoint.
+
+For the explicit path, Bob was handed a ready-to-run command by `pending` (or
+by Alice). Because his approval is the one that reaches the threshold, it must
+be `multisig-execute` with the full call — the chain needs the call to run it.
 The timepoint identifies the pending operation:
 
 ```bash

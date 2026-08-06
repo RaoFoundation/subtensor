@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
-from .._generated import calls
+from .._generated import calls, constants
 from .._generated import storage as st
 from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi, SwapRuntimeApi
 from ..balance import Balance
@@ -72,6 +72,30 @@ async def _alpha_price_rao(substrate, netuid: int) -> int:
             "limit; retry, or disable slippage protection to submit without a bound"
         )
     return int(price)
+
+
+# Reserved on top of the existential deposit when staking ``all``, so the
+# transaction fee never makes the build unaffordable (typical fees are ~τ0.000125).
+_ALL_STAKE_FEE_HEADROOM_RAO = 500_000  # τ0.0005
+
+
+async def _stakeable_rao(substrate, wallet: Any) -> int:
+    """The coldkey's free balance minus the existential deposit and a fee headroom.
+
+    Resolves an ``amount = "all"`` for ``add_stake`` at build time; refuses to
+    build when the remainder is nothing.
+    """
+    coldkey = public_view(wallet, "coldkey").ss58_address
+    account = await substrate.query(*st.System.Account, [coldkey])
+    free = int(((account or {}).get("data") or {}).get("free") or 0)
+    deposit = int(await substrate.constant(*constants.Balances.ExistentialDeposit))
+    rao = free - deposit - _ALL_STAKE_FEE_HEADROOM_RAO
+    if rao <= 0:
+        raise BittensorError(
+            f"nothing to stake: free balance {Balance.from_rao(free)} does not cover "
+            "the existential deposit plus the transaction fee"
+        )
+    return rao
 
 
 async def _staked_rao(substrate, wallet: Any, hotkey_ss58: str, netuid: int) -> int:
@@ -154,23 +178,30 @@ class AddStake(Intent):
     tolerance or set ``slippage_protection`` to False to execute at any price,
     or use ``add_stake_limit`` to set an explicit limit price. The position's
     value then follows the pool price and the validator's performance, and can
-    be exited later with ``remove_stake``. Fails if the coldkey's free balance
-    cannot cover the amount plus the transaction fee, and with ``AmountTooLow``
-    when the amount is below the chain minimum of 0.002 TAO plus the swap fee.
-    Dynamic subnets also reject a single swap larger than 1000x the pool's TAO
-    reserve (``InsufficientLiquidity``).
+    be exited later with ``remove_stake``. Pass ``all`` to stake the whole free
+    balance minus the existential deposit and a small fee headroom. Fails if
+    the coldkey's free balance cannot cover the amount plus the transaction
+    fee, and with ``AmountTooLow`` when the amount is below the chain minimum
+    of 0.002 TAO plus the swap fee. Dynamic subnets also reject a single swap
+    larger than 1000x the pool's TAO reserve (``InsufficientLiquidity``).
     """
 
     op = "add_stake"
     signer = "coldkey"
     wraps = (("SubtensorModule", "add_stake"), ("SubtensorModule", "add_stake_limit"))
     mev_shield_default = True
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_tao",)
 
     hotkey_ss58: str = field(
         metadata={"help": "Hotkey the stake is added to (the validator you are backing)."}
     )
     netuid: int = field(metadata={"help": NETUID_HELP})
-    amount_tao: Money = field(metadata={"help": "How much of the coldkey's free balance to stake."})
+    amount_tao: Money = field(
+        metadata={
+            "help": "How much of the coldkey's free balance to stake, or `all` "
+            "(everything minus the existential deposit and fee headroom)."
+        }
+    )
     slippage_protection: bool = field(default=True, metadata={"help": SLIPPAGE_PROTECTION_HELP})
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
@@ -178,18 +209,22 @@ class AddStake(Intent):
 
     def __post_init__(self):
         self.amount_tao = call_amount(
-            self.amount_tao, self.wraps[0], "amount_staked", netuid=self.netuid
+            self.amount_tao, self.wraps[0], "amount_staked", netuid=self.netuid, allow_all=True
         )
         _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
+        if self.amount_tao == ALL:
+            rao = await _stakeable_rao(substrate, wallet)
+        else:
+            rao = self.amount_tao.rao
         if self.slippage_protection:
             price = await _alpha_price_rao(substrate, self.netuid)
             return await substrate.compose(
                 calls.SubtensorModule.add_stake_limit(
                     hotkey=self.hotkey_ss58,
                     netuid=self.netuid,
-                    amount_staked=self.amount_tao.rao,
+                    amount_staked=rao,
                     limit_price=int(price * (1 + self.rate_tolerance)),
                     allow_partial=False,
                 )
@@ -198,19 +233,30 @@ class AddStake(Intent):
             calls.SubtensorModule.add_stake(
                 hotkey=self.hotkey_ss58,
                 netuid=self.netuid,
-                amount_staked=self.amount_tao.rao,
+                amount_staked=rao,
             )
         )
 
     def summary(self) -> str:
+        amount = "ALL free TAO" if self.amount_tao == ALL else str(self.amount_tao)
         note = (
             f" (fails if price moves >{self.rate_tolerance:.2%})"
             if self.slippage_protection
             else " (no slippage protection)"
         )
-        return f"stake {self.amount_tao} to {self.hotkey_ss58} on netuid {self.netuid}{note}"
+        return f"stake {amount} to {self.hotkey_ss58} on netuid {self.netuid}{note}"
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.amount_tao == ALL:
+            return [
+                "stakes the entire free balance (minus the existential deposit and fee headroom)"
+            ]
+        return []
 
     def spend(self) -> Spend:
+        if self.amount_tao == ALL:
+            # Unbounded: a max_spend policy should block draining the whole account.
+            return UNBOUNDED
         return self.amount_tao
 
 

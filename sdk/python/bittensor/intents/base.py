@@ -244,6 +244,14 @@ class Intent(ABC):
         """True if the intent acts across every subnet (so any allowlist must fail it)."""
         return False
 
+    def semantic_intent(self) -> "Intent":
+        """Intent whose safety contract governs this submission.
+
+        Execution adapters may wrap a call without changing the spend, subnet,
+        or MEV requirements of the operation being dispatched.
+        """
+        return self
+
     # Introspection ----------------------------------------------------------
 
     @classmethod
