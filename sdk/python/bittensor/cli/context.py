@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import Awaitable, Callable, Optional, TypeVar
 
@@ -69,10 +69,21 @@ def ss58_param_help(param: str) -> str:
         if param == "hotkey_ss58":
             text += " Defaults to your wallet's hotkey."
     else:
-        text = f"ss58 address, {book}or a local wallet name (uses its coldkey)."
+        text = (
+            f"ss58 address, {book}saved multisig name, or a local wallet name (uses its coldkey)."
+        )
         if param == "coldkey_ss58":
             text += " Defaults to your wallet's coldkey."
     return text
+
+
+@dataclass(frozen=True)
+class ResolvedAddress:
+    """A locally resolved account reference and how it was resolved."""
+
+    address: str
+    source: str
+    name: Optional[str] = None
 
 
 @dataclass
@@ -95,6 +106,10 @@ class AppContext:
     # Same for --wallet-hotkey/-H (or BT_WALLET_HOTKEY): hotkey-scoped commands
     # confirm the hotkey name when it was only defaulted.
     hotkey_given: bool = False
+    # When ``-w`` named a saved multisig and submit rewrote the intent, the
+    # multisig book name lives here while ``wallet_name`` is the local member
+    # coldkey that actually signs.
+    multisig_wallet_name: Optional[str] = None
     # Diagnostic log verbosity (-v count); kept so per-command --quiet/--verbose
     # overrides can reconfigure logging without losing the root-level setting.
     verbosity: int = 0
@@ -118,6 +133,9 @@ class AppContext:
     _extension_bridge_ws_url: Optional[str] = None
     _ledger_signer: Optional[object] = None
     _vault_signer: Optional[VaultSigner] = None
+    # Multisig names currently being derived by ``resolve_address`` — breaks
+    # the recursion when a saved multisig lists itself among its signatories.
+    _resolving_multisigs: set = field(default_factory=set)
 
     def reset_extension_session(self) -> None:
         self._extension_selection = None
@@ -301,18 +319,59 @@ class AppContext:
             keychain=self.keychain_password,
         )
 
+    def resolve_address_ref(self, param: str, value: str) -> ResolvedAddress:
+        """Resolve one explicit account reference without prompting or exiting.
+
+        This is the canonical lookup path shared by ordinary CLI flags and
+        account values nested inside raw-call / intent JSON. Callers own error
+        presentation; lookup failures from local wallet access are allowed to
+        propagate with their original context.
+        """
+        kind = "hotkey" if "hotkey" in param else "coldkey"
+        if is_bittensor_address(value):
+            booked = next(
+                (e["name"] for e in cfg.load_addresses() if e.get("address") == value), None
+            )
+            return ResolvedAddress(value, "ss58 address", booked)
+
+        booked = cfg.get_address(value)
+        if booked:
+            return ResolvedAddress(booked, f"address-book entry {value!r}", value)
+
+        proxy_entry = cfg.get_proxy(value)
+        proxied = proxy_entry.get("address") if proxy_entry else None
+        if isinstance(proxied, str) and proxied:
+            return ResolvedAddress(proxied, f"proxy-book entry {value!r}", value)
+
+        if kind == "coldkey":
+            derived = self._saved_multisig_address(value)
+            if derived:
+                return ResolvedAddress(derived, f"saved multisig {value!r}", value)
+
+        if kind == "hotkey":
+            wallet_name, _, hotkey = value.rpartition("/")
+            handle = wallets.open_wallet(wallet_name or self.wallet_name, hotkey, self.wallet_path)
+            return ResolvedAddress(handle.hotkey.ss58_address, f"hotkey {value!r}", value)
+
+        address = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub.ss58_address
+        return ResolvedAddress(address, f"wallet {value!r}", value)
+
     def resolve_address(self, param: str, value: Optional[str]) -> Optional[str]:
         """Resolve an address-typed CLI value (any ``*_ss58`` param) to an ss58 address.
 
-        Five accepted forms:
+        Six accepted forms:
         - a raw ss58 address: used as-is;
         - an address-book name (``btcli addresses NAME SS58``);
         - a proxy-book name (``btcli proxy book add``);
+        - a saved multisig name (``btcli multisig add``), coldkey params only:
+          resolved to the derived multisig account address, so a multisig
+          behaves like a wallet for read-only queries;
         - a local key reference: hotkey params take ``HOTKEY`` (in the configured
           wallet) or ``WALLET/HOTKEY``; coldkey params take a ``WALLET`` name
           (resolved to its coldkey);
         - omitted: only the canonical ``hotkey_ss58`` / ``coldkey_ss58`` params
-          fall back to the configured wallet's own key. Destination-style params
+          fall back to the configured wallet's own key (or its multisig address
+          when ``-w`` names a saved multisig). Destination-style params
           (``--dest``, ``--destination-hotkey``, ...) never default.
         """
         kind = "hotkey" if "hotkey" in param else "coldkey"
@@ -321,60 +380,74 @@ class AppContext:
             # top-level import here would be circular.
             from .prompt import confirm_wallet
 
-            confirm_wallet(
+            # These keys are command *targets*, never signers, so a pasted ss58
+            # or address-book name is accepted and used directly (the key does
+            # not have to exist locally).
+            value = confirm_wallet(
                 self,
                 help_text=f"Wallet whose {kind} this command targets.",
                 require_coldkey=param == "coldkey_ss58",
                 hotkey_help=("Hotkey this command targets." if param == "hotkey_ss58" else None),
+                accept_address=True,
             )
-        if value is not None and is_bittensor_address(value):
-            booked = next(
-                (e["name"] for e in cfg.load_addresses() if e.get("address") == value), None
-            )
-            self.output.name_address(value, booked)
-            self.output.classify_address(value, kind)
-            return value
         if value is not None:
-            booked = cfg.get_address(value)
-            if booked:
-                self.output.name_address(booked, value)
-                self.output.classify_address(booked, kind)
-                return booked
-            proxy_entry = cfg.get_proxy(value)
-            proxied = proxy_entry.get("address") if proxy_entry else None
-            if isinstance(proxied, str) and proxied:
-                self.output.name_address(proxied, value)
-                self.output.classify_address(proxied, kind)
-                return proxied
+            try:
+                resolved = self.resolve_address_ref(param, value)
+            except typer.Exit:
+                raise
+            except Exception as error:
+                self.output.error(f"cannot resolve {address_cli_name(param)} {value!r}: {error}")
+                raise typer.Exit(1)
+            self.output.name_address(resolved.address, resolved.name)
+            self.output.classify_address(resolved.address, kind)
+            return resolved.address
         try:
-            if value is None:
-                if param == "hotkey_ss58":
-                    address = self.wallet().hotkey.ss58_address
-                    self.output.name_address(address, f"{self.wallet_name}/{self.hotkey_name}")
-                    self.output.classify_address(address, "hotkey")
-                    return address
-                if param == "coldkey_ss58":
-                    address = self.wallet().coldkeypub.ss58_address
-                    self.output.name_address(address, self.wallet_name)
-                    self.output.classify_address(address, "coldkey")
-                    return address
-                return None
-            if "hotkey" in param:
-                wallet_name, _, hotkey = value.rpartition("/")
-                handle = wallets.open_wallet(
-                    wallet_name or self.wallet_name, hotkey, self.wallet_path
-                )
-                self.output.name_address(handle.hotkey.ss58_address, value)
-                self.output.classify_address(handle.hotkey.ss58_address, "hotkey")
-                return handle.hotkey.ss58_address
-            address = wallets.open_wallet(name=value, path=self.wallet_path).coldkeypub.ss58_address
-            self.output.name_address(address, value)
-            self.output.classify_address(address, "coldkey")
-            return address
+            if param == "hotkey_ss58":
+                address = self.wallet().hotkey.ss58_address
+                self.output.name_address(address, f"{self.wallet_name}/{self.hotkey_name}")
+                self.output.classify_address(address, "hotkey")
+                return address
+            if param == "coldkey_ss58":
+                # Same precedence as the write path: `-w <multisig>` means
+                # the multisig account, even if a wallet dir shares the name.
+                derived = self._saved_multisig_address(self.wallet_name)
+                if derived:
+                    self.output.name_address(derived, self.wallet_name)
+                    self.output.classify_address(derived, "coldkey")
+                    return derived
+                address = self.wallet().coldkeypub.ss58_address
+                self.output.name_address(address, self.wallet_name)
+                self.output.classify_address(address, "coldkey")
+                return address
+            return None
         except Exception as error:
-            shown = value if value is not None else f"{self.wallet_name}/{self.hotkey_name}"
+            shown = f"{self.wallet_name}/{self.hotkey_name}"
             self.output.error(f"cannot resolve {address_cli_name(param)} {shown!r}: {error}")
             raise typer.Exit(1)
+
+    def _saved_multisig_address(self, name: Optional[str]) -> Optional[str]:
+        """Derived ss58 for a saved multisig ``name``, or None when not in the book.
+
+        The derivation runs offline from the resolved signer set and threshold
+        (the same account-id derivation the chain uses), so read paths can
+        treat a multisig book name like a wallet without a connection.
+        """
+        if not name or cfg.get_multisig(name) is None:
+            return None
+        if name in self._resolving_multisigs:
+            self.output.error(
+                f"multisig {name!r} refers to itself through its signatories",
+                help=f"fix the signer set with `btcli multisig add {name} --overwrite`",
+            )
+            raise typer.Exit(2)
+        self._resolving_multisigs.add(name)
+        try:
+            return ms_helpers.derive_saved_multisig_address(self, name)
+        except ValueError as error:
+            self.output.error(f"cannot resolve multisig {name!r}: {error}")
+            raise typer.Exit(2)
+        finally:
+            self._resolving_multisigs.discard(name)
 
     def resolve_signatory_list(self, raw: str) -> list[str]:
         """Resolve comma-separated signatory refs (ss58, address-book name, wallet)."""
@@ -436,7 +509,7 @@ class AppContext:
         """
         # Inline import: prompt.py imports AppContext from this module, so a
         # top-level import here would be circular.
-        from .prompt import confirm_wallet
+        from .prompt import confirm_wallet, replay_command
 
         if proxy_for == "self":
             proxy_for = None
@@ -448,6 +521,15 @@ class AppContext:
                     f"[dim]dispatching via configured proxy_for {configured!r} "
                     "— pass `--proxy-for self` to sign directly[/dim]"
                 )
+
+        # ``-w <multisig>``: rewrite any coldkey intent as a multisig approval
+        # signed by a local member. Must run before confirm_wallet / wallet()
+        # because the multisig name is not a coldkey directory.
+        try:
+            intent = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
+        except ValueError as error:
+            self.output.error(str(error))
+            raise typer.Exit(2) from error
 
         # MEV shielding: explicit flag > persistent config > the intent's own
         # default. `forced` distinguishes "the user asked for shielding" (hard
@@ -628,7 +710,7 @@ class AppContext:
                 shortfall = self.run(_shield_fee_warning)
                 if shortfall is not None:
                     plan.warnings.append(shortfall)
-            self.output.plan(plan)
+            self.output.plan(plan, command=replay_command())
             if not plan.ok:
                 raise typer.Exit(1)
             return None

@@ -163,6 +163,7 @@ _TX_FLOW = [
             False,
             "--yes",
             "-y",
+            "--no-prompt",  # the v9 btcli spelling, kept as an alias
             help="Skip confirmation prompts.",
             rich_help_panel=PANEL_EXECUTION,
         ),

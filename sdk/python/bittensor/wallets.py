@@ -244,18 +244,20 @@ def regen_coldkey(
     path: str = DEFAULT_WALLET_PATH,
     *,
     seed: str | None = None,
+    private_key: str | None = None,
     json: tuple[str, str] | None = None,
     use_password: bool = True,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
 ) -> Wallet:
-    """Regenerate a coldkey from a mnemonic, 32-byte hex seed, or encrypted JSON."""
+    """Regenerate a coldkey from a mnemonic, seed, private key, or encrypted JSON."""
     wallet = Wallet(name=name, path=path)
     # suppress=True stops the wallet lib from echoing the mnemonic back to stdout;
     # the caller already supplied it, so reprinting only widens secret exposure.
     wallet.regenerate_coldkey(
         mnemonic=mnemonic,
         seed=seed,
+        private_key=private_key,
         json=json,
         use_password=use_password,
         overwrite=overwrite,
@@ -272,14 +274,16 @@ def regen_hotkey(
     path: str = DEFAULT_WALLET_PATH,
     *,
     seed: str | None = None,
+    private_key: str | None = None,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
 ) -> Wallet:
-    """Regenerate a hotkey from a mnemonic or a 32-byte hex seed (exactly one)."""
+    """Regenerate a hotkey from a mnemonic, 32-byte hex seed, or 64-byte private key."""
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     wallet.regenerate_hotkey(
         mnemonic=mnemonic,
         seed=seed,
+        private_key=private_key,
         use_password=False,
         overwrite=overwrite,
         suppress=True,

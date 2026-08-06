@@ -107,7 +107,7 @@ def root_list(
     app_ctx.output.table(
         title,
         position_columns(all_wallets),
-        position_rows(shown),
+        position_rows(shown, all_wallets),
         shown_records,
     )
     app_ctx.output.message(
