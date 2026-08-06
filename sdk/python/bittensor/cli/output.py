@@ -910,6 +910,11 @@ class Output:
             label.append(str(group["stake"]).rjust(width))
             label.append("  ")
             label.append(str(group["value"]))
+            if group.get("availability_note"):
+                # Own line so long locked/free figures are not clipped off the
+                # stake/value row on narrow terminals.
+                label.append("\n")
+                label.append(str(group["availability_note"]), style="dim italic")
             branch = root.add(label)
             for position in group.get("positions", []):
                 leaf = Text(overflow="ignore", no_wrap=True)

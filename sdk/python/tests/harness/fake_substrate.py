@@ -151,6 +151,9 @@ class FakeSubstrate:
         # Results handed out by submit/submit_signed/submit_multisig, FIFO;
         # empty -> a fresh success result.
         self.pending_results: list[ExtrinsicResult] = []
+        # Receipts handed out by find_extrinsic (the decrypted inner extrinsic
+        # of a shielded submission), FIFO; empty -> a fresh success result.
+        self.inner_results: list[ExtrinsicResult] = []
         # block number -> decoded System.Events records, for event-driven waits.
         self._events: dict[int, list[dict]] = {}
 
@@ -312,6 +315,13 @@ class FakeSubstrate:
     async def sign_extrinsic(self, call, keypair, *, nonce: int, period: int) -> tuple[bytes, str]:
         payload = repr((call, keypair.ss58_address, nonce)).encode()
         return payload, "0x" + payload.hex()[:64].ljust(64, "0")
+
+    async def find_extrinsic(self, extrinsic_hash: str, block_hash: str):
+        """Shielded inner receipts: pop a queued inner result, else succeed
+        immediately (the decrypted inner extrinsic lands in the carrier's block)."""
+        if self.inner_results:
+            return self.inner_results.pop(0)
+        return success_result(self.block)
 
     def _next_result(self) -> ExtrinsicResult:
         if self.pending_results:

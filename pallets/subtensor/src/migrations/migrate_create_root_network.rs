@@ -61,8 +61,8 @@ pub fn migrate_create_root_network<T: Config>() -> Weight {
     // Set the maximum number of validators to all members
     MaxAllowedValidators::<T>::insert(NetUid::ROOT, 64);
 
-    // Set the minimum allowed weights to zero (no weight restrictions)
-    MinAllowedWeights::<T>::insert(NetUid::ROOT, 0);
+    // Basket curation floor for `set_root_weights` (softened when fewer destinations exist).
+    MinAllowedWeights::<T>::insert(NetUid::ROOT, crate::MIN_ROOT_BASKET_WEIGHTS);
 
     // Set default root tempo
     Tempo::<T>::insert(NetUid::ROOT, 100);

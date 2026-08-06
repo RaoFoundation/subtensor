@@ -92,6 +92,7 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
             alpha_amount,
             amm_limit,
             false,
+            true,
         )?;
         Ok(tao_out)
     }
@@ -153,11 +154,9 @@ impl<T: Config> OrderSwapInterface<T::AccountId> for Pallet<T> {
         Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
             to_hotkey, to_coldkey, netuid, amount,
         );
-        LastColdkeyHotkeyStakeBlock::<T>::insert(
-            to_coldkey,
-            to_hotkey,
-            Self::get_current_block_as_u64(),
-        );
+        if netuid.is_root() {
+            Self::touch_root_stake_age(to_coldkey, to_hotkey);
+        }
         Ok(())
     }
 

@@ -44,7 +44,7 @@ Prefer the narrowest type that covers the job:
 - **Registration** — neuron registration calls ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832),
   [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814), [`register_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L2242-L2249)).
 - **ChildKeys** — [`set_children`](/code/pallets/subtensor/src/macros/dispatches.rs#L1093-L1101) and [`set_childkey_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L935-L945).
-- **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1910-L1926) only.
+- **RootClaim** — [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1905-L1939) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1941-L1970).
 - **Owner** — subnet-owner admin calls; **NonCritical** — everything except
   registrations, coldkey swaps, and subnet dissolution;
   **SubnetLeaseBeneficiary** — the lease-scoped subset of owner calls.

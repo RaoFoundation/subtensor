@@ -1,12 +1,14 @@
-"""`btcli weights`: commit-reveal weight commands."""
+"""`btcli weights`: commit-reveal weight commands and root dividend weights."""
 
 from __future__ import annotations
 
+from typing import Optional
+
 import typer
 
-from ...intents import CommitWeights, RevealWeights, SetWeights
-from ..context import AppContext, ctx_of
-from ..globals import with_tx_globals
+from ...intents import CommitWeights, RevealWeights, SetRootWeights, SetWeights
+from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
+from ..globals import with_globals, with_tx_globals
 
 app = typer.Typer(no_args_is_help=True, help="Validator weight commands.")
 
@@ -17,6 +19,24 @@ def _parse_int_list(raw: str) -> list[int]:
 
 def _parse_float_list(raw: str) -> list[float]:
     return [float(part.strip()) for part in raw.split(",") if part.strip()]
+
+
+def _parse_weight_pairs(raw: str) -> dict[int, float]:
+    """Parse `netuid:weight` pairs: `"0:0.2,4:0.3,8:0.5"`."""
+    pairs: dict[int, float] = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        netuid_text, _, weight_text = part.partition(":")
+        if not weight_text:
+            raise typer.BadParameter(
+                f"expected netuid:weight pairs like '0:0.2,4:0.3', got {part!r}"
+            )
+        pairs[int(netuid_text.strip())] = float(weight_text.strip())
+    if not pairs:
+        raise typer.BadParameter("no netuid:weight pairs given")
+    return pairs
 
 
 @app.command(
@@ -55,6 +75,59 @@ def set_weights(
             mechid=mechid,
             version_key=version_key,
         )
+    )
+
+
+@app.command(
+    "set-root",
+    hidden=True,
+    epilog='Moved to `btcli root set-weights`. Example: --weights "0:0.2,4:0.3,8:0.5"',
+)
+@with_tx_globals
+def set_root_weights(
+    ctx: typer.Context,
+    weights: str = typer.Option(
+        ...,
+        "--weights",
+        help="Comma-separated netuid:weight pairs (e.g. '0:0.2,4:0.3,8:0.5'). "
+        "Weights are relative and normalized before submission; netuid 0 means "
+        "hold that share as TAO (root stake) instead of subnet alpha.",
+    ),
+):
+    """Deprecated: use ``btcli root set-weights``."""
+    app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.output.message("[dim]deprecated: use `btcli root set-weights`[/dim]")
+    pairs = _parse_weight_pairs(weights)
+    app_ctx.submit(
+        SetRootWeights(
+            netuids=sorted(pairs),
+            weights=[pairs[netuid] for netuid in sorted(pairs)],
+        )
+    )
+
+
+@app.command("get-root", hidden=True)
+@with_globals
+def get_root_weights(
+    ctx: typer.Context,
+    hotkey_ss58: Optional[str] = typer.Option(
+        None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
+    ),
+):
+    """Deprecated: use ``btcli root get-weights``."""
+    app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.output.message("[dim]deprecated: use `btcli root get-weights`[/dim]")
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    rows = app_ctx.run(lambda c: c.read("validator_root_weights", hotkey_ss58=hotkey))
+    if not rows:
+        app_ctx.output.detail("root weights", {"hotkey": hotkey, "weights": []})
+        app_ctx.output.message(
+            "no custom root weights set: dividends accumulate in place on their origin subnet"
+        )
+        return
+    table_rows = [[r["netuid"], f"{r['share']:.2%}", r["weight"]] for r in rows]
+    app_ctx.output.table(
+        f"root weights of {hotkey}", ["netuid", "share", "weight (u16)"], table_rows, rows
     )
 
 

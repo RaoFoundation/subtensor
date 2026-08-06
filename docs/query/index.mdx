@@ -128,13 +128,23 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | --- | --- |
 | [`auto-stake`](/docs/query/auto-stake) | The hotkey a coldkey auto-stakes its rewards to on a subnet, or None if unset. |
 | [`auto-stake-all`](/docs/query/auto-stake-all) | Every auto-stake destination configured for a coldkey. |
-| [`root-claim-type`](/docs/query/root-claim-type) | How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets). |
+| [`root-basket-owed`](/docs/query/root-basket-owed) | Total TAO a coldkey would realize by claiming its root dividends now. |
+| [`root-basket-owed-breakdown`](/docs/query/root-basket-owed-breakdown) | A coldkey's pending root dividends, itemized per validator hotkey. |
+| [`root-basket-total-nav`](/docs/query/root-basket-total-nav) | Network-wide total basket NAV across all validators, in TAO. |
+| [`root-baskets`](/docs/query/root-baskets) | Basket summaries for every validator with an active basket. |
+| [`root-claim-threshold`](/docs/query/root-claim-threshold) | The minimum TAO payout for a root dividend claim. |
 | [`stake`](/docs/query/stake) | Alpha staked by a coldkey to a hotkey on a subnet (TAO when netuid is 0). |
+| [`stake-availability`](/docs/query/stake-availability) | Free vs locked stake for a coldkey on one subnet. |
+| [`stake-availability-for-coldkey`](/docs/query/stake-availability-for-coldkey) | Free vs locked stake for a coldkey across many subnets (one runtime call). |
 | [`stake-for-coldkey`](/docs/query/stake-for-coldkey) | Every stake position held by a coldkey, across all hotkeys and subnets. |
 | [`stake-for-coldkeys`](/docs/query/stake-for-coldkeys) | Every stake position for several coldkeys at once, in one runtime call. |
 | [`stake-value-for-coldkey`](/docs/query/stake-value-for-coldkey) | A coldkey's stake marked to TAO at spot prices (excludes slippage/fees), block-pinned. |
 | [`stake-value-for-coldkeys`](/docs/query/stake-value-for-coldkeys) | Spot-price stake valuation for several coldkeys at once, at one block. |
 | [`staking-hotkeys`](/docs/query/staking-hotkeys) | Every hotkey a coldkey has stake with, owned or nominated. |
+| [`validator-basket`](/docs/query/validator-basket) | A validator's basket holdings: per subnet, the alpha held and its TAO value. |
+| [`validator-basket-nav`](/docs/query/validator-basket-nav) | A validator's basket net asset value in TAO (realizable quote). |
+| [`validator-basket-summary`](/docs/query/validator-basket-summary) | Everything about one validator's basket, in a single call. |
+| [`validator-root-weights`](/docs/query/validator-root-weights) | A validator's root dividend distribution vector (basket weights). |
 
 ## Subnets
 

@@ -67,7 +67,6 @@ type NonTransferAllowed = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -83,7 +82,6 @@ type NonFungibleAllowed = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -103,7 +101,6 @@ type NonCriticalAllowed = (
     HotkeySwapCalls,
     ChildKeyCalls,
     RootClaimCalls,
-    RootClaimTypeCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -487,9 +484,9 @@ mod tests {
                 "SubtensorModule::unstake_all_alpha",
                 "SubtensorModule::move_stake",
                 "SubtensorModule::set_min_collateral",
+                "SubtensorModule::stake_into_basket",
                 "SubtensorModule::swap_stake",
                 "SubtensorModule::swap_stake_limit",
-                "SubtensorModule::set_root_claim_type",
             ])
         );
         assert_eq!(
@@ -516,7 +513,10 @@ mod tests {
         );
         assert_eq!(
             allowed_calls(ProxyType::RootClaim),
-            expected(&["SubtensorModule::claim_root"])
+            expected(&[
+                "SubtensorModule::claim_root",
+                "SubtensorModule::claim_root_with_hotkey",
+            ])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),

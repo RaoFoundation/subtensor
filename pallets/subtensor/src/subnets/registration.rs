@@ -520,11 +520,6 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn bump_registration_price_after_registration(netuid: NetUid) {
-        // Root does not use the per-registration burn bump path.
-        if netuid.is_root() {
-            return;
-        }
-
         let mult: U64F64 = BurnIncreaseMult::<T>::get(netuid).max(U64F64::saturating_from_num(1));
         let burn_u64: u64 = Self::get_burn(netuid).into();
         let min_burn_u64: u64 = Self::get_min_burn(netuid).into();

@@ -643,6 +643,8 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<SwapResult<TaoBalance, AlphaBalance>, DispatchError> {
+        #[cfg(test)]
+        crate::tests::mock::inc_basket_swap_ops();
         // Step 1: Get the mechanism type for the subnet (0 for Stable, 1 for Dynamic)
         let mechanism_id: u16 = SubnetMechanism::<T>::get(netuid);
         let swap_result = if mechanism_id == 1 {
@@ -694,6 +696,8 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<SwapResult<AlphaBalance, TaoBalance>, DispatchError> {
+        #[cfg(test)]
+        crate::tests::mock::inc_basket_swap_ops();
         // Step 1: Get the mechanism type for the subnet (0 for Stable, 1 for Dynamic)
         let mechanism_id: u16 = SubnetMechanism::<T>::get(netuid);
         // Step 2: Swap alpha and attain tao
@@ -737,10 +741,54 @@ impl<T: Config> Pallet<T> {
         Ok(swap_result)
     }
 
+    /// Ensure root stake for `(coldkey, hotkey)` has aged past `RootStakeUnlockInterval`.
+    /// No-op when the interval is `0` (hold disabled).
+    pub fn ensure_root_stake_unlocked(
+        coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+    ) -> Result<(), Error<T>> {
+        let interval = RootStakeUnlockInterval::<T>::get();
+        if interval > 0 {
+            let last = LastColdkeyHotkeyStakeBlock::<T>::get(coldkey, hotkey).unwrap_or(0);
+            let now = Self::get_current_block_as_u64();
+            ensure!(
+                now.saturating_sub(last) >= interval,
+                Error::<T>::RootStakeLocked
+            );
+        }
+        Ok(())
+    }
+
+    /// Record that root stake for `(coldkey, hotkey)` changed at the current block.
+    pub fn touch_root_stake_age(coldkey: &T::AccountId, hotkey: &T::AccountId) {
+        LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
+    }
+
+    /// Move root stake age from one (coldkey, hotkey) pair to another, preserving age.
+    /// If the destination already has a stamp, keep the newer of the two so the hold
+    /// is never shortened by a migration.
+    pub fn migrate_root_stake_age(
+        from_coldkey: &T::AccountId,
+        from_hotkey: &T::AccountId,
+        to_coldkey: &T::AccountId,
+        to_hotkey: &T::AccountId,
+    ) {
+        let Some(from_last) = LastColdkeyHotkeyStakeBlock::<T>::take(from_coldkey, from_hotkey)
+        else {
+            return;
+        };
+        let to_last = LastColdkeyHotkeyStakeBlock::<T>::get(to_coldkey, to_hotkey).unwrap_or(0);
+        LastColdkeyHotkeyStakeBlock::<T>::insert(to_coldkey, to_hotkey, from_last.max(to_last));
+    }
+
     /// Unstakes alpha from a subnet for a given hotkey and coldkey pair.
     ///
     /// We update the pools associated with a subnet as well as update hotkey alpha shares.
-    /// Credits the unstaked TAO to the beneficiary account
+    /// Credits the unstaked TAO to the beneficiary account.
+    ///
+    /// When `enforce_root_hold` is true and `netuid` is root, rejects if the position is
+    /// still inside `RootStakeUnlockInterval`. Protocol-internal callers (dust cleanup,
+    /// fee withdrawal) pass `false`.
     pub fn unstake_from_subnet(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
@@ -749,7 +797,19 @@ impl<T: Config> Pallet<T> {
         alpha: AlphaBalance,
         price_limit: TaoBalance,
         drop_fees: bool,
+        enforce_root_hold: bool,
     ) -> Result<TaoBalance, DispatchError> {
+        // Root stake is the claimant base for queued basket deposits: flush the hotkey's
+        // pending dividend credits before the stake leaves, so a staker doesn't forfeit
+        // flushable dividends earned while they were staked. (Sub-threshold credits
+        // deliberately stay queued and accrue to whoever is staked when they flush.)
+        if netuid.is_root() {
+            if enforce_root_hold {
+                Self::ensure_root_stake_unlocked(coldkey, hotkey)?;
+            }
+            Self::flush_basket_deposits_for_hotkey(hotkey);
+        }
+
         // Refuse to strip conviction-locked or collateral-bonded alpha even when
         // callers (e.g. alpha fee withdrawal) skip the remove-stake validators.
         Self::ensure_available_to_unstake(coldkey, netuid, alpha)?;
@@ -827,7 +887,9 @@ impl<T: Config> Pallet<T> {
         // Cleanup locks if needed
         Self::cleanup_lock_if_zero(coldkey, netuid);
 
-        LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
+        if netuid.is_root() {
+            Self::touch_root_stake_age(coldkey, hotkey);
+        }
 
         // Deposit and log the unstaking event.
         Self::deposit_event(Event::StakeRemoved(
@@ -863,6 +925,13 @@ impl<T: Config> Pallet<T> {
         price_limit: TaoBalance,
         drop_fees: bool,
     ) -> Result<AlphaBalance, DispatchError> {
+        // Root stake is the claimant base for queued basket deposits: flush the hotkey's
+        // pending dividend credits before the new stake lands, so it can't capture
+        // flushable dividends earned before it arrived.
+        if netuid.is_root() {
+            Self::flush_basket_deposits_for_hotkey(hotkey);
+        }
+
         // Transfer TAO from coldkey to the subnet account.
         // Actual transfered may be different within ED amount.
         let tao_staked = Self::transfer_tao_to_subnet(netuid, coldkey, tao)?;
@@ -939,10 +1008,9 @@ impl<T: Config> Pallet<T> {
         // Cleanup locks if needed
         Self::cleanup_lock_if_zero(coldkey, netuid);
 
-        LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
-
         // If this is a root-stake
         if netuid == NetUid::ROOT {
+            Self::touch_root_stake_age(coldkey, hotkey);
             // Adjust root claimed for this hotkey and coldkey.
             let alpha = swap_result.amount_paid_out.into();
             Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, alpha);
@@ -984,6 +1052,15 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
+        // Root stake moves claimant base on both hotkeys: settle queued basket deposits
+        // on each side first (see `stake_into_subnet` / `unstake_from_subnet`).
+        if netuid.is_root() {
+            Self::flush_basket_deposits_for_hotkey(origin_hotkey);
+            if destination_hotkey != origin_hotkey {
+                Self::flush_basket_deposits_for_hotkey(destination_hotkey);
+            }
+        }
+
         // Transfer lock (may fail if destination coldkey has a conflicting lock).
         // The lock must follow the stake to the destination hotkey, otherwise a
         // hotkey-changing transfer would leave the recipient's lock and conviction
@@ -1055,11 +1132,9 @@ impl<T: Config> Pallet<T> {
         //     });
         // }
 
-        LastColdkeyHotkeyStakeBlock::<T>::insert(
-            destination_coldkey,
-            destination_hotkey,
-            Self::get_current_block_as_u64(),
-        );
+        if netuid.is_root() {
+            Self::touch_root_stake_age(destination_coldkey, destination_hotkey);
+        }
 
         // Deposit and log the unstaking event.
         Self::deposit_event(Event::StakeRemoved(
@@ -1099,6 +1174,12 @@ impl<T: Config> Pallet<T> {
         max_amount: TaoBalance,
         allow_partial: bool,
     ) -> Result<(), Error<T>> {
+        // Root stake changes during the multi-block basket seed break snapshotted
+        // conversion (`Σ owed == BasketShares`); pause until the seed finishes.
+        if netuid.is_root() {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // Ensure that the subnet exists.
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
@@ -1177,6 +1258,10 @@ impl<T: Config> Pallet<T> {
         max_amount: AlphaBalance,
         allow_partial: bool,
     ) -> Result<(), Error<T>> {
+        if netuid.is_root() {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // Ensure that the subnet exists.
         ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
 
@@ -1221,6 +1306,17 @@ impl<T: Config> Pallet<T> {
         // stripping the bonded position.
         Self::ensure_hotkey_covers_collateral(coldkey, hotkey, netuid, alpha_unstaked)?;
 
+        // Root (netuid 0) hold window. Root stake is 1:1 TAO with no AMM slippage, so
+        // without a hold a "just-in-time" staker could stake right before an epoch
+        // boundary, capture a full tempo's root dividend pro-rata to instantaneous stake,
+        // then unstake immediately — diluting committed stakers at near-zero cost. Require
+        // the stake to have aged `RootStakeUnlockInterval` blocks since its last root
+        // add/remove/claim before it can leave root. `0` (default) disables the hold.
+        // Protocol-internal callers of `unstake_from_subnet` bypass via `enforce_root_hold`.
+        if netuid.is_root() {
+            Self::ensure_root_stake_unlocked(coldkey, hotkey)?;
+        }
+
         Ok(())
     }
 
@@ -1231,6 +1327,11 @@ impl<T: Config> Pallet<T> {
         hotkey: &T::AccountId,
         only_alpha: bool,
     ) -> Result<(), Error<T>> {
+        // `unstake_all` (not only_alpha) withdraws root stake too.
+        if !only_alpha {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // Get all netuids (filter out root)
         let subnets = Self::get_all_subnet_netuids();
 
@@ -1279,6 +1380,10 @@ impl<T: Config> Pallet<T> {
         maybe_allow_partial: Option<bool>,
         check_transfer_toggle: bool,
     ) -> Result<(), Error<T>> {
+        if origin_netuid.is_root() || destination_netuid.is_root() {
+            Self::ensure_beta_basket_seed_idle()?;
+        }
+
         // Ensure stake transition is actually happening
         if origin_coldkey == destination_coldkey && origin_hotkey == destination_hotkey {
             ensure!(origin_netuid != destination_netuid, Error::<T>::SameNetuid);
@@ -1390,6 +1495,13 @@ impl<T: Config> Pallet<T> {
             origin_netuid,
             alpha_amount,
         )?;
+
+        // Root hold: any user transition that removes stake from root must wait out
+        // the interval (same as `remove_stake`). Without this, move/swap/transfer
+        // off root bypasses the anti-JIT-snipe hold.
+        if origin_netuid.is_root() {
+            Self::ensure_root_stake_unlocked(origin_coldkey, origin_hotkey)?;
+        }
 
         Ok(())
     }

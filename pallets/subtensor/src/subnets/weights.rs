@@ -9,7 +9,7 @@ use sp_runtime::{
     BoundedVec,
     traits::{BlakeTwo256, Hash},
 };
-use sp_std::{collections::vec_deque::VecDeque, vec};
+use sp_std::{collections::btree_set::BTreeSet, collections::vec_deque::VecDeque, vec};
 use subtensor_runtime_common::{MechId, NetUid, NetUidStorageIndex};
 
 impl<T: Config> Pallet<T> {
@@ -872,6 +872,108 @@ impl<T: Config> Pallet<T> {
         Self::internal_set_weights(origin, netuid, MechId::MAIN, uids, values, version_key)
     }
 
+    /// Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0).
+    ///
+    /// Unlike normal subnet weights, the `dests` here are interpreted as *subnet netuids* and the
+    /// values as the proportion of the validator's root dividends to deploy into each subnet's
+    /// alpha basket. Stored under `Weights[NetUidStorageIndex::ROOT][uid]` and consumed by
+    /// `distribute_root_alpha_to_basket` during emission.
+    pub fn do_set_root_weights(
+        origin: OriginFor<T>,
+        dests: Vec<u16>,
+        values: Vec<u16>,
+    ) -> dispatch::DispatchResult {
+        // --- 1. Signed by the root validator hotkey.
+        let hotkey = ensure_signed(origin)?;
+        log::debug!("do_set_root_weights( hotkey:{hotkey:?}, dests:{dests:?}, values:{values:?} )");
+
+        // --- 1.5. Weight setting must be enabled network-wide. Root Reborn launches with
+        // this gate closed so every fund runs the null (accumulate in place) strategy
+        // first; see `RootWeightSettingEnabled`.
+        ensure!(
+            RootWeightSettingEnabled::<T>::get(),
+            Error::<T>::RootWeightSettingDisabled
+        );
+
+        // --- 2. Lengths match.
+        ensure!(
+            Self::uids_match_values(&dests, &values),
+            Error::<T>::WeightVecNotEqualSize
+        );
+
+        // --- 3. Cap vector length before any further O(n) work. Every destination is a netuid,
+        // so the vector cannot exceed the number of existing networks. Without this, a huge
+        // unique-uid payload could burn CPU (and many storage reads) before validity fails.
+        // Bound by the NetworksAdded set (not TotalNetworks) so the cap matches what the
+        // validity loop below will accept.
+        let available = Self::get_all_subnet_netuids().len();
+        ensure!(
+            dests.len() <= available,
+            Error::<T>::UidsLengthExceedUidsInSubNet
+        );
+
+        // --- 4. Caller must be a registered root validator.
+        ensure!(
+            Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
+            Error::<T>::HotKeyNotRegisteredInSubNet
+        );
+
+        // --- 5. Must hold enough stake to set weights.
+        ensure!(
+            Self::check_weights_min_stake(&hotkey, NetUid::ROOT),
+            Error::<T>::NotEnoughStakeToSetWeights
+        );
+
+        // --- 6. Rate limit on the root weights index.
+        let neuron_uid = Self::get_uid_for_net_and_hotkey(NetUid::ROOT, &hotkey)?;
+        let current_block: u64 = Self::get_current_block_as_u64();
+        ensure!(
+            Self::check_rate_limit(NetUidStorageIndex::ROOT, neuron_uid, current_block),
+            Error::<T>::SettingWeightsTooFast
+        );
+
+        // --- 7. No duplicate destination subnets.
+        ensure!(!Self::has_duplicate_uids(&dests), Error::<T>::DuplicateUids);
+
+        // --- 8. Every destination must be root (uid 0) or an existing subnet. Root is a valid
+        // basket destination: that weight slice is held as root stake (TAO) instead of being
+        // deployed into a subnet, letting a validator opt out of subnet exposure. This must mirror
+        // the consumer filter in `distribute_root_alpha_to_basket`.
+        for dest in dests.iter() {
+            let dest_netuid = NetUid::from(*dest);
+            ensure!(
+                dest_netuid.is_root() || Self::if_subnet_exist(dest_netuid),
+                Error::<T>::UidVecContainInvalidOne
+            );
+        }
+
+        // --- 8.5 At least MIN_ROOT_BASKET_WEIGHTS positive entries (softened when fewer
+        // destinations exist than the floor — e.g. young chains / unit tests).
+        let nonzero = values.iter().filter(|w| **w > 0).count();
+        let required = (crate::MIN_ROOT_BASKET_WEIGHTS as usize).min(available);
+        ensure!(nonzero >= required, Error::<T>::WeightVecLengthIsLow);
+
+        // --- 9. Max-upscale the weights.
+        let max_upscaled_weights: Vec<u16> = vec_u16_max_upscale_to_u16(&values);
+
+        // --- 10. Zip and store under the root weights index (reusing the root weights plumbing).
+        let zipped_weights: Vec<(u16, u16)> = dests
+            .iter()
+            .copied()
+            .zip(max_upscaled_weights.iter().copied())
+            .collect();
+        Weights::<T>::insert(NetUidStorageIndex::ROOT, neuron_uid, zipped_weights);
+
+        // --- 11. Record activity for the rate limit.
+        Self::set_last_update_for_uid(NetUidStorageIndex::ROOT, neuron_uid, current_block);
+
+        // --- 12. Emit event.
+        log::debug!("RootWeightsSet( uid:{neuron_uid:?} )");
+        Self::deposit_event(Event::RootWeightsSet(neuron_uid));
+
+        Ok(())
+    }
+
     /// The implementation for the extrinsic set_weights.
     ///
     /// # Arguments
@@ -1061,13 +1163,15 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Returns true if the items contain duplicates.
+    ///
+    /// O(n log n) via [`BTreeSet`] — the previous Vec/`contains` scan was O(n²) and let a
+    /// large unique payload burn quadratic CPU before later validation failed.
     pub fn has_duplicate_uids(items: &[u16]) -> bool {
-        let mut parsed: Vec<u16> = Vec::new();
+        let mut seen = BTreeSet::new();
         for item in items {
-            if parsed.contains(item) {
+            if !seen.insert(item) {
                 return true;
             }
-            parsed.push(*item);
         }
         false
     }

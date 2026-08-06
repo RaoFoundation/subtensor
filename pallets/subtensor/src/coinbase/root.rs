@@ -64,8 +64,11 @@ impl<T: Config> Pallet<T> {
 
     /// Registers a user's hotkey to the root network.
     ///
-    /// This function is responsible for registering the hotkey of a user.
-    /// The root key with the least stake if pruned in the event of a filled network.
+    /// Admission is burn-based: the coldkey pays the root burn price
+    /// (`Burn(0)`, demand-priced like subnet registration — bumped on every
+    /// registration, decaying back toward the floor each block). No prior
+    /// stake is required. When the network is full, the lowest-staked member
+    /// is pruned to make room.
     ///
     /// # Arguments
     /// * `origin`: Represents the origin of the call.
@@ -112,50 +115,55 @@ impl<T: Config> Pallet<T> {
         // --- 7. Fetch the current size of the subnetwork.
         let current_num_root_validators: u16 = Self::get_num_root_validators();
 
-        // Declare a variable to hold the root UID.
-        let subnetwork_uid: u16;
-
-        // --- 8. Check if the root net is below its allowed size.
-        // max allowed is senate size.
-        if current_num_root_validators < Self::get_max_root_validators() {
-            // --- 12.1.1 We can append to the subnetwork as it's not full.
-            subnetwork_uid = current_num_root_validators;
-
-            // --- 12.1.2 Add the new account and make them a member of the Senate.
-            Self::append_neuron(NetUid::ROOT, &hotkey, current_block_number);
-            log::debug!("add new neuron: {hotkey:?} on uid {subnetwork_uid:?}");
-        } else {
-            // --- 13.1.1 The network is full. Perform replacement.
-            // Find the neuron with the lowest stake value to replace.
-            let mut lowest_stake = AlphaBalance::MAX;
-            let mut lowest_uid: u16 = 0;
-
-            // Iterate over all keys in the root network to find the neuron with the lowest stake.
-            for (uid_i, hotkey_i) in Keys::<T>::iter_prefix(NetUid::ROOT) {
-                let stake_i = Self::get_stake_for_hotkey_on_subnet(&hotkey_i, NetUid::ROOT);
-                if stake_i < lowest_stake {
-                    lowest_stake = stake_i;
-                    lowest_uid = uid_i;
+        // --- 8. Resolve the slot: append while below capacity (max allowed is
+        // senate size), otherwise prune the lowest-staked member. Resolution
+        // only reads state, so the burn charged below can never be taken for a
+        // registration that fails.
+        let maybe_replacement: Option<(u16, T::AccountId)> =
+            if current_num_root_validators < Self::get_max_root_validators() {
+                None
+            } else {
+                // Find the neuron with the lowest stake value to replace.
+                let mut lowest_stake = AlphaBalance::MAX;
+                let mut lowest_uid: u16 = 0;
+                for (uid_i, hotkey_i) in Keys::<T>::iter_prefix(NetUid::ROOT) {
+                    let stake_i = Self::get_stake_for_hotkey_on_subnet(&hotkey_i, NetUid::ROOT);
+                    if stake_i < lowest_stake {
+                        lowest_stake = stake_i;
+                        lowest_uid = uid_i;
+                    }
                 }
-            }
-            subnetwork_uid = lowest_uid;
-            let replaced_hotkey: T::AccountId =
-                Self::get_hotkey_for_net_and_uid(NetUid::ROOT, subnetwork_uid)?;
+                let replaced_hotkey: T::AccountId =
+                    Self::get_hotkey_for_net_and_uid(NetUid::ROOT, lowest_uid)?;
+                Some((lowest_uid, replaced_hotkey))
+            };
 
-            // --- 13.1.2 The new account has a higher stake than the one being replaced.
-            ensure!(
-                lowest_stake < Self::get_stake_for_hotkey_on_subnet(&hotkey, NetUid::ROOT),
-                Error::<T>::StakeTooLowForRoot
-            );
-
-            // --- 13.1.3 The new account has a higher stake than the one being replaced.
-            // Replace the neuron account with new information.
-            Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number);
-
-            log::debug!(
-                "replace neuron: {replaced_hotkey:?} with {hotkey:?} on uid {subnetwork_uid:?}"
-            );
+        // --- 9. Charge the burn: recycled out of issuance, priced by demand.
+        // `recycle_tao` refuses to drop the coldkey below the existential
+        // deposit, so an underfunded caller fails here before any mutation.
+        let burn_cost: TaoBalance = Self::get_burn(NetUid::ROOT);
+        if !burn_cost.is_zero() {
+            Self::recycle_tao(&coldkey, burn_cost.into())?;
+            Self::increase_rao_recycled(NetUid::ROOT, burn_cost);
         }
+        Self::bump_registration_price_after_registration(NetUid::ROOT);
+
+        // --- 10. Insert the neuron.
+        let subnetwork_uid: u16 = match maybe_replacement {
+            None => {
+                let uid = current_num_root_validators;
+                Self::append_neuron(NetUid::ROOT, &hotkey, current_block_number);
+                log::debug!("add new neuron: {hotkey:?} on uid {uid:?}");
+                uid
+            }
+            Some((lowest_uid, replaced_hotkey)) => {
+                Self::replace_neuron(NetUid::ROOT, lowest_uid, &hotkey, current_block_number);
+                log::debug!(
+                    "replace neuron: {replaced_hotkey:?} with {hotkey:?} on uid {lowest_uid:?}"
+                );
+                lowest_uid
+            }
+        };
 
         // --- 13. Force all members on root to become a delegate.
         if !Self::hotkey_is_delegate(&hotkey) {
