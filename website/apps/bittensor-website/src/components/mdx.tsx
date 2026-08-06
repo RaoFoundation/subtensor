@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { MDXComponents } from 'mdx/types';
 import type { ComponentProps, ReactNode } from 'react';
-import { CopyCodeButton } from './copy';
+import { CopyCodeButton, EvmAddress } from './copy';
 import { EvmAddressDomains } from './docs/evm-address-domains';
 import { EvmMoneyFlows } from './docs/evm-money-flows';
 import { ConvictionLockChart } from './docs/conviction-lock-chart';
@@ -130,6 +130,7 @@ export function getMDXComponents(components?: MDXComponents) {
     Cards,
     Card,
     Callout,
+    EvmAddress,
     TaoHalvingChart,
     SubnetEmissionShareChart,
     YumaConsensusDemo,
