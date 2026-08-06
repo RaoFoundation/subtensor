@@ -6,7 +6,7 @@ use crate::{
     BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
     Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
     StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow,
-    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    SubnetTAO, SubnetworkN, Tempo, TotalIssuance, TotalStake, Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -541,6 +541,8 @@ fn test_root_basket_records_symmetric_protocol_flow() {
         let root_balance_before = SubtensorModule::get_coldkey_balance(&root_account);
         let balance_b_before = SubtensorModule::get_coldkey_balance(&account_b);
         let balance_c_before = SubtensorModule::get_coldkey_balance(&account_c);
+        let balances_issuance_before = Balances::total_issuance();
+        let subtensor_issuance_before = TotalIssuance::<Test>::get();
         System::reset_events();
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
@@ -559,6 +561,8 @@ fn test_root_basket_records_symmetric_protocol_flow() {
             "all source-account debits must land in the root account"
         );
         assert!(source_debits > TaoBalance::ZERO);
+        assert_eq!(Balances::total_issuance(), balances_issuance_before);
+        assert_eq!(TotalIssuance::<Test>::get(), subtensor_issuance_before);
         assert!(
             System::events()
                 .iter()

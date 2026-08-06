@@ -4,16 +4,19 @@
 ///   - Reading colkey TAO balances
 ///   - Access to subnet TAO reserves
 ///
-use frame_support::traits::{
-    Imbalance, LockableCurrency, WithdrawReasons,
-    fungible::Mutate,
-    tokens::{
-        Fortitude, Precision, Preservation,
-        fungible::{Balanced, Credit, Inspect},
+use frame_support::{
+    storage::{TransactionOutcome, with_transaction},
+    traits::{
+        Imbalance, LockableCurrency, WithdrawReasons,
+        fungible::Mutate,
+        tokens::{
+            Fortitude, Precision, Preservation,
+            fungible::{Balanced, Credit, Inspect, Unbalanced},
+        },
     },
 };
-use sp_runtime::traits::AccountIdConversion;
-use sp_runtime::{DispatchError, DispatchResult};
+use sp_runtime::traits::{AccountIdConversion, CheckedAdd};
+use sp_runtime::{ArithmeticError, DispatchError, DispatchResult};
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
 use super::*;
@@ -235,6 +238,51 @@ impl<T: Config> Pallet<T> {
             Preservation::Preserve,
             Fortitude::Polite,
         )
+    }
+
+    /// Atomically move TAO from one or more accounts into one destination without emitting balance
+    /// events.
+    ///
+    /// The requested debits and aggregate credit cancel without changing total issuance. Normal
+    /// dust handling can still reduce issuance if a source account is reaped. The nested storage
+    /// transaction rolls every debit (including dust handling) back if any debit or the final
+    /// credit fails.
+    pub(crate) fn settle_tao_balances(
+        debits: &[(T::AccountId, BalanceOf<T>)],
+        destination: &T::AccountId,
+    ) -> Result<BalanceOf<T>, DispatchError> {
+        let amount_to_credit = debits
+            .iter()
+            .try_fold(BalanceOf::<T>::zero(), |total, (_, amount)| {
+                total.checked_add(amount).ok_or(ArithmeticError::Overflow)
+            })?;
+
+        if amount_to_credit.is_zero() {
+            return Ok(amount_to_credit);
+        }
+
+        with_transaction(|| {
+            for (source, amount) in debits {
+                if let Err(err) = <T as Config>::Currency::decrease_balance(
+                    source,
+                    *amount,
+                    Precision::Exact,
+                    Preservation::Expendable,
+                    Fortitude::Polite,
+                ) {
+                    return TransactionOutcome::Rollback(Err(err));
+                }
+            }
+
+            match <T as Config>::Currency::increase_balance(
+                destination,
+                amount_to_credit,
+                Precision::Exact,
+            ) {
+                Ok(_) => TransactionOutcome::Commit(Ok(amount_to_credit)),
+                Err(err) => TransactionOutcome::Rollback(Err(err)),
+            }
+        })
     }
 
     /// Create TAO and return the imbalance.

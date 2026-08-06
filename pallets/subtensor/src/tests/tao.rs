@@ -43,6 +43,58 @@ fn total_balance(account: &U256) -> TaoBalance {
     Balances::total_balance(account)
 }
 
+#[test]
+fn test_settle_tao_balances_rolls_back_debits_when_credit_fails() {
+    new_test_ext(1).execute_with(|| {
+        let source = U256::from(1);
+        let destination = U256::from(10_001);
+        let amount = ExistentialDeposit::get() - TaoBalance::from(1);
+
+        let source_before = total_balance(&source);
+        let destination_before = total_balance(&destination);
+        let balances_ti_before = balances_total_issuance();
+        let subtensor_ti_before = subtensor_total_issuance();
+
+        // The destination does not exist, so an exact credit below ED must fail after the debit.
+        assert!(SubtensorModule::settle_tao_balances(&[(source, amount)], &destination).is_err());
+
+        assert_eq!(total_balance(&source), source_before);
+        assert_eq!(total_balance(&destination), destination_before);
+        assert_eq!(balances_total_issuance(), balances_ti_before);
+        assert_eq!(subtensor_total_issuance(), subtensor_ti_before);
+    });
+}
+
+#[test]
+fn test_settle_tao_balances_rolls_back_prior_debits_when_later_debit_fails() {
+    new_test_ext(1).execute_with(|| {
+        let funded_source = U256::from(1);
+        let empty_source = U256::from(10_002);
+        let destination = U256::from(2);
+        let amount = ExistentialDeposit::get();
+
+        let funded_source_before = total_balance(&funded_source);
+        let empty_source_before = total_balance(&empty_source);
+        let destination_before = total_balance(&destination);
+        let balances_ti_before = balances_total_issuance();
+        let subtensor_ti_before = subtensor_total_issuance();
+
+        assert!(
+            SubtensorModule::settle_tao_balances(
+                &[(funded_source, amount), (empty_source, amount)],
+                &destination,
+            )
+            .is_err()
+        );
+
+        assert_eq!(total_balance(&funded_source), funded_source_before);
+        assert_eq!(total_balance(&empty_source), empty_source_before);
+        assert_eq!(total_balance(&destination), destination_before);
+        assert_eq!(balances_total_issuance(), balances_ti_before);
+        assert_eq!(subtensor_total_issuance(), subtensor_ti_before);
+    });
+}
+
 // ----------------------------------------------------
 // transfer_tao
 // ----------------------------------------------------
