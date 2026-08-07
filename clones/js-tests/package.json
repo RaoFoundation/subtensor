@@ -26,8 +26,7 @@
     "test:testnet-unlock-rate": "tsx tests/testnet-unlock-rate-read.ts",
     "test:testnet-maturity-rate": "tsx tests/testnet-maturity-rate-read.ts",
     "test:hotkey-swap-and-proxy-stake": "tsx tests/test-hotkey-swap-and-proxy-stake.ts",
-    "test:proxy-filter-security-regressions": "tsx tests/test-proxy-filter-security-regressions.ts",
-    "test:storage-bloat-migration": "tsx tests/test-storage-bloat-migration.ts"
+    "test:proxy-filter-security-regressions": "tsx tests/test-proxy-filter-security-regressions.ts"
   },
   "dependencies": {
     "@polkadot/api": "^16.4.9",
