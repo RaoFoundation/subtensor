@@ -1865,6 +1865,22 @@ mod pallet_benchmarks {
         let lease = SubnetLeases::<T>::get(0).unwrap();
         let hotkey = account::<T::AccountId>("beneficiary_hotkey", 0, 0);
         let _ = Subtensor::<T>::create_account_if_non_existent(&beneficiary, &hotkey);
+        let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
+        let now = Subtensor::<T>::get_current_block_as_u64();
+        let old_owner_lock = LockState {
+            locked_mass: 100u64.into(),
+            conviction: U64F64::from_num(100),
+            last_update: now,
+        };
+        let new_owner_lock = LockState {
+            locked_mass: 200u64.into(),
+            conviction: U64F64::from_num(200),
+            last_update: now,
+        };
+        Subtensor::<T>::insert_owner_lock_state(lease.netuid, old_owner_lock.clone());
+        Subtensor::<T>::insert_decaying_owner_lock_state(lease.netuid, old_owner_lock);
+        Subtensor::<T>::insert_hotkey_lock_state(lease.netuid, &hotkey, new_owner_lock.clone());
+        Subtensor::<T>::insert_decaying_hotkey_lock_state(lease.netuid, &hotkey, new_owner_lock);
 
         #[extrinsic_call]
         _(
@@ -1875,6 +1891,28 @@ mod pallet_benchmarks {
 
         assert_eq!(SubnetOwner::<T>::get(lease.netuid), beneficiary);
         assert_eq!(SubnetOwnerHotkey::<T>::get(lease.netuid), hotkey);
+        assert_eq!(
+            HotkeyLock::<T>::get(lease.netuid, &old_owner_hotkey)
+                .unwrap()
+                .locked_mass,
+            100u64.into()
+        );
+        assert_eq!(
+            DecayingHotkeyLock::<T>::get(lease.netuid, &old_owner_hotkey)
+                .unwrap()
+                .locked_mass,
+            100u64.into()
+        );
+        assert_eq!(
+            OwnerLock::<T>::get(lease.netuid).unwrap().locked_mass,
+            200u64.into()
+        );
+        assert_eq!(
+            DecayingOwnerLock::<T>::get(lease.netuid)
+                .unwrap()
+                .locked_mass,
+            200u64.into()
+        );
 
         assert_eq!(SubnetLeases::<T>::get(lease_id), None);
         assert!(!SubnetLeaseShares::<T>::contains_prefix(lease_id));

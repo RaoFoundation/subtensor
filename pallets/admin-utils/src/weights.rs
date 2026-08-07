@@ -990,16 +990,28 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
 	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:0 w:1)
+	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::UnlockRate` (r:1 w:0)
+	/// Proof: `SubtensorModule::UnlockRate` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MaturityRate` (r:1 w:0)
+	/// Proof: `SubtensorModule::MaturityRate` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerLock` (r:1 w:1)
+	/// Proof: `SubtensorModule::OwnerLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::HotkeyLock` (r:2 w:2)
+	/// Proof: `SubtensorModule::HotkeyLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::DecayingOwnerLock` (r:1 w:1)
+	/// Proof: `SubtensorModule::DecayingOwnerLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::DecayingHotkeyLock` (r:2 w:2)
+	/// Proof: `SubtensorModule::DecayingHotkeyLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn sudo_set_sn_owner_hotkey() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `712`
-		//  Estimated: `4177`
-		// Minimum execution time: 24_415_000 picoseconds.
-		Weight::from_parts(25_167_000, 4177)
-			.saturating_add(T::DbWeight::get().reads(2_u64))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
+		//  Measured:  `1208`
+		//  Estimated: `7148`
+		// Minimum execution time: 72_000_000 picoseconds.
+		Weight::from_parts(77_000_000, 7148)
+			.saturating_add(T::DbWeight::get().reads(11_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
 	}
 	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
 	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -2375,16 +2387,28 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::LastRateLimitedBlock` (r:1 w:1)
 	/// Proof: `SubtensorModule::LastRateLimitedBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:0 w:1)
+	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:1)
 	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::UnlockRate` (r:1 w:0)
+	/// Proof: `SubtensorModule::UnlockRate` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MaturityRate` (r:1 w:0)
+	/// Proof: `SubtensorModule::MaturityRate` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerLock` (r:1 w:1)
+	/// Proof: `SubtensorModule::OwnerLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::HotkeyLock` (r:2 w:2)
+	/// Proof: `SubtensorModule::HotkeyLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::DecayingOwnerLock` (r:1 w:1)
+	/// Proof: `SubtensorModule::DecayingOwnerLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::DecayingHotkeyLock` (r:2 w:2)
+	/// Proof: `SubtensorModule::DecayingHotkeyLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn sudo_set_sn_owner_hotkey() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `712`
-		//  Estimated: `4177`
-		// Minimum execution time: 24_415_000 picoseconds.
-		Weight::from_parts(25_167_000, 4177)
-			.saturating_add(RocksDbWeight::get().reads(2_u64))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
+		//  Measured:  `1208`
+		//  Estimated: `7148`
+		// Minimum execution time: 72_000_000 picoseconds.
+		Weight::from_parts(77_000_000, 7148)
+			.saturating_add(RocksDbWeight::get().reads(11_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
 	}
 	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
 	/// Proof: `SubtensorModule::Tempo` (`max_values`: None, `max_size`: None, mode: `Measured`)

@@ -202,6 +202,12 @@ impl<T: Config> Pallet<T> {
             Self::coldkey_owns_hotkey(&lease.beneficiary, &hotkey),
             Error::<T>::BeneficiaryDoesNotOwnHotkey
         );
+        ensure!(
+            Self::is_subnet_account_id(&hotkey).is_none(),
+            Error::<T>::CannotUseSystemAccount
+        );
+        let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
+        Self::transition_subnet_owner_lock_aggregates(lease.netuid, &old_owner_hotkey, &hotkey);
         SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
         Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
 
