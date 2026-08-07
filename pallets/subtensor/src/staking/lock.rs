@@ -1847,7 +1847,7 @@ impl<T: Config> Pallet<T> {
             Some((origin_hotkey, mut model)) => {
                 let unlock_rate = UnlockRate::<T>::get();
                 let maturity_rate = MaturityRate::<T>::get();
-                model.roll_forward_individual(now, unlock_rate, maturity_rate);
+                model.roll_forward(now, unlock_rate, maturity_rate);
                 let mut lock = model.individual_lock().clone();
                 let removed = lock.clone();
 
@@ -1864,16 +1864,9 @@ impl<T: Config> Pallet<T> {
                 )
                 .0;
 
-                Lock::<T>::remove((coldkey.clone(), netuid, origin_hotkey.clone()));
-                Self::maybe_remove_locking_coldkey(&origin_hotkey, netuid, coldkey);
+                model.reduce(removed.locked_mass, removed.conviction);
+                Self::save_conviction_model(coldkey, netuid, &origin_hotkey, model);
                 Self::insert_lock_state(coldkey, netuid, destination_hotkey, lock.clone());
-                Self::reduce_aggregate_lock(
-                    coldkey,
-                    &origin_hotkey,
-                    netuid,
-                    removed.locked_mass,
-                    removed.conviction,
-                );
                 Self::add_aggregate_lock(coldkey, destination_hotkey, netuid, lock);
 
                 Self::deposit_event(Event::LockMoved {
@@ -1951,26 +1944,17 @@ impl<T: Config> Pallet<T> {
 
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
-        source_model.roll_forward_individual(now, unlock_rate, maturity_rate);
+        source_model.roll_forward(now, unlock_rate, maturity_rate);
+        let source_lock_before = source_model.individual_lock().clone();
         let mut source_lock = source_model.individual_lock().clone();
-        let maybe_destination_lock = Self::read_conviction_model(destination_coldkey, netuid, now)
-            .map(|(hotkey, mut model)| {
-                model.roll_forward_individual(now, unlock_rate, maturity_rate);
-                (hotkey, model.individual_lock().clone())
-            });
+        let maybe_destination_hotkey =
+            Self::read_conviction_model(destination_coldkey, netuid, now)
+                .map(|(hotkey, _model)| hotkey);
 
-        let destination_lock_hotkey = maybe_destination_lock
+        let destination_lock_hotkey = maybe_destination_hotkey
             .as_ref()
-            .map(|(hotkey, _)| hotkey.clone())
+            .cloned()
             .unwrap_or_else(|| destination_hotkey.clone());
-        let mut destination_lock = maybe_destination_lock
-            .as_ref()
-            .map(|(_, lock)| lock.clone())
-            .unwrap_or(LockState {
-                locked_mass: AlphaBalance::ZERO,
-                conviction: U64F64::saturating_from_num(0),
-                last_update: now,
-            });
 
         // Calculate available stake by subtracting locked_mass from total alpha.
         let unavailable = source_lock.locked_mass;
@@ -1987,10 +1971,9 @@ impl<T: Config> Pallet<T> {
         // same amount, reduce conviction on the source coldkey proportionally, and increase conviction
         // on the destination coldkey proportionally.
         let mut locked_transfer = AlphaBalance::ZERO;
-        let mut conviction_transfer = U64F64::saturating_from_num(0);
         let mut received_conviction = U64F64::saturating_from_num(0);
         if !remaining_to_transfer.is_zero() {
-            if let Some((existing_hotkey, _)) = maybe_destination_lock.as_ref() {
+            if let Some(existing_hotkey) = maybe_destination_hotkey.as_ref() {
                 ensure!(
                     existing_hotkey == destination_hotkey,
                     Error::<T>::LockHotkeyMismatch
@@ -1998,7 +1981,8 @@ impl<T: Config> Pallet<T> {
             }
 
             locked_transfer = remaining_to_transfer.min(source_lock.locked_mass);
-            conviction_transfer = if locked_transfer.is_zero() || source_lock.locked_mass.is_zero()
+            let conviction_transfer = if locked_transfer.is_zero()
+                || source_lock.locked_mass.is_zero()
             {
                 U64F64::saturating_from_num(0)
             } else {
@@ -2024,11 +2008,6 @@ impl<T: Config> Pallet<T> {
 
             source_lock.locked_mass = source_lock.locked_mass.saturating_sub(locked_transfer);
             source_lock.conviction = source_lock.conviction.saturating_sub(conviction_transfer);
-            destination_lock.locked_mass =
-                destination_lock.locked_mass.saturating_add(locked_transfer);
-            destination_lock.conviction = destination_lock
-                .conviction
-                .saturating_add(received_conviction);
         }
         Self::ensure_can_receive_locked_alpha(destination_coldkey, locked_transfer)?;
 
@@ -2041,42 +2020,60 @@ impl<T: Config> Pallet<T> {
             Self::is_perpetual_lock(origin_coldkey, netuid),
         )
         .0;
-        destination_lock = ConvictionModel::roll_forward_lock(
-            destination_lock,
-            now,
-            unlock_rate,
-            maturity_rate,
-            Self::is_subnet_owner_hotkey(netuid, &destination_lock_hotkey),
-            Self::is_perpetual_lock(destination_coldkey, netuid),
-        )
-        .0;
+        let removed_locked_mass = source_lock_before
+            .locked_mass
+            .saturating_sub(source_lock.locked_mass);
+        let removed_conviction = source_lock_before
+            .conviction
+            .saturating_sub(source_lock.conviction);
+        source_model.set_individual_lock(source_lock);
+        source_model.reduce_aggregate(removed_locked_mass, removed_conviction);
+        Self::save_conviction_model(origin_coldkey, netuid, &source_hotkey, source_model);
 
-        // Upsert updated locks (only once per this fn) even if there were no updates because
-        // of roll-forward
-        Self::insert_lock_state(origin_coldkey, netuid, &source_hotkey, source_lock);
-        Self::insert_lock_state(
-            destination_coldkey,
-            netuid,
-            &destination_lock_hotkey,
-            destination_lock,
-        );
-        if !locked_transfer.is_zero() {
-            Self::reduce_aggregate_lock(
-                origin_coldkey,
-                &source_hotkey,
-                netuid,
-                locked_transfer,
-                conviction_transfer,
-            );
-            Self::add_aggregate_lock(
+        if !locked_transfer.is_zero() || maybe_destination_hotkey.is_some() {
+            // Re-read after saving the source model. Source and destination can share an
+            // aggregate bucket, so retaining the earlier aggregate snapshot would restore
+            // the source contribution that was just removed.
+            let mut destination_model = Self::read_conviction_model_for_hotkey(
                 destination_coldkey,
-                &destination_lock_hotkey,
                 netuid,
-                LockState {
-                    locked_mass: locked_transfer,
-                    conviction: received_conviction,
-                    last_update: now,
-                },
+                &destination_lock_hotkey,
+                now,
+            );
+            destination_model.roll_forward(now, unlock_rate, maturity_rate);
+            let destination_lock_before = destination_model.individual_lock().clone();
+            let mut destination_lock = destination_lock_before.clone();
+            destination_lock.locked_mass =
+                destination_lock.locked_mass.saturating_add(locked_transfer);
+            destination_lock.conviction = destination_lock
+                .conviction
+                .saturating_add(received_conviction);
+            destination_lock = ConvictionModel::roll_forward_lock(
+                destination_lock,
+                now,
+                unlock_rate,
+                maturity_rate,
+                Self::is_subnet_owner_hotkey(netuid, &destination_lock_hotkey),
+                Self::is_perpetual_lock(destination_coldkey, netuid),
+            )
+            .0;
+
+            let added = LockState {
+                locked_mass: destination_lock
+                    .locked_mass
+                    .saturating_sub(destination_lock_before.locked_mass),
+                conviction: destination_lock
+                    .conviction
+                    .saturating_sub(destination_lock_before.conviction),
+                last_update: now,
+            };
+            destination_model.set_individual_lock(destination_lock);
+            destination_model.add_to_aggregate(&added);
+            Self::save_conviction_model(
+                destination_coldkey,
+                netuid,
+                &destination_lock_hotkey,
+                destination_model,
             );
         }
 

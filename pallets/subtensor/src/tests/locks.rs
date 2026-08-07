@@ -4888,6 +4888,107 @@ fn test_neuron_replacement_does_not_affect_lock() {
 // =========================================================================
 
 #[test]
+fn test_move_lock_removes_dusted_member_from_aggregate() {
+    new_test_ext(1).execute_with(|| {
+        let moving_coldkey = U256::from(1);
+        let sibling_coldkey = U256::from(4);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(3);
+        let netuid = setup_subnet_with_stake(moving_coldkey, origin_hotkey, 100_000_000_000);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &moving_coldkey,
+            &destination_hotkey,
+        ));
+        DecayingLock::<Test>::insert(sibling_coldkey, netuid, false);
+
+        let now = SubtensorModule::get_current_block_as_u64();
+        let dust = LockState {
+            locked_mass: 99u64.into(),
+            conviction: U64F64::from_num(99),
+            last_update: now,
+        };
+        let sibling = LockState {
+            locked_mass: 1_000u64.into(),
+            conviction: U64F64::from_num(1_000),
+            last_update: now,
+        };
+        Lock::<Test>::insert((moving_coldkey, netuid, origin_hotkey), dust.clone());
+        Lock::<Test>::insert((sibling_coldkey, netuid, origin_hotkey), sibling.clone());
+        HotkeyLock::<Test>::insert(
+            netuid,
+            origin_hotkey,
+            LockState {
+                locked_mass: dust.locked_mass.saturating_add(sibling.locked_mass),
+                conviction: dust.conviction.saturating_add(sibling.conviction),
+                last_update: now,
+            },
+        );
+
+        assert_ok!(SubtensorModule::do_move_lock(
+            &moving_coldkey,
+            &destination_hotkey,
+            netuid,
+        ));
+
+        assert!(Lock::<Test>::get((moving_coldkey, netuid, origin_hotkey)).is_none());
+        assert!(Lock::<Test>::get((moving_coldkey, netuid, destination_hotkey)).is_none());
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, origin_hotkey),
+            Some(sibling)
+        );
+        assert!(HotkeyLock::<Test>::get(netuid, destination_hotkey).is_none());
+    });
+}
+
+#[test]
+fn test_transfer_lock_removes_dusted_source_from_aggregate() {
+    new_test_ext(1).execute_with(|| {
+        let sender_coldkey = U256::from(1);
+        let receiver_coldkey = U256::from(5);
+        let sibling_coldkey = U256::from(4);
+        let hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(sender_coldkey, hotkey, 100_000_000_000);
+        DecayingLock::<Test>::insert(sibling_coldkey, netuid, false);
+
+        let now = SubtensorModule::get_current_block_as_u64();
+        let dust = LockState {
+            locked_mass: 99u64.into(),
+            conviction: U64F64::from_num(99),
+            last_update: now,
+        };
+        let sibling = LockState {
+            locked_mass: 1_000u64.into(),
+            conviction: U64F64::from_num(1_000),
+            last_update: now,
+        };
+        Lock::<Test>::insert((sender_coldkey, netuid, hotkey), dust.clone());
+        Lock::<Test>::insert((sibling_coldkey, netuid, hotkey), sibling.clone());
+        HotkeyLock::<Test>::insert(
+            netuid,
+            hotkey,
+            LockState {
+                locked_mass: dust.locked_mass.saturating_add(sibling.locked_mass),
+                conviction: dust.conviction.saturating_add(sibling.conviction),
+                last_update: now,
+            },
+        );
+
+        let total_alpha = SubtensorModule::total_coldkey_alpha_on_subnet(&sender_coldkey, netuid);
+        assert_ok!(SubtensorModule::transfer_lock(
+            &sender_coldkey,
+            &receiver_coldkey,
+            &hotkey,
+            netuid,
+            total_alpha,
+        ));
+
+        assert!(Lock::<Test>::get((sender_coldkey, netuid, hotkey)).is_none());
+        assert!(Lock::<Test>::get((receiver_coldkey, netuid, hotkey)).is_none());
+        assert_eq!(HotkeyLock::<Test>::get(netuid, hotkey), Some(sibling));
+    });
+}
+
+#[test]
 fn test_moving_lock() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
