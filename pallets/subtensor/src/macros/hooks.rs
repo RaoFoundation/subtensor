@@ -171,6 +171,8 @@ mod hooks {
                 .saturating_add(migrations::migrate_dynamic_tempo::migrate_dynamic_tempo::<T>())
                 // Populate locking reverse map.
                 .saturating_add(migrations::migrate_populate_locking_coldkeys::migrate_populate_locking_coldkeys::<T>())
+                // Rebuild conviction aggregates corrupted by partial v443 roll-forward updates.
+                .saturating_add(migrations::migrate_rebuild_conviction_aggregates::migrate_rebuild_conviction_aggregates::<T>())
                 // Capture the runtime-upgrade block for TAO-in refund cutover.
                 .saturating_add(migrations::migrate_tao_in_refund_deployment_block::migrate_tao_in_refund_deployment_block::<T>())
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
