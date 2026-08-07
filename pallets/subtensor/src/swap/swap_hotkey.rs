@@ -820,12 +820,11 @@ impl<T: Config> Pallet<T> {
             // 8.1 Swap TotalHotkeyAlphaLastEpoch
             let old_alpha = TotalHotkeyAlphaLastEpoch::<T>::take(old_hotkey, netuid);
             let new_total_hotkey_alpha = TotalHotkeyAlphaLastEpoch::<T>::get(new_hotkey, netuid);
-            let merged_alpha = old_alpha.saturating_add(new_total_hotkey_alpha);
-            if merged_alpha == AlphaBalance::ZERO {
-                TotalHotkeyAlphaLastEpoch::<T>::remove(new_hotkey, netuid);
-            } else {
-                TotalHotkeyAlphaLastEpoch::<T>::insert(new_hotkey, netuid, merged_alpha);
-            }
+            TotalHotkeyAlphaLastEpoch::<T>::insert(
+                new_hotkey,
+                netuid,
+                old_alpha.saturating_add(new_total_hotkey_alpha),
+            );
             weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
 
             // 8.2 Swap AlphaDividendsPerSubnet

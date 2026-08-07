@@ -116,8 +116,8 @@ impl<T: Config> Pallet<T> {
             pending_tao,
             pending_alpha,
         ) {
-            BalancerTaoReservoir::<T>::remove(netuid);
-            BalancerAlphaReservoir::<T>::remove(netuid);
+            BalancerTaoReservoir::<T>::insert(netuid, TaoBalance::ZERO);
+            BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::ZERO);
             SwapBalancer::<T>::insert(netuid, new_balancer);
             return (pending_tao, pending_alpha);
         }
@@ -130,7 +130,7 @@ impl<T: Config> Pallet<T> {
             pending_alpha,
         ) {
             BalancerTaoReservoir::<T>::insert(netuid, pending_tao);
-            BalancerAlphaReservoir::<T>::remove(netuid);
+            BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::ZERO);
             SwapBalancer::<T>::insert(netuid, new_balancer);
             return (TaoBalance::ZERO, pending_alpha);
         }
@@ -142,7 +142,7 @@ impl<T: Config> Pallet<T> {
             pending_tao,
             AlphaBalance::ZERO,
         ) {
-            BalancerTaoReservoir::<T>::remove(netuid);
+            BalancerTaoReservoir::<T>::insert(netuid, TaoBalance::ZERO);
             BalancerAlphaReservoir::<T>::insert(netuid, pending_alpha);
             SwapBalancer::<T>::insert(netuid, new_balancer);
             return (pending_tao, AlphaBalance::ZERO);

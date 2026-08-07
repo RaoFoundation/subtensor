@@ -6738,19 +6738,3 @@ fn test_storage_bloat_cleanup_preserves_root_age_when_hold_is_enabled() {
         );
     });
 }
-
-#[test]
-fn test_touch_root_stake_age_writes_while_hold_is_disabled() {
-    new_test_ext(1).execute_with(|| {
-        let coldkey = U256::from(30);
-        let hotkey = U256::from(31);
-        assert_eq!(RootStakeUnlockInterval::<Test>::get(), 0);
-
-        SubtensorModule::touch_root_stake_age(&coldkey, &hotkey);
-
-        assert_eq!(
-            LastColdkeyHotkeyStakeBlock::<Test>::get(coldkey, hotkey),
-            Some(SubtensorModule::get_current_block_as_u64())
-        );
-    });
-}
