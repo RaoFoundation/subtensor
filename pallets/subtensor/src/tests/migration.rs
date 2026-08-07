@@ -1764,8 +1764,7 @@ fn test_migrate_rebuild_conviction_aggregates_from_individual_locks() {
                         maturity_rate,
                         *owner,
                         *perpetual,
-                    )
-                    .0,
+                    ),
                 )
             })
             .collect();

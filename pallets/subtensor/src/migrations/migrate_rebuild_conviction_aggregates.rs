@@ -129,8 +129,7 @@ pub fn migrate_rebuild_conviction_aggregates<T: Config>() -> Weight {
             maturity_rate,
             owner_lock,
             perpetual_lock,
-        )
-        .0;
+        );
 
         if rolled.is_zero() {
             Lock::<T>::remove((&coldkey, netuid, &hotkey));

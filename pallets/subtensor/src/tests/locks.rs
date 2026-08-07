@@ -79,7 +79,6 @@ fn roll_forward_lock(
         owner_lock,
         perpetual_lock,
     )
-    .0
 }
 
 fn roll_forward_individual_lock(
@@ -1554,10 +1553,50 @@ fn test_roll_forward_individual_lock_uses_lock_owner_and_decay_mode() {
             MaturityRate::<Test>::get(),
             true,
             false,
-        )
-        .0;
+        );
 
         assert_eq!(rolled, expected);
+    });
+}
+
+#[test]
+fn test_rolled_individual_is_a_pure_view() {
+    new_test_ext(1).execute_with(|| {
+        let individual = LockState {
+            locked_mass: 10_000u64.into(),
+            conviction: U64F64::from_num(0),
+            last_update: 0,
+        };
+        let aggregate = individual.clone();
+        let empty = LockState {
+            locked_mass: AlphaBalance::ZERO,
+            conviction: U64F64::from_num(0),
+            last_update: 0,
+        };
+        let model = ConvictionModel::new(
+            false,
+            true,
+            individual.clone(),
+            aggregate.clone(),
+            empty.clone(),
+            empty.clone(),
+            empty,
+        );
+
+        let rolled = model.rolled_individual(
+            1_000,
+            UnlockRate::<Test>::get(),
+            MaturityRate::<Test>::get(),
+        );
+
+        assert!(rolled.conviction > individual.conviction);
+        assert_eq!(model.individual_lock(), &individual);
+        assert_eq!(model.agg_perpetual_general(), &aggregate);
+        assert!(!model.individual_lock_dirty());
+        assert!(!model.agg_perpetual_general_dirty());
+        assert!(!model.agg_decaying_general_dirty());
+        assert!(!model.agg_perpetual_owner_dirty());
+        assert!(!model.agg_decaying_owner_dirty());
     });
 }
 
@@ -1579,8 +1618,7 @@ fn test_roll_forward_hotkey_lock_uses_perpetual_general_mode() {
             MaturityRate::<Test>::get(),
             false,
             true,
-        )
-        .0;
+        );
 
         assert_eq!(rolled, expected);
     });
@@ -1604,8 +1642,7 @@ fn test_roll_forward_decaying_hotkey_lock_uses_decaying_general_mode() {
             MaturityRate::<Test>::get(),
             false,
             false,
-        )
-        .0;
+        );
 
         assert_eq!(rolled, expected);
     });
@@ -2369,10 +2406,7 @@ fn test_do_transfer_stake_same_subnet_transfers_lock_to_destination_coldkey() {
             false,
             true,
         );
-        assert_eq!(
-            hotkey_lock_after.locked_mass,
-            expected_hotkey_lock.locked_mass
-        );
+        assert_eq!(hotkey_lock_after, expected_hotkey_lock);
     });
 }
 
@@ -5036,6 +5070,70 @@ fn test_moving_lock() {
         assert_eq!(
             hotkey_lock_destination_after.conviction,
             U64F64::from_num(1234)
+        );
+    });
+}
+
+#[test]
+fn test_moving_lock_merges_preexisting_destination_individual_and_aggregate() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey_a = U256::from(2);
+        let hotkey_b = U256::from(3);
+        let netuid = setup_subnet_with_stake(coldkey, hotkey_a, 100_000_000_000);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey, &hotkey_b,
+        ));
+
+        let now = SubtensorModule::get_current_block_as_u64();
+        let lock_a = LockState {
+            locked_mass: 5_000u64.into(),
+            conviction: U64F64::from_num(1_000),
+            last_update: now,
+        };
+        let lock_b = LockState {
+            locked_mass: 2_000u64.into(),
+            conviction: U64F64::from_num(300),
+            last_update: now,
+        };
+        Lock::<Test>::insert((coldkey, netuid, hotkey_a), lock_a.clone());
+        HotkeyLock::<Test>::insert(netuid, hotkey_a, lock_a);
+        Lock::<Test>::insert((coldkey, netuid, hotkey_b), lock_b.clone());
+        HotkeyLock::<Test>::insert(netuid, hotkey_b, lock_b);
+
+        // Match production's storage-prefix selection instead of assuming a
+        // numeric hotkey order under the map's hashing scheme.
+        let (origin_hotkey, origin) = Lock::<Test>::iter_prefix((coldkey, netuid))
+            .next()
+            .expect("one source lock should be selected");
+        let destination_hotkey = if origin_hotkey == hotkey_a {
+            hotkey_b
+        } else {
+            hotkey_a
+        };
+        let destination = Lock::<Test>::get((coldkey, netuid, destination_hotkey))
+            .expect("destination lock should exist");
+
+        assert_ok!(SubtensorModule::do_move_lock(
+            &coldkey,
+            &destination_hotkey,
+            netuid,
+        ));
+
+        let expected = LockState {
+            locked_mass: origin.locked_mass.saturating_add(destination.locked_mass),
+            conviction: origin.conviction.saturating_add(destination.conviction),
+            last_update: now,
+        };
+        assert!(Lock::<Test>::get((coldkey, netuid, origin_hotkey)).is_none());
+        assert!(HotkeyLock::<Test>::get(netuid, origin_hotkey).is_none());
+        assert_eq!(
+            Lock::<Test>::get((coldkey, netuid, destination_hotkey)),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, destination_hotkey),
+            Some(expected)
         );
     });
 }
