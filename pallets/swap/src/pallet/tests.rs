@@ -182,6 +182,7 @@ mod dispatchables {
                 BalancerAlphaReservoir::<Test>::get(netuid),
                 AlphaBalance::ZERO
             );
+            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
         });
     }
 
@@ -204,6 +205,7 @@ mod dispatchables {
             assert_eq!(price_active_tao, TaoBalance::from(1_000_u64));
             assert_eq!(price_active_alpha, AlphaBalance::ZERO);
             assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
+            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
             assert_eq!(
                 BalancerAlphaReservoir::<Test>::get(netuid),
                 AlphaBalance::from(200_000_u64)
@@ -246,6 +248,8 @@ mod dispatchables {
                 BalancerAlphaReservoir::<Test>::get(netuid),
                 AlphaBalance::ZERO
             );
+            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
+            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
         });
     }
 
@@ -271,6 +275,8 @@ mod dispatchables {
                 BalancerAlphaReservoir::<Test>::get(netuid),
                 AlphaBalance::ZERO
             );
+            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
+            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
         });
     }
 
