@@ -197,7 +197,10 @@ mod hooks {
                 // Kill the stale quantile-derived emission gate bar so the
                 // rank-32 bar (DefaultEmissionBarRank) applies from the first
                 // recompute after the upgrade instead of the next cadence boundary.
-                .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>());
+                .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>())
+                // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
+                // on_idle weight over subsequent blocks.
+                .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>());
             weight
         }
 
@@ -234,6 +237,17 @@ mod hooks {
                     migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2_with_limit::<
                         T,
                     >(limit.saturating_sub(weight)),
+                );
+            }
+
+            // Storage GC is independent from beta-basket conversion, but both are large. Let the
+            // state-sensitive seed finish first and then consume only otherwise-unused block
+            // weight, so normal extrinsics and dissolution work retain priority.
+            if !seed_in_progress && weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<T>(
+                        limit.saturating_sub(weight),
+                    ),
                 );
             }
 
