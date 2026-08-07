@@ -44,6 +44,7 @@ pub mod migrate_populate_owned_hotkeys;
 pub mod migrate_rao;
 pub mod migrate_rate_limit_keys;
 pub mod migrate_rate_limiting_last_blocks;
+pub mod migrate_rebuild_conviction_aggregates;
 pub mod migrate_remove_add_stake_burn_rate_limit;
 pub mod migrate_remove_commitments_rate_limit;
 pub mod migrate_remove_deprecated_conviction_maps;

@@ -7,7 +7,7 @@
 )]
 
 use super::mock::*;
-use crate::staking::lock::LockState;
+use crate::staking::lock::{ConvictionModel, LockState};
 use crate::*;
 use alloc::collections::BTreeMap;
 use approx::{assert_abs_diff_eq, assert_relative_eq};
@@ -1616,6 +1616,272 @@ fn test_migrate_populate_locking_coldkeys_removes_dust_from_aggregate() {
             LockingColdkeys::<Test>::iter_prefix((netuid, hotkey)).count(),
             0
         );
+    });
+}
+
+#[test]
+fn test_migrate_rebuild_conviction_aggregates_from_individual_locks() {
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_rebuild_conviction_aggregates";
+
+        let netuid = NetUid::from(72);
+        let current_owner = U256::from(7200);
+        let former_owner = U256::from(7201);
+        let general_hotkey = U256::from(7202);
+        let orphan_hotkey = U256::from(7299);
+        let former_owner_coldkey = U256::from(7210);
+        let owner_perpetual_coldkey = U256::from(7211);
+        let owner_decaying_coldkey = U256::from(7212);
+        let general_perpetual_coldkey_1 = U256::from(7213);
+        let general_perpetual_coldkey_2 = U256::from(7214);
+        let general_decaying_coldkey = U256::from(7215);
+        let now = 1_000u64;
+        let unlock_rate = 200u64;
+        let maturity_rate = 300u64;
+
+        System::set_block_number(now);
+        UnlockRate::<Test>::put(unlock_rate);
+        MaturityRate::<Test>::put(maturity_rate);
+        SubnetOwnerHotkey::<Test>::insert(netuid, current_owner);
+        HasMigrationRun::<Test>::remove(MIGRATION_NAME);
+
+        // This reproduces the only SN72 row that still spans the ownership
+        // transition: a former-owner perpetual lock already at conviction ==
+        // locked_mass. That state remains a fixed point after becoming a
+        // non-owner, so current-role roll-forward is exact without history.
+        let former_owner_lock = LockState {
+            locked_mass: AlphaBalance::from(6_000_u64),
+            conviction: U64F64::from_num(6_000_u64),
+            last_update: 100,
+        };
+        let owner_perpetual_lock = LockState {
+            locked_mass: AlphaBalance::from(50_000_u64),
+            conviction: U64F64::from_num(20_000_u64),
+            last_update: 800,
+        };
+        let owner_decaying_lock = LockState {
+            locked_mass: AlphaBalance::from(40_000_u64),
+            conviction: U64F64::from_num(10_000_u64),
+            last_update: 800,
+        };
+        let general_perpetual_lock_1 = LockState {
+            locked_mass: AlphaBalance::from(10_000_u64),
+            conviction: U64F64::from_num(1_000_u64),
+            last_update: 700,
+        };
+        let general_perpetual_lock_2 = LockState {
+            locked_mass: AlphaBalance::from(20_000_u64),
+            conviction: U64F64::from_num(2_000_u64),
+            last_update: 750,
+        };
+        let general_decaying_lock = LockState {
+            locked_mass: AlphaBalance::from(30_000_u64),
+            conviction: U64F64::from_num(3_000_u64),
+            last_update: 700,
+        };
+
+        for coldkey in [
+            former_owner_coldkey,
+            owner_perpetual_coldkey,
+            general_perpetual_coldkey_1,
+            general_perpetual_coldkey_2,
+        ] {
+            DecayingLock::<Test>::insert(coldkey, netuid, false);
+        }
+
+        let seeded_locks = [
+            (
+                former_owner_coldkey,
+                former_owner,
+                former_owner_lock.clone(),
+                false,
+                true,
+            ),
+            (
+                owner_perpetual_coldkey,
+                current_owner,
+                owner_perpetual_lock.clone(),
+                true,
+                true,
+            ),
+            (
+                owner_decaying_coldkey,
+                current_owner,
+                owner_decaying_lock.clone(),
+                true,
+                false,
+            ),
+            (
+                general_perpetual_coldkey_1,
+                general_hotkey,
+                general_perpetual_lock_1.clone(),
+                false,
+                true,
+            ),
+            (
+                general_perpetual_coldkey_2,
+                general_hotkey,
+                general_perpetual_lock_2.clone(),
+                false,
+                true,
+            ),
+            (
+                general_decaying_coldkey,
+                general_hotkey,
+                general_decaying_lock.clone(),
+                false,
+                false,
+            ),
+        ];
+
+        for (coldkey, hotkey, lock, _, _) in &seeded_locks {
+            Lock::<Test>::insert((*coldkey, netuid, *hotkey), lock.clone());
+            LockingColdkeys::<Test>::insert((netuid, *hotkey, *coldkey), ());
+        }
+
+        let corrupt = LockState {
+            locked_mass: AlphaBalance::from(999_999_u64),
+            conviction: U64F64::from_num(888_888_u64),
+            last_update: 999,
+        };
+        HotkeyLock::<Test>::insert(netuid, former_owner, corrupt.clone());
+        HotkeyLock::<Test>::insert(netuid, general_hotkey, corrupt.clone());
+        HotkeyLock::<Test>::insert(netuid, orphan_hotkey, corrupt.clone());
+        DecayingHotkeyLock::<Test>::insert(netuid, general_hotkey, corrupt.clone());
+        OwnerLock::<Test>::insert(netuid, corrupt.clone());
+        DecayingOwnerLock::<Test>::insert(netuid, corrupt);
+
+        let expected: Vec<_> = seeded_locks
+            .iter()
+            .map(|(coldkey, hotkey, lock, owner, perpetual)| {
+                (
+                    *coldkey,
+                    *hotkey,
+                    ConvictionModel::roll_forward_lock(
+                        lock.clone(),
+                        now,
+                        unlock_rate,
+                        maturity_rate,
+                        *owner,
+                        *perpetual,
+                    )
+                    .0,
+                )
+            })
+            .collect();
+
+        let weight = crate::migrations::migrate_rebuild_conviction_aggregates::
+            migrate_rebuild_conviction_aggregates::<Test>();
+
+        assert!(!weight.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+        assert_eq!(Lock::<Test>::iter().count(), seeded_locks.len());
+        assert_eq!(LockingColdkeys::<Test>::iter().count(), seeded_locks.len());
+
+        for (coldkey, hotkey, expected_lock) in &expected {
+            assert_eq!(
+                Lock::<Test>::get((*coldkey, netuid, *hotkey)),
+                Some(expected_lock.clone())
+            );
+            assert_eq!(expected_lock.last_update, now);
+            assert!(LockingColdkeys::<Test>::contains_key((
+                netuid, *hotkey, *coldkey
+            )));
+        }
+
+        let expected_former_owner = expected[0].2.clone();
+        assert_eq!(
+            expected_former_owner.conviction,
+            U64F64::from_num(expected_former_owner.locked_mass)
+        );
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, former_owner),
+            Some(expected_former_owner)
+        );
+
+        let mut expected_general_perpetual = expected[3].2.clone();
+        expected_general_perpetual.locked_mass = expected_general_perpetual
+            .locked_mass
+            .saturating_add(expected[4].2.locked_mass);
+        expected_general_perpetual.conviction = expected_general_perpetual
+            .conviction
+            .saturating_add(expected[4].2.conviction);
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, general_hotkey),
+            Some(expected_general_perpetual)
+        );
+        assert_eq!(
+            DecayingHotkeyLock::<Test>::get(netuid, general_hotkey),
+            Some(expected[5].2.clone())
+        );
+        assert_eq!(OwnerLock::<Test>::get(netuid), Some(expected[1].2.clone()));
+        assert_eq!(
+            DecayingOwnerLock::<Test>::get(netuid),
+            Some(expected[2].2.clone())
+        );
+        assert!(HotkeyLock::<Test>::get(netuid, orphan_hotkey).is_none());
+
+        let aggregate_snapshot = (
+            HotkeyLock::<Test>::iter().collect::<Vec<_>>(),
+            DecayingHotkeyLock::<Test>::iter().collect::<Vec<_>>(),
+            OwnerLock::<Test>::iter().collect::<Vec<_>>(),
+            DecayingOwnerLock::<Test>::iter().collect::<Vec<_>>(),
+        );
+        let second_weight = crate::migrations::migrate_rebuild_conviction_aggregates::
+            migrate_rebuild_conviction_aggregates::<Test>();
+        assert_eq!(
+            second_weight,
+            <Test as frame_system::Config>::DbWeight::get().reads(1)
+        );
+        assert_eq!(
+            aggregate_snapshot,
+            (
+                HotkeyLock::<Test>::iter().collect::<Vec<_>>(),
+                DecayingHotkeyLock::<Test>::iter().collect::<Vec<_>>(),
+                OwnerLock::<Test>::iter().collect::<Vec<_>>(),
+                DecayingOwnerLock::<Test>::iter().collect::<Vec<_>>(),
+            )
+        );
+    });
+}
+
+#[test]
+fn test_migrate_rebuild_conviction_aggregates_removes_dust_and_orphan_index_rows() {
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_rebuild_conviction_aggregates";
+
+        let netuid = NetUid::from(73);
+        let coldkey = U256::from(7300);
+        let orphan_coldkey = U256::from(7301);
+        let hotkey = U256::from(7310);
+        let orphan_hotkey = U256::from(7311);
+        let now = 1_000u64;
+
+        System::set_block_number(now);
+        UnlockRate::<Test>::put(1);
+        MaturityRate::<Test>::put(1);
+        HasMigrationRun::<Test>::remove(MIGRATION_NAME);
+
+        let decayed_to_dust = LockState {
+            locked_mass: AlphaBalance::from(1_000_u64),
+            conviction: U64F64::from_num(0),
+            last_update: 1,
+        };
+        Lock::<Test>::insert((coldkey, netuid, hotkey), decayed_to_dust.clone());
+        LockingColdkeys::<Test>::insert((netuid, hotkey, coldkey), ());
+        LockingColdkeys::<Test>::insert((netuid, orphan_hotkey, orphan_coldkey), ());
+        DecayingHotkeyLock::<Test>::insert(netuid, hotkey, decayed_to_dust.clone());
+        HotkeyLock::<Test>::insert(netuid, orphan_hotkey, decayed_to_dust);
+
+        crate::migrations::migrate_rebuild_conviction_aggregates::
+            migrate_rebuild_conviction_aggregates::<Test>();
+
+        assert!(Lock::<Test>::get((coldkey, netuid, hotkey)).is_none());
+        assert_eq!(LockingColdkeys::<Test>::iter().count(), 0);
+        assert_eq!(HotkeyLock::<Test>::iter().count(), 0);
+        assert_eq!(DecayingHotkeyLock::<Test>::iter().count(), 0);
+        assert_eq!(OwnerLock::<Test>::iter().count(), 0);
+        assert_eq!(DecayingOwnerLock::<Test>::iter().count(), 0);
     });
 }
 
