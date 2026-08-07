@@ -3323,6 +3323,7 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
         System::set_block_number(now);
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+        DecayingLock::<Test>::insert(new_owner_coldkey, netuid, false);
 
         // Seed matching individual and aggregate lock rows for the future king.
         let locked_mass = AlphaBalance::from(1_000u64);
@@ -3334,6 +3335,7 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&king_hotkey, netuid, &new_owner_coldkey);
         HotkeyLock::<Test>::insert(
             netuid,
             king_hotkey,
@@ -3480,6 +3482,7 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
         SubtensorModule::set_tempo_unchecked(netuid, 1);
         LastEpochBlock::<Test>::insert(netuid, now.saturating_sub(1));
         PendingEpochAt::<Test>::insert(netuid, 0);
+        DecayingLock::<Test>::insert(new_owner_coldkey, netuid, false);
 
         let locked_mass = AlphaBalance::from(1_000u64);
         Lock::<Test>::insert(
@@ -3490,6 +3493,7 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&king_hotkey, netuid, &new_owner_coldkey);
         HotkeyLock::<Test>::insert(
             netuid,
             king_hotkey,
@@ -3535,6 +3539,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
         DecayingLock::<Test>::insert(perpetual_coldkey, netuid, false);
+        DecayingLock::<Test>::insert(king_coldkey, netuid, false);
 
         Lock::<Test>::insert(
             (perpetual_coldkey, netuid, old_owner_hotkey),
@@ -3544,6 +3549,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&old_owner_hotkey, netuid, &perpetual_coldkey);
         Lock::<Test>::insert(
             (decaying_coldkey, netuid, old_owner_hotkey),
             LockState {
@@ -3552,6 +3558,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&old_owner_hotkey, netuid, &decaying_coldkey);
         OwnerLock::<Test>::insert(
             netuid,
             LockState {
@@ -3576,6 +3583,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&king_hotkey, netuid, &king_coldkey);
         HotkeyLock::<Test>::insert(
             netuid,
             king_hotkey,
@@ -3605,6 +3613,79 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
             OwnerLock::<Test>::get(netuid).unwrap().locked_mass,
             1_000u64.into()
         );
+    });
+}
+
+#[test]
+fn test_owner_demotion_then_member_update_does_not_leave_ghost_conviction() {
+    new_test_ext(100).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let original_owner_hotkey = U256::from(1);
+        let promoted_hotkey = U256::from(2);
+        let next_owner_hotkey = U256::from(3);
+        let first_coldkey = U256::from(10);
+        let second_coldkey = U256::from(11);
+        let now = SubtensorModule::get_current_block_as_u64();
+        let member = LockState {
+            locked_mass: 1_000u64.into(),
+            conviction: U64F64::from_num(100),
+            last_update: now,
+        };
+
+        SubnetOwnerHotkey::<Test>::insert(netuid, original_owner_hotkey);
+        DecayingLock::<Test>::insert(first_coldkey, netuid, false);
+        DecayingLock::<Test>::insert(second_coldkey, netuid, false);
+        SubtensorModule::insert_lock_state(
+            &first_coldkey,
+            netuid,
+            &promoted_hotkey,
+            member.clone(),
+        );
+        SubtensorModule::insert_lock_state(
+            &second_coldkey,
+            netuid,
+            &promoted_hotkey,
+            member.clone(),
+        );
+        HotkeyLock::<Test>::insert(
+            netuid,
+            promoted_hotkey,
+            LockState {
+                locked_mass: 2_000u64.into(),
+                conviction: U64F64::from_num(200),
+                last_update: now,
+            },
+        );
+
+        SubtensorModule::transition_subnet_owner_lock_aggregates(
+            netuid,
+            &original_owner_hotkey,
+            &promoted_hotkey,
+        );
+        SubnetOwnerHotkey::<Test>::insert(netuid, promoted_hotkey);
+
+        SubtensorModule::transition_subnet_owner_lock_aggregates(
+            netuid,
+            &promoted_hotkey,
+            &next_owner_hotkey,
+        );
+        SubnetOwnerHotkey::<Test>::insert(netuid, next_owner_hotkey);
+
+        // Removing one member after demotion must remove its complete canonical
+        // contribution. Any aggregate-only owner boost would survive as ghost
+        // conviction in the promoted hotkey's general bucket.
+        SubtensorModule::force_reduce_lock(&first_coldkey, netuid, 1_000u64.into());
+
+        assert!(Lock::<Test>::get((first_coldkey, netuid, promoted_hotkey)).is_none());
+        let remaining = Lock::<Test>::get((second_coldkey, netuid, promoted_hotkey))
+            .expect("second member should remain");
+        assert_eq!(remaining.locked_mass, 1_000u64.into());
+        assert_eq!(remaining.conviction, U64F64::from_num(1_000));
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, promoted_hotkey),
+            Some(remaining)
+        );
+        assert!(OwnerLock::<Test>::get(netuid).is_none());
     });
 }
 
