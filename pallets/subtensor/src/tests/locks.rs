@@ -2012,7 +2012,130 @@ fn test_unstake_rolls_forward_existing_lock() {
 }
 
 #[test]
-fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate() {
+fn test_cleanup_rolls_forward_sibling_lock_contributions() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey_1 = U256::from(1);
+        let coldkey_2 = U256::from(3);
+        let hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(coldkey_1, hotkey, 100_000_000_000);
+
+        add_balance_to_coldkey_account(&coldkey_2, 100_000_000_000u64.into());
+        SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &coldkey_2,
+            netuid,
+            100_000_000_000u64.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        DecayingLock::<Test>::insert(coldkey_2, netuid, false);
+
+        let lock_1: AlphaBalance = 10_000_000_000u64.into();
+        let lock_2: AlphaBalance = 20_000_000_000u64.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_1, netuid, &hotkey, lock_1,
+        ));
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_2, netuid, &hotkey, lock_2,
+        ));
+
+        let stored_1 = Lock::<Test>::get((coldkey_1, netuid, hotkey)).unwrap();
+        let stored_2 = Lock::<Test>::get((coldkey_2, netuid, hotkey)).unwrap();
+        step_block(100);
+        let now = SubtensorModule::get_current_block_as_u64();
+        let expected_1 = roll_forward_hotkey_lock(stored_1, now);
+        let expected_2 = roll_forward_hotkey_lock(stored_2, now);
+
+        SubtensorModule::cleanup_lock_if_zero(&coldkey_1, netuid);
+
+        let aggregate = HotkeyLock::<Test>::get(netuid, hotkey).expect("aggregate should remain");
+        assert_eq!(
+            aggregate.locked_mass,
+            expected_1
+                .locked_mass
+                .saturating_add(expected_2.locked_mass)
+        );
+        assert_eq!(
+            aggregate.conviction,
+            expected_1.conviction.saturating_add(expected_2.conviction)
+        );
+        assert_eq!(aggregate.last_update, now);
+    });
+}
+
+#[test]
+fn test_lock_top_up_does_not_double_count_after_aggregate_only_roll() {
+    new_test_ext(1).execute_with(|| {
+        let large_coldkey = U256::from(1);
+        let dummy_coldkey = U256::from(3);
+        let hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(large_coldkey, hotkey, 100_000_000_000);
+
+        add_balance_to_coldkey_account(&dummy_coldkey, 100_000_000_000u64.into());
+        SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &dummy_coldkey,
+            netuid,
+            100_000_000_000u64.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        DecayingLock::<Test>::insert(dummy_coldkey, netuid, false);
+
+        let large_lock: AlphaBalance = 10_000_000_000u64.into();
+        let dummy_lock: AlphaBalance = 1_000_000_000u64.into();
+        let top_up: AlphaBalance = 1_000_000_000u64.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &large_coldkey,
+            netuid,
+            &hotkey,
+            large_lock,
+        ));
+
+        step_block(100);
+
+        // A new member has a zero individual delta, so adding it rolls the
+        // pre-existing aggregate (including the large lock) forward.
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &dummy_coldkey,
+            netuid,
+            &hotkey,
+            dummy_lock,
+        ));
+        let aggregate_before_top_up =
+            HotkeyLock::<Test>::get(netuid, hotkey).expect("aggregate should exist");
+        assert!(aggregate_before_top_up.conviction > U64F64::from_num(0));
+
+        // The large individual row is still older than the aggregate. Its
+        // already-counted maturation must not be added to the aggregate again.
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &large_coldkey,
+            netuid,
+            &hotkey,
+            top_up,
+        ));
+        let aggregate_after_top_up =
+            HotkeyLock::<Test>::get(netuid, hotkey).expect("aggregate should remain");
+
+        assert_eq!(
+            aggregate_after_top_up.locked_mass,
+            aggregate_before_top_up.locked_mass.saturating_add(top_up)
+        );
+        assert_eq!(
+            aggregate_after_top_up.conviction,
+            aggregate_before_top_up.conviction
+        );
+        assert_eq!(
+            aggregate_after_top_up.last_update,
+            SubtensorModule::get_current_block_as_u64()
+        );
+    });
+}
+
+#[test]
+fn test_unstake_roll_forward_collects_decaying_sibling_dust_from_hotkey_aggregate() {
     new_test_ext(1).execute_with(|| {
         const ONE_ALPHA: u64 = 1_000_000_000;
         const DUST_ALPHA: u64 = 100;
@@ -2082,6 +2205,11 @@ fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate()
             },
             now,
         );
+        let rolled_sibling_dust_mass: AlphaBalance =
+            ConvictionModel::exp_decay(now.saturating_sub(lock_block), UnlockRate::<Test>::get())
+                .saturating_mul(U64F64::from_num(DUST_ALPHA))
+                .to_num::<u64>()
+                .into();
 
         assert_ok!(SubtensorModule::do_remove_stake(
             RuntimeOrigin::signed(coldkey_1),
@@ -2099,7 +2227,7 @@ fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate()
                 .locked_mass,
             rolled_large_lock
                 .locked_mass
-                .saturating_add(AlphaBalance::from(DUST_ALPHA))
+                .saturating_add(rolled_sibling_dust_mass)
         );
 
         assert_ok!(SubtensorModule::do_remove_stake(
@@ -3198,6 +3326,104 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
 }
 
 #[test]
+fn test_change_subnet_owner_requires_challenger_to_meet_ten_percent_gate() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1);
+        let owner_hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(owner_coldkey, owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, owner_hotkey);
+
+        let challenger_coldkey = U256::from(5);
+        let challenger_hotkey = U256::from(6);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &challenger_coldkey,
+            &challenger_hotkey
+        ));
+
+        let now = crate::staking::lock::ONE_YEAR + 1;
+        System::set_block_number(now);
+        NetworkRegisteredAt::<Test>::insert(netuid, 1);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+
+        // The challenger is the leader, and subnet-wide conviction exceeds
+        // 10%, but the challenger itself holds only 9%. The incumbent's 2%
+        // must not supply the missing takeover quorum.
+        HotkeyLock::<Test>::insert(
+            netuid,
+            owner_hotkey,
+            LockState {
+                locked_mass: 200u64.into(),
+                conviction: U64F64::from_num(200),
+                last_update: now,
+            },
+        );
+        HotkeyLock::<Test>::insert(
+            netuid,
+            challenger_hotkey,
+            LockState {
+                locked_mass: 900u64.into(),
+                conviction: U64F64::from_num(900),
+                last_update: now,
+            },
+        );
+
+        SubtensorModule::change_subnet_owner_if_needed(netuid);
+
+        assert_eq!(SubnetOwner::<Test>::get(netuid), owner_coldkey);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), owner_hotkey);
+    });
+}
+
+#[test]
+fn test_change_subnet_owner_ignores_unrelated_conviction_for_ten_percent_gate() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1);
+        let owner_hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(owner_coldkey, owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, owner_hotkey);
+
+        let challenger_coldkey = U256::from(5);
+        let challenger_hotkey = U256::from(6);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &challenger_coldkey,
+            &challenger_hotkey
+        ));
+
+        let now = crate::staking::lock::ONE_YEAR + 1;
+        System::set_block_number(now);
+        NetworkRegisteredAt::<Test>::insert(netuid, 1);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+
+        // Four unrelated buckets total 10.01%, and the challenger is the
+        // largest at 2.51%. Only conviction in the challenger's bucket should
+        // count toward its takeover threshold.
+        for (hotkey, conviction) in [
+            (challenger_hotkey, 251u64),
+            (U256::from(10), 250u64),
+            (U256::from(11), 250u64),
+            (U256::from(12), 250u64),
+        ] {
+            HotkeyLock::<Test>::insert(
+                netuid,
+                hotkey,
+                LockState {
+                    locked_mass: conviction.into(),
+                    conviction: U64F64::from_num(conviction),
+                    last_update: now,
+                },
+            );
+        }
+
+        SubtensorModule::change_subnet_owner_if_needed(netuid);
+
+        assert_eq!(SubnetOwner::<Test>::get(netuid), owner_coldkey);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), owner_hotkey);
+    });
+}
+
+#[test]
 fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
     new_test_ext(1).execute_with(|| {
         let old_owner_coldkey = U256::from(1);
@@ -3457,7 +3683,7 @@ fn test_change_subnet_owner_if_needed_does_not_reassign_when_required_condition_
             });
         };
 
-    // Missing condition 1: total conviction is below 10% of SubnetAlphaOut.
+    // Missing condition 1: challenger conviction is below 10% of SubnetAlphaOut.
     assert_owner_unchanged(30_000, 1, 500, 1_000);
 
     // Missing condition 2: subnet is younger than one year.
