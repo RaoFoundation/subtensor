@@ -224,6 +224,8 @@ impl<T: Config> Pallet<T> {
 
                     // Remove hotkey related storage items if hotkey exists
                     if let Ok(hotkey) = Keys::<T>::try_get(netuid, neuron_uid) {
+                        T::CommitmentsInterface::purge_neuron(netuid, &hotkey);
+
                         // Same root-churn finalization as `replace_neuron`: deposit while
                         // still on root, then recycle leftover dust after membership drops.
                         if netuid.is_root() {

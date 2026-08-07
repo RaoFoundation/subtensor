@@ -2,7 +2,8 @@
 
 use super::mock::*;
 use crate::*;
-use frame_support::{assert_err, assert_ok};
+use frame_support::{BoundedVec, assert_err, assert_ok};
+use pallet_commitments::{CommitmentInfo, Data};
 use sp_core::{H160, U256};
 use sp_runtime::PerU16;
 use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
@@ -10,6 +11,46 @@ use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex};
 /********************************************
     tests for uids.rs file
 *********************************************/
+
+#[test]
+fn test_trim_to_max_allowed_uids_purges_removed_neuron_commitment() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let removed_hotkey = U256::from(1);
+        let retained_hotkey = U256::from(2);
+
+        add_network(netuid, 13, 0);
+        MinAllowedUids::<Test>::insert(netuid, 2);
+        SubtensorModule::set_immunity_period(netuid, 0);
+
+        for hotkey in [removed_hotkey, retained_hotkey, U256::from(3)] {
+            SubtensorModule::append_neuron(netuid, &hotkey, 0);
+        }
+        let emissions: Vec<AlphaBalance> = vec![0.into(), 2.into(), 1.into()];
+        Emission::<Test>::insert(netuid, emissions);
+
+        let commitment = || {
+            Box::new(CommitmentInfo {
+                fields: BoundedVec::try_from(vec![Data::None]).unwrap(),
+            })
+        };
+        assert_ok!(Commitments::set_commitment(
+            RuntimeOrigin::signed(removed_hotkey),
+            netuid,
+            commitment(),
+        ));
+        assert_ok!(Commitments::set_commitment(
+            RuntimeOrigin::signed(retained_hotkey),
+            netuid,
+            commitment(),
+        ));
+
+        assert_ok!(SubtensorModule::trim_to_max_allowed_uids(netuid, 2));
+
+        assert!(Commitments::commitment_of(netuid, removed_hotkey).is_none());
+        assert!(Commitments::commitment_of(netuid, retained_hotkey).is_some());
+    });
+}
 
 /********************************************
     tests uids::replace_neuron()
