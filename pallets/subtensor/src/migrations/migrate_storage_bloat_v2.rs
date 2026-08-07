@@ -160,9 +160,7 @@ pub fn continue_storage_bloat_cleanup<T: Config>(limit: Weight) -> Weight {
     let work_limit = limit.saturating_sub(pass_overhead);
     let mut work_weight = Weight::zero();
 
-    while usize::from(progress.target) < TARGETS.len() {
-        let target = TARGETS[usize::from(progress.target)];
-
+    while let Some(target) = TARGETS.get(usize::from(progress.target)).copied() {
         let item_weight = scan_item_weight::<T>(target.mode);
         if !work_weight.saturating_add(item_weight).all_lte(work_limit) {
             break;
