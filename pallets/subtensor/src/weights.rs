@@ -2600,6 +2600,20 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetLeases` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Owner` (r:1 w:0)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:1)
+	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::UnlockRate` (r:1 w:0)
+	/// Proof: `SubtensorModule::UnlockRate` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MaturityRate` (r:1 w:0)
+	/// Proof: `SubtensorModule::MaturityRate` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerLock` (r:1 w:1)
+	/// Proof: `SubtensorModule::OwnerLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::HotkeyLock` (r:2 w:2)
+	/// Proof: `SubtensorModule::HotkeyLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::DecayingOwnerLock` (r:1 w:1)
+	/// Proof: `SubtensorModule::DecayingOwnerLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::DecayingHotkeyLock` (r:2 w:2)
+	/// Proof: `SubtensorModule::DecayingHotkeyLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::SubnetLeaseShares` (r:499 w:499)
@@ -2612,22 +2626,20 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::SubnetUidToLeaseId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwner` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:0 w:1)
-	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::AccumulatedLeaseDividends` (r:0 w:1)
 	/// Proof: `SubtensorModule::AccumulatedLeaseDividends` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `k` is `[2, 500]`.
 	fn terminate_lease(k: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1501 + k * (53 ±0)`
-		//  Estimated: `6148 + k * (2529 ±0)`
-		// Minimum execution time: 44_000_000 picoseconds.
-		Weight::from_parts(50_239_437, 6148)
-			// Standard Error: 5_020
-			.saturating_add(Weight::from_parts(1_091_523, 0).saturating_mul(k.into()))
-			.saturating_add(T::DbWeight::get().reads(4_u64))
+		//  Measured:  `2111 + k * (53 ±0)`
+		//  Estimated: `8054 + k * (2529 ±0)`
+		// Minimum execution time: 87_000_000 picoseconds.
+		Weight::from_parts(93_461_390, 8054)
+			// Standard Error: 4_516
+			.saturating_add(Weight::from_parts(1_356_955, 0).saturating_mul(k.into()))
+			.saturating_add(T::DbWeight::get().reads(13_u64))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(k.into())))
-			.saturating_add(T::DbWeight::get().writes(8_u64))
+			.saturating_add(T::DbWeight::get().writes(14_u64))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(k.into())))
 			.saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
 	}
@@ -6223,6 +6235,20 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetLeases` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Owner` (r:1 w:0)
 	/// Proof: `SubtensorModule::Owner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:1 w:1)
+	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::UnlockRate` (r:1 w:0)
+	/// Proof: `SubtensorModule::UnlockRate` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::MaturityRate` (r:1 w:0)
+	/// Proof: `SubtensorModule::MaturityRate` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::OwnerLock` (r:1 w:1)
+	/// Proof: `SubtensorModule::OwnerLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::HotkeyLock` (r:2 w:2)
+	/// Proof: `SubtensorModule::HotkeyLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::DecayingOwnerLock` (r:1 w:1)
+	/// Proof: `SubtensorModule::DecayingOwnerLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SubtensorModule::DecayingHotkeyLock` (r:2 w:2)
+	/// Proof: `SubtensorModule::DecayingHotkeyLock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Account` (r:2 w:2)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(104), added: 2579, mode: `MaxEncodedLen`)
 	/// Storage: `SubtensorModule::SubnetLeaseShares` (r:499 w:499)
@@ -6235,22 +6261,20 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::SubnetUidToLeaseId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::SubnetOwner` (r:0 w:1)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `SubtensorModule::SubnetOwnerHotkey` (r:0 w:1)
-	/// Proof: `SubtensorModule::SubnetOwnerHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::AccumulatedLeaseDividends` (r:0 w:1)
 	/// Proof: `SubtensorModule::AccumulatedLeaseDividends` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `k` is `[2, 500]`.
 	fn terminate_lease(k: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1501 + k * (53 ±0)`
-		//  Estimated: `6148 + k * (2529 ±0)`
-		// Minimum execution time: 44_000_000 picoseconds.
-		Weight::from_parts(50_239_437, 6148)
-			// Standard Error: 5_020
-			.saturating_add(Weight::from_parts(1_091_523, 0).saturating_mul(k.into()))
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
+		//  Measured:  `2111 + k * (53 ±0)`
+		//  Estimated: `8054 + k * (2529 ±0)`
+		// Minimum execution time: 87_000_000 picoseconds.
+		Weight::from_parts(93_461_390, 8054)
+			// Standard Error: 4_516
+			.saturating_add(Weight::from_parts(1_356_955, 0).saturating_mul(k.into()))
+			.saturating_add(RocksDbWeight::get().reads(13_u64))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(k.into())))
-			.saturating_add(RocksDbWeight::get().writes(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(14_u64))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(k.into())))
 			.saturating_add(Weight::from_parts(0, 2529).saturating_mul(k.into()))
 	}

@@ -4,7 +4,7 @@
     clippy::indexing_slicing
 )]
 use super::mock::*;
-use crate::{subnets::leasing::SubnetLeaseOf, *};
+use crate::{staking::lock::LockState, subnets::leasing::SubnetLeaseOf, *};
 use frame_support::{StorageDoubleMap, assert_err, assert_ok};
 use sp_core::U256;
 use sp_runtime::Percent;
@@ -325,6 +325,142 @@ fn test_terminate_lease_works() {
                 netuid: lease.netuid,
             }
             .into()
+        );
+    });
+}
+
+#[test]
+fn test_terminate_lease_reclassifies_locks_and_prevents_stale_beneficiary_takeover() {
+    new_test_ext(1).execute_with(|| {
+        let beneficiary = U256::from(1);
+        let contributions = vec![(U256::from(2), 990_000_000_000)];
+        setup_crowdloan(
+            0,
+            10_000_000_000,
+            1_000_000_000_000,
+            beneficiary,
+            &contributions,
+        );
+        let (lease_id, lease) =
+            setup_leased_network(beneficiary, Percent::from_percent(30), Some(500), None);
+
+        let beneficiary_hotkey = U256::from(3);
+        let challenger_coldkey = U256::from(4);
+        let challenger_hotkey = U256::from(5);
+        let old_owner_locker = U256::from(6);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &beneficiary,
+            &beneficiary_hotkey
+        ));
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &challenger_coldkey,
+            &challenger_hotkey
+        ));
+
+        let registered_at = NetworkRegisteredAt::<Test>::get(lease.netuid);
+        let now = registered_at
+            .saturating_add(crate::staking::lock::ONE_YEAR)
+            .saturating_add(1);
+        System::set_block_number(now);
+        SubnetAlphaOut::<Test>::insert(lease.netuid, AlphaBalance::from(10_000u64));
+
+        // The lease owner has 11% conviction, while a legitimate challenger has 12%.
+        // Keep matching individual rows so later force reductions exercise the same
+        // model path that would expose a stale beneficiary bucket.
+        let old_owner_lock = LockState {
+            locked_mass: 1_100u64.into(),
+            conviction: U64F64::from_num(1_100),
+            last_update: now,
+        };
+        DecayingLock::<Test>::insert(old_owner_locker, lease.netuid, false);
+        SubtensorModule::insert_lock_state(
+            &old_owner_locker,
+            lease.netuid,
+            &lease.hotkey,
+            old_owner_lock.clone(),
+        );
+        SubtensorModule::insert_owner_lock_state(lease.netuid, old_owner_lock);
+
+        let challenger_lock = LockState {
+            locked_mass: 1_200u64.into(),
+            conviction: U64F64::from_num(1_200),
+            last_update: now,
+        };
+        DecayingLock::<Test>::insert(challenger_coldkey, lease.netuid, false);
+        SubtensorModule::insert_lock_state(
+            &challenger_coldkey,
+            lease.netuid,
+            &challenger_hotkey,
+            challenger_lock.clone(),
+        );
+        SubtensorModule::insert_hotkey_lock_state(
+            lease.netuid,
+            &challenger_hotkey,
+            challenger_lock,
+        );
+        let beneficiary_lock = LockState {
+            locked_mass: 100u64.into(),
+            conviction: U64F64::from_num(100),
+            last_update: now,
+        };
+        DecayingLock::<Test>::insert(beneficiary, lease.netuid, false);
+        SubtensorModule::insert_lock_state(
+            &beneficiary,
+            lease.netuid,
+            &beneficiary_hotkey,
+            beneficiary_lock.clone(),
+        );
+        SubtensorModule::insert_hotkey_lock_state(
+            lease.netuid,
+            &beneficiary_hotkey,
+            beneficiary_lock,
+        );
+
+        assert_ok!(SubtensorModule::terminate_lease(
+            RuntimeOrigin::signed(beneficiary),
+            lease_id,
+            beneficiary_hotkey,
+        ));
+
+        // Lease termination must move the outgoing owner's contribution to its
+        // hotkey bucket instead of leaving it in the owner bucket now attributed
+        // to the beneficiary. Only the beneficiary's real 1% lock becomes owner
+        // conviction.
+        assert_eq!(
+            OwnerLock::<Test>::get(lease.netuid).unwrap().locked_mass,
+            100u64.into()
+        );
+        assert_eq!(
+            HotkeyLock::<Test>::get(lease.netuid, lease.hotkey)
+                .unwrap()
+                .locked_mass,
+            1_100u64.into()
+        );
+        assert!(HotkeyLock::<Test>::get(lease.netuid, beneficiary_hotkey).is_none());
+
+        // The 12% challenger can take over normally.
+        SubtensorModule::change_subnet_owner_if_needed(lease.netuid);
+        assert_eq!(
+            SubnetOwnerHotkey::<Test>::get(lease.netuid),
+            challenger_hotkey
+        );
+
+        // Remove both real contributions. Without the lease transition fix, the
+        // former owner's 11% remains orphaned in the beneficiary bucket and lets
+        // the beneficiary retake the subnet despite holding only 1% canonically.
+        SubtensorModule::force_reduce_lock(&old_owner_locker, lease.netuid, 1_100u64.into());
+        SubtensorModule::force_reduce_lock(&challenger_coldkey, lease.netuid, 1_200u64.into());
+        SubtensorModule::change_subnet_owner_if_needed(lease.netuid);
+
+        assert_eq!(
+            SubnetOwnerHotkey::<Test>::get(lease.netuid),
+            challenger_hotkey
+        );
+        assert_eq!(
+            HotkeyLock::<Test>::get(lease.netuid, beneficiary_hotkey)
+                .unwrap()
+                .conviction,
+            U64F64::from_num(100)
         );
     });
 }

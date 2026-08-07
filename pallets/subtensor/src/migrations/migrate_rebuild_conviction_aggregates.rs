@@ -4,9 +4,9 @@ use frame_support::{traits::Get, weights::Weight};
 use crate::{
     Config, DecayingHotkeyLock, DecayingLock, DecayingOwnerLock, HasMigrationRun, HotkeyLock, Lock,
     LockingColdkeys, MaturityRate, OwnerLock, Pallet as Subtensor, SubnetOwnerHotkey, UnlockRate,
-    staking::lock::{ConvictionModel, LockState},
+    staking::lock::{ConvictionModel, LockClass, LockState},
 };
-use subtensor_runtime_common::{NetUid, Token};
+use subtensor_runtime_common::NetUid;
 
 const MIGRATION_NAME: &[u8] = b"migrate_rebuild_conviction_aggregates";
 
@@ -24,15 +24,9 @@ const OBSERVED_MAINNET_AGGREGATE_ROWS: u64 = 193;
 const OBSERVED_MAINNET_MAX_LOCKS_PER_SUBNET: u64 = 44;
 const OBSERVED_MAINNET_BLOCK: u64 = 8_793_919;
 
-fn merge_lock(lhs: &mut LockState, rhs: &LockState) {
-    lhs.locked_mass = lhs.locked_mass.saturating_add(rhs.locked_mass);
-    lhs.conviction = lhs.conviction.saturating_add(rhs.conviction);
-    lhs.last_update = lhs.last_update.max(rhs.last_update);
-}
-
 fn merge_into<K: Ord>(aggregates: &mut BTreeMap<K, LockState>, key: K, lock: &LockState) {
     if let Some(aggregate) = aggregates.get_mut(&key) {
-        merge_lock(aggregate, lock);
+        *aggregate = aggregate.merge(lock);
     } else {
         aggregates.insert(key, lock.clone());
     }
@@ -143,13 +137,13 @@ pub fn migrate_rebuild_conviction_aggregates<T: Config>() -> Weight {
         retained_count = retained_count.saturating_add(1);
         weight = weight.saturating_add(T::DbWeight::get().writes(2));
 
-        match (owner_lock, perpetual_lock) {
-            (true, true) => merge_into(&mut perpetual_owner, netuid, &rolled),
-            (true, false) => merge_into(&mut decaying_owner, netuid, &rolled),
-            (false, true) => {
+        match LockClass::from_roles(owner_lock, perpetual_lock) {
+            LockClass::PerpetualOwner => merge_into(&mut perpetual_owner, netuid, &rolled),
+            LockClass::DecayingOwner => merge_into(&mut decaying_owner, netuid, &rolled),
+            LockClass::PerpetualGeneral => {
                 merge_into(&mut perpetual_general, (netuid, hotkey), &rolled);
             }
-            (false, false) => {
+            LockClass::DecayingGeneral => {
                 merge_into(&mut decaying_general, (netuid, hotkey), &rolled);
             }
         }

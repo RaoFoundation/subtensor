@@ -369,6 +369,67 @@ fn test_migrate_fix_subnet_hotkey_lock_swaps_moves_or_discards_conflicts() {
         );
     });
 }
+
+#[test]
+fn test_runtime_upgrade_fixes_hotkey_swaps_before_rebuilding_aggregates() {
+    new_test_ext(1).execute_with(|| {
+        const REMOVE_DEPRECATED_MIGRATION: &[u8] = b"migrate_remove_deprecated_conviction_maps";
+        const RESET_MIGRATION: &[u8] = b"migrate_reset_tnet_conviction_locks";
+        const SWAP_FIX_MIGRATION: &[u8] = b"migrate_fix_subnet_hotkey_lock_swaps";
+        const REBUILD_MIGRATION: &[u8] = b"migrate_rebuild_conviction_aggregates";
+
+        let old_hotkey =
+            decode_account_id32::<Test>("5Ca8L8PkbqXUtzohKtSM3i1naGQxANGLx51kJsEPNB14Admz")
+                .expect("old hotkey should decode");
+        let new_owner_hotkey =
+            decode_account_id32::<Test>("5Evgh9QTXJLxYLusVy3tcY5S6Z3GgRSNDb9AzXUchX5dco3P")
+                .expect("new owner hotkey should decode");
+        let coldkey = U256::from(28_001);
+        let netuid = NetUid::from(28);
+        let lock = LockState {
+            locked_mass: AlphaBalance::from(10_000_u64),
+            conviction: U64F64::from_num(10_000),
+            last_update: 1,
+        };
+
+        // Preserve the fixture from the older reset migration while leaving both migrations
+        // under test pending, exactly as they can be on a runtime upgrade.
+        HasMigrationRun::<Test>::insert(REMOVE_DEPRECATED_MIGRATION, true);
+        HasMigrationRun::<Test>::insert(RESET_MIGRATION, true);
+        HasMigrationRun::<Test>::remove(SWAP_FIX_MIGRATION);
+        HasMigrationRun::<Test>::remove(REBUILD_MIGRATION);
+
+        SubnetOwnerHotkey::<Test>::insert(netuid, new_owner_hotkey);
+        DecayingLock::<Test>::insert(coldkey, netuid, false);
+        Lock::<Test>::insert((coldkey, netuid, old_hotkey), lock.clone());
+        LockingColdkeys::<Test>::insert((netuid, old_hotkey, coldkey), ());
+
+        // The historical subnet hotkey swap transitioned the aggregate only. The swap-fix
+        // migration relies on this owner aggregate when moving the canonical individual row.
+        OwnerLock::<Test>::insert(netuid, lock.clone());
+
+        let _ = <crate::Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+
+        assert!(HasMigrationRun::<Test>::get(SWAP_FIX_MIGRATION));
+        assert!(HasMigrationRun::<Test>::get(REBUILD_MIGRATION));
+        assert!(Lock::<Test>::get((coldkey, netuid, old_hotkey)).is_none());
+        assert_eq!(
+            Lock::<Test>::get((coldkey, netuid, new_owner_hotkey)),
+            Some(lock.clone())
+        );
+        assert!(!LockingColdkeys::<Test>::contains_key((
+            netuid, old_hotkey, coldkey
+        )));
+        assert!(LockingColdkeys::<Test>::contains_key((
+            netuid,
+            new_owner_hotkey,
+            coldkey
+        )));
+        assert!(HotkeyLock::<Test>::get(netuid, old_hotkey).is_none());
+        assert_eq!(OwnerLock::<Test>::get(netuid), Some(lock));
+    });
+}
+
 #[test]
 fn test_migration_transfer_nets_to_foundation() {
     new_test_ext(1).execute_with(|| {

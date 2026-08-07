@@ -23,6 +23,7 @@ mod benchmarks {
     use super::*;
     #[cfg(test)]
     use crate::tests::mock;
+    use pallet_subtensor::staking::lock::LockState;
     use sp_runtime::PerU16;
     use substrate_fixed::types::{I64F64, U64F64};
     use subtensor_runtime_common::{NetUid, TaoBalance};
@@ -622,14 +623,56 @@ mod benchmarks {
     #[benchmark]
     fn sudo_set_sn_owner_hotkey() {
         let netuid = NetUid::from(1);
+        let old_hotkey: T::AccountId = account("OldOwner", 0, 1);
         let hotkey: T::AccountId = account("Alice", 0, 1);
 
         pallet_subtensor::Pallet::<T>::init_new_network(
             netuid, 1u16, // tempo
         );
+        pallet_subtensor::SubnetOwnerHotkey::<T>::insert(netuid, &old_hotkey);
+        let now = pallet_subtensor::Pallet::<T>::get_current_block_as_u64();
+        let old_owner_lock = LockState {
+            locked_mass: 1_000u64.into(),
+            conviction: U64F64::from_num(1_000),
+            last_update: now,
+        };
+        let new_owner_lock = LockState {
+            locked_mass: 2_000u64.into(),
+            conviction: U64F64::from_num(2_000),
+            last_update: now,
+        };
+        pallet_subtensor::Pallet::<T>::insert_owner_lock_state(netuid, old_owner_lock.clone());
+        pallet_subtensor::Pallet::<T>::insert_decaying_owner_lock_state(netuid, old_owner_lock);
+        pallet_subtensor::Pallet::<T>::insert_hotkey_lock_state(
+            netuid,
+            &hotkey,
+            new_owner_lock.clone(),
+        );
+        pallet_subtensor::Pallet::<T>::insert_decaying_hotkey_lock_state(
+            netuid,
+            &hotkey,
+            new_owner_lock,
+        );
 
         #[extrinsic_call]
-        _(RawOrigin::Root, netuid, hotkey);
+        _(RawOrigin::Root, netuid, hotkey.clone());
+
+        assert_eq!(
+            pallet_subtensor::SubnetOwnerHotkey::<T>::get(netuid),
+            hotkey
+        );
+        assert!(pallet_subtensor::HotkeyLock::<T>::contains_key(
+            netuid,
+            &old_hotkey
+        ));
+        assert!(pallet_subtensor::DecayingHotkeyLock::<T>::contains_key(
+            netuid,
+            &old_hotkey
+        ));
+        assert!(pallet_subtensor::OwnerLock::<T>::contains_key(netuid));
+        assert!(pallet_subtensor::DecayingOwnerLock::<T>::contains_key(
+            netuid
+        ));
     }
 
     #[benchmark]

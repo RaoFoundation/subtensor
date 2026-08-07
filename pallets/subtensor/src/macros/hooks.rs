@@ -171,12 +171,12 @@ mod hooks {
                 .saturating_add(migrations::migrate_dynamic_tempo::migrate_dynamic_tempo::<T>())
                 // Populate locking reverse map.
                 .saturating_add(migrations::migrate_populate_locking_coldkeys::migrate_populate_locking_coldkeys::<T>())
-                // Rebuild conviction aggregates corrupted by partial v443 roll-forward updates.
-                .saturating_add(migrations::migrate_rebuild_conviction_aggregates::migrate_rebuild_conviction_aggregates::<T>())
                 // Capture the runtime-upgrade block for TAO-in refund cutover.
                 .saturating_add(migrations::migrate_tao_in_refund_deployment_block::migrate_tao_in_refund_deployment_block::<T>())
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
                 .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>())
+                // Rebuild conviction aggregates after every migration that can rewrite lock rows.
+                .saturating_add(migrations::migrate_rebuild_conviction_aggregates::migrate_rebuild_conviction_aggregates::<T>())
                 // Populate reverse lookup index for EVM address associations.
                 .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>())
                 // Fold deprecated SubnetTaoProvided / SubnetAlphaInProvided residuals into the
