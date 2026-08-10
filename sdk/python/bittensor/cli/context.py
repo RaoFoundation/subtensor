@@ -677,9 +677,9 @@ class AppContext:
         # Privileged intents say up front which key the chain will accept, so
         # nobody signs (or approves a multisig) before learning the call needs
         # a different origin.
-        if intent.origin == "root":
+        if semantic_intent.origin == "root":
             self.output.message("[dim]requires: chain sudo key (call wrapped in Sudo.sudo)[/dim]")
-        elif intent.origin == "subnet_owner":
+        elif semantic_intent.origin == "subnet_owner":
             self.output.message("[dim]requires: subnet owner coldkey[/dim]")
 
         if self.uses_extension_signer():

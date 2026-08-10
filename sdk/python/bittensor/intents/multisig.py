@@ -18,7 +18,7 @@ signer's wallet.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from .._generated import calls
@@ -94,6 +94,31 @@ def _inner_call_extras(inner) -> dict:
     }
 
 
+async def _pending_timepoint(substrate, dispatch, wallet: Any, inner):
+    """Resolve a saved multisig's timepoint from the final inner call hash."""
+    if dispatch.timepoint is not None:
+        return dispatch.timepoint
+
+    signer = public_view(wallet, "coldkey").ss58_address
+    signatories = [signer, *dispatch.other_signatories]
+    account = substrate.multisig_account(signatories, dispatch.threshold)
+    call_hash = bytes(inner.call_hash)
+    pending = await substrate.query("Multisig", "Multisigs", [account.ss58_address, call_hash])
+    if pending is None:
+        pending = await substrate.query(
+            "Multisig", "Multisigs", [account.ss58_address, "0x" + call_hash.hex()]
+        )
+    if pending is None:
+        return None
+    if signer in {str(approval) for approval in pending.get("approvals") or []}:
+        raise ValueError(
+            f"this signatory already approved pending call 0x{call_hash.hex()}; "
+            "wait for another member, or cancel the operation"
+        )
+    when = pending.get("when") or {}
+    return {"height": int(when.get("height", 0)), "index": int(when.get("index", 0))}
+
+
 THRESHOLD_HELP = (
     "Number of approvals required to execute, counting the signer. Together with "
     "the full signatory set it identifies the multisig account, so it must match "
@@ -142,6 +167,9 @@ class MultisigThreshold1(Intent):
 
     async def build(self, substrate, wallet: Any):
         inner = await _compose_inner(substrate, wallet, self.call)
+        return await self._build_with_inner(substrate, wallet, inner)
+
+    async def _build_with_inner(self, substrate, wallet: Any, inner):
         return await substrate.compose(
             calls.Multisig.as_multi_threshold_1(
                 other_signatories=_sorted_signatories(self.other_signatories), call=inner
@@ -179,8 +207,11 @@ class MultisigExecute(Intent):
     timepoint: Optional[dict] = field(default=None, metadata={"help": TIMEPOINT_HELP})
 
     async def build(self, substrate, wallet: Any):
-        _validate_multisig(self.threshold, self.other_signatories, self.coldkey_address(wallet))
         inner = await _compose_inner(substrate, wallet, self.call)
+        return await self._build_with_inner(substrate, wallet, inner)
+
+    async def _build_with_inner(self, substrate, wallet: Any, inner):
+        _validate_multisig(self.threshold, self.other_signatories, self.coldkey_address(wallet))
         view = public_view(wallet, "coldkey")
         max_weight = await substrate.estimate_weight(inner, view)
         composed = await substrate.compose(
@@ -226,10 +257,11 @@ class MultisigIntentAdapter(Intent):
     """Keep an inner intent's safety contract while dispatching it by multisig.
 
     Saved-multisig CLI wallets turn a regular coldkey intent into one of the
-    concrete multisig intents above. The concrete intent owns call composition,
-    while ``semantic`` remains authoritative for policy scope and MEV handling.
-    This adapter is internal and deliberately unregistered: it is execution
-    state, not a separate operation exposed by the SDK.
+    concrete multisig intents above. The executor composes the semantic call's
+    sudo and proxy layers first; this adapter adds only the outer multisig layer.
+    ``semantic`` remains authoritative for policy and execution semantics. This
+    adapter is internal and deliberately unregistered: it is execution state,
+    not a separate operation exposed by the SDK.
     """
 
     op = "multisig_execute"
@@ -248,6 +280,16 @@ class MultisigIntentAdapter(Intent):
 
     async def build(self, substrate, wallet: Any):
         return await self.dispatch.build(substrate, wallet)
+
+    async def wrap_call(self, substrate, wallet: Any, call):
+        dispatch = self.dispatch
+        if isinstance(dispatch, MultisigExecute):
+            dispatch = replace(
+                dispatch,
+                timepoint=await _pending_timepoint(substrate, dispatch, wallet, call),
+            )
+            self.dispatch = dispatch
+        return await dispatch._build_with_inner(substrate, wallet, call)
 
     def summary(self) -> str:
         return self.dispatch.summary()

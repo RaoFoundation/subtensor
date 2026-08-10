@@ -393,7 +393,6 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         MultisigIntentAdapter,
         MultisigThreshold1,
         MultisigThreshold1IntentAdapter,
-        _compose_inner,
     )
 
     if getattr(intent, "signer", None) != "coldkey":
@@ -423,28 +422,15 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         dispatch = MultisigThreshold1(other_signatories=others, call=call_dict)
         return MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=intent)
 
-    async def _timepoint(client):
-        wallet = wallets.open_wallet(member_name, path=app_ctx.wallet_path)
-        inner = await _compose_inner(client._substrate, wallet, call_dict)
-        return await pending_timepoint_for_call(
-            client,
-            signatories=signatories,
-            threshold=threshold,
-            call_hash=inner.call_hash,
-            signer_ss58=signer_ss58,
-        )
-
-    timepoint = app_ctx.run(_timepoint)
-    action = "approving" if timepoint else "opening"
     app_ctx.output.message(
-        f"[dim]{action} via {threshold}-of-{len(signatories)} multisig {preset} "
+        f"[dim]dispatching via {threshold}-of-{len(signatories)} multisig {preset} "
         f"as {format_signatory_display(signer_ss58, member_name)}[/dim]"
     )
     dispatch = MultisigExecute(
         threshold=threshold,
         other_signatories=others,
         call=call_dict,
-        timepoint=timepoint,
+        timepoint=None,
     )
     return MultisigIntentAdapter(dispatch=dispatch, semantic=intent)
 
