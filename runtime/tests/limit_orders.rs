@@ -14,8 +14,8 @@ use node_subtensor_runtime::{
     SubtensorModule, System, pallet_subtensor,
 };
 use pallet_limit_orders::{
-    HasMigrationRun, LimitOrdersEnabled, Order, OrderStatus, OrderType, Orders, SignedOrder,
-    VersionedOrder,
+    HasMigrationRun, LimitOrdersEnabled, LinkedAsset, LinkedOutputs, Order, OrderAmount,
+    OrderStatus, OrderType, OrderV2, Orders, SignedOrder, VersionedOrder,
 };
 use pallet_subtensor::{SubnetAlphaIn, SubnetMechanism, SubnetTAO};
 use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
@@ -2855,6 +2855,86 @@ fn readable_signed_bytes(order: &Order<AccountId>) -> Vec<u8> {
     }
 }
 
+/// Rebuild the pallet's canonical clear-signing message for a **v2** order.
+///
+/// Reconstructed independently, exactly like `render_order_readable` is for v1: nothing
+/// here calls into the pallet, so a drift in `render_order` shows up as a signature that
+/// will not verify. Three differences from v1, all load-bearing:
+///
+///   * the version tag is `v2`, which on its own stops a v1 signature being replayed as
+///     a v2 order and vice versa;
+///   * the amount slot renders `LinkedPercentage` as `{ppb} ppb of order 0x{64 hex}
+///     output`, which no bare `Fixed` amount can produce — that is what keeps the two
+///     variants injective;
+///   * a `, has-linked-order {bool}` tail is appended. v1 renders no tail at all, which
+///     is why this is a separate function rather than a parameterised one.
+fn render_order_v2_readable(order: &OrderV2<AccountId>) -> Vec<u8> {
+    fn ss58(a: &AccountId) -> String {
+        a.to_ss58check_with_version(Ss58AddressFormat::custom(42))
+    }
+    let (label, price_word) = match order.order_type {
+        OrderType::LimitBuy => ("Limit buy", "limit price"),
+        OrderType::TakeProfit => ("Take-profit", "trigger price"),
+        OrderType::StopLoss => ("Stop-loss", "trigger price"),
+    };
+    // Mirrors `OrderAmount::render`. Written out by hand rather than by calling it, so
+    // that this is an independent check of the bytes and not a restatement of them.
+    // Lowercase hex, full 32 bytes — a truncated reference would reintroduce exactly the
+    // provider-substitution gap the id exists to close.
+    let amount = match order.amount {
+        OrderAmount::Fixed(n) => n.to_string(),
+        OrderAmount::LinkedPercentage { provider, pct } => {
+            let hex: String = provider.0.iter().map(|b| format!("{b:02x}")).collect();
+            format!("{} ppb of order 0x{hex} output", pct.deconstruct())
+        }
+    };
+    let max_slippage = match order.max_slippage {
+        None => "none".to_string(),
+        Some(p) => p.deconstruct().to_string(),
+    };
+    let relayer = match &order.relayer {
+        None => "none".to_string(),
+        Some(list) if list.is_empty() => "[]".to_string(),
+        Some(list) => list.iter().map(ss58).collect::<Vec<_>>().join("+"),
+    };
+    let netuid: u16 = u16::from(order.netuid);
+    format!(
+        "TAO.com order v2: {label} {amount} on subnet {netuid}, \
+{price_word} {limit_price}, expiry {expiry}, hotkey {hotkey}, \
+fee {fee_rate} to {fee_recipient}, relayer {relayer}, \
+max slippage {max_slippage}, chain {chain_id}, \
+partial fills {partial}, signer {signer}, has-linked-order {has_linked}",
+        limit_price = order.limit_price,
+        expiry = order.expiry,
+        hotkey = ss58(&order.hotkey),
+        fee_rate = order.fee_rate.deconstruct(),
+        fee_recipient = ss58(&order.fee_recipient),
+        chain_id = order.chain_id,
+        partial = order.partial_fills_enabled,
+        signer = ss58(&order.signer),
+        has_linked = order.has_linked_order,
+    )
+    .into_bytes()
+}
+
+/// Sign a v2 payload the way a Ledger would: over the `<Bytes>`-wrapped readable
+/// message, blake2_256-hashed because it exceeds the device's raw-signing limit.
+fn sign_v2_readable(keyring: Sr25519Keyring, order: OrderV2<AccountId>) -> SignedOrder<AccountId> {
+    let msg = render_order_v2_readable(&order);
+    let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
+    let signed_bytes = if payload.len() > pallet_limit_orders::LEDGER_MAX_SIGN_SIZE {
+        sp_core::hashing::blake2_256(&payload).to_vec()
+    } else {
+        payload
+    };
+    let sig = keyring.pair().sign(&signed_bytes);
+    SignedOrder {
+        order: VersionedOrder::V2(order),
+        signature: MultiSignature::Sr25519(sig),
+        partial_fill: None,
+    }
+}
+
 /// End-to-end: a LimitBuy order signed with the human-readable ("clear-signing")
 /// payload — `<Bytes>` ++ render_order ++ `</Bytes>` — executes through
 /// `execute_batched_orders`, is marked Fulfilled, and credits staked alpha to the
@@ -2921,5 +3001,513 @@ fn execute_batched_orders_readable_signature_executes() {
                 && staked <= AlphaBalance::from(expected_alpha),
             "alice should hold approximately min_default_stake alpha after a readable-signed LimitBuy executes (got {staked:?})"
         );
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// v2 linked orders — runtime integration
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The pallet's own `tests::linked` suite covers the mechanism exhaustively, but it
+// runs against `MockSwap`: a fixed 1:1 rate, and balances held in a `thread_local`
+// that a failed dispatch does not roll back. These tests exist for the two things
+// that only the assembled runtime can answer — what the real pool actually pays out
+// (and therefore what figure lands in a provider record), and whether a failed
+// linked leg really unwinds the provider leg's funds rather than merely its record.
+
+/// Build a `VersionedOrder::V2` payload.
+///
+/// `expiry` is fixed at `u64::MAX` and `relayer`/`max_slippage`/`partial_fills_enabled`
+/// at their inert values: none of the tests below are about those fields, and the
+/// pallet's unit suite already covers them. Kept separate from
+/// `make_signed_order_inner` rather than generalising it, because every v1 message
+/// and encoding must stay byte-identical to what it was before v2 existed — a shared
+/// builder is one refactor away from silently invalidating already-signed v1 orders.
+fn v2_order(
+    keyring: Sr25519Keyring,
+    hotkey: AccountId,
+    netuid: NetUid,
+    order_type: OrderType,
+    amount: OrderAmount,
+    limit_price: u64,
+    fee_rate: Perbill,
+    fee_recipient: AccountId,
+    has_linked_order: bool,
+) -> OrderV2<AccountId> {
+    OrderV2 {
+        signer: keyring.to_account_id(),
+        hotkey,
+        netuid,
+        order_type,
+        amount,
+        limit_price,
+        expiry: u64::MAX,
+        fee_rate,
+        fee_recipient,
+        relayer: None,
+        max_slippage: None,
+        // chain_id 0 matches the default pallet_evm_chain_id genesis value in tests
+        chain_id: 0,
+        partial_fills_enabled: false,
+        has_linked_order,
+    }
+}
+
+/// Sign a v2 payload over its raw SCALE encoding (`verify_order`'s branch).
+fn sign_v2_raw(keyring: Sr25519Keyring, order: OrderV2<AccountId>) -> SignedOrder<AccountId> {
+    let order = VersionedOrder::V2(order);
+    let sig = keyring.pair().sign(&order.encode());
+    SignedOrder {
+        order,
+        signature: MultiSignature::Sr25519(sig),
+        partial_fill: None,
+    }
+}
+
+/// `(order_id, total)` for every `LinkedOutputRecorded` event emitted so far.
+///
+/// Tests read the total the runtime computed instead of recomputing it: the pool
+/// applies a little slippage even on the stable mechanism, so the post-fee output is
+/// not exactly derivable from the order's amount. What matters is that whatever was
+/// recorded is what the consumer then draws.
+fn recorded_linked_outputs() -> Vec<(H256, u64)> {
+    System::events()
+        .into_iter()
+        .filter_map(|record| match record.event {
+            RuntimeEvent::LimitOrders(pallet_limit_orders::Event::LinkedOutputRecorded {
+                order_id,
+                total,
+                ..
+            }) => Some((order_id, total)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `(provider, consumer, amount, undrawn)` for every `LinkedOutputConsumed` event.
+fn consumed_linked_outputs() -> Vec<(H256, H256, u64, u64)> {
+    System::events()
+        .into_iter()
+        .filter_map(|record| match record.event {
+            RuntimeEvent::LimitOrders(pallet_limit_orders::Event::LinkedOutputConsumed {
+                provider,
+                consumer,
+                amount,
+                undrawn,
+            }) => Some((provider, consumer, amount, undrawn)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Two stable-mechanism subnets with Alice holding sellable alpha on the first.
+///
+/// Returns the alpha she starts with on `source`. Alice is also funded with free TAO:
+/// the linked buy is proven to be funded by the sell through the recorded/consumed
+/// event pair, not through her balance bottoming out, and leaving her at zero would
+/// only introduce existential-deposit noise.
+fn setup_rotation(
+    source: NetUid,
+    target: NetUid,
+    alice_id: &AccountId,
+    source_hotkey: &AccountId,
+    target_hotkey: &AccountId,
+) -> AlphaBalance {
+    setup_subnet(source);
+    setup_subnet(target);
+
+    fund_account(alice_id);
+    let _ = SubtensorModule::create_account_if_non_existent(alice_id, source_hotkey);
+    let _ = SubtensorModule::create_account_if_non_existent(alice_id, target_hotkey);
+
+    let initial_alpha: AlphaBalance = (min_default_stake().to_u64() * 10u64).into();
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        source_hotkey,
+        alice_id,
+        source,
+        initial_alpha,
+    );
+    seed_subnet_tao(source, TaoBalance::from(initial_alpha.to_u64()));
+    seed_subnet_tao(target, TaoBalance::from(initial_alpha.to_u64()));
+    initial_alpha
+}
+
+/// The driving v2 use case, end to end on the real runtime: sell alpha on one subnet
+/// with `has_linked_order` set, then buy into a different subnet with 100% of the TAO
+/// that sell actually produced.
+///
+/// The fee is deliberately non-zero. `record_linked_output` is handed `amount_out`,
+/// which for a sell is `tao_out - fee_tao` — so this is the test that would catch a
+/// record stamped with the gross pool output instead of what landed with the signer.
+#[test]
+fn sell_provider_then_linked_buy_rotates_tao_into_another_subnet() {
+    new_test_ext().execute_with(|| {
+        let source = NetUid::from(1u16);
+        let target = NetUid::from(2u16);
+        let alice = Sr25519Keyring::Alice;
+        let alice_id = alice.to_account_id();
+        let source_hotkey = Sr25519Keyring::Bob.to_account_id();
+        let target_hotkey = Sr25519Keyring::Dave.to_account_id();
+        let relayer_id = Sr25519Keyring::Charlie.to_account_id();
+
+        let initial_alpha =
+            setup_rotation(source, target, &alice_id, &source_hotkey, &target_hotkey);
+
+        // Twice the minimum, because the linked buy has to clear `DefaultMinStake` with
+        // what it *draws*, not with what the provider sold: `buy_alpha` rejects a TAO
+        // input below the minimum with `AmountTooLow`. Selling exactly the minimum and
+        // charging a 1% fee would record 99% of it and make the second leg unexecutable.
+        let sell_alpha = min_default_stake().to_u64() * 2;
+        let provider = v2_order(
+            alice,
+            source_hotkey.clone(),
+            source,
+            OrderType::TakeProfit,
+            OrderAmount::Fixed(sell_alpha),
+            0, // no price floor
+            Perbill::from_percent(1),
+            relayer_id.clone(),
+            true, // record the proceeds so the linked order can draw them
+        );
+        let provider_id = order_id(&VersionedOrder::V2(provider.clone()));
+
+        // The provider's id has to be known before this order is signed — that two-phase
+        // flow is what binds the link to one specific order rather than to whatever the
+        // relayer chooses to put in front of it.
+        let linked = v2_order(
+            alice,
+            target_hotkey.clone(),
+            target,
+            OrderType::LimitBuy,
+            OrderAmount::LinkedPercentage {
+                provider: provider_id,
+                pct: Perbill::one(),
+            },
+            u64::MAX, // no price ceiling
+            Perbill::zero(),
+            relayer_id.clone(),
+            false,
+        );
+        let linked_id = order_id(&VersionedOrder::V2(linked.clone()));
+
+        // Both legs in one call: each order runs to completion before the next is
+        // validated, so the record is already on chain when the linked order resolves.
+        assert_ok!(LimitOrders::execute_orders(
+            RuntimeOrigin::signed(relayer_id.clone()),
+            make_order_batch(vec![
+                sign_v2_raw(alice, provider),
+                sign_v2_raw(alice, linked),
+            ]),
+            true,
+        ));
+
+        assert_eq!(
+            Orders::<Runtime>::get(provider_id),
+            Some(OrderStatus::Fulfilled)
+        );
+        assert_eq!(
+            Orders::<Runtime>::get(linked_id),
+            Some(OrderStatus::Fulfilled)
+        );
+
+        // Exactly one record was written, for the provider, and it was drawn in full by
+        // exactly one consumer.
+        let recorded = recorded_linked_outputs();
+        assert_eq!(recorded.len(), 1);
+        let (recorded_id, total) = recorded[0];
+        assert_eq!(recorded_id, provider_id);
+        assert!(total > 0, "the sell must have produced something to link to");
+        // The constraint the amounts above are chosen to satisfy — stated here so that a
+        // future change to the fee or the sold amount fails on this line, which explains
+        // itself, rather than on an `AmountTooLow` from deep inside the swap.
+        assert!(
+            total >= min_default_stake().to_u64(),
+            "a linked buy drawing {total} would be rejected below the {:?} minimum",
+            min_default_stake()
+        );
+
+        let consumed = consumed_linked_outputs();
+        assert_eq!(consumed.len(), 1);
+        assert_eq!(
+            consumed[0],
+            (provider_id, linked_id, total, 0),
+            "a 100% draw must take the whole recorded total and leave nothing undrawn"
+        );
+
+        // A record is single-use: once drawn from, it is gone rather than decremented.
+        assert!(LinkedOutputs::<Runtime>::get(provider_id).is_none());
+
+        // Alice's position moved subnets. Source is down by exactly the alpha she sold;
+        // target is up by roughly the TAO the record held (the buy pays pool slippage).
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &source_hotkey,
+                &alice_id,
+                source
+            ),
+            AlphaBalance::from(initial_alpha.to_u64() - sell_alpha),
+        );
+        let target_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &target_hotkey,
+            &alice_id,
+            target,
+        );
+        assert!(
+            target_alpha >= AlphaBalance::from(total * 99 / 100)
+                && target_alpha <= AlphaBalance::from(total),
+            "the linked buy should have staked ~{total} alpha on the target subnet (got {target_alpha:?})"
+        );
+
+        // The fee came out of the proceeds before they were recorded, not on top of them.
+        assert!(
+            SubtensorModule::get_coldkey_balance(&relayer_id) > TaoBalance::from(0u64),
+            "the 1% sell fee should have reached the fee recipient"
+        );
+    });
+}
+
+/// A linked order that fails takes the whole dispatch with it — including the provider
+/// leg that had already traded.
+///
+/// This is the invariant the pallet's own suite structurally cannot check.
+/// `a_consumer_that_fails_to_swap_leaves_the_record_intact` asserts the record survived,
+/// but `MockSwap` keeps balances in a `thread_local` that is not rolled back on `Err`, so
+/// it cannot say whether the funds survived too. Here the storage layer is real, and
+/// `assert_noop!` is the whole assertion: not one byte of state changed, so the sell that
+/// had already executed was unwound along with everything else.
+#[test]
+fn linked_consumer_failure_rolls_back_the_provider_leg() {
+    new_test_ext().execute_with(|| {
+        let source = NetUid::from(1u16);
+        let target = NetUid::from(2u16);
+        let alice = Sr25519Keyring::Alice;
+        let alice_id = alice.to_account_id();
+        // A coldkey that is not the provider's signer.
+        let stranger = Sr25519Keyring::Eve;
+        let source_hotkey = Sr25519Keyring::Bob.to_account_id();
+        let target_hotkey = Sr25519Keyring::Dave.to_account_id();
+        let relayer_id = Sr25519Keyring::Charlie.to_account_id();
+
+        let initial_alpha =
+            setup_rotation(source, target, &alice_id, &source_hotkey, &target_hotkey);
+
+        let provider = v2_order(
+            alice,
+            source_hotkey.clone(),
+            source,
+            OrderType::TakeProfit,
+            OrderAmount::Fixed(min_default_stake().to_u64()),
+            0,
+            Perbill::zero(),
+            relayer_id.clone(),
+            true,
+        );
+        let provider_id = order_id(&VersionedOrder::V2(provider.clone()));
+
+        // Eve draws against Alice's recorded proceeds. The TAO sits in Alice's account, so
+        // Eve would be spending her own funds on Alice's authorisation — the pallet refuses
+        // with `LinkedOutputSignerMismatch`, and it refuses *after* the provider leg has
+        // already swapped, which is the whole point of the test.
+        let foreign = v2_order(
+            stranger,
+            target_hotkey.clone(),
+            target,
+            OrderType::LimitBuy,
+            OrderAmount::LinkedPercentage {
+                provider: provider_id,
+                pct: Perbill::one(),
+            },
+            u64::MAX,
+            Perbill::zero(),
+            relayer_id.clone(),
+            false,
+        );
+
+        // `should_fail = true`: a hard rejection rather than a best-effort skip.
+        assert_noop!(
+            LimitOrders::execute_orders(
+                RuntimeOrigin::signed(relayer_id),
+                make_order_batch(vec![
+                    sign_v2_raw(alice, provider),
+                    sign_v2_raw(stranger, foreign),
+                ]),
+                true,
+            ),
+            pallet_limit_orders::Error::<Runtime>::LinkedOutputSignerMismatch
+        );
+
+        // Spelled out for the reader — `assert_noop!` already guarantees all of it, but
+        // these are the specific consequences that would matter if it ever regressed.
+        assert!(Orders::<Runtime>::get(provider_id).is_none());
+        assert!(LinkedOutputs::<Runtime>::get(provider_id).is_none());
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &source_hotkey,
+                &alice_id,
+                source
+            ),
+            initial_alpha,
+            "the provider's sell must have been unwound, leaving Alice's alpha untouched"
+        );
+    });
+}
+
+/// A provider whose linked order never fires keeps its record, stamped with the
+/// *runtime's* TTL.
+///
+/// Worth asserting here specifically because the pallet's mock configures
+/// `LinkedOutputTtl = ConstU64<3_600_000>` (one hour) while the runtime sets 180 days
+/// (`LimitOrdersLinkedOutputTtl`). Nothing in the pallet's unit suite can catch that
+/// constant being wired up wrongly, or not at all.
+#[test]
+fn undrawn_provider_record_carries_the_runtime_ttl() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1u16);
+        let alice = Sr25519Keyring::Alice;
+        let alice_id = alice.to_account_id();
+        let hotkey_id = Sr25519Keyring::Bob.to_account_id();
+        let relayer_id = Sr25519Keyring::Charlie.to_account_id();
+
+        setup_subnet(netuid);
+        let _ = SubtensorModule::create_account_if_non_existent(&alice_id, &hotkey_id);
+        let initial_alpha: AlphaBalance = (min_default_stake().to_u64() * 10u64).into();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey_id,
+            &alice_id,
+            netuid,
+            initial_alpha,
+        );
+        seed_subnet_tao(netuid, TaoBalance::from(initial_alpha.to_u64()));
+
+        // A known wall-clock so `expires_at` is checkable rather than merely non-zero.
+        let now_ms = 1_700_000_000_000u64;
+        pallet_timestamp::Now::<Runtime>::put(now_ms);
+
+        let provider = v2_order(
+            alice,
+            hotkey_id.clone(),
+            netuid,
+            OrderType::TakeProfit,
+            OrderAmount::Fixed(min_default_stake().to_u64()),
+            0,
+            Perbill::zero(),
+            relayer_id.clone(),
+            true,
+        );
+        let provider_id = order_id(&VersionedOrder::V2(provider.clone()));
+
+        assert_ok!(LimitOrders::execute_orders(
+            RuntimeOrigin::signed(relayer_id),
+            make_order_batch(vec![sign_v2_raw(alice, provider)]),
+            true,
+        ));
+
+        let record = LinkedOutputs::<Runtime>::get(provider_id)
+            .expect("a provider that declared has_linked_order must leave a record");
+
+        assert_eq!(record.signer, alice_id);
+        // A sell produces TAO, so only a LimitBuy can ever draw against this.
+        assert_eq!(record.asset, LinkedAsset::Tao);
+        assert!(record.total > 0);
+        assert_eq!(
+            record.expires_at,
+            now_ms + <Runtime as pallet_limit_orders::Config>::LinkedOutputTtl::get(),
+        );
+    });
+}
+
+/// A readable-signed ("clear-signing") v2 linked order is accepted by the assembled
+/// runtime, and its payload still lands in the Ledger's hashed branch.
+///
+/// The runtime-level counterpart of the v1 vector above. The message is reconstructed
+/// here from scratch — including the `v2` tag, the ` ppb of order 0x… output` amount
+/// form, the `, has-linked-order …` tail, and three SS58 addresses at the runtime's own
+/// prefix — so any drift between this and the pallet's `render_order` surfaces as
+/// `InvalidSignature` rather than as a silent disagreement about what the user approved.
+#[test]
+fn readable_signed_v2_linked_order_executes_on_the_runtime() {
+    new_test_ext().execute_with(|| {
+        let source = NetUid::from(1u16);
+        let target = NetUid::from(2u16);
+        let alice = Sr25519Keyring::Alice;
+        let alice_id = alice.to_account_id();
+        let source_hotkey = Sr25519Keyring::Bob.to_account_id();
+        let target_hotkey = Sr25519Keyring::Dave.to_account_id();
+        let relayer_id = Sr25519Keyring::Charlie.to_account_id();
+
+        setup_rotation(source, target, &alice_id, &source_hotkey, &target_hotkey);
+
+        let provider = v2_order(
+            alice,
+            source_hotkey.clone(),
+            source,
+            OrderType::TakeProfit,
+            // Twice the minimum, for the same reason as the rotation test: whatever the
+            // linked buy draws has to clear `DefaultMinStake` on its own. At exactly the
+            // minimum this sits on the `>=` boundary, so any future pool fee or rounding
+            // on the sell would turn this into an `AmountTooLow` that looks like a
+            // signing failure.
+            OrderAmount::Fixed(min_default_stake().to_u64() * 2),
+            0,
+            Perbill::zero(),
+            relayer_id.clone(),
+            true,
+        );
+        let provider_id = order_id(&VersionedOrder::V2(provider.clone()));
+
+        let linked = v2_order(
+            alice,
+            target_hotkey.clone(),
+            target,
+            OrderType::LimitBuy,
+            OrderAmount::LinkedPercentage {
+                provider: provider_id,
+                pct: Perbill::one(),
+            },
+            u64::MAX,
+            Perbill::zero(),
+            relayer_id.clone(),
+            false,
+        );
+        let linked_id = order_id(&VersionedOrder::V2(linked.clone()));
+
+        // Both messages must exceed the device's raw-signing limit, i.e. a real Ledger
+        // would sign the digest rather than the bytes. The linked one carries a 64-char
+        // provider id on top, so it is comfortably over — the provider is the tighter case.
+        for order in [&provider, &linked] {
+            let payload = [
+                b"<Bytes>".as_slice(),
+                &render_order_v2_readable(order),
+                b"</Bytes>".as_slice(),
+            ]
+            .concat();
+            assert!(
+                payload.len() > pallet_limit_orders::LEDGER_MAX_SIGN_SIZE,
+                "a v2 readable payload of {} bytes would take the byte-exact branch, \
+                 not the hashed one a device actually produces",
+                payload.len()
+            );
+        }
+
+        let signed = vec![
+            sign_v2_readable(alice, provider),
+            sign_v2_readable(alice, linked),
+        ];
+
+        assert_ok!(LimitOrders::execute_orders(
+            RuntimeOrigin::signed(relayer_id),
+            make_order_batch(signed),
+            true,
+        ));
+
+        assert_eq!(
+            Orders::<Runtime>::get(provider_id),
+            Some(OrderStatus::Fulfilled)
+        );
+        assert_eq!(
+            Orders::<Runtime>::get(linked_id),
+            Some(OrderStatus::Fulfilled)
+        );
+        assert!(LinkedOutputs::<Runtime>::get(provider_id).is_none());
     });
 }
