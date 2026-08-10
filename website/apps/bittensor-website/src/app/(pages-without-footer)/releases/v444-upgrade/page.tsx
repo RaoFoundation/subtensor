@@ -361,8 +361,7 @@ partial fills <true|false>, signer <ss58>`}
                 <td>GRANDPA</td>
                 <td>
                   The Polkadot SDK is pinned to fork revision <code>cacb4310</code>, including
-                  warp-finality and concluded-round cleanup fixes; testnet&apos;s warp checkpoint
-                  now carries the correct authority set and set ID.
+                  warp-finality and concluded-round cleanup fixes.
                 </td>
               </tr>
             </tbody>
@@ -380,11 +379,6 @@ partial fills <true|false>, signer <ss58>`}
           <h2 className={styles.subtitle}>What to do</h2>
           <ul className={styles.list}>
             <li>
-              <strong>Node operators:</strong> wait for the on-chain <code>spec_version</code> to
-              move to 444, then update to the matching release. Testnet operators should update
-              promptly for the corrected GRANDPA warp checkpoint.
-            </li>
-            <li>
               <strong>Subnet teams and analysts:</strong> remove <code>1 − MinerBurned</code> from
               cross-subnet emission forecasts. The emission gate remains active and miner recycling
               or burning remains a local policy.
@@ -397,11 +391,11 @@ partial fills <true|false>, signer <ss58>`}
             </li>
             <li>
               <strong>SDK and CLI users:</strong> older clients that read current chain metadata can
-              keep using existing commands. Install <code>bittensor 11.1.0</code> when it is
-              published, plus <code>bittensor-core 0.1.3</code>, to use the new v444 features.
-              Existing wallet files remain usable, and saved multisigs can now be passed directly as{' '}
-              <code>-w</code>. Rebuild any offline signing payload prepared before the runtime
-              upgrade.
+              keep using existing commands. To use the new v444 features, upgrade to{' '}
+              <code>bittensor 11.1.0</code> and <code>bittensor-core 0.1.3</code> alongside the
+              runtime upgrade. Existing wallet files remain usable, and saved multisigs can now be
+              passed directly as <code>-w</code>. Rebuild any offline signing payload prepared
+              before the runtime upgrade.
             </li>
             <li>
               <strong>Limit-order applications:</strong> add the human-readable signing format for
