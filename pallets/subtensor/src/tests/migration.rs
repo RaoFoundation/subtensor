@@ -7,7 +7,7 @@
 )]
 
 use super::mock::*;
-use crate::staking::lock::{ConvictionModel, LockState};
+use crate::staking::lock::{ConvictionModel, LockState, roll_lock_state};
 use crate::*;
 use alloc::collections::BTreeMap;
 use approx::{assert_abs_diff_eq, assert_relative_eq};
@@ -425,6 +425,10 @@ fn test_runtime_upgrade_fixes_hotkey_swaps_before_rebuilding_aggregates() {
             new_owner_hotkey,
             coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, new_owner_hotkey)).count(),
+            1
+        );
         assert!(HotkeyLock::<Test>::get(netuid, old_hotkey).is_none());
         assert_eq!(OwnerLock::<Test>::get(netuid), Some(lock));
     });
@@ -1818,7 +1822,7 @@ fn test_migrate_rebuild_conviction_aggregates_from_individual_locks() {
                 (
                     *coldkey,
                     *hotkey,
-                    ConvictionModel::roll_forward_lock(
+                    roll_lock_state(
                         lock.clone(),
                         now,
                         unlock_rate,
@@ -1837,6 +1841,18 @@ fn test_migrate_rebuild_conviction_aggregates_from_individual_locks() {
         assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
         assert_eq!(Lock::<Test>::iter().count(), seeded_locks.len());
         assert_eq!(LockingColdkeys::<Test>::iter().count(), seeded_locks.len());
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, former_owner)).count(),
+            1
+        );
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, current_owner)).count(),
+            2
+        );
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, general_hotkey)).count(),
+            3
+        );
 
         for (coldkey, hotkey, expected_lock) in &expected {
             assert_eq!(

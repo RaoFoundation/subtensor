@@ -1,5 +1,5 @@
 use super::*;
-use crate::staking::lock::{LockClass, LockState};
+use crate::staking::lock::LockState;
 use frame_support::weights::Weight;
 use scale_info::prelude::string::String;
 use sp_core::crypto::Ss58Codec;
@@ -157,8 +157,8 @@ fn mutate_aggregate<T: Config, F>(
     let perpetual = DecayingLock::<T>::get(coldkey, netuid) == Some(false);
     let owner = SubnetOwnerHotkey::<T>::get(netuid) == *hotkey;
 
-    match LockClass::from_roles(owner, perpetual) {
-        LockClass::PerpetualOwner => OwnerLock::<T>::mutate(netuid, |maybe_lock| {
+    match (owner, perpetual) {
+        (true, true) => OwnerLock::<T>::mutate(netuid, |maybe_lock| {
             if let Some(lock) = maybe_lock.take() {
                 let updated = mutate(lock);
                 if is_non_zero_lock(&updated) {
@@ -166,7 +166,7 @@ fn mutate_aggregate<T: Config, F>(
                 }
             }
         }),
-        LockClass::DecayingOwner => DecayingOwnerLock::<T>::mutate(netuid, |maybe_lock| {
+        (true, false) => DecayingOwnerLock::<T>::mutate(netuid, |maybe_lock| {
             if let Some(lock) = maybe_lock.take() {
                 let updated = mutate(lock);
                 if is_non_zero_lock(&updated) {
@@ -174,7 +174,7 @@ fn mutate_aggregate<T: Config, F>(
                 }
             }
         }),
-        LockClass::PerpetualGeneral => HotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
+        (false, true) => HotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
             if let Some(lock) = maybe_lock.take() {
                 let updated = mutate(lock);
                 if is_non_zero_lock(&updated) {
@@ -182,16 +182,14 @@ fn mutate_aggregate<T: Config, F>(
                 }
             }
         }),
-        LockClass::DecayingGeneral => {
-            DecayingHotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
-                if let Some(lock) = maybe_lock.take() {
-                    let updated = mutate(lock);
-                    if is_non_zero_lock(&updated) {
-                        *maybe_lock = Some(updated);
-                    }
+        (false, false) => DecayingHotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
+            if let Some(lock) = maybe_lock.take() {
+                let updated = mutate(lock);
+                if is_non_zero_lock(&updated) {
+                    *maybe_lock = Some(updated);
                 }
-            })
-        }
+            }
+        }),
     }
 }
 
@@ -204,33 +202,31 @@ fn add_to_aggregate<T: Config>(
     let perpetual = DecayingLock::<T>::get(coldkey, netuid) == Some(false);
     let owner = SubnetOwnerHotkey::<T>::get(netuid) == *hotkey;
 
-    match LockClass::from_roles(owner, perpetual) {
-        LockClass::PerpetualOwner => OwnerLock::<T>::mutate(netuid, |maybe_lock| {
+    match (owner, perpetual) {
+        (true, true) => OwnerLock::<T>::mutate(netuid, |maybe_lock| {
             *maybe_lock = Some(match maybe_lock.take() {
-                Some(lock) => lock.merge(added),
+                Some(lock) => lock.add(added),
                 None => added.clone(),
             });
         }),
-        LockClass::DecayingOwner => DecayingOwnerLock::<T>::mutate(netuid, |maybe_lock| {
+        (true, false) => DecayingOwnerLock::<T>::mutate(netuid, |maybe_lock| {
             *maybe_lock = Some(match maybe_lock.take() {
-                Some(lock) => lock.merge(added),
+                Some(lock) => lock.add(added),
                 None => added.clone(),
             });
         }),
-        LockClass::PerpetualGeneral => HotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
+        (false, true) => HotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
             *maybe_lock = Some(match maybe_lock.take() {
-                Some(lock) => lock.merge(added),
+                Some(lock) => lock.add(added),
                 None => added.clone(),
             });
         }),
-        LockClass::DecayingGeneral => {
-            DecayingHotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
-                *maybe_lock = Some(match maybe_lock.take() {
-                    Some(lock) => lock.merge(added),
-                    None => added.clone(),
-                });
-            })
-        }
+        (false, false) => DecayingHotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
+            *maybe_lock = Some(match maybe_lock.take() {
+                Some(lock) => lock.add(added),
+                None => added.clone(),
+            });
+        }),
     }
 }
 

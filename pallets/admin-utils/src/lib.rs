@@ -1774,7 +1774,17 @@ pub mod pallet {
         /// # Rate Limiting
         /// This function is rate-limited to one call per subnet per interval (e.g., one week).
         #[pallet::call_index(67)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_sn_owner_hotkey())]
+        #[pallet::weight({
+            let member_count =
+                pallet_subtensor::Pallet::<T>::owner_transition_member_count(*netuid, hotkey);
+            <T as pallet::Config>::WeightInfo::sudo_set_sn_owner_hotkey().saturating_add(
+                <<T as pallet_subtensor::Config>::WeightInfo as pallet_subtensor::weights::WeightInfo>::transition_subnet_owner_locks(
+                    member_count,
+                ).saturating_add(
+                    pallet_subtensor::Pallet::<T>::owner_transition_member_count_weight(member_count),
+                ),
+            )
+        })]
         pub fn sudo_set_sn_owner_hotkey(
             origin: OriginFor<T>,
             netuid: NetUid,

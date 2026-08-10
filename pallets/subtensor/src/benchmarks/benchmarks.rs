@@ -1865,22 +1865,6 @@ mod pallet_benchmarks {
         let lease = SubnetLeases::<T>::get(0).unwrap();
         let hotkey = account::<T::AccountId>("beneficiary_hotkey", 0, 0);
         let _ = Subtensor::<T>::create_account_if_non_existent(&beneficiary, &hotkey);
-        let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
-        let now = Subtensor::<T>::get_current_block_as_u64();
-        let old_owner_lock = LockState {
-            locked_mass: 100u64.into(),
-            conviction: U64F64::from_num(100),
-            last_update: now,
-        };
-        let new_owner_lock = LockState {
-            locked_mass: 200u64.into(),
-            conviction: U64F64::from_num(200),
-            last_update: now,
-        };
-        Subtensor::<T>::insert_owner_lock_state(lease.netuid, old_owner_lock.clone());
-        Subtensor::<T>::insert_decaying_owner_lock_state(lease.netuid, old_owner_lock);
-        Subtensor::<T>::insert_hotkey_lock_state(lease.netuid, &hotkey, new_owner_lock.clone());
-        Subtensor::<T>::insert_decaying_hotkey_lock_state(lease.netuid, &hotkey, new_owner_lock);
 
         #[extrinsic_call]
         _(
@@ -1891,32 +1875,58 @@ mod pallet_benchmarks {
 
         assert_eq!(SubnetOwner::<T>::get(lease.netuid), beneficiary);
         assert_eq!(SubnetOwnerHotkey::<T>::get(lease.netuid), hotkey);
-        assert_eq!(
-            HotkeyLock::<T>::get(lease.netuid, &old_owner_hotkey)
-                .unwrap()
-                .locked_mass,
-            100u64.into()
-        );
-        assert_eq!(
-            DecayingHotkeyLock::<T>::get(lease.netuid, &old_owner_hotkey)
-                .unwrap()
-                .locked_mass,
-            100u64.into()
-        );
-        assert_eq!(
-            OwnerLock::<T>::get(lease.netuid).unwrap().locked_mass,
-            200u64.into()
-        );
-        assert_eq!(
-            DecayingOwnerLock::<T>::get(lease.netuid)
-                .unwrap()
-                .locked_mass,
-            200u64.into()
-        );
 
         assert_eq!(SubnetLeases::<T>::get(lease_id), None);
         assert!(!SubnetLeaseShares::<T>::contains_prefix(lease_id));
         assert!(!AccumulatedLeaseDividends::<T>::contains_key(lease_id));
+    }
+
+    #[benchmark]
+    fn transition_subnet_owner_locks(l: Linear<1, 128>) {
+        let netuid = NetUid::from(1);
+        let old_owner_hotkey = account::<T::AccountId>("old_owner", 0, 0);
+        let new_owner_hotkey = account::<T::AccountId>("new_owner", 0, 0);
+        let benchmark_block: BlockNumberFor<T> = 100u32.into();
+
+        Subtensor::<T>::init_new_network(netuid, 1);
+        SubnetOwnerHotkey::<T>::insert(netuid, &old_owner_hotkey);
+        UnlockRate::<T>::put(1);
+        MaturityRate::<T>::put(1);
+        frame_system::Pallet::<T>::set_block_number(benchmark_block);
+
+        for i in 0..l {
+            let coldkey = account::<T::AccountId>("locker", i, 0);
+            let hotkey = if i % 2 == 0 {
+                &old_owner_hotkey
+            } else {
+                &new_owner_hotkey
+            };
+            Subtensor::<T>::insert_lock_state(
+                &coldkey,
+                netuid,
+                hotkey,
+                LockState {
+                    locked_mass: 1_000u64.into(),
+                    conviction: U64F64::from_num(1_000),
+                    last_update: 0,
+                },
+            );
+        }
+
+        #[block]
+        {
+            let transitioned = Subtensor::<T>::transition_subnet_owner_lock_aggregates(
+                netuid,
+                &old_owner_hotkey,
+                &new_owner_hotkey,
+            );
+            assert_eq!(transitioned, l);
+        }
+
+        assert_eq!(
+            Subtensor::<T>::owner_transition_member_count(netuid, &new_owner_hotkey),
+            0
+        );
     }
 
     #[benchmark]
