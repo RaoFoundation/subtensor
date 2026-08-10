@@ -18,14 +18,14 @@ interface or an explicit proposed typed replacement.
 |---|---:|---:|---:|---:|
 | `SubtensorModule` | 82 | 68 | 0 | 14 |
 | `AdminUtils` | 86 | 40 | 0 | 46 |
-| `Balances` | 9 | 5 | 0 | 4 |
+| `Balances` | 9 | 4 | 0 | 5 |
 | `Proxy` | 12 | 11 | 1 | 0 |
 | `Scheduler` | 10 | 0 | 0 | 10 |
 | `Drand` | 3 | 0 | 0 | 3 |
 | `Crowdloan` | 10 | 10 | 0 | 0 |
 | `Timestamp` | 1 | 0 | 0 | 1 |
 | `Swap` | 6 | 0 | 0 | 6 |
-| **Total** | **219** | **134** | **1** | **84** |
+| **Total** | **219** | **133** | **1** | **85** |
 
 `Typed today` counts semantic coverage, not only direct dispatch to the same
 Rust call. For example, `registerNetwork(bytes32)` covers basic subnet
@@ -47,7 +47,7 @@ Each implemented operation is listed on the page of its target precompile:
 | [Staking V2](/docs/guides/evm/precompiles/staking-v2) | 20 |
 | [Neuron](/docs/guides/evm/precompiles/neuron) | 21 |
 | [Alpha](/docs/guides/evm/precompiles/alpha) | 3 |
-| [Account balance](/docs/guides/evm/precompiles/account-balance) | 2 |
+| [Account balance](/docs/guides/evm/precompiles/account-balance) | 1 |
 | [Proxy](/docs/guides/evm/precompiles/proxy) | 4 |
 | [Balance transfer](/docs/guides/evm/precompiles/balance-transfer) | 2 |
 | [Voting power](/docs/guides/evm/precompiles/voting-power) | 2 |
@@ -69,6 +69,7 @@ must not add another SCALE-encoded `RuntimeCall` interface.
 | `SubtensorModule.set_activity_cutoff_factor` | Retained call-index compatibility entry point that succeeds without changing state. The active AdminUtils operation is already covered by `SubnetPrecompile.setActivityCutoffFactor`. |
 | Root-only `AdminUtils` extrinsics | Root-only administration is not delegated to EVM callers. For calls that also accept a signed subnet owner, the domain precompile dispatches the highest-level call as the mapped EVM signer and preserves its authorization checks. |
 | `AdminUtils.sudo_set_total_issuance` | Deprecated call that always returns `Deprecated`. |
+| `Balances.burn` | The native call reduces FRAME Balances issuance without updating Subtensor's separate issuance ledger, which drives block emission. It is not exposed until the runtime provides a synchronized signed burn operation. |
 | Root-only `Balances` extrinsics | `force_unreserve`, `force_transfer`, `force_set_balance`, and `force_adjust_total_issuance` require Root. |
 | All `Scheduler` extrinsics | `Scheduler.ScheduleOrigin` is configured as Root in the runtime. |
 | `Drand.write_pulse` | Unsigned offchain-worker submission requiring `None` origin. An EVM caller cannot satisfy that origin without changing its security model. |

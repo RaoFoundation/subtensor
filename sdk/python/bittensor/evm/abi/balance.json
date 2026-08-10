@@ -21,24 +21,6 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "keepAlive",
-        "type": "bool"
-      }
-    ],
-    "name": "burnBalance",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "bytes32[]",
         "name": "accounts",
         "type": "bytes32[]"

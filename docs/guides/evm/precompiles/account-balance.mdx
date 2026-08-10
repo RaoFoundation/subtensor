@@ -21,13 +21,12 @@ description: Reference for the deployed BalancePrecompile.
 
 | Function | Source extrinsic |
 |---|---|
-| `burnBalance` | `Balances.burn` |
 | `upgradeAccounts` | `Balances.upgrade_accounts` |
 
-`upgradeAccounts` has an explicit input bound of 64 accounts. Both operations
-dispatch the highest-level Balances call as the mapped signer and preserve all
-runtime authorization and issuance invariants. Force operations require Root
-and are not exposed.
+`upgradeAccounts` has an explicit input bound of 64 accounts and dispatches the
+highest-level Balances call as the mapped signer. `Balances.burn` is not exposed:
+the native call updates FRAME Balances issuance without updating Subtensor's
+separate issuance ledger. Force operations require Root and are not exposed.
 
 
 Source: [`balance.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/balance.sol)

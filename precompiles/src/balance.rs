@@ -36,7 +36,7 @@ where
         + IsSubType<pallet_subtensor::Call<R>>
         + IsSubType<pallet_shield::Call<R>>
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
-    <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
+    <R as pallet_balances::Config>::Balance: Into<U256>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     const INDEX: u64 = 2062;
@@ -63,7 +63,7 @@ where
         + IsSubType<pallet_subtensor::Call<R>>
         + IsSubType<pallet_shield::Call<R>>
         + IsSubType<pallet_subtensor_proxy::Call<R>>,
-    <R as pallet_balances::Config>::Balance: Into<U256> + TryFrom<U256>,
+    <R as pallet_balances::Config>::Balance: Into<U256>,
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     #[precompile::public("getFreeBalance(bytes32)")]
@@ -79,26 +79,6 @@ where
     fn get_total_issuance(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
         handle.record_db_reads::<R>(1)?;
         Ok(pallet_balances::Pallet::<R>::total_issuance().into())
-    }
-
-    #[precompile::public("burnBalance(uint256,bool)")]
-    fn burn_balance(
-        handle: &mut impl PrecompileHandle,
-        amount: U256,
-        keep_alive: bool,
-    ) -> EvmResult<()> {
-        let caller = handle.caller_account_id::<R>();
-        let call = pallet_balances::Call::<R>::burn {
-            value: amount
-                .try_into()
-                .map_err(|_| fp_evm::PrecompileFailure::Error {
-                    exit_status: fp_evm::ExitError::Other(
-                        "balance amount does not fit runtime".into(),
-                    ),
-                })?,
-            keep_alive,
-        };
-        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 
     #[precompile::public("upgradeAccounts(bytes32[])")]
@@ -150,6 +130,16 @@ mod tests {
             selector_u32("getFreeBalance(bytes32)"),
             (H256::from_slice(coldkey.as_ref()),),
         )
+    }
+
+    #[test]
+    fn balance_precompile_does_not_expose_unsynchronized_native_burn() {
+        assert!(
+            !BalancePrecompileCall::<Runtime>::supports_selector(selector_u32(
+                "burnBalance(uint256,bool)"
+            )),
+            "Balances.burn does not update Subtensor TotalIssuance"
+        );
     }
 
     #[test]

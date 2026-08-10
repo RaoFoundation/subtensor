@@ -42,7 +42,7 @@ const page = () => {
           </p>
           <p>
             The release also makes the chain substantially easier to use from every external
-            surface. Solidity contracts gain five new Bittensor precompiles and 69 functions on
+            surface. Solidity contracts gain five new Bittensor precompiles and 68 functions on
             existing interfaces. A saved multisig now behaves like a wallet throughout
             <code>btcli</code>. Automated dry runs carry enough information to approve and replay a
             transaction safely. Ledger users can read the actual fields of a limit order before
@@ -165,7 +165,7 @@ v444:         s_i = normalize(price_ema_i)
             </tbody>
           </table>
           <p>
-            Existing precompiles gain another 69 functions across staking V2, neurons, subnets,
+            Existing precompiles gain another 68 functions across staking V2, neurons, subnets,
             alpha, balances, proxies, leasing, crowdloans, UID lookup, voting power, and transfer
             surfaces. The additions include typed registration and identity operations, weight and
             commitment calls, stake and collateral management, subnet configuration, global and

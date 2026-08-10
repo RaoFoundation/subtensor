@@ -516,13 +516,11 @@ mod address_and_selector_tests {
                 )
             );
         }
-        for signature in ["burnBalance(uint256,bool)", "upgradeAccounts(bytes32[])"] {
-            assert!(
-                balance::BalancePrecompileCall::<Runtime>::supports_selector(selector_u32(
-                    signature
-                ))
-            );
-        }
+        assert!(
+            balance::BalancePrecompileCall::<Runtime>::supports_selector(selector_u32(
+                "upgradeAccounts(bytes32[])"
+            ))
+        );
         for signature in [
             "enableVotingPowerTracking(uint16)",
             "disableVotingPowerTracking(uint16)",
