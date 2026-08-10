@@ -2,8 +2,8 @@ import type { KeyringPair } from "@moonwall/util";
 import type { TypedApi } from "polkadot-api";
 import type { subtensor } from "@polkadot-api/descriptors";
 import { Keyring } from "@polkadot/keyring";
-import { u8aToHex, u8aWrapBytes } from "@polkadot/util";
-import { blake2AsHex, blake2AsU8a } from "@polkadot/util-crypto";
+import { stringToU8a, u8aToHex, u8aWrapBytes } from "@polkadot/util";
+import { blake2AsHex, blake2AsU8a, decodeAddress, encodeAddress } from "@polkadot/util-crypto";
 import { waitForTransactionWithRetry } from "./transactions.js";
 import { MultiAddress } from "@polkadot-api/descriptors";
 
@@ -131,6 +131,126 @@ export function buildWrappedSignedOrder(api: any, params: OrderParams): SignedOr
     // Wrap the raw 32-byte hash in the signRaw envelope: <Bytes>..hash..</Bytes>.
     const wrapped = u8aWrapBytes(hash);
     const sig = params.signer.sign(wrapped);
+
+    // Tag the signature variant from the keypair type.
+    const signature =
+        params.signer.type === "ed25519"
+            ? { Ed25519: u8aToHex(sig) as `0x${string}` }
+            : { Sr25519: u8aToHex(sig) as `0x${string}` };
+
+    return {
+        order: versionedOrder,
+        signature,
+        partial_fill: null,
+    };
+}
+
+// ── Human-readable ("clear-signing" / Ledger) message ──────────────────────────
+
+/**
+ * SS58 prefix under which all account fields are rendered in the canonical
+ * human-readable message.  MUST match the pallet's `SS58_PREFIX` constant (42).
+ */
+export const READABLE_SS58_PREFIX = 42;
+
+/**
+ * Ledger's raw-signing size limit — `MAX_SIGN_SIZE` in the Zondax Polkadot app.
+ * MUST match the pallet's `LEDGER_MAX_SIGN_SIZE`.
+ *
+ * A `signRaw` payload longer than this is blake2_256-hashed on-device before the
+ * signature is produced, so for an oversized payload the signature commits to the
+ * hash rather than to the payload bytes, and the runtime verifies it that way.
+ * The device still displays the full message — the hashing happens in the signing
+ * step only.
+ */
+export const LEDGER_MAX_SIGN_SIZE = 256;
+
+/**
+ * Re-encode an account address as SS58 at prefix 42.  Accepts any input the
+ * `@polkadot/util-crypto` `decodeAddress` understands (SS58 of any prefix, hex,
+ * or raw bytes) and always re-encodes so the output prefix is deterministic —
+ * matching the runtime's `render_account`, which always renders at prefix 42.
+ */
+function renderAccount(addr: string): string {
+    return encodeAddress(decodeAddress(addr), READABLE_SS58_PREFIX);
+}
+
+/**
+ * Format the canonical human-readable ("clear-signing") message for an order.
+ *
+ * This is a PURE function of the order's V1 fields and MUST match the runtime's
+ * `Pallet::render_order` byte-for-byte — the runtime rebuilds this exact string
+ * and verifies the signature over `<Bytes>` ++ utf8(message) ++ `</Bytes>`.  Any
+ * drift here silently breaks signature verification.
+ *
+ * Canonical form (single line, `, ` between fields):
+ *
+ *   TAO.com order v1: {LABEL} {amount} on subnet {netuid}, {PRICE_WORD} {limit_price},
+ *   expiry {expiry}, hotkey {hotkey}, fee {fee_rate} to {fee_recipient},
+ *   relayer {relayer}, max slippage {max_slippage}, chain {chain_id},
+ *   partial fills {partial}, signer {signer}
+ */
+export function formatOrderMessage(order: Order): string {
+    const label =
+        order.order_type === "LimitBuy" ? "Limit buy" : order.order_type === "TakeProfit" ? "Take-profit" : "Stop-loss";
+
+    const priceWord = order.order_type === "LimitBuy" ? "limit price" : "trigger price";
+
+    const maxSlippage = order.max_slippage === null ? "none" : order.max_slippage.toString();
+
+    let relayer: string;
+    if (order.relayer === null) {
+        relayer = "none";
+    } else if (order.relayer.length === 0) {
+        relayer = "[]";
+    } else {
+        relayer = order.relayer.map(renderAccount).join("+");
+    }
+
+    return (
+        `TAO.com order v1: ${label} ${order.amount.toString()} on subnet ${order.netuid.toString()}, ` +
+        `${priceWord} ${order.limit_price.toString()}, expiry ${order.expiry.toString()}, ` +
+        `hotkey ${renderAccount(order.hotkey)}, ` +
+        `fee ${order.fee_rate.toString()} to ${renderAccount(order.fee_recipient)}, ` +
+        `relayer ${relayer}, ` +
+        `max slippage ${maxSlippage}, chain ${order.chain_id.toString()}, ` +
+        `partial fills ${order.partial_fills_enabled ? "true" : "false"}, ` +
+        `signer ${renderAccount(order.signer)}`
+    );
+}
+
+/**
+ * Build a SignedOrder whose signature is over the `<Bytes>`-wrapped canonical
+ * human-readable message (the "clear-signing" / Ledger form that a hardware
+ * wallet can display field-by-field).  This exercises the runtime's
+ * `verify_readable` path:
+ *
+ *     signature.verify(b"<Bytes>" ++ utf8(render_order(order)) ++ b"</Bytes>", signer)
+ *
+ * IMPORTANT: the message is converted to BYTES with `stringToU8a` and then
+ * wrapped with `u8aWrapBytes`, so the signed payload is exactly
+ * `<Bytes>` ++ utf8(message) ++ `</Bytes>` — matching the runtime's
+ * `[b"<Bytes>", &render_order, b"</Bytes>"].concat()`.  Wrapping the raw string
+ * instead of the bytes would corrupt the payload.
+ *
+ * The bytes actually signed then follow the device's rule: a payload longer than
+ * `LEDGER_MAX_SIGN_SIZE` is blake2_256-hashed first, because that is what a Ledger
+ * signs and therefore what the runtime verifies.  The readable message is always
+ * oversized (three SS58 addresses alone are 144 characters), so this emulates a
+ * hardware signer.  Note that `signRaw` in a *software* wallet (polkadot.js
+ * extension) does NOT hash — such a signature is not valid on this path.
+ *
+ * The signature scheme tag (`Sr25519` vs `Ed25519`) follows the signer's
+ * keypair type, so the same helper works for both schemes.
+ */
+export function buildReadableSignedOrder(api: any, params: OrderParams): SignedOrder {
+    const versionedOrder = buildVersionedOrder(params);
+
+    // Render the canonical message, convert to UTF-8 bytes, then wrap.
+    const message = formatOrderMessage(versionedOrder.V1);
+    const wrapped = u8aWrapBytes(stringToU8a(message));
+    const signedBytes = wrapped.length > LEDGER_MAX_SIGN_SIZE ? blake2AsU8a(wrapped, 256) : wrapped;
+    const sig = params.signer.sign(signedBytes);
 
     // Tag the signature variant from the keypair type.
     const signature =
