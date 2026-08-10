@@ -3382,7 +3382,9 @@ impl<T> ProxyInterface<T> for () {
     }
 }
 
-/// Pallets that hold per-subnet commitments implement this to purge all state for `netuid`.
-pub trait CommitmentsInterface {
+/// Interface for purging commitment state when subnets or neurons are removed.
+pub trait CommitmentsInterface<AccountId> {
     fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
+
+    fn purge_neuron(netuid: NetUid, account: &AccountId);
 }

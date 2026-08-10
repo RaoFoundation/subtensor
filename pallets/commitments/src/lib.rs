@@ -16,7 +16,7 @@ use frame_support::IterableStorageDoubleMap;
 use frame_support::weights::WeightMeter;
 use frame_support::{
     BoundedVec,
-    traits::{Currency, Get},
+    traits::{Currency, Get, ReservableCurrency},
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 pub use pallet::*;
@@ -592,6 +592,20 @@ impl<T: Config> Pallet<T> {
             })
             .collect();
         commitments
+    }
+
+    /// Purges all commitment state for one neuron on a subnet.
+    pub fn purge_neuron(netuid: NetUid, account: &T::AccountId) {
+        if let Some(registration) = CommitmentOf::<T>::take(netuid, account) {
+            T::Currency::unreserve(account, registration.deposit);
+        }
+        LastCommitment::<T>::remove(netuid, account);
+        LastBondsReset::<T>::remove(netuid, account);
+        RevealedCommitments::<T>::remove(netuid, account);
+        UsedSpaceOf::<T>::remove(netuid, account);
+        TimelockedIndex::<T>::mutate(|index| {
+            index.remove(&(netuid, account.clone()));
+        });
     }
 
     pub fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {

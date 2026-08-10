@@ -466,13 +466,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface for CommitmentsI {
+impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 parameter_types! {

@@ -625,12 +625,16 @@ impl ProxyInterface<AccountId> for Proxier {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         pallet_commitments::Pallet::<Runtime>::purge_netuid(netuid, weight_meter)
+    }
+
+    fn purge_neuron(netuid: NetUid, account: &AccountId) {
+        pallet_commitments::Pallet::<Runtime>::purge_neuron(netuid, account);
     }
 }
 
