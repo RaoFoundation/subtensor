@@ -50,6 +50,29 @@ class ConnectionNotReady(BittensorError):
     """Raised when the client is used before its connection is opened."""
 
 
+class RpcConnectionError(BittensorError):
+    """Raised when the public RPC transport cannot complete an operation."""
+
+
+class RpcPolicyError(RpcConnectionError):
+    """Raised when an RPC endpoint explicitly refuses traffic under a policy."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retry_after: str | None = None,
+        policy: str | None = None,
+        reason: str | None = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+        self.policy = policy
+        self.reason = reason
+
+
 # Rustc help conventions: lowercase, no trailing punctuation, states the fix.
 # Commands are backticked so the CLI renders them in the command style.
 REMEDIATION: dict[ErrorCode, str] = {
@@ -312,8 +335,10 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "use the same new coldkey you announced"
     ),
     "Payment": (
-        "fund the signing account so it can cover fees (and tip); check with "
-        "`btcli wallet balance`"
+        "fund the signing account with free TAO for fees (and tip); check with "
+        "`btcli wallet balance`. MEV-shielded submissions cannot take the outer "
+        "carrier fee in alpha — retry with `--no-mev-shield` if you only hold "
+        "staked alpha"
     ),
     "Future": (
         "the nonce is too high; wait for pending extrinsics or resubmit with "
@@ -326,8 +351,7 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "the command — if it keeps failing, use a local wallet or file a bug"
     ),
     "ZeroMaxAmount": (
-        "relax the price/slippage limit or wait for a better price so max_amount "
-        "is non-zero"
+        "relax the price/slippage limit or wait for a better price so max_amount is non-zero"
     ),
     "AmountTooLow": (
         "raise the amount above the chain minimum stake (after fees/slippage); "
@@ -342,8 +366,8 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
         "(`btcli stake add` / `btcli stake list`); funding free TAO alone will not help"
     ),
     "NotEnoughStakeToWithdraw": (
-        "lower the unstake/move amount; check free stake with `btcli stake list` "
-        "(locks and collateral do not count)"
+        "lower the amount or use the hotkey that actually holds the stake "
+        "(`btcli stake list`); lock target and stake hotkey can differ"
     ),
     "NotEnoughBalanceToStake": (
         "fund the coldkey or reduce the stake/registration amount; check with "
@@ -351,7 +375,13 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "StakeUnavailable": (
         "only free stake can move — wait out conviction locks or drain miner "
-        "collateral, then retry; check with `btcli stake list`"
+        "collateral, then retry; check locked vs free with `btcli stake list`"
+    ),
+    "LockHotkeyMismatch": (
+        "reuse the existing lock hotkey, or for transfers of locked alpha land "
+        "on the receiver's lock hotkey via `btcli stake transfer "
+        "--destination-hotkey <lock-hotkey>`; inspect with `btcli lock show` / "
+        "`btcli stake list`"
     ),
     "NeuronNoValidatorPermit": (
         "this hotkey lacks a validator permit on the subnet; increase stake weight "
@@ -631,9 +661,11 @@ def chain_error_from_dispatch(err: Any) -> ChainError:
             if wrapper not in err:
                 continue
             variant = err[wrapper]
-            if wrapper in ("Token", "Arithmetic", "Transactional") and isinstance(
-                variant, dict
-            ) and variant:
+            if (
+                wrapper in ("Token", "Arithmetic", "Transactional")
+                and isinstance(variant, dict)
+                and variant
+            ):
                 name = next(iter(variant))
             elif wrapper in ("BadOrigin", "CannotLookup", "Other"):
                 name = wrapper

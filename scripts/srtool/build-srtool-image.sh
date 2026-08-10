@@ -22,7 +22,30 @@ build_image() {
     "${SRTOOL_CONTEXT}" < "${DOCKERFILE}"
 }
 
-if ! build_image "http://ubuntu.mirrors.ovh.net/ubuntu"; then
+# Each attempt tries the OVH mirror, then Ubuntu's geographic mirror service.
+build_once() {
+  if build_image "http://ubuntu.mirrors.ovh.net/ubuntu"; then
+    return 0
+  fi
   echo >&2 "OVH Ubuntu mirror build failed; retrying with Ubuntu's geographic mirror service."
   build_image "mirror+http://mirrors.ubuntu.com/mirrors.txt"
-fi
+}
+
+# The image build downloads apt packages, GitHub release debs, and the Rust
+# toolchain; transient egress failures on CI runners (e.g. apt mirror
+# timeouts) fail the build long before anything deterministic happens, so
+# retry the whole build with backoff.
+attempts=5
+for i in $(seq 1 "$attempts"); do
+  if build_once; then
+    exit 0
+  fi
+  if [ "$i" -lt "$attempts" ]; then
+    sleep_s=$((60 * i))
+    echo "srtool image build failed (attempt $i/$attempts); retrying in ${sleep_s}s..." >&2
+    sleep "$sleep_s"
+  fi
+done
+
+echo "srtool image build failed after $attempts attempts" >&2
+exit 1

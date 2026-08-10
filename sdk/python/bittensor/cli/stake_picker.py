@@ -11,6 +11,7 @@ stake are offered — so the position list covers just that subnet.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -63,6 +64,7 @@ class _Row:
     stake: str  # amount in the position's own currency (or spot total)
     value: Balance  # spot TAO, for sorting and the ≈ column
     show_value: bool  # alpha positions show their spot TAO next to the amount
+    note: str = ""  # e.g. lock-on-other-hotkey hint
 
 
 def _pick(
@@ -109,16 +111,44 @@ def _pick(
         )
         raise typer.Exit(1)
 
+    lock_info: Optional[tuple[Optional[dict], dict]] = None
+    if netuid is not None:
+
+        async def _lock(client):
+            return await asyncio.gather(
+                client.read("coldkey_lock", coldkey_ss58=owner, netuid=netuid),
+                client.read("stake_availability", coldkey_ss58=owner, netuid=netuid),
+            )
+
+        lock, availability = app_ctx.run(_lock)
+        lock_info = (lock, availability)
+        if lock and lock["hotkey"] not in names and lock["hotkey"] not in identities:
+            extra = app_ctx.run(lambda c: chain_identity_names(c, [lock["hotkey"]]))
+            identities = {**identities, **extra}
+
     rows = _rows(
         positions,
         valuation,
         per_position=netuid_field is not None,
         subnet_ref=app_ctx.output.with_subnets,
+        lock_info=lock_info,
+        names=names,
+        identities=identities,
     )
     visible = [r for r in rows if r.value.rao >= _DUST_RAO] or rows
     hidden = len(rows) - len(visible)
     flag = address_cli_name(hotkey_field)
     _print_rows(console, app_ctx.output, flag, visible, names, identities)
+    if lock_info is not None:
+        lock, availability = lock_info
+        if lock and availability["locked"].rao > 0:
+            lock_label = (
+                names.get(lock["hotkey"]) or identities.get(lock["hotkey"]) or lock["hotkey"]
+            )
+            console.print(
+                f"  [dim]netuid {netuid}: {availability['locked']} locked · "
+                f"{availability['available']} free · lock → {lock_label}[/dim]"
+            )
     if hidden:
         plural = "s" if hidden > 1 else ""
         console.print(
@@ -238,6 +268,9 @@ def _rows(
     *,
     per_position: bool,
     subnet_ref: Callable[[str], str] = lambda text: text,
+    lock_info: Optional[tuple[Optional[dict], dict]] = None,
+    names: Optional[dict[str, str]] = None,
+    identities: Optional[dict[str, str]] = None,
 ) -> list[_Row]:
     """One row per position — or per hotkey (spot total) for ops without a netuid.
 
@@ -246,17 +279,38 @@ def _rows(
     ``subnet_ref`` rewrites "netuid N" labels to the canonical named form
     ("netuid N (Targon)") when names are known.
     """
+    names = names or {}
+    identities = identities or {}
+    lock_hotkey = None
+    locked_rao = 0
+    if lock_info is not None:
+        lock, availability = lock_info
+        locked_rao = int(availability["locked"].rao) if availability else 0
+        if lock and locked_rao > 0:
+            lock_hotkey = lock["hotkey"]
+    lock_label = (
+        names.get(lock_hotkey) or identities.get(lock_hotkey) or lock_hotkey
+        if lock_hotkey
+        else None
+    )
+
     rows: list[_Row] = []
     if per_position:
         for p in positions:
             value = valuation.spot_value(p.stake)
-            rows.append(_Row(p.hotkey, p.netuid, "", str(p.stake), value, p.netuid != 0))
+            note = ""
+            if lock_hotkey and p.hotkey != lock_hotkey:
+                note = f"lock on {lock_label}"
+            rows.append(_Row(p.hotkey, p.netuid, "", str(p.stake), value, p.netuid != 0, note))
     else:
         by_hotkey: dict[str, list[StakePosition]] = {}
         for p in positions:
             by_hotkey.setdefault(p.hotkey, []).append(p)
         for hotkey, group in by_hotkey.items():
             value = Balance(sum(valuation.spot_value(p.stake).rao for p in group))
+            note = ""
+            if lock_hotkey and hotkey != lock_hotkey:
+                note = f"lock on {lock_label}"
             if len(group) == 1:
                 only = group[0]
                 rows.append(
@@ -267,10 +321,13 @@ def _rows(
                         str(only.stake),
                         value,
                         only.netuid != 0,
+                        note,
                     )
                 )
             else:
-                rows.append(_Row(hotkey, None, f"{len(group)} subnets", f"≈ {value}", value, False))
+                rows.append(
+                    _Row(hotkey, None, f"{len(group)} subnets", f"≈ {value}", value, False, note)
+                )
     rows.sort(key=lambda r: -r.value.rao)
     return rows
 
@@ -314,6 +371,8 @@ def _print_rows(
         line.append(row.stake.rjust(stake_width))
         if row.show_value:
             line.append(f"  ≈ {row.value}", style="dim")
+        if row.note:
+            line.append(f"  {row.note}", style="dim italic")
         console.print(line, soft_wrap=True)
 
 

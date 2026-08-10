@@ -27,6 +27,9 @@
     "test": "intent_claim_root"
   },
   {
+    "test": "intent_claim_root_with_hotkey"
+  },
+  {
     "test": "intent_clear_coldkey_swap_announcement"
   },
   {
@@ -241,9 +244,6 @@
   },
   {
     "test": "test_raw_call_escape_hatch_and_commitment"
-  },
-  {
-    "test": "test_root_claim_type_variants"
   },
   {
     "test": "test_keep_subnets_requires_subnets"

@@ -874,6 +874,7 @@ pub(crate) fn quote_remove_stake_after_alpha_fee(
                     alpha_fee,
                     0.into(),
                     true,
+                    false,
                 ));
             }
 

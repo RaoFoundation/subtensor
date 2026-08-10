@@ -160,11 +160,11 @@ fn indexer_mechanism_emission() {
 }
 
 #[test]
-fn indexer_root_claim_type() {
+fn indexer_basket_rate() {
     new_test_ext(1).execute_with(|| {
-        let coldkey = U256::from(1);
+        let hotkey = U256::from(1);
 
-        let _: RootClaimTypeEnum = RootClaimType::<Test>::get(coldkey);
+        let _: I96F32 = BasketRate::<Test>::get(hotkey);
     });
 }
 
@@ -365,14 +365,12 @@ fn indexer_extrinsic_decrease_take() {
 }
 
 #[test]
-fn indexer_extrinsic_set_root_claim_type() {
+fn indexer_extrinsic_claim_root() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
 
-        let _ = SubtensorModule::set_root_claim_type(
-            RuntimeOrigin::signed(coldkey),
-            RootClaimTypeEnum::Swap,
-        );
+        let _ = SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey);
     });
 }
 

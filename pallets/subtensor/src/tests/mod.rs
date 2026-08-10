@@ -1,4 +1,5 @@
 mod auto_stake_hotkey;
+mod basket_flush;
 mod batch_tx;
 mod children;
 mod claim_root;
@@ -29,6 +30,7 @@ mod recycle_alpha;
 mod registration;
 mod remove_data_tests;
 mod serving;
+mod stake_into_basket;
 mod staking;
 mod staking2;
 mod subnet;

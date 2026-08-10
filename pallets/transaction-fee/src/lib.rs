@@ -196,6 +196,7 @@ where
                             alpha_fee,
                             0.into(),
                             true,
+                            false,
                         ) {
                             Ok(tao_amount) => TransactionOutcome::Commit(Ok(tao_amount)),
                             Err(err) => TransactionOutcome::Rollback(Err(err)),

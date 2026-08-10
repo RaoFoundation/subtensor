@@ -400,11 +400,18 @@ impl<T: Config> Pallet<T> {
 
     /// Recomputes the emission gate bar (theta) when due.
     ///
-    /// Theta is the q-mass bar: sort demand shares descending and accumulate
-    /// until the running total crosses `EmissionBarQuantile` (q); the share at
-    /// the crossing is the bar. Subnets above the bar collectively carry q of
-    /// demand. Because theta is a property of the demand distribution (not the
-    /// slot count), registering empty subnets does not move it.
+    /// Two selection modes, both properties of the demand distribution over
+    /// *positive* shares, so registering empty subnets does not move the bar:
+    ///
+    /// * Rank mode (`EmissionBarRank` N > 0): theta is the Nth-largest demand
+    ///   share, so exactly the top N subnets sit at or above the gate midpoint
+    ///   regardless of how the distribution shifts. If fewer than N subnets
+    ///   have demand, theta is the smallest positive share (everyone passes).
+    ///
+    /// * q-mass mode (N == 0): sort demand shares descending and accumulate
+    ///   until the running total crosses `EmissionBarQuantile` (q); the share
+    ///   at the crossing is the bar. Subnets above the bar collectively carry
+    ///   q of demand.
     fn maybe_update_emission_gate_bar(shares: &BTreeMap<NetUid, U64F64>) {
         let zero = U64F64::saturating_from_num(0);
         let current_bar = EmissionGateBar::<T>::get();
@@ -417,23 +424,35 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let q = EmissionBarQuantile::<T>::get();
         let mut sorted: Vec<U64F64> = shares.values().copied().collect();
         sorted.sort_unstable_by(|a, b| b.cmp(a));
 
-        let mut cumulative = zero;
-        let mut theta = zero;
-        for share in sorted {
-            cumulative = cumulative.saturating_add(share);
-            theta = share;
-            if cumulative >= q {
-                break;
+        let rank = EmissionBarRank::<T>::get();
+        let theta = if rank > 0 {
+            sorted
+                .iter()
+                .filter(|share| **share > zero)
+                .nth(usize::from(rank).saturating_sub(1))
+                .or_else(|| sorted.iter().filter(|share| **share > zero).next_back())
+                .copied()
+                .unwrap_or(zero)
+        } else {
+            let q = EmissionBarQuantile::<T>::get();
+            let mut cumulative = zero;
+            let mut crossing = zero;
+            for share in sorted {
+                cumulative = cumulative.saturating_add(share);
+                crossing = share;
+                if cumulative >= q {
+                    break;
+                }
             }
-        }
+            crossing
+        };
 
         if theta > zero {
             EmissionGateBar::<T>::put(theta);
-            log::debug!("Emission gate bar updated: theta = {theta:?} (q = {q:?})");
+            log::debug!("Emission gate bar updated: theta = {theta:?} (rank = {rank:?})");
         }
     }
 

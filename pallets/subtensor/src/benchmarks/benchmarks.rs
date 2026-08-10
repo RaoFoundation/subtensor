@@ -25,7 +25,7 @@ use sp_runtime::{
     BoundedVec, PerU16, Percent,
     traits::{BlakeTwo256, Dispatchable, Hash},
 };
-use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
+use sp_std::collections::vec_deque::VecDeque;
 use sp_std::vec;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
@@ -280,12 +280,9 @@ mod pallet_benchmarks {
         let hotkey: T::AccountId = account("root_register_hot", 0, 1);
 
         setup_full_root_registration_benchmark::<T>();
-        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            AlphaBalance::from(2_u64),
-        );
+        // Root admission is burn-based: fund the coldkey for the burn charge
+        // so the recycle path (the worst case) is exercised.
+        fund_for_registration::<T>(NetUid::ROOT, &coldkey);
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
@@ -1962,104 +1959,132 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn set_root_claim_type() {
+    fn claim_root(h: Linear<1, { crate::MAX_ROOT_CLAIM_WORK }>) {
+        // Coldkey-wide claim: `h` validator hotkeys, one holding each. `subnets` is ignored.
         let coldkey: T::AccountId = whitelisted_caller();
-
-        #[extrinsic_call]
-        _(RawOrigin::Signed(coldkey.clone()), RootClaimTypeEnum::Keep);
-    }
-
-    #[benchmark]
-    fn claim_root() {
-        let coldkey: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("A", 0, 1);
-
+        let owner_coldkey: T::AccountId = account("claim_owner_cold", 0, 0);
+        let owner_hotkey: T::AccountId = account("claim_owner_hot", 0, 1);
         let netuid = Subtensor::<T>::get_next_netuid();
 
         let lock_cost = Subtensor::<T>::get_network_lock_cost();
-        add_balance_to_coldkey_account::<T>(&coldkey, lock_cost.into());
+        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.into());
 
         assert_ok!(Subtensor::<T>::register_network(
-            RawOrigin::Signed(coldkey.clone()).into(),
-            hotkey.clone()
+            RawOrigin::Signed(owner_coldkey).into(),
+            owner_hotkey
         ));
-
         SubtokenEnabled::<T>::insert(netuid, true);
-
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
-
         NetworkRegistrationAllowed::<T>::insert(netuid, true);
         FirstEmissionBlockNumber::<T>::insert(netuid, 0);
-
         SubnetMechanism::<T>::insert(netuid, 1);
         SubnetworkN::<T>::insert(netuid, 1);
         Subtensor::<T>::set_tao_weight(u64::MAX);
-
-        let root_stake = 100_000_000u64;
-        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
-            NetUid::ROOT,
-            root_stake.into(),
-        );
-
-        let initial_total_hotkey_alpha = 100_000_000u64;
-        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey,
-            &coldkey,
+        set_reserves::<T>(
             netuid,
-            initial_total_hotkey_alpha.into(),
+            TaoBalance::from(100_000_000_000_000_u64),
+            AlphaBalance::from(100_000_000_000_000_u64),
         );
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(0));
 
-        let pending_root_alpha = 10_000_000u64;
-        Subtensor::<T>::distribute_emission(
-            netuid,
-            AlphaBalance::ZERO,
-            pending_root_alpha.into(),
-            pending_root_alpha.into(),
-            AlphaBalance::ZERO,
-        );
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+        let holding_alpha = AlphaBalance::from(1_000_000_u64);
+        for i in 0..h {
+            let hotkey: T::AccountId = account("claim_hot", i, 1);
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                AlphaBalance::from(1_u64),
+            );
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                netuid,
+                holding_alpha,
+            );
+            BasketShares::<T>::insert(&hotkey, 1_u64);
+            BasketRate::<T>::insert(&hotkey, I96F32::from_num(1));
+        }
 
-        let initial_stake =
-            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
-
-        assert_ok!(Subtensor::<T>::set_root_claim_type(
-            RawOrigin::Signed(coldkey.clone()).into(),
-            RootClaimTypeEnum::Keep
-        ));
-
+        let subnets = sp_std::collections::btree_set::BTreeSet::from([NetUid::ROOT]);
         #[extrinsic_call]
-        _(RawOrigin::Signed(coldkey.clone()), BTreeSet::from([netuid]));
+        _(RawOrigin::Signed(coldkey.clone()), subnets);
 
-        let new_stake =
-            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
-
-        assert!(new_stake > initial_stake);
+        let first_hotkey: T::AccountId = account("claim_hot", 0, 1);
+        let last_hotkey: T::AccountId = account("claim_hot", h.saturating_sub(1), 1);
+        assert_eq!(BasketShares::<T>::get(first_hotkey), 0);
+        assert_eq!(BasketShares::<T>::get(last_hotkey), 0);
     }
 
     #[benchmark]
-    fn sudo_set_num_root_claims() {
-        #[extrinsic_call]
-        _(RawOrigin::Root, 40);
+    fn claim_root_scan(h: Linear<1, { crate::MAX_ROOT_CLAIM_WORK }>) {
+        // Scan-only claim: `h` validator hotkeys, one holding each, where the holding is
+        // above the dust threshold (no consolidation) but the claimant's marked payout is
+        // below the claim threshold, so every fund is valued (one sim-swap per row) and
+        // skipped without redeeming. Measures the per-row scan cost charged for holdings
+        // a claim walks but does not touch.
+        let coldkey: T::AccountId = whitelisted_caller();
+        let owner_coldkey: T::AccountId = account("scan_owner_cold", 0, 0);
+        let owner_hotkey: T::AccountId = account("scan_owner_hot", 0, 1);
+        let netuid = Subtensor::<T>::get_next_netuid();
+
+        let lock_cost = Subtensor::<T>::get_network_lock_cost();
+        add_balance_to_coldkey_account::<T>(&owner_coldkey, lock_cost.into());
+
+        assert_ok!(Subtensor::<T>::register_network(
+            RawOrigin::Signed(owner_coldkey).into(),
+            owner_hotkey
+        ));
+        SubtokenEnabled::<T>::insert(netuid, true);
+        SubnetMechanism::<T>::insert(netuid, 1);
+        set_reserves::<T>(
+            netuid,
+            TaoBalance::from(100_000_000_000_000_u64),
+            AlphaBalance::from(100_000_000_000_000_u64),
+        );
+        RootClaimableThreshold::<T>::insert(NetUid::ROOT, I96F32::from_num(500_000));
+
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+        // Well above the 500k-rao dust threshold, so consolidation leaves the row alone.
+        let holding_alpha = AlphaBalance::from(100_000_000_u64);
+        let mut hotkeys: Vec<T::AccountId> = Vec::new();
+        for i in 0..h {
+            let hotkey: T::AccountId = account("scan_hot", i, 1);
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &coldkey,
+                NetUid::ROOT,
+                AlphaBalance::from(1_u64),
+            );
+            Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                netuid,
+                holding_alpha,
+            );
+            // Outstanding shares dwarf the claimant's single owed share, so the marked
+            // payout floors below the threshold and the claim no-ops after the scan.
+            BasketShares::<T>::insert(&hotkey, 1_000_000_000_u64);
+            BasketRate::<T>::insert(&hotkey, I96F32::from_num(1));
+            hotkeys.push(hotkey);
+        }
+
+        #[block]
+        {
+            let outcome = Subtensor::<T>::do_root_claim(coldkey.clone(), hotkeys.clone())
+                .expect("scan claim must succeed");
+            assert!(outcome.tao == 0, "scan benchmark must not redeem");
+        }
+
+        let first_hotkey: T::AccountId = account("scan_hot", 0, 1);
+        assert_eq!(BasketShares::<T>::get(first_hotkey), 1_000_000_000_u64);
     }
 
     #[benchmark]
     fn sudo_set_root_claim_threshold() {
-        let coldkey: T::AccountId = whitelisted_caller();
-        let hotkey: T::AccountId = account("A", 0, 1);
-
-        let netuid = Subtensor::<T>::get_next_netuid();
-
-        let lock_cost = Subtensor::<T>::get_network_lock_cost();
-        add_balance_to_coldkey_account::<T>(&coldkey, lock_cost.into());
-
-        assert_ok!(Subtensor::<T>::register_network(
-            RawOrigin::Signed(coldkey.clone()).into(),
-            hotkey.clone()
-        ));
-
         #[extrinsic_call]
-        _(RawOrigin::Root, netuid, 100);
+        _(RawOrigin::Root, NetUid::ROOT, 100);
     }
 
     #[benchmark]
@@ -2073,6 +2098,7 @@ mod pallet_benchmarks {
         FirstEmissionBlockNumber::<T>::insert(NetUid::ROOT, 1);
         SubtokenEnabled::<T>::insert(NetUid::ROOT, true);
 
+        fund_for_registration::<T>(NetUid::ROOT, &coldkey);
         let _ = Subtensor::<T>::do_root_register(
             RawOrigin::Signed(coldkey.clone()).into(),
             hotkey.clone(),

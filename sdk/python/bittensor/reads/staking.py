@@ -183,6 +183,72 @@ async def stake_value_for_coldkeys(view, coldkey_ss58s: list[str]) -> dict[str, 
 
 
 @read(
+    "stake_availability",
+    {"coldkey_ss58": "string", "netuid": "integer"},
+    category="Staking",
+    param_docs={
+        "coldkey_ss58": "Coldkey whose free/locked stake to read.",
+        "netuid": "Subnet to query.",
+    },
+)
+async def stake_availability(view, coldkey_ss58: str, netuid: int) -> dict:
+    """Free vs locked stake for a coldkey on one subnet.
+
+    ``locked`` is conviction-locked mass (plus any miner collateral reserved
+    against the coldkey on that subnet). ``available`` is what can still be
+    unstaked or transferred without moving lock mass. Both are denominated in
+    the subnet's own currency (TAO on netuid 0).
+    """
+    raw = await view.runtime(
+        api.StakeInfoRuntimeApi.get_stake_availability_for_coldkeys,
+        [[coldkey_ss58], [netuid]],
+    )
+    entry = ((raw or {}).get(coldkey_ss58) or {}).get(netuid) or {}
+    # Some decoders string-key the inner map.
+    if not entry:
+        entry = ((raw or {}).get(coldkey_ss58) or {}).get(str(netuid)) or {}
+    return {
+        "netuid": netuid,
+        "total": view.balance(int(entry.get("total") or 0), netuid),
+        "locked": view.balance(int(entry.get("locked") or 0), netuid),
+        "available": view.balance(int(entry.get("available") or 0), netuid),
+    }
+
+
+@read(
+    "stake_availability_for_coldkey",
+    {"coldkey_ss58": "string", "netuids": "array"},
+    category="Staking",
+    param_docs={
+        "coldkey_ss58": "Coldkey whose free/locked stake to read.",
+        "netuids": "Subnets to query (empty list returns no rows).",
+    },
+)
+async def stake_availability_for_coldkey(view, coldkey_ss58: str, netuids: list[int]) -> list[dict]:
+    """Free vs locked stake for a coldkey across many subnets (one runtime call)."""
+    if not netuids:
+        return []
+    ordered = sorted({int(n) for n in netuids})
+    raw = await view.runtime(
+        api.StakeInfoRuntimeApi.get_stake_availability_for_coldkeys,
+        [[coldkey_ss58], ordered],
+    )
+    per_netuid = (raw or {}).get(coldkey_ss58) or {}
+    rows: list[dict] = []
+    for netuid in ordered:
+        entry = per_netuid.get(netuid) or per_netuid.get(str(netuid)) or {}
+        rows.append(
+            {
+                "netuid": netuid,
+                "total": view.balance(int(entry.get("total") or 0), netuid),
+                "locked": view.balance(int(entry.get("locked") or 0), netuid),
+                "available": view.balance(int(entry.get("available") or 0), netuid),
+            }
+        )
+    return rows
+
+
+@read(
     "staking_hotkeys",
     {"coldkey_ss58": "string"},
     category="Staking",
@@ -196,24 +262,6 @@ async def staking_hotkeys(view, coldkey_ss58: str) -> list[str]:
     """
     value = await view.query(st.SubtensorModule.StakingHotkeys, [coldkey_ss58])
     return [str(hotkey) for hotkey in value or []]
-
-
-@read(
-    "root_claim_type",
-    {"coldkey_ss58": "string"},
-    category="Staking",
-    param_docs={"coldkey_ss58": "Coldkey whose root-claim setting to read."},
-)
-async def root_claim_type(view, coldkey_ss58: str) -> dict:
-    """How a coldkey claims root alpha emission: Swap, Keep, or KeepSubnets(+subnets)."""
-    value = await view.query(st.SubtensorModule.RootClaimType, [coldkey_ss58])
-    if isinstance(value, dict):
-        (variant, payload), *_ = value.items()
-        subnets = None
-        if isinstance(payload, dict) and payload.get("subnets") is not None:
-            subnets = [int(n) for n in payload["subnets"]]
-        return {"type": str(variant), "subnets": subnets}
-    return {"type": str(value), "subnets": None}
 
 
 @read(

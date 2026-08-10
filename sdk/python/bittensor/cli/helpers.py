@@ -167,6 +167,73 @@ def netuid_groups(
 STAKE_LIST_TITLE = "stake (per-subnet currency: TAO on netuid 0, alpha elsewhere)"
 
 
+def annotate_stake_groups_with_locks(
+    groups: list[dict],
+    locks_by_netuid: dict[int, dict],
+    availability_by_netuid: dict[int, dict],
+    hotkey_names: dict[str, str],
+    identity_names: Optional[dict[str, str]] = None,
+) -> None:
+    """Annotate stake-list groups with free/locked totals and lock-hotkey hints.
+
+    Mutates ``groups`` in place. A subnet note shows ``locked · free`` when any
+    mass is locked; positions whose hotkey is not the lock target get a leaf
+    note so the split "lock → owner, stake → vali" setup is obvious.
+    """
+    identity_names = identity_names or {}
+    for group in groups:
+        netuid = int(group["netuid"])
+        avail = availability_by_netuid.get(netuid)
+        lock = locks_by_netuid.get(netuid)
+        if not avail and not lock:
+            continue
+        locked = avail["locked"] if avail else None
+        available = avail["available"] if avail else None
+        notes: list[str] = []
+        lock_hotkey = lock["hotkey"] if lock else None
+        lock_label = None
+        if lock_hotkey and locked is not None and locked.rao > 0:
+            lock_label = (
+                hotkey_names.get(lock_hotkey) or identity_names.get(lock_hotkey) or lock_hotkey
+            )
+            # Keep the header note short — long locked/free figures sit on the
+            # stake line (see ``availability_note``) so they are not clipped.
+            notes.append(f"lock → {lock_label}")
+        if locked is not None and locked.rao > 0 and available is not None:
+            group["availability_note"] = f"{locked} locked · {available} free"
+        if notes:
+            existing = group.get("note")
+            group["note"] = " · ".join([existing, *notes] if existing else notes)
+        if not lock_hotkey or not lock_label:
+            continue
+        for position in group.get("positions", []):
+            if position.get("hotkey") == lock_hotkey:
+                continue
+            leaf = f"lock on {lock_label}"
+            prior = position.get("note")
+            position["note"] = f"{prior} · {leaf}" if prior else leaf
+
+
+def enrich_stake_records_with_locks(
+    records: list[dict],
+    locks_by_netuid: dict[int, dict],
+    availability_by_netuid: dict[int, dict],
+) -> None:
+    """Add subnet-level lock/availability fields onto flat stake-list JSON rows."""
+    for record in records:
+        netuid = int(record["netuid"])
+        avail = availability_by_netuid.get(netuid)
+        lock = locks_by_netuid.get(netuid)
+        if avail:
+            record["locked"] = str(avail["locked"])
+            record["locked_amount"] = avail["locked"].amount
+            record["available"] = str(avail["available"])
+            record["available_amount"] = avail["available"].amount
+        if lock and avail and avail["locked"].rao > 0:
+            record["lock_hotkey"] = lock["hotkey"]
+            record["is_perpetual"] = bool(lock.get("is_perpetual"))
+
+
 def human_balance_fields(row: dict) -> dict:
     """Compact human view of a balance row; the full record (``*_tao`` duplicates,
     basis string) is for JSON consumers."""
@@ -247,6 +314,30 @@ async def _locked_value(
     return Balance(locked_rao), subnets
 
 
+async def coldkey_lock_context(
+    client: Client, coldkey_ss58: str, positions: list[StakePosition]
+) -> tuple[dict[int, dict], dict[int, dict]]:
+    """A coldkey's conviction locks and free/locked stake split, keyed by netuid.
+
+    Returns ``(locks_by_netuid, availability_by_netuid)`` — the inputs of
+    :func:`annotate_stake_groups_with_locks` and
+    :func:`enrich_stake_records_with_locks`. Only subnets present in
+    ``positions`` are queried; both reads collapse to one runtime call each.
+    """
+    netuids = sorted({p.netuid for p in positions})
+    locks, availability = await asyncio.gather(
+        client.read("locks_for_coldkey", coldkey_ss58=coldkey_ss58),
+        client.read(
+            "stake_availability_for_coldkey",
+            coldkey_ss58=coldkey_ss58,
+            netuids=netuids,
+        ),
+    )
+    locks_by_netuid = {int(lock["netuid"]): lock for lock in locks}
+    availability_by_netuid = {int(row["netuid"]): row for row in availability}
+    return locks_by_netuid, availability_by_netuid
+
+
 async def wallet_balance_row(client: Client, name: str, coldkey_ss58: str) -> dict[str, object]:
     """Free TAO, spot-valued stake, locked value, and total value for one coldkey."""
     valuation = await client.read("stake_value_for_coldkey", coldkey_ss58=coldkey_ss58)
@@ -298,19 +389,34 @@ async def wallet_overview_rows(
     client: Client,
     coldkeys: list[tuple[str, str]],
     netuid: Optional[int] = None,
-) -> tuple[list[dict[str, object]], dict[str, StakeValuation]]:
-    """Stake overview for many coldkeys in three batched RPC calls at one block.
+) -> tuple[list[dict[str, object]], dict[str, StakeValuation], dict[str, tuple[dict, dict]]]:
+    """Stake overview for many coldkeys in a few batched RPC calls at one block.
 
     Returns the JSON-shaped rows plus the underlying valuations (positions and
-    spot prices) for human renderings that need more than the flat records.
+    spot prices) and per-coldkey lock contexts (see :func:`coldkey_lock_context`)
+    for human renderings that need more than the flat records. Rows whose
+    coldkey holds conviction locks carry the locked spot value and subnet count;
+    their stake records carry the locked/free split via
+    :func:`enrich_stake_records_with_locks`.
     """
     if not coldkeys:
-        return [], {}
+        return [], {}, {}
     free_by_addr, valuations = await fetch_coldkey_balances_and_valuations(client, coldkeys)
+    contexts = await asyncio.gather(
+        *[coldkey_lock_context(client, ss58, valuations[ss58].positions) for _, ss58 in coldkeys]
+    )
+    lock_ctx = {ss58: ctx for (_, ss58), ctx in zip(coldkeys, contexts)}
     rows: list[dict[str, object]] = []
     for name, ss58 in coldkeys:
         balance = _wallet_balance_row(name, ss58, free_by_addr[ss58], valuations[ss58])
         stakes = filter_stakes(valuations[ss58].positions, netuid)
+        locks_by_netuid, availability_by_netuid = lock_ctx[ss58]
+        locked_rows = [row for row in availability_by_netuid.values() if row["locked"].rao > 0]
+        locked_value = Balance(
+            sum(valuations[ss58].spot_value(row["locked"]).rao for row in locked_rows)
+        )
+        records = [_stake_record(position, valuations[ss58]) for position in stakes]
+        enrich_stake_records_with_locks(records, locks_by_netuid, availability_by_netuid)
         rows.append(
             {
                 "wallet": name,
@@ -320,11 +426,14 @@ async def wallet_overview_rows(
                 "stake_value": balance["stake_value"],
                 "stake_value_tao": balance["stake_value_tao"],
                 "stake_value_basis": STAKE_VALUE_BASIS,
+                "locked_value": locked_value,
+                "locked_value_tao": locked_value.tao,
+                "locked_subnets": len(locked_rows),
                 "positions": len(stakes),
-                "stakes": [_stake_record(position, valuations[ss58]) for position in stakes],
+                "stakes": records,
             }
         )
-    return rows, valuations
+    return rows, valuations, lock_ctx
 
 
 def _delegation_record(delegation, valuation: StakeValuation) -> dict[str, object]:

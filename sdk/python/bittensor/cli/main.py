@@ -41,6 +41,7 @@ from .commands import (
     lock,
     multisig,
     proxy,
+    root,
     stake,
     subnets,
     sudo,
@@ -91,6 +92,7 @@ PANEL_CHAIN = "Raw chain access & agents"
 # staking operations, then subnet inspection, then owner/admin and housekeeping.
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
+app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
 app.add_typer(sudo.app, name="sudo")
 app.add_typer(config.app, name="config")
@@ -116,11 +118,13 @@ app.add_typer(upgrade.app, name="upgrade", rich_help_panel=PANEL_PROXY_MULTISIG)
 for _sub_app, _aliases in (
     (wallet.app, ("w", "wallets")),
     (stake.app, ("st",)),
+    (root.app, ("rt",)),
     (subnets.app, ("s", "subnet")),
     (sudo.app, ("su",)),
     (config.app, ("c", "conf")),
     (weights.app, ("wt", "weight")),
     (crowd.app, ("cr", "crowdloan")),
+    (addresses.app, ("addr",)),
 ):
     for _alias in _aliases:
         app.add_typer(_sub_app, name=_alias, hidden=True)
@@ -491,7 +495,7 @@ def main() -> None:
     argv = sys.argv[1:]
     if (
         len(argv) >= 3
-        and argv[0] == "addresses"
+        and argv[0] in ("addresses", "addr")
         and argv[1] not in ("add", "save", "list", "show", "remove")
         and not argv[1].startswith("-")
         and not argv[2].startswith("-")
