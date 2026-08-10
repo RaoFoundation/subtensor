@@ -12,7 +12,7 @@ permanently (there is no key to recover a pure proxy with).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.remove_proxies`](/code/pallets/proxy/src/lib.rs#L318-L324) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.remove_proxies`](/code/pallets/proxy/src/lib.rs#L321-L327) |
 
 ## Parameters
 
@@ -57,7 +57,7 @@ result = sub.execute_tool("remove_proxies", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.remove_proxies` — [`pallets/proxy/src/lib.rs#L320`](/code/pallets/proxy/src/lib.rs#L318-L324):
+`Proxy.remove_proxies` — [`pallets/proxy/src/lib.rs#L323`](/code/pallets/proxy/src/lib.rs#L321-L327):
 
 ```rust
 #[pallet::call_index(3)]
@@ -69,6 +69,6 @@ pub fn remove_proxies(origin: OriginFor<T>) -> DispatchResult {
 }
 ```
 
-Delegates to [`remove_all_proxy_delegates`](/code/pallets/proxy/src/lib.rs#L1157).
+Delegates to [`remove_all_proxy_delegates`](/code/pallets/proxy/src/lib.rs#L1166).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

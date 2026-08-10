@@ -233,9 +233,7 @@ describeSuite({
                     ["the ASCII hex of the digest", bytes(u8aToHex(digest()).slice(2))],
                 ];
                 for (const [form, message] of rejected) {
-                    expect(ed25519Verify(message, signature, publicKey), `must not verify over ${form}`).toBe(
-                        false
-                    );
+                    expect(ed25519Verify(message, signature, publicKey), `must not verify over ${form}`).toBe(false);
                 }
             },
         });
@@ -244,9 +242,7 @@ describeSuite({
             id: "T06",
             title: "buildReadableSignedOrder emits the device shape for the executable vector",
             test: () => {
-                const signer = new Keyring({ type: "ed25519" }).addFromSeed(
-                    hexToU8a(SOFTWARE_VECTOR.seedHex)
-                );
+                const signer = new Keyring({ type: "ed25519" }).addFromSeed(hexToU8a(SOFTWARE_VECTOR.seedHex));
                 expect(signer.address).toBe(SOFTWARE_ADDRESS);
 
                 // `api` is unused by the readable builder (the payload is rendered from

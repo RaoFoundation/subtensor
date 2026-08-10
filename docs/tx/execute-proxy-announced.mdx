@@ -14,7 +14,7 @@ matching announcement exists.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.proxy_announced`](/code/pallets/proxy/src/lib.rs#L554-L587) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.proxy_announced`](/code/pallets/proxy/src/lib.rs#L557-L592) |
 
 ## Parameters
 
@@ -73,7 +73,7 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L563`](/code/pallets/proxy/src/lib.rs#L554-L587):
+`Proxy.proxy_announced` — [`pallets/proxy/src/lib.rs#L566`](/code/pallets/proxy/src/lib.rs#L557-L592):
 
 ```rust
         #[pallet::call_index(9)]
@@ -91,7 +91,7 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
             real: AccountIdLookupOf<T>,
             force_proxy_type: Option<T::ProxyType>,
             call: Box<<T as Config>::RuntimeCall>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             ensure_signed(origin)?;
             let delegate = T::Lookup::lookup(delegate)?;
             let real = T::Lookup::lookup(real)?;
@@ -106,12 +106,14 @@ result = sub.execute_tool("execute_proxy_announced", {...}, wallet)
             })
             .map_err(|_| Error::<T>::Unannounced)?;
 
-            Self::do_proxy(def, real, *call);
+            let weight = T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
+                .saturating_add(T::DbWeight::get().reads_writes(1, 1))
+                .saturating_add(Self::do_proxy(def, real, *call));
 
-            Ok(())
+            Ok(Some(weight).into())
         }
 ```
 
-Delegates to [`find_proxy`](/code/pallets/proxy/src/lib.rs#L1099).
+Delegates to [`find_proxy`](/code/pallets/proxy/src/lib.rs#L1104).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

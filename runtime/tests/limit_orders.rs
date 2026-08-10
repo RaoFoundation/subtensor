@@ -18,8 +18,8 @@ use pallet_limit_orders::{
     VersionedOrder,
 };
 use pallet_subtensor::{SubnetAlphaIn, SubnetMechanism, SubnetTAO};
-use sp_core::{Get, H256, Pair};
 use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
+use sp_core::{Get, H256, Pair};
 use sp_keyring::Sr25519Keyring;
 use sp_runtime::traits::{AccountIdConversion, IdentifyAccount, Verify};
 use sp_runtime::{MultiSignature, MultiSigner, Perbill};
@@ -2815,11 +2815,7 @@ fn render_order_readable(order: &Order<AccountId>) -> Vec<u8> {
     let relayer = match &order.relayer {
         None => "none".to_string(),
         Some(list) if list.is_empty() => "[]".to_string(),
-        Some(list) => list
-            .iter()
-            .map(ss58)
-            .collect::<Vec<_>>()
-            .join("+"),
+        Some(list) => list.iter().map(ss58).collect::<Vec<_>>().join("+"),
     };
     let netuid: u16 = u16::from(order.netuid);
     format!(

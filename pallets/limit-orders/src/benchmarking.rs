@@ -37,12 +37,9 @@ fn sign_order<T: crate::Config>(
     } else {
         payload
     };
-    let sig = sp_io::crypto::sr25519_sign(
-        sp_core::crypto::key_types::ACCOUNT,
-        &public,
-        &signed_bytes,
-    )
-    .unwrap();
+    let sig =
+        sp_io::crypto::sr25519_sign(sp_core::crypto::key_types::ACCOUNT, &public, &signed_bytes)
+            .unwrap();
     crate::SignedOrder {
         order: order.clone(),
         signature: MultiSignature::Sr25519(sig),

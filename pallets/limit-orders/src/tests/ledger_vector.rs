@@ -364,9 +364,8 @@ fn executable_vector_order() -> Order<AccountId> {
 #[test]
 fn executable_vector_is_the_seeds_signature_over_the_rendered_message() {
     new_test_ext().execute_with(|| {
-        let rendered = LimitOrders::<Test>::render_order(&VersionedOrder::V1(
-            executable_vector_order(),
-        ));
+        let rendered =
+            LimitOrders::<Test>::render_order(&VersionedOrder::V1(executable_vector_order()));
         assert_eq!(
             String::from_utf8(rendered.clone()).unwrap(),
             EXECUTABLE_MESSAGE,
@@ -374,7 +373,10 @@ fn executable_vector_is_the_seeds_signature_over_the_rendered_message() {
         );
 
         let payload = [b"<Bytes>".as_slice(), &rendered, b"</Bytes>".as_slice()].concat();
-        assert!(payload.len() > LEDGER_MAX_SIGN_SIZE, "must be hashed, not signed bare");
+        assert!(
+            payload.len() > LEDGER_MAX_SIGN_SIZE,
+            "must be hashed, not signed bare"
+        );
         assert_eq!(
             sp_core::hashing::blake2_256(&payload),
             EXECUTABLE_VECTOR_DIGEST

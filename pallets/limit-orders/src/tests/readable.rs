@@ -13,8 +13,8 @@ use frame_support::{
     BoundedVec, assert_noop, assert_ok,
     traits::{ConstU32, Get},
 };
-use sp_core::{H256, Pair};
 use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
+use sp_core::{H256, Pair};
 use sp_keyring::Sr25519Keyring as AccountKeyring;
 use sp_runtime::{MultiSignature, Perbill};
 use subtensor_runtime_common::NetUid;
@@ -131,24 +131,42 @@ fn render_account_uses_chain_ss58_prefix() {
 // B. render_order golden vectors
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Independently reconstruct the canonical message from the order's fields using
-/// the SS58 oracle. Deliberately NOT a copy of production `format!`.
-fn expected_message(
-    label: &str,
-    price_word: &str,
+struct ExpectedMessage<'a> {
+    label: &'a str,
+    price_word: &'a str,
     amount: u64,
     netuid_val: u16,
     limit_price: u64,
     expiry: u64,
-    hotkey: &AccountId,
+    hotkey: &'a AccountId,
     fee_rate_ppb: u32,
-    fee_recipient: &AccountId,
-    relayer_str: &str,
-    max_slippage_str: &str,
+    fee_recipient: &'a AccountId,
+    relayer_str: &'a str,
+    max_slippage_str: &'a str,
     chain_id: u64,
     partial: bool,
-    signer: &AccountId,
-) -> String {
+    signer: &'a AccountId,
+}
+
+/// Independently reconstruct the canonical message from expected values using
+/// the SS58 oracle. Deliberately NOT a copy of production `format!`.
+fn expected_message(expected: ExpectedMessage<'_>) -> String {
+    let ExpectedMessage {
+        label,
+        price_word,
+        amount,
+        netuid_val,
+        limit_price,
+        expiry,
+        hotkey,
+        fee_rate_ppb,
+        fee_recipient,
+        relayer_str,
+        max_slippage_str,
+        chain_id,
+        partial,
+        signer,
+    } = expected;
     format!(
         "TAO.com order v1: {label} {amount} on subnet {netuid_val}, \
 {price_word} {limit_price}, expiry {expiry}, hotkey {hotkey}, \
@@ -188,24 +206,23 @@ fn render_order_golden_limit_buy_relayer_none() {
             chain_id: 945,
             partial_fills_enabled: false,
         };
-        let versioned = VersionedOrder::V1(order);
-        let rendered = LimitOrders::<Test>::render_order(&versioned);
-        let expected = expected_message(
-            "Limit buy",
-            "limit price",
-            1_234_567,
-            7,
-            2_000_000_000,
-            9_999_999,
-            &bob(),
-            5_000_000,
-            &fee_recipient(),
-            "none",
-            "none",
-            945,
-            false,
-            &alice(),
-        );
+        let expected = expected_message(ExpectedMessage {
+            label: "Limit buy",
+            price_word: "limit price",
+            amount: 1_234_567,
+            netuid_val: 7,
+            limit_price: 2_000_000_000,
+            expiry: 9_999_999,
+            hotkey: &bob(),
+            fee_rate_ppb: 5_000_000,
+            fee_recipient: &fee_recipient(),
+            relayer_str: "none",
+            max_slippage_str: "none",
+            chain_id: 945,
+            partial: false,
+            signer: &alice(),
+        });
+        let rendered = LimitOrders::<Test>::render_order(&VersionedOrder::V1(order));
         assert_eq!(String::from_utf8(rendered.clone()).unwrap(), expected);
         assert_all_printable_ascii(&rendered);
     });
@@ -231,24 +248,23 @@ fn render_order_golden_stop_loss_trigger_price_and_slippage() {
             chain_id: 945,
             partial_fills_enabled: true,
         };
-        let versioned = VersionedOrder::V1(order);
-        let rendered = LimitOrders::<Test>::render_order(&versioned);
-        let expected = expected_message(
-            "Stop-loss",
-            "trigger price",
-            500,
-            2,
-            750_000_000,
-            42,
-            &dave(),
-            0,
-            &alice(),
-            "none",
-            &Perbill::from_percent(1).deconstruct().to_string(),
-            945,
-            true,
-            &charlie(),
-        );
+        let expected = expected_message(ExpectedMessage {
+            label: "Stop-loss",
+            price_word: "trigger price",
+            amount: 500,
+            netuid_val: 2,
+            limit_price: 750_000_000,
+            expiry: 42,
+            hotkey: &dave(),
+            fee_rate_ppb: 0,
+            fee_recipient: &alice(),
+            relayer_str: "none",
+            max_slippage_str: &Perbill::from_percent(1).deconstruct().to_string(),
+            chain_id: 945,
+            partial: true,
+            signer: &charlie(),
+        });
+        let rendered = LimitOrders::<Test>::render_order(&VersionedOrder::V1(order));
         assert_eq!(String::from_utf8(rendered.clone()).unwrap(), expected);
         assert_all_printable_ascii(&rendered);
     });
@@ -276,25 +292,24 @@ fn render_order_golden_take_profit_two_relayers() {
             chain_id: 945,
             partial_fills_enabled: false,
         };
-        let versioned = VersionedOrder::V1(order);
-        let rendered = LimitOrders::<Test>::render_order(&versioned);
         let relayer_str = format!("{}+{}", canonical_ss58(&bob()), canonical_ss58(&charlie()));
-        let expected = expected_message(
-            "Take-profit",
-            "trigger price",
-            88,
-            1,
-            1_000_000_000,
-            100_000,
-            &dave(),
-            1,
-            &fee_recipient(),
-            &relayer_str,
-            "none",
-            945,
-            false,
-            &alice(),
-        );
+        let expected = expected_message(ExpectedMessage {
+            label: "Take-profit",
+            price_word: "trigger price",
+            amount: 88,
+            netuid_val: 1,
+            limit_price: 1_000_000_000,
+            expiry: 100_000,
+            hotkey: &dave(),
+            fee_rate_ppb: 1,
+            fee_recipient: &fee_recipient(),
+            relayer_str: &relayer_str,
+            max_slippage_str: "none",
+            chain_id: 945,
+            partial: false,
+            signer: &alice(),
+        });
+        let rendered = LimitOrders::<Test>::render_order(&VersionedOrder::V1(order));
         assert_eq!(String::from_utf8(rendered.clone()).unwrap(), expected);
         assert_all_printable_ascii(&rendered);
     });
@@ -309,24 +324,23 @@ fn render_order_golden_relayer_empty_list() {
             relayer: Some(empty),
             ..base_buy_order()
         };
-        let versioned = VersionedOrder::V1(order);
-        let rendered = LimitOrders::<Test>::render_order(&versioned);
-        let expected = expected_message(
-            "Limit buy",
-            "limit price",
-            1_000,
-            u16::from(netuid()),
-            u64::MAX,
-            u64::MAX,
-            &bob(),
-            0,
-            &fee_recipient(),
-            "[]",
-            "none",
-            945,
-            false,
-            &alice(),
-        );
+        let expected = expected_message(ExpectedMessage {
+            label: "Limit buy",
+            price_word: "limit price",
+            amount: 1_000,
+            netuid_val: u16::from(netuid()),
+            limit_price: u64::MAX,
+            expiry: u64::MAX,
+            hotkey: &bob(),
+            fee_rate_ppb: 0,
+            fee_recipient: &fee_recipient(),
+            relayer_str: "[]",
+            max_slippage_str: "none",
+            chain_id: 945,
+            partial: false,
+            signer: &alice(),
+        });
+        let rendered = LimitOrders::<Test>::render_order(&VersionedOrder::V1(order));
         assert_eq!(String::from_utf8(rendered.clone()).unwrap(), expected);
         assert_all_printable_ascii(&rendered);
     });

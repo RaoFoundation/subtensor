@@ -213,6 +213,8 @@ pub(crate) struct OrderEntry<AccountId> {
 pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo as _;
+    use alloc::format;
+    use alloc::string::String;
     use frame_support::{
         PalletId,
         pallet_prelude::*,
@@ -220,8 +222,6 @@ pub mod pallet {
         transactional,
     };
     use frame_system::pallet_prelude::*;
-    use alloc::format;
-    use alloc::string::String;
     use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
     use sp_runtime::traits::AccountIdConversion;
     use sp_std::collections::btree_set::BTreeSet;

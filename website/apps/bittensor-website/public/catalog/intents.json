@@ -106,9 +106,9 @@
         "pallet": "Proxy",
         "call": "add_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 281,
-        "end_line": 290,
-        "url": "/code/pallets/proxy/src/lib.rs#L279-L290",
+        "line": 284,
+        "end_line": 293,
+        "url": "/code/pallets/proxy/src/lib.rs#L282-L293",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -875,9 +875,9 @@
         "pallet": "Proxy",
         "call": "create_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 346,
-        "end_line": 378,
-        "url": "/code/pallets/proxy/src/lib.rs#L344-L378",
+        "line": 349,
+        "end_line": 381,
+        "url": "/code/pallets/proxy/src/lib.rs#L347-L381",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1103,9 +1103,9 @@
         "pallet": "Proxy",
         "call": "proxy_announced",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 563,
-        "end_line": 587,
-        "url": "/code/pallets/proxy/src/lib.rs#L554-L587",
+        "line": 566,
+        "end_line": 592,
+        "url": "/code/pallets/proxy/src/lib.rs#L557-L592",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1304,9 +1304,9 @@
         "pallet": "Proxy",
         "call": "kill_pure",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 398,
-        "end_line": 424,
-        "url": "/code/pallets/proxy/src/lib.rs#L396-L424",
+        "line": 401,
+        "end_line": 427,
+        "url": "/code/pallets/proxy/src/lib.rs#L399-L427",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1821,9 +1821,9 @@
         "pallet": "Proxy",
         "call": "remove_proxies",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 320,
-        "end_line": 324,
-        "url": "/code/pallets/proxy/src/lib.rs#L318-L324",
+        "line": 323,
+        "end_line": 327,
+        "url": "/code/pallets/proxy/src/lib.rs#L321-L327",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
@@ -1871,9 +1871,9 @@
         "pallet": "Proxy",
         "call": "remove_proxy",
         "path": "pallets/proxy/src/lib.rs",
-        "line": 301,
-        "end_line": 310,
-        "url": "/code/pallets/proxy/src/lib.rs#L299-L310",
+        "line": 304,
+        "end_line": 313,
+        "url": "/code/pallets/proxy/src/lib.rs#L302-L313",
         "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
       }
     ]
