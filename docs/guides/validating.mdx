@@ -240,9 +240,13 @@ takes effect after a chain-defined cooldown. Inspect with
 
 ## Root and governance
 
-Register on the root network with [`root-register`](/docs/tx/root-register) —
-placement is stake-based, and joining a full root network evicts the member
-with the least stake. The legacy on-chain senate-vote extrinsic — and the
+Register on the root network with `btcli subnets register --netuid 0`
+([`root-register`](/docs/tx/root-register) under the hood) — admission is
+burn-based (the coldkey pays the demand-priced root burn; no prior stake
+required), and joining a full root network evicts the member with the least
+stake, so back your seat with stake to keep it. See
+[Root Reborn](/docs/guides/root-reborn#becoming-a-root-validator) for the
+full operator flow. The legacy on-chain senate-vote extrinsic — and the
 collective and membership pallets behind it — have been removed from the
 runtime, so top root members no longer form a voting senate. Privileged
 operations (runtime upgrades, protocol changes) are dispatched through sudo,

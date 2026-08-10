@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Optional
 
 import typer
 
 from ...balance import Balance
-from ...intents import ClaimRoot, SetAutoStake, SetChildkeyTake, SetChildren, SetRootClaimType
+from ...intents import SetAutoStake, SetChildkeyTake, SetChildren
 from ...reads import StakePosition
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import (
     STAKE_LIST_TITLE,
+    annotate_stake_groups_with_locks,
     chain_identity_names,
+    coldkey_lock_context,
     dust_note,
+    enrich_stake_records_with_locks,
     list_coldkeys,
     local_address_names,
     netuid_groups,
@@ -27,7 +31,7 @@ app = typer.Typer(no_args_is_help=True, help="Query and manage stake.")
 
 PANEL_MOVE = "Add & move stake"
 PANEL_POSITIONS = "Positions"
-PANEL_AUTO = "Auto-stake & claims"
+PANEL_AUTO = "Auto-stake"
 PANEL_DELEGATION = "Delegation"
 
 _NETUID_HELP = "Numeric identifier of the subnet the command operates on."
@@ -108,9 +112,10 @@ def stake_list(
 ):
     """List stake per subnet for a coldkey (or all wallets with --all).
 
-    Each subnet shows its total with the per-hotkey breakdown beneath it;
-    JSON output carries the flat per-position records (with registration
-    status).
+    Each subnet shows its total with the per-hotkey breakdown beneath it.
+    When a conviction lock is active, the subnet line also shows locked vs
+    free mass and which hotkey the lock targets; positions on a different
+    hotkey are annotated. JSON carries the same lock fields on each row.
     """
     app_ctx: AppContext = ctx_of(ctx)
     title = STAKE_LIST_TITLE
@@ -126,25 +131,48 @@ def stake_list(
             ss58s = [ss58 for _, ss58 in coldkeys]
             valuations = await client.read("stake_value_for_coldkeys", coldkey_ss58s=ss58s)
             unnamed = [hk for v in valuations.values() for hk in _unnamed(v.positions)]
-            return valuations, await chain_identity_names(client, unnamed)
+            contexts = await asyncio.gather(
+                *[
+                    coldkey_lock_context(client, ss58, valuations[ss58].positions)
+                    for _, ss58 in coldkeys
+                ]
+            )
+            lock_ctx = {ss58: ctx for (_, ss58), ctx in zip(coldkeys, contexts)}
+            for locks_by_netuid, _ in lock_ctx.values():
+                for lock in locks_by_netuid.values():
+                    if lock["hotkey"] not in hotkey_names:
+                        unnamed.append(lock["hotkey"])
+            return valuations, await chain_identity_names(client, unnamed), lock_ctx
 
-        valuations, identity_names = app_ctx.run(_all)
+        valuations, identity_names, lock_ctx = app_ctx.run(_all)
         records = [
             _position_record(pos, valuations[ss58], {"wallet": name, "coldkey": ss58})
             for name, ss58 in coldkeys
             for pos in valuations[ss58].positions
         ]
-        groups = [
-            group
-            for name, ss58 in coldkeys
-            for group in netuid_groups(
+        groups = []
+        for name, ss58 in coldkeys:
+            locks_by_netuid, availability_by_netuid = lock_ctx[ss58]
+            wallet_groups = netuid_groups(
                 valuations[ss58].positions,
                 valuations[ss58],
                 hotkey_names,
                 identity_names,
                 {"wallet": name},
             )
-        ]
+            annotate_stake_groups_with_locks(
+                wallet_groups,
+                locks_by_netuid,
+                availability_by_netuid,
+                hotkey_names,
+                identity_names,
+            )
+            enrich_stake_records_with_locks(
+                [r for r in records if r.get("coldkey") == ss58],
+                locks_by_netuid,
+                availability_by_netuid,
+            )
+            groups.extend(wallet_groups)
         shown, dust = (groups, []) if show_dust else split_dust(groups)
         grand_total = Balance(sum(valuations[ss58].stake_value.rao for _, ss58 in coldkeys))
         app_ctx.output.stake_list(title, shown, records, grand_total)
@@ -156,11 +184,27 @@ def stake_list(
 
     async def _one(client):
         valuation = await client.read("stake_value_for_coldkey", coldkey_ss58=owner)
-        return valuation, await chain_identity_names(client, _unnamed(valuation.positions))
+        locks_by_netuid, availability_by_netuid = await coldkey_lock_context(
+            client, owner, valuation.positions
+        )
+        unnamed = _unnamed(valuation.positions)
+        for lock in locks_by_netuid.values():
+            if lock["hotkey"] not in hotkey_names:
+                unnamed.append(lock["hotkey"])
+        return (
+            valuation,
+            await chain_identity_names(client, unnamed),
+            locks_by_netuid,
+            availability_by_netuid,
+        )
 
-    valuation, identity_names = app_ctx.run(_one)
+    valuation, identity_names, locks_by_netuid, availability_by_netuid = app_ctx.run(_one)
     records = [_position_record(pos, valuation) for pos in valuation.positions]
     groups = netuid_groups(valuation.positions, valuation, hotkey_names, identity_names)
+    annotate_stake_groups_with_locks(
+        groups, locks_by_netuid, availability_by_netuid, hotkey_names, identity_names
+    )
+    enrich_stake_records_with_locks(records, locks_by_netuid, availability_by_netuid)
     shown, dust = (groups, []) if show_dust else split_dust(groups)
     app_ctx.output.stake_list(title, shown, records, valuation.stake_value)
     if dust:
@@ -212,54 +256,6 @@ def set_auto_stake(
     app_ctx: AppContext = ctx_of(ctx)
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     app_ctx.submit(SetAutoStake(netuid=netuid, hotkey_ss58=hotkey))
-
-
-@app.command("set-claim", rich_help_panel=PANEL_AUTO)
-@with_tx_globals
-def set_claim_type(
-    ctx: typer.Context,
-    claim_type: str = typer.Option(
-        ..., "--claim-type", help=SetRootClaimType.field_help("claim_type")
-    ),
-    subnets: Optional[str] = typer.Option(
-        None,
-        "--subnets",
-        help="Comma-separated netuids to keep alpha on; required only when "
-        "--claim-type is KeepSubnets.",
-    ),
-):
-    """Set root claim type for the wallet coldkey.
-
-    Controls how the coldkey's root-stake dividends are paid out: swapped
-    to TAO (Swap, the default), kept as subnet alpha (Keep), or kept as
-    alpha only on the listed subnets (KeepSubnets).
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    subnet_list = None
-    if subnets:
-        subnet_list = [int(part.strip()) for part in subnets.split(",") if part.strip()]
-    app_ctx.submit(SetRootClaimType(claim_type=claim_type, subnets=subnet_list))
-
-
-@app.command("process-claim", rich_help_panel=PANEL_AUTO)
-@with_tx_globals
-def process_claim(
-    ctx: typer.Context,
-    subnets: str = typer.Option(
-        ...,
-        "--subnets",
-        help="Comma-separated netuids to claim accumulated root dividends from.",
-    ),
-):
-    """Claim accumulated root dividends from subnets.
-
-    Pays out the dividends accrued to the wallet coldkey on each listed
-    subnet, applying the coldkey's root claim type (see
-    `btcli stake set-claim`).
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    subnet_list = [int(part.strip()) for part in subnets.split(",") if part.strip()]
-    app_ctx.submit(ClaimRoot(subnets=subnet_list))
 
 
 child_app = typer.Typer(no_args_is_help=True, help="Child hotkey delegation.")

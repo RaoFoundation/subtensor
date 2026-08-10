@@ -63,17 +63,15 @@ pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 5000;
 
 pub const ALPHA_MAP_BATCH_SIZE: usize = 30;
 
-pub const MAX_NUM_ROOT_CLAIMS: u64 = 50;
-
-pub const MAX_SUBNET_CLAIMS: usize = 5;
-
-/// Maximum hotkeys that a manual root claim may process for one coldkey.
-///
-/// The resulting worst-case claim weight, including production transaction
-/// extensions, fits within the normal-extrinsic limit.
-pub const MAX_ROOT_CLAIM_HOTKEYS: usize = 256;
-
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
+
+/// Declared pre-dispatch weight envelope for `claim_root` (benchmark upper bound). Actual
+/// work may exceed this; post-dispatch refunds the measured weight.
+pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+
+/// Minimum number of positive destination weights required by `set_root_weights`. Softened
+/// to the number of available destinations when fewer networks exist than this floor.
+pub const MIN_ROOT_BASKET_WEIGHTS: u16 = 8;
 
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
@@ -149,6 +147,7 @@ pub mod pallet {
     use sp_runtime::traits::{Dispatchable, TrailingZeroInput};
     use sp_std::collections::btree_map::BTreeMap;
     use sp_std::collections::btree_set::BTreeSet;
+
     use sp_std::collections::vec_deque::VecDeque;
     use sp_std::vec;
     use sp_std::vec::Vec;
@@ -406,24 +405,9 @@ pub mod pallet {
         pub earned: AlphaBalance,
     }
 
-    // Staking + Accounts
-
-    #[derive(
-        Encode, Decode, Default, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking,
-    )]
-    /// Enum for the per-coldkey root claim setting.
-    pub enum RootClaimTypeEnum {
-        /// Swap any alpha emission for TAO.
-        #[default]
-        Swap,
-        /// Keep all alpha emission.
-        Keep,
-        /// Keep all alpha emission for specified subnets.
-        KeepSubnets {
-            /// Subnets to keep alpha emissions (swap everything else).
-            subnets: BTreeSet<NetUid>,
-        },
-    }
+    // ============================
+    // ==== Staking + Accounts ====
+    // ============================
 
     /// The Max Burn HalfLife Settable
     #[pallet::type_value]
@@ -486,23 +470,6 @@ pub mod pallet {
         500_000u64.into()
     }
 
-    /// Default root claim type.
-    /// This is the type of root claim that will be made.
-    /// This is set by the user. Either swap to TAO or keep as alpha.
-    #[pallet::type_value]
-    pub fn DefaultRootClaimType<T: Config>() -> RootClaimTypeEnum {
-        RootClaimTypeEnum::default()
-    }
-
-    /// Default number of root claims per claim call.
-    /// Ideally this is calculated using the number of staking coldkey
-    /// and the block time.
-    #[pallet::type_value]
-    pub fn DefaultNumRootClaim<T: Config>() -> u64 {
-        // once per week (+ spare keys for skipped tries)
-        5
-    }
-
     /// Default value for zero.
     #[pallet::type_value]
     pub fn DefaultZeroU64<T: Config>() -> u64 {
@@ -513,6 +480,11 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultZeroI64<T: Config>() -> i64 {
         0
+    }
+    /// Default value for zero fixed-point I96F32.
+    #[pallet::type_value]
+    pub fn DefaultZeroI96F32<T: Config>() -> I96F32 {
+        I96F32::saturating_from_num(0)
     }
     /// Default value for Alpha currency.
     #[pallet::type_value]
@@ -1440,6 +1412,53 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
+    /// Root dividend credits whose per-hotkey allocation was calculated by an epoch while the
+    /// beta-basket seed migration owned the destination maps. Credits are released to the same
+    /// hotkey on that subnet's first epoch after the seed completes.
+    #[pallet::storage]
+    pub type DeferredRootAlphaDividends<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        NetUid,
+        Blake2_128Concat,
+        T::AccountId,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
+    /// DMAP ( hotkey, netuid ) --> alpha | Root dividend credits waiting to enter the
+    /// validator's beta basket. Epochs enqueue here instead of depositing inline (a deposit
+    /// prices a share mint against the fund's full NAV — one AMM quote per holding — so
+    /// running one per validator inside the epoch made epoch blocks scale with
+    /// `validators x holdings`). Credits merge per (hotkey, origin subnet) and are flushed
+    /// as a single batched deposit per hotkey: by the one-hotkey-per-block round-robin
+    /// drain (`flush_pending_basket_deposits_block`), or eagerly whenever the hotkey's claimant
+    /// base or basket is touched (claims, basket stakes, root stake changes, hotkey swaps),
+    /// so stake added after an epoch can never capture dividends earned before it arrived.
+    /// Credits whose spot value is below `RootClaimableThreshold[ROOT]` stay queued and
+    /// keep merging until they are worth a deposit, which is what keeps dust from ever
+    /// becoming a basket holding row. Hotkeys deregistered from root have their remaining
+    /// queued credits recycled and purged (pending only — basket holdings are untouched).
+    #[pallet::storage]
+    pub type PendingBasketDeposits<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        NetUid,
+        AlphaBalance,
+        ValueQuery,
+        DefaultZeroAlpha<T>,
+    >;
+
+    /// ITEM ( raw storage key ) | Round-robin cursor of the per-block pending-basket-deposit
+    /// flush over [`PendingBasketDeposits`]: the drain flushes one hotkey per block and
+    /// resumes here, so every queued hotkey gets its turn even when some entries are
+    /// deferred dust that stays in the map after its hotkey's visit.
+    #[pallet::storage]
+    pub type PendingBasketFlushCursor<T: Config> = StorageValue<_, Vec<u8>, OptionQuery>;
+
     // Coinbase
     /// ITEM ( global_block_emission )
     #[deprecated(note = "Use calculate_block_emission() or the block emission RPC instead.")]
@@ -1858,6 +1877,21 @@ pub mod pallet {
     /// ITEM --> Emission Bar Quantile (q)
     pub type EmissionBarQuantile<T: Config> =
         StorageValue<_, U64F64, ValueQuery, DefaultEmissionBarQuantile<T>>;
+
+    #[pallet::type_value]
+    /// Default emission bar rank (N). N > 0 pins theta to the Nth-largest
+    /// demand share, so the eligible set tracks rank N as the distribution
+    /// shifts instead of drifting with a fixed q. 0 disables rank mode and
+    /// the bar falls back to the q-mass quantile.
+    pub fn DefaultEmissionBarRank<T: Config>() -> u16 {
+        // Near the pre-upgrade q=0.75 crossing (~rank 28 on current demand) so the
+        // upgrade does not shift the emission curve; rank mode then tracks N=32.
+        32
+    }
+    #[pallet::storage]
+    /// ITEM --> Emission Bar Rank (N). When non-zero, overrides the quantile.
+    pub type EmissionBarRank<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultEmissionBarRank<T>>;
 
     #[pallet::type_value]
     /// Default emission gate Hill exponent (h). Controls cliff sharpness at the bar.
@@ -2716,7 +2750,9 @@ pub mod pallet {
     pub type RevealPeriodEpochs<T: Config> =
         StorageMap<_, Twox64Concat, NetUid, u64, ValueQuery, DefaultRevealPeriodEpochs<T>>;
 
-    /// Map (coldkey, hotkey) --> u64 the last block at which stake was added/removed.
+    /// Map (coldkey, hotkey) --> u64 the last block at which **root** stake was
+    /// added/removed/claimed for that pair. Used solely as the age basis for
+    /// `RootStakeUnlockInterval`. Non-root stake ops must not write this map.
     #[pallet::storage]
     pub type LastColdkeyHotkeyStakeBlock<T: Config> = StorageDoubleMap<
         _,
@@ -2728,11 +2764,38 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// Minimum number of blocks root (netuid 0) stake must be held before it can be
+    /// removed from root (via `remove_stake`, move/swap/transfer off root, etc.),
+    /// keyed off `LastColdkeyHotkeyStakeBlock`. `0` disables the hold (default),
+    /// preserving legacy behaviour. When set >= one tempo it neutralises epoch-boundary
+    /// "just-in-time" dividend sniping: root stake is 1:1 TAO with no AMM slippage, so
+    /// without this friction a sniper can stake right before a boundary, capture a full
+    /// tempo's root dividend pro-rata to instantaneous stake, and exit immediately.
+    #[pallet::storage]
+    pub type RootStakeUnlockInterval<T> = StorageValue<_, u64, ValueQuery>;
+
+    /// Master switch for `set_root_weights` (basket curation). Defaults to OFF: Root Reborn
+    /// launches with every fund uncurated — dividends accumulate in place — so the null
+    /// strategy is the observable network-wide baseline, and validators cannot stampede
+    /// into TAO-cash (netuid 0) vectors on day one, which would recreate the old
+    /// mechanical sell-pressure regime under a new name. Flipped on later via
+    /// `AdminUtils::sudo_set_root_weight_setting_enabled` (or a migration in the enabling
+    /// upgrade). Gates only the setter: existing stored vectors, dividend deployment, and
+    /// all read paths are unaffected.
+    #[pallet::storage]
+    pub type RootWeightSettingEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
     #[pallet::storage] // --- MAP(netuid ) --> Root claim threshold
+    /// Basket redemption is fund-level (not per-subnet), so only the `NetUid::ROOT` entry is
+    /// consulted: a claim below `RootClaimableThreshold[ROOT]` TAO is skipped as dust. Other
+    /// entries are inert.
     pub type RootClaimableThreshold<T: Config> =
         StorageMap<_, Blake2_128Concat, NetUid, I96F32, ValueQuery, DefaultMinRootClaimAmount<T>>;
 
-    #[pallet::storage] // --- MAP ( hot ) --> MAP(netuid ) --> claimable_dividends | Root claimable dividends.
+    /// --- MAP ( hot ) --> MAP(netuid ) --> claimable_dividends | LEGACY per-subnet root
+    /// claimable rates. Superseded by the unified [`BasketRate`]; only read (and drained) by
+    /// `migrate_seed_beta_basket`. Do not use in runtime logic.
+    #[pallet::storage]
     pub type RootClaimable<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
@@ -2742,7 +2805,8 @@ pub mod pallet {
         DefaultRootClaimable<T>,
     >;
 
-    // Already claimed root alpha.
+    /// LEGACY per-subnet claimed watermarks. Superseded by the unified [`BasketClaimed`]; only
+    /// read (and drained) by `migrate_seed_beta_basket`. Do not use in runtime logic.
     #[pallet::storage]
     pub type RootClaimed<T: Config> = StorageNMap<
         _,
@@ -2754,15 +2818,76 @@ pub mod pallet {
         u128,
         ValueQuery,
     >;
-    #[pallet::storage] // -- MAP ( cold ) --> root_claim_type enum
-    pub type RootClaimType<T: Config> = StorageMap<
+
+    /// --- MAP ( validator_hotkey ) --> total outstanding basket fund shares `P`.
+    ///
+    /// A validator's beta basket is a single fund: its holdings are the escrow stake positions
+    /// `(hotkey, escrow, netuid)` across subnets (the root slot is the fund's TAO/cash position),
+    /// and its net asset value `N` is the realizable (slippage-aware) TAO value of those
+    /// holdings. Stakers' entitlements are denominated in *fund shares*, never in any particular
+    /// subnet's alpha: deposits mint `value_added * P / N` shares, where `value_added` is the
+    /// realizable NAV the deposit actually added (so existing holders are neither diluted nor
+    /// taxed with the deposit's buy slippage), and redemption pays the staker's owed share
+    /// fraction `owed / P` of every holding, sold pro-rata. Direct deposits
+    /// (`stake_into_basket`) mint the same way, credited via the signed [`BasketClaimed`]
+    /// watermark. Because entitlement is decoupled from composition, holdings can be rebalanced
+    /// (validator-directed trading, dissolution conversions) without touching any staker's claim.
+    #[pallet::storage]
+    pub type BasketShares<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery, DefaultZeroU64<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> cumulative fund-shares-per-root-stake accumulator.
+    ///
+    /// Each dividend deposit increments this by `minted_shares / total_root_stake`. A staker's
+    /// gross entitlement is `BasketRate * root_stake`; net owed subtracts their
+    /// [`BasketClaimed`] watermark. Stake additions/removals rebase the watermark by
+    /// `rate * delta` so changing root stake never retroactively grants or removes accrued
+    /// claimable.
+    #[pallet::storage]
+    pub type BasketRate<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, I96F32, ValueQuery, DefaultZeroI96F32<T>>;
+
+    /// --- DMAP ( validator_hotkey, staker_coldkey ) --> fund shares already claimed (watermark).
+    ///
+    /// Signed on purpose, for two reasons. First, stake-change rebasing
+    /// (`claimed ± rate * delta`) must be exact in both directions: with an unsigned floor,
+    /// unstaking root before claiming would clip the rebase at zero, silently forfeiting the
+    /// staker's accrued entitlement and permanently stranding the matching shares (and their
+    /// escrow value) in the fund. Second, this map doubles as the grant ledger for direct
+    /// deposits: `stake_into_basket` credits its minted shares by *decrementing* the watermark
+    /// (`owed = rate * root_stake - claimed`), so a persistent negative value is an intentional
+    /// unconditional share grant, not a rebasing artifact.
+    #[pallet::storage]
+    pub type BasketClaimed<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         T::AccountId,
-        RootClaimTypeEnum,
+        Blake2_128Concat,
+        T::AccountId,
+        i128,
         ValueQuery,
-        DefaultRootClaimType<T>,
     >;
+
+    /// --- MAP ( validator_hotkey ) --> lifetime realizable TAO value deposited into the basket.
+    ///
+    /// Cumulative sum of every deposit's `value_added`: the realizable NAV the deposit actually
+    /// added (net of buy slippage and fees), deliberately less than the raw TAO deployed. Both
+    /// dividend deposits and direct `stake_into_basket` deposits accumulate here, and dividend
+    /// deposits add their full `value_added` even though only the stakers' attribution fraction
+    /// mints shares. Together with [`BasketRedeemedTao`] this makes lifetime fund performance
+    /// (`(NAV + redeemed) / deposited`) and deposit-rate metrics computable from two storage
+    /// reads, with no event indexing. Follows the fund across hotkey swaps.
+    #[pallet::storage]
+    pub type BasketDepositedTao<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, TaoBalance, ValueQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> lifetime TAO redeemed (claimed) out of the basket.
+    ///
+    /// Cumulative sum of every claim's realized payout. See [`BasketDepositedTao`].
+    #[pallet::storage]
+    pub type BasketRedeemedTao<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, TaoBalance, ValueQuery>;
+
     #[pallet::storage] // --- MAP ( u64 ) --> coldkey | Maps coldkeys that have stake to an index
     pub type StakingColdkeysByIndex<T: Config> =
         StorageMap<_, Identity, u64, T::AccountId, OptionQuery>;
@@ -2772,8 +2897,6 @@ pub mod pallet {
 
     #[pallet::storage] // --- Value --> num_staking_coldkeys
     pub type NumStakingColdkeys<T: Config> = StorageValue<_, u64, ValueQuery, DefaultZeroU64<T>>;
-    #[pallet::storage] // --- Value --> num_root_claim | Number of coldkeys to claim each auto-claim.
-    pub type NumRootClaim<T: Config> = StorageValue<_, u64, ValueQuery, DefaultNumRootClaim<T>>;
 
     // EVM related storage
     /// DMAP (netuid, uid) --> (H160, last_block_where_ownership_was_proven)

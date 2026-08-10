@@ -15,6 +15,7 @@ network at all).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Protocol, TypeVar
 
 from ._transport import SubstrateConnection
@@ -24,17 +25,52 @@ from ._transport.contract import (
     SignedExtrinsic,
     UnsignedExtrinsic,
 )
-from ._transport.errors import StateDiscardedError, SubstrateRequestException
+from ._transport.errors import (
+    ExtrinsicNotFound,
+    MaxRetriesExceeded,
+    RpcPolicyRejection,
+    StateDiscardedError,
+    SubstrateRequestException,
+)
 from .balance import Balance
 from .result import (
     ChainError,
     ConnectionNotReady,
     ExtrinsicResult,
+    RpcConnectionError,
+    RpcPolicyError,
     chain_error_from_substrate_request,
 )
 from .settings import DEFAULT_ERA_PERIOD, SS58_FORMAT, explorer_extrinsic_url
 
 T = TypeVar("T")
+
+
+def _public_rpc_error(error: Exception) -> RpcConnectionError:
+    """Translate private transport failures at the public Substrate boundary."""
+    if isinstance(error, RpcPolicyRejection):
+        return RpcPolicyError(
+            str(error),
+            status_code=error.status_code,
+            retry_after=error.retry_after,
+            policy=error.policy,
+            reason=error.reason,
+        )
+    detail = str(error).strip()
+    if not detail:
+        detail = (
+            "the connection timed out without a response"
+            if isinstance(error, TimeoutError)
+            else "the RPC connection failed without an error detail"
+        )
+    return RpcConnectionError(detail)
+
+
+def _public_request_error(error: SubstrateRequestException) -> Exception:
+    """Keep endpoint policy metadata; classify other request failures as chain errors."""
+    if isinstance(error, (RpcPolicyRejection, MaxRetriesExceeded)):
+        return _public_rpc_error(error)
+    return chain_error_from_substrate_request(error)
 
 
 class Substrate(Protocol):
@@ -178,6 +214,13 @@ class Substrate(Protocol):
         """A signed extrinsic's (raw bytes, 0x-hex hash), without submitting."""
         ...
 
+    async def find_extrinsic(
+        self, extrinsic_hash: str, block_hash: str
+    ) -> Optional[ExtrinsicResult]:
+        """The resolved outcome of an extrinsic included in a specific block,
+        located by its hash, or None when the block does not carry it."""
+        ...
+
     async def prepare(
         self,
         call,
@@ -300,7 +343,12 @@ class RpcSubstrate:
         if self._substrate is not None:
             return
         substrate = self._interface(self.endpoint, self.fallback_endpoints)
-        await substrate.initialize()
+        try:
+            await substrate.initialize()
+        except (SubstrateRequestException, ConnectionError, TimeoutError, OSError) as error:
+            with contextlib.suppress(Exception):
+                await substrate.close()
+            raise _public_rpc_error(error) from error
         self._substrate = substrate
 
     async def _archive(self) -> Optional[SubstrateConnection]:
@@ -311,7 +359,12 @@ class RpcSubstrate:
             if self._archive_substrate is None:
                 primary, *fallbacks = self.archive_endpoints
                 substrate = self._interface(primary, fallbacks)
-                await substrate.initialize()
+                try:
+                    await substrate.initialize()
+                except (SubstrateRequestException, ConnectionError, TimeoutError, OSError) as error:
+                    with contextlib.suppress(Exception):
+                        await substrate.close()
+                    raise _public_rpc_error(error) from error
                 self._archive_substrate = substrate
         return self._archive_substrate
 
@@ -332,7 +385,7 @@ class RpcSubstrate:
                     raise
                 return await op(archive)
         except SubstrateRequestException as error:
-            raise chain_error_from_substrate_request(error) from error
+            raise _public_request_error(error) from error
 
     async def close(self) -> None:
         if self._substrate is not None:
@@ -467,7 +520,7 @@ class RpcSubstrate:
             async for header in self.raw.subscribe_heads(finalized=finalized):
                 yield {"header": header}
         except SubstrateRequestException as error:
-            raise chain_error_from_substrate_request(error) from error
+            raise _public_request_error(error) from error
 
     async def events(self, block_hash: Optional[str] = None) -> list[dict]:
         """Decoded ``System.Events`` records for a block."""
@@ -518,10 +571,30 @@ class RpcSubstrate:
         Used to build the inner extrinsic for MEV-shielded submission, which is
         encrypted and carried inside ``MevShield.submit_encrypted``.
         """
-        extrinsic = await self.raw.create_signed_extrinsic(
-            call, keypair, nonce=nonce, era={"period": period}
-        )
+        try:
+            extrinsic = await self.raw.create_signed_extrinsic(
+                call, keypair, nonce=nonce, era={"period": period}
+            )
+        except SubstrateRequestException as error:
+            raise _public_request_error(error) from error
         return extrinsic.data, extrinsic.extrinsic_hash
+
+    async def find_extrinsic(
+        self, extrinsic_hash: str, block_hash: str
+    ) -> Optional[ExtrinsicResult]:
+        """Locate an extrinsic by hash in ``block_hash`` and resolve its outcome.
+
+        Used to follow a MEV-shielded submission to its decrypted inner
+        extrinsic, which the block author includes separately from the
+        watched carrier. Returns None when the block does not carry it.
+        """
+        try:
+            report = await self.raw.resolve_extrinsic(extrinsic_hash, block_hash)
+        except ExtrinsicNotFound:
+            return None
+        except SubstrateRequestException as error:
+            raise _public_request_error(error) from error
+        return self._result_from_report(report, True)
 
     async def submit(
         self,
@@ -588,7 +661,7 @@ class RpcSubstrate:
                 metadata_hash=metadata_hash,
             )
         except SubstrateRequestException as error:
-            raise chain_error_from_substrate_request(error) from error
+            raise _public_request_error(error) from error
 
     async def submit_signature(
         self,
@@ -603,7 +676,7 @@ class RpcSubstrate:
         try:
             extrinsic = await self.raw.attach_signature(unsigned, signature)
         except SubstrateRequestException as error:
-            raise chain_error_from_substrate_request(error) from error
+            raise _public_request_error(error) from error
         return await self._submit_and_report(
             extrinsic,
             signer_address=unsigned.address,
@@ -661,6 +734,8 @@ class RpcSubstrate:
         failed :class:`ExtrinsicResult`; anything else raises :class:`ChainError`.
         """
         self.raw.clear_nonce_cache_for_account(signer_address)
+        if isinstance(error, (RpcPolicyRejection, MaxRetriesExceeded)):
+            raise _public_rpc_error(error) from error
         if not isinstance(error, SubstrateRequestException):
             raise ChainError(str(error)) from error
         chain_error = chain_error_from_substrate_request(error)
@@ -734,7 +809,7 @@ class RpcSubstrate:
         try:
             extrinsic = await self.raw.create_multisig_extrinsic(call, keypair, multisig_account)
         except SubstrateRequestException as error:
-            raise chain_error_from_substrate_request(error) from error
+            raise _public_request_error(error) from error
         return await self.submit_signed(
             extrinsic,
             keypair,

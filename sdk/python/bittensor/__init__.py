@@ -77,6 +77,8 @@ from .result import (
     ErrorCode,
     ExtrinsicResult,
     PolicyError,
+    RpcConnectionError,
+    RpcPolicyError,
 )
 from .signing import (
     KeyedWallet,
@@ -156,6 +158,8 @@ __all__ = [
     "ConnectionNotReady",
     "ErrorCode",
     "PolicyError",
+    "RpcConnectionError",
+    "RpcPolicyError",
     "Wallet",
     "wallet",  # lowercase alias for Wallet
     "wallets",

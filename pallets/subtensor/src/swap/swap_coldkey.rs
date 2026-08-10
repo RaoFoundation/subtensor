@@ -9,6 +9,10 @@ impl<T: Config> Pallet<T> {
         old_coldkey: &T::AccountId,
         new_coldkey: &T::AccountId,
     ) -> DispatchResult {
+        // The multi-block seed may still hold `RootClaimed[(netuid, hotkey, old_coldkey)]`
+        // rows and mid-hotkey `BasketClaimed` writes. Moving root stake + only the new
+        // watermark would leave legacy claims on the dead coldkey.
+        Self::ensure_beta_basket_seed_idle()?;
         ensure!(
             StakingHotkeys::<T>::get(new_coldkey).is_empty(),
             Error::<T>::ColdKeyAlreadyAssociated
@@ -125,16 +129,17 @@ impl<T: Config> Pallet<T> {
             let new_dest_alpha =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, new_coldkey, netuid);
 
-            if !new_dest_alpha.is_zero() {
-                Self::transfer_root_claimed_for_new_keys(
-                    netuid,
-                    &hotkey,
-                    &hotkey,
-                    old_coldkey,
-                    new_coldkey,
-                );
+            if netuid == NetUid::ROOT {
+                // Move the basket claimed watermark once, with the root-subnet iteration —
+                // unconditionally, NOT gated on current root stake: the signed watermark can be
+                // negative with zero stake (claim-then-unstake), which represents accrued owed
+                // shares that must follow the coldkey or be orphaned on the dead key.
+                Self::transfer_basket_claimed_for_new_coldkey(&hotkey, old_coldkey, new_coldkey);
 
-                if netuid == NetUid::ROOT {
+                // Preserve root unlock age under the new coldkey (same hotkey).
+                Self::migrate_root_stake_age(old_coldkey, &hotkey, new_coldkey, &hotkey);
+
+                if !new_dest_alpha.is_zero() {
                     // Register new coldkey with root stake
                     Self::maybe_add_coldkey_index(new_coldkey);
                 }

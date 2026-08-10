@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .._generated import calls
+from ._money import Money, tao_amount
 from .base import Intent
 from .registry import register
 
@@ -83,3 +84,52 @@ class SetSubnetEmissionEnabled(Intent):
 
     def touches_netuids(self) -> list[int]:
         return list(self.netuids)
+
+
+@register
+@dataclass
+class SetRootClaimThreshold(Intent):
+    """Set the minimum TAO payout for a root dividend claim (root only).
+
+    ``claim_root`` and ``claim_root_with_hotkey`` silently skip any
+    per-validator basket redemption whose estimated payout falls below this
+    threshold — the shares keep accruing and pay out once they clear it. The
+    threshold exists so dust claims cannot grind the chain with tiny swaps;
+    the default is 500,000 rao (0.0005 TAO) and the chain caps it at
+    10,000,000 rao (0.01 TAO).
+
+    Requires the chain sudo key: ``Executor`` wraps the built call in
+    ``Sudo.sudo`` because ``origin`` is ``root``, and when root is a multisig
+    that ``Sudo.sudo`` call is what the multisig must dispatch. Verify the
+    effect afterwards with the ``root_claim_threshold`` read.
+    """
+
+    op = "set_root_claim_threshold"
+    signer = "coldkey"
+    origin = "root"
+    verify = "root_claim_threshold"
+    wraps = (
+        ("SubtensorModule", "sudo_set_root_claim_threshold"),
+        ("Sudo", "sudo"),
+    )
+
+    threshold: Money = field(
+        metadata={
+            "help": "Minimum claim payout in TAO; per-validator redemptions estimated "
+            "below it are skipped and keep accruing. At most 0.01 TAO."
+        }
+    )
+
+    def __post_init__(self):
+        self.threshold = tao_amount(self.threshold)
+
+    async def build(self, substrate, wallet: Any):
+        # The chain only accepts the root netuid entry for this threshold.
+        return await substrate.compose(
+            calls.SubtensorModule.sudo_set_root_claim_threshold(
+                netuid=0, new_value=self.threshold.rao
+            )
+        )
+
+    def summary(self) -> str:
+        return f"set the root claim threshold to {self.threshold}"

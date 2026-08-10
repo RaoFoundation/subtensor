@@ -374,7 +374,9 @@ impl<T: Config> Pallet<T> {
         }
 
         Self::cleanup_lock_if_zero(coldkey, netuid);
-        LastColdkeyHotkeyStakeBlock::<T>::insert(coldkey, hotkey, Self::get_current_block_as_u64());
+        if netuid.is_root() {
+            Self::touch_root_stake_age(coldkey, hotkey);
+        }
 
         let lock_tao = if total_w == 0 {
             TaoBalance::ZERO

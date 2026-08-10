@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Optional
 
 from .._generated import calls
-from .._generated.runtime_apis import StakeInfoRuntimeApi, SwapRuntimeApi
+from .._generated import storage as st
+from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi, SwapRuntimeApi
+from ..balance import Balance
 from ..result import BittensorError
 from ..settings import RAO_PER_TAO
 from ..signing import public_view
@@ -86,6 +89,55 @@ async def _staked_rao(substrate, wallet: Any, hotkey_ss58: str, netuid: int) -> 
     if rao <= 0:
         raise BittensorError(f"nothing to unstake: no stake on {hotkey_ss58} at netuid {netuid}")
     return rao
+
+
+async def _lock_hotkey(substrate, coldkey_ss58: str, netuid: int) -> Optional[str]:
+    """Hotkey a coldkey's conviction lock targets on ``netuid``, or None."""
+    rows = await substrate.query_map(*st.SubtensorModule.Lock, [coldkey_ss58])
+    for key, _value in rows:
+        # Key shape is (netuid, hotkey) when the map is scoped to the coldkey.
+        if isinstance(key, (list, tuple)) and len(key) >= 2 and int(key[0]) == netuid:
+            return str(key[1])
+    return None
+
+
+async def _availability_rao(substrate, coldkey_ss58: str, netuid: int) -> tuple[int, int, int]:
+    """``(total, locked, available)`` rao for a coldkey on one subnet."""
+    raw = await substrate.runtime_call(
+        *StakeInfoRuntimeApi.get_stake_availability_for_coldkeys,
+        [[coldkey_ss58], [netuid]],
+    )
+    entry = ((raw or {}).get(coldkey_ss58) or {}).get(netuid) or {}
+    if not entry:
+        entry = ((raw or {}).get(coldkey_ss58) or {}).get(str(netuid)) or {}
+    return (
+        int(entry.get("total") or 0),
+        int(entry.get("locked") or 0),
+        int(entry.get("available") or 0),
+    )
+
+
+async def _root_claimable_warning(substrate, coldkey_ss58: str, hotkey_ss58: str) -> Optional[str]:
+    """Warn when unstaking root would leave basket yield unclaimed.
+
+    Root ``remove_stake`` / ``unstake_all`` move principal only; accrued basket
+    entitlement stays owed until ``btcli root claim``. Best-effort: a failed
+    payout read is silent so warnings never block the plan.
+    """
+    try:
+        payout = await substrate.runtime_call(
+            *BetaBasketRuntimeApi.get_basket_payout,
+            [hotkey_ss58, coldkey_ss58],
+        )
+    except Exception:
+        return None
+    rao = int(payout or 0)
+    if rao <= 0:
+        return None
+    return (
+        f"{Balance.from_rao(rao)} remains claimable via `btcli root claim` "
+        "(unstaking root principal does not claim basket yield)"
+    )
 
 
 @register
@@ -239,9 +291,14 @@ class RemoveStake(Intent):
         return f"unstake {amount} from {self.hotkey_ss58} on netuid {self.netuid}{note}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
+        out: list[str] = []
         if self.amount_alpha == ALL:
-            return ["removes the entire stake from this hotkey on this subnet"]
-        return []
+            out.append("removes the entire stake from this hotkey on this subnet")
+        if self.netuid == 0:
+            claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
+            if claimable:
+                out.append(claimable)
+        return out
 
 
 @register
@@ -412,9 +469,14 @@ class RemoveStakeLimit(Intent):
         )
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
+        out: list[str] = []
         if self.amount_alpha == ALL:
-            return ["removes the entire stake from this hotkey on this subnet"]
-        return []
+            out.append("removes the entire stake from this hotkey on this subnet")
+        if self.netuid == 0:
+            claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
+            if claimable:
+                out.append(claimable)
+        return out
 
 
 @register
@@ -447,7 +509,11 @@ class UnstakeAll(Intent):
         return f"unstake ALL from {self.hotkey_ss58}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
-        return ["removes the entire stake from this hotkey"]
+        out = ["removes the entire stake from this hotkey"]
+        claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
+        if claimable:
+            out.append(claimable)
+        return out
 
     def affects_all_subnets(self) -> bool:
         return True
@@ -588,12 +654,25 @@ class TransferStake(Intent):
     transfer of value and is irreversible. Double-check the destination
     address. The stake stays on the same hotkey by default; pass a destination
     hotkey to re-delegate it in the same call (dispatched as
-    ``transfer_stake_and_hotkey``). It can also land on a different subnet,
-    swapping through both pools (with slippage) when the netuids differ. Fails
-    with ``TransferDisallowed`` when the subnet owner has disabled stake
-    transfers on the origin or destination subnet. A spend-cap policy treats
-    this as an unbounded spend and blocks it until the cap is raised. Use
-    ``move_stake`` to re-delegate without changing owners.
+    ``transfer_stake_and_hotkey``).
+
+    Conviction locks: a lock is a coldkey-wide floor (stake hotkey and lock
+    hotkey may differ). Amounts at or below free (unlocked) alpha transfer
+    without moving the lock. Amounts above free pull locked mass with the
+    stake — that locked portion must land on the **receiver's** existing lock
+    hotkey or the call fails with ``LockHotkeyMismatch``. Fix: keep
+    ``hotkey_ss58`` as the hotkey that holds the stake and set
+    ``dest_hotkey_ss58`` to the receiver's lock hotkey (see ``btcli stake
+    list`` / ``btcli lock show``). Pulling from the lock hotkey when the stake
+    still sits elsewhere fails with ``NotEnoughStakeToWithdraw``. See the
+    conviction guide's "Transferring locked stake" section.
+
+    It can also land on a different subnet, swapping through both pools (with
+    slippage) when the netuids differ. Fails with ``TransferDisallowed`` when
+    the subnet owner has disabled stake transfers on the origin or destination
+    subnet. A spend-cap policy treats this as an unbounded spend and blocks it
+    until the cap is raised. Use ``move_stake`` to re-delegate without changing
+    owners.
     """
 
     op = "transfer_stake"
@@ -619,8 +698,10 @@ class TransferStake(Intent):
     dest_hotkey_ss58: Optional[str] = field(
         default=None,
         metadata={
-            "help": "Hotkey the stake lands on. Defaults to the origin hotkey "
-            "(the position stays with the same validator)."
+            "help": "Hotkey the stake lands on. Defaults to the origin hotkey. "
+            "Required when the transfer moves locked alpha and the receiver "
+            "already locks to a different hotkey — pass their lock hotkey "
+            "(see `btcli stake list` / `btcli lock show`)."
         },
     )
 
@@ -663,8 +744,71 @@ class TransferStake(Intent):
             f"coldkey {self.dest_coldkey_ss58}{hotkey_note}"
         )
 
+    def _landing_hotkey(self) -> str:
+        return self.dest_hotkey_ss58 if self.dest_hotkey_ss58 is not None else self.hotkey_ss58
+
     async def warnings(self, substrate, signer_address: str) -> list[str]:
-        return ["transfers stake OWNERSHIP to another coldkey"]
+        out = ["transfers stake OWNERSHIP to another coldkey"]
+        # Lock mass only follows same-subnet transfers; cross-subnet swaps have
+        # their own availability checks and are left to the chain.
+        if self.origin_netuid != self.dest_netuid:
+            return out
+
+        amount_rao = int(self.amount_alpha.rao)
+        landing = self._landing_hotkey()
+        (
+            (_total, locked_rao, available_rao),
+            sender_lock_hotkey,
+            receiver_lock_hotkey,
+            position_info,
+        ) = await asyncio.gather(
+            _availability_rao(substrate, signer_address, self.origin_netuid),
+            _lock_hotkey(substrate, signer_address, self.origin_netuid),
+            _lock_hotkey(substrate, self.dest_coldkey_ss58, self.dest_netuid),
+            substrate.runtime_call(
+                *StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
+                [self.hotkey_ss58, signer_address, self.origin_netuid],
+            ),
+        )
+        position_rao = 0 if position_info is None else int(position_info.get("stake") or 0)
+
+        if position_rao < amount_rao:
+            out.append(
+                f"origin hotkey {self.hotkey_ss58} holds only "
+                f"{Balance.from_rao(position_rao, self.origin_netuid)} on netuid "
+                f"{self.origin_netuid} — transfer will fail with NotEnoughStakeToWithdraw; "
+                f"move stake onto this hotkey first, or pass a different origin hotkey"
+            )
+
+        if sender_lock_hotkey and locked_rao > 0 and sender_lock_hotkey != self.hotkey_ss58:
+            out.append(
+                f"your conviction lock on netuid {self.origin_netuid} targets "
+                f"{sender_lock_hotkey}, but stake is leaving {self.hotkey_ss58} "
+                f"(lock hotkey and stake hotkey can differ)"
+            )
+
+        if amount_rao > available_rao and locked_rao > 0:
+            locked_moving = min(amount_rao - available_rao, locked_rao)
+            out.append(
+                f"{Balance.from_rao(locked_moving, self.origin_netuid)} locked alpha "
+                f"will move with this transfer "
+                f"({Balance.from_rao(available_rao, self.origin_netuid)} is free; "
+                f"the rest pulls from the conviction lock)"
+            )
+            if receiver_lock_hotkey and receiver_lock_hotkey != landing:
+                out.append(
+                    f"receiver already locks to {receiver_lock_hotkey}; locked alpha "
+                    f"can only land on that hotkey — pass "
+                    f"--destination-hotkey {receiver_lock_hotkey} "
+                    f"(current landing hotkey is {landing}) or transfer only the "
+                    f"free amount"
+                )
+            elif not receiver_lock_hotkey and landing != (sender_lock_hotkey or landing):
+                out.append(
+                    f"receiver has no lock yet; locked alpha will create one on "
+                    f"landing hotkey {landing}"
+                )
+        return out
 
     def touches_netuids(self) -> list[int]:
         return [self.origin_netuid, self.dest_netuid]

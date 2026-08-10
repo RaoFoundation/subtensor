@@ -115,6 +115,61 @@ lock = await client.locks.coldkey_lock(coldkey_ss58="5C...", netuid=7)
 conviction = await client.locks.hotkey_conviction(hotkey_ss58="5F...", netuid=7)
 ```
 
+## Transferring locked stake
+
+A lock is a **coldkey-wide floor**, not a hold on one validator position. You
+can lock conviction to the **owner hotkey** while the alpha sits on a different
+**validator hotkey**. That split is supported — and it is the usual source of
+[`LockHotkeyMismatch`](/docs/errors/chain/LockHotkeyMismatch) / "not enough
+stake" confusion when transferring.
+
+Check free vs locked first:
+
+```bash
+btcli stake list                    # shows locked · free · lock → <hotkey>
+btcli lock show --netuid <n>
+btcli query coldkey-lock --coldkey <ss58> --netuid <n>
+```
+
+Then pick a path:
+
+| Situation | What to do |
+|-----------|------------|
+| Amount ≤ **free** (unlocked) α | [`transfer-stake`](/docs/tx/transfer-stake) from the hotkey that **holds** the stake (often the validator). Lock mass does not move. |
+| Amount > free (pulls locked α) | Lock mass **follows** the transfer. The landing hotkey must match the **receiver's** existing lock hotkey, or the call fails with `LockHotkeyMismatch`. |
+| Stake on vali A, lock on owner B, transferring locked α | Do **not** consolidate onto B first. Use `transfer-stake` with `--hotkey A --destination-hotkey <receiver-lock-hotkey>` (dispatches `transfer_stake_and_hotkey`). |
+| Origin hotkey holds less than the amount | Fails with `NotEnoughStakeToWithdraw` even if the coldkey has enough total α elsewhere — stake is pulled from one hotkey. |
+
+Worked example — sender has 2,000 free + 1,000 locked, stake on vali `V`,
+lock (and receiver's lock) on owner `O`:
+
+```bash
+# Wrong: lands on V; receiver locks to O → LockHotkeyMismatch
+btcli stake transfer \
+  --dest-coldkey <receiver> --hotkey V \
+  --origin-netuid 122 --dest-netuid 122 --amount-alpha 3000
+
+# Wrong: pulls from O, but stake still sits on V → NotEnoughStakeToWithdraw
+btcli stake transfer \
+  --dest-coldkey <receiver> --hotkey O \
+  --origin-netuid 122 --dest-netuid 122 --amount-alpha 3000
+
+# Right: pull from V, land on O (receiver's lock hotkey)
+btcli stake transfer \
+  --dest-coldkey <receiver> --hotkey V --destination-hotkey O \
+  --origin-netuid 122 --dest-netuid 122 --amount-alpha 3000
+```
+
+After a successful transfer, the receiver's **lock mass** increases on `O`
+while their **stake** can still be moved to another validator afterward —
+lock target and stake hotkey may differ on both sides. That is not the lock
+"unlocking"; it is the floor moving with the coldkey.
+
+Recipient coldkeys reject locked α by default — they must opt in via
+`SubtensorModule.set_reject_locked_alpha(false)` before accepting a transfer
+that moves lock mass
+([`AccountRejectsLockedAlpha`](/docs/errors/chain/AccountRejectsLockedAlpha)).
+
 ## Rules worth remembering
 
 - [`move-lock`](/docs/tx/move-lock) to another hotkey **owned by a different
@@ -123,5 +178,7 @@ conviction = await client.locks.hotkey_conviction(hotkey_ss58="5F...", netuid=7)
   stake is paid out through the pool.
 - A **coldkey swap** fails if the destination has active locked mass on any
   subnet.
+- Transferring more than free α moves lock mass with the stake; see
+  [Transferring locked stake](#transferring-locked-stake).
 
 For staking mechanics beyond locks, see the [Staking guide](/docs/guides/staking).
