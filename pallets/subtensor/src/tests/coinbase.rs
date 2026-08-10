@@ -69,6 +69,28 @@ fn test_coinbase_basecase() {
     });
 }
 
+#[test]
+fn test_dividend_distribution_does_not_store_zero_last_epoch_alpha() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        let mut alpha_dividends = BTreeMap::new();
+        alpha_dividends.insert(hotkey, U96F32::from_num(0));
+
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            alpha_dividends,
+            BTreeMap::new(),
+        );
+
+        assert!(!TotalHotkeyAlphaLastEpoch::<Test>::contains_key(
+            hotkey, netuid
+        ));
+    });
+}
+
 // Test the emission distribution for a single subnet.
 // This test verifies that:
 // - Single subnet gets cutoff by lower flow limit, so nothing is distributed

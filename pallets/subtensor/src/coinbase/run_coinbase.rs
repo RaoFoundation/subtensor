@@ -834,7 +834,11 @@ impl<T: Config> Pallet<T> {
                 });
             }
             let total_hotkey_alpha = TotalHotkeyAlpha::<T>::get(&hotkey, netuid);
-            TotalHotkeyAlphaLastEpoch::<T>::insert(hotkey, netuid, total_hotkey_alpha);
+            if total_hotkey_alpha.is_zero() {
+                TotalHotkeyAlphaLastEpoch::<T>::remove(hotkey, netuid);
+            } else {
+                TotalHotkeyAlphaLastEpoch::<T>::insert(hotkey, netuid, total_hotkey_alpha);
+            }
         }
 
         // Distribute root alpha divs. Same ownership rule: full root emission

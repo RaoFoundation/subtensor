@@ -167,7 +167,11 @@ impl<T: Config> Pallet<T> {
         }
 
         StakingHotkeys::<T>::remove(old_coldkey);
-        StakingHotkeys::<T>::insert(new_coldkey, new_staking_hotkeys);
+        if new_staking_hotkeys.is_empty() {
+            StakingHotkeys::<T>::remove(new_coldkey);
+        } else {
+            StakingHotkeys::<T>::insert(new_coldkey, new_staking_hotkeys);
+        }
     }
 
     /// Transfer the ownership of the hotkeys owned by the old coldkey to the new coldkey.

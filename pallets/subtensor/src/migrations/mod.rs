@@ -69,6 +69,7 @@ pub mod migrate_set_registration_enable;
 pub mod migrate_set_root_min_allowed_weights;
 pub mod migrate_set_subtoken_enabled;
 pub mod migrate_stake_threshold;
+pub mod migrate_storage_bloat_v2;
 pub mod migrate_subnet_balances;
 pub mod migrate_subnet_limit_to_default;
 pub mod migrate_subnet_locked;
