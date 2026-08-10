@@ -12,6 +12,9 @@ interface IPrecompileRegistry {
         string message;
     }
 
+    /// @notice Reports whether the containing precompile is disabled.
+    /// @dev In v444, `selector` and the selector-lifecycle result fields are
+    /// reserved for future use and do not establish whether a selector exists.
     function getPrecompileStatus(
         address precompile,
         bytes4 selector

@@ -160,7 +160,7 @@ v444:         s_i = normalize(price_ema_i)
                   <code>0x…0813</code>
                 </td>
                 <td>Precompile registry</td>
-                <td>Whether a selector is deprecated, disabled, or replaced</td>
+                <td>Whether a precompile is currently disabled</td>
               </tr>
             </tbody>
           </table>
@@ -179,8 +179,8 @@ v444:         s_i = normalize(price_ema_i)
             Every state-changing method dispatches the highest-level runtime call as the mapped EVM
             signer. The pallet still enforces ownership, role, rate limits, freeze windows, and
             every other authorization rule. Released addresses and selectors remain stable; the new
-            registry gives contracts a typed way to discover lifecycle and operational status before
-            calling.
+            registry gives contracts a typed way to discover whether a whole precompile is currently
+            disabled. Supported selectors remain defined by the published interfaces and ABIs.
           </p>
           <Code
             language='solidity'
@@ -195,6 +195,11 @@ IRuntimeConfiguration config =
 
 uint256 chainId = config.getEvmChainId();`}
           />
+          <p>
+            In v444, only the registry&apos;s <code>isDisabled</code> field is populated. Its
+            selector parameter and selector-lifecycle fields are reserved for a future extension and
+            must not be used to infer whether a selector exists.
+          </p>
           <p>
             Canonical Solidity interfaces, JSON ABIs, generated Python ABI copies, documentation,
             gas accounting, and tests ship together. Integrators should use the v444 copies rather
@@ -362,7 +367,7 @@ partial fills <true|false>, signer <ss58>`}
             <li>
               <strong>EVM integrators:</strong> refresh the complete canonical ABI set before using
               v444 selectors. Add <code>0x…080f</code> through <code>0x…0813</code> only from the
-              published interfaces, and use the registry to inspect selector status.
+              published interfaces, and use the registry to inspect whole-precompile availability.
             </li>
             <li>
               <strong>SDK and CLI users:</strong> install the matching <code>bittensor 11.1.0</code>

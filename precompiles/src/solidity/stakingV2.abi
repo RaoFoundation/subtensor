@@ -209,6 +209,30 @@
     "inputs": [
       {
         "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "netuid",
+        "type": "uint256"
+      }
+    ],
+    "name": "getTotalColdkeyStakeOnSubnet",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
         "name": "hotkey",
         "type": "bytes32"
       }
@@ -469,7 +493,7 @@
     ],
     "name": "approve",
     "outputs": [],
-    "stateMutability": "",
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -521,7 +545,7 @@
     ],
     "name": "increaseAllowance",
     "outputs": [],
-    "stateMutability": "",
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -544,7 +568,7 @@
     ],
     "name": "decreaseAllowance",
     "outputs": [],
-    "stateMutability": "",
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -582,7 +606,7 @@
     ],
     "name": "transferStakeFrom",
     "outputs": [],
-    "stateMutability": "",
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

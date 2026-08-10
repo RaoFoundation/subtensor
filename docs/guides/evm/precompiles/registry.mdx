@@ -1,6 +1,6 @@
 ---
 title: Precompile registry
-description: Registry for precompile lifecycle and availability.
+description: Registry for precompile availability.
 ---
 
 | Property | Value |
@@ -10,10 +10,9 @@ description: Registry for precompile lifecycle and availability.
 | Address | `0x0000000000000000000000000000000000000813` |
 | Status | Deployed |
 
-The registry provides function-level lifecycle metadata and the current
-operational availability of the containing precompile. Contracts, deployment
-tools, and frontends can inspect whether a selector is deprecated, has a
-replacement, or is currently unavailable without attempting the affected call.
+In v444, the registry reports the current operational availability of a whole
+precompile through `isDisabled`. It does not report whether an individual
+selector exists, is deprecated, or has a replacement.
 
 ## Interface
 
@@ -33,6 +32,12 @@ interface IPrecompileRegistry {
     ) external view returns (PrecompileStatus memory);
 }
 ```
+
+The `selector` parameter and the `isDeprecated`, `newPrecompile`, `newSelector`,
+and `message` result fields are reserved for future selector-lifecycle support.
+In v444 those fields are not populated, and the selector is not interpreted.
+Do not use this call to test whether a selector is supported; use the canonical
+Solidity interfaces and JSON ABIs for selector discovery.
 
 `AdminUtils.sudo_toggle_evm_precompile` is Root-only and is not exposed by this
 precompile. The registry reports availability but does not grant callers

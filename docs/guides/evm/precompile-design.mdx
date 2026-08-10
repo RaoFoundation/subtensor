@@ -9,8 +9,9 @@ and durable chain values without requiring contracts to understand Substrate
 storage.
 
 This page defines the compatibility model that new and existing precompiles
-should follow. It also describes the target lifecycle registry. The registry
-interface shown below is a design contract; it is not yet available on chain.
+should follow. The deployed registry currently reports whole-precompile
+availability. Function-level lifecycle metadata remains a future extension of
+that interface.
 
 <Callout type="warning">
   A deployed contract may be immutable. Treat every released precompile address,
@@ -27,8 +28,9 @@ The precompile layer is designed around five goals:
    richer behavior is introduced through new function versions.
 3. **Deprecation is normally soft.** An old function continues to preserve its
    original behavior whenever that behavior can still be represented safely.
-4. **Status is discoverable.** Solidity interfaces and a registry should tell
-   developers when a function is deprecated, replaced, or temporarily disabled.
+4. **Status is discoverable.** The registry reports whether a precompile is
+   disabled. Solidity interfaces document the supported selectors; typed
+   function-level lifecycle metadata is a future extension.
 5. **The signed, deterministic Substrate API has typed parity.** Storage and
    runtime API results have bounded typed views, and extrinsics that accept a
    non-Root signed origin have typed operations.
@@ -178,8 +180,8 @@ without receiving any authority to change it:
   contract logic that depends on the runtime's randomness state.
 - Timestamp views replace raw reads of timestamp storage; `getTimestamp`
   corresponds to the same underlying time represented by `block.timestamp`.
-- Lifecycle views let contracts and tooling discover whether a selector is
-  deprecated, replaced, or currently unavailable.
+- The registry lets contracts and tooling discover whether a whole precompile
+  is currently disabled. Canonical interfaces and ABIs define its selectors.
 
 These views replace raw storage decoding or off-chain RPC composition. They do
 not execute privileged extrinsics and do not provide a path to Root.
@@ -314,11 +316,8 @@ behavior.
 
 ## Discovering status
 
-The standalone registry precompile gives tooling and contracts one
-place to inspect both API lifecycle and operational availability.
-
-Because the result covers both lifecycle and operational availability, it is
-called `PrecompileStatus`:
+The standalone registry precompile gives tooling and contracts one place to
+inspect whether a whole precompile is operationally disabled:
 
 ```solidity
 interface IPrecompileRegistry {
@@ -337,22 +336,24 @@ interface IPrecompileRegistry {
 }
 ```
 
-The fields have the following meaning:
+In v444, the fields have the following behavior:
 
 | Field | Meaning |
 |---|---|
-| `isDeprecated` | The function is soft- or hard-deprecated. |
+| `isDeprecated` | Reserved; always `false`. |
 | `isDisabled` | The containing precompile is currently disabled by Root; Root can re-enable it. |
-| `newPrecompile` | Address of the recommended replacement, often the same address. |
-| `newSelector` | Selector of the recommended replacement function. |
-| `message` | Human-readable status or migration guidance. |
+| `newPrecompile` | Reserved; always the zero address. |
+| `newSelector` | Reserved; always `0x00000000`. |
+| `message` | Reserved; always empty. |
 
-Zero replacement fields mean that no replacement is available. Tooling should
-not infer that `isDisabled` implies deprecation, or that re-enabling a
-precompile clears `isDeprecated`.
+The `selector` parameter is also reserved and is not interpreted in v444. A
+response therefore does not prove that a selector exists or describe its
+lifecycle. Tooling must use the canonical Solidity interfaces and JSON ABIs to
+discover supported selectors.
 
-The registry avoids adding overhead to every deprecated call. Deployment tools,
-frontends, and upgradeable contracts can query it when evaluating dependencies.
+Function-level deprecation and replacement metadata may populate the reserved
+fields in a future runtime. Until then, use NatSpec annotations and release
+documentation for migration guidance.
 
 Solidity interfaces should also carry NatSpec annotations:
 
@@ -429,7 +430,7 @@ Every precompile change should verify:
 - new behavior uses a new versioned selector when necessary;
 - Solidity interfaces, generated ABIs, SDK copies, and runtime implementations
   agree;
-- lifecycle registry metadata and NatSpec annotations agree;
+- any implemented lifecycle registry metadata and NatSpec annotations agree;
 - disable and re-enable behavior is covered for the affected precompile;
 - state-changing functions dispatch the highest-level extrinsic as the mapped
   signed caller and do not bypass its authorization checks;
@@ -454,5 +455,6 @@ Precompiles are a long-lived contract between Subtensor and deployed EVM code.
 Keep addresses and released selectors stable, version functions additively,
 preserve old semantics whenever possible, and replace raw storage access with
 typed views that insulate callers from storage layouts. Use deprecation to guide
-migration and reversible disablement to handle operational risk; report both
-through a common status model without treating them as the same condition.
+migration and reversible disablement to handle operational risk. The v444
+registry reports whole-precompile disablement; function-level lifecycle status
+remains a future extension.
