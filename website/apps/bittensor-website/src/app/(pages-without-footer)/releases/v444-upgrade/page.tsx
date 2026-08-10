@@ -270,7 +270,7 @@ btcli wallet transfer --dest 5F... --amount-tao 10 -w team-treasury`}
           <Code
             language='text'
             code={`TAO.com order v1: Limit buy <amount> on subnet <netuid>,
-limit price <price>, expiry <block>, hotkey <ss58>, fee <rate> to <ss58>,
+limit price <price>, expiry <unix timestamp ms>, hotkey <ss58>, fee <rate> to <ss58>,
 relayer <policy>, max slippage <value>, chain <id>,
 partial fills <true|false>, signer <ss58>`}
           />

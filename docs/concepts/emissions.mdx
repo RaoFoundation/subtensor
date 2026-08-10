@@ -22,9 +22,10 @@ Halvings are triggered by
 **total-issuance thresholds**, not block counts: emission halves each time
 issuance crosses the midpoint of the remaining supply (10.5M, 15.75M, ...)
 ([`get_block_emission_for_issuance`](/code/pallets/subtensor/src/coinbase/block_emission.rs#L38-L81)).
-Because recycled TAO (registration burns) is subtracted from total issuance
-and can be re-emitted, recycling pushes halvings out. Transaction fees are
-not recycled — they are paid to the block author (see
+Because recycled TAO is subtracted from total issuance and can be re-emitted,
+recycling pushes halvings out. This includes registration burns and transaction
+fees: native TAO fees and EVM fees reduce issuance directly, while eligible
+alpha-paid fees are sold for TAO and recycled atomically (see
 [fees](/docs/concepts/transactions#fees)).
 
 The first halving occurred in December 2025: current emission is 0.5 TAO per
