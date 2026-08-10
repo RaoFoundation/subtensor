@@ -20,11 +20,12 @@ mod hooks {
 
             let block_step_result = Self::block_step();
             match block_step_result {
-                Ok(_) => {
+                Ok(owner_transition_weight) => {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
+                        .saturating_add(owner_transition_weight)
                 }
                 Err(e) => {
                     // --- If the block step was unsuccessful, return the weight anyway.

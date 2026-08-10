@@ -300,7 +300,11 @@ fn test_terminate_lease_works() {
             Some(
                 <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::terminate_lease(
                     contributors_count,
-                ),
+                )
+                .saturating_add(
+                    <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::transition_subnet_owner_locks(0),
+                )
+                .saturating_add(SubtensorModule::lease_owner_transition_member_count_weight(0)),
             )
         );
 

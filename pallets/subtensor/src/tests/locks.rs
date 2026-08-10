@@ -16,7 +16,7 @@ use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 use super::mock::*;
-use crate::staking::lock::{ConvictionModel, LockState};
+use crate::staking::lock::{ConvictionModel, LockState, roll_lock_state};
 use crate::*;
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ fn roll_forward_lock(
     owner_lock: bool,
     perpetual_lock: bool,
 ) -> LockState {
-    ConvictionModel::roll_forward_lock(
+    roll_lock_state(
         lock,
         now,
         UnlockRate::<Test>::get(),
@@ -1365,11 +1365,15 @@ fn test_locking_coldkeys_removed_when_lock_is_fully_reduced() {
         assert!(!LockingColdkeys::<Test>::contains_key((
             netuid, hotkey, coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, hotkey)).count(),
+            0
+        );
     });
 }
 
 #[test]
-fn test_lock_state_is_zero_uses_dust_threshold() {
+fn test_lock_state_is_dust_uses_threshold() {
     let below_threshold = LockState {
         locked_mass: AlphaBalance::from(99u64),
         conviction: U64F64::from_num(99),
@@ -1386,9 +1390,9 @@ fn test_lock_state_is_zero_uses_dust_threshold() {
         last_update: 0,
     };
 
-    assert!(below_threshold.is_zero());
-    assert!(!locked_mass_at_threshold.is_zero());
-    assert!(!conviction_at_threshold.is_zero());
+    assert!(below_threshold.is_dust());
+    assert!(!locked_mass_at_threshold.is_dust());
+    assert!(!conviction_at_threshold.is_dust());
 }
 
 // =========================================================================
@@ -1481,7 +1485,7 @@ fn test_lock_stake_topup_exceeds_total() {
 #[test]
 fn test_exp_decay_zero_dt() {
     new_test_ext(1).execute_with(|| {
-        let result = ConvictionModel::exp_decay(0, 216000);
+        let result = LockState::exp_decay(0, 216000);
         assert_eq!(result, U64F64::from_num(1));
     });
 }
@@ -1489,7 +1493,7 @@ fn test_exp_decay_zero_dt() {
 #[test]
 fn test_exp_decay_zero_tau() {
     new_test_ext(1).execute_with(|| {
-        let result = ConvictionModel::exp_decay(1000, 0);
+        let result = LockState::exp_decay(1000, 0);
         assert_eq!(result, U64F64::from_num(0));
     });
 }
@@ -1498,7 +1502,7 @@ fn test_exp_decay_zero_tau() {
 fn test_exp_decay_one_tau() {
     new_test_ext(1).execute_with(|| {
         let tau = 216000u64;
-        let result = ConvictionModel::exp_decay(tau, tau);
+        let result = LockState::exp_decay(tau, tau);
         // exp(-1) ~= 0.36787944
         let expected = U64F64::from_num(0.36787944f64);
         let diff = if result > expected {
@@ -1514,8 +1518,8 @@ fn test_exp_decay_one_tau() {
 fn test_exp_decay_clamps_large_dt_to_min_ratio() {
     new_test_ext(1).execute_with(|| {
         let tau = 216000u64;
-        let clamped_result = ConvictionModel::exp_decay(40 * tau, tau);
-        let oversized_result = ConvictionModel::exp_decay(100 * tau, tau);
+        let clamped_result = LockState::exp_decay(40 * tau, tau);
+        let oversized_result = LockState::exp_decay(100 * tau, tau);
 
         let diff = if oversized_result > clamped_result {
             oversized_result - clamped_result
@@ -1546,7 +1550,7 @@ fn test_roll_forward_individual_lock_uses_lock_owner_and_decay_mode() {
 
         let rolled =
             roll_forward_individual_lock(&coldkey, netuid, &owner_hotkey, lock.clone(), now);
-        let expected = ConvictionModel::roll_forward_lock(
+        let expected = roll_lock_state(
             lock,
             now,
             UnlockRate::<Test>::get(),
@@ -1568,20 +1572,7 @@ fn test_rolled_individual_is_a_pure_view() {
             last_update: 0,
         };
         let aggregate = individual.clone();
-        let empty = LockState {
-            locked_mass: AlphaBalance::ZERO,
-            conviction: U64F64::from_num(0),
-            last_update: 0,
-        };
-        let model = ConvictionModel::new(
-            false,
-            true,
-            individual.clone(),
-            aggregate.clone(),
-            empty.clone(),
-            empty.clone(),
-            empty,
-        );
+        let model = ConvictionModel::new(false, true, individual.clone(), aggregate.clone());
 
         let rolled = model.rolled_individual(
             1_000,
@@ -1591,12 +1582,7 @@ fn test_rolled_individual_is_a_pure_view() {
 
         assert!(rolled.conviction > individual.conviction);
         assert_eq!(model.individual_lock(), &individual);
-        assert_eq!(model.agg_perpetual_general(), &aggregate);
-        assert!(!model.individual_lock_dirty());
-        assert!(!model.agg_perpetual_general_dirty());
-        assert!(!model.agg_decaying_general_dirty());
-        assert!(!model.agg_perpetual_owner_dirty());
-        assert!(!model.agg_decaying_owner_dirty());
+        assert_eq!(model.aggregate_lock(), &aggregate);
     });
 }
 
@@ -1611,7 +1597,7 @@ fn test_roll_forward_hotkey_lock_uses_perpetual_general_mode() {
         let now = 1_000u64;
 
         let rolled = roll_forward_hotkey_lock(lock.clone(), now);
-        let expected = ConvictionModel::roll_forward_lock(
+        let expected = roll_lock_state(
             lock,
             now,
             UnlockRate::<Test>::get(),
@@ -1635,7 +1621,7 @@ fn test_roll_forward_decaying_hotkey_lock_uses_decaying_general_mode() {
         let now = 1_000u64;
 
         let rolled = roll_forward_decaying_hotkey_lock(lock.clone(), now);
-        let expected = ConvictionModel::roll_forward_lock(
+        let expected = roll_lock_state(
             lock,
             now,
             UnlockRate::<Test>::get(),
@@ -1682,8 +1668,8 @@ fn test_roll_forward_conviction_uses_unequal_rate_closed_form() {
         };
         let rolled = roll_forward_lock(lock, dt, false, false);
 
-        let unlock_decay = ConvictionModel::exp_decay(dt, unlock_rate);
-        let maturity_decay = ConvictionModel::exp_decay(dt, maturity_rate);
+        let unlock_decay = LockState::exp_decay(dt, unlock_rate);
+        let maturity_decay = LockState::exp_decay(dt, maturity_rate);
         let gamma = U64F64::from_num(unlock_rate)
             .saturating_mul(maturity_decay.saturating_sub(unlock_decay))
             .safe_div(U64F64::from_num(maturity_rate.saturating_sub(unlock_rate)));
@@ -2242,8 +2228,16 @@ fn test_unstake_roll_forward_collects_decaying_sibling_dust_from_hotkey_aggregat
             },
             now,
         );
+        let rolled_aggregate = roll_forward_decaying_hotkey_lock(
+            LockState {
+                locked_mass: (ONE_ALPHA + DUST_ALPHA).into(),
+                conviction: U64F64::from_num(0),
+                last_update: lock_block,
+            },
+            now,
+        );
         let rolled_sibling_dust_mass: AlphaBalance =
-            ConvictionModel::exp_decay(now.saturating_sub(lock_block), UnlockRate::<Test>::get())
+            LockState::exp_decay(now.saturating_sub(lock_block), UnlockRate::<Test>::get())
                 .saturating_mul(U64F64::from_num(DUST_ALPHA))
                 .to_num::<u64>()
                 .into();
@@ -2262,9 +2256,7 @@ fn test_unstake_roll_forward_collects_decaying_sibling_dust_from_hotkey_aggregat
             DecayingHotkeyLock::<Test>::get(netuid, hotkey_2)
                 .expect("decaying aggregate should remain")
                 .locked_mass,
-            rolled_large_lock
-                .locked_mass
-                .saturating_add(rolled_sibling_dust_mass)
+            rolled_aggregate.locked_mass
         );
 
         assert_ok!(SubtensorModule::do_remove_stake(
@@ -2277,7 +2269,9 @@ fn test_unstake_roll_forward_collects_decaying_sibling_dust_from_hotkey_aggregat
             DecayingHotkeyLock::<Test>::get(netuid, hotkey_2)
                 .expect("decaying aggregate should remain")
                 .locked_mass,
-            rolled_large_lock.locked_mass
+            rolled_aggregate
+                .locked_mass
+                .saturating_sub(rolled_sibling_dust_mass)
         );
     });
 }
@@ -3507,12 +3501,30 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
         assert_eq!(SubnetOwner::<Test>::get(netuid), old_owner_coldkey);
         assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), old_owner_hotkey);
 
-        SubtensorModule::run_coinbase(SubtensorModule::mint_tao(0.into()));
+        let owner_transition_weight =
+            SubtensorModule::run_coinbase(SubtensorModule::mint_tao(0.into()));
 
         assert_eq!(SubnetOwner::<Test>::get(netuid), new_owner_coldkey);
         assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), king_hotkey);
         assert_eq!(LastEpochBlock::<Test>::get(netuid), now);
+        assert_eq!(
+            owner_transition_weight,
+            <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::transition_subnet_owner_locks(1),
+        );
     });
+}
+
+#[test]
+fn test_owner_transition_count_lookup_weight_scales_with_members() {
+    let member_count = 7;
+    assert_eq!(
+        SubtensorModule::owner_transition_member_count_weight(member_count),
+        <Test as frame_system::Config>::DbWeight::get().reads(u64::from(member_count) + 3),
+    );
+    assert_eq!(
+        SubtensorModule::lease_owner_transition_member_count_weight(member_count),
+        <Test as frame_system::Config>::DbWeight::get().reads(u64::from(member_count) + 4),
+    );
 }
 
 #[test]
@@ -3690,6 +3702,53 @@ fn test_owner_demotion_then_member_update_does_not_leave_ghost_conviction() {
 }
 
 #[test]
+fn test_decaying_owner_is_rolled_as_owner_before_demotion() {
+    new_test_ext(1_000).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let old_owner_hotkey = U256::from(1);
+        let new_owner_hotkey = U256::from(2);
+        let coldkey = U256::from(10);
+        let now = SubtensorModule::get_current_block_as_u64();
+        let unlock_rate = 200;
+        let maturity_rate = 300;
+        let lock = LockState {
+            locked_mass: 100_000u64.into(),
+            conviction: U64F64::from_num(100_000),
+            last_update: now.saturating_sub(100),
+        };
+
+        UnlockRate::<Test>::put(unlock_rate);
+        MaturityRate::<Test>::put(maturity_rate);
+        SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+        SubtensorModule::insert_lock_state(&coldkey, netuid, &old_owner_hotkey, lock.clone());
+        DecayingOwnerLock::<Test>::insert(netuid, lock.clone());
+
+        let expected = roll_lock_state(lock, now, unlock_rate, maturity_rate, true, false);
+
+        let transitioned = SubtensorModule::transition_subnet_owner_lock_aggregates(
+            netuid,
+            &old_owner_hotkey,
+            &new_owner_hotkey,
+        );
+
+        assert_eq!(transitioned, 1);
+        assert_eq!(
+            Lock::<Test>::get((coldkey, netuid, old_owner_hotkey)),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            DecayingHotkeyLock::<Test>::get(netuid, old_owner_hotkey),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            expected.conviction,
+            U64F64::from_num(expected.locked_mass),
+            "the outgoing row must retain full owner conviction at the transition block"
+        );
+    });
+}
+
+#[test]
 fn test_swap_hotkey_locks_moves_owner_hotkey_aggregate_to_owner_lock() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1);
@@ -3744,6 +3803,10 @@ fn test_swap_hotkey_locks_moves_owner_hotkey_aggregate_to_owner_lock() {
             new_owner_hotkey,
             locking_coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, new_owner_hotkey)).count(),
+            1
+        );
     });
 }
 
@@ -4408,6 +4471,10 @@ fn test_hotkey_swap_swaps_locks_and_convictions() {
         assert!(LockingColdkeys::<Test>::contains_key((
             netuid, new_hotkey, coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, new_hotkey)).count(),
+            1
+        );
 
         // Hotkey lock data also updated, conviction is not reset
         let hotkey_lock = HotkeyLock::<Test>::get(netuid, new_hotkey).unwrap();
