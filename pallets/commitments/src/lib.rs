@@ -211,7 +211,8 @@ pub mod pallet {
         /// Set the commitment for a given netuid
         #[pallet::call_index(0)]
         #[pallet::weight((
-            <T as pallet::Config>::WeightInfo::set_commitment(),
+            <T as pallet::Config>::WeightInfo::set_commitment()
+                .saturating_add(T::CanCommit::validation_weight()),
             DispatchClass::Normal,
             Pays::No
         ))]
@@ -221,10 +222,8 @@ pub mod pallet {
             info: Box<CommitmentInfo<T::MaxFields>>,
         ) -> DispatchResult {
             let who = ensure_signed(origin.clone())?;
-            ensure!(
-                T::CanCommit::can_commit(netuid, &who),
-                Error::<T>::AccountNotAllowedCommit
-            );
+            T::CanCommit::validate(netuid, &who)
+                .map_err(|_| Error::<T>::AccountNotAllowedCommit)?;
 
             let extra_fields = info.fields.len() as u32;
             ensure!(
@@ -356,12 +355,21 @@ pub mod pallet {
 
 // Interfaces to interact with other pallets
 pub trait CanCommit<AccountId> {
-    fn can_commit(netuid: NetUid, who: &AccountId) -> bool;
+    type Error;
+
+    fn validate(netuid: NetUid, who: &AccountId) -> Result<(), Self::Error>;
+    fn validation_weight() -> frame_support::weights::Weight;
 }
 
 impl<A> CanCommit<A> for () {
-    fn can_commit(_: NetUid, _: &A) -> bool {
-        false
+    type Error = ();
+
+    fn validate(_: NetUid, _: &A) -> Result<(), Self::Error> {
+        Err(())
+    }
+
+    fn validation_weight() -> frame_support::weights::Weight {
+        frame_support::weights::Weight::zero()
     }
 }
 
