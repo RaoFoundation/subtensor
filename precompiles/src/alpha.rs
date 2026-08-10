@@ -413,9 +413,13 @@ where
         handle: &mut impl PrecompileHandle,
     ) -> EvmResult<(u64, U256, bool, U256, u128, u128, u128, u128, u64)> {
         handle.record_db_reads::<R>(9)?;
+        let block_emission = pallet_subtensor::Pallet::<R>::calculate_block_emission()
+            .map_err(|error| PrecompileFailure::Error {
+                exit_status: ExitError::Other(error.into()),
+            })?
+            .to_u64();
         Ok((
-            #[allow(deprecated)]
-            pallet_subtensor::BlockEmission::<R>::get(),
+            block_emission,
             signed_i128_word(pallet_subtensor::SubnetMovingAlpha::<R>::get().to_bits()),
             pallet_subtensor::NetTaoFlowEnabled::<R>::get(),
             signed_i128_word(pallet_subtensor::TaoFlowCutoff::<R>::get().to_bits()),
@@ -888,9 +892,10 @@ mod tests {
                 ),
             );
 
-            #[allow(deprecated)]
             let emission_gate = (
-                pallet_subtensor::BlockEmission::<Runtime>::get(),
+                pallet_subtensor::Pallet::<Runtime>::calculate_block_emission()
+                    .expect("block emission calculation should succeed")
+                    .to_u64(),
                 signed_i128_word(pallet_subtensor::SubnetMovingAlpha::<Runtime>::get().to_bits()),
                 pallet_subtensor::NetTaoFlowEnabled::<Runtime>::get(),
                 signed_i128_word(pallet_subtensor::TaoFlowCutoff::<Runtime>::get().to_bits()),
@@ -937,6 +942,47 @@ mod tests {
                 "hasSwapMigrationRun(bytes)",
                 (BoundedBytes::<ConstU32<128>>::from(migration_name),),
                 true,
+            );
+        });
+    }
+
+    #[test]
+    fn emission_gate_block_emission_matches_runtime_at_halving_boundary() {
+        new_test_ext().execute_with(|| {
+            const FIRST_HALVING_ISSUANCE: u64 = 10_500_000_000_000_000;
+
+            pallet_subtensor::TotalIssuance::<Runtime>::put(TaoBalance::from(
+                FIRST_HALVING_ISSUANCE,
+            ));
+            #[allow(deprecated)]
+            pallet_subtensor::BlockEmission::<Runtime>::put(123_u64);
+
+            let expected_block_emission =
+                pallet_subtensor::Pallet::<Runtime>::calculate_block_emission()
+                    .expect("halving-boundary emission calculation should succeed")
+                    .to_u64();
+            assert_eq!(expected_block_emission, 500_000_000);
+
+            let precompiles = precompiles::<AlphaPrecompile<Runtime>>();
+            assert_view(
+                &precompiles,
+                addr_from_index(1),
+                addr_from_index(AlphaPrecompile::<Runtime>::INDEX),
+                "getEmissionGateConfig()",
+                (),
+                (
+                    expected_block_emission,
+                    signed_i128_word(
+                        pallet_subtensor::SubnetMovingAlpha::<Runtime>::get().to_bits(),
+                    ),
+                    pallet_subtensor::NetTaoFlowEnabled::<Runtime>::get(),
+                    signed_i128_word(pallet_subtensor::TaoFlowCutoff::<Runtime>::get().to_bits()),
+                    pallet_subtensor::FlowNormExponent::<Runtime>::get().to_bits(),
+                    pallet_subtensor::EmissionBarQuantile::<Runtime>::get().to_bits(),
+                    pallet_subtensor::EmissionGateExponent::<Runtime>::get().to_bits(),
+                    pallet_subtensor::EmissionGateBar::<Runtime>::get().to_bits(),
+                    pallet_subtensor::FlowEmaSmoothingFactor::<Runtime>::get(),
+                ),
             );
         });
     }

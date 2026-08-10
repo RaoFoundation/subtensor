@@ -17,8 +17,8 @@ description: Typed EVM interface for Timestamp pallet state.
 | `getTimestamp()` | `Timestamp.Now` |
 | `wasUpdatedThisBlock()` | `Timestamp.DidUpdate` |
 
-`getTimestamp()` returns the same underlying time as the EVM
-`block.timestamp` value. It exists here so every storage item authorized through
+`getTimestamp()` converts the pallet's millisecond timestamp to Unix seconds,
+matching the EVM `block.timestamp` value. It exists here so every storage item authorized through
 `StorageQueryPrecompile` has an explicit typed replacement.
 `wasUpdatedThisBlock` provides the Timestamp pallet's update state without
 requiring contracts to construct a storage key or decode SCALE.

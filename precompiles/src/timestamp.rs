@@ -42,9 +42,10 @@ where
     #[precompile::view]
     fn get_timestamp(handle: &mut impl PrecompileHandle) -> EvmResult<u64> {
         handle.record_db_reads::<R>(1)?;
-        pallet_timestamp::Pallet::<R>::get()
+        let timestamp_millis: u64 = pallet_timestamp::Pallet::<R>::get()
             .try_into()
-            .map_err(|_| conversion_error("timestamp moment"))
+            .map_err(|_| conversion_error("timestamp moment"))?;
+        Ok(timestamp_millis / 1_000)
     }
 
     #[precompile::public("wasUpdatedThisBlock()")]
@@ -74,10 +75,10 @@ mod tests {
     };
 
     #[test]
-    fn address_selectors_and_values_are_stable() {
+    fn views_match_evm_timestamp_and_update_state() {
         new_test_ext().execute_with(|| {
             assert_eq!(TimestampPrecompile::<Runtime>::INDEX, 2065);
-            Timestamp::set_timestamp(1_234);
+            Timestamp::set_timestamp(1_234_567);
 
             let precompiles = precompiles::<TimestampPrecompile<Runtime>>();
             let caller = addr_from_index(1);
@@ -92,6 +93,7 @@ mod tests {
                 )
                 .with_static_call(true)
                 .expect_cost(read_cost)
+                // Frontier exposes pallet timestamp milliseconds as EVM seconds.
                 .execute_returns_raw(encode_return_value(1_234u64));
             precompiles
                 .prepare_test(

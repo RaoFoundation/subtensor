@@ -45,7 +45,9 @@ hasSwapMigrationRun(bytes)
 Flow values use signed Solidity integers. Fixed-point economic values are
 returned as their raw runtime bits. `getSwapState` includes the fee,
 initialization status, balancer quote weight, and both protocol reservoirs;
-the initialization flag is the generic swap-initialization view.
+the initialization flag is the generic swap-initialization view. The
+`blockEmission` field returned by `getEmissionGateConfig` is the current value
+calculated from total issuance, matching runtime minting.
 
 ## Added operations
 
