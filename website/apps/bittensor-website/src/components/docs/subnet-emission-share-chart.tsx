@@ -173,7 +173,7 @@ export function SubnetEmissionShareChart() {
 
   return (
     <ExplainerPanel
-      title='V444 subnet TAO share preview'
+      title='Subnet TAO share preview'
       caption="The slider keeps the snapshot's gate midpoint fixed, just as the chain does between 360-block updates. Click a bar, then move its price EMA to see how demand and the gate affect its final share."
     >
       <div className='h-56'>

@@ -10,7 +10,7 @@ export function EmissionNetworkSnapshot() {
   const gateCaption =
     snapshot.emissionGateSource === 'chain_storage'
       ? 'The gate settings and midpoint come from current chain storage.'
-      : 'Because this snapshot predates spec 444, it previews the upgrade with the v444 default gate settings.';
+      : 'This snapshot was captured before these emission rules became active, so it uses the default gate settings.';
 
   return (
     <ExplainerPanel

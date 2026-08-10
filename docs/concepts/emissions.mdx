@@ -71,16 +71,16 @@ protocol-owned alpha.
 
 ## Subnet emission shares
 
-V444 divides each block's TAO emission in two clear steps. First, it turns
+Each block's TAO emission is divided in two clear steps. First, the chain turns
 each eligible subnet's **EMA price** into a share of total demand:
 
 ```
 demand_share_i = price_ema_i / Σ price_ema
 ```
 
-`MinerBurned` does not change this cross-subnet share in v444. It still records
-what happened to miner incentive inside the subnet, but one subnet's local burn
-or recycle choice no longer changes another subnet's emission.
+`MinerBurned` does not change this cross-subnet share. It still records what
+happened to miner incentive inside the subnet, but one subnet's local burn or
+recycle choice does not change another subnet's emission.
 
 Second, the **emission gate** reduces weak demand before the final shares are
 normalized. The gate has a midpoint called `theta`. By default, `theta` is the
