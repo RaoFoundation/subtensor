@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import {useMemo, useRef, useState} from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -10,11 +10,19 @@ import {
   Legend,
   type Plugin,
 } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
-import { ExplainerPanel, ExplainerSlider, ExplainerStat } from './explainer-panel';
-import { useEmissionSnapshot } from '@/hooks/use-emission-snapshot';
-import { formatPct, formatTao, subnetEmissionShares } from '@/lib/emission-math';
-import { ACCENT, AXIS_BORDER, GRAPH_FONT, GRID, INK_FAINT, axisTitle, baseTicks } from './chart-theme';
+import {Bar} from 'react-chartjs-2';
+import {ExplainerPanel, ExplainerSlider, ExplainerStat} from './explainer-panel';
+import {useEmissionSnapshot} from '@/hooks/use-emission-snapshot';
+import {formatPct, formatTao, subnetEmissionShares} from '@/lib/emission-math';
+import {
+  ACCENT,
+  AXIS_BORDER,
+  GRAPH_FONT,
+  GRID,
+  INK_FAINT,
+  axisTitle,
+  baseTicks,
+} from './chart-theme';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -26,27 +34,44 @@ export function SubnetEmissionShareChart() {
   const {snapshot, loading} = useEmissionSnapshot();
   const [selectedIdx, setSelectedIdx] = useState(2);
   const [whatIfEma, setWhatIfEma] = useState<number | null>(null);
-  const [whatIfBurn, setWhatIfBurn] = useState<number | null>(null);
 
-  const rows = snapshot.topSubnets.slice(0, 8);
+  const rows = useMemo(() => snapshot.topSubnets.slice(0, 8), [snapshot.topSubnets]);
   const selected = rows[selectedIdx] ?? rows[0];
 
-  const prices = useMemo(
-    () => rows.map((r, i) => (i === selectedIdx && whatIfEma !== null ? whatIfEma : r.emaPrice)),
-    [rows, selectedIdx, whatIfEma],
+  const calculation = useMemo(() => {
+    const inputs = snapshot.emissionInputs.map((input) => ({
+      ...input,
+      emaPrice:
+        input.netuid === selected?.netuid && whatIfEma !== null ? whatIfEma : input.emaPrice,
+    }));
+    const result = subnetEmissionShares(
+      inputs.map((input) => input.emaPrice),
+      {
+        emissionEnabled: inputs.map((input) => input.emissionEnabled),
+        rank: snapshot.emissionGateRank,
+        quantile: snapshot.emissionGateQuantile,
+        exponent: snapshot.emissionGateExponent,
+        gateBar: snapshot.emissionGateBar,
+      },
+    );
+    const indexByNetuid = new Map(inputs.map((input, index) => [input.netuid, index]));
+    const priceByNetuid = new Map(inputs.map((input) => [input.netuid, input.emaPrice]));
+    return {indexByNetuid, priceByNetuid, ...result};
+  }, [selected?.netuid, snapshot, whatIfEma]);
+  const shares = useMemo(
+    () =>
+      rows.map((row) => {
+        const index = calculation.indexByNetuid.get(row.netuid);
+        return index === undefined ? 0 : calculation.shares[index];
+      }),
+    [calculation, rows],
   );
-  const burns = useMemo(
-    () => rows.map((r, i) => (i === selectedIdx && whatIfBurn !== null ? whatIfBurn : r.minerBurned)),
-    [rows, selectedIdx, whatIfBurn],
-  );
-
-  const shares = useMemo(() => subnetEmissionShares(prices, burns), [prices, burns]);
   const blockEmission = snapshot.blockEmissionTao;
 
   // The plugin is registered once at chart creation, so it reads live values
   // through a ref instead of closing over state that would go stale.
-  const drawState = useRef({ shares, selectedIdx });
-  drawState.current = { shares, selectedIdx };
+  const drawState = useRef({shares, selectedIdx});
+  drawState.current = {shares, selectedIdx};
 
   // Direct value labels at each bar end instead of a legend; the selected
   // (highlighted) bar carries the accent.
@@ -54,9 +79,9 @@ export function SubnetEmissionShareChart() {
     () => ({
       id: 'barValueLabels',
       afterDatasetsDraw(chart) {
-        const { shares, selectedIdx } = drawState.current;
+        const {shares, selectedIdx} = drawState.current;
         const meta = chart.getDatasetMeta(0);
-        const { ctx } = chart;
+        const {ctx} = chart;
 
         ctx.save();
         ctx.font = GRAPH_FONT;
@@ -106,7 +131,7 @@ export function SubnetEmissionShareChart() {
               return [
                 `${ctx.parsed.x.toFixed(1)}% of ${formatTao(blockEmission)}/block`,
                 `${formatTao(tao, 4)}/block`,
-                `EMA ${row.emaPrice.toFixed(4)} · burn ${formatPct(row.minerBurned, 0)}`,
+                `Price EMA ${calculation.priceByNetuid.get(row.netuid)?.toFixed(4) ?? '0.0000'}`,
               ];
             },
           },
@@ -115,7 +140,7 @@ export function SubnetEmissionShareChart() {
       scales: {
         x: {
           // Headroom for the in-plot value labels beside the longest bar.
-          max: Math.max(...shares.map((s) => s * 100)) * 1.35,
+          max: Math.max(1, ...shares.map((s) => s * 100)) * 1.35,
           grid: {color: GRID},
           border: {color: AXIS_BORDER},
           ticks: baseTicks({
@@ -133,24 +158,29 @@ export function SubnetEmissionShareChart() {
         if (elements[0]) {
           setSelectedIdx(elements[0].index);
           setWhatIfEma(null);
-          setWhatIfBurn(null);
         }
       },
     }),
-    [rows, shares, blockEmission],
+    [rows, shares, blockEmission, calculation],
   );
 
   const displayEma = whatIfEma ?? selected?.emaPrice ?? 0;
-  const displayBurn = whatIfBurn ?? selected?.minerBurned ?? 0;
+  const selectedInputIdx = selected ? calculation.indexByNetuid.get(selected.netuid) : undefined;
+  const selectedDemandShare =
+    selectedInputIdx === undefined ? 0 : calculation.demandShares[selectedInputIdx];
+  const selectedGateFactor =
+    selectedInputIdx === undefined ? 0 : calculation.gateFactors[selectedInputIdx];
 
   return (
     <ExplainerPanel
-      title="Subnet TAO shares (finney, price-EMA)"
-      caption="Live top subnets by spot price. Bar width = share_i = p_i×(1−b_i) / Σ. Click a bar to inspect; sliders run what-if on the selected subnet."
+      title='V444 subnet TAO share preview'
+      caption="The slider keeps the snapshot's gate midpoint fixed, just as the chain does between 360-block updates. Click a bar, then move its price EMA to see how demand and the gate affect its final share."
     >
-      <div className="h-56">
+      <div className='h-56'>
         {loading ? (
-          <div className="flex h-full items-center justify-center text-sm text-mute">Loading snapshot…</div>
+          <div className='flex h-full items-center justify-center text-sm text-mute'>
+            Loading snapshot…
+          </div>
         ) : (
           <Bar data={data} options={options} plugins={[valueLabelPlugin]} />
         )}
@@ -158,49 +188,41 @@ export function SubnetEmissionShareChart() {
 
       {selected && (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-4">
+          <div className='mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-t border-line pt-4 sm:grid-cols-4'>
             <ExplainerStat
               label={subnetLabel(selected.netuid, selected.name)}
               value={formatPct(shares[selectedIdx] ?? 0)}
               hint={`${formatTao(blockEmission * (shares[selectedIdx] ?? 0), 4)}/block`}
               accent
             />
-            <ExplainerStat label="EMA price (p)" value={selected.emaPrice.toFixed(4)} hint={`Spot ${selected.spotPrice.toFixed(4)} τ/α`} />
-            <ExplainerStat label="Miner burn (b)" value={formatPct(selected.minerBurned, 1)} hint="Last tempo withheld share" />
             <ExplainerStat
-              label="Without burn penalty"
-              value={formatPct(selected.emaPrice / (snapshot.emaPriceSum || 1), 1)}
-              hint="Unweighted EMA share (approx)"
+              label='Price EMA'
+              value={displayEma.toFixed(4)}
+              hint={`Spot ${selected.spotPrice.toFixed(4)} τ/α`}
+            />
+            <ExplainerStat
+              label='Share before gate'
+              value={formatPct(selectedDemandShare, 1)}
+              hint="This subnet's fraction of total price EMA"
+            />
+            <ExplainerStat
+              label='Demand that passes'
+              value={formatPct(selectedGateFactor, 1)}
+              hint={`50% at the modeled ${formatPct(calculation.gateBar, 2)} midpoint`}
             />
           </div>
 
-          <div className="mt-6 grid gap-x-8 gap-y-5 border-t border-line pt-4 sm:grid-cols-2">
+          <div className='mt-6 border-t border-line pt-4'>
             <ExplainerSlider
               label={`What-if EMA for SN${selected.netuid}`}
               value={displayEma}
-              min={0.01}
-              max={1}
+              min={0}
+              max={Math.max(1, selected.emaPrice * 4)}
               step={0.005}
               display={displayEma.toFixed(4)}
               onChange={(v) => setWhatIfEma(v)}
             />
-            <ExplainerSlider
-              label={`What-if miner burn for SN${selected.netuid}`}
-              value={displayBurn}
-              min={0}
-              max={1}
-              step={0.05}
-              display={formatPct(displayBurn, 0)}
-              onChange={(v) => setWhatIfBurn(v)}
-            />
           </div>
-
-          {selected.minerBurned > 0.1 && (
-            <p className="mt-3 text-[0.8125rem] text-mute">
-              SN{selected.netuid} carries a {formatPct(selected.minerBurned, 0)} burn penalty — roughly half
-              its unpenalized EMA share is redistributed to subnets like Chutes and Affine with b=0.
-            </p>
-          )}
         </>
       )}
     </ExplainerPanel>

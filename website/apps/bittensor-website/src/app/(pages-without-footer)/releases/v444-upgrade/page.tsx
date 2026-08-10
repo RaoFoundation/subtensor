@@ -25,34 +25,34 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <p className={styles.paper_title}>The V444 Upgrade</p>
+          <h1 className={styles.paper_title}>The V444 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Pure Price Emissions · August 2026
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Introduction</p>
+          <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>444</strong> makes the market signal simple again: a subnet&apos;s share of
-            network emission is determined by its moving price, passed through the emission gate.
-            The share is no longer reduced when a subnet directs miner incentive to an owner or burn
-            hotkey. Recycling and burning still do exactly what the subnet chose locally; they no
-            longer change its standing against every other subnet.
+            The market signal becomes simple again in spec <strong>444</strong>: a subnet&apos;s
+            share of network emission is determined by its moving price, passed through the emission
+            gate. The share is no longer reduced when a subnet directs miner incentive to an owner
+            or burn hotkey. Recycling and burning still do exactly what the subnet chose locally;
+            they no longer change its standing against every other subnet.
           </p>
           <p>
             The release also makes the chain substantially easier to use from every external
-            surface. Solidity contracts gain five new Bittensor precompiles and 68 functions on
-            existing interfaces. A saved multisig now behaves like a wallet throughout
-            <code>btcli</code>. Automated dry runs carry enough information to approve and replay a
-            transaction safely. Ledger users can read the actual fields of a limit order before
-            signing it. Underneath those interfaces, v444 corrects transaction-pool validation,
-            proxy charging, commitment cleanup, storage growth, and GRANDPA finality.
+            surface. Solidity contracts gain 31 functions across five new Bittensor precompiles,
+            plus 135 additions to existing interfaces. A saved multisig now behaves like a wallet
+            throughout <code>btcli</code>. Automated dry runs carry enough information to approve
+            and replay a transaction safely. Ledger users can read the actual fields of a limit
+            order before signing it. Underneath those interfaces, v444 corrects transaction-pool
+            validation, proxy charging, commitment cleanup, storage growth, and GRANDPA finality.
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Price is the signal</p>
+          <h2 className={styles.subtitle}>Price is the signal</h2>
           <p>
             The emission gate introduced in <DocLink href='/releases/v440-upgrade'>v440</DocLink>{' '}
             starts with each subnet&apos;s share of price EMA, then suppresses emission below the
@@ -70,11 +70,11 @@ v444:         s_i = normalize(price_ema_i)
               e_i ∝ s_i × gate(s_i)`}
           />
           <p>
-            V444 removes that extra multiplier. <code>MinerBurned</code> remains on-chain as an
-            informational measure, and the miner-incentive path still recycles or burns according to
-            the subnet&apos;s configuration. What changes is the boundary between local token policy
-            and network allocation: demand determines how much emission a subnet earns; the subnet
-            determines what it does with the miner portion after that.
+            V444 removes that extra multiplier. The on-chain value remains as an informational
+            measure called <code>MinerBurned</code>. The miner-incentive path still recycles or
+            burns according to the subnet&apos;s configuration. What changes is the boundary between
+            local token policy and network allocation: demand determines how much emission a subnet
+            earns; the subnet determines what it does with the miner portion after that.
           </p>
           <table className={styles.metrics_table}>
             <thead>
@@ -110,7 +110,7 @@ v444:         s_i = normalize(price_ema_i)
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>The runtime, typed for Solidity</p>
+          <h2 className={styles.subtitle}>The runtime, typed for Solidity</h2>
           <p>
             The Bittensor precompile suite now covers the deterministic, typed runtime surface that
             an EVM caller is authorized to use. Five new domain addresses expose system state that
@@ -165,11 +165,12 @@ v444:         s_i = normalize(price_ema_i)
             </tbody>
           </table>
           <p>
-            Existing precompiles gain another 68 functions across staking V2, neurons, subnets,
-            alpha, balances, proxies, leasing, crowdloans, UID lookup, voting power, and transfer
-            surfaces. The additions include typed registration and identity operations, weight and
-            commitment calls, stake and collateral management, subnet configuration, global and
-            per-subnet state, and a maintained total-voting-power view. The{' '}
+            Existing precompiles gain 68 state-changing methods and 67 typed views across staking
+            V2, neurons, subnets, alpha, balances, proxies, leasing, crowdloans, UID lookup, voting
+            power, and transfer surfaces. The additions include typed registration and identity
+            operations, weight and commitment calls, stake and collateral management, subnet
+            configuration, global and per-subnet state, and a maintained total-voting-power view.
+            The{' '}
             <DocLink href='/docs/guides/evm/precompiles/extrinsic-coverage'>coverage audit</DocLink>{' '}
             inventories the deliberate exclusions: Root-only, unsigned, inherent, disabled, and
             compatibility-only calls are not made reachable by pretending an EVM caller has a
@@ -208,10 +209,17 @@ uint256 chainId = config.getEvmChainId();`}
             backwards compatibility so later runtime releases can extend this surface without
             breaking deployed contracts.
           </p>
+          <p>
+            Some existing staking reads now scan more stake records, so their gas estimate is
+            higher. The affected methods are <code>getTotalHotkeyStake</code>,{' '}
+            <code>getTotalColdkeyStake</code>, and <code>getTotalColdkeyStakeOnSubnet</code>.
+            Contracts and services should estimate these calls again after the upgrade and avoid
+            hard-coded gas limits. The selectors and return values have not changed.
+          </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>A multisig is now a wallet</p>
+          <h2 className={styles.subtitle}>A multisig is now a wallet</h2>
           <p>
             The v11 CLI no longer makes operators translate a multisig workflow into low-level
             approvals by hand. Save a signer set once, then pass its name wherever a coldkey wallet
@@ -262,7 +270,7 @@ btcli wallet transfer --dest 5F... --amount-tao 10 -w team-treasury`}
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Read the order before signing it</p>
+          <h2 className={styles.subtitle}>Read the order before signing it</h2>
           <p>
             <DocLink href='/releases/v438-upgrade'>V438</DocLink> let Ledger and compatible signers
             authorize limit orders by signing a wrapped order hash. V444 adds an alternative
@@ -280,6 +288,13 @@ relayer <policy>, max slippage <value>, chain <id>,
 partial fills <true|false>, signer <ss58>`}
           />
           <p>
+            The signed message uses raw integer units: <code>amount</code> is rao for a buy and raw
+            alpha units for a sell; <code>price</code> uses a ×10<sup>9</sup> scale; fee and
+            slippage use parts per billion; and <code>expiry</code> is a Unix timestamp in
+            milliseconds. Frontends may show friendlier values alongside the message, but must sign
+            these exact integers.
+          </p>
+          <p>
             This format is additive. Existing raw SCALE signatures and wrapped-hash signatures
             remain valid, and every format resolves to the same canonical order ID for replay
             protection, cancellation, relayer restrictions, and partial fills. Sr25519 and ed25519
@@ -290,7 +305,7 @@ partial fills <true|false>, signer <ss58>`}
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>Failures get cheaper, state stays smaller</p>
+          <h2 className={styles.subtitle}>Failures get cheaper, state stays smaller</h2>
           <table className={styles.metrics_table}>
             <thead>
               <tr>
@@ -299,6 +314,13 @@ partial fills <true|false>, signer <ss58>`}
               </tr>
             </thead>
             <tbody>
+              <tr>
+                <td>Transaction fees</td>
+                <td>
+                  Native TAO fees and EVM fees are recycled instead of paid to the block author.
+                  Eligible alpha-paid fees are sold for TAO and recycled in the same transaction.
+                </td>
+              </tr>
               <tr>
                 <td>Commit transactions</td>
                 <td>
@@ -316,8 +338,9 @@ partial fills <true|false>, signer <ss58>`}
               <tr>
                 <td>Proxy fees</td>
                 <td>
-                  <code>proxy</code> and <code>proxy_announced</code> propagate the inner
-                  call&apos;s actual post-dispatch weight, refunding unused worst-case weight.
+                  Proxy calls propagate the inner call&apos;s actual post-dispatch weight, refunding
+                  unused worst-case weight. This applies to <code>proxy</code> and{' '}
+                  <code>proxy_announced</code>.
                 </td>
               </tr>
               <tr>
@@ -345,14 +368,16 @@ partial fills <true|false>, signer <ss58>`}
             </tbody>
           </table>
           <p>
-            These changes do not introduce new operator workflows. They move predictable failures
-            out of blocks, stop deleted identities from leaving chargeable state behind, return
-            overestimated proxy weight, and keep historical defaults from accumulating forever.
+            Transaction fees are separate from swap fees; swap fees still go to the block author.
+            The other changes do not introduce new operator workflows. They move predictable
+            failures out of blocks, stop deleted identities from leaving chargeable state behind,
+            return overestimated proxy weight, and keep historical defaults from accumulating
+            forever.
           </p>
         </section>
 
         <section className={styles.section}>
-          <p className={styles.subtitle}>What to do</p>
+          <h2 className={styles.subtitle}>What to do</h2>
           <ul className={styles.list}>
             <li>
               <strong>Node operators:</strong> wait for the on-chain <code>spec_version</code> to
@@ -368,11 +393,15 @@ partial fills <true|false>, signer <ss58>`}
               <strong>EVM integrators:</strong> refresh the complete canonical ABI set before using
               v444 selectors. Add <code>0x…080f</code> through <code>0x…0813</code> only from the
               published interfaces, and use the registry to inspect whole-precompile availability.
+              Re-estimate aggregate staking reads and do not rely on fixed gas stipends.
             </li>
             <li>
-              <strong>SDK and CLI users:</strong> install the matching <code>bittensor 11.1.0</code>
-              release and <code>bittensor-core 0.1.3</code>. Existing wallet files remain usable;
-              saved multisigs can now be passed directly as <code>-w</code>.
+              <strong>SDK and CLI users:</strong> older clients that read current chain metadata can
+              keep using existing commands. Install <code>bittensor 11.1.0</code> when it is
+              published, plus <code>bittensor-core 0.1.3</code>, to use the new v444 features.
+              Existing wallet files remain usable, and saved multisigs can now be passed directly as{' '}
+              <code>-w</code>. Rebuild any offline signing payload prepared before the runtime
+              upgrade.
             </li>
             <li>
               <strong>Limit-order applications:</strong> add the human-readable signing format for

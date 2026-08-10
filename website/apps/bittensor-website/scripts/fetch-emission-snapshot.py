@@ -1,8 +1,12 @@
-"""Refresh public/catalog/emission-snapshot.json from TaoMarketCap + finney.
+"""Refresh public/catalog/emission-snapshot.json from TaoMarketCap + Finney.
 
-Subnet prices, EMA sums, and the root dividend gate use TMC's public API
-(`subnet_moving_price` summed across all subnets). Miner-burn penalties,
-total issuance, block emission, and root pool TAO come from finney storage.
+Subnet prices and EMA sums use TMC's public API. Eligibility, emission-enabled
+flags, total issuance, and root pool TAO come from Finney storage. The output
+models the v444 pure-price EMA allocation and Hill gate. On spec 444 or later,
+the gate settings and cadence-held midpoint come from chain storage. Before the
+upgrade, the output previews the first v444 calculation with the upgrade
+defaults. It does not use the deprecated ``BlockEmission`` or ``MinerBurned``
+storage items.
 
 Usage (from bittensor-website/, with the bittensor SDK venv active):
 
@@ -24,25 +28,23 @@ from pathlib import Path
 import bittensor as bt
 from bittensor._generated import storage as st
 
-I96 = 2**32
 RAO = 1_000_000_000
 TMC_SUBNETS_URL = "https://api.taomarketcap.com/public/v1/subnets/"
 TOP_N = 12
+DEFAULT_EMISSION_BAR_RANK = 32
+DEFAULT_EMISSION_BAR_QUANTILE = 0.61
+DEFAULT_EMISSION_GATE_EXPONENT = 3.0
 WEBSITE_DIR = Path(__file__).resolve().parent.parent
 OUTPUT = WEBSITE_DIR / "public" / "catalog" / "emission-snapshot.json"
 
 
-def fixed_to_float(val) -> float:
-    if val is None:
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    if isinstance(val, dict) and "bits" in val:
-        return int(val["bits"]) / I96
-    bits = getattr(val, "bits", None)
-    if bits is not None:
-        return int(bits) / I96
-    return float(val)
+def fixed_u64f64_num(value) -> float:
+    """Convert the SDK's U64F64/FixedU128 representation to a float."""
+    if isinstance(value, dict) and "bits" in value:
+        return int(value["bits"]) / 2**64
+    if isinstance(value, int):
+        return value / 2**64
+    return float(value)
 
 
 def tmc_num(val) -> float:
@@ -56,7 +58,7 @@ def tmc_num(val) -> float:
         except ValueError:
             return 0.0
     if isinstance(val, dict) and "bits" in val:
-        return int(val["bits"]) / I96
+        return int(val["bits"]) / 2**32
     return 0.0
 
 
@@ -69,15 +71,20 @@ def fetch_tmc_subnets(retries: int = 5) -> list[dict]:
             try:
                 req = urllib.request.Request(
                     url,
-                    headers={"User-Agent": "bittensor-website/1.0", "Accept": "application/json"},
+                    headers={
+                        "User-Agent": "bittensor-website/1.0",
+                        "Accept": "application/json",
+                    },
                 )
                 with urllib.request.urlopen(req, timeout=90) as response:
                     page = json.loads(response.read())
                 break
             except (urllib.error.HTTPError, TimeoutError, urllib.error.URLError) as exc:
                 if attempt + 1 == retries:
-                    raise RuntimeError(f"TMC fetch failed at offset {offset}: {exc}") from exc
-                time.sleep(2 ** attempt)
+                    raise RuntimeError(
+                        f"TMC fetch failed at offset {offset}: {exc}"
+                    ) from exc
+                time.sleep(2**attempt)
         rows.extend(page["results"])
         if not page.get("next"):
             break
@@ -92,7 +99,7 @@ def subnet_name(row: dict) -> str:
     return identities.get("subnetName") or f"SN{row['netuid']}"
 
 
-def row_from_tmc(row: dict, miner_burned: float) -> dict:
+def row_from_tmc(row: dict, emission_enabled: bool) -> dict:
     snap = row.get("latest_snapshot") or {}
     netuid = int(row["netuid"])
     spot = tmc_num(snap.get("price"))
@@ -105,7 +112,7 @@ def row_from_tmc(row: dict, miner_burned: float) -> dict:
         "name": subnet_name(row),
         "spotPrice": round(spot, 6),
         "emaPrice": round(ema, 6),
-        "minerBurned": round(min(max(miner_burned, 0.0), 1.0), 4),
+        "emissionEnabled": emission_enabled,
         "taoIn": round(tao_in, 2),
         "alphaIn": round(alpha_in, 2),
         "alphaOut": round(alpha_out, 2),
@@ -128,88 +135,219 @@ def block_emission_calculated(issuance_tao: float) -> float:
 
 async def chain_fields(client: bt.Client, netuids: list[int]) -> dict:
     view = await client.at()
+    spec_version = await client.spec_version()
     total_issuance = int(await view.query(st.SubtensorModule.TotalIssuance))
-    block_emission = int(await view.query(st.SubtensorModule.BlockEmission))
     root_tao = int(await view.query(st.SubtensorModule.SubnetTAO, [0]))
     tao_weight_raw = int(await view.query(st.SubtensorModule.TaoWeight))
 
-    miner_burned: dict[int, float] = {}
-    for netuid in netuids:
-        burned = await view.query(st.SubtensorModule.MinerBurned, [netuid])
-        miner_burned[netuid] = fixed_to_float(burned)
+    async def subnet_flags(netuid: int) -> tuple[int, dict[str, bool]]:
+        (
+            first_emission,
+            subtoken_enabled,
+            registration_allowed,
+            emission_enabled,
+        ) = await asyncio.gather(
+            view.query(st.SubtensorModule.FirstEmissionBlockNumber, [netuid]),
+            view.query(st.SubtensorModule.SubtokenEnabled, [netuid]),
+            view.query(st.SubtensorModule.NetworkRegistrationAllowed, [netuid]),
+            view.query(st.SubtensorModule.SubnetEmissionEnabled, [netuid]),
+        )
+        return netuid, {
+            "eligible": (
+                first_emission is not None
+                and bool(subtoken_enabled)
+                and bool(registration_allowed)
+            ),
+            "emissionEnabled": bool(emission_enabled),
+        }
+
+    flags = dict(await asyncio.gather(*(subnet_flags(netuid) for netuid in netuids)))
+
+    gate = None
+    if spec_version >= 444:
+        rank, quantile, exponent, bar = await asyncio.gather(
+            view.query(st.SubtensorModule.EmissionBarRank),
+            view.query(st.SubtensorModule.EmissionBarQuantile),
+            view.query(st.SubtensorModule.EmissionGateExponent),
+            view.query(st.SubtensorModule.EmissionGateBar),
+        )
+        gate = {
+            "rank": int(rank),
+            "quantile": fixed_u64f64_num(quantile),
+            "exponent": fixed_u64f64_num(exponent),
+            "bar": fixed_u64f64_num(bar),
+            "source": "chain_storage",
+        }
 
     issuance_tao = total_issuance / RAO
     return {
+        "specVersion": spec_version,
         "totalIssuanceRao": total_issuance,
         "totalIssuanceTao": round(issuance_tao, 3),
-        "blockEmissionTao": round(block_emission / RAO, 6),
-        "blockEmissionCalculatedTao": round(block_emission_calculated(issuance_tao), 6),
+        "blockEmissionTao": round(block_emission_calculated(issuance_tao), 6),
         "rootTao": round(root_tao / RAO, 2),
         "taoWeight": round(tao_weight_raw / (2**64 - 1), 6),
-        "minerBurned": miner_burned,
+        "subnetFlags": flags,
+        "emissionGate": gate,
     }
 
 
-def apply_shares(subnets: list[dict], block_emission: float) -> None:
-    weights = [s["emaPrice"] * (1 - s["minerBurned"]) for s in subnets]
-    weight_sum = sum(weights) or 1.0
-    for subnet, weight in zip(subnets, weights):
-        share = weight / weight_sum
-        subnet["taoShare"] = round(share, 6)
-        subnet["taoPerBlock"] = round(block_emission * share, 6)
+def select_emission_gate_bar(
+    demand_shares: list[float],
+    rank: int = DEFAULT_EMISSION_BAR_RANK,
+    quantile: float = DEFAULT_EMISSION_BAR_QUANTILE,
+) -> float:
+    """Mirror ``maybe_update_emission_gate_bar`` for the v444 snapshot."""
+    positive = sorted((share for share in demand_shares if share > 0), reverse=True)
+    if not positive:
+        return 0.0
+    if rank > 0:
+        return positive[min(rank, len(positive)) - 1]
+
+    cumulative = 0.0
+    for share in positive:
+        cumulative += share
+        if cumulative >= quantile:
+            return share
+    return positive[-1]
+
+
+def apply_shares(
+    subnets: list[dict],
+    block_emission: float,
+    *,
+    gate_bar: float | None = None,
+    gate_exponent: float = DEFAULT_EMISSION_GATE_EXPONENT,
+) -> float:
+    """Apply v444 pure-price demand shares, the Hill gate, and enable flags."""
+    price_sum = sum(max(subnet["emaPrice"], 0.0) for subnet in subnets)
+    demand_shares = [
+        max(subnet["emaPrice"], 0.0) / price_sum if price_sum > 0 else 0.0
+        for subnet in subnets
+    ]
+    if gate_bar is None:
+        gate_bar = select_emission_gate_bar(demand_shares)
+
+    gate_factors = []
+    gated_weights = []
+    for share in demand_shares:
+        gate = (
+            1.0 / (1.0 + (gate_bar / share) ** gate_exponent)
+            if share > 0 and gate_bar > 0
+            else (1.0 if share > 0 else 0.0)
+        )
+        gate_factors.append(gate)
+        gated_weights.append(share * gate)
+
+    if sum(gated_weights) == 0:
+        gated_weights = demand_shares
+
+    enabled_total = sum(
+        weight
+        for subnet, weight in zip(subnets, gated_weights)
+        if subnet["emissionEnabled"]
+    )
+    for subnet, demand_share, gate, weight in zip(
+        subnets, demand_shares, gate_factors, gated_weights
+    ):
+        share = (
+            weight / enabled_total
+            if subnet["emissionEnabled"] and enabled_total > 0
+            else 0.0
+        )
+        subnet["demandShare"] = round(demand_share, 8)
+        subnet["gateFactor"] = round(gate, 8)
+        subnet["taoShare"] = round(share, 8)
+        subnet["taoPerBlock"] = round(block_emission * share, 8)
+
+    return gate_bar
 
 
 async def build_snapshot() -> dict:
     tmc_rows = fetch_tmc_subnets()
     non_root = [r for r in tmc_rows if int(r["netuid"]) != 0]
 
+    async with bt.Subtensor() as client:
+        chain = await chain_fields(client, [int(row["netuid"]) for row in non_root])
+
+    eligible_rows = [
+        row for row in non_root if chain["subnetFlags"][int(row["netuid"])]["eligible"]
+    ]
+
     ema_price_sum = sum(
-        tmc_num((r.get("latest_snapshot") or {}).get("subnet_moving_price")) for r in non_root
+        tmc_num((r.get("latest_snapshot") or {}).get("subnet_moving_price"))
+        for r in eligible_rows
     )
 
-    top_rows = sorted(
-        non_root,
-        key=lambda r: tmc_num((r.get("latest_snapshot") or {}).get("price")),
-        reverse=True,
-    )[:TOP_N]
-    top_netuids = [int(r["netuid"]) for r in top_rows]
-    featured_netuid = 4 if 4 in top_netuids else top_netuids[0]
-
-    async with bt.Subtensor() as client:
-        chain = await chain_fields(client, top_netuids + [featured_netuid])
-
     subnets = [
-        row_from_tmc(row, chain["minerBurned"].get(int(row["netuid"]), 0.0)) for row in top_rows
+        row_from_tmc(
+            row,
+            chain["subnetFlags"][int(row["netuid"])]["emissionEnabled"],
+        )
+        for row in eligible_rows
     ]
-    apply_shares(subnets, chain["blockEmissionTao"])
+    gate = chain["emissionGate"] or {
+        "rank": DEFAULT_EMISSION_BAR_RANK,
+        "quantile": DEFAULT_EMISSION_BAR_QUANTILE,
+        "exponent": DEFAULT_EMISSION_GATE_EXPONENT,
+        "bar": None,
+        "source": "v444_defaults_recomputed",
+    }
+    gate_bar = apply_shares(
+        subnets,
+        chain["blockEmissionTao"],
+        gate_bar=gate["bar"],
+        gate_exponent=gate["exponent"],
+    )
 
-    featured = next(s for s in subnets if s["netuid"] == featured_netuid)
+    subnets_by_netuid = {subnet["netuid"]: subnet for subnet in subnets}
+    top_subnets = sorted(subnets, key=lambda subnet: subnet["taoShare"], reverse=True)[
+        :TOP_N
+    ]
+    featured_netuid = 4 if 4 in subnets_by_netuid else top_subnets[0]["netuid"]
+
+    featured = subnets_by_netuid[featured_netuid]
 
     return {
         "fetchedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "network": "finney",
-        "emissionMode": "price_ema",
+        "chainSpecVersion": chain["specVersion"],
+        "emissionMode": "v444_price_ema_hill_gate",
+        "emissionGateSource": gate["source"],
         "dataSource": {
             "subnets": "taomarketcap.com",
             "chain": "finney",
             "tmcEndpoint": TMC_SUBNETS_URL,
         },
         "blockEmissionTao": chain["blockEmissionTao"],
-        "blockEmissionCalculatedTao": chain["blockEmissionCalculatedTao"],
         "totalIssuanceTao": chain["totalIssuanceTao"],
         "totalIssuanceRao": chain["totalIssuanceRao"],
         "rootTao": chain["rootTao"],
         "emaPriceSum": round(ema_price_sum, 4),
         "rootDividendGateOpen": ema_price_sum > 1.0,
         "taoWeight": chain["taoWeight"],
+        "emissionGateRank": gate["rank"],
+        "emissionGateQuantile": round(gate["quantile"], 8),
+        "emissionGateExponent": round(gate["exponent"], 8),
+        "emissionGateBar": round(gate_bar, 8),
+        "emissionInputs": [
+            {
+                "netuid": subnet["netuid"],
+                "emaPrice": subnet["emaPrice"],
+                "emissionEnabled": subnet["emissionEnabled"],
+            }
+            for subnet in subnets
+        ],
         "featuredSubnet": featured,
-        "topSubnets": subnets,
+        "topSubnets": top_subnets,
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="exit 1 if output would change")
+    parser.add_argument(
+        "--check", action="store_true", help="exit 1 if output would change"
+    )
     args = parser.parse_args()
 
     snapshot = asyncio.run(build_snapshot())
@@ -217,7 +355,10 @@ def main() -> int:
 
     if args.check:
         if not OUTPUT.exists() or OUTPUT.read_text() != rendered:
-            print(f"{OUTPUT} is stale; run scripts/fetch-emission-snapshot.py", file=sys.stderr)
+            print(
+                f"{OUTPUT} is stale; run scripts/fetch-emission-snapshot.py",
+                file=sys.stderr,
+            )
             return 1
         print(f"{OUTPUT} is up to date.")
         return 0

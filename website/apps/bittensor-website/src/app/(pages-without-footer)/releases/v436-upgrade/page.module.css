@@ -11,13 +11,15 @@
 
 .paper_title {
   font-size: 20px;
+  font-weight: 400;
+  margin: 0;
 }
 
 .subtitle {
   font-family: 'FiraCode';
   font-size: 12px;
   font-weight: 200;
-  margin-bottom: -8px;
+  margin: 0 0 -8px;
   text-transform: uppercase;
   text-align: center;
 }

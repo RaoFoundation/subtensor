@@ -87,9 +87,7 @@ class TestPrecompileEncoding:
         assert data.startswith("0x")
 
     def test_total_coldkey_stake_on_subnet_encode(self):
-        fn_abi = precompiles.get_precompile("staking-v2").function(
-            "getTotalColdkeyStakeOnSubnet"
-        )
+        fn_abi = precompiles.get_precompile("staking-v2").function("getTotalColdkeyStakeOnSubnet")
         data = precompiles.encode_call(fn_abi, [BOB_HOT, 1])
         assert data.startswith("0x")
 
