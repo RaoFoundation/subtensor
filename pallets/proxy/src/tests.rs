@@ -175,6 +175,12 @@ fn call_transfer(dest: u64, value: u64) -> RuntimeCall {
     RuntimeCall::Balances(BalancesCall::transfer_allow_death { dest, value })
 }
 
+fn call_batch_with_refund() -> RuntimeCall {
+    RuntimeCall::Utility(UtilityCall::batch {
+        calls: vec![call_transfer(6, 20), call_transfer(6, 1)],
+    })
+}
+
 #[test]
 fn announcement_works() {
     new_test_ext().execute_with(|| {
@@ -360,6 +366,58 @@ fn calling_proxy_doesnt_remove_announcement() {
                 height: 1
             }]
         );
+    });
+}
+
+#[test]
+fn proxy_propagates_inner_actual_weight() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::Any,
+            0
+        ));
+
+        let call = RuntimeCall::Proxy(ProxyCall::new_call_variant_proxy(
+            1,
+            None,
+            Box::new(call_batch_with_refund()),
+        ));
+        let info = call.get_dispatch_info();
+        let result = call.dispatch(RuntimeOrigin::signed(2));
+
+        assert_ok!(result);
+        assert_ne!(extract_actual_weight(&result, &info), info.call_weight);
+    });
+}
+
+#[test]
+fn proxy_announced_propagates_inner_actual_weight() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::Any,
+            1
+        ));
+
+        let call = Box::new(call_batch_with_refund());
+        assert_ok!(Proxy::announce(
+            RuntimeOrigin::signed(2),
+            1,
+            BlakeTwo256::hash_of(&call)
+        ));
+        System::set_block_number(2);
+
+        let call = RuntimeCall::Proxy(ProxyCall::new_call_variant_proxy_announced(
+            2, 1, None, call,
+        ));
+        let info = call.get_dispatch_info();
+        let result = call.dispatch(RuntimeOrigin::signed(0));
+
+        assert_ok!(result);
+        assert_ne!(extract_actual_weight(&result, &info), info.call_weight);
     });
 }
 

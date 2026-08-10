@@ -39,6 +39,7 @@ use frame::{
     prelude::*,
     traits::{Currency, InstanceFilter, ReservableCurrency},
 };
+use frame_support::dispatch::extract_actual_weight;
 use frame_system::pallet_prelude::BlockNumberFor as SystemBlockNumberFor;
 pub use pallet::*;
 use subtensor_macros::freeze_struct;
@@ -140,7 +141,7 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// The overarching call type.
         type RuntimeCall: Parameter
-            + Dispatchable<RuntimeOrigin = Self::RuntimeOrigin>
+            + Dispatchable<RuntimeOrigin = Self::RuntimeOrigin, PostInfo = PostDispatchInfo>
             + GetDispatchInfo
             + From<frame_system::Call<Self>>
             + IsSubType<Call<Self>>
@@ -256,15 +257,17 @@ pub mod pallet {
             real: AccountIdLookupOf<T>,
             force_proxy_type: Option<T::ProxyType>,
             call: Box<<T as Config>::RuntimeCall>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let who = ensure_signed(origin)?;
             let real = T::Lookup::lookup(real)?;
             let def = Self::find_proxy(&real, &who, force_proxy_type)?;
             ensure!(def.delay.is_zero(), Error::<T>::Unannounced);
 
-            Self::do_proxy(def, real, *call);
+            let weight = T::WeightInfo::proxy(T::MaxProxies::get())
+                .saturating_add(T::DbWeight::get().reads_writes(1, 1))
+                .saturating_add(Self::do_proxy(def, real, *call));
 
-            Ok(())
+            Ok(Some(weight).into())
         }
 
         /// Register a proxy account for the sender that is able to make calls on its behalf.
@@ -566,7 +569,7 @@ pub mod pallet {
             real: AccountIdLookupOf<T>,
             force_proxy_type: Option<T::ProxyType>,
             call: Box<<T as Config>::RuntimeCall>,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             ensure_signed(origin)?;
             let delegate = T::Lookup::lookup(delegate)?;
             let real = T::Lookup::lookup(real)?;
@@ -581,9 +584,11 @@ pub mod pallet {
             })
             .map_err(|_| Error::<T>::Unannounced)?;
 
-            Self::do_proxy(def, real, *call);
+            let weight = T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
+                .saturating_add(T::DbWeight::get().reads_writes(1, 1))
+                .saturating_add(Self::do_proxy(def, real, *call));
 
-            Ok(())
+            Ok(Some(weight).into())
         }
 
         /// Poke / Adjust deposits made for proxies and announcements based on current values.
@@ -1115,7 +1120,7 @@ impl<T: Config> Pallet<T> {
         def: ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>,
         real: T::AccountId,
         call: <T as Config>::RuntimeCall,
-    ) {
+    ) -> Weight {
         use frame::traits::{InstanceFilter as _, OriginTrait as _};
         // This is a freshly authenticated new account, the origin restrictions doesn't apply.
         let mut origin: T::RuntimeOrigin = frame_system::RawOrigin::Signed(real.clone()).into();
@@ -1141,13 +1146,17 @@ impl<T: Config> Pallet<T> {
                 _ => def.proxy_type.filter(c),
             }
         });
+        let info = call.get_dispatch_info();
         let e = call.dispatch(origin);
+        let actual_weight = extract_actual_weight(&e, &info);
 
         LastCallResult::<T>::insert(real, e.map(|_| ()).map_err(|e| e.error));
 
         Self::deposit_event(Event::ProxyExecuted {
             result: e.map(|_| ()).map_err(|e| e.error),
         });
+
+        actual_weight
     }
 
     /// Removes all proxy delegates for a given delegator.
