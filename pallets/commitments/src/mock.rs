@@ -90,8 +90,14 @@ impl TypeInfo for TestMaxFields {
 
 pub struct TestCanCommit;
 impl pallet_commitments::CanCommit<u64> for TestCanCommit {
-    fn can_commit(_netuid: NetUid, _who: &u64) -> bool {
-        true
+    type Error = ();
+
+    fn validate(_netuid: NetUid, _who: &u64) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn validation_weight() -> Weight {
+        Weight::zero()
     }
 }
 

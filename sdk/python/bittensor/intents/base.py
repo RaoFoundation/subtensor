@@ -168,6 +168,15 @@ class Intent(ABC):
         """Non-fatal cautions surfaced by ``plan`` (e.g. dust amounts)."""
         return []
 
+    async def wrap_call(self, substrate: "Substrate", wallet: "Any", call: Any):
+        """Apply an execution wrapper around an already composed semantic call.
+
+        The executor calls this after root and proxy composition. Ordinary
+        intents leave the call unchanged; execution adapters such as saved
+        multisigs add their transport wrapper here.
+        """
+        return call
+
     # Key views ----------------------------------------------------------------
     #
     # Intents never touch private keys, but some need the *addresses* of the
@@ -243,6 +252,14 @@ class Intent(ABC):
     def affects_all_subnets(self) -> bool:
         """True if the intent acts across every subnet (so any allowlist must fail it)."""
         return False
+
+    def semantic_intent(self) -> "Intent":
+        """Intent whose safety contract governs this submission.
+
+        Execution adapters may wrap a call without changing the spend, subnet,
+        or MEV requirements of the operation being dispatched.
+        """
+        return self
 
     # Introspection ----------------------------------------------------------
 

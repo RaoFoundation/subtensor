@@ -44,6 +44,7 @@ for _alias, _op in (
     ("move", "move_stake"),
     ("transfer", "transfer_stake"),
     ("swap", "swap_stake"),
+    ("burn", "stake_burn"),
     ("unstake-all", "unstake_all"),
     ("unstake-all-alpha", "unstake_all_alpha"),
 ):

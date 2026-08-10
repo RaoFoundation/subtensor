@@ -3,10 +3,9 @@ use crate::{AlphaFeeHandler, SubtensorTxFeeHandler, TransactionFeeHandler, Trans
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::pallet_prelude::Zero;
-use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
 use sp_runtime::{
-    traits::{DispatchTransaction, TransactionExtension, TxBaseImplication},
+    traits::{AccountIdConversion, DispatchTransaction, TransactionExtension, TxBaseImplication},
     transaction_validity::{InvalidTransaction, TransactionValidityError},
 };
 use substrate_fixed::types::U64F64;
@@ -15,6 +14,7 @@ use subtensor_swap_interface::SwapHandler;
 
 use mock::*;
 mod mock;
+mod recycling;
 
 fn mark_collateral(netuid: NetUid, hotkey: &U256, coldkey: &U256, locked: AlphaBalance) {
     MinerCollateral::<Test>::insert(
@@ -306,7 +306,7 @@ fn test_remove_stake_fees_alpha() {
 
         // Simulate stake removal to get how much TAO should we get for unstaked Alpha
         // after the alpha-fee pre-withdrawal has already moved the pool.
-        let (expected_unstaked_tao, swap_fee) = mock::quote_remove_stake_after_alpha_fee(
+        let expected_unstaked_tao = mock::quote_remove_stake_after_alpha_fee(
             &sn.coldkey,
             &sn.hotkeys[0],
             sn.subnets[0].netuid,
@@ -320,9 +320,11 @@ fn test_remove_stake_fees_alpha() {
             current_balance - ExistentialDeposit::get(),
         );
 
-        // Get the block builder balance
-        let block_builder = U256::from(MOCK_BLOCK_BUILDER);
-        let block_builder_balance_before = Balances::free_balance(block_builder);
+        let burn_account: U256 = BurnAccountId::get().into_account_truncating();
+        let burn_balance_before = Balances::free_balance(burn_account);
+        let balances_issuance_before = Balances::total_issuance();
+        let subtensor_issuance_before = SubtensorModule::get_total_issuance();
+        assert_eq!(balances_issuance_before, subtensor_issuance_before);
 
         // Remove stake
         let balance_before = Balances::free_balance(sn.coldkey);
@@ -365,33 +367,39 @@ fn test_remove_stake_fees_alpha() {
         assert_abs_diff_eq!(actual_tao_fee, 0.into(), epsilon = 10.into());
         assert!(actual_alpha_fee > 0.into());
 
-        // Assert that swapped TAO from alpha fee goes to block author
-        let block_builder_fee_portion = 1.;
-        let expected_block_builder_swap_reward = swap_fee as f64 * block_builder_fee_portion;
-        let expected_tx_fee = 14000.; // Use very low value (0.000014) for less test flakiness, value before we 10x tx fees
-        let block_builder_balance_after = Balances::free_balance(block_builder);
-        let actual_block_builder_reward =
-            block_builder_balance_after - block_builder_balance_before;
-        assert!(
-            u64::from(actual_block_builder_reward) as f64
-                >= expected_block_builder_swap_reward + expected_tx_fee
-        );
-
         let events = System::events();
-        let alpha_event = events
+        let (alpha_event, recycled_tao) = events
             .iter()
-            .position(|event_record| {
-                matches!(
-                    &event_record.event,
-                    RuntimeEvent::SubtensorModule(SubtensorEvent::TransactionFeePaidWithAlpha {
-                        who,
-                        netuid,
-                        alpha_fee,
-                        tao_amount: _,
-                    }) if who == &sn.coldkey && *alpha_fee == actual_alpha_fee && *netuid == sn.subnets[0].netuid
-                )
+            .enumerate()
+            .find_map(|(index, event_record)| match &event_record.event {
+                RuntimeEvent::SubtensorModule(SubtensorEvent::TransactionFeePaidWithAlpha {
+                    who,
+                    netuid,
+                    alpha_fee,
+                    tao_amount,
+                }) if who == &sn.coldkey
+                    && *alpha_fee == actual_alpha_fee
+                    && *netuid == sn.subnets[0].netuid =>
+                {
+                    Some((index, *tao_amount))
+                }
+                _ => None,
             })
             .expect("expected TransactionFeePaidWithAlpha event");
+        assert!(!recycled_tao.is_zero());
+        assert_eq!(Balances::free_balance(burn_account), burn_balance_before);
+        assert_eq!(
+            balances_issuance_before - Balances::total_issuance(),
+            recycled_tao
+        );
+        assert_eq!(
+            subtensor_issuance_before - SubtensorModule::get_total_issuance(),
+            recycled_tao
+        );
+        assert_eq!(
+            Balances::total_issuance(),
+            SubtensorModule::get_total_issuance()
+        );
         let tao_event = events
             .iter()
             .position(|event_record| {
@@ -431,10 +439,16 @@ fn test_alpha_fee_withdraw_failure_aborts_and_rolls_back() {
         // Force the alpha-fee unstake to fail after AMM bookkeeping by draining
         // the subnet account used by transfer_tao_from_subnet.
         let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
-        Balances::make_free_balance_be(&subnet_account, 0.into());
+        let subnet_balance = Balances::free_balance(subnet_account);
+        assert_ok!(SubtensorModule::burn_tao(&subnet_account, subnet_balance));
 
         let block_builder = U256::from(MOCK_BLOCK_BUILDER);
+        let burn_account: U256 = BurnAccountId::get().into_account_truncating();
         let block_builder_balance_before = Balances::free_balance(block_builder);
+        let burn_balance_before = Balances::free_balance(burn_account);
+        let balances_issuance_before = Balances::total_issuance();
+        let subtensor_issuance_before = SubtensorModule::get_total_issuance();
+        assert_eq!(balances_issuance_before, subtensor_issuance_before);
         let signer_balance_before = Balances::free_balance(sn.coldkey);
         let alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
@@ -479,6 +493,16 @@ fn test_alpha_fee_withdraw_failure_aborts_and_rolls_back() {
         assert_eq!(
             Balances::free_balance(block_builder),
             block_builder_balance_before
+        );
+        assert_eq!(Balances::free_balance(burn_account), burn_balance_before);
+        assert_eq!(Balances::total_issuance(), balances_issuance_before);
+        assert_eq!(
+            SubtensorModule::get_total_issuance(),
+            subtensor_issuance_before
+        );
+        assert_eq!(
+            Balances::total_issuance(),
+            SubtensorModule::get_total_issuance()
         );
 
         assert!(!System::events().iter().any(|event_record| {
@@ -1737,59 +1761,6 @@ fn test_recycle_alpha_fees_alpha() {
     });
 }
 
-// cargo test --package subtensor-transaction-fee --lib -- tests::test_add_stake_fees_go_to_block_builder --exact --show-output
-#[test]
-fn test_add_stake_fees_go_to_block_builder() {
-    new_test_ext().execute_with(|| {
-        // Portion of swap fees that should go to the block builder
-        let block_builder_fee_portion = 1.;
-
-        // Get the block builder balance
-        let block_builder = U256::from(MOCK_BLOCK_BUILDER);
-        let block_builder_balance_before = Balances::free_balance(block_builder);
-
-        let stake_amount = TAO;
-        let sn = setup_subnets(1, 1);
-
-        // Simulate add stake to get the expected TAO fee
-        let (_, swap_fee) = mock::swap_tao_to_alpha(sn.subnets[0].netuid, stake_amount.into());
-
-        add_balance_to_coldkey_account(&sn.coldkey, (stake_amount * 10).into());
-
-        // Stake
-        let balance_before = Balances::free_balance(sn.coldkey);
-        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::add_stake {
-            hotkey: sn.hotkeys[0],
-            netuid: sn.subnets[0].netuid,
-            amount_staked: stake_amount.into(),
-        });
-
-        // Dispatch the extrinsic with ChargeTransactionPayment extension
-        let info = call.get_dispatch_info();
-        let ext = pallet_transaction_payment::ChargeTransactionPayment::<Test>::from(0.into());
-        assert_ok!(ext.dispatch_transaction(
-            RuntimeOrigin::signed(sn.coldkey).into(),
-            call,
-            &info,
-            0,
-            0,
-        ));
-
-        let final_balance = Balances::free_balance(sn.coldkey);
-        let actual_tao_fee = balance_before - stake_amount.into() - final_balance;
-        assert!(!actual_tao_fee.is_zero());
-
-        // Expect that block builder balance has increased by both the swap fee and the transaction fee
-        let expected_block_builder_swap_reward = swap_fee as f64 * block_builder_fee_portion;
-        let expected_tx_fee = 14000.; // Use very low value (0.000014) for less test flakiness, value before we 10x tx fees
-        let block_builder_balance_after = Balances::free_balance(block_builder);
-        let actual_reward = block_builder_balance_after - block_builder_balance_before;
-        assert!(
-            u64::from(actual_reward) as f64 >= expected_block_builder_swap_reward + expected_tx_fee
-        );
-    });
-}
-
 // Fully collateral-bonded stake must not pay alpha fees. Regression for the
 // phantom-bond bug where fee unstake stripped stake while MinerCollateral.locked
 // stayed unchanged.
@@ -1941,10 +1912,17 @@ fn test_alpha_fee_only_from_free_stake_above_collateral() {
             )
         );
 
+        let block_builder = U256::from(MOCK_BLOCK_BUILDER);
+        let burn_account: U256 = BurnAccountId::get().into_account_truncating();
+        let block_builder_balance_before = Balances::free_balance(block_builder);
+        let burn_balance_before = Balances::free_balance(burn_account);
+        let balances_issuance_before = Balances::total_issuance();
+        let subtensor_issuance_before = SubtensorModule::get_total_issuance();
+        assert_eq!(balances_issuance_before, subtensor_issuance_before);
         let collateral_before = MinerCollateral::<Test>::get((netuid, hotkey, sn.coldkey))
             .expect("collateral entry")
             .locked;
-        let (taken, _tao_out, fee_netuid) =
+        let (taken, tao_out, fee_netuid) =
             <TransactionFeeHandler<Test> as AlphaFeeHandler<Test>>::withdraw_in_alpha(
                 &sn.coldkey,
                 &alpha_vec,
@@ -1953,6 +1931,21 @@ fn test_alpha_fee_only_from_free_stake_above_collateral() {
             .expect("free-slice fee should withdraw");
         assert_eq!(fee_netuid, netuid);
         assert_eq!(taken, alpha_for_small);
+        assert!(!tao_out.is_zero());
+        assert_eq!(Balances::free_balance(block_builder), block_builder_balance_before);
+        assert_eq!(Balances::free_balance(burn_account), burn_balance_before);
+        assert_eq!(
+            balances_issuance_before - Balances::total_issuance(),
+            tao_out
+        );
+        assert_eq!(
+            subtensor_issuance_before - SubtensorModule::get_total_issuance(),
+            tao_out
+        );
+        assert_eq!(
+            Balances::total_issuance(),
+            SubtensorModule::get_total_issuance()
+        );
 
         let alpha_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,

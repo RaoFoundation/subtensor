@@ -1023,6 +1023,34 @@ fn test_swap_stake_v2_success() {
     });
 }
 
+#[test]
+fn test_swap_does_not_create_zero_last_epoch_alpha() {
+    new_test_ext(1).execute_with(|| {
+        let old_hotkey = U256::from(1);
+        let new_hotkey = U256::from(2);
+        let coldkey = U256::from(3);
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let mut weight = Weight::zero();
+
+        SubtensorModule::perform_hotkey_swap_on_all_subnets(
+            &old_hotkey,
+            &new_hotkey,
+            &coldkey,
+            &mut weight,
+            false,
+        )
+        .unwrap();
+
+        for netuid in SubtensorModule::get_all_subnet_netuids() {
+            assert!(!TotalHotkeyAlphaLastEpoch::<Test>::contains_key(
+                new_hotkey, netuid
+            ));
+        }
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::swap_hotkey::test_swap_stake_old_hotkey_not_exist --exact --nocapture
 #[test]
 fn test_swap_stake_old_hotkey_not_exist() {

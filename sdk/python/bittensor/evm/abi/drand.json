@@ -1,0 +1,129 @@
+[
+	{
+		"inputs": [],
+		"name": "getBeaconConfig",
+		"outputs": [
+			{
+				"internalType": "bytes",
+				"name": "publicKey",
+				"type": "bytes"
+			},
+			{
+				"internalType": "uint32",
+				"name": "period",
+				"type": "uint32"
+			},
+			{
+				"internalType": "uint32",
+				"name": "genesisTime",
+				"type": "uint32"
+			},
+			{
+				"internalType": "bytes",
+				"name": "chainHash",
+				"type": "bytes"
+			},
+			{
+				"internalType": "bytes",
+				"name": "groupHash",
+				"type": "bytes"
+			},
+			{
+				"internalType": "bytes",
+				"name": "schemeId",
+				"type": "bytes"
+			},
+			{
+				"internalType": "bytes",
+				"name": "beaconId",
+				"type": "bytes"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getNextUnsignedAt",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint64",
+				"name": "round",
+				"type": "uint64"
+			}
+		],
+		"name": "getPulse",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "exists",
+				"type": "bool"
+			},
+			{
+				"internalType": "uint64",
+				"name": "storedRound",
+				"type": "uint64"
+			},
+			{
+				"internalType": "bytes",
+				"name": "randomness",
+				"type": "bytes"
+			},
+			{
+				"internalType": "bytes",
+				"name": "signature",
+				"type": "bytes"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getStoredRoundRange",
+		"outputs": [
+			{
+				"internalType": "uint64",
+				"name": "oldest",
+				"type": "uint64"
+			},
+			{
+				"internalType": "uint64",
+				"name": "latest",
+				"type": "uint64"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "bytes",
+				"name": "key",
+				"type": "bytes"
+			}
+		],
+		"name": "hasMigrationRun",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]

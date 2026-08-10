@@ -151,6 +151,14 @@ impl KeypairInner {
 pub struct Keypair {
     inner: KeypairInner,
     ss58_format: u16,
+    /// The BIP39 phrase this keypair was derived from, when known and
+    /// sufficient on its own to re-derive the key (no derivation password).
+    /// Written to keyfiles as ``secretPhrase`` for parity with the legacy
+    /// btwallet format that third-party tools parse.
+    mnemonic: Option<Zeroizing<String>>,
+    /// The raw seed this keypair was derived from, when known. Written to
+    /// keyfiles as ``secretSeed`` (legacy-format parity).
+    seed: Option<Zeroizing<Vec<u8>>>,
 }
 
 impl Keypair {
@@ -194,6 +202,8 @@ impl Keypair {
                 crypto_type,
             },
             ss58_format,
+            mnemonic: None,
+            seed: None,
         })
     }
 
@@ -203,22 +213,29 @@ impl Keypair {
         crypto_type: u8,
         password: Option<&str>,
     ) -> Result<Self, CoreError> {
-        let inner = match crypto_type {
+        let (inner, seed) = match crypto_type {
             CRYPTO_SR25519 => {
-                let (pair, _seed) = sr25519::Pair::from_phrase(mnemonic, password)
+                let (pair, seed) = sr25519::Pair::from_phrase(mnemonic, password)
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
-                KeypairInner::Sr25519(pair)
+                (KeypairInner::Sr25519(pair), seed.to_vec())
             }
             CRYPTO_ED25519 => {
-                let (pair, _seed) = ed25519::Pair::from_phrase(mnemonic, password)
+                let (pair, seed) = ed25519::Pair::from_phrase(mnemonic, password)
                     .map_err(|e| crypto_err(format!("invalid mnemonic: {e:?}")))?;
-                KeypairInner::Ed25519(pair)
+                (KeypairInner::Ed25519(pair), seed.to_vec())
             }
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         };
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            // A phrase with a derivation password cannot re-derive the key on
+            // its own, so only a passwordless phrase is kept (and written to
+            // keyfiles); the derived seed is always sufficient.
+            mnemonic: password
+                .is_none()
+                .then(|| Zeroizing::new(mnemonic.to_string())),
+            seed: Some(Zeroizing::new(seed)),
         })
     }
 
@@ -238,6 +255,8 @@ impl Keypair {
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            mnemonic: None,
+            seed: Some(Zeroizing::new(seed.to_vec())),
         })
     }
 
@@ -254,9 +273,13 @@ impl Keypair {
             ),
             other => return Err(crypto_err(format!("unknown crypto type {other}"))),
         };
+        // A URI may carry derivation junctions, so neither the phrase nor a
+        // bare seed is retained.
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            mnemonic: None,
+            seed: None,
         })
     }
 
@@ -290,6 +313,8 @@ impl Keypair {
         Ok(Self {
             inner,
             ss58_format: DEFAULT_SS58_FORMAT,
+            mnemonic: None,
+            seed: None,
         })
     }
 
@@ -342,9 +367,24 @@ impl Keypair {
         self.inner.private_key_bytes()
     }
 
+    /// The BIP39 phrase this keypair was derived from, when retained.
+    pub fn mnemonic(&self) -> Option<&str> {
+        self.mnemonic.as_deref().map(String::as_str)
+    }
+
+    /// The raw seed this keypair was derived from, when retained.
+    pub fn seed_bytes(&self) -> Option<&[u8]> {
+        self.seed.as_deref().map(Vec::as_slice)
+    }
+
     #[cfg(feature = "host")]
     pub(crate) fn from_inner(inner: KeypairInner, ss58_format: u16) -> Self {
-        Self { inner, ss58_format }
+        Self {
+            inner,
+            ss58_format,
+            mnemonic: None,
+            seed: None,
+        }
     }
 
     /// Sign a message; returns the raw 64-byte signature.

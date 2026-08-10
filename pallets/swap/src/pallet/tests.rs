@@ -182,6 +182,7 @@ mod dispatchables {
                 BalancerAlphaReservoir::<Test>::get(netuid),
                 AlphaBalance::ZERO
             );
+            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
         });
     }
 
@@ -204,6 +205,7 @@ mod dispatchables {
             assert_eq!(price_active_tao, TaoBalance::from(1_000_u64));
             assert_eq!(price_active_alpha, AlphaBalance::ZERO);
             assert_eq!(BalancerTaoReservoir::<Test>::get(netuid), TaoBalance::ZERO);
+            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
             assert_eq!(
                 BalancerAlphaReservoir::<Test>::get(netuid),
                 AlphaBalance::from(200_000_u64)
@@ -246,6 +248,8 @@ mod dispatchables {
                 BalancerAlphaReservoir::<Test>::get(netuid),
                 AlphaBalance::ZERO
             );
+            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
+            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
         });
     }
 
@@ -271,6 +275,8 @@ mod dispatchables {
                 BalancerAlphaReservoir::<Test>::get(netuid),
                 AlphaBalance::ZERO
             );
+            assert!(!BalancerTaoReservoir::<Test>::contains_key(netuid));
+            assert!(!BalancerAlphaReservoir::<Test>::contains_key(netuid));
         });
     }
 
@@ -1067,5 +1073,67 @@ fn test_migrate_swapv3_to_balancer_falls_back_to_default_when_price_init_fails()
             Perquintill::from_rational(1_u64, 2_u64)
         );
         assert!(HasMigrationRun::<Test>::get(&migration_name));
+    });
+}
+
+#[test]
+fn test_swap_storage_cleanup_is_wired_and_cleanup_only() {
+    use frame_support::traits::Hooks;
+    use sp_io::hashing::twox_128;
+
+    new_test_ext().execute_with(|| {
+        let legacy_items = [
+            "AlphaSqrtPrice",
+            "CurrentTick",
+            "EnabledUserLiquidity",
+            "FeeGlobalTao",
+            "FeeGlobalAlpha",
+            "LastPositionId",
+            "ScrapReservoirTao",
+            "ScrapReservoirAlpha",
+            "Ticks",
+            "TickIndexBitmapWords",
+            "SwapV3Initialized",
+            "CurrentLiquidity",
+            "Positions",
+        ];
+        let legacy_keys: sp_std::vec::Vec<_> = legacy_items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let mut key = [twox_128(b"Swap"), twox_128(item.as_bytes())].concat();
+                key.push(index as u8);
+                sp_io::storage::set(&key, &[1]);
+                key
+            })
+            .collect();
+
+        let zero_netuid = NetUid::from(1);
+        let pending_netuid = NetUid::from(2);
+        BalancerTaoReservoir::<Test>::insert(zero_netuid, TaoBalance::ZERO);
+        BalancerAlphaReservoir::<Test>::insert(zero_netuid, AlphaBalance::ZERO);
+        BalancerTaoReservoir::<Test>::insert(pending_netuid, TaoBalance::from(10));
+        BalancerAlphaReservoir::<Test>::insert(pending_netuid, AlphaBalance::from(20));
+
+        <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+        for (item, key) in legacy_items.iter().zip(legacy_keys) {
+            assert!(
+                sp_io::storage::get(&key).is_none(),
+                "legacy prefix {item} was not cleared"
+            );
+        }
+        assert!(!BalancerTaoReservoir::<Test>::contains_key(zero_netuid));
+        assert!(!BalancerAlphaReservoir::<Test>::contains_key(zero_netuid));
+        assert_eq!(
+            BalancerTaoReservoir::<Test>::get(pending_netuid),
+            TaoBalance::from(10)
+        );
+        assert_eq!(
+            BalancerAlphaReservoir::<Test>::get(pending_netuid),
+            AlphaBalance::from(20)
+        );
+
+        let migration_name = BoundedVec::truncate_from(b"migrate_swap_storage_cleanup_v2".to_vec());
+        assert!(HasMigrationRun::<Test>::get(migration_name));
     });
 }

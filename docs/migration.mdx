@@ -512,8 +512,8 @@ if not result.success:
 
 The v11 package ships against a runtime that also changed behavior. These are
 not rename mappings — scripts that still "work" can fail or mis-account after
-the upgrade. Full narrative:
-[The V431 Upgrade](/releases/v431-upgrade).
+the upgrade. See the release notes for
+[V431](/releases/v431-upgrade) and [V444](/releases/v444-upgrade).
 
 ### Ownership and emissions
 
@@ -521,10 +521,12 @@ the upgrade. Full narrative:
   to the highest-conviction hotkey when total conviction reaches 10% of
   `SubnetAlphaOut`. Existing conviction counts toward this threshold. See
   [Conviction](/docs/guides/conviction).
-- **Cross-subnet emissions.** Allocation uses EMA price adjusted by miner burn;
-  [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L69-L79) is no longer included in the inter-subnet split (it still
-  applies inside each subnet for injection caps and root dividends). Update
-  emission calculations and forecasts. See [Emissions](/docs/concepts/emissions).
+- **Cross-subnet emissions.** V444 allocation uses each subnet's EMA price,
+  followed by the emission gate. `MinerBurned` no longer changes a subnet's
+  cross-network share. [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L74-L84)
+  is also not part of the inter-subnet split; it still applies inside each
+  subnet for injection caps and root dividends. Update emission calculations
+  and forecasts. See [Emissions](/docs/concepts/emissions).
 
 ### Proxies and coldkeys
 

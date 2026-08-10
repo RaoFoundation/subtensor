@@ -166,6 +166,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Uids::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            VotingPower::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             BlockAtRegistration::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Axons::<T>::clear_prefix(netuid, limit, None)
@@ -281,7 +283,7 @@ impl<T: Config> Pallet<T> {
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         // Flat write charge for the `::remove(netuid)` list below. Bump this when
         // adding or removing entries from that list so the weight stays in step.
-        let removal_weight = T::DbWeight::get().writes(82);
+        let removal_weight = T::DbWeight::get().writes(86);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -373,6 +375,10 @@ impl<T: Config> Pallet<T> {
         LastEpochBlock::<T>::remove(netuid);
         PendingEpochAt::<T>::remove(netuid);
         SubnetEpochIndex::<T>::remove(netuid);
+        TotalVotingPower::<T>::remove(netuid);
+        VotingPowerTrackingEnabled::<T>::remove(netuid);
+        VotingPowerDisableAtBlock::<T>::remove(netuid);
+        VotingPowerEmaAlpha::<T>::remove(netuid);
 
         if SubnetIdentitiesV3::<T>::contains_key(netuid) {
             SubnetIdentitiesV3::<T>::remove(netuid);

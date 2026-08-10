@@ -54,8 +54,10 @@ import typer
 from .. import calls
 from ..intents.proxy import ProxyTypeChoice
 from . import multisig_helpers as ms_helpers
+from .call_names import resolve_builder_params
 from .context import ctx_of
 from .globals import with_tx_globals
+from .prompt import replay_command
 
 _MAX_SHOWN = 80  # truncate long param values (e.g. a wasm blob) in dry-run output
 
@@ -193,22 +195,42 @@ def call(
         signatories=signatories,
         other_signatories=other_signatories,
         signer=signer,
+        wallet_default=app_ctx.wallet_name,
     )
     builder = _resolve_builder(target)
-    params = _load_params(args, args_file)
+    params = resolve_builder_params(app_ctx, target, _load_params(args, args_file))
     if proxy_for is not None:
         proxy_for = app_ctx.resolve_address("proxy_for", proxy_for)
     proxy_type_value = force_proxy_type.value if force_proxy_type else None
-    signing = app_ctx.signer(signer)
-    label = target + (" via Sudo.sudo" if sudo else "")
-    if proxy_for:
-        label += f" as {proxy_for} via proxy"
     via_multisig = threshold is not None
     if via_multisig and len(sigs) < threshold:
         raise typer.BadParameter(
             f"need at least {threshold} signatories, got {len(sigs)}",
             param_hint="--signatories",
         )
+    # ``-w <multisig>`` (no separate signatory wallet): pick a local member.
+    if via_multisig:
+        signer_ss58 = None
+        try:
+            signer_ss58 = app_ctx.wallet().coldkeypub.ss58_address
+        except Exception:
+            signer_ss58 = None
+        if signer_ss58 not in sigs:
+            try:
+                member_name, _ss58 = ms_helpers.pick_local_signatory(
+                    app_ctx,
+                    preset=preset or app_ctx.wallet_name,
+                    signatories=sigs,
+                )
+            except ValueError as error:
+                raise typer.BadParameter(str(error), param_hint="--wallet") from error
+            app_ctx.multisig_wallet_name = preset or app_ctx.wallet_name
+            app_ctx.wallet_name = member_name
+            app_ctx.wallet_given = True
+    signing = app_ctx.signer(signer)
+    label = target + (" via Sudo.sudo" if sudo else "")
+    if proxy_for:
+        label += f" as {proxy_for} via proxy"
 
     async def prepare(client):
         """Build the call against live metadata, nesting the wrappers inside-out:
@@ -250,6 +272,7 @@ def call(
                 fields["multisig_preset"] = preset
         else:
             app_ctx.run(lambda client: _compose_only(client, prepare))
+        fields["command"] = replay_command()
         app_ctx.output.detail("dry run: raw call", fields)
         return
 

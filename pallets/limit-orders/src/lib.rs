@@ -26,6 +26,20 @@ use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::OrderSwapInterface;
 
+/// Ledger's raw-signing size limit — `MAX_SIGN_SIZE` in the Zondax Polkadot app
+/// (`app/src/coin.h`), mirroring the 256-byte rule Substrate applies to extrinsic
+/// signing payloads.
+///
+/// A `signRaw` payload longer than this is **blake2_256-hashed on-device** before
+/// the ed25519 signature is produced (`crypto_sign_ed25519` in `app/src/crypto.c`),
+/// so the signature commits to the hash of the payload rather than to the payload
+/// bytes. The device still displays the full message: the printable-ASCII check and
+/// pagination in `tx_raw_getItem` operate on the received buffer, and the hashing
+/// happens later, in the signing step only. Clear-signing therefore remains
+/// what-you-see-is-what-you-sign — the on-chain verifier just has to accept the
+/// hashed commitment as well (see `verify_readable`).
+pub const LEDGER_MAX_SIGN_SIZE: usize = 256;
+
 // ── Data structures ──────────────────────────────────────────────────────────
 
 /// Internal direction of a net pool trade. Used only for `GroupExecutionSummary`
@@ -134,15 +148,19 @@ impl<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> VersionedOrd
 /// the user's signature over the order.
 ///
 /// Signature verification is performed against `order.inner().signer` (the AccountId)
-/// directly. Sr25519 and ed25519 signatures over either the SCALE-encoded order or its
-/// `<Bytes>`-wrapped blake2-256 hash are accepted; ecdsa is rejected at validation time.
-#[freeze_struct("9dd5a8ac812dc504")]
+/// directly, and either signing form is accepted (see `verify_order` / `verify_wrapped`):
+///   - raw: the SCALE-encoded `VersionedOrder`, or
+///   - wrapped: `<Bytes>` + `blake2_256(SCALE_ENCODE(VersionedOrder))` (the `OrderId`) + `</Bytes>`,
+///     the `signRaw` envelope used by Polkadot.js / Ledger.
+/// Both sr25519 and ed25519 signatures are accepted; ecdsa is rejected at validation time.
+#[freeze_struct("969452eb68f33c4")]
 #[derive(
     Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen, Clone, PartialEq, Eq, Debug,
 )]
 pub struct SignedOrder<AccountId: Encode + Decode + TypeInfo + MaxEncodedLen + Clone> {
     pub order: VersionedOrder<AccountId>,
-    /// Sr25519 or ed25519 signature over the raw order or its wrapped hash.
+    /// Sr25519 or ed25519 signature over either the raw SCALE-encoded `VersionedOrder`
+    /// or the `<Bytes>`-wrapped order hash (see `verify_order` / `verify_wrapped`).
     pub signature: MultiSignature,
     /// Whether we want a partial fill for this order
     pub partial_fill: Option<u64>,
@@ -195,6 +213,8 @@ pub(crate) struct OrderEntry<AccountId> {
 pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo as _;
+    use alloc::format;
+    use alloc::string::String;
     use frame_support::{
         PalletId,
         pallet_prelude::*,
@@ -202,6 +222,7 @@ pub mod pallet {
         transactional,
     };
     use frame_system::pallet_prelude::*;
+    use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
     use sp_runtime::traits::AccountIdConversion;
     use sp_std::collections::btree_set::BTreeSet;
     use sp_std::vec::Vec;
@@ -596,6 +617,159 @@ pub mod pallet {
             T::SwapInterface::transfer_tao(signer, recipient, fee_tao)
         }
 
+        /// Verify the signature over the **raw** SCALE-encoded order — the original,
+        /// non-Ledger form a software wallet signing arbitrary bytes produces.
+        /// Accepts sr25519 and ed25519; rejects ecdsa.
+        pub(crate) fn verify_order(signed_order: &SignedOrder<T::AccountId>) -> bool {
+            let order = signed_order.order.inner();
+            matches!(
+                signed_order.signature,
+                MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
+            ) && signed_order
+                .signature
+                .verify(signed_order.order.encode().as_slice(), &order.signer)
+        }
+
+        /// Verify the signature over the **wrapped order hash** — the Ledger/`signRaw`
+        /// form: `<Bytes>` + `blake2_256(SCALE_ENCODE(order))` (i.e. `order_id`) + `</Bytes>`.
+        /// Signing a fixed-size hash keeps the message within Ledger's signing limits,
+        /// and the `<Bytes>…</Bytes>` envelope is what `signRaw` (Polkadot.js / Ledger)
+        /// wraps around raw payloads. Accepts sr25519 and ed25519; rejects ecdsa.
+        pub(crate) fn verify_wrapped(
+            signed_order: &SignedOrder<T::AccountId>,
+            order_id: H256,
+        ) -> bool {
+            let order = signed_order.order.inner();
+            let payload = [
+                b"<Bytes>".as_slice(),
+                order_id.as_bytes(),
+                b"</Bytes>".as_slice(),
+            ]
+            .concat();
+            matches!(
+                signed_order.signature,
+                MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
+            ) && signed_order
+                .signature
+                .verify(payload.as_slice(), &order.signer)
+        }
+
+        /// Render `who` into its SS58 (base58check) string, reproducing
+        /// `Ss58Codec::to_ss58check_with_version`.
+        pub(crate) fn render_account(who: &T::AccountId) -> String {
+            let prefix = <T as frame_system::Config>::SS58Prefix::get();
+            who.to_ss58check_with_version(Ss58AddressFormat::custom(prefix))
+        }
+
+        /// Build the canonical, single-line, all-printable-ASCII "clear-signing"
+        /// message for a versioned order.
+        ///
+        /// This is a PURE function of the order's fields: every token is a
+        /// deterministic rendering of a runtime field, so a TS frontend can rebuild
+        /// the exact same bytes and have a hardware wallet display and sign them.
+        ///
+        /// The `none` vs `[]` distinction for the relayer field is deliberate and
+        /// load-bearing: it prevents a signature produced for an "any relayer" order
+        /// from being transplanted onto an "empty relayer list" order (or vice versa).
+        pub(crate) fn render_order(order: &VersionedOrder<T::AccountId>) -> Vec<u8> {
+            let (version, o) = match order {
+                VersionedOrder::V1(o) => ("v1", o),
+            };
+
+            let label = match o.order_type {
+                OrderType::LimitBuy => "Limit buy",
+                OrderType::TakeProfit => "Take-profit",
+                OrderType::StopLoss => "Stop-loss",
+            };
+            let price_word = match o.order_type {
+                OrderType::LimitBuy => "limit price",
+                OrderType::TakeProfit | OrderType::StopLoss => "trigger price",
+            };
+
+            let netuid: u16 = u16::from(o.netuid);
+
+            let max_slippage = match o.max_slippage {
+                None => String::from("none"),
+                Some(p) => format!("{}", p.deconstruct()),
+            };
+
+            let relayer = match &o.relayer {
+                None => String::from("none"),
+                Some(list) if list.is_empty() => String::from("[]"),
+                Some(list) => {
+                    let mut acc = String::new();
+                    for (i, r) in list.iter().enumerate() {
+                        if i > 0 {
+                            acc.push('+');
+                        }
+                        acc.push_str(&Self::render_account(r));
+                    }
+                    acc
+                }
+            };
+
+            let msg = format!(
+                "TAO.com order {version}: {label} {amount} on subnet {netuid}, \
+{price_word} {limit_price}, expiry {expiry}, hotkey {hotkey}, \
+fee {fee_rate} to {fee_recipient}, relayer {relayer}, \
+max slippage {max_slippage}, chain {chain_id}, \
+partial fills {partial}, signer {signer}",
+                version = version,
+                label = label,
+                amount = o.amount,
+                netuid = netuid,
+                price_word = price_word,
+                limit_price = o.limit_price,
+                expiry = o.expiry,
+                hotkey = Self::render_account(&o.hotkey),
+                fee_rate = o.fee_rate.deconstruct(),
+                fee_recipient = Self::render_account(&o.fee_recipient),
+                relayer = relayer,
+                max_slippage = max_slippage,
+                chain_id = o.chain_id,
+                partial = o.partial_fills_enabled,
+                signer = Self::render_account(&o.signer),
+            );
+
+            msg.into_bytes()
+        }
+
+        /// Verify the signature over the **human-readable** ("clear-signing") message —
+        /// the form a hardware wallet (Ledger) can display to the user field-by-field
+        /// and sign. The signed payload is the `<Bytes>`-wrapped canonical message built
+        /// by [`render_order`] (the `signRaw`/Ledger envelope). Accepts sr25519 and
+        /// ed25519; rejects ecdsa.
+        ///
+        /// The bytes actually verified follow the device's own rule: a raw-signing
+        /// payload longer than [`LEDGER_MAX_SIGN_SIZE`] is blake2_256-hashed on-device
+        /// before signing, so for an oversized payload the signature commits to
+        /// `blake2_256(payload)` and that is what is verified; at or below the limit the
+        /// payload bytes are verified directly. In practice the readable message is
+        /// always oversized (three SS58 addresses alone are 144 characters), so the
+        /// hashed branch is the live one — the byte-exact branch exists to keep this
+        /// function correct for any future, shorter rendering.
+        ///
+        /// The sibling forms need no such rule: `verify_wrapped`'s payload is a fixed
+        /// 47 bytes (`<Bytes>` + 32-byte hash + `</Bytes>`), and `verify_order` is not a
+        /// Ledger form at all — it has no `<Bytes>…</Bytes>` envelope, which the device's
+        /// `tx_raw_parse` requires, so a Ledger can never produce it.
+        pub(crate) fn verify_readable(signed_order: &SignedOrder<T::AccountId>) -> bool {
+            let order = signed_order.order.inner();
+            let msg = Self::render_order(&signed_order.order);
+            let payload = [b"<Bytes>".as_slice(), &msg, b"</Bytes>".as_slice()].concat();
+            let signed_bytes = if payload.len() > LEDGER_MAX_SIGN_SIZE {
+                sp_core::hashing::blake2_256(&payload).to_vec()
+            } else {
+                payload
+            };
+            matches!(
+                signed_order.signature,
+                MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
+            ) && signed_order
+                .signature
+                .verify(signed_bytes.as_slice(), &order.signer)
+        }
+
         /// Validates all execution preconditions for a signed order.
         /// Checks that the order's netuid is not root (0), that the signature is valid,
         /// the order has not been processed, is not expired, and the price condition is met.
@@ -613,23 +787,21 @@ pub mod pallet {
                 order.chain_id == T::ChainId::get(),
                 Error::<T>::ChainIdMismatch
             );
+            // Accept either signing form: the legacy raw form (`verify_order`,
+            // signature directly over the SCALE-encoded order) or the Ledger/`signRaw`
+            // form (`verify_wrapped`, signature over the `<Bytes>…</Bytes>`-wrapped order
+            // hash). Both are checked so software wallets signing raw bytes and hardware
+            // wallets that can only sign wrapped messages are simultaneously supported.
+            // The raw form is checked first: it short-circuits the common relayer flow,
+            // and an order signed in the wrapped form falls through to a second verify.
+            // The human-readable ("clear-signing") form is checked LAST: it is the least
+            // common and involves the SS58/format rendering work, so it should only run
+            // on fall-through. Exercising all three verifications is the worst case the
+            // weights must account for.
             ensure!(
-                matches!(
-                    signed_order.signature,
-                    MultiSignature::Sr25519(_) | MultiSignature::Ed25519(_)
-                ) && (signed_order
-                    .signature
-                    .verify(signed_order.order.encode().as_slice(), &order.signer)
-                    || signed_order.signature.verify(
-                        [
-                            b"<Bytes>".as_slice(),
-                            order_id.as_bytes(),
-                            b"</Bytes>".as_slice(),
-                        ]
-                        .concat()
-                        .as_slice(),
-                        &order.signer,
-                    )),
+                Self::verify_order(signed_order)
+                    || Self::verify_wrapped(signed_order, order_id)
+                    || Self::verify_readable(signed_order),
                 Error::<T>::InvalidSignature
             );
             let order_status = Orders::<T>::get(order_id);

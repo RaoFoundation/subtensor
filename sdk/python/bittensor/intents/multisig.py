@@ -18,10 +18,11 @@ signer's wallet.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from .._generated import calls
+from ..multisig import check_multisig_funds, multisig_opening_shortfall
 from ..signing import public_view
 from ..sp_core import ss58_decode
 from .base import BuiltCall, Intent
@@ -93,6 +94,31 @@ def _inner_call_extras(inner) -> dict:
     }
 
 
+async def _pending_timepoint(substrate, dispatch, wallet: Any, inner):
+    """Resolve a saved multisig's timepoint from the final inner call hash."""
+    if dispatch.timepoint is not None:
+        return dispatch.timepoint
+
+    signer = public_view(wallet, "coldkey").ss58_address
+    signatories = [signer, *dispatch.other_signatories]
+    account = substrate.multisig_account(signatories, dispatch.threshold)
+    call_hash = bytes(inner.call_hash)
+    pending = await substrate.query("Multisig", "Multisigs", [account.ss58_address, call_hash])
+    if pending is None:
+        pending = await substrate.query(
+            "Multisig", "Multisigs", [account.ss58_address, "0x" + call_hash.hex()]
+        )
+    if pending is None:
+        return None
+    if signer in {str(approval) for approval in pending.get("approvals") or []}:
+        raise ValueError(
+            f"this signatory already approved pending call 0x{call_hash.hex()}; "
+            "wait for another member, or cancel the operation"
+        )
+    when = pending.get("when") or {}
+    return {"height": int(when.get("height", 0)), "index": int(when.get("index", 0))}
+
+
 THRESHOLD_HELP = (
     "Number of approvals required to execute, counting the signer. Together with "
     "the full signatory set it identifies the multisig account, so it must match "
@@ -141,6 +167,9 @@ class MultisigThreshold1(Intent):
 
     async def build(self, substrate, wallet: Any):
         inner = await _compose_inner(substrate, wallet, self.call)
+        return await self._build_with_inner(substrate, wallet, inner)
+
+    async def _build_with_inner(self, substrate, wallet: Any, inner):
         return await substrate.compose(
             calls.Multisig.as_multi_threshold_1(
                 other_signatories=_sorted_signatories(self.other_signatories), call=inner
@@ -178,9 +207,13 @@ class MultisigExecute(Intent):
     timepoint: Optional[dict] = field(default=None, metadata={"help": TIMEPOINT_HELP})
 
     async def build(self, substrate, wallet: Any):
-        _validate_multisig(self.threshold, self.other_signatories, self.coldkey_address(wallet))
         inner = await _compose_inner(substrate, wallet, self.call)
-        max_weight = await substrate.estimate_weight(inner, public_view(wallet, "coldkey"))
+        return await self._build_with_inner(substrate, wallet, inner)
+
+    async def _build_with_inner(self, substrate, wallet: Any, inner):
+        _validate_multisig(self.threshold, self.other_signatories, self.coldkey_address(wallet))
+        view = public_view(wallet, "coldkey")
+        max_weight = await substrate.estimate_weight(inner, view)
         composed = await substrate.compose(
             calls.Multisig.as_multi(
                 threshold=self.threshold,
@@ -190,13 +223,103 @@ class MultisigExecute(Intent):
                 max_weight=max_weight,
             )
         )
+        # Opening (no timepoint) reserves the deposit from the signer; fail
+        # here, before anything signs, instead of on-chain with a bare
+        # "cannot cover the transaction fee".
+        await check_multisig_funds(
+            substrate,
+            signer_ss58=view.ss58_address,
+            threshold=self.threshold,
+            opening=self.timepoint is None,
+            outer_call=composed,
+            fee_keypair=view,
+            signer_label=getattr(wallet, "name", None),
+        )
         return BuiltCall(composed, _inner_call_extras(inner))
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.timepoint is not None:
+            return []
+        warning = await multisig_opening_shortfall(
+            substrate, signer_ss58=signer_address, threshold=self.threshold
+        )
+        return [warning] if warning else []
 
     def summary(self) -> str:
         return (
             f"multisig {self.threshold}-of-{len(self.other_signatories) + 1} "
             f"execute {self.call.get('op')}"
         )
+
+
+@dataclass
+class MultisigIntentAdapter(Intent):
+    """Keep an inner intent's safety contract while dispatching it by multisig.
+
+    Saved-multisig CLI wallets turn a regular coldkey intent into one of the
+    concrete multisig intents above. The executor composes the semantic call's
+    sudo and proxy layers first; this adapter adds only the outer multisig layer.
+    ``semantic`` remains authoritative for policy and execution semantics. This
+    adapter is internal and deliberately unregistered: it is execution state,
+    not a separate operation exposed by the SDK.
+    """
+
+    op = "multisig_execute"
+    signer = "coldkey"
+
+    dispatch: MultisigExecute | MultisigThreshold1 = field(repr=False)
+    semantic: Intent = field(repr=False)
+
+    @property
+    def threshold(self) -> int:
+        return int(getattr(self.dispatch, "threshold", 1))
+
+    @property
+    def other_signatories(self) -> list:
+        return self.dispatch.other_signatories
+
+    async def build(self, substrate, wallet: Any):
+        return await self.dispatch.build(substrate, wallet)
+
+    async def wrap_call(self, substrate, wallet: Any, call):
+        dispatch = self.dispatch
+        if isinstance(dispatch, MultisigExecute):
+            dispatch = replace(
+                dispatch,
+                timepoint=await _pending_timepoint(substrate, dispatch, wallet, call),
+            )
+            self.dispatch = dispatch
+        return await dispatch._build_with_inner(substrate, wallet, call)
+
+    def summary(self) -> str:
+        return self.dispatch.summary()
+
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        return await self.dispatch.effects(substrate, signer_address)
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        return await self.dispatch.warnings(substrate, signer_address)
+
+    def spend(self):
+        return self.semantic.spend()
+
+    def touches_netuids(self) -> list[int]:
+        return self.semantic.touches_netuids()
+
+    def affects_all_subnets(self) -> bool:
+        return self.semantic.affects_all_subnets()
+
+    def semantic_intent(self) -> Intent:
+        return self.semantic
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.dispatch.to_dict()
+
+
+class MultisigThreshold1IntentAdapter(MultisigIntentAdapter):
+    """Safety-preserving adapter for immediate 1-of-N dispatch."""
+
+    op = "multisig_threshold_1"
 
 
 @register
@@ -228,7 +351,8 @@ class MultisigApprove(Intent):
     async def build(self, substrate, wallet: Any):
         _validate_multisig(self.threshold, self.other_signatories, self.coldkey_address(wallet))
         inner = await _compose_inner(substrate, wallet, self.call)
-        max_weight = await substrate.estimate_weight(inner, public_view(wallet, "coldkey"))
+        view = public_view(wallet, "coldkey")
+        max_weight = await substrate.estimate_weight(inner, view)
         if self.timepoint is None:
             # Opening approval: as_multi with the call embedded. With one
             # approval the threshold (>= 2) cannot be met, so nothing executes;
@@ -254,7 +378,26 @@ class MultisigApprove(Intent):
                     max_weight=max_weight,
                 )
             )
+        # Same funding preflight as multisig_execute: the opening approval
+        # (no timepoint) reserves the deposit, later ones only pay the fee.
+        await check_multisig_funds(
+            substrate,
+            signer_ss58=view.ss58_address,
+            threshold=self.threshold,
+            opening=self.timepoint is None,
+            outer_call=composed,
+            fee_keypair=view,
+            signer_label=getattr(wallet, "name", None),
+        )
         return BuiltCall(composed, _inner_call_extras(inner))
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.timepoint is not None:
+            return []
+        warning = await multisig_opening_shortfall(
+            substrate, signer_ss58=signer_address, threshold=self.threshold
+        )
+        return [warning] if warning else []
 
     def summary(self) -> str:
         return (

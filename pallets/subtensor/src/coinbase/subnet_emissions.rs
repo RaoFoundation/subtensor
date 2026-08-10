@@ -353,40 +353,7 @@ impl<T: Config> Pallet<T> {
     // `get_subnet_block_emissions`, so the effective emission is
     // e_i = gate(s_i) * s_i / sum(gate(s_j) * s_j) over emit-enabled subnets.
     pub(crate) fn get_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
-        let price_shares = Self::get_shares_price_ema(subnets_to_emit_to);
-
-        // Weight each subnet's price share by (1 - miner_burned), then
-        // renormalize. The effective emission is proportional to
-        // price_i * (1 - miner_burned_i).
-        // - (1 - miner_burned) reallocates away from subnets that withhold miner emission.
-        let zero = U64F64::saturating_from_num(0);
-        let one = U64F64::saturating_from_num(1);
-        let weighted: BTreeMap<NetUid, U64F64> = price_shares
-            .iter()
-            .map(|(netuid, share)| {
-                let burned = U64F64::saturating_from_num(MinerBurned::<T>::get(netuid)).min(one);
-                let factor = one.saturating_sub(burned);
-
-                (*netuid, share.saturating_mul(factor))
-            })
-            .collect();
-
-        let total_weight = weighted
-            .values()
-            .copied()
-            .fold(zero, |acc, w| acc.saturating_add(w));
-
-        let mut shares = if total_weight > zero {
-            weighted
-                .into_iter()
-                .map(|(netuid, w)| (netuid, w.safe_div(total_weight)))
-                .collect()
-        } else {
-            // The combined weight zeroes out for every subnet (e.g. no root stake, or
-            // every subnet burning all of its miner emission); fall back to the
-            // unweighted price shares so the block's emission is not stranded.
-            price_shares
-        };
+        let mut shares = Self::get_shares_price_ema(subnets_to_emit_to);
 
         Self::maybe_update_emission_gate_bar(&shares);
         Self::apply_emission_gate(&mut shares);

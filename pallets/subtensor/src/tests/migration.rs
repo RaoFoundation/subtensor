@@ -6609,3 +6609,132 @@ fn test_migrate_reset_emission_gate_bar() {
         assert_eq!(EmissionGateBar::<Test>::get(), U64F64::from_num(0.003));
     });
 }
+
+#[test]
+fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
+    use crate::migrations::migrate_storage_bloat_v2::{
+        StorageBloatCleanupMigration, continue_storage_bloat_cleanup, kickoff_storage_bloat_cleanup,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        const MIGRATION_NAME: &[u8] = b"migrate_storage_bloat_v2";
+        let netuid = NetUid::from(1);
+        let hot_zero = U256::from(10);
+        let hot_nonzero = U256::from(11);
+        let coldkey = U256::from(12);
+
+        let raw_key = |pallet: &str, item: &str, suffix: u8| {
+            let mut key = [twox_128(pallet.as_bytes()), twox_128(item.as_bytes())].concat();
+            key.push(suffix);
+            key
+        };
+        let dead_items = [
+            "TotalHotkeyStake",
+            "PendingdHotkeyEmission",
+            "PendingdHotkeyEmissionUntouchable",
+            "LastHotkeyEmissionDrain",
+            "StakeDeltaSinceLastEmissionDrain",
+            "TotalColdkeyStake",
+            "LastAddStakeIncrease",
+            "ColdkeyArbitrationBlock",
+        ];
+        let dead_keys: Vec<_> = dead_items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                let key = raw_key("SubtensorModule", item, index as u8);
+                sp_io::storage::set(&key, &[1]);
+                key
+            })
+            .collect();
+
+        Alpha::<Test>::insert((hot_zero, coldkey, netuid), U64F64::from_num(0));
+        Alpha::<Test>::insert((hot_nonzero, coldkey, netuid), U64F64::from_num(7));
+        TotalHotkeyShares::<Test>::insert(hot_zero, netuid, U64F64::from_num(0));
+        TotalHotkeyShares::<Test>::insert(hot_nonzero, netuid, U64F64::from_num(9));
+        TotalHotkeyAlpha::<Test>::insert(hot_zero, netuid, AlphaBalance::ZERO);
+        TotalHotkeyAlpha::<Test>::insert(hot_nonzero, netuid, AlphaBalance::from(13));
+        TotalHotkeyAlphaLastEpoch::<Test>::insert(hot_zero, netuid, AlphaBalance::ZERO);
+        TotalHotkeyAlphaLastEpoch::<Test>::insert(hot_nonzero, netuid, AlphaBalance::from(15));
+        StakingHotkeys::<Test>::insert(hot_zero, Vec::<U256>::new());
+        StakingHotkeys::<Test>::insert(hot_nonzero, vec![coldkey]);
+        let used_work = vec![1, 2, 3, 4];
+        UsedWork::<Test>::insert(&used_work, 41);
+        LastColdkeyHotkeyStakeBlock::<Test>::insert(coldkey, hot_zero, 42);
+        assert_eq!(RootStakeUnlockInterval::<Test>::get(), 0);
+
+        let kickoff_weight = kickoff_storage_bloat_cleanup::<Test>();
+        assert!(!kickoff_weight.is_zero());
+        assert!(StorageBloatCleanupMigration::<Test>::exists());
+
+        let limit = <Test as Config>::DbWeight::get().reads_writes(8, 5);
+        let mut passes = 0;
+        while StorageBloatCleanupMigration::<Test>::exists() {
+            let used = continue_storage_bloat_cleanup::<Test>(limit);
+            assert!(used.all_lte(limit));
+            passes += 1;
+            assert!(passes < 100, "bounded cleanup did not converge");
+        }
+        assert!(passes > 1, "test must exercise resumable progress");
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+
+        for key in dead_keys {
+            assert!(sp_io::storage::get(&key).is_none());
+        }
+        assert!(!Alpha::<Test>::contains_key((hot_zero, coldkey, netuid)));
+        assert_eq!(
+            Alpha::<Test>::get((hot_nonzero, coldkey, netuid)),
+            U64F64::from_num(7)
+        );
+        assert!(!TotalHotkeyShares::<Test>::contains_key(hot_zero, netuid));
+        assert_eq!(
+            TotalHotkeyShares::<Test>::get(hot_nonzero, netuid),
+            U64F64::from_num(9)
+        );
+        assert!(!TotalHotkeyAlpha::<Test>::contains_key(hot_zero, netuid));
+        assert_eq!(
+            TotalHotkeyAlpha::<Test>::get(hot_nonzero, netuid),
+            AlphaBalance::from(13)
+        );
+        assert!(!TotalHotkeyAlphaLastEpoch::<Test>::contains_key(
+            hot_zero, netuid
+        ));
+        assert_eq!(
+            TotalHotkeyAlphaLastEpoch::<Test>::get(hot_nonzero, netuid),
+            AlphaBalance::from(15)
+        );
+        assert!(!StakingHotkeys::<Test>::contains_key(hot_zero));
+        assert_eq!(StakingHotkeys::<Test>::get(hot_nonzero), vec![coldkey]);
+        assert_eq!(UsedWork::<Test>::get(&used_work), 41);
+        assert_eq!(
+            LastColdkeyHotkeyStakeBlock::<Test>::get(coldkey, hot_zero),
+            Some(42)
+        );
+
+        // Once marked complete, an upgrade cannot restart the sweep.
+        kickoff_storage_bloat_cleanup::<Test>();
+        assert!(!StorageBloatCleanupMigration::<Test>::exists());
+    });
+}
+
+#[test]
+fn test_storage_bloat_cleanup_preserves_root_age_when_hold_is_enabled() {
+    use crate::migrations::migrate_storage_bloat_v2::{
+        continue_storage_bloat_cleanup, kickoff_storage_bloat_cleanup,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(20);
+        let hotkey = U256::from(21);
+        RootStakeUnlockInterval::<Test>::put(100);
+        LastColdkeyHotkeyStakeBlock::<Test>::insert(coldkey, hotkey, 42);
+
+        kickoff_storage_bloat_cleanup::<Test>();
+        continue_storage_bloat_cleanup::<Test>(Weight::MAX);
+
+        assert_eq!(
+            LastColdkeyHotkeyStakeBlock::<Test>::get(coldkey, hotkey),
+            Some(42)
+        );
+    });
+}

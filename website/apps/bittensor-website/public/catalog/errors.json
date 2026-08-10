@@ -393,8 +393,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 795,
-          "url": "/code/pallets/proxy/src/lib.rs#L795",
+          "line": 814,
+          "url": "/code/pallets/proxy/src/lib.rs#L814",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -411,8 +411,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 352,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L352",
+          "line": 373,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L373",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -807,8 +807,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 346,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L346",
+          "line": 367,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L367",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1417,8 +1417,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 181,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L181",
+          "line": 182,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L182",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -1471,8 +1471,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 787,
-          "url": "/code/pallets/proxy/src/lib.rs#L787",
+          "line": 806,
+          "url": "/code/pallets/proxy/src/lib.rs#L806",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -1525,8 +1525,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 354,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L354",
+          "line": 375,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L375",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1759,8 +1759,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 145,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L145",
+          "line": 146,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L146",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -1966,8 +1966,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 342,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L342",
+          "line": 363,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L363",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2065,8 +2065,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 157,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L157",
+          "line": 158,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L158",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2083,8 +2083,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 148,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L148",
+          "line": 149,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L149",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2109,8 +2109,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 151,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L151",
+          "line": 152,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L152",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2253,8 +2253,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 797,
-          "url": "/code/pallets/proxy/src/lib.rs#L797",
+          "line": 816,
+          "url": "/code/pallets/proxy/src/lib.rs#L816",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -2397,8 +2397,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 163,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L163",
+          "line": 164,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L164",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2579,8 +2579,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 318,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L318",
+          "line": 339,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L339",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2606,8 +2606,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 160,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L160",
+          "line": 161,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L161",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -2803,8 +2803,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 336,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L336",
+          "line": 357,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L357",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3063,8 +3063,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 169,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L169",
+          "line": 170,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L170",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -3423,8 +3423,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 789,
-          "url": "/code/pallets/proxy/src/lib.rs#L789",
+          "line": 808,
+          "url": "/code/pallets/proxy/src/lib.rs#L808",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -3441,8 +3441,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 793,
-          "url": "/code/pallets/proxy/src/lib.rs#L793",
+          "line": 812,
+          "url": "/code/pallets/proxy/src/lib.rs#L812",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -3713,8 +3713,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 781,
-          "url": "/code/pallets/proxy/src/lib.rs#L781",
+          "line": 800,
+          "url": "/code/pallets/proxy/src/lib.rs#L800",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -3767,8 +3767,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 783,
-          "url": "/code/pallets/proxy/src/lib.rs#L783",
+          "line": 802,
+          "url": "/code/pallets/proxy/src/lib.rs#L802",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -3857,8 +3857,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 320,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L320",
+          "line": 341,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L341",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3875,8 +3875,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 322,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L322",
+          "line": 343,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L343",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3893,8 +3893,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 324,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L324",
+          "line": 345,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L345",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3911,8 +3911,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 334,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L334",
+          "line": 355,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L355",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4009,8 +4009,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 350,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L350",
+          "line": 371,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L371",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4027,8 +4027,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 340,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L340",
+          "line": 361,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L361",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4072,8 +4072,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 326,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L326",
+          "line": 347,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L347",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4090,8 +4090,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 154,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L154",
+          "line": 155,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L155",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4207,8 +4207,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 338,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L338",
+          "line": 359,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L359",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4225,8 +4225,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 344,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L344",
+          "line": 365,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L365",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4270,8 +4270,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 175,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L175",
+          "line": 176,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L176",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4288,8 +4288,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 166,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L166",
+          "line": 167,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L167",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4369,8 +4369,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 332,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L332",
+          "line": 353,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L353",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4791,8 +4791,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 172,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L172",
+          "line": 173,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L173",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4809,8 +4809,8 @@
         {
           "pallet": "Swap",
           "path": "pallets/swap/src/pallet/mod.rs",
-          "line": 178,
-          "url": "/code/pallets/swap/src/pallet/mod.rs#L178",
+          "line": 179,
+          "url": "/code/pallets/swap/src/pallet/mod.rs#L179",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
         }
       ]
@@ -4827,8 +4827,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 330,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L330",
+          "line": 351,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L351",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4954,8 +4954,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 779,
-          "url": "/code/pallets/proxy/src/lib.rs#L779",
+          "line": 798,
+          "url": "/code/pallets/proxy/src/lib.rs#L798",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -5350,8 +5350,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 791,
-          "url": "/code/pallets/proxy/src/lib.rs#L791",
+          "line": 810,
+          "url": "/code/pallets/proxy/src/lib.rs#L810",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -5369,8 +5369,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 328,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L328",
+          "line": 349,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L349",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5459,8 +5459,8 @@
         {
           "pallet": "Proxy",
           "path": "pallets/proxy/src/lib.rs",
-          "line": 785,
-          "url": "/code/pallets/proxy/src/lib.rs#L785",
+          "line": 804,
+          "url": "/code/pallets/proxy/src/lib.rs#L804",
           "raw_url": "/code/raw/pallets/proxy/src/lib.rs"
         }
       ]
@@ -5684,8 +5684,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 359,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L359",
+          "line": 380,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L380",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

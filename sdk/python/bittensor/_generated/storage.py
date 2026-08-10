@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 442
+Spec version: 444
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -252,6 +252,7 @@ class SubtensorModule:
     NetworkRegistrationQueue = Item('SubtensorModule', 'NetworkRegistrationQueue', 'Vec<NetworkRegistrationInfo>')
     NetworkRegistrationLockId = Item('SubtensorModule', 'NetworkRegistrationLockId', 'u32')
     VotingPower = Item('SubtensorModule', 'VotingPower', 'u64')
+    TotalVotingPower = Item('SubtensorModule', 'TotalVotingPower', 'u64')
     VotingPowerTrackingEnabled = Item('SubtensorModule', 'VotingPowerTrackingEnabled', 'bool')
     VotingPowerDisableAtBlock = Item('SubtensorModule', 'VotingPowerDisableAtBlock', 'u64')
     VotingPowerEmaAlpha = Item('SubtensorModule', 'VotingPowerEmaAlpha', 'u64')

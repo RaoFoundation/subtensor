@@ -3287,6 +3287,36 @@ fn registered_subnet_counter_survives_dissolve_and_bumps_on_reregistration() {
 }
 
 #[test]
+fn dissolve_clears_voting_power_state_before_netuid_reuse() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_max_subnets(2);
+
+        let owner_cold = U256::from(100);
+        let owner_hot = U256::from(101);
+        let voter = U256::from(102);
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+
+        VotingPower::<Test>::insert(netuid, voter, 42);
+        TotalVotingPower::<Test>::insert(netuid, 42);
+        VotingPowerTrackingEnabled::<Test>::insert(netuid, true);
+        VotingPowerDisableAtBlock::<Test>::insert(netuid, 123);
+        VotingPowerEmaAlpha::<Test>::insert(netuid, 456);
+
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        run_block_idle();
+
+        let reused_netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        assert_eq!(reused_netuid, netuid);
+        assert_eq!(SubtensorModule::get_total_voting_power(netuid), 0);
+        assert!(!VotingPower::<Test>::contains_key(netuid, voter));
+        assert!(!TotalVotingPower::<Test>::contains_key(netuid));
+        assert!(!VotingPowerTrackingEnabled::<Test>::contains_key(netuid));
+        assert!(!VotingPowerDisableAtBlock::<Test>::contains_key(netuid));
+        assert!(!VotingPowerEmaAlpha::<Test>::contains_key(netuid));
+    });
+}
+
+#[test]
 fn dissolve_async_cleanup_leaves_phase_unset_until_idle_finishes() {
     new_test_ext(0).execute_with(|| {
         let owner_cold = U256::from(910);

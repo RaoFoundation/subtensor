@@ -54,7 +54,6 @@ fn testnet_authorities() -> AuthorityList {
         hex_literal::hex!("ee70f7b52998c2b4f3d42e509e8360cda92b0cd4ca100cd4d32be5a1ac297909"),
         hex_literal::hex!("b57a038c9139a060358f3b654df74a1cb6d15bcdb8438bcebd64ce67ec4301eb"),
         hex_literal::hex!("755f75dfc66aaa3b1e761a8845249509b8bd2fdf0d94cb74e1e12e1e0f4d3519"),
-        hex_literal::hex!("d97a64267f177505b0565a18677c9f5d4284d7f2eb96d515556e7e52217f82e9"),
     ]
     .into_iter()
     .map(|bytes| {
@@ -76,7 +75,7 @@ fn testnet_checkpoints() -> Vec<AuthoritySetHardFork<Block>> {
             hex_literal::hex!("2b001bfdec34d007ab2ac07f712e64d0cb1a6fb4b51f7d47bfb3c7d7336a689b"),
         ),
         (
-            3,
+            2,
             5_534_451,
             hex_literal::hex!("4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"),
         ),
@@ -129,14 +128,14 @@ mod tests {
                 "2b001bfdec34d007ab2ac07f712e64d0cb1a6fb4b51f7d47bfb3c7d7336a689b"
             ))
         );
-        assert_eq!((second.set_id, second.block.1), (3, 5_534_451));
+        assert_eq!((second.set_id, second.block.1), (2, 5_534_451));
         assert_eq!(
             second.block.0,
             H256::from(hex_literal::hex!(
                 "4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"
             ))
         );
-        assert_eq!(first.authorities.len(), 6);
+        assert_eq!(first.authorities.len(), 5);
         assert_eq!(first.authorities, second.authorities);
         let authority_ids: Vec<&[u8]> = first
             .authorities
@@ -149,7 +148,6 @@ mod tests {
             hex_literal::hex!("ee70f7b52998c2b4f3d42e509e8360cda92b0cd4ca100cd4d32be5a1ac297909"),
             hex_literal::hex!("b57a038c9139a060358f3b654df74a1cb6d15bcdb8438bcebd64ce67ec4301eb"),
             hex_literal::hex!("755f75dfc66aaa3b1e761a8845249509b8bd2fdf0d94cb74e1e12e1e0f4d3519"),
-            hex_literal::hex!("d97a64267f177505b0565a18677c9f5d4284d7f2eb96d515556e7e52217f82e9"),
         ];
         let expected_authority_ids = expected_authority_ids
             .iter()

@@ -802,6 +802,7 @@ fn test_do_swap_coldkey_with_no_stake() {
             SubtensorModule::get_total_stake_for_coldkey(&new_coldkey),
             TaoBalance::ZERO
         );
+        assert!(!StakingHotkeys::<Test>::contains_key(new_coldkey));
     });
 }
 

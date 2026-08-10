@@ -8,13 +8,14 @@ use frame_support::{
     traits::{IsSubType, OriginTrait},
     weights::Weight,
 };
+use pallet_commitments::CanCommit;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{
     DispatchInfoOf, Dispatchable, Implication, TransactionExtension, ValidateResult,
 };
 use sp_runtime::{
     impl_tx_ext_default,
-    transaction_validity::{TransactionSource, TransactionValidityError},
+    transaction_validity::{TransactionSource, TransactionValidityError, ValidTransaction},
 };
 use sp_std::marker::PhantomData;
 use subtensor_macros::freeze_struct;
@@ -22,6 +23,7 @@ use subtensor_runtime_common::CustomTransactionError;
 
 type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
 type OriginOf<T> = <T as frame_system::Config>::RuntimeOrigin;
+type CommitmentPolicy<T> = <T as pallet_commitments::Config>::CanCommit;
 
 #[allow(deprecated)]
 impl<T: Config> From<Error<T>> for CustomTransactionError {
@@ -77,17 +79,24 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
     fn check(origin: &OriginOf<T>, call: &CallOf<T>) -> Result<(), Error<T>>
     where
-        T: pallet_shield::Config,
+        T: pallet_commitments::Config + pallet_shield::Config,
         CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>>
             + IsSubType<Call<T>>
+            + IsSubType<pallet_commitments::Call<T>>
             + IsSubType<pallet_shield::Call<T>>,
         OriginOf<T>: OriginTrait<AccountId = T::AccountId>,
+        CommitmentPolicy<T>: CanCommit<T::AccountId, Error = Error<T>>,
     {
         let Some(who) = origin.as_signer() else {
             return Ok(());
         };
 
         CheckColdkeySwap::<T>::check(who, call)?;
+
+        let commitment_call: Option<&pallet_commitments::Call<T>> = call.is_sub_type();
+        if let Some(pallet_commitments::Call::set_commitment { netuid, .. }) = commitment_call {
+            CommitmentPolicy::<T>::validate(*netuid, who)?;
+        }
 
         if let Some(call) = applicable_call(call, CheckWeights::<T>::applies_to) {
             CheckWeights::<T>::check(who, call)?;
@@ -107,15 +116,33 @@ impl<T: Config + Send + Sync + TypeInfo> SubtensorTransactionExtension<T> {
 
         Ok(())
     }
+
+    fn commitment_weight(call: &CallOf<T>) -> Weight
+    where
+        T: pallet_commitments::Config,
+        CallOf<T>: IsSubType<pallet_commitments::Call<T>>,
+    {
+        let commitment_call: Option<&pallet_commitments::Call<T>> = call.is_sub_type();
+        if matches!(
+            commitment_call,
+            Some(pallet_commitments::Call::set_commitment { .. })
+        ) {
+            CommitmentPolicy::<T>::validation_weight()
+        } else {
+            Weight::zero()
+        }
+    }
 }
 
 impl<T> TransactionExtension<CallOf<T>> for SubtensorTransactionExtension<T>
 where
-    T: Config + pallet_shield::Config + Send + Sync + TypeInfo,
+    T: Config + pallet_commitments::Config + pallet_shield::Config + Send + Sync + TypeInfo,
     CallOf<T>: Dispatchable<RuntimeOrigin = OriginOf<T>, Info = DispatchInfo, PostInfo = PostDispatchInfo>
         + IsSubType<Call<T>>
+        + IsSubType<pallet_commitments::Call<T>>
         + IsSubType<pallet_shield::Call<T>>,
     OriginOf<T>: Clone + OriginTrait<AccountId = T::AccountId>,
+    CommitmentPolicy<T>: CanCommit<T::AccountId, Error = Error<T>>,
 {
     const IDENTIFIER: &'static str = "SubtensorTransactionExtension";
 
@@ -131,6 +158,7 @@ where
             .saturating_add(<CheckDelegateTake<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(<CheckServingEndpoints<T> as DE<CallOf<T>>>::weight(call))
             .saturating_add(<CheckEvmKeyAssociation<T> as DE<CallOf<T>>>::weight(call))
+            .saturating_add(Self::commitment_weight(call))
     }
 
     fn validate(
@@ -144,7 +172,17 @@ where
         _source: TransactionSource,
     ) -> ValidateResult<Self::Val, CallOf<T>> {
         Self::check(&origin, call)
-            .map(|()| (Default::default(), (), origin))
+            .map(|()| {
+                let mut validity = ValidTransaction::default();
+                if let Some(who) = origin.as_signer()
+                    && let Some(call) = applicable_call(call, CheckRateLimits::<T>::applies_to)
+                {
+                    validity
+                        .provides
+                        .extend(CheckRateLimits::<T>::provides_tags(who, call));
+                }
+                (validity, (), origin)
+            })
             .map_err(|error| TransactionValidityError::from(CustomTransactionError::from(error)))
     }
 
@@ -204,6 +242,9 @@ mod tests {
                 call,
             ))
             .saturating_add(<CheckEvmKeyAssociation<Test> as DE<RuntimeCall>>::weight(
+                call,
+            ))
+            .saturating_add(SubtensorTransactionExtension::<Test>::commitment_weight(
                 call,
             ))
     }
@@ -279,6 +320,117 @@ mod tests {
     }
 
     #[test]
+    fn validate_rejects_ineligible_metadata_commitment() {
+        new_test_ext(0).execute_with(|| {
+            let netuid = NetUid::from(1);
+            let hotkey = U256::from(1);
+            let coldkey = U256::from(2);
+            let commitment_call = || {
+                RuntimeCall::Commitments(pallet_commitments::Call::set_commitment {
+                    netuid,
+                    info: Box::new(pallet_commitments::CommitmentInfo {
+                        fields: frame_support::BoundedVec::default(),
+                    }),
+                })
+            };
+
+            assert_eq!(
+                validate_signed(hotkey, &commitment_call()).unwrap_err(),
+                CustomTransactionError::SubnetNotExists.into()
+            );
+
+            add_network(netuid, 1, 0);
+            assert_eq!(
+                validate_signed(hotkey, &commitment_call()).unwrap_err(),
+                CustomTransactionError::UidNotFound.into()
+            );
+
+            setup_reserves(
+                netuid,
+                1_000_000_000_000_u64.into(),
+                1_000_000_000_000_u64.into(),
+            );
+            register_ok_neuron(netuid, hotkey, coldkey, 0);
+            assert_ok!(validate_signed(hotkey, &commitment_call()));
+        });
+    }
+
+    #[test]
+    fn timelocked_commits_reject_at_validity_and_conflict_in_pool() {
+        new_test_ext(0).execute_with(|| {
+            let netuid = NetUid::from(1);
+            let hotkey = U256::from(1);
+            let coldkey = U256::from(2);
+
+            add_network(netuid, 1, 0);
+            setup_reserves(
+                netuid,
+                1_000_000_000_000_u64.into(),
+                1_000_000_000_000_u64.into(),
+            );
+            register_ok_neuron(netuid, hotkey, coldkey, 0);
+            SubtensorModule::set_stake_threshold(0);
+            SubtensorModule::set_weights_set_rate_limit(netuid, 100);
+            System::set_block_number(10_u64);
+            let uid = SubtensorModule::get_uid_for_net_and_hotkey(netuid, &hotkey).unwrap();
+            let netuid_index = SubtensorModule::get_mechanism_storage_index(netuid, MechId::MAIN);
+            SubtensorModule::set_last_update_for_uid(netuid_index, uid, 10);
+
+            let call =
+                RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights {
+                    netuid,
+                    mecid: MechId::MAIN,
+                    commit: Default::default(),
+                    reveal_round: 1,
+                    commit_reveal_version: 4,
+                });
+            assert_eq!(
+                validate_signed(hotkey, &call).unwrap_err(),
+                CustomTransactionError::RateLimitExceeded.into()
+            );
+
+            System::set_block_number(200_u64);
+            let first = validate_signed(hotkey, &call).unwrap();
+            let second = validate_signed(hotkey, &call).unwrap();
+            assert_eq!(first.provides.len(), 1);
+            assert_eq!(first.provides, second.provides);
+        });
+    }
+
+    #[test]
+    fn timelocked_commits_with_zero_rate_limit_do_not_conflict_in_pool() {
+        new_test_ext(0).execute_with(|| {
+            let netuid = NetUid::from(1);
+            let hotkey = U256::from(1);
+            let coldkey = U256::from(2);
+
+            add_network(netuid, 1, 0);
+            setup_reserves(
+                netuid,
+                1_000_000_000_000_u64.into(),
+                1_000_000_000_000_u64.into(),
+            );
+            register_ok_neuron(netuid, hotkey, coldkey, 0);
+            SubtensorModule::set_stake_threshold(0);
+            SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+
+            let call =
+                RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights {
+                    netuid,
+                    mecid: MechId::MAIN,
+                    commit: Default::default(),
+                    reveal_round: 1,
+                    commit_reveal_version: 4,
+                });
+
+            let first = validate_signed(hotkey, &call).unwrap();
+            let second = validate_signed(hotkey, &call).unwrap();
+            assert!(first.provides.is_empty());
+            assert!(second.provides.is_empty());
+        });
+    }
+
+    #[test]
     fn weight_matches_top_level_dispatch_extension_checks() {
         new_test_ext(1).execute_with(|| {
             let extension = SubtensorTransactionExtension::<Test>::new();
@@ -292,6 +444,12 @@ mod tests {
                 }),
                 RuntimeCall::SubtensorModule(SubtensorCall::register_network {
                     hotkey: U256::from(9),
+                }),
+                RuntimeCall::Commitments(pallet_commitments::Call::set_commitment {
+                    netuid: NetUid::from(1),
+                    info: Box::new(pallet_commitments::CommitmentInfo {
+                        fields: frame_support::BoundedVec::default(),
+                    }),
                 }),
             ];
 
