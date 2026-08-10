@@ -91,6 +91,8 @@ impl<T: Config> Pallet<T> {
             let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
         }
 
+        T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);
+
         // 2. Remove previous set memberships.
         Uids::<T>::remove(netuid, old_hotkey.clone());
         Self::remove_associated_evm_address(netuid, uid_to_replace);

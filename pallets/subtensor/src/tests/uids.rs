@@ -105,6 +105,13 @@ fn test_replace_neuron() {
         );
         Prometheus::<Test>::insert(netuid, hotkey_account_id, PrometheusInfoOf::default());
         SubtensorModule::set_associated_evm_address(netuid, neuron_uid, evm_address, 1);
+        assert_ok!(Commitments::set_commitment(
+            RuntimeOrigin::signed(hotkey_account_id),
+            netuid,
+            Box::new(CommitmentInfo {
+                fields: BoundedVec::try_from(vec![Data::None]).unwrap(),
+            }),
+        ));
 
         // Replace the neuron.
         SubtensorModule::replace_neuron(netuid, neuron_uid, &new_hotkey_account_id, block_number);
@@ -169,6 +176,10 @@ fn test_replace_neuron() {
         );
         assert_eq!(AssociatedEvmAddress::<Test>::get(netuid, neuron_uid), None);
         assert!(AssociatedUidsByEvmAddress::<Test>::get(netuid, evm_address).is_empty());
+        assert!(
+            Commitments::commitment_of(netuid, hotkey_account_id).is_none(),
+            "deregistered neuron's commitment should be purged"
+        );
     });
 }
 
