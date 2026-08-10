@@ -891,15 +891,25 @@ pub mod pallet {
                 }
             };
 
-            // Version-specific tail. v1 has no linking concept, so it renders nothing
-            // and every v1 message stays byte-identical to what it was before v2
-            // existed. v2 always renders the field, so the two tails can never
-            // collide — and `has_linked_order` is a signed authorisation, which must
-            // therefore be visible in the message a hardware wallet displays.
+            // Version-specific tail, named after the payload field it renders so the
+            // device screen and the struct read the same.
+            //
+            // v1 has no linking concept, so it renders nothing and every v1 message
+            // stays byte-identical to what it was before v2 existed — which matters
+            // for already-signed orders and for the recorded device vectors in
+            // `tests::ledger_vector`. The match is on the version rather than on
+            // `OrderView` for exactly that reason: the view projects v1 to `false`,
+            // which would render a field v1 never had.
+            //
+            // v2 always renders it. `has_linked_order` authorises recording this
+            // order's output for a linked order to spend, so it must be visible in
+            // what the user signs: were it absent, a signature over a readable
+            // non-provider order would transplant onto the same order with the flag
+            // set, and the recomputed message would still match.
             let tail = match order {
                 VersionedOrder::V1(_) => String::new(),
                 VersionedOrder::V2(v2) => {
-                    format!(", records output {}", v2.has_linked_order)
+                    format!(", has-linked-order {}", v2.has_linked_order)
                 }
             };
 

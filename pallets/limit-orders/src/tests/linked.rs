@@ -1137,7 +1137,7 @@ max slippage none, chain 945, partial fills false, signer {signer}",
             ),
         );
         assert!(
-            !rendered.contains("records output"),
+            !rendered.contains("has-linked-order"),
             "v1 has no linking concept and must render no trace of one",
         );
     });
@@ -1152,7 +1152,7 @@ fn v2_rendering_carries_the_provider_flag_and_the_linked_amount() {
         let rendered =
             String::from_utf8(LimitOrders::render_order(&VersionedOrder::V2(plain))).unwrap();
         assert!(rendered.starts_with("TAO.com order v2: Limit buy 1000 on subnet 1, "));
-        assert!(rendered.ends_with(", records output false"));
+        assert!(rendered.ends_with(", has-linked-order false"));
 
         let recorded = OrderV2 {
             has_linked_order: true,
@@ -1160,7 +1160,7 @@ fn v2_rendering_carries_the_provider_flag_and_the_linked_amount() {
         };
         let rendered =
             String::from_utf8(LimitOrders::render_order(&VersionedOrder::V2(recorded))).unwrap();
-        assert!(rendered.ends_with(", records output true"));
+        assert!(rendered.ends_with(", has-linked-order true"));
 
         let linked = base_v2_order(
             OrderType::LimitBuy,

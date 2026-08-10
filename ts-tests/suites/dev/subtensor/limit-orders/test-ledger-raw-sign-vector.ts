@@ -3,6 +3,7 @@ import { Keyring } from "@polkadot/keyring";
 import { hexToU8a, stringToU8a, u8aToHex, u8aWrapBytes } from "@polkadot/util";
 import { blake2AsU8a, ed25519PairFromSeed, ed25519Verify } from "@polkadot/util-crypto";
 import {
+    asV1,
     type Order,
     LEDGER_MAX_SIGN_SIZE,
     buildReadableSignedOrder,
@@ -233,9 +234,7 @@ describeSuite({
                     ["the ASCII hex of the digest", bytes(u8aToHex(digest()).slice(2))],
                 ];
                 for (const [form, message] of rejected) {
-                    expect(ed25519Verify(message, signature, publicKey), `must not verify over ${form}`).toBe(
-                        false
-                    );
+                    expect(ed25519Verify(message, signature, publicKey), `must not verify over ${form}`).toBe(false);
                 }
             },
         });
@@ -244,9 +243,7 @@ describeSuite({
             id: "T06",
             title: "buildReadableSignedOrder emits the device shape for the executable vector",
             test: () => {
-                const signer = new Keyring({ type: "ed25519" }).addFromSeed(
-                    hexToU8a(SOFTWARE_VECTOR.seedHex)
-                );
+                const signer = new Keyring({ type: "ed25519" }).addFromSeed(hexToU8a(SOFTWARE_VECTOR.seedHex));
                 expect(signer.address).toBe(SOFTWARE_ADDRESS);
 
                 // `api` is unused by the readable builder (the payload is rendered from
@@ -267,7 +264,7 @@ describeSuite({
                 // The message the order renders to, the digest it hashes to, and the
                 // signature the helper produced must all match the frozen vector —
                 // i.e. our signing path is byte-for-byte the one a Ledger takes.
-                expect(formatOrderMessage(signed.order.V1)).toBe(EXECUTABLE_MESSAGE);
+                expect(formatOrderMessage(asV1(signed.order))).toBe(EXECUTABLE_MESSAGE);
                 const payload = u8aWrapBytes(bytes(EXECUTABLE_MESSAGE));
                 expect(payload.length).toBeGreaterThan(LEDGER_MAX_SIGN_SIZE);
                 expect(u8aToHex(blake2AsU8a(payload, 256))).toBe(EXECUTABLE_DIGEST);

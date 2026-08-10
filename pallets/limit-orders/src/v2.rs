@@ -163,6 +163,13 @@ impl OrderAmount {
     /// ` ppb of order 0x… output` suffix, so no fixed amount can ever render
     /// identically to a linked one.
     ///
+    /// The fraction is raw parts-per-billion, matching how `fee_rate` and
+    /// `max_slippage` already render in the same message. `Perbill`'s `Debug` would
+    /// give a nicer `25%`, but `Debug` output carries no stability guarantee and this
+    /// string is consensus-critical — every signature would break if upstream changed
+    /// it. Integer-to-decimal is also trivially reproducible in the TS client and the
+    /// Ledger app, which a decimal-percent algorithm is not.
+    ///
     /// The provider id is rendered in full — 64 lowercase hex characters — because a
     /// truncated or descriptive reference would reintroduce exactly the substitution
     /// gap the id exists to close. It is tool-verifiable rather than human-verifiable,
