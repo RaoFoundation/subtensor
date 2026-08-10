@@ -390,6 +390,43 @@ fn test_total_voting_power_tracks_updates_removals_and_swaps() {
     });
 }
 
+#[test]
+fn test_dissolve_clears_voting_power_state_before_netuid_reuse() {
+    new_test_ext(1).execute_with(|| {
+        let f = VotingPowerTestFixture::new();
+        let second_hotkey = U256::from(99);
+        let default_ema_alpha = VotingPowerEmaAlpha::<Test>::get(f.netuid);
+
+        VotingPower::<Test>::insert(f.netuid, f.hotkey, 123);
+        VotingPower::<Test>::insert(f.netuid, second_hotkey, 456);
+        TotalVotingPower::<Test>::insert(f.netuid, 579);
+        VotingPowerTrackingEnabled::<Test>::insert(f.netuid, true);
+        VotingPowerDisableAtBlock::<Test>::insert(f.netuid, 1_000);
+        VotingPowerEmaAlpha::<Test>::insert(f.netuid, MAX_VOTING_POWER_EMA_ALPHA);
+
+        assert_ok!(SubtensorModule::do_dissolve_network(f.netuid));
+        run_block_idle();
+
+        assert!(VotingPower::<Test>::iter_prefix(f.netuid).next().is_none());
+        assert!(!TotalVotingPower::<Test>::contains_key(f.netuid));
+        assert!(!VotingPowerTrackingEnabled::<Test>::contains_key(f.netuid));
+        assert!(!VotingPowerDisableAtBlock::<Test>::contains_key(f.netuid));
+        assert!(!VotingPowerEmaAlpha::<Test>::contains_key(f.netuid));
+
+        SubtensorModule::init_new_network(f.netuid, 10);
+
+        assert_eq!(VotingPower::<Test>::get(f.netuid, f.hotkey), 0);
+        assert_eq!(VotingPower::<Test>::get(f.netuid, second_hotkey), 0);
+        assert_eq!(TotalVotingPower::<Test>::get(f.netuid), 0);
+        assert!(!VotingPowerTrackingEnabled::<Test>::get(f.netuid));
+        assert_eq!(VotingPowerDisableAtBlock::<Test>::get(f.netuid), 0);
+        assert_eq!(
+            VotingPowerEmaAlpha::<Test>::get(f.netuid),
+            default_ema_alpha
+        );
+    });
+}
+
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::voting_power::test_voting_power_cleared_when_deregistered --exact --nocapture
 #[test]
 fn test_voting_power_cleared_when_deregistered() {
