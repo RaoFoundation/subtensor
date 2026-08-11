@@ -122,7 +122,8 @@ via the raw-call escape hatch ([Advanced submission](/docs/concepts/advanced)).
 ## Blocks, time, and waiting
 
 ```python
-await client.block()                       # current block number
+await client.block()                       # current best block number
+await client.finalized_block()             # latest finalized block number
 await client.block_info(123)               # header + extrinsics + timestamp
 async for header in await client.blocks(): ...   # subscribe to new blocks
 
@@ -130,6 +131,11 @@ await client.wait_for_block(1_000_000)
 await client.wait_for_timestamp("2026-08-01T00:00:00Z")
 await client.wait_for_epoch(netuid=1)      # next epoch boundary on a subnet
 ```
+
+`block()` returns the current best chain head, which can be ahead of finality.
+Use `finalized_block()` when work must only act on blocks the connected node
+reports as finalized. In blocking mode these are the `sub.block` and
+`sub.finalized_block` properties; each access performs a fresh chain read.
 
 ## Pinned snapshots
 
