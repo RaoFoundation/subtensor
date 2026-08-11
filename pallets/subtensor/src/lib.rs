@@ -376,6 +376,30 @@ pub mod pallet {
         Recycle,
     }
 
+    /// Selects which consensus values liquid alpha uses.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Default,
+        TypeInfo,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        MaxEncodedLen,
+    )]
+    pub enum ConsensusMode {
+        /// Use consensus calculated in the current epoch.
+        Current,
+        /// Use consensus persisted by the previous epoch.
+        Previous,
+        /// Use previous consensus at maximum bond penalty, otherwise current consensus.
+        #[default]
+        Auto,
+    }
+
     /// Miner registration collateral for a `(hotkey, coldkey)` stake position
     /// on a subnet.
     ///
@@ -1069,6 +1093,12 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultAlphaValues<T: Config>() -> (u16, u16) {
         (45875, 58982)
+    }
+
+    /// Default consensus mode for liquid alpha.
+    #[pallet::type_value]
+    pub fn DefaultConsensusMode<T: Config>() -> ConsensusMode {
+        ConsensusMode::Auto
     }
 
     /// Default value for coldkey swap announcement delay.
@@ -2399,6 +2429,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type AlphaValues<T> =
         StorageMap<_, Identity, NetUid, (u16, u16), ValueQuery, DefaultAlphaValues<T>>;
+
+    /// Consensus mode used by liquid alpha for each subnet.
+    #[pallet::storage]
+    pub type LiquidAlphaConsensusMode<T> =
+        StorageMap<_, Identity, NetUid, ConsensusMode, ValueQuery, DefaultConsensusMode<T>>;
 
     /// MAP ( netuid ) --> If subtoken trading enabled
     #[pallet::storage]

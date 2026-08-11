@@ -790,5 +790,9 @@ mod events {
             /// The new floor; zero clears it.
             min_locked: AlphaBalance,
         },
+
+        /// A subnet's liquid-alpha consensus mode was updated.
+        /// Appended to preserve existing SCALE event indices.
+        LiquidAlphaConsensusModeSet(NetUid, ConsensusMode),
     }
 }

@@ -30,7 +30,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use pallet_evm_chain_id::{self, ChainId};
     use pallet_subtensor::{
-        DefaultMaxAllowedUids,
+        ConsensusMode, DefaultMaxAllowedUids,
         utils::rate_limiting::{Hyperparameter, TransactionType},
     };
     use sp_runtime::{BoundedVec, PerU16};
@@ -1338,6 +1338,29 @@ pub mod pallet {
                 );
             }
             res
+        }
+
+        /// Sets which consensus values liquid alpha uses for a subnet.
+        #[pallet::call_index(104)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_alpha_values())]
+        pub fn sudo_set_liquid_alpha_consensus_mode(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mode: ConsensusMode,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::LiquidAlphaConsensusMode.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::set_liquid_alpha_consensus_mode(netuid, mode);
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::LiquidAlphaConsensusMode.into()],
+            );
+            Ok(())
         }
 
         /// Sets the duration of the dissolve network schedule.

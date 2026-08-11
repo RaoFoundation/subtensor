@@ -492,6 +492,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         LiquidAlphaOn::<Test>::insert(net, true);
         Yuma3On::<Test>::insert(net, true);
         AlphaValues::<Test>::insert(net, (1u16, 2u16));
+        LiquidAlphaConsensusMode::<Test>::insert(net, ConsensusMode::Previous);
         SubtokenEnabled::<Test>::insert(net, true);
         OwnerCutAutoLockEnabled::<Test>::insert(net, true);
         ImmuneOwnerUidsLimit::<Test>::insert(net, 1u16);
@@ -651,6 +652,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!LiquidAlphaOn::<Test>::contains_key(net));
         assert!(!Yuma3On::<Test>::contains_key(net));
         assert!(!AlphaValues::<Test>::contains_key(net));
+        assert!(!LiquidAlphaConsensusMode::<Test>::contains_key(net));
         assert!(!SubtokenEnabled::<Test>::contains_key(net));
         assert!(!OwnerCutAutoLockEnabled::<Test>::contains_key(net));
         assert!(!ImmuneOwnerUidsLimit::<Test>::contains_key(net));

@@ -517,6 +517,20 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_liquid_alpha_consensus_mode() {
+        let netuid = NetUid::from(1);
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(netuid, 1u16);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            netuid,
+            pallet_subtensor::ConsensusMode::Previous,
+        );
+    }
+
+    #[benchmark]
     fn sudo_set_coldkey_swap_announcement_delay() {
         #[extrinsic_call]
         _(RawOrigin::Root, 100u32.into());

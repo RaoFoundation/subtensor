@@ -1,4 +1,5 @@
 use crate::{Error, pallet::PrecompileEnable};
+use codec::Encode;
 use frame_support::{
     assert_err, assert_noop, assert_ok,
     dispatch::{DispatchClass, GetDispatchInfo, Pays},
@@ -1346,6 +1347,77 @@ fn test_sudo_set_liquid_alpha_enabled() {
 
         assert_eq!(enabled, SubtensorModule::get_liquid_alpha_enabled(netuid));
     });
+}
+
+#[test]
+fn test_sudo_set_liquid_alpha_consensus_mode() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        NetworksAdded::<Test>::insert(netuid, true);
+        assert_eq!(
+            SubtensorModule::get_liquid_alpha_consensus_mode(netuid),
+            ConsensusMode::Auto
+        );
+
+        assert_err!(
+            AdminUtils::sudo_set_liquid_alpha_consensus_mode(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                netuid,
+                ConsensusMode::Previous,
+            ),
+            DispatchError::BadOrigin
+        );
+
+        for mode in [
+            ConsensusMode::Current,
+            ConsensusMode::Previous,
+            ConsensusMode::Auto,
+        ] {
+            assert_ok!(AdminUtils::sudo_set_liquid_alpha_consensus_mode(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                netuid,
+                mode,
+            ));
+            assert_eq!(
+                SubtensorModule::get_liquid_alpha_consensus_mode(netuid),
+                mode
+            );
+            frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::SubtensorModule(
+                Event::LiquidAlphaConsensusModeSet(netuid, mode),
+            ));
+        }
+    });
+}
+
+#[test]
+fn test_subnet_owner_can_set_liquid_alpha_consensus_mode() {
+    new_test_ext().execute_with(|| {
+        let netuid = NetUid::from(1);
+        let owner = U256::from(10);
+        add_network(netuid, 10);
+        SubnetOwner::<Test>::insert(netuid, owner);
+        SubtensorModule::set_admin_freeze_window(0);
+
+        assert_ok!(AdminUtils::sudo_set_liquid_alpha_consensus_mode(
+            <<Test as Config>::RuntimeOrigin>::signed(owner),
+            netuid,
+            ConsensusMode::Previous,
+        ));
+        assert_eq!(
+            SubtensorModule::get_liquid_alpha_consensus_mode(netuid),
+            ConsensusMode::Previous
+        );
+    });
+}
+
+#[test]
+fn regression_liquid_alpha_consensus_mode_call_index() {
+    let call = crate::Call::<Test>::sudo_set_liquid_alpha_consensus_mode {
+        netuid: NetUid::from(1),
+        mode: ConsensusMode::Auto,
+    };
+
+    assert_eq!(call.encode()[0], 104);
 }
 
 #[test]

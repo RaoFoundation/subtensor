@@ -8,6 +8,7 @@
 use std::time::Instant;
 
 use approx::assert_abs_diff_eq;
+use codec::Encode;
 use frame_support::{assert_err, assert_ok};
 use rand::{RngExt, SeedableRng, distr::Uniform, rngs::StdRng, seq::SliceRandom};
 use sp_core::{Get, U256};
@@ -3613,6 +3614,178 @@ fn test_liquid_alpha_equal_values_against_itself() {
             epsilon,
         );
     });
+}
+
+#[test]
+fn test_liquid_alpha_consensus_modes() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let current = vec_to_fixed(&[0.3, 0.2, 0.1, 0.4]);
+        let previous = vec![
+            PerU16::from_parts(u16::MAX / 10),
+            PerU16::from_parts(u16::MAX / 5),
+            PerU16::from_parts(u16::MAX / 3),
+        ];
+        Consensus::<Test>::insert(netuid, previous);
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Current);
+        assert_eq!(
+            SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current),
+            current
+        );
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Previous);
+        let selected = SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current);
+        assert_eq!(selected.len(), current.len());
+        assert_eq!(selected[3], I32F32::from_num(0));
+        assert_ne!(selected, current);
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Auto);
+        SubtensorModule::set_bonds_penalty(netuid, u16::MAX / 2);
+        assert_eq!(
+            SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current),
+            current
+        );
+        SubtensorModule::set_bonds_penalty(netuid, u16::MAX);
+        assert_eq!(
+            SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current),
+            selected
+        );
+
+        Consensus::<Test>::remove(netuid);
+        assert_eq!(
+            SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current),
+            current
+        );
+    });
+}
+
+#[test]
+fn test_compute_bonds_uses_selected_consensus() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(2);
+        let weights = vec_to_mat_fixed(
+            &[0., 0.1, 0., 0., 0.2, 0.4, 0., 0.3, 0.1, 0., 0.4, 0.5],
+            4,
+            false,
+        );
+        let bonds = vec_to_mat_fixed(
+            &[0.1, 0.1, 0.5, 0., 0., 0.4, 0.5, 0.1, 0.1, 0., 0.4, 0.2],
+            4,
+            false,
+        );
+        let current = vec_to_fixed(&[0.3, 0.2, 0.1, 0.4]);
+        Consensus::<Test>::insert(
+            netuid,
+            [6553, 13107, 19660, 26214].map(PerU16::from_parts).to_vec(),
+        );
+        SubtensorModule::set_liquid_alpha_enabled(netuid, true);
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Current);
+        let current_bonds = SubtensorModule::compute_bonds(netuid, &weights, &bonds, &current);
+        let legacy_alphas =
+            SubtensorModule::compute_liquid_alpha_values(netuid, &weights, &bonds, &current);
+        let legacy_bonds = crate::epoch::math::mat_ema_alpha(&weights, &bonds, &legacy_alphas);
+        assert_eq!(current_bonds, legacy_bonds);
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Previous);
+        let previous_bonds = SubtensorModule::compute_bonds(netuid, &weights, &bonds, &current);
+        assert_ne!(current_bonds, previous_bonds);
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Auto);
+        SubtensorModule::set_bonds_penalty(netuid, u16::MAX / 2);
+        assert_eq!(
+            SubtensorModule::compute_bonds(netuid, &weights, &bonds, &current),
+            current_bonds
+        );
+        SubtensorModule::set_bonds_penalty(netuid, u16::MAX);
+        assert_eq!(
+            SubtensorModule::compute_bonds(netuid, &weights, &bonds, &current),
+            previous_bonds
+        );
+    });
+}
+
+#[test]
+fn test_compute_bonds_sparse_uses_selected_consensus() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(2);
+        add_network(netuid, 10, 0);
+        let dense_weights = vec_to_mat_fixed(
+            &[0., 0.1, 0., 0., 0.2, 0.4, 0., 0.3, 0.1, 0., 0.4, 0.5],
+            4,
+            false,
+        );
+        let dense_bonds = vec_to_mat_fixed(
+            &[0.1, 0.1, 0.5, 0., 0., 0.4, 0.5, 0.1, 0.1, 0., 0.4, 0.2],
+            4,
+            false,
+        );
+        let to_sparse = |matrix: &[Vec<I32F32>]| {
+            matrix
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .copied()
+                        .enumerate()
+                        .filter(|(_, value)| *value != I32F32::from_num(0))
+                        .map(|(column, value)| (column as u16, value))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        let weights = to_sparse(&dense_weights);
+        let bonds = to_sparse(&dense_bonds);
+        let current = vec_to_fixed(&[0.3, 0.2, 0.1, 0.4]);
+        Consensus::<Test>::insert(
+            netuid,
+            [6553, 13107, 19660, 26214].map(PerU16::from_parts).to_vec(),
+        );
+        SubtensorModule::set_liquid_alpha_enabled(netuid, true);
+        let netuid_index = NetUidStorageIndex::from(netuid);
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Current);
+        let current_bonds =
+            SubtensorModule::compute_bonds_sparse(netuid_index, &weights, &bonds, &current);
+        let legacy_alphas =
+            SubtensorModule::compute_liquid_alpha_values_sparse(netuid, &weights, &bonds, &current);
+        let legacy_bonds =
+            crate::epoch::math::mat_ema_alpha_sparse(&weights, &bonds, &legacy_alphas);
+        assert_eq!(current_bonds, legacy_bonds);
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Previous);
+        let previous_bonds =
+            SubtensorModule::compute_bonds_sparse(netuid_index, &weights, &bonds, &current);
+        assert_ne!(current_bonds, previous_bonds);
+
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Auto);
+        SubtensorModule::set_bonds_penalty(netuid, u16::MAX / 2);
+        assert_eq!(
+            SubtensorModule::compute_bonds_sparse(netuid_index, &weights, &bonds, &current),
+            current_bonds
+        );
+        SubtensorModule::set_bonds_penalty(netuid, u16::MAX);
+        assert_eq!(
+            SubtensorModule::compute_bonds_sparse(netuid_index, &weights, &bonds, &current),
+            previous_bonds
+        );
+    });
+}
+
+#[test]
+fn regression_liquid_alpha_event_indices_are_append_only() {
+    let netuid = NetUid::from(1);
+    let prior_tail = Event::<Test>::MinCollateralSet {
+        netuid,
+        hotkey: U256::from(1),
+        min_locked: AlphaBalance::from(1),
+    }
+    .encode();
+    let consensus_mode =
+        Event::<Test>::LiquidAlphaConsensusModeSet(netuid, ConsensusMode::Auto).encode();
+
+    assert_eq!(prior_tail[0], 145);
+    assert_eq!(consensus_mode[0], 146);
 }
 
 #[test]

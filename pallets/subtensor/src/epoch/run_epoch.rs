@@ -1343,9 +1343,8 @@ impl<T: Config> Pallet<T> {
                 .iter()
                 .any(|&c| c != I32F32::saturating_from_num(0))
         {
-            // Liquid Alpha is enabled, compute the liquid alphas matrix.
-            let alphas: Vec<Vec<I32F32>> =
-                Self::compute_liquid_alpha_values(netuid, weights, bonds, consensus);
+            let consensus = Self::compute_consensus_for_liquid_alpha(netuid, consensus);
+            let alphas = Self::compute_liquid_alpha_values(netuid, weights, bonds, &consensus);
             log::trace!("alphas: {:?}", &alphas);
 
             // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
@@ -1385,9 +1384,9 @@ impl<T: Config> Pallet<T> {
                 .iter()
                 .any(|&c| c != I32F32::saturating_from_num(0))
         {
-            // Liquid Alpha is enabled, compute the liquid alphas matrix.
-            let alphas: Vec<Vec<I32F32>> =
-                Self::compute_liquid_alpha_values_sparse(netuid, weights, bonds, consensus);
+            let consensus = Self::compute_consensus_for_liquid_alpha(netuid, consensus);
+            let alphas =
+                Self::compute_liquid_alpha_values_sparse(netuid, weights, bonds, &consensus);
             log::trace!("alphas: {:?}", &alphas);
 
             // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
@@ -1399,6 +1398,37 @@ impl<T: Config> Pallet<T> {
             // Compute the Exponential Moving Average (EMA) of bonds using the calculated alpha value.
             mat_ema_sparse(weights, bonds, alpha)
         }
+    }
+
+    pub(crate) fn compute_consensus_for_liquid_alpha(
+        netuid: NetUid,
+        current: &[I32F32],
+    ) -> Vec<I32F32> {
+        let use_previous = match Self::get_liquid_alpha_consensus_mode(netuid) {
+            ConsensusMode::Current => false,
+            ConsensusMode::Previous => true,
+            ConsensusMode::Auto => Self::get_bonds_penalty(netuid) == u16::MAX,
+        };
+
+        if !use_previous {
+            return current.to_vec();
+        }
+
+        let stored = Consensus::<T>::get(netuid);
+        if stored.is_empty() {
+            return current.to_vec();
+        }
+
+        let mut previous: Vec<I32F32> = stored
+            .into_iter()
+            .map(|value| {
+                I32F32::saturating_from_num(value.deconstruct())
+                    .safe_div(I32F32::saturating_from_num(u16::MAX))
+            })
+            .collect();
+        previous.resize(current.len(), I32F32::from_num(0));
+        previous.truncate(current.len());
+        previous
     }
 
     /// Compute liquid alphas matrix

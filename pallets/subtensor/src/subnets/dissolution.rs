@@ -364,6 +364,7 @@ impl<T: Config> Pallet<T> {
         LiquidAlphaOn::<T>::remove(netuid);
         Yuma3On::<T>::remove(netuid);
         AlphaValues::<T>::remove(netuid);
+        LiquidAlphaConsensusMode::<T>::remove(netuid);
         SubtokenEnabled::<T>::remove(netuid);
         OwnerCutAutoLockEnabled::<T>::remove(netuid);
         ImmuneOwnerUidsLimit::<T>::remove(netuid);

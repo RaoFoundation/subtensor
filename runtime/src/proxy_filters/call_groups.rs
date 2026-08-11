@@ -510,6 +510,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_reveal_weights_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_liquid_alpha_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_alpha_values),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_liquid_alpha_consensus_mode),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_reveal_weights_interval),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_toggle_transfer),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_recycle_or_burn),
