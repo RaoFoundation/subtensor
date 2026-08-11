@@ -6,10 +6,9 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V444 Upgrade — Pure Price Emissions',
+  title: 'The V444 Upgrade — EVM, btcli, and Reliability',
   description:
-    'Subnet emission returns to pure price EMA through the emission gate, while v444 ' +
-    'completes the EVM surface, makes btcli safer for multisigs and automation, adds ' +
+    'V444 completes the EVM surface, makes btcli safer for multisigs and automation, adds ' +
     'human-readable Ledger orders, and lands a broad reliability pass.',
   alternates: {canonical: '/releases/v444-upgrade'},
 };
@@ -27,85 +26,21 @@ const page = () => {
         <section className={styles.title_section}>
           <h1 className={styles.paper_title}>The V444 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Pure Price Emissions · August 2026
+            EVM, btcli, and Reliability · August 2026
           </p>
         </section>
 
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            The market signal becomes simple again in spec <strong>444</strong>: a subnet&apos;s
-            share of network emission is determined by its moving price, passed through the emission
-            gate. The share is no longer reduced when a subnet directs miner incentive to an owner
-            or burn hotkey. Recycling and burning still do exactly what the subnet chose locally;
-            they no longer change its standing against every other subnet.
-          </p>
-          <p>
-            The release also makes the chain substantially easier to use from every external
-            surface. Solidity contracts gain 31 functions across five new Bittensor precompiles,
-            plus 135 additions to existing interfaces. A saved multisig now behaves like a wallet
-            throughout <code>btcli</code>. Automated dry runs carry enough information to approve
-            and replay a transaction safely. Ledger users can read the actual fields of a limit
-            order before signing it. Underneath those interfaces, v444 corrects transaction-pool
-            validation, proxy charging, commitment cleanup, storage growth, and GRANDPA finality.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <h2 className={styles.subtitle}>Price is the signal</h2>
-          <p>
-            The emission gate introduced in <DocLink href='/releases/v440-upgrade'>v440</DocLink>{' '}
-            starts with each subnet&apos;s share of price EMA, then suppresses emission below the
-            market-set bar. A second factor had been applied before that gate:{' '}
-            <code>1 − MinerBurned</code>. That meant two subnets with the same demand could receive
-            different cross-network emission solely because one withheld miner incentive for
-            recycling or burning.
-          </p>
-          <Code
-            language='rust'
-            code={`before v444:  s_i = normalize(price_ema_i × (1 − miner_burned_i))
-              e_i ∝ s_i × gate(s_i)
-
-v444:         s_i = normalize(price_ema_i)
-              e_i ∝ s_i × gate(s_i)`}
-          />
-          <p>
-            V444 removes that extra multiplier. The on-chain value remains as an informational
-            measure called <code>MinerBurned</code>. The miner-incentive path still recycles or
-            burns according to the subnet&apos;s configuration. What changes is the boundary between
-            local token policy and network allocation: demand determines how much emission a subnet
-            earns; the subnet determines what it does with the miner portion after that.
-          </p>
-          <table className={styles.metrics_table}>
-            <thead>
-              <tr>
-                <th>Miner incentive policy</th>
-                <th>Effect on subnet&apos;s network share in v444</th>
-                <th>Local effect</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Paid to miners</td>
-                <td>Price EMA through the gate</td>
-                <td>Miner alpha is distributed</td>
-              </tr>
-              <tr>
-                <td>Withheld and recycled</td>
-                <td>Price EMA through the gate</td>
-                <td>Value returns through the recycle path</td>
-              </tr>
-              <tr>
-                <td>Withheld and burned</td>
-                <td>Price EMA through the gate</td>
-                <td>Value is removed by the burn path</td>
-              </tr>
-            </tbody>
-          </table>
-          <p>
-            Subnet teams do not need to change a setting. Forecasting software should remove the
-            miner-burn factor from cross-subnet share calculations and retain it only where it
-            describes the subnet&apos;s own incentive accounting.
+            Spec <strong>444</strong> makes the chain substantially easier to use from every
+            external surface. Solidity contracts gain 31 functions across five new Bittensor
+            precompiles, plus 135 additions to existing interfaces. A saved multisig now behaves
+            like a wallet throughout <code>btcli</code>. Automated dry runs carry enough information
+            to approve and replay a transaction safely. Ledger users can read the actual fields of a
+            limit order before signing it. Underneath those interfaces, v444 recycles transaction
+            fees and corrects transaction-pool validation, proxy charging, commitment cleanup,
+            storage growth, and GRANDPA finality.
           </p>
         </section>
 
@@ -378,11 +313,6 @@ partial fills <true|false>, signer <ss58>`}
         <section className={styles.section}>
           <h2 className={styles.subtitle}>What to do</h2>
           <ul className={styles.list}>
-            <li>
-              <strong>Subnet teams and analysts:</strong> remove <code>1 − MinerBurned</code> from
-              cross-subnet emission forecasts. The emission gate remains active and miner recycling
-              or burning remains a local policy.
-            </li>
             <li>
               <strong>EVM integrators:</strong> refresh the complete canonical ABI set before using
               v444 selectors. Add <code>0x…080f</code> through <code>0x…0813</code> only from the

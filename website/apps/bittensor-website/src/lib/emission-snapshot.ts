@@ -6,11 +6,13 @@ export type SubnetEmissionRow = {
   name: string;
   spotPrice: number;
   emaPrice: number;
+  minerBurned: number;
   emissionEnabled: boolean;
   taoIn: number;
   alphaIn: number;
   alphaOut: number;
   demandShare: number;
+  burnAdjustedShare: number;
   gateFactor: number;
   taoShare: number;
   taoPerBlock: number;
@@ -19,6 +21,7 @@ export type SubnetEmissionRow = {
 export type EmissionInput = {
   netuid: number;
   emaPrice: number;
+  minerBurned: number;
   emissionEnabled: boolean;
 };
 
@@ -26,7 +29,7 @@ export type EmissionSnapshot = {
   fetchedAt: string;
   network: string;
   chainSpecVersion: number;
-  emissionMode: 'v444_price_ema_hill_gate' | string;
+  emissionMode: 'price_ema_miner_burn_hill_gate' | string;
   emissionGateSource: 'chain_storage' | 'v444_defaults_recomputed';
   blockEmissionTao: number;
   totalIssuanceTao: number;

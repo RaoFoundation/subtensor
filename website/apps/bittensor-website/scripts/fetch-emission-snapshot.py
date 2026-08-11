@@ -1,12 +1,12 @@
 """Refresh public/catalog/emission-snapshot.json from TaoMarketCap + Finney.
 
 Subnet prices and EMA sums use TMC's public API. Eligibility, emission-enabled
-flags, total issuance, and root pool TAO come from Finney storage. The output
-models the v444 pure-price EMA allocation and Hill gate. On spec 444 or later,
-the gate settings and cadence-held midpoint come from chain storage. Before the
-upgrade, the output previews the first v444 calculation with the upgrade
-defaults. It does not use the deprecated ``BlockEmission`` or ``MinerBurned``
-storage items.
+flags, MinerBurned proportions, total issuance, and root pool TAO come from
+Finney storage. The output models price EMA with miner-burn scaling and the
+Hill gate. On spec 444 or later, the gate settings and cadence-held midpoint
+come from chain storage. Before the upgrade, the output previews the v444 gate
+settings while retaining miner-burn scaling. It does not use the deprecated
+``BlockEmission`` storage item.
 
 Usage (from bittensor-website/, with the bittensor SDK venv active):
 
@@ -44,6 +44,15 @@ def fixed_u64f64_num(value) -> float:
         return int(value["bits"]) / 2**64
     if isinstance(value, int):
         return value / 2**64
+    return float(value)
+
+
+def fixed_u96f32_num(value) -> float:
+    """Convert the SDK's U96F32 representation to a float."""
+    if isinstance(value, dict) and "bits" in value:
+        return int(value["bits"]) / 2**32
+    if isinstance(value, int):
+        return value / 2**32
     return float(value)
 
 
@@ -99,7 +108,7 @@ def subnet_name(row: dict) -> str:
     return identities.get("subnetName") or f"SN{row['netuid']}"
 
 
-def row_from_tmc(row: dict, emission_enabled: bool) -> dict:
+def row_from_tmc(row: dict, emission_enabled: bool, miner_burned: float) -> dict:
     snap = row.get("latest_snapshot") or {}
     netuid = int(row["netuid"])
     spot = tmc_num(snap.get("price"))
@@ -112,6 +121,7 @@ def row_from_tmc(row: dict, emission_enabled: bool) -> dict:
         "name": subnet_name(row),
         "spotPrice": round(spot, 6),
         "emaPrice": round(ema, 6),
+        "minerBurned": round(min(max(miner_burned, 0.0), 1.0), 8),
         "emissionEnabled": emission_enabled,
         "taoIn": round(tao_in, 2),
         "alphaIn": round(alpha_in, 2),
@@ -140,17 +150,19 @@ async def chain_fields(client: bt.Client, netuids: list[int]) -> dict:
     root_tao = int(await view.query(st.SubtensorModule.SubnetTAO, [0]))
     tao_weight_raw = int(await view.query(st.SubtensorModule.TaoWeight))
 
-    async def subnet_flags(netuid: int) -> tuple[int, dict[str, bool]]:
+    async def subnet_flags(netuid: int) -> tuple[int, dict[str, bool | float]]:
         (
             first_emission,
             subtoken_enabled,
             registration_allowed,
             emission_enabled,
+            miner_burned,
         ) = await asyncio.gather(
             view.query(st.SubtensorModule.FirstEmissionBlockNumber, [netuid]),
             view.query(st.SubtensorModule.SubtokenEnabled, [netuid]),
             view.query(st.SubtensorModule.NetworkRegistrationAllowed, [netuid]),
             view.query(st.SubtensorModule.SubnetEmissionEnabled, [netuid]),
+            view.query(st.SubtensorModule.MinerBurned, [netuid]),
         )
         return netuid, {
             "eligible": (
@@ -159,6 +171,7 @@ async def chain_fields(client: bt.Client, netuids: list[int]) -> dict:
                 and bool(registration_allowed)
             ),
             "emissionEnabled": bool(emission_enabled),
+            "minerBurned": fixed_u96f32_num(miner_burned),
         }
 
     flags = dict(await asyncio.gather(*(subnet_flags(netuid) for netuid in netuids)))
@@ -219,18 +232,28 @@ def apply_shares(
     gate_bar: float | None = None,
     gate_exponent: float = DEFAULT_EMISSION_GATE_EXPONENT,
 ) -> float:
-    """Apply v444 pure-price demand shares, the Hill gate, and enable flags."""
+    """Apply price shares, miner-burn scaling, the Hill gate, and enable flags."""
     price_sum = sum(max(subnet["emaPrice"], 0.0) for subnet in subnets)
     demand_shares = [
         max(subnet["emaPrice"], 0.0) / price_sum if price_sum > 0 else 0.0
         for subnet in subnets
     ]
+    burn_weights = [
+        share * (1.0 - min(max(subnet["minerBurned"], 0.0), 1.0))
+        for subnet, share in zip(subnets, demand_shares)
+    ]
+    burn_weight_sum = sum(burn_weights)
+    burn_adjusted_shares = (
+        [weight / burn_weight_sum for weight in burn_weights]
+        if burn_weight_sum > 0
+        else demand_shares
+    )
     if gate_bar is None:
-        gate_bar = select_emission_gate_bar(demand_shares)
+        gate_bar = select_emission_gate_bar(burn_adjusted_shares)
 
     gate_factors = []
     gated_weights = []
-    for share in demand_shares:
+    for share in burn_adjusted_shares:
         gate = (
             1.0 / (1.0 + (gate_bar / share) ** gate_exponent)
             if share > 0 and gate_bar > 0
@@ -240,15 +263,15 @@ def apply_shares(
         gated_weights.append(share * gate)
 
     if sum(gated_weights) == 0:
-        gated_weights = demand_shares
+        gated_weights = burn_adjusted_shares
 
     enabled_total = sum(
         weight
         for subnet, weight in zip(subnets, gated_weights)
         if subnet["emissionEnabled"]
     )
-    for subnet, demand_share, gate, weight in zip(
-        subnets, demand_shares, gate_factors, gated_weights
+    for subnet, demand_share, burn_adjusted_share, gate, weight in zip(
+        subnets, demand_shares, burn_adjusted_shares, gate_factors, gated_weights
     ):
         share = (
             weight / enabled_total
@@ -256,6 +279,7 @@ def apply_shares(
             else 0.0
         )
         subnet["demandShare"] = round(demand_share, 8)
+        subnet["burnAdjustedShare"] = round(burn_adjusted_share, 8)
         subnet["gateFactor"] = round(gate, 8)
         subnet["taoShare"] = round(share, 8)
         subnet["taoPerBlock"] = round(block_emission * share, 8)
@@ -283,6 +307,7 @@ async def build_snapshot() -> dict:
         row_from_tmc(
             row,
             chain["subnetFlags"][int(row["netuid"])]["emissionEnabled"],
+            chain["subnetFlags"][int(row["netuid"])]["minerBurned"],
         )
         for row in eligible_rows
     ]
@@ -312,7 +337,7 @@ async def build_snapshot() -> dict:
         "fetchedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "network": "finney",
         "chainSpecVersion": chain["specVersion"],
-        "emissionMode": "v444_price_ema_hill_gate",
+        "emissionMode": "price_ema_miner_burn_hill_gate",
         "emissionGateSource": gate["source"],
         "dataSource": {
             "subnets": "taomarketcap.com",
@@ -334,6 +359,7 @@ async def build_snapshot() -> dict:
             {
                 "netuid": subnet["netuid"],
                 "emaPrice": subnet["emaPrice"],
+                "minerBurned": subnet["minerBurned"],
                 "emissionEnabled": subnet["emissionEnabled"],
             }
             for subnet in subnets

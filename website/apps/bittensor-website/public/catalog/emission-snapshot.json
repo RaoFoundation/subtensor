@@ -1,8 +1,8 @@
 {
-  "fetchedAt": "2026-08-10T19:50:58.619291Z",
+  "fetchedAt": "2026-08-11T16:37:11.729288Z",
   "network": "finney",
   "chainSpecVersion": 443,
-  "emissionMode": "v444_price_ema_hill_gate",
+  "emissionMode": "price_ema_miner_burn_hill_gate",
   "emissionGateSource": "v444_defaults_recomputed",
   "dataSource": {
     "subnets": "taomarketcap.com",
@@ -10,835 +10,988 @@
     "tmcEndpoint": "https://api.taomarketcap.com/public/v1/subnets/"
   },
   "blockEmissionTao": 0.5,
-  "totalIssuanceTao": 11219409.114,
-  "totalIssuanceRao": 11219409114200811,
-  "rootTao": 5413546.52,
-  "emaPriceSum": 1.3084,
+  "totalIssuanceTao": 11222524.602,
+  "totalIssuanceRao": 11222524602355523,
+  "rootTao": 5411665.86,
+  "emaPriceSum": 1.3036,
   "rootDividendGateOpen": true,
   "taoWeight": 0.18,
   "emissionGateRank": 32,
   "emissionGateQuantile": 0.61,
   "emissionGateExponent": 3.0,
-  "emissionGateBar": 0.00733118,
+  "emissionGateBar": 0.00794042,
   "emissionInputs": [
     {
       "netuid": 1,
-      "emaPrice": 0.008054,
+      "emaPrice": 0.008041,
+      "minerBurned": 0.52743466,
       "emissionEnabled": true
     },
     {
       "netuid": 2,
-      "emaPrice": 0.004216,
+      "emaPrice": 0.004181,
+      "minerBurned": 0.82661404,
       "emissionEnabled": true
     },
     {
       "netuid": 3,
-      "emaPrice": 0.02563,
+      "emaPrice": 0.025466,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 4,
-      "emaPrice": 0.057038,
+      "emaPrice": 0.056618,
+      "minerBurned": 0.07230859,
       "emissionEnabled": true
     },
     {
       "netuid": 5,
-      "emaPrice": 0.013702,
+      "emaPrice": 0.013659,
+      "minerBurned": 0.42237093,
       "emissionEnabled": true
     },
     {
       "netuid": 6,
-      "emaPrice": 0.002964,
+      "emaPrice": 0.003066,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 7,
-      "emaPrice": 0.003321,
+      "emaPrice": 0.003367,
+      "minerBurned": 0.90417399,
       "emissionEnabled": true
     },
     {
       "netuid": 8,
-      "emaPrice": 0.029832,
+      "emaPrice": 0.029893,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 9,
-      "emaPrice": 0.033401,
+      "emaPrice": 0.033205,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 10,
-      "emaPrice": 0.006398,
+      "emaPrice": 0.006447,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 11,
-      "emaPrice": 0.007657,
+      "emaPrice": 0.007319,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 12,
-      "emaPrice": 0.004999,
+      "emaPrice": 0.004997,
+      "minerBurned": 0.99407092,
       "emissionEnabled": false
     },
     {
       "netuid": 13,
-      "emaPrice": 0.006294,
+      "emaPrice": 0.006284,
+      "minerBurned": 0.70894014,
       "emissionEnabled": true
     },
     {
       "netuid": 14,
-      "emaPrice": 0.010195,
+      "emaPrice": 0.010257,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 15,
-      "emaPrice": 0.021038,
+      "emaPrice": 0.022328,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 16,
-      "emaPrice": 0.003094,
+      "emaPrice": 0.002972,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     },
     {
       "netuid": 17,
-      "emaPrice": 0.009592,
+      "emaPrice": 0.009435,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 18,
-      "emaPrice": 0.00515,
+      "emaPrice": 0.005063,
+      "minerBurned": 0.04716244,
       "emissionEnabled": true
     },
     {
       "netuid": 19,
-      "emaPrice": 0.010228,
+      "emaPrice": 0.010212,
+      "minerBurned": 0.38279278,
       "emissionEnabled": true
     },
     {
       "netuid": 20,
-      "emaPrice": 0.002892,
+      "emaPrice": 0.002888,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 21,
-      "emaPrice": 0.003186,
+      "emaPrice": 0.00317,
+      "minerBurned": 0.45150375,
       "emissionEnabled": true
     },
     {
       "netuid": 22,
-      "emaPrice": 0.003353,
+      "emaPrice": 0.003352,
+      "minerBurned": 0.52455545,
       "emissionEnabled": true
     },
     {
       "netuid": 23,
-      "emaPrice": 0.004562,
+      "emaPrice": 0.00455,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 24,
-      "emaPrice": 0.004405,
+      "emaPrice": 0.004442,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 25,
-      "emaPrice": 0.010332,
+      "emaPrice": 0.010057,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 26,
-      "emaPrice": 0.004317,
+      "emaPrice": 0.004172,
+      "minerBurned": 0.5016723,
       "emissionEnabled": false
     },
     {
       "netuid": 27,
-      "emaPrice": 0.002477,
+      "emaPrice": 0.002441,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 28,
-      "emaPrice": 0.016706,
+      "emaPrice": 0.016987,
+      "minerBurned": 0.10477993,
       "emissionEnabled": true
     },
     {
       "netuid": 29,
       "emaPrice": 0.003131,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     },
     {
       "netuid": 30,
-      "emaPrice": 0.004021,
+      "emaPrice": 0.004025,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 31,
-      "emaPrice": 0.005064,
+      "emaPrice": 0.004764,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 32,
-      "emaPrice": 0.003187,
+      "emaPrice": 0.003171,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 33,
-      "emaPrice": 0.005635,
+      "emaPrice": 0.005672,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 34,
       "emaPrice": 0.012238,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 35,
-      "emaPrice": 0.002785,
+      "emaPrice": 0.002724,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 36,
-      "emaPrice": 0.00167,
+      "emaPrice": 0.001521,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 37,
-      "emaPrice": 0.003596,
+      "emaPrice": 0.00366,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 38,
-      "emaPrice": 0.011619,
+      "emaPrice": 0.011583,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 39,
-      "emaPrice": 0.006459,
+      "emaPrice": 0.006456,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 40,
-      "emaPrice": 0.006692,
+      "emaPrice": 0.006581,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 41,
-      "emaPrice": 0.005026,
+      "emaPrice": 0.005016,
+      "minerBurned": 0.72833058,
       "emissionEnabled": true
     },
     {
       "netuid": 42,
-      "emaPrice": 0.002774,
+      "emaPrice": 0.002767,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 43,
-      "emaPrice": 0.005369,
+      "emaPrice": 0.005353,
+      "minerBurned": 0.79643628,
       "emissionEnabled": false
     },
     {
       "netuid": 44,
-      "emaPrice": 0.042633,
+      "emaPrice": 0.041827,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 45,
-      "emaPrice": 0.002634,
+      "emaPrice": 0.002625,
+      "minerBurned": 0.68900336,
       "emissionEnabled": false
     },
     {
       "netuid": 46,
-      "emaPrice": 0.004547,
+      "emaPrice": 0.004772,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 47,
-      "emaPrice": 0.002858,
+      "emaPrice": 0.002951,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 48,
-      "emaPrice": 0.004478,
+      "emaPrice": 0.004481,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 49,
-      "emaPrice": 0.007034,
+      "emaPrice": 0.00701,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 50,
-      "emaPrice": 0.004823,
+      "emaPrice": 0.004831,
+      "minerBurned": 1.08e-06,
       "emissionEnabled": true
     },
     {
       "netuid": 51,
-      "emaPrice": 0.073255,
+      "emaPrice": 0.073811,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 52,
-      "emaPrice": 0.00678,
+      "emaPrice": 0.00676,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 53,
-      "emaPrice": 0.03318,
+      "emaPrice": 0.031652,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 54,
-      "emaPrice": 0.004743,
+      "emaPrice": 0.004638,
+      "minerBurned": 0.30939764,
       "emissionEnabled": true
     },
     {
       "netuid": 55,
-      "emaPrice": 0.002857,
+      "emaPrice": 0.002796,
+      "minerBurned": 0.02000552,
       "emissionEnabled": true
     },
     {
       "netuid": 56,
-      "emaPrice": 0.016981,
+      "emaPrice": 0.017013,
+      "minerBurned": 0.72379724,
       "emissionEnabled": true
     },
     {
       "netuid": 57,
-      "emaPrice": 0.005359,
+      "emaPrice": 0.005288,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 58,
-      "emaPrice": 0.008788,
+      "emaPrice": 0.008798,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 59,
-      "emaPrice": 0.002019,
+      "emaPrice": 0.001975,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 60,
-      "emaPrice": 0.004075,
+      "emaPrice": 0.003998,
+      "minerBurned": 0.5,
       "emissionEnabled": true
     },
     {
       "netuid": 61,
-      "emaPrice": 0.008461,
+      "emaPrice": 0.008466,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 62,
-      "emaPrice": 0.012264,
+      "emaPrice": 0.012144,
+      "minerBurned": 0.13338149,
       "emissionEnabled": true
     },
     {
       "netuid": 63,
-      "emaPrice": 0.008203,
+      "emaPrice": 0.008208,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 64,
-      "emaPrice": 0.086481,
+      "emaPrice": 0.086255,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 65,
-      "emaPrice": 0.002534,
+      "emaPrice": 0.00251,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 66,
-      "emaPrice": 0.003033,
+      "emaPrice": 0.002983,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 67,
-      "emaPrice": 0.006518,
+      "emaPrice": 0.006471,
+      "minerBurned": 0.03652611,
       "emissionEnabled": true
     },
     {
       "netuid": 68,
-      "emaPrice": 0.024419,
+      "emaPrice": 0.024017,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 69,
-      "emaPrice": 0.009912,
+      "emaPrice": 0.009892,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 70,
-      "emaPrice": 0.001371,
+      "emaPrice": 0.00134,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     },
     {
       "netuid": 71,
-      "emaPrice": 0.003849,
+      "emaPrice": 0.0038,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 72,
-      "emaPrice": 0.002701,
+      "emaPrice": 0.002626,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 73,
-      "emaPrice": 0.003274,
+      "emaPrice": 0.003278,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 74,
-      "emaPrice": 0.003809,
+      "emaPrice": 0.003794,
+      "minerBurned": 0.62999936,
       "emissionEnabled": true
     },
     {
       "netuid": 75,
-      "emaPrice": 0.019342,
+      "emaPrice": 0.018814,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 76,
-      "emaPrice": 0.002632,
+      "emaPrice": 0.00261,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 77,
-      "emaPrice": 0.006135,
+      "emaPrice": 0.00612,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     },
     {
       "netuid": 78,
-      "emaPrice": 0.002605,
+      "emaPrice": 0.002534,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 79,
-      "emaPrice": 0.007527,
+      "emaPrice": 0.007579,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 80,
-      "emaPrice": 0.014918,
+      "emaPrice": 0.014729,
+      "minerBurned": 0.90650646,
       "emissionEnabled": true
     },
     {
       "netuid": 81,
-      "emaPrice": 0.007893,
+      "emaPrice": 0.007889,
+      "minerBurned": 0.01844684,
       "emissionEnabled": true
     },
     {
       "netuid": 82,
-      "emaPrice": 0.004499,
+      "emaPrice": 0.004648,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 83,
-      "emaPrice": 0.010613,
+      "emaPrice": 0.010587,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     },
     {
       "netuid": 84,
-      "emaPrice": 0.002521,
+      "emaPrice": 0.002544,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     },
     {
       "netuid": 85,
-      "emaPrice": 0.005342,
+      "emaPrice": 0.005324,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 87,
-      "emaPrice": 0.003704,
+      "emaPrice": 0.00365,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 88,
-      "emaPrice": 0.004539,
+      "emaPrice": 0.005168,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 89,
-      "emaPrice": 0.003664,
+      "emaPrice": 0.003655,
+      "minerBurned": 0.2,
       "emissionEnabled": true
     },
     {
       "netuid": 90,
-      "emaPrice": 0.025303,
+      "emaPrice": 0.025993,
+      "minerBurned": 0.86008526,
       "emissionEnabled": false
     },
     {
       "netuid": 91,
-      "emaPrice": 0.009309,
+      "emaPrice": 0.009029,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 92,
-      "emaPrice": 0.003914,
+      "emaPrice": 0.003814,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     },
     {
       "netuid": 93,
-      "emaPrice": 0.00976,
+      "emaPrice": 0.009616,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 94,
-      "emaPrice": 0.00375,
+      "emaPrice": 0.003652,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 95,
-      "emaPrice": 0.057053,
+      "emaPrice": 0.057009,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 96,
-      "emaPrice": 0.008541,
+      "emaPrice": 0.008529,
+      "minerBurned": 0.41741,
       "emissionEnabled": true
     },
     {
       "netuid": 97,
-      "emaPrice": 0.025306,
+      "emaPrice": 0.024897,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 98,
-      "emaPrice": 0.002965,
+      "emaPrice": 0.002966,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 99,
-      "emaPrice": 0.004781,
+      "emaPrice": 0.004726,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 100,
-      "emaPrice": 0.005732,
+      "emaPrice": 0.006412,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 101,
-      "emaPrice": 0.004636,
+      "emaPrice": 0.004631,
+      "minerBurned": 0.90102437,
       "emissionEnabled": true
     },
     {
       "netuid": 102,
-      "emaPrice": 0.008691,
+      "emaPrice": 0.00926,
+      "minerBurned": 0.25060051,
       "emissionEnabled": true
     },
     {
       "netuid": 103,
-      "emaPrice": 0.009532,
+      "emaPrice": 0.009905,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     },
     {
       "netuid": 104,
-      "emaPrice": 0.004384,
+      "emaPrice": 0.004367,
+      "minerBurned": 0.9639356,
       "emissionEnabled": false
     },
     {
       "netuid": 105,
-      "emaPrice": 0.007274,
+      "emaPrice": 0.007393,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 106,
-      "emaPrice": 0.003108,
+      "emaPrice": 0.003041,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 107,
-      "emaPrice": 0.06158,
+      "emaPrice": 0.060843,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 108,
-      "emaPrice": 0.004023,
+      "emaPrice": 0.003638,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 109,
-      "emaPrice": 0.003304,
+      "emaPrice": 0.003345,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 110,
-      "emaPrice": 0.00737,
+      "emaPrice": 0.007125,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 111,
-      "emaPrice": 0.004958,
+      "emaPrice": 0.00529,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 112,
-      "emaPrice": 0.002535,
+      "emaPrice": 0.002502,
+      "minerBurned": 0.80094412,
       "emissionEnabled": true
     },
     {
       "netuid": 113,
-      "emaPrice": 0.00273,
+      "emaPrice": 0.002727,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 114,
-      "emaPrice": 0.011642,
+      "emaPrice": 0.011322,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 115,
-      "emaPrice": 0.003533,
+      "emaPrice": 0.003086,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 116,
-      "emaPrice": 0.007126,
+      "emaPrice": 0.006622,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 117,
-      "emaPrice": 0.002574,
+      "emaPrice": 0.002566,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 118,
-      "emaPrice": 0.009272,
+      "emaPrice": 0.009178,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 119,
       "emaPrice": 0.003091,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 120,
-      "emaPrice": 0.059987,
+      "emaPrice": 0.060463,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 121,
-      "emaPrice": 0.004739,
+      "emaPrice": 0.004741,
+      "minerBurned": 1.0,
       "emissionEnabled": true
     },
     {
       "netuid": 122,
-      "emaPrice": 0.004685,
+      "emaPrice": 0.004615,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 123,
-      "emaPrice": 0.002703,
+      "emaPrice": 0.002672,
+      "minerBurned": 0.41245638,
       "emissionEnabled": true
     },
     {
       "netuid": 124,
-      "emaPrice": 0.010121,
+      "emaPrice": 0.010072,
+      "minerBurned": 0.0,
       "emissionEnabled": true
     },
     {
       "netuid": 125,
-      "emaPrice": 0.00328,
+      "emaPrice": 0.003267,
+      "minerBurned": 1.0,
       "emissionEnabled": false
     },
     {
       "netuid": 126,
-      "emaPrice": 0.005165,
+      "emaPrice": 0.005009,
+      "minerBurned": 0.3047695,
       "emissionEnabled": true
     },
     {
       "netuid": 127,
-      "emaPrice": 0.002883,
+      "emaPrice": 0.002904,
+      "minerBurned": 0.70639378,
       "emissionEnabled": true
     },
     {
       "netuid": 128,
-      "emaPrice": 0.002938,
+      "emaPrice": 0.002916,
+      "minerBurned": 0.0,
       "emissionEnabled": false
     }
   ],
   "featuredSubnet": {
     "netuid": 4,
     "name": "Targon",
-    "spotPrice": 0.056784,
-    "emaPrice": 0.057038,
+    "spotPrice": 0.056624,
+    "emaPrice": 0.056618,
+    "minerBurned": 0.07230859,
     "emissionEnabled": true,
-    "taoIn": 136777.6,
-    "alphaIn": 2408742.63,
-    "alphaOut": 3498348.62,
-    "demandShare": 0.04359424,
-    "gateFactor": 0.99526659,
-    "taoShare": 0.07641434,
-    "taoPerBlock": 0.03820717
+    "taoIn": 136634.82,
+    "alphaIn": 2413022.19,
+    "alphaOut": 3501181.98,
+    "demandShare": 0.04343117,
+    "burnAdjustedShare": 0.05698358,
+    "gateFactor": 0.99730159,
+    "taoShare": 0.07542274,
+    "taoPerBlock": 0.03771137
   },
   "topSubnets": [
     {
       "netuid": 64,
       "name": "Chutes",
-      "spotPrice": 0.085869,
-      "emaPrice": 0.086481,
+      "spotPrice": 0.085763,
+      "emaPrice": 0.086255,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 220039.08,
-      "alphaIn": 2562495.19,
-      "alphaOut": 3327621.07,
-      "demandShare": 0.06609757,
-      "gateFactor": 0.99863738,
-      "taoShare": 0.11625179,
-      "taoPerBlock": 0.0581259
+      "taoIn": 219979.27,
+      "alphaIn": 2564964.24,
+      "alphaOut": 3332267.14,
+      "demandShare": 0.06616545,
+      "burnAdjustedShare": 0.09357848,
+      "gateFactor": 0.99938943,
+      "taoShare": 0.12411856,
+      "taoPerBlock": 0.06205928
     },
     {
       "netuid": 51,
       "name": "lium.io",
-      "spotPrice": 0.073558,
-      "emaPrice": 0.073255,
+      "spotPrice": 0.074515,
+      "emaPrice": 0.073811,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 140987.41,
-      "alphaIn": 1916689.46,
-      "alphaOut": 3668935.54,
-      "demandShare": 0.05598891,
-      "gateFactor": 0.99776003,
-      "taoShare": 0.09838627,
-      "taoPerBlock": 0.04919314
+      "taoIn": 141970.5,
+      "alphaIn": 1905258.42,
+      "alphaOut": 3687515.95,
+      "demandShare": 0.05661977,
+      "burnAdjustedShare": 0.08007792,
+      "gateFactor": 0.99902598,
+      "taoShare": 0.10617336,
+      "taoPerBlock": 0.05308668
     },
     {
       "netuid": 107,
       "name": "Minos",
-      "spotPrice": 0.061349,
-      "emaPrice": 0.06158,
+      "spotPrice": 0.060403,
+      "emaPrice": 0.060843,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 19184.4,
-      "alphaIn": 312709.51,
-      "alphaOut": 1406061.78,
-      "demandShare": 0.04706569,
-      "gateFactor": 0.99623495,
-      "taoShare": 0.08257957,
-      "taoPerBlock": 0.04128978
+      "taoIn": 19172.35,
+      "alphaIn": 317408.35,
+      "alphaOut": 1409812.54,
+      "demandShare": 0.04667213,
+      "burnAdjustedShare": 0.06600887,
+      "gateFactor": 0.99826233,
+      "taoShare": 0.08745266,
+      "taoPerBlock": 0.04372633
     },
     {
       "netuid": 120,
       "name": "Affine",
-      "spotPrice": 0.060743,
-      "emaPrice": 0.059987,
+      "spotPrice": 0.059335,
+      "emaPrice": 0.060463,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 84377.64,
-      "alphaIn": 1389096.16,
-      "alphaOut": 2556991.84,
-      "demandShare": 0.04584816,
-      "gateFactor": 0.99592822,
-      "taoShare": 0.08041856,
-      "taoPerBlock": 0.04020928
+      "taoIn": 83468.17,
+      "alphaIn": 1406725.51,
+      "alphaOut": 2546641.18,
+      "demandShare": 0.04638063,
+      "burnAdjustedShare": 0.06559661,
+      "gateFactor": 0.99822942,
+      "taoShare": 0.0869036,
+      "taoPerBlock": 0.0434518
     },
     {
       "netuid": 4,
       "name": "Targon",
-      "spotPrice": 0.056784,
-      "emaPrice": 0.057038,
+      "spotPrice": 0.056624,
+      "emaPrice": 0.056618,
+      "minerBurned": 0.07230859,
       "emissionEnabled": true,
-      "taoIn": 136777.6,
-      "alphaIn": 2408742.63,
-      "alphaOut": 3498348.62,
-      "demandShare": 0.04359424,
-      "gateFactor": 0.99526659,
-      "taoShare": 0.07641434,
-      "taoPerBlock": 0.03820717
+      "taoIn": 136634.82,
+      "alphaIn": 2413022.19,
+      "alphaOut": 3501181.98,
+      "demandShare": 0.04343117,
+      "burnAdjustedShare": 0.05698358,
+      "gateFactor": 0.99730159,
+      "taoShare": 0.07542274,
+      "taoPerBlock": 0.03771137
     },
     {
       "netuid": 44,
       "name": "Score",
-      "spotPrice": 0.042135,
-      "emaPrice": 0.042633,
+      "spotPrice": 0.042201,
+      "emaPrice": 0.041827,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 69596.55,
-      "alphaIn": 1651741.69,
-      "alphaOut": 3998290.27,
-      "demandShare": 0.03258447,
-      "gateFactor": 0.98873914,
-      "taoShare": 0.05674123,
-      "taoPerBlock": 0.02837062
-    },
-    {
-      "netuid": 9,
-      "name": "iota",
-      "spotPrice": 0.03345,
-      "emaPrice": 0.033401,
-      "emissionEnabled": true,
-      "taoIn": 60926.17,
-      "alphaIn": 1821422.27,
-      "alphaOut": 3951121.46,
-      "demandShare": 0.02552844,
-      "gateFactor": 0.97686426,
-      "taoShare": 0.04392025,
-      "taoPerBlock": 0.02196013
+      "taoIn": 69689.46,
+      "alphaIn": 1651357.73,
+      "alphaOut": 4005821.33,
+      "demandShare": 0.03208512,
+      "burnAdjustedShare": 0.04537832,
+      "gateFactor": 0.99467077,
+      "taoShare": 0.05990372,
+      "taoPerBlock": 0.02995186
     },
     {
       "netuid": 53,
       "name": "engy",
-      "spotPrice": 0.032,
-      "emaPrice": 0.03318,
+      "spotPrice": 0.033562,
+      "emaPrice": 0.031652,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 35107.27,
-      "alphaIn": 1097096.66,
-      "alphaOut": 4580364.57,
-      "demandShare": 0.02535953,
-      "gateFactor": 0.97640986,
-      "taoShare": 0.04360936,
-      "taoPerBlock": 0.02180468
+      "taoIn": 35983.37,
+      "alphaIn": 1072141.54,
+      "alphaOut": 4612463.02,
+      "demandShare": 0.02427997,
+      "burnAdjustedShare": 0.03433941,
+      "gateFactor": 0.9877872,
+      "taoShare": 0.04501759,
+      "taoPerBlock": 0.0225088
     },
     {
       "netuid": 8,
       "name": "Vanta",
-      "spotPrice": 0.029842,
-      "emaPrice": 0.029832,
+      "spotPrice": 0.029939,
+      "emaPrice": 0.029893,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 81218.94,
-      "alphaIn": 2721615.73,
-      "alphaOut": 3019607.15,
-      "demandShare": 0.02280065,
-      "gateFactor": 0.96782796,
-      "taoShare": 0.03886437,
-      "taoPerBlock": 0.01943219
+      "taoIn": 81377.2,
+      "alphaIn": 2718128.48,
+      "alphaOut": 3030229.05,
+      "demandShare": 0.02293066,
+      "burnAdjustedShare": 0.03243107,
+      "gateFactor": 0.98553499,
+      "taoShare": 0.04241889,
+      "taoPerBlock": 0.02120944
     },
     {
       "netuid": 3,
       "name": "deprecated",
-      "spotPrice": 0.025426,
-      "emaPrice": 0.02563,
+      "spotPrice": 0.025225,
+      "emaPrice": 0.025466,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 74149.25,
-      "alphaIn": 2916243.4,
-      "alphaOut": 2819141.61,
-      "demandShare": 0.01958905,
-      "gateFactor": 0.95019266,
-      "taoShare": 0.0327817,
-      "taoPerBlock": 0.01639085
+      "taoIn": 73878.81,
+      "alphaIn": 2928735.47,
+      "alphaOut": 2813772.82,
+      "demandShare": 0.01953474,
+      "burnAdjustedShare": 0.02762819,
+      "gateFactor": 0.97681092,
+      "taoShare": 0.03581698,
+      "taoPerBlock": 0.01790849
     },
     {
       "netuid": 97,
       "name": "Albedo",
-      "spotPrice": 0.024872,
-      "emaPrice": 0.025306,
+      "spotPrice": 0.024758,
+      "emaPrice": 0.024897,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 11057.13,
-      "alphaIn": 444567.2,
-      "alphaOut": 932144.63,
-      "demandShare": 0.01934142,
-      "gateFactor": 0.94835504,
-      "taoShare": 0.03230469,
-      "taoPerBlock": 0.01615235
+      "taoIn": 11095.78,
+      "alphaIn": 448165.46,
+      "alphaOut": 936842.91,
+      "demandShare": 0.01909827,
+      "burnAdjustedShare": 0.02701088,
+      "gateFactor": 0.9752247,
+      "taoShare": 0.03495984,
+      "taoPerBlock": 0.01747992
     },
     {
       "netuid": 68,
       "name": "NOVA",
-      "spotPrice": 0.02442,
-      "emaPrice": 0.024419,
+      "spotPrice": 0.023941,
+      "emaPrice": 0.024017,
+      "minerBurned": 0.0,
       "emissionEnabled": true,
-      "taoIn": 46153.92,
-      "alphaIn": 1890019.99,
-      "alphaOut": 3609349.49,
-      "demandShare": 0.01866348,
-      "gateFactor": 0.94285369,
-      "taoShare": 0.03099155,
-      "taoPerBlock": 0.01549578
+      "taoIn": 45722.1,
+      "alphaIn": 1909747.31,
+      "alphaOut": 3596531.4,
+      "demandShare": 0.01842323,
+      "burnAdjustedShare": 0.02605616,
+      "gateFactor": 0.97247808,
+      "taoShare": 0.03362918,
+      "taoPerBlock": 0.01681459
+    },
+    {
+      "netuid": 15,
+      "name": "ORO",
+      "spotPrice": 0.02277,
+      "emaPrice": 0.022328,
+      "minerBurned": 0.0,
+      "emissionEnabled": true,
+      "taoIn": 10754.4,
+      "alphaIn": 472315.91,
+      "alphaOut": 1283562.57,
+      "demandShare": 0.01712761,
+      "burnAdjustedShare": 0.02422376,
+      "gateFactor": 0.965977,
+      "taoShare": 0.0310552,
+      "taoPerBlock": 0.0155276
     }
   ]
 }

@@ -521,12 +521,11 @@ the upgrade. See the release notes for
   to the highest-conviction hotkey when total conviction reaches 10% of
   `SubnetAlphaOut`. Existing conviction counts toward this threshold. See
   [Conviction](/docs/guides/conviction).
-- **Cross-subnet emissions.** V444 allocation uses each subnet's EMA price,
-  followed by the emission gate. `MinerBurned` no longer changes a subnet's
-  cross-network share. [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L74-L84)
-  is also not part of the inter-subnet split; it still applies inside each
-  subnet for injection caps and root dividends. Update emission calculations
-  and forecasts. See [Emissions](/docs/concepts/emissions).
+- **Cross-subnet emissions.** Allocation continues to use each subnet's EMA
+  price scaled by `1 − MinerBurned`, followed by the emission gate.
+  [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L74-L84)
+  is not part of the inter-subnet split; it still applies inside each subnet
+  for injection caps and root dividends. See [Emissions](/docs/concepts/emissions).
 
 ### Proxies and coldkeys
 
