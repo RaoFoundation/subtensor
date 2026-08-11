@@ -365,6 +365,23 @@ class TestExecuteFlow:
             for child in proxied
         )
 
+    def test_client_merges_constructor_and_environment_weight_targets(
+        self, substrate: FakeSubstrate, wallet, monkeypatch
+    ):
+        monkeypatch.setenv("WEIGHT_TARGETS", f"{BOB_HOT},{BOB}")
+
+        client = Client(
+            "local",
+            substrate=substrate,
+            weight_targets=[wallet.hotkey.ss58_address, BOB_HOT],
+        )
+
+        assert client._executor.weight_targets == [
+            wallet.hotkey.ss58_address,
+            BOB_HOT,
+            BOB,
+        ]
+
     @pytest.mark.asyncio
     async def test_set_weights_empty_target_list_is_noop(
         self, substrate: FakeSubstrate, wallet, monkeypatch

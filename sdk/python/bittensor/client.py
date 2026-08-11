@@ -83,6 +83,20 @@ def _weight_targets_from_env() -> Optional[list[str]]:
     return targets
 
 
+def _merge_weight_targets(
+    configured: Optional[list[str]], environment: Optional[list[str]]
+) -> Optional[list[str]]:
+    if configured is None and environment is None:
+        return None
+    if configured is not None and not isinstance(configured, list):
+        raise TypeError("weight_targets must be a list of hotkey addresses")
+    merged = []
+    for target in (configured or []) + (environment or []):
+        if target not in merged:
+            merged.append(target)
+    return merged
+
+
 @dataclass
 class BlockHeader:
     """A new block seen on a subscription (``client.blocks()``)."""
@@ -175,10 +189,11 @@ class Client:
 
         ``weight_targets`` configures transparent multi-hotkey validation. The
         signing hotkey may appear for a direct submission; every other address
-        must grant it a zero-delay ``Validate`` proxy. An explicit empty list
-        makes ``SetWeights`` a no-op. When omitted, the comma-separated
-        ``WEIGHT_TARGETS`` environment variable is used; if that is also unset,
-        normal single-hotkey behavior is preserved.
+        must grant it a zero-delay ``Validate`` proxy. These targets are merged
+        with the comma-separated ``WEIGHT_TARGETS`` environment variable, with
+        duplicates removed and constructor order preserved. If the merged set
+        is empty, ``SetWeights`` is a no-op; if both sources are omitted, normal
+        single-hotkey behavior is preserved.
 
         ``substrate`` swaps the chain-access backend: any :class:`Substrate`
         implementation (e.g. an in-memory fake for tests). When set, the
@@ -202,9 +217,7 @@ class Client:
         self._executor = Executor(
             self._substrate,
             policy=policy,
-            weight_targets=(
-                weight_targets if weight_targets is not None else _weight_targets_from_env()
-            ),
+            weight_targets=_merge_weight_targets(weight_targets, _weight_targets_from_env()),
         )
 
         # Typed read namespaces: projections over the read registry

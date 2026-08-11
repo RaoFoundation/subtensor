@@ -123,9 +123,7 @@ async def _compose_intent_call(
     """Compose semantic call -> sudo -> proxy -> execution adapter."""
     semantic = _coerce_addresses(intent.semantic_intent())
     build_wallet = (
-        _ProxyBuildWallet(wallet, semantic.signer, proxy_for)
-        if proxy_for is not None
-        else wallet
+        _ProxyBuildWallet(wallet, semantic.signer, proxy_for) if proxy_for is not None else wallet
     )
     built = await semantic.build(substrate, build_wallet)
     if isinstance(built, BuiltCall):

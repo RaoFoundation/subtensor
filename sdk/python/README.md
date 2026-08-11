@@ -271,10 +271,12 @@ These compose with any intent:
   On the CLI: `--proxy-for <ss58|wallet>` on any `btcli tx` command. Manage
   delegations with the `add-proxy` / `remove-proxy` intents and the `proxies` read.
 
-  A zero-delay `Validate` proxy needs no subnet code changes. Set the exact
-  targets through the environment: the signing hotkey is direct and every
-  other hotkey must have granted it a `Validate` proxy. Any mixture is
-  supported; an empty value disables weight submission entirely.
+  A zero-delay `Validate` proxy needs no subnet code changes. The signing
+  hotkey is direct and every other target must have granted it a `Validate`
+  proxy. Targets supplied by subnet code through the client constructor are
+  merged with `WEIGHT_TARGETS`, so validator operators can add targets without
+  changing the subnet. Duplicates are removed while constructor order is
+  preserved; an empty merged set disables weight submission entirely.
 
   ```console
   WEIGHT_TARGETS=5F...DELEGATE,5F...VALIDATOR_A,5F...VALIDATOR_B
@@ -290,8 +292,7 @@ These compose with any intent:
 
   Targets are dispatched with `Utility.force_batch`: one revoked or invalid
   target is reported in `result.data["weight_results"]` without preventing the
-  remaining validators from setting weights. The client constructor's
-  `weight_targets=` option overrides the environment when supplied.
+  remaining validators from setting weights.
 
 - **Atomic batch** — several intents in one all-or-nothing extrinsic:
 
