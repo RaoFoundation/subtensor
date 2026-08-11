@@ -30,7 +30,7 @@ export type EmissionSnapshot = {
   network: string;
   chainSpecVersion: number;
   emissionMode: 'price_ema_miner_burn_hill_gate' | string;
-  emissionGateSource: 'chain_storage' | 'v444_defaults_recomputed';
+  emissionGateSource: 'chain_storage' | 'v445_defaults_recomputed';
   blockEmissionTao: number;
   totalIssuanceTao: number;
   totalIssuanceRao?: number;

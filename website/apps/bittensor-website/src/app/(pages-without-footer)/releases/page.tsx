@@ -23,14 +23,14 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
-    tag: 'v444',
+    tag: 'v445',
     date: 'August 2026',
     title: 'EVM, btcli, and Reliability',
     summary:
       'This release completes the typed EVM surface, makes multisigs first-class btcli wallets, ' +
       'recycles transaction fees, adds human-readable ' +
       'Ledger orders, and lands a broad reliability pass.',
-    href: '/releases/v444-upgrade',
+    href: '/releases/v445-upgrade',
   },
   {
     tag: 'v441',

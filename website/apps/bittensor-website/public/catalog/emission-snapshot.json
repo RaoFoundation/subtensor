@@ -3,7 +3,7 @@
   "network": "finney",
   "chainSpecVersion": 443,
   "emissionMode": "price_ema_miner_burn_hill_gate",
-  "emissionGateSource": "v444_defaults_recomputed",
+  "emissionGateSource": "v445_defaults_recomputed",
   "dataSource": {
     "subnets": "taomarketcap.com",
     "chain": "finney",

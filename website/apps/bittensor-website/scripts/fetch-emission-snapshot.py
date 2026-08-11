@@ -3,8 +3,8 @@
 Subnet prices and EMA sums use TMC's public API. Eligibility, emission-enabled
 flags, MinerBurned proportions, total issuance, and root pool TAO come from
 Finney storage. The output models price EMA with miner-burn scaling and the
-Hill gate. On spec 444 or later, the gate settings and cadence-held midpoint
-come from chain storage. Before the upgrade, the output previews the v444 gate
+Hill gate. On spec 445 or later, the gate settings and cadence-held midpoint
+come from chain storage. Before the upgrade, the output previews the v445 gate
 settings while retaining miner-burn scaling. It does not use the deprecated
 ``BlockEmission`` storage item.
 
@@ -177,7 +177,7 @@ async def chain_fields(client: bt.Client, netuids: list[int]) -> dict:
     flags = dict(await asyncio.gather(*(subnet_flags(netuid) for netuid in netuids)))
 
     gate = None
-    if spec_version >= 444:
+    if spec_version >= 445:
         rank, quantile, exponent, bar = await asyncio.gather(
             view.query(st.SubtensorModule.EmissionBarRank),
             view.query(st.SubtensorModule.EmissionBarQuantile),
@@ -210,7 +210,7 @@ def select_emission_gate_bar(
     rank: int = DEFAULT_EMISSION_BAR_RANK,
     quantile: float = DEFAULT_EMISSION_BAR_QUANTILE,
 ) -> float:
-    """Mirror ``maybe_update_emission_gate_bar`` for the v444 snapshot."""
+    """Mirror ``maybe_update_emission_gate_bar`` for the v445 snapshot."""
     positive = sorted((share for share in demand_shares if share > 0), reverse=True)
     if not positive:
         return 0.0
@@ -316,7 +316,7 @@ async def build_snapshot() -> dict:
         "quantile": DEFAULT_EMISSION_BAR_QUANTILE,
         "exponent": DEFAULT_EMISSION_GATE_EXPONENT,
         "bar": None,
-        "source": "v444_defaults_recomputed",
+        "source": "v445_defaults_recomputed",
     }
     gate_bar = apply_shares(
         subnets,
