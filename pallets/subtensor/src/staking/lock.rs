@@ -3,6 +3,7 @@ use crate::subnets::leasing::LeaseId;
 use crate::weights::WeightInfo;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::weights::{Weight, WeightMeter};
+use pallet_alpha_assets::AlphaAssetsInterface;
 use safe_math::FixedExt;
 use scale_info::TypeInfo;
 use sp_std::collections::btree_map::BTreeMap;
@@ -1337,14 +1338,19 @@ impl<T: Config> Pallet<T> {
     ///
     /// Ownership can change only after the subnet is at least [`ONE_YEAR`] old and the
     /// hotkey with the highest rolled aggregate conviction itself holds at least 10% of
-    /// `SubnetAlphaOut`. If those gates pass, that hotkey becomes the subnet owner
-    /// hotkey, and its owning coldkey becomes the subnet owner coldkey. The new owner
-    /// hotkey's conviction is then progressed to its current locked mass so the new
-    /// owner starts with full owner conviction.
+    /// `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`. If those gates pass, that
+    /// hotkey becomes the subnet owner hotkey, and its owning coldkey becomes the subnet
+    /// owner coldkey. The new owner hotkey's conviction is then progressed to its current
+    /// locked mass so the new owner starts with full owner conviction.
     pub fn change_subnet_owner_if_needed(netuid: NetUid) -> Weight {
-        // No outstanding alpha means there is no meaningful 10% conviction threshold.
+        // Protocol-owned and burned alpha cannot support a challenger, so exclude both
+        // from the ownership quorum. Saturation keeps inconsistent accounting from
+        // wrapping the threshold to a very large value.
         let subnet_alpha_out = SubnetAlphaOut::<T>::get(netuid);
-        if subnet_alpha_out.is_zero() {
+        let eligible_alpha = subnet_alpha_out
+            .saturating_sub(SubnetProtocolAlpha::<T>::get(netuid))
+            .saturating_sub(T::AlphaAssets::alpha_burned(netuid));
+        if eligible_alpha.is_zero() {
             return Weight::zero();
         }
 
@@ -1360,12 +1366,12 @@ impl<T: Config> Pallet<T> {
             return Weight::zero();
         };
 
-        // The challenger must itself hold at least 10% of subnet alpha out.
+        // The challenger must itself hold at least 10% of eligible subnet alpha out.
         // Gating on subnet-wide conviction would let unrelated lockers,
         // including the incumbent, supply the challenger's quorum.
         let king_conviction = Self::hotkey_conviction(&king_hotkey, netuid);
         if king_conviction.saturating_mul(U64F64::saturating_from_num(10))
-            < U64F64::saturating_from_num(u64::from(subnet_alpha_out))
+            < U64F64::saturating_from_num(u64::from(eligible_alpha))
         {
             return Weight::zero();
         }

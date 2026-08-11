@@ -203,6 +203,9 @@ mod hooks {
                 // rank-32 bar (DefaultEmissionBarRank) applies from the first
                 // recompute after the upgrade instead of the next cadence boundary.
                 .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>())
+                // Repair stabilized SubnetAlphaOut undercounts caused by duplicated RAO-launch
+                // local dividends and legacy root dividends omitted from the root counter.
+                .saturating_add(migrations::migrate_fix_rao_alpha_out_accounting::migrate_fix_rao_alpha_out_accounting::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>());

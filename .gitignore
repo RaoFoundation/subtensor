@@ -90,3 +90,6 @@ sdk/python/dist/
 .github/scripts/deploy/proxy_proxy_blob.hex
 .github/scripts/deploy/pending-release.json
 .github/scripts/deploy/deployment-multisig-proposal.hex
+
+# Local historical alpha-accounting scanner and PostgreSQL data
+.alpha-accounting-scanner/

@@ -3311,21 +3311,23 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
             &king_hotkey
         ));
 
-        // Make the subnet old enough and set alpha out so 1_000 conviction is exactly
-        // the 10% minimum required to trigger reassignment.
+        // Make the subnet old enough. Of 10_000 alpha out, 2_000 is protocol-owned and
+        // 1_000 is burned, so 700 conviction is exactly the 10% takeover threshold.
         let now = crate::staking::lock::ONE_YEAR + 1;
         System::set_block_number(now);
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(2_000u64));
+        pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(1_000u64));
         DecayingLock::<Test>::insert(new_owner_coldkey, netuid, false);
 
         // Seed matching individual and aggregate lock rows for the future king.
-        let locked_mass = AlphaBalance::from(1_000u64);
+        let locked_mass = AlphaBalance::from(700u64);
         Lock::<Test>::insert(
             (new_owner_coldkey, netuid, king_hotkey),
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(700),
                 last_update: now,
             },
         );
@@ -3335,7 +3337,7 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
             king_hotkey,
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(700),
                 last_update: now,
             },
         );
@@ -3348,10 +3350,10 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
 
         // The new owner's aggregate conviction is progressed to locked mass.
         let owner_lock = Lock::<Test>::get((new_owner_coldkey, netuid, king_hotkey)).unwrap();
-        assert_eq!(owner_lock.conviction, U64F64::from_num(1_000));
+        assert_eq!(owner_lock.conviction, U64F64::from_num(700));
 
         let king_lock = OwnerLock::<Test>::get(netuid).unwrap();
-        assert_eq!(king_lock.conviction, U64F64::from_num(1_000));
+        assert_eq!(king_lock.conviction, U64F64::from_num(700));
     });
 }
 

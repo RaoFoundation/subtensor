@@ -6953,6 +6953,99 @@ fn test_migrate_reset_emission_gate_bar() {
 }
 
 #[test]
+fn test_rao_alpha_out_corrections_match_csv() {
+    use crate::migrations::migrate_fix_rao_alpha_out_accounting::ALPHA_OUT_CORRECTIONS;
+
+    let csv = include_str!("../../../../rao-double-dividend-subnet-alpha-out-correction.csv");
+    let mut lines = csv.lines();
+    let header: Vec<&str> = lines.next().expect("CSV header").split(',').collect();
+    let netuid_index = header.iter().position(|name| *name == "netuid").unwrap();
+    let amount_index = header
+        .iter()
+        .position(|name| *name == "required_adjustment_rao")
+        .unwrap();
+    let apply_index = header
+        .iter()
+        .position(|name| *name == "apply_to_current_generation")
+        .unwrap();
+    let from_csv: Vec<(u16, u64)> = lines
+        .map(|line| line.split(',').collect::<Vec<_>>())
+        .filter(|columns| columns[apply_index] == "true")
+        .map(|columns| {
+            (
+                columns[netuid_index].parse().unwrap(),
+                columns[amount_index].parse().unwrap(),
+            )
+        })
+        .collect();
+
+    assert_eq!(ALPHA_OUT_CORRECTIONS, from_csv.as_slice());
+    assert_eq!(
+        from_csv
+            .iter()
+            .map(|(_, correction)| u128::from(*correction))
+            .sum::<u128>(),
+        1_618_308_219_994_798
+    );
+}
+
+#[test]
+fn test_migrate_fix_rao_alpha_out_accounting() {
+    use crate::migrations::migrate_fix_rao_alpha_out_accounting::{
+        ALPHA_OUT_CORRECTIONS, MIGRATION_NAME, migrate_fix_rao_alpha_out_accounting,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let mainnet_genesis =
+            hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_slice(&mainnet_genesis));
+
+        for &(netuid, _) in ALPHA_OUT_CORRECTIONS {
+            SubnetAlphaOut::<Test>::insert(NetUid::from(netuid), AlphaBalance::from(10_u64));
+        }
+
+        let weight = migrate_fix_rao_alpha_out_accounting::<Test>();
+        assert!(!weight.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        for &(netuid, correction) in ALPHA_OUT_CORRECTIONS {
+            assert_eq!(
+                SubnetAlphaOut::<Test>::get(NetUid::from(netuid)),
+                AlphaBalance::from(correction + 10)
+            );
+        }
+
+        // The run-once guard prevents a second application.
+        migrate_fix_rao_alpha_out_accounting::<Test>();
+        for &(netuid, correction) in ALPHA_OUT_CORRECTIONS {
+            assert_eq!(
+                SubnetAlphaOut::<Test>::get(NetUid::from(netuid)),
+                AlphaBalance::from(correction + 10)
+            );
+        }
+    });
+}
+
+#[test]
+fn test_migrate_fix_rao_alpha_out_accounting_skips_non_mainnet() {
+    use crate::migrations::migrate_fix_rao_alpha_out_accounting::{
+        MIGRATION_NAME, migrate_fix_rao_alpha_out_accounting,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1_u16);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_u64));
+
+        migrate_fix_rao_alpha_out_accounting::<Test>();
+
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(netuid),
+            AlphaBalance::from(10_u64)
+        );
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+    });
+}
+
+#[test]
 fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
     use crate::migrations::migrate_storage_bloat_v2::{
         StorageBloatCleanupMigration, continue_storage_bloat_cleanup, kickoff_storage_bloat_cleanup,
