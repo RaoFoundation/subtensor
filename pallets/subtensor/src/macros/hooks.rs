@@ -206,6 +206,9 @@ mod hooks {
                 // Repair stabilized SubnetAlphaOut undercounts caused by duplicated RAO-launch
                 // local dividends and legacy root dividends omitted from the root counter.
                 .saturating_add(migrations::migrate_fix_rao_alpha_out_accounting::migrate_fix_rao_alpha_out_accounting::<T>())
+                // Remove prior-generation alpha-asset counter offsets from recycled mainnet
+                // netuids without discarding burns accumulated by their current generations.
+                .saturating_add(migrations::migrate_rebase_recycled_alpha_asset_counters::migrate_rebase_recycled_alpha_asset_counters::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>());

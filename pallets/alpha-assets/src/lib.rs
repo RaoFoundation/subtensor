@@ -247,6 +247,15 @@ pub trait AlphaAssetsInterface {
 
     fn alpha_burned(netuid: NetUid) -> AlphaBalance;
 
+    fn clear_alpha_counters(netuid: NetUid);
+
+    fn rebase_alpha_counters(
+        netuid: NetUid,
+        issuance_offset: AlphaBalance,
+        burned_offset: AlphaBalance,
+        recycled_offset: AlphaBalance,
+    );
+
     fn mint_alpha(netuid: NetUid, amount: AlphaBalance) -> PositiveAlphaImbalance;
 
     fn burn_alpha(netuid: NetUid, amount: AlphaBalance) -> AlphaBalance;
@@ -261,6 +270,16 @@ impl AlphaAssetsInterface for () {
 
     fn alpha_burned(_netuid: NetUid) -> AlphaBalance {
         AlphaBalance::ZERO
+    }
+
+    fn clear_alpha_counters(_netuid: NetUid) {}
+
+    fn rebase_alpha_counters(
+        _netuid: NetUid,
+        _issuance_offset: AlphaBalance,
+        _burned_offset: AlphaBalance,
+        _recycled_offset: AlphaBalance,
+    ) {
     }
 
     fn mint_alpha(netuid: NetUid, amount: AlphaBalance) -> PositiveAlphaImbalance {
@@ -306,6 +325,35 @@ pub mod pallet {
 }
 
 impl<T: pallet::Config> Pallet<T> {
+    pub fn clear_alpha_counters(netuid: NetUid) {
+        TotalAlphaIssuance::<T>::remove(netuid);
+        AlphaBurned::<T>::remove(netuid);
+        AlphaRecycled::<T>::remove(netuid);
+    }
+
+    pub fn rebase_alpha_counters(
+        netuid: NetUid,
+        issuance_offset: AlphaBalance,
+        burned_offset: AlphaBalance,
+        recycled_offset: AlphaBalance,
+    ) {
+        if !issuance_offset.is_zero() {
+            TotalAlphaIssuance::<T>::mutate(netuid, |issuance| {
+                *issuance = issuance.saturating_sub(issuance_offset);
+            });
+        }
+        if !burned_offset.is_zero() {
+            AlphaBurned::<T>::mutate(netuid, |burned| {
+                *burned = burned.saturating_sub(burned_offset);
+            });
+        }
+        if !recycled_offset.is_zero() {
+            AlphaRecycled::<T>::mutate(netuid, |recycled| {
+                *recycled = recycled.saturating_sub(recycled_offset);
+            });
+        }
+    }
+
     pub fn mint_alpha(netuid: NetUid, amount: AlphaBalance) -> PositiveAlphaImbalance {
         if !amount.is_zero() {
             TotalAlphaIssuance::<T>::mutate(netuid, |issuance| {
@@ -347,6 +395,19 @@ impl<T: pallet::Config> AlphaAssetsInterface for Pallet<T> {
 
     fn alpha_burned(netuid: NetUid) -> AlphaBalance {
         AlphaBurned::<T>::get(netuid)
+    }
+
+    fn clear_alpha_counters(netuid: NetUid) {
+        Self::clear_alpha_counters(netuid)
+    }
+
+    fn rebase_alpha_counters(
+        netuid: NetUid,
+        issuance_offset: AlphaBalance,
+        burned_offset: AlphaBalance,
+        recycled_offset: AlphaBalance,
+    ) {
+        Self::rebase_alpha_counters(netuid, issuance_offset, burned_offset, recycled_offset)
     }
 
     fn mint_alpha(netuid: NetUid, amount: AlphaBalance) -> PositiveAlphaImbalance {
