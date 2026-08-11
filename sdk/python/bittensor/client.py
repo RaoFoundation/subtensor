@@ -585,6 +585,10 @@ class Client:
         """Current chain block number."""
         return await self._substrate.block_number()
 
+    async def finalized_block(self) -> int:
+        """Latest finalized chain block number."""
+        return await self._substrate.finalized_block_number()
+
     async def spec_version(self) -> int:
         """The connected runtime's ``spec_version`` (at the chain head)."""
         return await self._substrate.spec_version()

@@ -373,6 +373,23 @@ async def test_rpc_substrate_exposes_public_blank_timeout_error(monkeypatch):
         await substrate.connect()
 
 
+async def test_rpc_substrate_resolves_finalized_head_to_block_number():
+    finalized_hash = "0x" + "ab" * 32
+
+    class FinalizedConnection:
+        async def get_chain_finalised_head(self):
+            return finalized_hash
+
+        async def get_block_number(self, block_hash):
+            assert block_hash == finalized_hash
+            return 97
+
+    substrate = RpcSubstrate("wss://rpc.example", fallback_endpoints=[])
+    substrate._substrate = FinalizedConnection()
+
+    assert await substrate.finalized_block_number() == 97
+
+
 async def test_rpc_substrate_stream_preserves_public_policy_metadata():
     class RefusedStream:
         async def subscribe_heads(self, **kwargs):

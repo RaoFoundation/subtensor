@@ -319,6 +319,11 @@ class SyncClient:
         return self._call(self._client.block())
 
     @property
+    def finalized_block(self) -> int:
+        """Latest finalized chain block number. Reads the chain on every access."""
+        return self._call(self._client.finalized_block())
+
+    @property
     def time(self) -> datetime:
         """UTC timestamp of the current chain head block. Reads the chain on
         every access; ``timestamp(block=...)`` reads another block's time."""

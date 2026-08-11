@@ -120,6 +120,10 @@ class Substrate(Protocol):
         """Current chain block number."""
         ...
 
+    async def finalized_block_number(self) -> int:
+        """Latest finalized chain block number."""
+        ...
+
     async def block_time(self) -> float:
         """Seconds per block, detected from the chain."""
         ...
@@ -404,6 +408,13 @@ class RpcSubstrate:
 
     async def block_number(self) -> int:
         return await self._read(lambda raw: raw.get_block_number(None))
+
+    async def finalized_block_number(self) -> int:
+        async def read(raw: SubstrateConnection) -> int:
+            head = await raw.get_chain_finalised_head()
+            return await raw.get_block_number(head)
+
+        return await self._read(read)
 
     async def block_time(self) -> float:
         """Seconds per block, from the chain's ``Aura.SlotDuration`` constant.

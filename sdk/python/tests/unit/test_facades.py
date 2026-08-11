@@ -15,10 +15,12 @@ import inspect
 
 import pytest
 
+from bittensor import Subtensor
 from bittensor.client import Client
 from bittensor.namespaces import NAMESPACES
 from bittensor.snapshot import Snapshot
 from bittensor.sync import _NAMESPACES, SyncClient, SyncSnapshot, _SyncNamespace
+from tests.harness.fake_substrate import FakeSubstrate
 
 NAMESPACE_CLASSES = NAMESPACES
 
@@ -122,5 +124,26 @@ def test_sync_client_constructs_offline():
     try:
         assert client.network == "finney"
         assert client._state["connected"] is False
+    finally:
+        client.close()
+
+
+async def test_client_returns_latest_finalized_block():
+    substrate = FakeSubstrate()
+    substrate.finalized_block = 97
+    client = Client("local", substrate=substrate)
+
+    assert await client.finalized_block() == 97
+
+
+def test_subtensor_exposes_latest_finalized_block_as_property():
+    substrate = FakeSubstrate()
+    substrate.block = 100
+    substrate.finalized_block = 97
+    client = Subtensor("local", substrate=substrate)
+    client._call = asyncio.run
+    try:
+        assert client.finalized_block == 97
+        assert client.block == 100
     finally:
         client.close()
