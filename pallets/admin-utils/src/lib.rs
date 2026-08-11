@@ -30,7 +30,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use pallet_evm_chain_id::{self, ChainId};
     use pallet_subtensor::{
-        ConsensusMode, DefaultMaxAllowedUids,
+        ConsensusMode, DefaultMaxAllowedUids, MAX_BONDS_MOVING_AVERAGE,
         utils::rate_limiting::{Hyperparameter, TransactionType},
     };
     use sp_runtime::{BoundedVec, PerU16};
@@ -921,7 +921,7 @@ pub mod pallet {
             pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
             if maybe_owner.is_some() {
                 ensure!(
-                    bonds_moving_average <= 975000,
+                    bonds_moving_average <= MAX_BONDS_MOVING_AVERAGE,
                     Error::<T>::BondsMovingAverageMaxReached
                 )
             }

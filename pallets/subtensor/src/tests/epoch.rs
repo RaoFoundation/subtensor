@@ -1336,7 +1336,7 @@ fn test_set_alpha_disabled() {
         // Explicitly set to false
         SubtensorModule::set_liquid_alpha_enabled(netuid, false);
         assert_err!(
-            SubtensorModule::do_set_alpha_values(signer.clone(), netuid, 1638_u16, u16::MAX),
+            SubtensorModule::do_set_alpha_values(signer.clone(), netuid, MIN_ALPHA_LOW, u16::MAX),
             Error::<Test>::LiquidAlphaDisabled
         );
 
@@ -1344,7 +1344,7 @@ fn test_set_alpha_disabled() {
         assert_ok!(SubtensorModule::do_set_alpha_values(
             signer.clone(),
             netuid,
-            1638_u16,
+            MIN_ALPHA_LOW,
             u16::MAX
         ));
     });
@@ -2296,12 +2296,42 @@ fn test_validator_permits() {
     }
 }
 
+/// cargo test --package pallet-subtensor --lib -- tests::epoch::test_min_alpha_low_matches_bonds_moving_average_floor --exact --show-output
+#[test]
+fn test_min_alpha_low_matches_bonds_moving_average_floor() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        SubtensorModule::set_bonds_moving_average(netuid, MAX_BONDS_MOVING_AVERAGE);
+
+        let min_bond_alpha = SubtensorModule::compute_disabled_liquid_alpha(netuid);
+        assert!(u16_proportion_to_fixed(MIN_ALPHA_LOW) >= min_bond_alpha);
+        assert!(u16_proportion_to_fixed(MIN_ALPHA_LOW - 1) < min_bond_alpha);
+
+        SubtensorModule::set_liquid_alpha_enabled(netuid, true);
+        assert_err!(
+            SubtensorModule::do_set_alpha_values(
+                RuntimeOrigin::root(),
+                netuid,
+                MIN_ALPHA_LOW - 1,
+                u16::MAX,
+            ),
+            Error::<Test>::AlphaLowOutOfRange
+        );
+        assert_ok!(SubtensorModule::do_set_alpha_values(
+            RuntimeOrigin::root(),
+            netuid,
+            MIN_ALPHA_LOW,
+            u16::MAX,
+        ));
+    });
+}
+
 /// cargo test --package pallet-subtensor --lib -- tests::epoch::test_get_set_alpha --exact --show-output
 #[test]
 fn test_get_set_alpha() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
-        let alpha_low: u16 = 1638_u16;
+        let alpha_low = MIN_ALPHA_LOW;
         let alpha_high: u16 = u16::MAX - 10;
 
         let hotkey: U256 = U256::from(1);
@@ -2391,7 +2421,7 @@ fn test_get_set_alpha() {
         ));
 
         // 2. Alpha high too low
-        let alpha_high_too_low = (u16::MAX as u32 / 40) as u16 - 1; // One less than the minimum acceptable value
+        let alpha_high_too_low = MIN_ALPHA_LOW - 1;
         assert_err!(
             SubtensorModule::do_set_alpha_values(
                 signer.clone(),
@@ -2410,7 +2440,7 @@ fn test_get_set_alpha() {
         ));
 
         // 3. Alpha low too low or too high
-        let alpha_low_too_low = 0_u16;
+        let alpha_low_too_low = MIN_ALPHA_LOW - 1;
         assert_err!(
             SubtensorModule::do_set_alpha_values(
                 signer.clone(),

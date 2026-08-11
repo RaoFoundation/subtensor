@@ -1619,14 +1619,10 @@ impl<T: Config> Pallet<T> {
             Error::<T>::LiquidAlphaDisabled
         );
 
-        let max_u16: u32 = u16::MAX as u32; // 65535
-        let min_alpha_low: u16 = (max_u16.safe_div(40)) as u16; // 1638
-        let min_alpha_high: u16 = min_alpha_low;
-
-        ensure!(alpha_high >= min_alpha_high, Error::<T>::AlphaHighTooLow);
+        ensure!(alpha_high >= MIN_ALPHA_LOW, Error::<T>::AlphaHighTooLow);
 
         ensure!(
-            alpha_low >= min_alpha_low && alpha_low <= alpha_high,
+            alpha_low >= MIN_ALPHA_LOW && alpha_low <= alpha_high,
             Error::<T>::AlphaLowOutOfRange
         );
 

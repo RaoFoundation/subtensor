@@ -1483,7 +1483,7 @@ fn test_sudo_set_alpha_sigmoid_steepness() {
 fn test_set_alpha_values_dispatch_info_ok() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
-        let alpha_low: u16 = 1638_u16;
+        let alpha_low = MIN_ALPHA_LOW;
         let alpha_high: u16 = u16::MAX - 10;
         let call = RuntimeCall::AdminUtils(crate::Call::sudo_set_alpha_values {
             netuid,
@@ -1502,7 +1502,7 @@ fn test_set_alpha_values_dispatch_info_ok() {
 fn test_sudo_get_set_alpha() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
-        let alpha_low: u16 = 1638_u16;
+        let alpha_low = MIN_ALPHA_LOW;
         let alpha_high: u16 = u16::MAX - 10;
 
         let hotkey: U256 = U256::from(1);
@@ -1581,7 +1581,7 @@ fn test_sudo_get_set_alpha() {
         ));
 
         // 2. Alpha high too low
-        let alpha_high_too_low = (u16::MAX as u32 / 40) as u16 - 1; // One less than the minimum acceptable value
+        let alpha_high_too_low = MIN_ALPHA_LOW - 1;
         assert_err!(
             AdminUtils::sudo_set_alpha_values(
                 signer.clone(),
@@ -1600,7 +1600,7 @@ fn test_sudo_get_set_alpha() {
         ));
 
         // 3. Alpha low too low or too high
-        let alpha_low_too_low = 0_u16;
+        let alpha_low_too_low = MIN_ALPHA_LOW - 1;
         assert_err!(
             AdminUtils::sudo_set_alpha_values(
                 signer.clone(),

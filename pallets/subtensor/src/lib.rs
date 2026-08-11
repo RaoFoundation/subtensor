@@ -63,6 +63,12 @@ pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 5000;
 
 pub const ALPHA_MAP_BATCH_SIZE: usize = 30;
 
+/// Maximum bonds moving average allowed for subnet owners.
+pub const MAX_BONDS_MOVING_AVERAGE: u64 = 975_000;
+
+/// Smallest u16 alpha encoding that is not below `1 - MAX_BONDS_MOVING_AVERAGE / 1_000_000`.
+pub const MIN_ALPHA_LOW: u16 = 1_639;
+
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
 /// Declared pre-dispatch weight envelope for `claim_root` (benchmark upper bound). Actual
