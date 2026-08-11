@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 443,
+    spec_version: 444,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -625,12 +625,16 @@ impl ProxyInterface<AccountId> for Proxier {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         pallet_commitments::Pallet::<Runtime>::purge_netuid(netuid, weight_meter)
+    }
+
+    fn purge_neuron(netuid: NetUid, account: &AccountId) {
+        pallet_commitments::Pallet::<Runtime>::purge_neuron(netuid, account);
     }
 }
 
@@ -712,15 +716,34 @@ impl Get<u32> for MaxCommitFields {
 #[subtensor_macros::freeze_struct("c39297f5eb97ee82")]
 pub struct AllowCommitments;
 impl CanCommit<AccountId> for AllowCommitments {
+    type Error = pallet_subtensor::Error<Runtime>;
+
     #[cfg(not(feature = "runtime-benchmarks"))]
-    fn can_commit(netuid: NetUid, address: &AccountId) -> bool {
-        SubtensorModule::if_subnet_exist(netuid)
-            && SubtensorModule::is_hotkey_registered_on_network(netuid, address)
+    fn validate(netuid: NetUid, address: &AccountId) -> Result<(), Self::Error> {
+        if !SubtensorModule::if_subnet_exist(netuid) {
+            return Err(pallet_subtensor::Error::<Runtime>::SubnetNotExists);
+        }
+        if !SubtensorModule::is_hotkey_registered_on_network(netuid, address) {
+            return Err(pallet_subtensor::Error::<Runtime>::HotKeyNotRegisteredInSubNet);
+        }
+        Ok(())
     }
 
     #[cfg(feature = "runtime-benchmarks")]
-    fn can_commit(_: NetUid, _: &AccountId) -> bool {
-        true
+    fn validate(_: NetUid, _: &AccountId) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn validation_weight() -> frame_support::weights::Weight {
+        #[cfg(not(feature = "runtime-benchmarks"))]
+        {
+            <Runtime as frame_system::Config>::DbWeight::get().reads(2)
+        }
+
+        #[cfg(feature = "runtime-benchmarks")]
+        {
+            frame_support::weights::Weight::zero()
+        }
     }
 }
 

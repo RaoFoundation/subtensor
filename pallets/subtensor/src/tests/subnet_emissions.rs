@@ -192,6 +192,38 @@ fn get_shares_ignores_root_prop_storage_when_prices_and_burns_match() {
     });
 }
 
+/// Regression: `get_shares` must be independent of `MinerBurned`. The removed
+/// formula weighted each price share by (1 - miner_burned) and renormalized,
+/// so under it a burn split of 0 : 1 yields shares 1 : 0 and a split of
+/// 0.25 : 0.75 yields 0.75 : 0.25. This test fails if that weighting is
+/// reintroduced.
+#[test]
+fn get_shares_independent_of_miner_burned() {
+    // (burn_n1, burn_n2): boundary values and a non-boundary split.
+    for (burn_n1, burn_n2) in [(0.0, 1.0), (1.0, 0.0), (0.25, 0.75)] {
+        new_test_ext(1).execute_with(|| {
+            let owner_hotkey = U256::from(90);
+            let owner_coldkey = U256::from(91);
+            let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+            let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+            // Equal prices; only the miner-burn values differ.
+            SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+            SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+            MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(burn_n1));
+            MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(burn_n2));
+
+            let shares = SubtensorModule::get_shares(&[n1, n2]);
+            let s1 = shares.get(&n1).copied().unwrap().to_num::<f64>();
+            let s2 = shares.get(&n2).copied().unwrap().to_num::<f64>();
+
+            assert_abs_diff_eq!(s1, 0.5_f64, epsilon = 1e-9);
+            assert_abs_diff_eq!(s2, 0.5_f64, epsilon = 1e-9);
+            assert_abs_diff_eq!(s1 + s2, 1.0_f64, epsilon = 1e-9);
+        });
+    }
+}
+
 /// Empty candidate set: no panic, empty map, bar stays unset.
 #[test]
 fn emission_gate_empty_set_no_panic() {

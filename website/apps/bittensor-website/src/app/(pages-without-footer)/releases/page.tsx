@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v444',
+    date: 'August 2026',
+    title: 'Pure Price Emissions',
+    summary:
+      'Subnet emission returns to pure price EMA through the gate. The release also completes ' +
+      'the typed EVM surface, makes multisigs first-class btcli wallets, adds human-readable ' +
+      'Ledger orders, and lands a broad reliability pass.',
+    href: '/releases/v444-upgrade',
+  },
+  {
     tag: 'v441',
     date: 'July 2026',
     title: 'Root Reborn',

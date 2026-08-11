@@ -1,8 +1,15 @@
 use core::marker::PhantomData;
 
 use fp_evm::PrecompileHandle;
+use frame_support::{
+    dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo},
+    traits::IsSubType,
+};
+use frame_system::RawOrigin;
+use pallet_evm::AddressMapping;
 use precompile_utils::EvmResult;
 use sp_core::{ByteArray, H256, U256};
+use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable};
 use subtensor_runtime_common::NetUid;
 
 use crate::PrecompileExt;
@@ -16,8 +23,25 @@ pub struct VotingPowerPrecompile<R>(PhantomData<R>);
 
 impl<R> PrecompileExt<R::AccountId> for VotingPowerPrecompile<R>
 where
-    R: frame_system::Config + pallet_subtensor::Config + pallet_evm::Config,
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_subtensor::Config
+        + pallet_evm::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
     R::AccountId: From<[u8; 32]> + ByteArray,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     const INDEX: u64 = 2061;
 }
@@ -25,8 +49,25 @@ where
 #[precompile_utils::precompile]
 impl<R> VotingPowerPrecompile<R>
 where
-    R: frame_system::Config + pallet_subtensor::Config + pallet_evm::Config,
-    R::AccountId: From<[u8; 32]>,
+    R: frame_system::Config
+        + pallet_balances::Config
+        + pallet_subtensor::Config
+        + pallet_evm::Config
+        + pallet_shield::Config
+        + pallet_subtensor_proxy::Config
+        + Send
+        + Sync
+        + scale_info::TypeInfo,
+    R::AccountId: From<[u8; 32]> + ByteArray,
+    <R as frame_system::Config>::RuntimeOrigin: AsSystemOriginSigner<R::AccountId> + Clone,
+    <R as frame_system::Config>::RuntimeCall: From<pallet_subtensor::Call<R>>
+        + GetDispatchInfo
+        + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>
+        + IsSubType<pallet_balances::Call<R>>
+        + IsSubType<pallet_subtensor::Call<R>>
+        + IsSubType<pallet_shield::Call<R>>
+        + IsSubType<pallet_subtensor_proxy::Call<R>>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     /// Get voting power for a hotkey on a subnet.
     ///
@@ -131,14 +172,34 @@ where
     #[precompile::public("getTotalVotingPower(uint16)")]
     #[precompile::view]
     fn get_total_voting_power(handle: &mut impl PrecompileHandle, netuid: u16) -> EvmResult<U256> {
-        let mut total: u64 = 0;
-        for (_, voting_power) in
-            pallet_subtensor::VotingPower::<R>::iter_prefix(NetUid::from(netuid))
-        {
-            handle.record_db_reads::<R>(1)?;
-            total = total.saturating_add(voting_power);
-        }
-        Ok(U256::from(total))
+        handle.record_db_reads::<R>(1)?;
+        Ok(U256::from(pallet_subtensor::TotalVotingPower::<R>::get(
+            NetUid::from(netuid),
+        )))
+    }
+
+    #[precompile::public("enableVotingPowerTracking(uint16)")]
+    fn enable_voting_power_tracking(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let call = pallet_subtensor::Call::<R>::enable_voting_power_tracking {
+            netuid: NetUid::from(netuid),
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+    }
+
+    #[precompile::public("disableVotingPowerTracking(uint16)")]
+    fn disable_voting_power_tracking(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let call = pallet_subtensor::Call::<R>::disable_voting_power_tracking {
+            netuid: NetUid::from(netuid),
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
     }
 }
 
@@ -246,6 +307,7 @@ mod tests {
             pallet_subtensor::VotingPowerTrackingEnabled::<Runtime>::insert(netuid, true);
             pallet_subtensor::VotingPower::<Runtime>::insert(netuid, &first_hotkey, 123_u64);
             pallet_subtensor::VotingPower::<Runtime>::insert(netuid, &second_hotkey, 456_u64);
+            pallet_subtensor::TotalVotingPower::<Runtime>::insert(netuid, 579_u64);
 
             assert_voting_power_call(
                 caller,

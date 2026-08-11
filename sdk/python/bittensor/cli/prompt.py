@@ -37,6 +37,7 @@ except ImportError:  # older typer uses the external click package
         exceptions as click_exceptions,
     )
 
+from .. import config as cfg
 from .. import wallets
 from .context import AppContext
 from .output import STYLE_COMMAND, STYLE_HINT
@@ -88,7 +89,7 @@ def _missing_error(app_ctx: AppContext, flags: list[str]) -> None:
     raise typer.Exit(2)
 
 
-def _ask(console: Console, app_ctx: AppContext, spec: PromptSpec) -> tuple[Any, str]:
+def ask(console: Console, app_ctx: AppContext, spec: PromptSpec) -> tuple[Any, str]:
     """Prompt for one option until an answer parses; returns (value, raw text)."""
     if spec.help:
         hint = Text("  ")
@@ -151,7 +152,7 @@ def fill_missing(app_ctx: AppContext, missing: list[PromptSpec], kwargs: dict[st
             _entered_tokens.extend(spec.custom(console, app_ctx, kwargs))
             console.print()
             continue
-        kwargs[spec.field], raw = _ask(console, app_ctx, spec)
+        kwargs[spec.field], raw = ask(console, app_ctx, spec)
         _entered_tokens.extend([raw] if spec.positional else [spec.flag, raw])
         console.print()
 
@@ -172,11 +173,20 @@ def _parse_wallet(app_ctx: AppContext, raw: str, *, require_coldkey: bool = True
 
     A bad name re-prompts with the wallets that *are* available. The coldkey is
     only demanded when it is the signing key (hotkey-signed intents may use a
-    coldkey-less wallet dir).
+    coldkey-less wallet dir). Saved multisig book names are also accepted —
+    ``AppContext.submit`` rewrites the intent to a multisig approval signed by
+    a local member.
     """
     known = wallets.list_wallets(app_ctx.wallet_path)
     if raw not in known:
-        raise _unknown_name_error("wallet", raw, sorted(known))
+        if cfg.get_multisig(raw) is not None:
+            app_ctx.wallet_name = raw
+            app_ctx.wallet_given = True
+            return raw
+        suggestions = sorted(
+            set(known) | {str(entry["name"]) for entry in cfg.load_multisigs() if entry.get("name")}
+        )
+        raise _unknown_name_error("wallet", raw, suggestions)
     try:
         address = wallets.open_wallet(
             raw, app_ctx.hotkey_name, app_ctx.wallet_path
@@ -222,6 +232,49 @@ def _parse_hotkey(app_ctx: AppContext, raw: str) -> str:
     return raw
 
 
+def _parse_target_hotkey(app_ctx: AppContext, raw: str) -> str:
+    """Parse a *target* hotkey: local names keep the normal path, but a pasted
+    ss58 address, an address-book name, or ``WALLET/HOTKEY`` also work — the
+    target of a command never has to exist locally (only signers do)."""
+    known = wallets.list_wallets(app_ctx.wallet_path).get(app_ctx.wallet_name, [])
+    if raw in known:
+        return _parse_hotkey(app_ctx, raw)
+    if wallets.is_bittensor_address(raw):
+        return raw
+    booked = cfg.get_address(raw)
+    if booked:
+        app_ctx.output.name_address(booked, raw)
+        return booked
+    if "/" in raw:
+        wallet_name, _, hotkey = raw.rpartition("/")
+        try:
+            handle = wallets.open_wallet(
+                wallet_name or app_ctx.wallet_name, hotkey, app_ctx.wallet_path
+            )
+            address = handle.hotkey.ss58_address
+        except Exception as error:
+            raise ValueError(f"cannot open hotkey {raw!r}: {error}")
+        app_ctx.output.name_address(address, raw)
+        return address
+    error = _unknown_name_error(f"hotkey in wallet {app_ctx.wallet_name!r}", raw, sorted(known))
+    raise ValueError(f"{error} — or paste an ss58 address / address-book name")
+
+
+def _parse_target_wallet(app_ctx: AppContext, raw: str, *, require_coldkey: bool = True) -> str:
+    """Parse a *target* coldkey: a local wallet name as usual, but a pasted
+    ss58 address or address-book name also works (no signature needed)."""
+    if wallets.is_bittensor_address(raw):
+        return raw
+    booked = cfg.get_address(raw)
+    if booked:
+        app_ctx.output.name_address(booked, raw)
+        return booked
+    try:
+        return _parse_wallet(app_ctx, raw, require_coldkey=require_coldkey)
+    except ValueError as error:
+        raise ValueError(f"{error} — or paste an ss58 address / address-book name")
+
+
 def confirm_wallet(
     app_ctx: AppContext,
     *,
@@ -230,7 +283,8 @@ def confirm_wallet(
     must_exist: bool = True,
     hotkey_help: Optional[str] = None,
     hotkey_must_exist: bool = True,
-) -> None:
+    accept_address: bool = False,
+) -> Optional[str]:
     """Confirm the target wallet (and optionally hotkey) when only defaulted.
 
     Wallet-scoped commands call this so a bare invocation doesn't silently act
@@ -244,12 +298,24 @@ def confirm_wallet(
     Hotkey-scoped commands additionally pass ``hotkey_help`` so the hotkey
     name is confirmed in the same round (skipped by ``--wallet-hotkey``/``-H``
     or ``BT_WALLET_HOTKEY``); ``hotkey_must_exist=False`` accepts any name.
+
+    With ``accept_address`` (used when the key being confirmed is a command
+    *target*, not a signer) a pasted ss58 address or address-book name is also
+    accepted — the key doesn't have to exist locally. The pasted address is
+    returned so the caller can use it directly; local selections return None.
     """
     skip = app_ctx.assume_yes or app_ctx.uses_external_signer()
     specs: list[PromptSpec] = []
     if not app_ctx.wallet_given and not skip:
+        # A paste is only meaningful at the last prompt of the round: with a
+        # hotkey prompt following, the wallet answer selects whose hotkeys are
+        # on offer and stays a local name.
+        wallet_is_target = accept_address and hotkey_help is None
         parse: Parser = (
-            functools.partial(_parse_wallet, require_coldkey=require_coldkey)
+            functools.partial(
+                _parse_target_wallet if wallet_is_target else _parse_wallet,
+                require_coldkey=require_coldkey,
+            )
             if must_exist
             else _parse_wallet_name
         )
@@ -263,22 +329,46 @@ def confirm_wallet(
             )
         )
     if hotkey_help is not None and not app_ctx.hotkey_given and not skip:
+        if accept_address:
+            known = sorted(wallets.list_wallets(app_ctx.wallet_path).get(app_ctx.wallet_name, []))
+            if known:
+                listing = ", ".join(known[:8]) + (", …" if len(known) > 8 else "")
+                hotkey_help += (
+                    f" A local hotkey ({listing}), a pasted ss58 address, or an address-book name."
+                )
+            else:
+                hotkey_help += (
+                    f" Wallet {app_ctx.wallet_name!r} has no local hotkeys — paste the "
+                    "hotkey's ss58 address or an address-book name."
+                )
+            hotkey_parse: Parser = _parse_target_hotkey
+            hotkey_default = app_ctx.hotkey_name if app_ctx.hotkey_name in known else None
+        else:
+            hotkey_parse = _parse_hotkey if hotkey_must_exist else _parse_hotkey_name
+            hotkey_default = app_ctx.hotkey_name
         specs.append(
             PromptSpec(
                 field="wallet_hotkey",
                 flag="--wallet-hotkey",
                 help=hotkey_help,
-                parse=_parse_hotkey if hotkey_must_exist else _parse_hotkey_name,
-                default=app_ctx.hotkey_name,
+                parse=hotkey_parse,
+                default=hotkey_default,
             )
         )
+    answers: dict[str, Any] = {}
     if specs:
-        fill_missing(app_ctx, specs, {})
+        fill_missing(app_ctx, specs, answers)
     # Confirmed (or silently kept in a non-interactive session) — later
     # default fallbacks in the same invocation must not ask again.
     app_ctx.wallet_given = True
     if hotkey_help is not None:
         app_ctx.hotkey_given = True
+    if accept_address:
+        for key in ("wallet_hotkey", "wallet"):
+            answer = answers.get(key)
+            if isinstance(answer, str) and wallets.is_bittensor_address(answer):
+                return answer
+    return None
 
 
 def signer_specs(
@@ -314,6 +404,21 @@ def signer_specs(
             )
         )
     return specs
+
+
+def replay_command() -> str:
+    """The command that submits this invocation for real: the current argv plus
+    any prompted answers, minus ``--dry-run`` and ``--json``, quoted for
+    copy-paste. This is what a dry run hands to whoever actually runs it — the
+    confirmation prompt is kept (no ``--yes`` is injected), so the human still
+    sees the summary before signing; automation can append ``--yes --json``.
+    """
+    drop = {"--dry-run", "--json"}
+    tokens = [
+        Path(sys.argv[0]).name,
+        *(token for token in [*sys.argv[1:], *_entered_tokens] if token not in drop),
+    ]
+    return " ".join(shlex.quote(part) for part in tokens)
 
 
 def _flush_command_hint(exit_code: int) -> None:
@@ -489,7 +594,7 @@ def _run_app(app: typer.Typer) -> None:
             console = Console(stderr=True, highlight=False)
             console.print()
             for spec in specs:
-                _, raw = _ask(console, app_ctx, spec)
+                _, raw = ask(console, app_ctx, spec)
                 entered = [raw] if spec.positional else [spec.flag, raw]
                 args += entered
                 _entered_tokens.extend(entered)

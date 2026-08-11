@@ -91,6 +91,37 @@ def _coerce_addresses(intent: Intent) -> Intent:
     return replace(intent, **changes) if changes else intent
 
 
+async def _compose_intent_call(
+    substrate: Substrate,
+    intent: Intent,
+    wallet: WalletLike,
+    *,
+    proxy_for: Optional[str] = None,
+    proxy_type: Optional[str] = None,
+) -> tuple[Any, dict]:
+    """Compose semantic call -> sudo -> proxy -> execution adapter."""
+    semantic = _coerce_addresses(intent.semantic_intent())
+    built = await semantic.build(substrate, wallet)
+    if isinstance(built, BuiltCall):
+        call, extras = built.call, built.extras
+    else:
+        call, extras = built, {}
+
+    call = await _wrap_root_call(substrate, semantic, call)
+    if proxy_for is not None:
+        if proxy_type is not None:
+            check_proxy_type(proxy_type)
+        call = await substrate.compose(
+            generated_calls.Proxy.proxy(real=proxy_for, force_proxy_type=proxy_type, call=call)
+        )
+        extras = {**extras, "proxy_for": proxy_for}
+
+    wrapped = await intent.wrap_call(substrate, wallet, call)
+    if isinstance(wrapped, BuiltCall):
+        return wrapped.call, {**extras, **wrapped.extras}
+    return wrapped, extras
+
+
 def _find_event(events: list, module_id: str, event_id: str) -> Optional[Any]:
     """The attributes of the first matching triggered event, or None."""
     for entry in events:
@@ -470,33 +501,23 @@ class Executor:
 
         ``proxy_for`` switches to proxy signing: the call is wrapped in
         ``Proxy.proxy(real=proxy_for)`` so it dispatches with that account's
-        origin, while the *local* wallet key (which must be a registered proxy of
-        ``proxy_for``) signs. ``proxy_type`` optionally forces the exact proxy
-        type to match (``force_proxy_type``).
+        origin. The effective dispatch account (the direct signer or saved
+        multisig) must be a registered proxy of ``proxy_for``. ``proxy_type``
+        optionally forces the exact proxy type to match (``force_proxy_type``).
         """
         wallet = as_wallet(wallet)
         intent = _coerce_addresses(intent)
-        built = await intent.build(self.substrate, wallet)
-        if isinstance(built, BuiltCall):
-            call, extras = built.call, built.extras
-        else:
-            call, extras = built, {}
-        # Root intents declare privilege via ``origin``; wrap here so metadata
-        # and execution cannot drift (an intent that forgets Sudo.sudo still
-        # dispatches as root, and docs stay authoritative).
-        call = await _wrap_root_call(self.substrate, intent, call)
+        call, extras = await _compose_intent_call(
+            self.substrate,
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            proxy_type=proxy_type,
+        )
         pub = self._public_keypair(wallet, intent.signer)
         signer_address = pub.ss58_address
         # The account whose state the call actually touches.
         origin = proxy_for or signer_address
-
-        if proxy_for is not None:
-            if proxy_type is not None:
-                check_proxy_type(proxy_type)
-            call = await self.substrate.compose(
-                generated_calls.Proxy.proxy(real=proxy_for, force_proxy_type=proxy_type, call=call)
-            )
-            extras = {**extras, "proxy_for": proxy_for}
 
         warnings: list[str] = list(await intent.warnings(self.substrate, origin))
         if intent.signer == "hotkey" and proxy_for is None and charges_coldkey_fee(call):
@@ -523,6 +544,8 @@ class Executor:
             violations=violations,
             call=call,
             extras=extras,
+            spend=intent.semantic_intent().spend(),
+            args={k: v for k, v in intent.to_dict().items() if k != "op"},
         )
 
     async def execute(
@@ -544,8 +567,8 @@ class Executor:
         """Plan, then sign and submit. Raises ``PolicyError`` if the plan violates
         policy. (To preview without submitting, call ``plan`` instead.)
 
-        With ``proxy_for``, the local wallet key signs a ``Proxy.proxy`` wrapper
-        and the call dispatches as ``proxy_for`` — the real account's key never
+        With ``proxy_for``, the direct signer or saved multisig dispatches a
+        ``Proxy.proxy`` wrapper as ``proxy_for`` — the real account's key never
         touches this machine (see ``plan``).
 
         ``retries`` resubmits (up to that many extra times, one block apart) when
@@ -563,7 +586,7 @@ class Executor:
         return the queue receipt instead. ``registration_timeout`` and the
         optional ``on_progress(dict)`` callback apply only to that wait.
         """
-        if intent.mev_shield_required:
+        if intent.semantic_intent().mev_shield_required:
             if proxy_for is not None:
                 raise BittensorError(
                     f"{intent.op} must be submitted MEV-shielded and cannot "
@@ -671,11 +694,7 @@ class Executor:
         """
         wallet = as_wallet(wallet)
         intent = _coerce_addresses(intent)
-        built = await intent.build(self.substrate, wallet)
-        call = built.call if isinstance(built, BuiltCall) else built
-        # Same root wrapping as ``plan``/``execute``: the decrypted inner
-        # extrinsic must dispatch ``Sudo.sudo``, not the bare AdminUtils call.
-        call = await _wrap_root_call(self.substrate, intent, call)
+        call, extras = await _compose_intent_call(self.substrate, intent, wallet)
         fee = None
         active = self._active_policy(policy)
         if active is not None and active.max_fee_tao is not None:
@@ -725,7 +744,12 @@ class Executor:
         if result.success:
             result = replace(
                 result,
-                data={**result.data, "shielded": True, "inner_extrinsic_hash": inner_hash},
+                data={
+                    **result.data,
+                    **extras,
+                    "shielded": True,
+                    "inner_extrinsic_hash": inner_hash,
+                },
             )
         if result.success and (wait_for_inclusion or wait_for_finalization):
             # The carrier's success only proves the ciphertext was accepted;

@@ -1159,5 +1159,617 @@
 		"outputs": [],
 		"stateMutability": "payable",
 		"type": "function"
-	}
+	},
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "string",
+        "name": "subnetName",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "githubRepo",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "subnetContact",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "subnetUrl",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "discord",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "description",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "logoUrl",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "additional",
+        "type": "string"
+      }
+    ],
+    "name": "setSubnetIdentity",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "string",
+        "name": "symbol",
+        "type": "string"
+      }
+    ],
+    "name": "updateSubnetSymbol",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "triggerEpoch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "bondsPenalty",
+        "type": "uint16"
+      }
+    ],
+    "name": "setBondsPenalty",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxAllowedUids",
+        "type": "uint16"
+      }
+    ],
+    "name": "setMaxAllowedUids",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "maxBurn",
+        "type": "uint64"
+      }
+    ],
+    "name": "setMaxBurnV2",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "mechanismCount",
+        "type": "uint8"
+      }
+    ],
+    "name": "setMechanismCount",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "hasSplit",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint16[]",
+        "name": "split",
+        "type": "uint16[]"
+      }
+    ],
+    "name": "setMechanismEmissionSplit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "minBurn",
+        "type": "uint64"
+      }
+    ],
+    "name": "setMinBurnV2",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "setOwnerCutEnabled",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "immuneNeurons",
+        "type": "uint16"
+      }
+    ],
+    "name": "setOwnerImmuneNeuronLimit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "tempo",
+        "type": "uint16"
+      }
+    ],
+    "name": "setTempo",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxUids",
+        "type": "uint16"
+      }
+    ],
+    "name": "trimToMaxAllowedUids",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+{
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getBurnConfig",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "halfLife",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint128",
+        "name": "increaseMultiplier",
+        "type": "uint128"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getGlobalNetworkLimits",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "minActivityCutoff",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "adminFreezeWindow",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "ownerHyperparamRateLimit",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "dissolveScheduleDuration",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "subnetLimit",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "totalNetworks",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "networkImmunityPeriod",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "startCallDelay",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "minNetworkLockCost",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "lastNetworkLockCost",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "networkLockReductionInterval",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "subnetOwnerCut",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getGlobalProtocolConfig",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "maxMechanismCount",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint16",
+        "name": "commitRevealWeightsVersion",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "networkRegistrationStartBlock",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "taoInRefundDeploymentBlock",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getGlobalRateLimits",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "networkRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "weightsVersionKeyRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "transactionRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "delegateTakeRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "childkeyTakeRateLimit",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint8",
+        "name": "maxEpochsPerBlock",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getMechanismEmissionSplit",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint16[]",
+        "name": "split",
+        "type": "uint16[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSubnetCapacityConfig",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "minAllowedUids",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxAllowedUids",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxAllowedValidators",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "adjustmentInterval",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "targetRegistrationsPerInterval",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "minNonImmuneUids",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "immuneOwnerUidsLimit",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "bondsPenalty",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bool",
+        "name": "ownerCutEnabled",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "transfersEnabled",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint16",
+        "name": "maxRegistrationsPerBlock",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "mechanismCount",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSubnetMetadata",
+    "outputs": [
+      {
+        "internalType": "bytes",
+        "name": "tokenSymbol",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "owner",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "ownerHotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "tempo",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "recycleOrBurn",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getRegisteredSubnetCounter",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getSubnetDissolutionStatus",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "isDissolving",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "cleanupInProgress",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint8",
+        "name": "cleanupPhase",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
 ]

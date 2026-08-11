@@ -222,6 +222,7 @@ class Wallet:
         self,
         mnemonic: str | None = None,
         seed: str | bytes | None = None,
+        private_key: str | None = None,
         json: tuple[str, str] | None = None,
         use_password: bool = True,
         overwrite: bool = False,
@@ -235,6 +236,10 @@ class Wallet:
             if not suppress:
                 print(f"Regenerating coldkey from mnemonic\nMnemonic: {mnemonic}")
             keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
+        elif private_key is not None:
+            if not suppress:
+                print("Regenerating coldkey from private key")
+            keypair = Keypair.create_from_private_key(private_key, crypto_type)
         elif seed is not None:
             keypair = Keypair.create_from_seed(_seed_bytes(seed), crypto_type)
         elif json is not None:
@@ -247,7 +252,7 @@ class Wallet:
                 print("Regenerating coldkey from encrypted JSON keystore")
             keypair = Keypair.create_from_encrypted_json(json_data, passphrase)
         else:
-            raise ValueError("either mnemonic, seed, or json must be provided")
+            raise ValueError("either mnemonic, seed, private_key, or json must be provided")
 
         if coldkey_password is not None:
             use_password = True
@@ -265,6 +270,7 @@ class Wallet:
         self,
         mnemonic: str | None = None,
         seed: str | bytes | None = None,
+        private_key: str | None = None,
         use_password: bool = False,
         overwrite: bool = False,
         suppress: bool = False,
@@ -277,10 +283,14 @@ class Wallet:
             if not suppress:
                 print(f"Regenerating hotkey from mnemonic\nMnemonic: {mnemonic}")
             keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
+        elif private_key is not None:
+            if not suppress:
+                print("Regenerating hotkey from private key")
+            keypair = Keypair.create_from_private_key(private_key, crypto_type)
         elif seed is not None:
             keypair = Keypair.create_from_seed(_seed_bytes(seed), crypto_type)
         else:
-            raise ValueError("either mnemonic or seed must be provided")
+            raise ValueError("either mnemonic, seed, or private_key must be provided")
 
         if hotkey_password is not None:
             use_password = True

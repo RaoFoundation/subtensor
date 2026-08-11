@@ -47,6 +47,26 @@ impl<T: Config> CheckNonce<T> {
     }
 }
 
+impl<T: Config + pallet_subtensor::Config> CheckNonce<T> {
+    /// Whether `who` holds alpha stake on any hotkey.
+    ///
+    /// A coldkey that received stake (e.g. via `transfer_stake`) but never held
+    /// TAO has no provider or sufficient reference, yet the transaction-fee
+    /// handler can charge its fee by unstaking alpha (`fees_in_alpha`). Without
+    /// this escape hatch such an account is stuck: every signed extrinsic —
+    /// including the `remove_stake` that would give it TAO — dies here with
+    /// `Payment` before fee logic even runs.
+    ///
+    /// `StakingHotkeys` may retain hotkeys whose stake has since dropped to
+    /// zero, so this can over-approximate. That is safe: passing this guard
+    /// only admits the transaction to fee validation, where an account that
+    /// cannot actually pay (in TAO or alpha) is still rejected before any
+    /// nonce storage is written.
+    fn holds_alpha_stake(who: &<T as Config>::AccountId) -> bool {
+        pallet_subtensor::StakingHotkeys::<T>::decode_len(who).unwrap_or(0) > 0
+    }
+}
+
 impl<T: Config> sp_std::fmt::Debug for CheckNonce<T> {
     #[cfg(feature = "std")]
     fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
@@ -78,34 +98,38 @@ pub enum Pre {
     Refund(Weight),
 }
 
-impl<T: Config> TransactionExtension<T::RuntimeCall> for CheckNonce<T>
+impl<T: Config + pallet_subtensor::Config> TransactionExtension<<T as Config>::RuntimeCall>
+    for CheckNonce<T>
 where
-    T::RuntimeCall: Dispatchable<Info = DispatchInfo>,
-    <T::RuntimeCall as Dispatchable>::RuntimeOrigin: AsSystemOriginSigner<T::AccountId> + Clone,
+    <T as Config>::RuntimeCall: Dispatchable<Info = DispatchInfo>,
+    <<T as Config>::RuntimeCall as Dispatchable>::RuntimeOrigin:
+        AsSystemOriginSigner<<T as Config>::AccountId> + Clone,
 {
     const IDENTIFIER: &'static str = "CheckNonce";
     type Implicit = ();
     type Val = Val<T>;
     type Pre = Pre;
 
-    fn weight(&self, _: &T::RuntimeCall) -> Weight {
+    fn weight(&self, _: &<T as Config>::RuntimeCall) -> Weight {
         // Account for the account-nonce storage ops the extension performs on
         // signed transactions: one `Account::get` read in `validate`, plus one
-        // `Account::mutate` (read + write) in `prepare` to bump the nonce.
-        // Non-signed calls refund this weight in full via `Val::Refund`.
-        T::DbWeight::get().reads_writes(2, 1)
+        // `Account::mutate` (read + write) in `prepare` to bump the nonce, plus
+        // the worst-case `StakingHotkeys` length read for reference-less
+        // signers. Non-signed calls refund this weight in full via
+        // `Val::Refund`.
+        <T as Config>::DbWeight::get().reads_writes(3, 1)
     }
 
     fn validate(
         &self,
         origin: <T as Config>::RuntimeOrigin,
-        call: &T::RuntimeCall,
-        info: &DispatchInfoOf<T::RuntimeCall>,
+        call: &<T as Config>::RuntimeCall,
+        info: &DispatchInfoOf<<T as Config>::RuntimeCall>,
         _len: usize,
         _self_implicit: Self::Implicit,
         _inherited_implication: &impl Encode,
         _source: TransactionSource,
-    ) -> ValidateResult<Self::Val, T::RuntimeCall> {
+    ) -> ValidateResult<Self::Val, <T as Config>::RuntimeCall> {
         let Some(who) = origin.as_system_origin_signer() else {
             return Ok((Default::default(), Val::Refund(self.weight(call)), origin));
         };
@@ -113,6 +137,7 @@ where
         if info.pays_fee == Pays::Yes
             && account.providers.is_zero()
             && account.sufficients.is_zero()
+            && !Self::holds_alpha_stake(who)
         {
             // Nonce storage not paid for
             return Err(InvalidTransaction::Payment.into());
@@ -146,9 +171,9 @@ where
     fn prepare(
         self,
         val: Self::Val,
-        _origin: &T::RuntimeOrigin,
-        _call: &T::RuntimeCall,
-        _info: &DispatchInfoOf<T::RuntimeCall>,
+        _origin: &<T as Config>::RuntimeOrigin,
+        _call: &<T as Config>::RuntimeCall,
+        _info: &DispatchInfoOf<<T as Config>::RuntimeCall>,
         _len: usize,
     ) -> Result<Self::Pre, TransactionValidityError> {
         let (who, mut nonce) = match val {
@@ -160,7 +185,7 @@ where
         if self.0 > nonce {
             return Err(InvalidTransaction::Future.into());
         }
-        nonce += T::Nonce::one();
+        nonce += <T as Config>::Nonce::one();
         frame_system::Account::<T>::mutate(who, |account| account.nonce = nonce);
         Ok(Pre::NonceChecked)
     }
@@ -168,7 +193,7 @@ where
     fn post_dispatch_details(
         pre: Self::Pre,
         _info: &DispatchInfo,
-        _post_info: &PostDispatchInfoOf<T::RuntimeCall>,
+        _post_info: &PostDispatchInfoOf<<T as Config>::RuntimeCall>,
         _len: usize,
         _result: &DispatchResult,
     ) -> Result<Weight, TransactionValidityError> {
@@ -189,10 +214,11 @@ mod tests {
     fn check_nonce_weight_accounts_for_account_storage_ops() {
         let ext = CheckNonce::<Runtime>::from(<<Runtime as frame_system::Config>::Nonce>::zero());
         let call = RuntimeCall::System(frame_system::Call::remark { remark: vec![] });
-        // validate performs one `Account::get` read; prepare performs one
+        // validate performs one `Account::get` read plus, for reference-less
+        // signers, one `StakingHotkeys` length read; prepare performs one
         // `Account::mutate` (read + write). The declared extension weight must
         // reflect those ops, not zero.
-        let expected = <Runtime as frame_system::Config>::DbWeight::get().reads_writes(2, 1);
+        let expected = <Runtime as frame_system::Config>::DbWeight::get().reads_writes(3, 1);
         assert_eq!(ext.weight(&call), expected);
         assert!(!ext.weight(&call).is_zero());
     }

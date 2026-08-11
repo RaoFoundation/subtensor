@@ -184,6 +184,8 @@ mod hooks {
                 .saturating_add(migrations::migrate_clear_orphan_subnet_identities_v3::migrate_clear_orphan_subnet_identities_v3::<T>())
                 // Backfill ColdkeyCollateralHotkeys from standing MinerCollateral rows.
                 .saturating_add(migrations::migrate_coldkey_collateral_hotkeys::migrate_coldkey_collateral_hotkeys::<T>())
+                // Backfill the O(1) aggregate used by the voting-power precompile.
+                .saturating_add(migrations::migrate_total_voting_power::migrate_total_voting_power::<T>())
                 // Kick off the unified beta-basket seed (cursor only — conversion is on_idle
                 // so ORU stays idempotent for try-runtime). Fresh key so chains that ran the
                 // superseded per-slot v1 seed still convert.
@@ -197,7 +199,10 @@ mod hooks {
                 // Kill the stale quantile-derived emission gate bar so the
                 // rank-32 bar (DefaultEmissionBarRank) applies from the first
                 // recompute after the upgrade instead of the next cadence boundary.
-                .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>());
+                .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>())
+                // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
+                // on_idle weight over subsequent blocks.
+                .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>());
             weight
         }
 
@@ -234,6 +239,17 @@ mod hooks {
                     migrations::migrate_seed_beta_basket::migrate_seed_beta_basket_v2_with_limit::<
                         T,
                     >(limit.saturating_sub(weight)),
+                );
+            }
+
+            // Storage GC is independent from beta-basket conversion, but both are large. Let the
+            // state-sensitive seed finish first and then consume only otherwise-unused block
+            // weight, so normal extrinsics and dissolution work retain priority.
+            if !seed_in_progress && weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<T>(
+                        limit.saturating_sub(weight),
+                    ),
                 );
             }
 

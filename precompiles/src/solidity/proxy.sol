@@ -49,4 +49,34 @@ interface IProxy {
     function getProxies(
         bytes32 account
     ) external view returns (ProxyInfo[] memory);
+
+    function announce(bytes32 real, bytes32 callHash) external;
+    function removeAnnouncement(bytes32 real, bytes32 callHash) external;
+    function rejectAnnouncement(bytes32 delegate, bytes32 callHash) external;
+    function setRealPaysFee(bytes32 delegate, bool paysFee) external;
+    function getProxyDeposit(bytes32 account) external view returns (uint256);
+    struct AnnouncementInfo {
+        bytes32 real;
+        bytes32 callHash;
+        uint64 height;
+    }
+    function getAnnouncements(
+        bytes32 account
+    ) external view returns (AnnouncementInfo[] memory, uint256 deposit);
+    function getLastCallResult(
+        bytes32 account
+    )
+        external
+        view
+        returns (
+            bool exists,
+            bool succeeded,
+            uint8 errorKind,
+            uint8 palletIndex,
+            bytes32 errorData
+        );
+    function isRealPaysFee(
+        bytes32 real,
+        bytes32 delegate
+    ) external view returns (bool);
 }

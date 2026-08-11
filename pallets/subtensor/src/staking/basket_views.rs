@@ -62,6 +62,31 @@ impl<T: Config> Pallet<T> {
         Self::basket_payout_from(owed_shares.min(shares_total), nav, shares_total)
     }
 
+    /// Current realizable TAO value of a staker's unclaimed share of one subnet holding in a
+    /// validator's basket. This is a read-only projection of the same pro-rata holding amount
+    /// that [`Self::root_claim_for_hotkey`] would redeem.
+    pub fn get_basket_subnet_payout_tao(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> u64 {
+        let shares_total = BasketShares::<T>::get(hotkey);
+        if shares_total == 0 {
+            return 0;
+        }
+
+        let owed_shares = Self::get_basket_owed_shares(hotkey, coldkey).min(shares_total);
+        if owed_shares == 0 {
+            return 0;
+        }
+
+        let escrow = Self::get_beta_escrow_account_id();
+        let holding =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, netuid).to_u64();
+        let redeemable_alpha = Self::mul_div_u64(holding, owed_shares, shares_total);
+        Self::realizable_tao_for_alpha(netuid, redeemable_alpha)
+    }
+
     /// Total TAO a coldkey would realize by redeeming every beta basket it holds across all of
     /// its validators (mark-to-market). This is the "pending TAO owed" figure for a staker.
     pub fn get_root_basket_owed_tao(coldkey: &T::AccountId) -> TaoBalance {

@@ -69,6 +69,7 @@ pub mod migrate_set_registration_enable;
 pub mod migrate_set_root_min_allowed_weights;
 pub mod migrate_set_subtoken_enabled;
 pub mod migrate_stake_threshold;
+pub mod migrate_storage_bloat_v2;
 pub mod migrate_subnet_balances;
 pub mod migrate_subnet_limit_to_default;
 pub mod migrate_subnet_locked;
@@ -77,6 +78,7 @@ pub mod migrate_subnet_volume;
 pub mod migrate_tao_in_refund_deployment_block;
 pub mod migrate_to_v1_separate_emission;
 pub mod migrate_to_v2_fixed_total_stake;
+pub mod migrate_total_voting_power;
 pub mod migrate_transfer_ownership_to_foundation;
 pub mod migrate_upgrade_revealed_commitments;
 

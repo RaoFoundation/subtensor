@@ -14,6 +14,7 @@ import copy
 import importlib.metadata
 import json
 import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -21,12 +22,13 @@ from typer.core import TyperGroup
 
 from .. import __version__, wallets
 from .._generated.errors import ERRORS
+from ..config import config_path
 from ..config import get as config_default
 from ..error_descriptions import DESCRIPTIONS
 from ..error_map import DISPATCH_ERRORS
 from ..intents import list_tools
 from ..result import EXPLANATIONS, REMEDIATION, ChainError, ErrorCode, classify_error
-from ..settings import DEFAULT_NETWORK, chain_error_docs_url, error_docs_url
+from ..settings import DEFAULT_NETWORK, DOCS_URL, chain_error_docs_url, error_docs_url
 from . import globals as g
 from . import help_theme  # noqa: F401  (restyles typer's --help at import)
 from .call import call as call_command
@@ -208,6 +210,7 @@ def main_callback(
         False,
         "--yes",
         "-y",
+        "--no-prompt",  # the v9 btcli spelling, kept as an alias
         help="Skip confirmation prompts.",
         rich_help_panel=g.PANEL_EXECUTION,
     ),
@@ -488,10 +491,30 @@ def _warn_if_legacy_cli_installed() -> None:
     )
 
 
+def _warn_if_legacy_config() -> None:
+    """One-line stderr warning when a v9-era ``~/.bittensor/config.yml`` exists.
+
+    This CLI never reads it, so settings people expect (network, wallet, ...)
+    silently fall back to defaults — the most common migration confusion. Warn
+    until the stale file is renamed or removed.
+    """
+    legacy = Path.home() / ".bittensor" / "config.yml"
+    if not legacy.is_file():
+        return
+    print(
+        f"warning: {legacy} is the legacy (v9) btcli config and is ignored by this CLI; "
+        f"migrate values with `btcli config set` (stored in {config_path()}), then rename "
+        f"or delete the old file to silence this warning. "
+        f"Migration guide: {DOCS_URL}/migration",
+        file=sys.stderr,
+    )
+
+
 def main() -> None:
     from bittensor.wallets import is_bittensor_address
 
     _warn_if_legacy_cli_installed()
+    _warn_if_legacy_config()
     argv = sys.argv[1:]
     if (
         len(argv) >= 3

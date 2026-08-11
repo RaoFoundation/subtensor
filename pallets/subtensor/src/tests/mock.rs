@@ -52,8 +52,20 @@ impl Get<u32> for TestMaxFields {
 
 pub struct TestCanCommit;
 impl pallet_commitments::CanCommit<U256> for TestCanCommit {
-    fn can_commit(_netuid: NetUid, _who: &U256) -> bool {
-        true
+    type Error = crate::Error<Test>;
+
+    fn validate(netuid: NetUid, who: &U256) -> Result<(), Self::Error> {
+        if !SubtensorModule::if_subnet_exist(netuid) {
+            return Err(crate::Error::<Test>::SubnetNotExists);
+        }
+        if !SubtensorModule::is_hotkey_registered_on_network(netuid, who) {
+            return Err(crate::Error::<Test>::HotKeyNotRegisteredInSubNet);
+        }
+        Ok(())
+    }
+
+    fn validation_weight() -> Weight {
+        <Test as frame_system::Config>::DbWeight::get().reads(2)
     }
 }
 
@@ -439,12 +451,16 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         CommitmentsPallet::<Test>::purge_netuid(netuid, weight_meter)
+    }
+
+    fn purge_neuron(netuid: NetUid, account: &AccountId) {
+        CommitmentsPallet::<Test>::purge_neuron(netuid, account);
     }
 }
 

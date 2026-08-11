@@ -11,6 +11,7 @@ from typing import Any, Optional
 from .. import config as cfg
 from .. import wallets
 from .._generated import storage as st
+from .._transport.codec import multisig_account
 from ..result import ChainError, ExtrinsicResult
 from ..wallets import is_bittensor_address
 
@@ -165,14 +166,17 @@ def build_replay_command(
         if force_proxy_type:
             parts.append(f"--force-proxy-type {shlex.quote(force_proxy_type)}")
     if preset:
-        parts.append(f"--multisig {shlex.quote(preset)}")
+        # ``-w <multisig>`` auto-picks a local member and wraps the call; each
+        # co-signer can paste the same command on their machine.
+        parts.append(f"-w {shlex.quote(preset)}")
     elif other_signatory_labels:
         parts.append(f"--multisig-threshold {threshold}")
         parts.append(f"--other-signatories {shlex.quote(','.join(other_signatory_labels))}")
+        parts.append(f"-w {shlex.quote(wallet_label)}")
     else:
         parts.append(f"--multisig-threshold {threshold}")
         parts.append(f"--signatories {shlex.quote(','.join(signatories))}")
-    parts.append(f"-w {shlex.quote(wallet_label)}")
+        parts.append(f"-w {shlex.quote(wallet_label)}")
     if signer_role != "coldkey":
         parts.append(f"--signer {signer_role}")
     return " ".join(parts)
@@ -242,12 +246,193 @@ def resolve_multisig(
     return threshold, sigs, None, refs
 
 
+def derive_saved_multisig_address(app_ctx, name: str) -> Optional[str]:
+    """Derived ss58 of the saved multisig ``name``, or None when not in the book.
+
+    Fully offline: signatory refs (ss58, book names, wallet names) resolve
+    locally and the account id derivation is deterministic, so read-only
+    commands can treat a multisig book name like any other address without a
+    chain connection.
+    """
+    entry = cfg.get_multisig(name)
+    if entry is None:
+        return None
+    signatories = _resolve_stored_signatories(app_ctx, list(entry["signatories"]))
+    return multisig_account(signatories, int(entry["threshold"])).ss58_address
+
+
 def resolve_multisig_preset(app_ctx, name: str) -> tuple[int, list[str], list[str]]:
     """Return threshold, resolved ss58 signatories, and preset refs."""
     threshold, signatories, _, refs = resolve_multisig(app_ctx, multisig_name=name)
     if threshold is None:
         raise ValueError(f"unknown multisig {name!r}")
     return threshold, signatories, refs
+
+
+_MULTISIG_OPS = frozenset(
+    {
+        "multisig_approve",
+        "multisig_cancel",
+        "multisig_execute",
+        "multisig_threshold_1",
+    }
+)
+
+
+def local_signatory_wallets(app_ctx, signatories: list[str]) -> list[tuple[str, str]]:
+    """Local coldkey wallets whose ss58 is in ``signatories``: ``(name, ss58)``."""
+    wanted = set(signatories)
+    found: list[tuple[str, str]] = []
+    try:
+        for coldkey in wallets.list_wallets_detailed(app_ctx.wallet_path):
+            if coldkey.ss58 in wanted:
+                found.append((coldkey.name, coldkey.ss58))
+    except Exception:
+        return []
+    # Stable order matching the resolved signatory list.
+    order = {ss58: index for index, ss58 in enumerate(signatories)}
+    found.sort(key=lambda item: order.get(item[1], len(order)))
+    return found
+
+
+def pick_local_signatory(app_ctx, *, preset: str, signatories: list[str]) -> tuple[str, str]:
+    """Choose which local member coldkey signs for a saved multisig.
+
+    Returns ``(wallet_name, ss58)``. Auto-selects when exactly one member is
+    present locally; prompts when several are; errors when none are.
+    """
+    from .prompt import PromptSpec, fill_missing, interactive
+
+    locals_ = local_signatory_wallets(app_ctx, signatories)
+    if not locals_:
+        raise ValueError(
+            f"no local signatory wallet for multisig {preset!r}; "
+            "install one of its member coldkeys under --wallet-path, or pass "
+            f"`--multisig {preset} -w <signatory>`"
+        )
+    if len(locals_) == 1:
+        name, ss58 = locals_[0]
+        app_ctx.output.message(
+            f"[dim]signing as local member {format_signatory_display(ss58, name)} "
+            f"for multisig {preset}[/dim]"
+        )
+        return name, ss58
+
+    by_name = {name: ss58 for name, ss58 in locals_}
+    if app_ctx.assume_yes or not interactive(app_ctx):
+        raise ValueError(
+            f"multisig {preset!r} has {len(locals_)} local member wallets "
+            f"({', '.join(by_name)}); pass `-w <signatory>` (with "
+            f"`--multisig {preset}`) to choose one non-interactively"
+        )
+
+    def _parse(app_ctx_, raw: str) -> str:
+        if raw not in by_name:
+            known = ", ".join(sorted(by_name))
+            raise ValueError(f"unknown local signatory {raw!r}; choose one of: {known}")
+        return raw
+
+    answers: dict = {}
+    fill_missing(
+        app_ctx,
+        [
+            PromptSpec(
+                field="signatory_wallet",
+                flag="--wallet",
+                help=f"Which local member of multisig {preset!r} signs this approval.",
+                parse=_parse,
+                default=locals_[0][0],
+            )
+        ],
+        answers,
+    )
+    name = answers["signatory_wallet"]
+    return name, by_name[name]
+
+
+async def pending_timepoint_for_call(
+    client,
+    *,
+    signatories: list[str],
+    threshold: int,
+    call_hash: str,
+    signer_ss58: str,
+) -> Optional[dict[str, int]]:
+    """Return the opening timepoint for a pending op matching ``call_hash``.
+
+    Errors if this signer already approved. Returns ``None`` when nothing is
+    pending (caller should open a new operation).
+    """
+    ms = await client.multisig(signatories, threshold)
+    wanted = hex_bytes(call_hash)
+    for row in await list_pending_multisig_ops(client, ms.address):
+        if row["call_hash"] != wanted:
+            continue
+        if signer_ss58 in row.get("approvals") or []:
+            raise ValueError(
+                f"this signatory already approved pending call {wanted}; "
+                "wait for another member, or cancel the operation"
+            )
+        return dict(row["timepoint"])
+    return None
+
+
+def wrap_intent_for_multisig_wallet(app_ctx, intent):
+    """If ``-w`` names a saved multisig, rewrite ``intent`` as a multisig approval.
+
+    Picks a local member coldkey to sign, converts the original intent into a
+    ``multisig_execute`` / ``multisig_threshold_1`` wrapper (same shape as
+    ``btcli call --multisig``), and auto-fills the opening ``timepoint`` when a
+    matching pending operation already exists — so every co-signer can re-run
+    the same ``btcli wallet transfer -w <multisig> ...`` command.
+
+    Raises ``ValueError`` when the preset or local signatory set is unusable.
+    """
+    from ..intents.multisig import (
+        MultisigExecute,
+        MultisigIntentAdapter,
+        MultisigThreshold1,
+        MultisigThreshold1IntentAdapter,
+    )
+
+    if getattr(intent, "signer", None) != "coldkey":
+        return intent
+    if getattr(intent, "op", None) in _MULTISIG_OPS:
+        return intent
+    preset = app_ctx.wallet_name
+    if not preset or cfg.get_multisig(preset) is None:
+        return intent
+
+    threshold, signatories, _refs = resolve_multisig_preset(app_ctx, preset)
+    member_name, signer_ss58 = pick_local_signatory(app_ctx, preset=preset, signatories=signatories)
+
+    # Remember the multisig account name for summaries; the signing wallet is
+    # the local member that actually unlocks a coldkey.
+    app_ctx.multisig_wallet_name = preset
+    app_ctx.wallet_name = member_name
+    app_ctx.wallet_given = True
+
+    others = [ss58 for ss58 in signatories if ss58 != signer_ss58]
+    call_dict = intent.to_dict()
+
+    if threshold == 1:
+        app_ctx.output.message(
+            f"[dim]dispatching via 1-of-{len(signatories)} multisig {preset}[/dim]"
+        )
+        dispatch = MultisigThreshold1(other_signatories=others, call=call_dict)
+        return MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=intent)
+
+    app_ctx.output.message(
+        f"[dim]dispatching via {threshold}-of-{len(signatories)} multisig {preset} "
+        f"as {format_signatory_display(signer_ss58, member_name)}[/dim]"
+    )
+    dispatch = MultisigExecute(
+        threshold=threshold,
+        other_signatories=others,
+        call=call_dict,
+        timepoint=None,
+    )
+    return MultisigIntentAdapter(dispatch=dispatch, semantic=intent)
 
 
 async def multisig_list_records(

@@ -14,11 +14,12 @@ than `rate_tolerance` (5%) above the price at submission — raise the
 tolerance or set `slippage_protection` to False to execute at any price,
 or use `add_stake_limit` to set an explicit limit price. The position's
 value then follows the pool price and the validator's performance, and can
-be exited later with `remove_stake`. Fails if the coldkey's free balance
-cannot cover the amount plus the transaction fee, and with `AmountTooLow`
-when the amount is below the chain minimum of 0.002 TAO plus the swap fee.
-Dynamic subnets also reject a single swap larger than 1000x the pool's TAO
-reserve (`InsufficientLiquidity`).
+be exited later with `remove_stake`. Pass `all` to stake the whole free
+balance minus the existential deposit and a small fee headroom. Fails if
+the coldkey's free balance cannot cover the amount plus the transaction
+fee, and with `AmountTooLow` when the amount is below the chain minimum
+of 0.002 TAO plus the swap fee. Dynamic subnets also reject a single swap
+larger than 1000x the pool's TAO reserve (`InsufficientLiquidity`).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -30,7 +31,7 @@ reserve (`InsufficientLiquidity`).
 | --- | --- | --- | --- |
 | `hotkey_ss58` | string | yes | Hotkey the stake is added to (the validator you are backing). |
 | `netuid` | integer | yes | Subnet the stake lives on (netuid 0 is the root network). |
-| `amount_tao` | number \| `"all"` | yes | How much of the coldkey's free balance to stake. |
+| `amount_tao` | number \| `"all"` | yes | How much of the coldkey's free balance to stake, or `all` (everything minus the existential deposit and fee headroom). |
 | `slippage_protection` | boolean | no | Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price. |
 | `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
 
