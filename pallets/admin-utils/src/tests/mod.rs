@@ -1417,7 +1417,7 @@ fn regression_liquid_alpha_consensus_mode_call_index() {
         mode: ConsensusMode::Auto,
     };
 
-    assert_eq!(call.encode()[0], 104);
+    assert_eq!(call.encode().first(), Some(&104));
 }
 
 #[test]
