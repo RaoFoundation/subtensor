@@ -117,6 +117,13 @@ impl<T: Config> Pallet<T> {
                     }
                 };
 
+                if commit.header.v.len() != 32 || commit.header.w.len() != 32 {
+                    log::trace!(
+                        "Failed to reveal commit for mechanism {netuid_index} submitted by {who:?} due to invalid ciphertext header"
+                    );
+                    continue;
+                }
+
                 let decrypted_bytes: Vec<u8> = match tld::<TinyBLS381, AESGCMStreamCipherProvider>(
                     commit, sig,
                 ) {

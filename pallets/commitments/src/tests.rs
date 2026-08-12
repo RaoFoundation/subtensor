@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used, clippy::indexing_slicing)]
 
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use codec::Encode;
 use sp_std::prelude::*;
 use subtensor_runtime_common::{NetUid, TaoBalance};
@@ -21,6 +22,7 @@ use frame_support::{
     weights::{Weight, constants::RocksDbWeight},
 };
 use frame_system::{Pallet as System, RawOrigin};
+use tle::{curves::drand::TinyBLS381, tlock::TLECiphertext};
 
 fn purge_netuid_with_meter(netuid: NetUid, limit: Weight) -> bool {
     let mut weight_meter = frame_support::weights::WeightMeter::with_limit(limit);
@@ -358,6 +360,43 @@ fn reveal_timelocked_commitment_cant_deserialize_ciphertext() {
         System::<Test>::set_block_number(99999);
         assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
         assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
+    });
+}
+
+#[test]
+fn reveal_timelocked_commitment_rejects_invalid_ciphertext_header() {
+    new_test_ext().execute_with(|| {
+        let who = 42;
+        let netuid = NetUid::from(9);
+        let reveal_round = 1000;
+        let ciphertext = produce_ciphertext(b"Some data", reveal_round);
+        let mut commit = TLECiphertext::<TinyBLS381>::deserialize_compressed(&ciphertext[..])
+            .expect("valid ciphertext");
+        commit.header.v.clear();
+        commit.header.w = vec![1];
+
+        let mut malformed = Vec::new();
+        commit
+            .serialize_compressed(&mut malformed)
+            .expect("serialize malformed ciphertext");
+        let data = Data::TimelockEncrypted {
+            encrypted: malformed.try_into().expect("ciphertext fits"),
+            reveal_round,
+        };
+        let info = CommitmentInfo {
+            fields: BoundedVec::try_from(vec![data]).expect("one field fits"),
+        };
+
+        assert_ok!(Pallet::<Test>::set_commitment(
+            RuntimeOrigin::signed(who),
+            netuid,
+            Box::new(info),
+        ));
+        let sig = hex::decode(DRAND_QUICKNET_SIG_HEX).expect("valid signature hex");
+        insert_drand_pulse(reveal_round, &sig);
+
+        assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
+        assert!(CommitmentOf::<Test>::get(netuid, who).is_none());
     });
 }
 
