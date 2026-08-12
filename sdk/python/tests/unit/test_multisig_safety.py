@@ -32,6 +32,7 @@ async def test_saved_multisig_preserves_inner_policy_and_mev_contract(monkeypatc
         wallet_given=True,
         multisig_wallet_name=None,
         output=output,
+        external_signer_address=lambda: None,
     )
     monkeypatch.setattr(multisig_helpers.cfg, "get_multisig", lambda name: {"name": name})
     monkeypatch.setattr(

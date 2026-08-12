@@ -110,6 +110,9 @@ class AppContext:
     # multisig book name lives here while ``wallet_name`` is the local member
     # coldkey that actually signs.
     multisig_wallet_name: Optional[str] = None
+    # ``--signatory``: which member wallet signs when ``-w`` names a saved
+    # multisig (replaces the interactive member picker).
+    signatory_wallet: Optional[str] = None
     # Diagnostic log verbosity (-v count); kept so per-command --quiet/--verbose
     # overrides can reconfigure logging without losing the root-level setting.
     verbosity: int = 0
@@ -176,31 +179,51 @@ class AppContext:
             self._ledger_signer = signer
         return self._ledger_signer
 
+    def external_signer_address(self) -> Optional[str]:
+        """The account the external backend signs with, without device/browser I/O.
+
+        Resolution order: ``--signer-address`` (raw ss58 or an address-book
+        name), the persisted ``signer_address`` config value, then — for the
+        vault backend — the configured wallet's coldkeypub (a pubkey-only
+        wallet is the natural companion to a Vault-held key). Returns None
+        when no external backend is active or nothing resolves; extension
+        account picking and Ledger derivation happen later, at signing time.
+        """
+        if not self.uses_external_signer():
+            return None
+        address = self.signer_address or cfg.get("signer_address")
+        if address and not is_bittensor_address(address):
+            address = cfg.get_address(address) or address
+        if address and is_bittensor_address(address):
+            return str(address)
+        if not address and self.uses_vault_signer():
+            try:
+                return self.wallet().coldkeypub.ss58_address
+            except Exception:
+                return None
+        return None
+
     def vault_signer(self) -> VaultSigner:
         """The Polkadot Vault (QR) signer for this invocation (built once).
 
-        The signing address is ``--signer-address`` (raw ss58 or an
-        address-book name), else the persisted ``signer_address`` config
-        value, falling back to the configured wallet's coldkeypub — a
-        pubkey-only wallet is the natural companion to a Vault-held key.
+        The signing address comes from :meth:`external_signer_address`.
         Nothing opens until the transport actually asks for a signature.
         """
         if self._vault_signer is None:
-            address = self.signer_address or cfg.get("signer_address")
-            if address and not is_bittensor_address(address):
-                address = cfg.get_address(address) or address
+            address = self.external_signer_address()
             if not address:
-                try:
-                    address = self.wallet().coldkeypub.ss58_address
-                except Exception:
+                raw = self.signer_address or cfg.get("signer_address")
+                if raw:
+                    self.output.error(
+                        f"--signer-address {raw!r} is not a valid ss58 address "
+                        "or known address-book name"
+                    )
+                else:
                     self.output.error(
                         "the vault signer needs an account address",
                         help="pass --signer-address <ss58>, or configure a wallet whose "
                         "coldkeypub matches the key held in Polkadot Vault",
                     )
-                    raise typer.Exit(2)
-            if not is_bittensor_address(address):
-                self.output.error(f"--signer-address {address!r} is not a valid ss58 address")
                 raise typer.Exit(2)
             signer = VaultSigner(
                 address,
@@ -450,8 +473,12 @@ class AppContext:
             self._resolving_multisigs.discard(name)
 
     def resolve_signatory_list(self, raw: str) -> list[str]:
-        """Resolve comma-separated signatory refs (ss58, address-book name, wallet)."""
-        parts = [part.strip() for part in raw.split(",") if part.strip()]
+        """Resolve signatory refs (ss58, address-book name, wallet).
+
+        ``raw`` may be comma-separated, space-separated, or mixed
+        (``a,b``, ``a, b``, ``a b``).
+        """
+        parts = ms_helpers.split_signatory_refs(raw)
         if not parts:
             raise ValueError("need at least one signatory")
         resolved: list[str] = []
@@ -530,6 +557,17 @@ class AppContext:
         except ValueError as error:
             self.output.error(str(error))
             raise typer.Exit(2) from error
+        if self.signatory_wallet and self.multisig_wallet_name is None:
+            # A typo'd or missing multisig name must not degrade into a plain
+            # single-signer transaction: the user explicitly asked for a
+            # multisig member to sign.
+            self.output.error(
+                f"--signatory given, but -w {self.wallet_name!r} is not in this "
+                "environment's multisig book (`btcli multisig list`)",
+                help="pass -w <saved-multisig-name>, or drop --signatory to sign "
+                f"directly as {self.wallet_name!r}",
+            )
+            raise typer.Exit(2)
         semantic_intent = intent.semantic_intent()
 
         # MEV shielding: explicit flag > persistent config > the intent's own
@@ -1039,15 +1077,18 @@ class AppContext:
         reviewers can act straight from `multisig pending`."""
         if not result.success or not result.data.get("multisig_call_hash"):
             return
-        if self.uses_external_signer():
-            return  # no local wallet to derive the signer address from
         try:
-            wallet = self.wallet()
-            signer_address = (
-                wallet.hotkey.ss58_address
-                if intent.signer == "hotkey"
-                else wallet.coldkeypub.ss58_address
-            )
+            if self.uses_external_signer():
+                signer_address = self.external_signer_address()
+                if not signer_address:
+                    return  # extension account was picked interactively; unknown here
+            else:
+                wallet = self.wallet()
+                signer_address = (
+                    wallet.hotkey.ss58_address
+                    if intent.signer == "hotkey"
+                    else wallet.coldkeypub.ss58_address
+                )
             followup = await ms_helpers.multisig_followup_for_intent(
                 client, self, intent=intent, result=result, signer_address=signer_address
             )

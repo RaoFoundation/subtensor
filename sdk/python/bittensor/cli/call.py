@@ -46,6 +46,7 @@ the multisig, combining both wrappers. Each signatory approves the same
 
 from __future__ import annotations
 
+import contextlib
 import json
 from typing import Any, Optional
 
@@ -151,12 +152,14 @@ def call(
     signatories: Optional[str] = typer.Option(
         None,
         "--signatories",
-        help="Full signer set: ss58, address-book names, or wallet names (include yourself).",
+        help="Full signer set: wallet names, address-book names, or ss58 "
+        "(comma/space-separated; include yourself).",
     ),
     other_signatories: Optional[str] = typer.Option(
         None,
         "--other-signatories",
-        help="Other signers only (book names or ss58); your -w wallet coldkey is added.",
+        help="Other signers only: wallet names, address-book names, or ss58 "
+        "(comma/space-separated); your -w wallet coldkey is added.",
     ),
     signer: str = typer.Option(
         "coldkey", "--signer", help="Which wallet key signs: 'coldkey' or 'hotkey'."
@@ -203,31 +206,50 @@ def call(
         proxy_for = app_ctx.resolve_address("proxy_for", proxy_for)
     proxy_type_value = force_proxy_type.value if force_proxy_type else None
     via_multisig = threshold is not None
+    if app_ctx.signatory_wallet and not via_multisig:
+        # A typo'd or missing multisig name must not degrade into a plain raw
+        # call: the user explicitly asked for a multisig member to sign.
+        raise typer.BadParameter(
+            "--signatory only applies when dispatching through a multisig, but "
+            f"-w {app_ctx.wallet_name!r} is not in this environment's multisig book "
+            "(`btcli multisig list`) and no --multisig/--signatories were given",
+            param_hint="--signatory",
+        )
     if via_multisig and len(sigs) < threshold:
         raise typer.BadParameter(
             f"need at least {threshold} signatories, got {len(sigs)}",
             param_hint="--signatories",
         )
-    # ``-w <multisig>`` (no separate signatory wallet): pick a local member.
+    # ``-w <multisig>`` (no separate signatory wallet): the signing member is
+    # the external signer's account when one is configured (vault/ledger/
+    # extension — no local wallet files needed), else a local member wallet.
     if via_multisig:
-        signer_ss58 = None
         try:
-            signer_ss58 = app_ctx.wallet().coldkeypub.ss58_address
-        except Exception:
-            signer_ss58 = None
-        if signer_ss58 not in sigs:
-            try:
-                member_name, _ss58 = ms_helpers.pick_local_signatory(
-                    app_ctx,
-                    preset=preset or app_ctx.wallet_name,
-                    signatories=sigs,
-                )
-            except ValueError as error:
-                raise typer.BadParameter(str(error), param_hint="--wallet") from error
+            external_member = ms_helpers.external_signer_member(
+                app_ctx, preset=preset or app_ctx.wallet_name, signatories=sigs
+            )
+        except ValueError as error:
+            raise typer.BadParameter(str(error), param_hint="--signer-address") from error
+        if external_member is not None:
             app_ctx.multisig_wallet_name = preset or app_ctx.wallet_name
-            app_ctx.wallet_name = member_name
-            app_ctx.wallet_given = True
-    signing = app_ctx.signer(signer)
+        elif not app_ctx.uses_external_signer():
+            signer_ss58 = None
+            try:
+                signer_ss58 = app_ctx.wallet().coldkeypub.ss58_address
+            except Exception:
+                signer_ss58 = None
+            if signer_ss58 not in sigs:
+                try:
+                    member_name, _ss58 = ms_helpers.pick_local_signatory(
+                        app_ctx,
+                        preset=preset or app_ctx.wallet_name,
+                        signatories=sigs,
+                    )
+                except ValueError as error:
+                    raise typer.BadParameter(str(error), param_hint="--wallet") from error
+                app_ctx.multisig_wallet_name = preset or app_ctx.wallet_name
+                app_ctx.wallet_name = member_name
+                app_ctx.wallet_given = True
     label = target + (" via Sudo.sudo" if sudo else "")
     if proxy_for:
         label += f" as {proxy_for} via proxy"
@@ -285,40 +307,58 @@ def call(
         success_msg = f"submitted {label}"
 
     app_ctx.confirm(prompt)
+    if app_ctx.uses_vault_signer():
+        # Display-only context for the vault page ("what am I signing?").
+        app_ctx.vault_signer().summary = label
     if via_multisig:
         signatory_refs = _signatory_refs
 
         async def _submit_multisig(client):
-            ms = await client.multisig(sigs, threshold)
-            call = await prepare(client)
-            composed = await client.compose(call)
-            result = await ms.approve(call, signing, signer=signer)
-            followup = await ms_helpers.multisig_followup_from_composed(
-                client,
-                app_ctx,
-                call_hash=ms_helpers.hex_bytes(composed.call_hash),
-                call_data=ms_helpers.hex_bytes(composed.data),
-                raw_call_hash=composed.call_hash,
-                ms=ms,
-                signatories=sigs,
-                threshold=threshold,
-                signatory_refs=signatory_refs,
-                target=target,
-                params=params,
-                args_file=args_file,
-                sudo=sudo,
-                proxy_for=proxy_for,
-                force_proxy_type=proxy_type_value,
-                preset=preset,
-                signer_role=signer,
-                result=result,
-            )
-            result.data["multisig_followup"] = followup
-            return result
+            signing = await app_ctx.resolve_signing_wallet(signer, pick_account=True)
+            result = None
+            try:
+                ms = await client.multisig(sigs, threshold)
+                call = await prepare(client)
+                composed = await client.compose(call)
+                result = await ms.approve(call, signing, signer=signer)
+                followup = await ms_helpers.multisig_followup_from_composed(
+                    client,
+                    app_ctx,
+                    call_hash=ms_helpers.hex_bytes(composed.call_hash),
+                    call_data=ms_helpers.hex_bytes(composed.data),
+                    raw_call_hash=composed.call_hash,
+                    ms=ms,
+                    signatories=sigs,
+                    threshold=threshold,
+                    signatory_refs=signatory_refs,
+                    target=target,
+                    params=params,
+                    args_file=args_file,
+                    sudo=sudo,
+                    proxy_for=proxy_for,
+                    force_proxy_type=proxy_type_value,
+                    preset=preset,
+                    signer_role=signer,
+                    result=result,
+                )
+                result.data["multisig_followup"] = followup
+                return result
+            finally:
+                await _release_signer(signing, result)
 
         result = app_ctx.run(_submit_multisig)
     else:
-        result = app_ctx.run(lambda client: _submit(client, prepare, signing, signer))
+
+        async def _submit_direct(client):
+            signing = await app_ctx.resolve_signing_wallet(signer, pick_account=True)
+            result = None
+            try:
+                result = await _submit(client, prepare, signing, signer)
+                return result
+            finally:
+                await _release_signer(signing, result)
+
+        result = app_ctx.run(_submit_direct)
     if not app_ctx.output.result(result, success_msg):
         raise typer.Exit(1)
 
@@ -336,3 +376,14 @@ async def _multisig_address(client, signatories, threshold):
 
 async def _submit(client, prepare, wallet, signer):
     return await client.submit_call(await prepare(client), wallet, signer=signer)
+
+
+async def _release_signer(signing, result) -> None:
+    """Report the outcome to and close an external signer (vault page,
+    extension bridge); local wallet signers have neither hook."""
+    if hasattr(signing, "report_transaction_result"):
+        with contextlib.suppress(Exception):
+            await signing.report_transaction_result(bool(result is not None and result.success))
+    if hasattr(signing, "close"):
+        with contextlib.suppress(Exception):
+            await signing.close()

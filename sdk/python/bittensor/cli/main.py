@@ -495,19 +495,27 @@ def _warn_if_legacy_config() -> None:
     """One-line stderr warning when a v9-era ``~/.bittensor/config.yml`` exists.
 
     This CLI never reads it, so settings people expect (network, wallet, ...)
-    silently fall back to defaults — the most common migration confusion. Warn
-    until the stale file is renamed or removed.
+    silently fall back to defaults — the most common migration confusion. The
+    warning is shown once; a marker file next to the config records that it
+    was already printed (delete the marker to see it again).
     """
     legacy = Path.home() / ".bittensor" / "config.yml"
     if not legacy.is_file():
         return
+    marker = legacy.parent / ".btcli_legacy_config_warned"
+    if marker.is_file():
+        return
     print(
         f"warning: {legacy} is the legacy (v9) btcli config and is ignored by this CLI; "
         f"migrate values with `btcli config set` (stored in {config_path()}), then rename "
-        f"or delete the old file to silence this warning. "
+        f"or delete the old file. "
         f"Migration guide: {DOCS_URL}/migration",
         file=sys.stderr,
     )
+    try:
+        marker.touch()
+    except OSError:
+        pass  # unwritable ~/.bittensor; warn again next time
 
 
 def main() -> None:

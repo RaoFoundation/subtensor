@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shlex
 from hashlib import blake2b
 from typing import Any, Optional
@@ -14,6 +15,36 @@ from .._generated import storage as st
 from .._transport.codec import multisig_account
 from ..result import ChainError, ExtrinsicResult
 from ..wallets import is_bittensor_address
+
+# One or more commas and/or whitespace between signatory refs
+# (``a,b``, ``a, b``, ``a b``, ``a, b c``).
+_SIGNATORY_SEP = re.compile(r"[,\s]+")
+
+
+def split_signatory_refs(raw: str) -> list[str]:
+    """Split a signatory list into individual refs.
+
+    Each token is an ss58 address, address-book name, or local wallet name.
+    Accepts comma-separated, space-separated, or mixed input.
+    """
+    text = raw.strip()
+    if not text:
+        return []
+    return [part for part in _SIGNATORY_SEP.split(text) if part]
+
+
+def collect_signatory_refs(
+    signatories: Optional[str] = None,
+    signatory: Optional[list[str]] = None,
+) -> list[str]:
+    """Merge ``--signatories`` and repeated ``--signatory`` into unique refs."""
+    refs: list[str] = []
+    if signatories:
+        refs.extend(split_signatory_refs(signatories))
+    if signatory:
+        for item in signatory:
+            refs.extend(split_signatory_refs(item))
+    return list(dict.fromkeys(refs))
 
 
 def hex_bytes(value: bytes | str) -> str:
@@ -166,9 +197,11 @@ def build_replay_command(
         if force_proxy_type:
             parts.append(f"--force-proxy-type {shlex.quote(force_proxy_type)}")
     if preset:
-        # ``-w <multisig>`` auto-picks a local member and wraps the call; each
-        # co-signer can paste the same command on their machine.
+        # ``-w <multisig>`` wraps the call; ``--signatory`` pins the member
+        # (name or ss58) so the right key signs even when several member
+        # wallets exist on the co-signer's machine.
         parts.append(f"-w {shlex.quote(preset)}")
+        parts.append(f"--signatory {shlex.quote(wallet_label)}")
     elif other_signatory_labels:
         parts.append(f"--multisig-threshold {threshold}")
         parts.append(f"--other-signatories {shlex.quote(','.join(other_signatory_labels))}")
@@ -230,10 +263,10 @@ def resolve_multisig(
     if signatories and other_signatories:
         raise ValueError("pass either --signatories or --other-signatories, not both")
     if signatories:
-        refs = [part.strip() for part in signatories.split(",") if part.strip()]
+        refs = split_signatory_refs(signatories)
         sigs = app_ctx.resolve_signatory_list(signatories)
     elif other_signatories:
-        refs = [part.strip() for part in other_signatories.split(",") if part.strip()]
+        refs = split_signatory_refs(other_signatories)
         sigs = app_ctx.resolve_signatory_list(other_signatories)
         wallet = app_ctx.wallet()
         self_addr = (
@@ -279,6 +312,30 @@ _MULTISIG_OPS = frozenset(
 )
 
 
+def external_signer_member(
+    app_ctx, *, preset: str, signatories: list[str]
+) -> Optional[tuple[str, str]]:
+    """The multisig member an external backend (vault/ledger/extension) signs for.
+
+    Returns ``(name, ss58)`` when ``--signer-address`` (or its config/wallet
+    fallbacks) resolves to one of ``signatories`` — that member signs, and no
+    local wallet files are needed. Returns None when no external backend is
+    active or no address is configured (callers fall back to picking a local
+    member wallet). Errors when the external address is not a member, since
+    signing would produce an approval the multisig ignores.
+    """
+    address = app_ctx.external_signer_address()
+    if not address:
+        return None
+    if address not in signatories:
+        raise ValueError(
+            f"external signer account {address} is not a member of multisig {preset!r}; "
+            "pass --signer-address with one of its signatories"
+        )
+    name = resolve_signatory_name(app_ctx, address)
+    return name, address
+
+
 def local_signatory_wallets(app_ctx, signatories: list[str]) -> list[tuple[str, str]]:
     """Local coldkey wallets whose ss58 is in ``signatories``: ``(name, ss58)``."""
     wanted = set(signatories)
@@ -298,17 +355,29 @@ def local_signatory_wallets(app_ctx, signatories: list[str]) -> list[tuple[str, 
 def pick_local_signatory(app_ctx, *, preset: str, signatories: list[str]) -> tuple[str, str]:
     """Choose which local member coldkey signs for a saved multisig.
 
-    Returns ``(wallet_name, ss58)``. Auto-selects when exactly one member is
-    present locally; prompts when several are; errors when none are.
+    Returns ``(wallet_name, ss58)``. ``--signatory`` names the member wallet
+    outright; otherwise auto-selects when exactly one member is present
+    locally, prompts when several are, and errors when none are.
     """
     from .prompt import PromptSpec, fill_missing, interactive
 
     locals_ = local_signatory_wallets(app_ctx, signatories)
+    chosen = getattr(app_ctx, "signatory_wallet", None)
+    if chosen:
+        for name, ss58 in locals_:
+            if chosen == name or chosen == ss58:
+                return name, ss58
+        known = ", ".join(name for name, _ in locals_) or "none found under --wallet-path"
+        raise ValueError(
+            f"--signatory {chosen!r} is not a local member wallet of multisig {preset!r}; "
+            f"local members: {known}"
+        )
     if not locals_:
         raise ValueError(
             f"no local signatory wallet for multisig {preset!r}; "
-            "install one of its member coldkeys under --wallet-path, or pass "
-            f"`--multisig {preset} -w <signatory>`"
+            "install one of its member coldkeys under --wallet-path, pass "
+            f"`--multisig {preset} -w <signatory>`, or sign externally with "
+            "`--signer vault --signer-address <member>` (also: extension, ledger)"
         )
     if len(locals_) == 1:
         name, ss58 = locals_[0]
@@ -322,8 +391,8 @@ def pick_local_signatory(app_ctx, *, preset: str, signatories: list[str]) -> tup
     if app_ctx.assume_yes or not interactive(app_ctx):
         raise ValueError(
             f"multisig {preset!r} has {len(locals_)} local member wallets "
-            f"({', '.join(by_name)}); pass `-w <signatory>` (with "
-            f"`--multisig {preset}`) to choose one non-interactively"
+            f"({', '.join(by_name)}); pass `--signatory <member>` to choose one "
+            "non-interactively"
         )
 
     def _parse(app_ctx_, raw: str) -> str:
@@ -338,7 +407,7 @@ def pick_local_signatory(app_ctx, *, preset: str, signatories: list[str]) -> tup
         [
             PromptSpec(
                 field="signatory_wallet",
-                flag="--wallet",
+                flag="--signatory",
                 help=f"Which local member of multisig {preset!r} signs this approval.",
                 parse=_parse,
                 default=locals_[0][0],
@@ -404,12 +473,19 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
         return intent
 
     threshold, signatories, _refs = resolve_multisig_preset(app_ctx, preset)
-    member_name, signer_ss58 = pick_local_signatory(app_ctx, preset=preset, signatories=signatories)
-
-    # Remember the multisig account name for summaries; the signing wallet is
-    # the local member that actually unlocks a coldkey.
+    external = external_signer_member(app_ctx, preset=preset, signatories=signatories)
+    if external:
+        # An external backend (vault/ledger/extension) holds the member key;
+        # no local wallet files are involved, so wallet_name stays untouched.
+        member_name, signer_ss58 = external
+    else:
+        member_name, signer_ss58 = pick_local_signatory(
+            app_ctx, preset=preset, signatories=signatories
+        )
+        # The signing wallet is the local member that actually unlocks a coldkey.
+        app_ctx.wallet_name = member_name
+    # Remember the multisig account name for summaries.
     app_ctx.multisig_wallet_name = preset
-    app_ctx.wallet_name = member_name
     app_ctx.wallet_given = True
 
     others = [ss58 for ss58 in signatories if ss58 != signer_ss58]

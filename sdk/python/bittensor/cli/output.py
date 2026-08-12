@@ -1531,7 +1531,11 @@ class Output:
             self._out.print(":")
             self._print_copyable(str(entry.get("command", "")))
         self._out.print()
-        tail = _prose("add `--macos-password` or `--keychain-password` if the co-signer uses them")
+        tail = _prose(
+            "add `--macos-password` or `--keychain-password` if the co-signer uses them; "
+            "members whose key lives elsewhere append `--signer vault|ledger|extension` "
+            "(with `--signer-address <member>` when no local wallet names it)"
+        )
         tail.style = "dim"
         self._out.print(tail)
 

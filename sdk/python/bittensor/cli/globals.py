@@ -191,6 +191,17 @@ _TX_FLOW = [
             rich_help_panel=PANEL_EXECUTION,
         ),
     ),
+    (
+        "signatory_wallet",
+        Optional[str],
+        typer.Option(
+            None,
+            "--signatory",
+            help="When -w names a saved multisig: the member wallet that signs this "
+            "approval (skips the interactive member picker).",
+            rich_help_panel=PANEL_EXECUTION,
+        ),
+    ),
 ]
 
 # Password sources for unlocking encrypted local coldkeys.
@@ -367,6 +378,8 @@ def apply(ctx: typer.Context, kwargs: dict[str, Any]) -> None:
         obj.dry_run = True
     if (v := kwargs.pop("mev_shield", None)) is not None:
         obj.mev_shield = v
+    if v := kwargs.pop("signatory_wallet", None):
+        obj.signatory_wallet = v
     quiet_override = kwargs.pop("quiet", False)
     if quiet_override:
         obj.output.quiet = True
