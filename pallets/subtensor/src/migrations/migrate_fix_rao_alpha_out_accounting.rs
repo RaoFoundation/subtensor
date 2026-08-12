@@ -1,8 +1,6 @@
 use super::*;
 use frame_support::{traits::Get, weights::Weight};
-use frame_system::pallet_prelude::BlockNumberFor;
 use scale_info::prelude::string::String;
-use sp_runtime::traits::Zero;
 use subtensor_runtime_common::{AlphaBalance, NetUid};
 
 pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_fix_rao_alpha_out_accounting";
@@ -92,31 +90,17 @@ pub fn migrate_fix_rao_alpha_out_accounting<T: Config>() -> Weight {
         return weight;
     }
 
-    // These amounts describe mainnet history and must never be applied to
-    // testnet, devnet, or a local chain.
-    let genesis_hash = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
-    weight.saturating_accrue(T::DbWeight::get().reads(1));
-    let mainnet_genesis =
-        hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
-    let mut applied_corrections = 0;
-
-    if genesis_hash.as_ref() == mainnet_genesis {
-        for &(netuid, correction) in ALPHA_OUT_CORRECTIONS {
-            SubnetAlphaOut::<T>::mutate(NetUid::from(netuid), |alpha_out| {
-                *alpha_out = alpha_out.saturating_add(AlphaBalance::from(correction));
-            });
-        }
-        applied_corrections = ALPHA_OUT_CORRECTIONS.len();
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(
-            ALPHA_OUT_CORRECTIONS.len() as u64,
-            ALPHA_OUT_CORRECTIONS.len() as u64,
-        ));
-    } else {
-        log::info!(
-            "Migration '{}' skipped outside mainnet",
-            String::from_utf8_lossy(MIGRATION_NAME)
-        );
+    // Intentionally not gated by genesis hash so this can run on mainnet state clones.
+    for &(netuid, correction) in ALPHA_OUT_CORRECTIONS {
+        SubnetAlphaOut::<T>::mutate(NetUid::from(netuid), |alpha_out| {
+            *alpha_out = alpha_out.saturating_add(AlphaBalance::from(correction));
+        });
     }
+    let applied_corrections = ALPHA_OUT_CORRECTIONS.len();
+    weight.saturating_accrue(T::DbWeight::get().reads_writes(
+        ALPHA_OUT_CORRECTIONS.len() as u64,
+        ALPHA_OUT_CORRECTIONS.len() as u64,
+    ));
 
     HasMigrationRun::<T>::insert(&migration_name, true);
     weight.saturating_accrue(T::DbWeight::get().writes(1));
