@@ -10,7 +10,8 @@ summed across subnets.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+import ipaddress
+from typing import Any, Optional
 
 from .. import config as cfg
 from .. import wallets
@@ -19,6 +20,7 @@ from .._generated import storage as st
 from ..balance import Balance
 from ..client import Client
 from ..reads import StakePosition, StakeValuation
+from ..settings import U16_MAX
 
 STAKE_VALUE_BASIS = "spot price; excludes slippage/fees of an actual unstake"
 
@@ -409,6 +411,116 @@ async def position_uids(
         st.SubtensorModule.Uids, [[netuid, hotkey] for netuid, hotkey in pairs]
     )
     return {pair: int(value) for pair, value in zip(pairs, values) if value is not None}
+
+
+def _registration_axon_endpoint(axon: Any) -> Optional[str]:
+    """Return the served axon endpoint from a decoded ``AxonInfo`` record."""
+    if not isinstance(axon, dict):
+        return None
+    ip = int(axon.get("ip") or 0)
+    port = int(axon.get("port") or 0)
+    if not ip or not port:
+        return None
+    if int(axon.get("ip_type") or 4) == 6:
+        return f"[{ipaddress.IPv6Address(ip)}]:{port}"
+    return f"{ipaddress.IPv4Address(ip)}:{port}"
+
+
+async def wallet_registration_rows(
+    client: Client,
+    coldkeys: list[tuple[str, str]],
+    netuid: Optional[int] = None,
+) -> list[dict[str, Any]]:
+    """Registered owned hotkeys and their neuron metrics at one block.
+
+    Registration discovery is deliberately ownership-based rather than
+    stake-based. A coldkey's miner remains visible even when that coldkey has
+    no alpha staked to the hotkey, which is the behavior the pre-v11 wallet
+    overview provided.
+    """
+    if not coldkeys:
+        return []
+
+    view = await client.at()
+    owned_by_coldkey = await view.query_batch(
+        st.SubtensorModule.OwnedHotkeys, [[coldkey] for _, coldkey in coldkeys]
+    )
+    owned = [
+        (wallet_name, coldkey, str(hotkey))
+        for (wallet_name, coldkey), hotkeys in zip(coldkeys, owned_by_coldkey)
+        for hotkey in hotkeys or []
+    ]
+    if not owned:
+        return []
+
+    memberships = await asyncio.gather(
+        *[view.query_map(st.SubtensorModule.IsNetworkMember, [hotkey]) for _, _, hotkey in owned]
+    )
+    registered = [
+        (wallet_name, coldkey, hotkey, int(member_netuid))
+        for (wallet_name, coldkey, hotkey), rows in zip(owned, memberships)
+        for member_netuid, is_member in rows
+        if is_member and (netuid is None or int(member_netuid) == netuid)
+    ]
+    if not registered:
+        return []
+
+    uids = await view.query_batch(
+        st.SubtensorModule.Uids,
+        [[member_netuid, hotkey] for _, _, hotkey, member_netuid in registered],
+    )
+    registrations_with_uids = [
+        (*registration, int(uid)) for registration, uid in zip(registered, uids) if uid is not None
+    ]
+    neurons = await asyncio.gather(
+        *[
+            view.runtime(api.NeuronInfoRuntimeApi.get_neuron_lite, [member_netuid, uid])
+            for _, _, _, member_netuid, uid in registrations_with_uids
+        ]
+    )
+
+    records: list[dict[str, Any]] = []
+    for registration, neuron in zip(registrations_with_uids, neurons):
+        if not neuron:
+            continue
+        wallet_name, coldkey, hotkey, member_netuid, uid = registration
+        stake = view.balance(
+            sum(int(amount) for _, amount in neuron.get("stake") or []), member_netuid
+        )
+        emission = view.balance(int(neuron.get("emission") or 0), member_netuid)
+        last_update = int(neuron.get("last_update") or 0)
+        records.append(
+            {
+                "wallet": wallet_name,
+                "coldkey": coldkey,
+                "hotkey": hotkey,
+                "netuid": member_netuid,
+                "uid": uid,
+                "active": bool(neuron.get("active")),
+                "stake": str(stake),
+                "stake_amount": stake.amount,
+                "rank": int(neuron.get("rank") or 0) / U16_MAX,
+                "trust": int(neuron.get("trust") or 0) / U16_MAX,
+                "consensus": int(neuron.get("consensus") or 0) / U16_MAX,
+                "incentive": int(neuron.get("incentive") or 0) / U16_MAX,
+                "dividends": int(neuron.get("dividends") or 0) / U16_MAX,
+                "emission": str(emission),
+                "emission_amount": emission.amount,
+                "validator_trust": int(neuron.get("validator_trust") or 0) / U16_MAX,
+                "validator_permit": bool(neuron.get("validator_permit")),
+                "last_update": last_update,
+                "updated": max(0, view.block - last_update),
+                "axon": _registration_axon_endpoint(neuron.get("axon_info")),
+            }
+        )
+    return sorted(
+        records,
+        key=lambda record: (
+            str(record["wallet"]),
+            int(record["netuid"]),
+            int(record["uid"]),
+        ),
+    )
 
 
 async def wallet_overview_rows(

@@ -44,6 +44,7 @@ from ..helpers import (
     wallet_balance_rows,
     wallet_inspect_data,
     wallet_overview_rows,
+    wallet_registration_rows,
 )
 from ..prompt import PromptSpec, confirm_wallet, fill_missing, interactive
 from ..secrets import copy_secret_to_clipboard, warn_argv_secrets
@@ -1049,6 +1050,79 @@ def wallet_balance(
     )
     row = app_ctx.run(lambda client: wallet_balance_row(client, label, resolved))
     app_ctx.output.detail(None, human_balance_fields(row), json_fields=row)
+
+
+@app.command("registrations", rich_help_panel=PANEL_INFO)
+@with_globals
+def wallet_registrations(
+    ctx: typer.Context,
+    all_wallets: bool = typer.Option(
+        False, "--all", "-a", help="Show registrations for every local wallet."
+    ),
+    netuid: Optional[int] = typer.Option(None, "--netuid", help="Filter to one subnet."),
+):
+    """Show owned hotkey registrations, UIDs, and neuron metrics.
+
+    Unlike ``wallet overview``, this view is based on hotkey ownership and
+    subnet registration, not stake positions. It therefore includes miners
+    even when the wallet coldkey has no alpha staked to them.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    targets: list[tuple[str, str]]
+    if all_wallets:
+        targets = list_coldkeys(app_ctx.wallet_path)
+        if not targets:
+            app_ctx.output.error(f"no wallets found in {app_ctx.wallet_path}")
+            raise typer.Exit(1)
+    else:
+        coldkey = app_ctx.resolve_address("coldkey_ss58", None)
+        assert coldkey is not None
+        targets = [(app_ctx.wallet_name, coldkey)]
+
+    records = app_ctx.run(lambda client: wallet_registration_rows(client, targets, netuid=netuid))
+    names = local_address_names(app_ctx.wallet_path)
+    for record in records:
+        hotkey = str(record["hotkey"])
+        record["hotkey_name"] = names.get(hotkey)
+        app_ctx.output.classify_address(hotkey, "hotkey")
+        app_ctx.output.classify_address(str(record["coldkey"]), "coldkey")
+
+    columns = [
+        "wallet",
+        "hotkey",
+        "netuid",
+        "uid",
+        "active",
+        "incentive",
+        "dividends",
+        "emission",
+        "updated",
+        "axon",
+        "hotkey ss58",
+    ]
+    rows = [
+        [
+            record["wallet"],
+            record["hotkey_name"] or record["hotkey"],
+            record["netuid"],
+            record["uid"],
+            "yes" if record["active"] else "no",
+            f"{record['incentive']:.4f}",
+            f"{record['dividends']:.4f}",
+            record["emission"],
+            record["updated"],
+            record["axon"] or "none",
+            record["hotkey"],
+        ]
+        for record in records
+    ]
+    app_ctx.output.columns(
+        "wallet registrations",
+        columns,
+        rows,
+        records,
+        right_align={2, 3, 5, 6, 8},
+    )
 
 
 @app.command("overview", rich_help_panel=PANEL_INFO)
