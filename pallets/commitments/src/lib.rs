@@ -473,6 +473,11 @@ impl<T: Config> Pallet<T> {
                             continue;
                         };
 
+                        if commit.header.v.len() != 32 || commit.header.w.len() != 32 {
+                            log::warn!("Invalid TLECiphertext header for {who:?}");
+                            continue;
+                        }
+
                         let decrypted_bytes: Vec<u8> =
                             tld::<TinyBLS381, AESGCMStreamCipherProvider>(commit, sig)
                                 .map_err(|e| {
