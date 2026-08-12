@@ -6783,6 +6783,26 @@ fn test_migrate_recycled_alpha_counters_skips_wrong_generation() {
 }
 
 #[test]
+fn test_recycled_alpha_counter_offsets_cover_current_registrations() {
+    use crate::migrations::migrate_rebase_recycled_alpha_asset_counters::RECYCLED_ALPHA_COUNTER_OFFSETS;
+
+    assert_eq!(RECYCLED_ALPHA_COUNTER_OFFSETS.len(), 10);
+    assert!(
+        RECYCLED_ALPHA_COUNTER_OFFSETS
+            .windows(2)
+            .all(|rows| rows[0].1 < rows[1].1),
+        "counter offsets must be ordered by registration block"
+    );
+    assert!(RECYCLED_ALPHA_COUNTER_OFFSETS.contains(&(
+        90,
+        8_618_670,
+        345_144_192_991_428,
+        116_392_269_522_858,
+        80_950_014_273,
+    )));
+}
+
+#[test]
 fn test_migrate_backfills_historical_alpha_burns_by_generation() {
     use crate::migrations::migrate_backfill_historical_alpha_burned::{
         HISTORICAL_ALPHA_BURNED, MIGRATION_NAME, migrate_backfill_historical_alpha_burned,

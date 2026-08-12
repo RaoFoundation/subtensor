@@ -11,17 +11,44 @@ pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_rebase_recycled_alpha_asset_c
 /// `(netuid, current_generation_registered_at, issuance, burned, recycled)` offsets
 /// inherited from a prior subnet generation.
 ///
-/// These values were read from mainnet archive state immediately before each current
-/// generation was registered. Eight other historically recycled netuids had zeroes for
-/// all three counters at their generation boundary and therefore need no correction.
+/// These values were read from mainnet archive state at the end of the block in which
+/// each current generation was registered. This captures old-generation emission and
+/// recycling performed earlier in that block, while the registration itself did not
+/// reset these counters. The registration-block guard prevents applying an offset after
+/// the netuid is recycled again.
 pub(crate) const RECYCLED_ALPHA_COUNTER_OFFSETS: &[(u16, u64, u64, u64, u64)] = &[
-    (40, 8_409_860, 126_075_000_000_000, 51_803_789_083_976, 0),
-    (16, 8_460_646, 176_861_000_000_000, 42_912_779_090_897, 0),
-    (58, 8_511_017, 227_232_000_000_000, 93_219_350_226_399, 0),
+    (116, 8_294_730, 10_946_000_000_000, 0, 0),
+    (92, 8_352_006, 68_575_136_222_730, 0, 0),
+    (40, 8_409_860, 126_076_000_000_000, 51_803_789_083_976, 0),
+    (16, 8_460_646, 176_862_000_000_000, 42_912_779_090_897, 0),
+    (58, 8_511_017, 227_233_000_000_000, 93_219_350_226_399, 0),
+    (
+        99,
+        8_572_056,
+        317_241_269_686_137,
+        591_633_301_496,
+        1_518_370_122_169,
+    ),
+    (
+        90,
+        8_618_670,
+        345_144_192_991_428,
+        116_392_269_522_858,
+        80_950_014_273,
+    ),
+    (86, 8_693_284, 415_723_558_271_648, 167_757_356_198_720, 0),
+    (103, 8_762_380, 529_768_402_624_963, 78_741_954_591_065, 0),
+    (
+        70,
+        8_825_571,
+        589_757_917_904_445,
+        148_169_094_182,
+        3_904_269_338_445,
+    ),
 ];
 
-/// Removes prior-generation offsets from alpha-asset counters for the three affected
-/// mainnet netuids while preserving everything accumulated by their current generations.
+/// Removes prior-generation offsets from alpha-asset counters for affected mainnet
+/// netuids while preserving everything accumulated by their current generations.
 pub fn migrate_rebase_recycled_alpha_asset_counters<T: Config>() -> Weight {
     let migration_name = MIGRATION_NAME.to_vec();
     let mut weight = T::DbWeight::get().reads(1);
@@ -66,8 +93,13 @@ pub fn migrate_rebase_recycled_alpha_asset_counters<T: Config>() -> Weight {
                 AlphaBalance::from(burned),
                 AlphaBalance::from(recycled),
             );
-            // Every embedded row has non-zero issuance and burned offsets; recycled is zero.
-            weight.saturating_accrue(T::DbWeight::get().reads_writes(2, 2));
+            let updated_counters = [issuance, burned, recycled]
+                .into_iter()
+                .filter(|offset| *offset != 0)
+                .count() as u64;
+            weight.saturating_accrue(
+                T::DbWeight::get().reads_writes(updated_counters, updated_counters),
+            );
             corrected = corrected.saturating_add(1);
         }
     } else {
