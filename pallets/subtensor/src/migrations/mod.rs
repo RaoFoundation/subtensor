@@ -25,6 +25,7 @@ pub mod migrate_dynamic_tempo;
 pub mod migrate_fix_bad_hk_swap;
 pub mod migrate_fix_childkeys;
 pub mod migrate_fix_is_network_member;
+pub mod migrate_fix_rao_alpha_out_accounting;
 pub mod migrate_fix_root_claimed_overclaim;
 pub mod migrate_fix_root_subnet_tao;
 pub mod migrate_fix_root_tao_and_alpha_in;

@@ -245,6 +245,8 @@ impl Imbalance<AlphaBalance> for NegativeAlphaImbalance {
 pub trait AlphaAssetsInterface {
     fn total_alpha_issuance(netuid: NetUid) -> AlphaBalance;
 
+    fn alpha_burned(netuid: NetUid) -> AlphaBalance;
+
     fn mint_alpha(netuid: NetUid, amount: AlphaBalance) -> PositiveAlphaImbalance;
 
     fn burn_alpha(netuid: NetUid, amount: AlphaBalance) -> AlphaBalance;
@@ -254,6 +256,10 @@ pub trait AlphaAssetsInterface {
 
 impl AlphaAssetsInterface for () {
     fn total_alpha_issuance(_netuid: NetUid) -> AlphaBalance {
+        AlphaBalance::ZERO
+    }
+
+    fn alpha_burned(_netuid: NetUid) -> AlphaBalance {
         AlphaBalance::ZERO
     }
 
@@ -337,6 +343,10 @@ impl<T: pallet::Config> Pallet<T> {
 impl<T: pallet::Config> AlphaAssetsInterface for Pallet<T> {
     fn total_alpha_issuance(netuid: NetUid) -> AlphaBalance {
         TotalAlphaIssuance::<T>::get(netuid)
+    }
+
+    fn alpha_burned(netuid: NetUid) -> AlphaBalance {
+        AlphaBurned::<T>::get(netuid)
     }
 
     fn mint_alpha(netuid: NetUid, amount: AlphaBalance) -> PositiveAlphaImbalance {
