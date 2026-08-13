@@ -129,7 +129,9 @@ Quick reference:
   [`UnlockRate`](/code/pallets/subtensor/src/lib.rs#L1658) is 934,866 blocks (~130 days) — read them live before planning
   around either.
 - Aggregate conviction can trigger **subnet ownership** after one year when
-  total conviction ≥ 10% of [`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424).
+  total conviction ≥ 10% of eligible alpha
+  (`SubnetAlphaOut − SubnetProtocolAlpha − AlphaBurned`). The subtraction
+  saturates at zero; a zero eligible balance cannot trigger a transfer.
 - Query with [`subnet-convictions`](/docs/query/subnet-convictions),
   [`hotkey-conviction`](/docs/query/hotkey-conviction),
   [`coldkey-lock`](/docs/query/coldkey-lock).

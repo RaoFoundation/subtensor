@@ -57,6 +57,7 @@ class NeuronCommitment:
     The chain drops a commitment's storage entry once its sealed payload is
     fully revealed; such commitments still appear here (status ``revealed``)
     with ``block`` set to the reveal block, since the commit block is gone.
+    Terminal reveal failures remain in storage with status ``failed``.
     """
 
     hotkey: str
@@ -78,17 +79,20 @@ class NeuronCommitment:
 
     @property
     def status(self) -> str:
-        """``"plain"`` (never sealed), ``"sealed"`` (waiting on drand), or ``"revealed"``."""
+        """``plain``, ``sealed``, ``revealed``, or terminal ``failed``."""
         if self.decrypted:
             return "revealed"
+        if _failed_timelock_round(self.fields) is not None:
+            return "failed"
         return "sealed" if self.encrypted else "plain"
 
     @property
     def is_revealed(self) -> bool:
         """True when the content is readable now — committed in the clear or
         already chain-decrypted. False while a sealed payload waits on drand
-        (``data`` may still carry a plaintext part committed alongside it)."""
-        return self.status != "sealed"
+        or after a terminal reveal failure (``data`` may still carry a
+        plaintext part committed alongside it)."""
+        return self.status in {"plain", "revealed"}
 
     @property
     def age_blocks(self) -> int:
@@ -472,8 +476,8 @@ def _decode_fields(fields: list) -> str:
     """The readable content of commitment fields.
 
     ``Raw*`` bytes concatenate to utf-8 (else 0x-hex); hash variants render as
-    ``sha256:0x…``; ``TimelockEncrypted`` payloads are sealed and contribute
-    nothing here.
+    ``sha256:0x…``; pending or failed timelock payloads contribute nothing
+    here.
     """
     raw = b""
     hashes = []
@@ -499,6 +503,17 @@ def _timelock_round(fields: list) -> Optional[int]:
         for entry in fields
         for variant, value in (entry or {}).items()
         if variant == "TimelockEncrypted" and isinstance(value, dict)
+    ]
+    return max(rounds) if rounds else None
+
+
+def _failed_timelock_round(fields: list) -> Optional[int]:
+    """The latest terminally failed timelock round, or None."""
+    rounds = [
+        int(value["reveal_round"])
+        for entry in fields
+        for variant, value in (entry or {}).items()
+        if variant == "TimelockRevealFailed" and isinstance(value, dict)
     ]
     return max(rounds) if rounds else None
 

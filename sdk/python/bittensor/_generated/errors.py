@@ -244,6 +244,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (18, 1): ErrorInfo('Commitments', 'AccountNotAllowedCommit', 'Account is not allowed to make commitments to the chain'),
     (18, 2): ErrorInfo('Commitments', 'SpaceLimitExceeded', 'Space Limit Exceeded for the current interval'),
     (18, 3): ErrorInfo('Commitments', 'UnexpectedUnreserveLeftover', 'Indicates that unreserve returned a leftover, which is unexpected.'),
+    (18, 4): ErrorInfo('Commitments', 'TimelockRevealFailedNotAllowed', '`TimelockRevealFailed` fields may only be created by the runtime.'),
     (19, 0): ErrorInfo('AdminUtils', 'SubnetDoesNotExist', 'The subnet does not exist, check the netuid parameter'),
     (19, 1): ErrorInfo('AdminUtils', 'MaxValidatorsLargerThanMaxUIds', 'The maximum number of subnet validators must be less than the maximum number of allowed UIDs in the subnet.'),
     (19, 2): ErrorInfo('AdminUtils', 'MaxAllowedUIdsLessThanCurrentUIds', 'The maximum number of subnet validators must be more than the current number of UIDs already in the subnet.'),

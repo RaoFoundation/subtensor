@@ -490,8 +490,8 @@
         "container": "Commitments",
         "name": "CommitmentOf",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 137,
-        "url": "/code/pallets/commitments/src/lib.rs#L137",
+        "line": 150,
+        "url": "/code/pallets/commitments/src/lib.rs#L150",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -499,7 +499,7 @@
   {
     "name": "commitments",
     "summary": "Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.",
-    "description": "Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.\n\nOne row per hotkey that has (or had) a commitment \u2014 including sealed\ntimelocked payloads waiting on drand (`is_revealed` false, `reveals_at`\nset) and fully-revealed ones whose live storage entry the chain already\ndropped. `commitment` is the currently visible content: the plaintext, or\nthe latest chain-decrypted payload; null while still sealed.",
+    "description": "Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.\n\nOne row per hotkey that has (or had) a commitment \u2014 including sealed\ntimelocked payloads waiting on drand (`status` `sealed`), terminal\non-chain reveal failures retained for audit (`status` `failed`), and\nfully-revealed ones whose live storage entry the chain already dropped.\n`commitment` is the currently visible content: the plaintext, or the\nlatest chain-decrypted payload; null while sealed or failed.",
     "params": {
       "netuid": "integer"
     },
@@ -1619,8 +1619,8 @@
         "container": "Commitments",
         "name": "RevealedCommitments",
         "path": "pallets/commitments/src/lib.rs",
-        "line": 173,
-        "url": "/code/pallets/commitments/src/lib.rs#L173",
+        "line": 186,
+        "url": "/code/pallets/commitments/src/lib.rs#L186",
         "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
       }
     ]
@@ -2032,7 +2032,7 @@
   {
     "name": "subnet_convictions",
     "summary": "Every hotkey with locked stake on a subnet, rolled forward to now.",
-    "description": "Every hotkey with locked stake on a subnet, rolled forward to now.\n\nPer hotkey: locked mass, conviction, and the estimated blocks until its\nconviction reaches 10% of the subnet's outstanding alpha. That per-hotkey\nfigure is a projection heuristic, not a takeover trigger: the ownership\ntakeover in `change_subnet_owner_if_needed` requires the subnet to be\nat least ~1 year old (2,629,800 blocks) and the total aggregate\nconviction across all lockers to reach 10% of `SubnetAlphaOut`, at\nwhich point the highest-conviction hotkey's coldkey becomes the subnet\nowner. Projections assume the lock rates and alpha out stay constant.",
+    "description": "Every hotkey with locked stake on a subnet, rolled forward to now.\n\nPer hotkey: locked mass, conviction, and the estimated blocks until its\nconviction reaches 10% of the subnet's eligible alpha. Eligible alpha is\n`SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned` (saturating at\nzero). That per-hotkey figure is a projection heuristic, not a takeover\ntrigger: `change_subnet_owner_if_needed` requires the subnet to be\nat least ~1 year old (2,629,800 blocks) and the total aggregate\nconviction across all lockers to reach 10% of eligible alpha, at\nwhich point the highest-conviction hotkey's coldkey becomes the subnet\nowner. Projections assume the lock rates and alpha accounting stay constant.",
     "params": {
       "netuid": "integer"
     },
@@ -2097,6 +2097,20 @@
         "line": 1606,
         "url": "/code/pallets/subtensor/src/lib.rs#L1606",
         "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetProtocolAlpha",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1610,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1610",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "AlphaAssets",
+        "name": "AlphaBurned"
       },
       {
         "kind": "storage",

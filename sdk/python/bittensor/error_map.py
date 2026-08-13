@@ -299,6 +299,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AccountNotAllowedCommit": _C.NOT_AUTHORIZED,
     "SpaceLimitExceeded": _C.LIMIT_EXCEEDED,
     "UnexpectedUnreserveLeftover": _C.INTERNAL,
+    "TimelockRevealFailedNotAllowed": _C.INVALID_ARGUMENT,
     # ── AdminUtils ──────────────────────────────────────────────────────
     "SubnetDoesNotExist": _C.SUBNET_NOT_EXISTS,
     "MaxValidatorsLargerThanMaxUIds": _C.INVALID_ARGUMENT,

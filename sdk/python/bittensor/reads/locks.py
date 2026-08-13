@@ -18,6 +18,14 @@ _DEFAULT_LOCK_RATE = 934_866
 _ONE_YEAR_BLOCKS = 7200 * 365 + 1800
 
 
+def _eligible_alpha(alpha_out: Any, protocol_alpha: Any, alpha_burned: Any) -> int:
+    """Alpha that can support an ownership challenger, saturating at zero."""
+    return max(
+        0,
+        int(alpha_out or 0) - int(protocol_alpha or 0) - int(alpha_burned or 0),
+    )
+
+
 async def _lock_record(view, coldkey_ss58: str, netuid: int, hotkey: str) -> Optional[dict]:
     """One lock rolled forward to now: the runtime API supplies the decayed
     ``LockState`` (``locked_mass``/``conviction``); the hotkey comes from the
@@ -225,13 +233,14 @@ async def subnet_convictions(view, netuid: int) -> dict:
     """Every hotkey with locked stake on a subnet, rolled forward to now.
 
     Per hotkey: locked mass, conviction, and the estimated blocks until its
-    conviction reaches 10% of the subnet's outstanding alpha. That per-hotkey
-    figure is a projection heuristic, not a takeover trigger: the ownership
-    takeover in ``change_subnet_owner_if_needed`` requires the subnet to be
+    conviction reaches 10% of the subnet's eligible alpha. Eligible alpha is
+    ``SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`` (saturating at
+    zero). That per-hotkey figure is a projection heuristic, not a takeover
+    trigger: ``change_subnet_owner_if_needed`` requires the subnet to be
     at least ~1 year old (2,629,800 blocks) and the total aggregate
-    conviction across all lockers to reach 10% of ``SubnetAlphaOut``, at
+    conviction across all lockers to reach 10% of eligible alpha, at
     which point the highest-conviction hotkey's coldkey becomes the subnet
-    owner. Projections assume the lock rates and alpha out stay constant.
+    owner. Projections assume the lock rates and alpha accounting stay constant.
     """
     view = await view.at()
     (
@@ -241,6 +250,8 @@ async def subnet_convictions(view, netuid: int) -> dict:
         decaying_owner_lock,
         owner_hotkey,
         alpha_out,
+        protocol_alpha,
+        alpha_burned,
         unlock_rate,
         maturity_rate,
         registered_at,
@@ -251,6 +262,8 @@ async def subnet_convictions(view, netuid: int) -> dict:
         view.query(st.SubtensorModule.DecayingOwnerLock, [netuid]),
         view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
         view.query(st.SubtensorModule.SubnetAlphaOut, [netuid]),
+        view.query(st.SubtensorModule.SubnetProtocolAlpha, [netuid]),
+        view.query(st.AlphaAssets.AlphaBurned, [netuid]),
         view.query(st.SubtensorModule.UnlockRate),
         view.query(st.SubtensorModule.MaturityRate),
         view.query(st.SubtensorModule.NetworkRegisteredAt, [netuid]),
@@ -294,7 +307,8 @@ async def subnet_convictions(view, netuid: int) -> dict:
             _rolled_bucket(decaying_owner_lock, perpetual=False, owner=True)
         )
 
-    threshold = int(alpha_out or 0) / 10
+    eligible_alpha = _eligible_alpha(alpha_out, protocol_alpha, alpha_burned)
+    threshold = eligible_alpha / 10
     entries = []
     for hotkey, hotkey_buckets in buckets.items():
         locked = sum(mass for mass, _, _, _ in hotkey_buckets)
@@ -320,6 +334,9 @@ async def subnet_convictions(view, netuid: int) -> dict:
         "netuid": netuid,
         "block": now,
         "alpha_out": view.balance(int(alpha_out or 0), netuid),
+        "protocol_alpha": view.balance(int(protocol_alpha or 0), netuid),
+        "alpha_burned": view.balance(int(alpha_burned or 0), netuid),
+        "eligible_alpha": view.balance(eligible_alpha, netuid),
         "threshold_alpha": view.balance(int(threshold), netuid),
         "total_locked_alpha": view.balance(int(total_locked), netuid),
         "total_conviction_alpha": view.balance(int(total_conviction), netuid),

@@ -244,10 +244,11 @@ class Identity(_ReadNamespace):
         """Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.
 
         One row per hotkey that has (or had) a commitment — including sealed
-        timelocked payloads waiting on drand (`is_revealed` false, `reveals_at`
-        set) and fully-revealed ones whose live storage entry the chain already
-        dropped. `commitment` is the currently visible content: the plaintext, or
-        the latest chain-decrypted payload; null while still sealed.
+        timelocked payloads waiting on drand (`status` `sealed`), terminal
+        on-chain reveal failures retained for audit (`status` `failed`), and
+        fully-revealed ones whose live storage entry the chain already dropped.
+        `commitment` is the currently visible content: the plaintext, or the
+        latest chain-decrypted payload; null while sealed or failed.
         """
 
     async def hotkey_identities(self, hotkey_ss58s: list[str], *, block: Optional[int] = None) -> dict[str, dict]:
@@ -311,13 +312,14 @@ class Locks(_ReadNamespace):
         """Every hotkey with locked stake on a subnet, rolled forward to now.
 
         Per hotkey: locked mass, conviction, and the estimated blocks until its
-        conviction reaches 10% of the subnet's outstanding alpha. That per-hotkey
-        figure is a projection heuristic, not a takeover trigger: the ownership
-        takeover in `change_subnet_owner_if_needed` requires the subnet to be
+        conviction reaches 10% of the subnet's eligible alpha. Eligible alpha is
+        `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned` (saturating at
+        zero). That per-hotkey figure is a projection heuristic, not a takeover
+        trigger: `change_subnet_owner_if_needed` requires the subnet to be
         at least ~1 year old (2,629,800 blocks) and the total aggregate
-        conviction across all lockers to reach 10% of `SubnetAlphaOut`, at
+        conviction across all lockers to reach 10% of eligible alpha, at
         which point the highest-conviction hotkey's coldkey becomes the subnet
-        owner. Projections assume the lock rates and alpha out stay constant.
+        owner. Projections assume the lock rates and alpha accounting stay constant.
         """
 
 class Neurons(_ReadNamespace):

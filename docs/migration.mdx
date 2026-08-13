@@ -513,13 +513,16 @@ if not result.success:
 The v11 package ships against a runtime that also changed behavior. These are
 not rename mappings — scripts that still "work" can fail or mis-account after
 the upgrade. See the release notes for
-[V431](/releases/v431-upgrade) and [V445](/releases/v445-upgrade).
+[V431](/releases/v431-upgrade), [V445](/releases/v445-upgrade), and
+[V446](/releases/v446-upgrade).
 
 ### Ownership and emissions
 
 - **Subnet ownership.** For subnets at least one year old, ownership transfers
   to the highest-conviction hotkey when total conviction reaches 10% of
-  `SubnetAlphaOut`. Existing conviction counts toward this threshold. See
+  eligible alpha: `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`, with
+  saturating subtraction. A zero eligible balance cannot trigger a transfer.
+  Existing conviction counts toward this threshold. See
   [Conviction](/docs/guides/conviction).
 - **Cross-subnet emissions.** Allocation continues to use each subnet's EMA
   price scaled by `1 − MinerBurned`, followed by the emission gate.
@@ -599,9 +602,20 @@ the upgrade. See the release notes for
   `btcli sudo set --name activity_cutoff_factor|tempo`.
 - **Hyperparams read API.** Prefer `get_subnet_hyperparams_v3` (name→value);
   v1/v2 are deprecated. The SDK read already uses v3.
+- **Liquid Alpha consensus mode.** `LiquidAlphaConsensusMode` selects current,
+  previous, or automatic consensus for the bonds EMA. `Auto` is the default:
+  it selects previous consensus only when `bonds_penalty == u16::MAX`. Set it
+  with the raw owner/root call
+  `AdminUtils.sudo_set_liquid_alpha_consensus_mode`; owner calls are limited to
+  the admin window and normal per-hyperparameter rate limit.
 - **Drand submissions.** After the initial pulse, only `last_stored_round + 1`
   is accepted. Missing rounds must be backfilled sequentially or commit-reveal
   / timelock consumers stall.
+- **Terminal timelock failures.** A reveal that cannot succeed is retained in
+  `CommitmentOf` as `TimelockRevealFailed`, emits `CommitmentRevealFailed`
+  once, and is removed from the retry index. Indexers should distinguish this
+  terminal audit state from a `TimelockEncrypted` field still waiting for its
+  pulse.
 
 ### Runtime API, metadata, and catalogs
 

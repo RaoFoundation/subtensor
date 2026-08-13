@@ -284,8 +284,13 @@ export function rollForwardLock(
   return {lockedMass: newLockedMass, conviction: newConviction};
 }
 
-export function convictionOwnershipThreshold(alphaOut: number): number {
-  return alphaOut * CONVICTION_OWNERSHIP_THRESHOLD;
+export function convictionOwnershipThreshold(
+  alphaOut: number,
+  protocolAlpha = 0,
+  alphaBurned = 0,
+): number {
+  const eligibleAlpha = Math.max(0, alphaOut - protocolAlpha - alphaBurned);
+  return eligibleAlpha * CONVICTION_OWNERSHIP_THRESHOLD;
 }
 
 export function formatAlpha(value: number, digits = 0): string {
