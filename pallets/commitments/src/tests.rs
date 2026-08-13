@@ -8,11 +8,12 @@ use subtensor_runtime_common::{NetUid, TaoBalance};
 #[cfg(test)]
 use crate::{
     BalanceOf, CommitmentInfo, CommitmentOf, Config, Data, Error, Event, LastBondsReset,
-    LastCommitment, MaxSpace, Pallet, Registration, RevealedCommitments, TimelockedIndex,
-    UsageTracker, UsedSpaceOf, WeightInfo,
+    LastCommitment, MaxSpace, Pallet, Registration, RevealFailure, RevealedCommitments,
+    TimelockedIndex, UsageTracker, UsedSpaceOf, WeightInfo,
     mock::{
         Balances, DRAND_QUICKNET_SIG_2000_HEX, DRAND_QUICKNET_SIG_HEX, RuntimeEvent, RuntimeOrigin,
         Test, TestMaxFields, insert_drand_pulse, new_test_ext, produce_ciphertext,
+        wrap_userdata_envelope,
     },
 };
 use frame_support::pallet_prelude::Hooks;
@@ -327,6 +328,14 @@ fn reveal_timelocked_commitment_missing_round_does_nothing() {
         System::<Test>::set_block_number(100_000);
         assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
         assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
+        assert!(
+            CommitmentOf::<Test>::get(netuid, who).is_some(),
+            "Missing pulse must leave the encrypted commitment in place"
+        );
+        assert!(
+            TimelockedIndex::<Test>::get().contains(&(netuid, who)),
+            "Missing pulse must leave the hotkey in TimelockedIndex"
+        );
     });
 }
 
@@ -360,6 +369,27 @@ fn reveal_timelocked_commitment_cant_deserialize_ciphertext() {
         System::<Test>::set_block_number(99999);
         assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
         assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
+        assert!(
+            CommitmentOf::<Test>::get(netuid, who).is_some(),
+            "Undecodable ciphertext must not be wiped"
+        );
+        assert!(
+            TimelockedIndex::<Test>::get().contains(&(netuid, who)),
+            "Undecodable ciphertext must remain in TimelockedIndex"
+        );
+        assert!(
+            System::<Test>::events().iter().any(|e| {
+                matches!(
+                    &e.event,
+                    RuntimeEvent::Commitments(Event::CommitmentRevealFailed {
+                        who: w,
+                        reveal_round: 1000,
+                        ..
+                    }) if *w == who
+                )
+            }),
+            "Expected CommitmentRevealFailed when ciphertext cannot be revealed"
+        );
     });
 }
 
@@ -396,7 +426,27 @@ fn reveal_timelocked_commitment_rejects_invalid_ciphertext_header() {
         insert_drand_pulse(reveal_round, &sig);
 
         assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
-        assert!(CommitmentOf::<Test>::get(netuid, who).is_none());
+        assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
+        assert!(
+            CommitmentOf::<Test>::get(netuid, who).is_some(),
+            "Invalid ciphertext header must not wipe the encrypted commitment"
+        );
+        assert!(
+            TimelockedIndex::<Test>::get().contains(&(netuid, who)),
+            "Invalid ciphertext header must remain in TimelockedIndex"
+        );
+        let expected_event = RuntimeEvent::Commitments(Event::CommitmentRevealFailed {
+            netuid,
+            who,
+            reveal_round,
+            error: RevealFailure::CiphertextDeserialize,
+        });
+        assert!(
+            System::<Test>::events()
+                .iter()
+                .any(|e| e.event == expected_event),
+            "Expected CommitmentRevealFailed for invalid ciphertext header"
+        );
     });
 }
 
@@ -425,6 +475,26 @@ fn reveal_timelocked_commitment_bad_signature_skips_decryption() {
         System::<Test>::set_block_number(10_000);
         assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
         assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
+        assert!(
+            CommitmentOf::<Test>::get(netuid, who).is_some(),
+            "Bad pulse signature must not wipe the encrypted commitment"
+        );
+        assert!(
+            TimelockedIndex::<Test>::get().contains(&(netuid, who)),
+            "Bad pulse signature must leave the hotkey in TimelockedIndex"
+        );
+        let expected_event = RuntimeEvent::Commitments(Event::CommitmentRevealFailed {
+            netuid,
+            who,
+            reveal_round: 1000,
+            error: RevealFailure::SignatureDeserialize,
+        });
+        assert!(
+            System::<Test>::events()
+                .iter()
+                .any(|e| e.event == expected_event),
+            "Expected CommitmentRevealFailed for bad signature"
+        );
     });
 }
 
@@ -454,6 +524,111 @@ fn reveal_timelocked_commitment_empty_decrypted_data_is_skipped() {
         System::<Test>::set_block_number(10_000);
         assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
         assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
+        assert!(
+            CommitmentOf::<Test>::get(netuid, who).is_some(),
+            "Empty plaintext must not wipe the encrypted commitment"
+        );
+        assert!(
+            TimelockedIndex::<Test>::get().contains(&(netuid, who)),
+            "Empty plaintext must leave the hotkey in TimelockedIndex"
+        );
+        let expected_event = RuntimeEvent::Commitments(Event::CommitmentRevealFailed {
+            netuid,
+            who,
+            reveal_round,
+            error: RevealFailure::EmptyPlaintext,
+        });
+        assert!(
+            System::<Test>::events()
+                .iter()
+                .any(|e| e.event == expected_event),
+            "Expected CommitmentRevealFailed for empty plaintext"
+        );
+    });
+}
+
+#[allow(clippy::indexing_slicing)]
+#[test]
+fn reveal_timelocked_commitment_userdata_envelope_writes_rc() {
+    new_test_ext().execute_with(|| {
+        let who = 41;
+        let netuid = NetUid::from(120);
+        let reveal_round = 1000;
+        let payload =
+            b"affine1|unconst/repo|deadbeef|5Dw5qrFs3xGpy73YGcH1AeP4q6LwxZFM9cGiwvaDWgFZ7ePv";
+        System::<Test>::set_block_number(1);
+
+        let encrypted =
+            wrap_userdata_envelope(produce_ciphertext(payload, reveal_round), reveal_round);
+        let data = Data::TimelockEncrypted {
+            encrypted,
+            reveal_round,
+        };
+        let info = CommitmentInfo {
+            fields: BoundedVec::try_from(vec![data]).expect("one field fits"),
+        };
+        assert_ok!(Pallet::<Test>::set_commitment(
+            RuntimeOrigin::signed(who),
+            netuid,
+            Box::new(info)
+        ));
+
+        let sig_bytes = hex::decode(DRAND_QUICKNET_SIG_HEX).expect("valid signature hex");
+        insert_drand_pulse(reveal_round, &sig_bytes);
+        System::<Test>::set_block_number(2);
+        assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
+
+        let revealed = RevealedCommitments::<Test>::get(netuid, who)
+            .expect("SDK UserData envelope must land in RevealedCommitments");
+        assert_eq!(revealed[0].0, payload);
+        assert!(CommitmentOf::<Test>::get(netuid, who).is_none());
+        assert!(!TimelockedIndex::<Test>::get().contains(&(netuid, who)));
+        let expected_event = RuntimeEvent::Commitments(Event::CommitmentRevealed { netuid, who });
+        assert!(
+            System::<Test>::events()
+                .iter()
+                .any(|e| e.event == expected_event),
+            "Expected CommitmentRevealed after UserData envelope decrypt"
+        );
+    });
+}
+
+#[allow(clippy::indexing_slicing)]
+#[test]
+fn reveal_retries_after_bad_signature_once_pulse_is_valid() {
+    new_test_ext().execute_with(|| {
+        let who = 7;
+        let netuid = NetUid::from(120);
+        let reveal_round = 1000;
+        let payload = b"retry-after-bad-sig";
+        System::<Test>::set_block_number(1);
+
+        let data = Data::TimelockEncrypted {
+            encrypted: produce_ciphertext(payload, reveal_round),
+            reveal_round,
+        };
+        let info = CommitmentInfo {
+            fields: BoundedVec::try_from(vec![data]).expect("one field fits"),
+        };
+        assert_ok!(Pallet::<Test>::set_commitment(
+            RuntimeOrigin::signed(who),
+            netuid,
+            Box::new(info)
+        ));
+
+        insert_drand_pulse(reveal_round, &[0x33u8; 10]);
+        assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
+        assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
+        assert!(CommitmentOf::<Test>::get(netuid, who).is_some());
+
+        let sig_bytes = hex::decode(DRAND_QUICKNET_SIG_HEX).expect("valid signature hex");
+        insert_drand_pulse(reveal_round, &sig_bytes);
+        assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
+
+        let revealed = RevealedCommitments::<Test>::get(netuid, who)
+            .expect("retry after a valid pulse must write RevealedCommitments");
+        assert_eq!(revealed[0].0, payload);
+        assert!(CommitmentOf::<Test>::get(netuid, who).is_none());
     });
 }
 
@@ -1439,7 +1614,7 @@ fn timelocked_index_complex_scenario_works() {
 
 #[allow(clippy::indexing_slicing)]
 #[test]
-fn reveal_timelocked_bad_timelocks_are_removed() {
+fn reveal_timelocked_failed_reveals_are_kept() {
     new_test_ext().execute_with(|| {
         //
         // 1) Prepare multiple Data::TimelockEncrypted fields with different “badness” scenarios + one good field
@@ -1451,7 +1626,7 @@ fn reveal_timelocked_bad_timelocks_are_removed() {
         // Round that has *no* Drand pulse => timelock remains stored, not revealed yet
         let no_pulse_round = 2001;
 
-        // (a) TLE #1: Round=999 => Drand pulse *exists* but signature is invalid => skip/deleted
+        // (a) TLE #1: Round=999 => Drand pulse *exists* but signature is invalid => kept for retry
         let plaintext_1 = b"BadSignature";
         let ciphertext_1 = produce_ciphertext(plaintext_1, invalid_sig_round);
         let tle_bad_sig = Data::TimelockEncrypted {
@@ -1533,8 +1708,8 @@ fn reveal_timelocked_bad_timelocks_are_removed() {
         let drand_sig_1000 = hex::decode(DRAND_QUICKNET_SIG_HEX).expect("Expected not to panic");
         insert_drand_pulse(valid_round, &drand_sig_1000);
 
-        //
-        // 5) Call reveal => “bad” items are removed, “good” is revealed, “not ready” remains
+        // 5) Call reveal: valid TLE #4 is revealed; failed decrypts and the
+        //    not-yet-ready round stay in CommitmentOf so they can be retried.
         //
         System::<Test>::set_block_number(2);
         assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
@@ -1542,27 +1717,31 @@ fn reveal_timelocked_bad_timelocks_are_removed() {
         //
         // 6) Check final storage
         //
-        // (a) TLE #5 => still in fields => same user remains in CommitmentOf => TimelockedIndex includes them
         let registration_after =
             CommitmentOf::<Test>::get(netuid, who).expect("Should still exist");
         assert_eq!(
             registration_after.info.fields.len(),
-            1,
-            "Only the unrevealed TLE #5 should remain"
+            4,
+            "Failed decrypts and the unready round must stay; only the successful reveal is dropped"
         );
-        let leftover = &registration_after.info.fields[0];
-        match leftover {
-            Data::TimelockEncrypted { reveal_round, .. } => {
-                assert_eq!(*reveal_round, no_pulse_round, "Should be TLE #5 leftover");
-            }
-            _ => panic!("Expected the leftover field to be TLE #5"),
-        };
+        let leftover_rounds: Vec<u64> = registration_after
+            .info
+            .fields
+            .iter()
+            .map(|field| match field {
+                Data::TimelockEncrypted { reveal_round, .. } => *reveal_round,
+                other => panic!("Expected leftover timelock fields, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            leftover_rounds,
+            vec![invalid_sig_round, valid_round, valid_round, no_pulse_round]
+        );
         assert!(
             TimelockedIndex::<Test>::get().contains(&(netuid, who)),
-            "Still in index because there's one remaining timelock (#5)."
+            "Still in index because unrevealed timelocks remain"
         );
 
-        // (b) TLE #4 => revealed => check that the plaintext matches
         let revealed = RevealedCommitments::<Test>::get(netuid, who)
             .expect("Should have at least one revealed item for TLE #4");
         let (revealed_bytes, reveal_block) = &revealed[0];
@@ -1579,7 +1758,6 @@ fn reveal_timelocked_bad_timelocks_are_removed() {
             "Expected revealed data to match the original plaintext"
         );
 
-        // (c) TLE #1 / #2 / #3 => removed => do NOT appear in leftover fields, nor in revealed (they were invalid)
         assert_eq!(revealed.len(), 1, "Only TLE #4 ended up in revealed list");
     });
 }

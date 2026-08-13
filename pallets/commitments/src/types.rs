@@ -385,6 +385,21 @@ pub struct CommitmentInfo<FieldLimit: Get<u32>> {
 pub const MAX_TIMELOCK_COMMITMENT_SIZE_BYTES: u32 = 1024;
 pub const MAX_BIGRAW_COMMITMENT_SIZE_BYTES: u32 = 512;
 
+/// Why a timelock reveal failed. The encrypted commitment is left in place.
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, RuntimeDebug, TypeInfo,
+)]
+pub enum RevealFailure {
+    /// Drand pulse signature could not be deserialized.
+    SignatureDeserialize,
+    /// Timelock ciphertext could not be deserialized.
+    CiphertextDeserialize,
+    /// Timelock decryption failed.
+    Decrypt,
+    /// Decryption succeeded but produced no plaintext.
+    EmptyPlaintext,
+}
+
 /// Contains the decrypted data of a revealed commitment.
 #[freeze_struct("bf575857b57f9bef")]
 #[derive(Clone, Eq, PartialEq, Encode, Decode, TypeInfo, Debug)]
