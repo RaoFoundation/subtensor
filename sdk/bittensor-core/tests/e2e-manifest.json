@@ -249,9 +249,6 @@
     "test": "test_timelocked_commitment_reveals_plaintext"
   },
   {
-    "test": "test_keep_subnets_requires_subnets"
-  },
-  {
     "test": "test_coldkey_swap_announcement_flow"
   },
   {

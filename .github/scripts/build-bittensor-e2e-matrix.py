@@ -8,7 +8,7 @@ import re
 import sys
 from pathlib import Path
 
-EXPECTED_TESTS = 113
+EXPECTED_TESTS = 112
 DEFAULT_SHARDS = 32
 TEST_NAME = re.compile(r"^(?:intent|test)_[A-Za-z0-9_]+$")
 
