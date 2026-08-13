@@ -448,11 +448,19 @@ jobs:
           path: rust-e2e
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in 1 2 3; do
+            if printf '%s' "$GHCR_TOKEN" \
+              | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin; then
+              exit 0
+            fi
+            echo "GHCR login failed (attempt $i), retrying in $((i * 15))s..."
+            sleep $((i * 15))
+          done
+          printf '%s' "$GHCR_TOKEN" \
+            | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
       - name: Pull Docker Image
         # GHCR intermittently returns permission_denied/timeouts under the

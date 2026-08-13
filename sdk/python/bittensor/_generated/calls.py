@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 445
+Spec version: 446
 """
 from typing import Any, NamedTuple
 
@@ -24,6 +24,7 @@ BTreeSet = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
+ConsensusMode = Any
 Determinism = Any
 EquivocationProof = Any
 FixedI128 = Any
@@ -1030,6 +1031,11 @@ class AdminUtils:
     def sudo_set_kappa(netuid: 'NetUid', kappa: 'u16') -> Call:
         'The extrinsic sets the kappa for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the kappa.'
         return Call('AdminUtils', 'sudo_set_kappa', {'netuid': netuid, 'kappa': kappa})
+
+    @staticmethod
+    def sudo_set_liquid_alpha_consensus_mode(netuid: 'NetUid', mode: 'ConsensusMode') -> Call:
+        'Sets which consensus values liquid alpha uses for a subnet.'
+        return Call('AdminUtils', 'sudo_set_liquid_alpha_consensus_mode', {'netuid': netuid, 'mode': mode})
 
     @staticmethod
     def sudo_set_liquid_alpha_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
