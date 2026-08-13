@@ -243,7 +243,10 @@
     "test": "test_compose_nested_sudo_call"
   },
   {
-    "test": "test_raw_call_escape_hatch_and_commitment"
+    "test": "test_regular_commitment_stays_readable"
+  },
+  {
+    "test": "test_timelocked_commitment_reveals_plaintext"
   },
   {
     "test": "test_keep_subnets_requires_subnets"
