@@ -34,7 +34,10 @@ its current value.
 | Field | Value | Meaning |
 |-------|-------|---------|
 | `SubnetAlphaOut` | 8,000,000 α | Outstanding alpha on the subnet |
-| Ownership threshold | 800,000 α | 10% of alpha out — aggregate conviction gate |
+| `SubnetProtocolAlpha` | 1,000,000 α | Protocol-owned alpha, excluded from the gate |
+| `AlphaBurned` | 1,000,000 α | Burned alpha, excluded from the gate |
+| Eligible alpha | 6,000,000 α | `SubnetAlphaOut − SubnetProtocolAlpha − AlphaBurned` |
+| Ownership threshold | 600,000 α | 10% of eligible alpha — aggregate conviction gate |
 | Subnet age | > 1 year | Required before ownership can transfer |
 | Alice (owner) | 250,000 α locked | Perpetual lock on **owner hotkey** — conviction = mass |
 | Bob (validator) | 600,000 α locked | Perpetual lock toward his validator hotkey |
@@ -44,7 +47,7 @@ its current value.
 
 Drag **elapsed time** forward: Bob's perpetual conviction climbs toward 600k α.
 Carol's decaying conviction **rises then falls** as her locked mass frees.
-When **total conviction** crosses 800k α and the subnet is old enough, the
+When **total conviction** crosses 600k α and the subnet is old enough, the
 **highest-conviction hotkey** becomes the new owner.
 
 ## Perpetual vs decaying
@@ -75,7 +78,10 @@ After each epoch, the chain runs [`change_subnet_owner_if_needed`](/code/pallets
 these hold:
 
 1. Subnet age ≥ **ONE_YEAR** (2,629,800 blocks from registration).
-2. **Total aggregate conviction** ≥ 10% of [`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424).
+2. **Total aggregate conviction** ≥ 10% of eligible alpha:
+   `SubnetAlphaOut − SubnetProtocolAlpha − AlphaBurned`. Subtraction
+   saturates at zero, and ownership does not transfer when eligible alpha is
+   zero.
 3. A hotkey with the highest rolled aggregate conviction resolves to a real
    coldkey owner (not the default account).
 
@@ -84,7 +90,7 @@ The winning hotkey becomes [`SubnetOwnerHotkey`](/code/pallets/subtensor/src/lib
 
 This is **not** the same as the per-hotkey projection in
 [`subnet-convictions`](/docs/query/subnet-convictions) — that API estimates when
-*one* hotkey might reach 10% of alpha out; ownership requires **aggregate**
+*one* hotkey might reach 10% of eligible alpha; ownership requires **aggregate**
 conviction across all lockers.
 
 ## Lock a position on a real subnet

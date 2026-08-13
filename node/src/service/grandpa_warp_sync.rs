@@ -1,21 +1,28 @@
 use node_subtensor_runtime::opaque::Block;
 use sc_chain_spec::ChainType;
 use sc_consensus_grandpa::{AuthoritySetHardFork, warp_proof::HardForks};
-use sp_consensus_grandpa::{AuthorityId, AuthorityList};
+use sc_network_sync::strategy::warp::{EncodedProof, VerificationResult, WarpSyncProvider};
+use sp_consensus_grandpa::{AuthorityId, AuthorityList, SetId};
 use sp_core::{ByteArray, H256};
 
+const FINNEY_GENESIS: H256 = H256(hex_literal::hex!(
+    "2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03"
+));
 const TESTNET_GENESIS: H256 = H256(hex_literal::hex!(
     "8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
 ));
 
 pub(super) enum Config {
     TestnetCheckpoints(Vec<AuthoritySetHardFork<Block>>),
+    OneTimeInitialSetId(SetId),
     InitialSetId(u64),
 }
 
 pub(super) fn config(genesis_hash: H256, chain_type: ChainType) -> Config {
     if genesis_hash == TESTNET_GENESIS {
         Config::TestnetCheckpoints(testnet_checkpoints())
+    } else if genesis_hash == FINNEY_GENESIS {
+        Config::OneTimeInitialSetId(3)
     } else {
         let set_id = match chain_type {
             ChainType::Live => 3,
@@ -30,9 +37,22 @@ impl Config {
     pub(super) fn log_message(&self) -> String {
         match self {
             Self::TestnetCheckpoints(_) => "Testnet GRANDPA warp sync checkpoints enabled.".into(),
+            Self::OneTimeInitialSetId(set_id) => {
+                format!(
+                    "Finney GRANDPA warp sync one-time initial set ID patch enabled. Set ID = \
+                     {set_id}"
+                )
+            }
             Self::InitialSetId(set_id) => {
                 format!("GRANDPA warp sync initial set ID patch enabled. Set ID = {set_id}")
             }
+        }
+    }
+
+    pub(super) fn one_time_initial_set_id(&self) -> Option<SetId> {
+        match self {
+            Self::OneTimeInitialSetId(set_id) => Some(*set_id),
+            Self::TestnetCheckpoints(_) | Self::InitialSetId(_) => None,
         }
     }
 
@@ -41,8 +61,58 @@ impl Config {
             Self::TestnetCheckpoints(checkpoints) => {
                 HardForks::new_hard_forked_authorities(checkpoints)
             }
+            // Keep the provider in reinitialized-set mode so a completed proof does not replace
+            // its shared authority set. The outer provider supplies the actual one-time offset.
+            Self::OneTimeInitialSetId(_) => HardForks::new_initial_set_id(0),
             Self::InitialSetId(set_id) => HardForks::new_initial_set_id(set_id),
         }
+    }
+}
+
+pub(super) struct InitialSetIdProvider<P> {
+    inner: P,
+    initial_set_id: SetId,
+}
+
+impl<P> InitialSetIdProvider<P> {
+    pub(super) fn new(inner: P, initial_set_id: SetId) -> Self {
+        Self {
+            inner,
+            initial_set_id,
+        }
+    }
+}
+
+impl<P> WarpSyncProvider<Block> for InitialSetIdProvider<P>
+where
+    P: WarpSyncProvider<Block>,
+{
+    fn generate(
+        &self,
+        start: H256,
+    ) -> Result<EncodedProof, Box<dyn std::error::Error + Send + Sync>> {
+        self.inner.generate(start)
+    }
+
+    fn verify(
+        &self,
+        proof: &EncodedProof,
+        set_id: SetId,
+        authorities: AuthorityList,
+    ) -> Result<VerificationResult<Block>, Box<dyn std::error::Error + Send + Sync>> {
+        // Warp sync starts from set 0. Apply Finney's historical correction there, then trust the
+        // set ID returned by each proof. The SDK's `new_initial_set_id` applies its correction to
+        // every fragment, which over-counts as soon as a proof spans new rotations.
+        let set_id = if set_id == 0 {
+            self.initial_set_id
+        } else {
+            set_id
+        };
+        self.inner.verify(proof, set_id, authorities)
+    }
+
+    fn current_authorities(&self) -> AuthorityList {
+        self.inner.current_authorities()
     }
 }
 
@@ -93,12 +163,49 @@ fn testnet_checkpoints() -> Vec<AuthoritySetHardFork<Block>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[derive(Default)]
+    struct RecordingProvider {
+        set_id: AtomicU64,
+    }
+
+    impl WarpSyncProvider<Block> for RecordingProvider {
+        fn generate(
+            &self,
+            _start: H256,
+        ) -> Result<EncodedProof, Box<dyn std::error::Error + Send + Sync>> {
+            Ok(EncodedProof(Vec::new()))
+        }
+
+        fn verify(
+            &self,
+            _proof: &EncodedProof,
+            set_id: SetId,
+            authorities: AuthorityList,
+        ) -> Result<VerificationResult<Block>, Box<dyn std::error::Error + Send + Sync>> {
+            self.set_id.store(set_id, Ordering::Relaxed);
+            Ok(VerificationResult::Partial(
+                set_id.saturating_add(1),
+                authorities,
+                H256::zero(),
+            ))
+        }
+
+        fn current_authorities(&self) -> AuthorityList {
+            Vec::new()
+        }
+    }
 
     #[test]
     fn checkpoints_are_exactly_testnet_genesis_scoped() {
         assert!(matches!(
             config(TESTNET_GENESIS, ChainType::Live),
             Config::TestnetCheckpoints(_)
+        ));
+        assert!(matches!(
+            config(FINNEY_GENESIS, ChainType::Live),
+            Config::OneTimeInitialSetId(3)
         ));
         assert!(matches!(
             config(H256::zero(), ChainType::Live),
@@ -154,5 +261,23 @@ mod tests {
             .map(|id| id.as_slice())
             .collect::<Vec<_>>();
         assert_eq!(authority_ids, expected_authority_ids);
+    }
+
+    #[test]
+    fn finney_initial_set_id_is_applied_only_at_warp_sync_start() {
+        let provider = InitialSetIdProvider::new(RecordingProvider::default(), 3);
+        let proof = EncodedProof(Vec::new());
+
+        let Ok(first) = provider.verify(&proof, 0, Vec::new()) else {
+            panic!("first proof should verify");
+        };
+        assert!(matches!(first, VerificationResult::Partial(4, _, _)));
+        assert_eq!(provider.inner.set_id.load(Ordering::Relaxed), 3);
+
+        let Ok(second) = provider.verify(&proof, 4, Vec::new()) else {
+            panic!("second proof should verify");
+        };
+        assert!(matches!(second, VerificationResult::Partial(5, _, _)));
+        assert_eq!(provider.inner.set_id.load(Ordering::Relaxed), 4);
     }
 }

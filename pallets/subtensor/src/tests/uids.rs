@@ -28,6 +28,11 @@ fn test_trim_to_max_allowed_uids_purges_removed_neuron_commitment() {
         }
         let emissions: Vec<AlphaBalance> = vec![0.into(), 2.into(), 1.into()];
         Emission::<Test>::insert(netuid, emissions);
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        ConsensusByMechanism::<Test>::insert(
+            netuid_index,
+            [10, 20, 30].map(PerU16::from_parts).to_vec(),
+        );
 
         let commitment = || {
             Box::new(CommitmentInfo {
@@ -49,6 +54,29 @@ fn test_trim_to_max_allowed_uids_purges_removed_neuron_commitment() {
 
         assert!(Commitments::commitment_of(netuid, removed_hotkey).is_none());
         assert!(Commitments::commitment_of(netuid, retained_hotkey).is_some());
+        assert_eq!(
+            ConsensusByMechanism::<Test>::get(netuid_index),
+            [20, 30].map(PerU16::from_parts).to_vec()
+        );
+    });
+}
+
+#[test]
+fn append_neuron_does_not_manufacture_consensus_history() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        add_network(netuid, 13, 0);
+
+        SubtensorModule::append_neuron(netuid, &U256::from(1), 0);
+        assert!(!ConsensusByMechanism::<Test>::contains_key(netuid_index));
+
+        ConsensusByMechanism::<Test>::insert(netuid_index, vec![PerU16::from_parts(10)]);
+        SubtensorModule::append_neuron(netuid, &U256::from(2), 0);
+        assert_eq!(
+            ConsensusByMechanism::<Test>::get(netuid_index),
+            vec![PerU16::from_parts(10)]
+        );
     });
 }
 
@@ -92,6 +120,10 @@ fn test_replace_neuron() {
         Incentive::<Test>::mutate(NetUidStorageIndex::from(netuid), |v| {
             SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
+        ConsensusByMechanism::<Test>::insert(
+            NetUidStorageIndex::from(netuid),
+            vec![PerU16::from_parts(5)],
+        );
         Dividends::<Test>::mutate(netuid, |v| {
             SubtensorModule::set_element_at(v, neuron_uid as usize, PerU16::from_parts(5))
         });
@@ -152,6 +184,10 @@ fn test_replace_neuron() {
         assert_eq!(
             SubtensorModule::get_incentive_for_uid(netuid.into(), neuron_uid),
             0
+        );
+        assert_eq!(
+            ConsensusByMechanism::<Test>::get(NetUidStorageIndex::from(netuid)),
+            vec![PerU16::zero()]
         );
         assert_eq!(
             SubtensorModule::get_dividends_for_uid(netuid, neuron_uid),

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 445
+Spec version: 446
 """
 from dataclasses import dataclass
 
@@ -244,6 +244,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (18, 1): ErrorInfo('Commitments', 'AccountNotAllowedCommit', 'Account is not allowed to make commitments to the chain'),
     (18, 2): ErrorInfo('Commitments', 'SpaceLimitExceeded', 'Space Limit Exceeded for the current interval'),
     (18, 3): ErrorInfo('Commitments', 'UnexpectedUnreserveLeftover', 'Indicates that unreserve returned a leftover, which is unexpected.'),
+    (18, 4): ErrorInfo('Commitments', 'TimelockRevealFailedNotAllowed', '`TimelockRevealFailed` fields may only be created by the runtime.'),
     (19, 0): ErrorInfo('AdminUtils', 'SubnetDoesNotExist', 'The subnet does not exist, check the netuid parameter'),
     (19, 1): ErrorInfo('AdminUtils', 'MaxValidatorsLargerThanMaxUIds', 'The maximum number of subnet validators must be less than the maximum number of allowed UIDs in the subnet.'),
     (19, 2): ErrorInfo('AdminUtils', 'MaxAllowedUIdsLessThanCurrentUIds', 'The maximum number of subnet validators must be more than the current number of UIDs already in the subnet.'),
@@ -260,6 +261,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (19, 13): ErrorInfo('AdminUtils', 'Deprecated', 'Call is deprecated'),
     (19, 14): ErrorInfo('AdminUtils', 'CollateralLockShareTooHigh', 'The collateral lock share exceeds the settable maximum (95% of the registration price).'),
     (19, 15): ErrorInfo('AdminUtils', 'CollateralDrainRatioOutOfBounds', 'The collateral drain ratio must be positive and at most the settable maximum.'),
+    (19, 16): ErrorInfo('AdminUtils', 'GrandpaChangeDelayMustBeZero', 'GRANDPA changes must take effect at the end of the current block.'),
     (20, 0): ErrorInfo('SafeMode', 'Entered', 'The safe-mode is (already or still) entered.'),
     (20, 1): ErrorInfo('SafeMode', 'Exited', 'The safe-mode is (already or still) exited.'),
     (20, 2): ErrorInfo('SafeMode', 'NotConfigured', 'This functionality of the pallet is disabled by the configuration.'),

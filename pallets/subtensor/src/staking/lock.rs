@@ -1,6 +1,7 @@
 use super::*;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::weights::WeightMeter;
+use pallet_alpha_assets::AlphaAssetsInterface;
 use safe_math::FixedExt;
 use scale_info::TypeInfo;
 use sp_std::collections::btree_map::BTreeMap;
@@ -1157,15 +1158,20 @@ impl<T: Config> Pallet<T> {
     /// is mature enough and enough conviction has accumulated.
     ///
     /// Ownership can change only after the subnet is at least [`ONE_YEAR`] old and the
-    /// total rolled aggregate conviction on the subnet is at least 10% of `SubnetAlphaOut`.
-    /// If those gates pass, the hotkey with the highest rolled aggregate conviction
-    /// becomes the subnet owner hotkey, and that hotkey's owning coldkey becomes the
-    /// subnet owner coldkey. The new owner hotkey's conviction is then progressed to
-    /// its current locked mass so the new owner starts with full owner conviction.
+    /// total rolled aggregate conviction on the subnet is at least 10% of
+    /// `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`. If those gates pass, the
+    /// hotkey with the highest rolled aggregate conviction becomes the subnet owner
+    /// hotkey, and that hotkey's owning coldkey becomes the subnet owner coldkey. The new
+    /// owner hotkey's conviction is then progressed to its current locked mass so the new
+    /// owner starts with full owner conviction.
     pub fn change_subnet_owner_if_needed(netuid: NetUid) {
-        // No outstanding alpha means there is no meaningful 10% conviction threshold.
-        let subnet_alpha_out = SubnetAlphaOut::<T>::get(netuid);
-        if subnet_alpha_out.is_zero() {
+        // Protocol-owned and burned alpha cannot support a challenger, so exclude both
+        // from the ownership quorum. Saturation keeps inconsistent accounting from
+        // wrapping the threshold to a very large value.
+        let eligible_alpha = SubnetAlphaOut::<T>::get(netuid)
+            .saturating_sub(SubnetProtocolAlpha::<T>::get(netuid))
+            .saturating_sub(T::AlphaAssets::alpha_burned(netuid));
+        if eligible_alpha.is_zero() {
             return;
         }
 
@@ -1176,10 +1182,10 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        // Require total rolled aggregate conviction to be at least 10% of subnet alpha out.
+        // Require total rolled aggregate conviction to be at least 10% of eligible alpha.
         let total_conviction = Self::get_total_conviction(netuid);
         if total_conviction.saturating_mul(U64F64::saturating_from_num(10))
-            < U64F64::saturating_from_num(u64::from(subnet_alpha_out))
+            < U64F64::saturating_from_num(u64::from(eligible_alpha))
         {
             return;
         }

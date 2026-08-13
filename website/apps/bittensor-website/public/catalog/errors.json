@@ -105,8 +105,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 121,
-          "url": "/code/pallets/commitments/src/lib.rs#L121",
+          "line": 132,
+          "url": "/code/pallets/commitments/src/lib.rs#L132",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -1808,6 +1808,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/GasPriceTooLow/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "GrandpaChangeDelayMustBeZero": {
+      "code": "invalid_argument",
+      "description": "`schedule_grandpa_change` was given a nonzero `in_blocks` delay. GRANDPA authority changes submitted through AdminUtils must activate at the end of the current block so the authority set and its set ID remain consistent. Pass `in_blocks=0`.",
+      "docs_url": "/docs/errors/chain/GrandpaChangeDelayMustBeZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GrandpaChangeDelayMustBeZero/content.md",
+      "pallets": [
+        "AdminUtils"
+      ],
+      "sources": [
+        {
+          "pallet": "AdminUtils",
+          "path": "pallets/admin-utils/src/lib.rs",
+          "line": 182,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L182",
+          "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+        }
       ]
     },
     "HotKeyAccountNotExists": {
@@ -4549,8 +4567,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 123,
-          "url": "/code/pallets/commitments/src/lib.rs#L123",
+          "line": 134,
+          "url": "/code/pallets/commitments/src/lib.rs#L134",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -4914,6 +4932,24 @@
         "Contracts"
       ]
     },
+    "TimelockRevealFailedNotAllowed": {
+      "code": "invalid_argument",
+      "description": "The submitted commitment contains `TimelockRevealFailed`, a terminal audit state that only the runtime may create after an automatic reveal fails. Submit a `TimelockEncrypted` field instead.",
+      "docs_url": "/docs/errors/chain/TimelockRevealFailedNotAllowed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TimelockRevealFailedNotAllowed/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 138,
+          "url": "/code/pallets/commitments/src/lib.rs#L138",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
+      ]
+    },
     "TooBig": {
       "code": "limit_exceeded",
       "description": "The preimage exceeds the maximum size the pallet will store on-chain (4 MiB). Check the byte length of the preimage against the pallet's `MAX_SIZE` limit before noting it.",
@@ -5008,8 +5044,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 119,
-          "url": "/code/pallets/commitments/src/lib.rs#L119",
+          "line": 130,
+          "url": "/code/pallets/commitments/src/lib.rs#L130",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -5423,8 +5459,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 125,
-          "url": "/code/pallets/commitments/src/lib.rs#L125",
+          "line": 136,
+          "url": "/code/pallets/commitments/src/lib.rs#L136",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]

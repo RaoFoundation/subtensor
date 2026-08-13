@@ -23,7 +23,7 @@ A failed `execute` returns an `ExtrinsicResult` whose `error` has a semantic `co
 | [`expired`](/docs/errors/expired) | 5 | The window has closed; restart the flow with fresh state |
 | [`limit_exceeded`](/docs/errors/limit-exceeded) | 37 | A chain-side capacity limit was hit; reduce the size or count of the request |
 | [`unit_mismatch`](/docs/errors/unit-mismatch) | — | Match the Balance netuid to the operation's currency |
-| [`invalid_argument`](/docs/errors/invalid-argument) | 134 | Check the argument values against the operation schema |
+| [`invalid_argument`](/docs/errors/invalid-argument) | 136 | Check the argument values against the operation schema |
 | [`policy_violation`](/docs/errors/policy-violation) | 2 | The action exceeds a configured safety policy |
 | [`internal`](/docs/errors/internal) | 19 | A chain-side invariant failed; nothing to fix client-side — report it if it persists |
 | [`unknown`](/docs/errors/unknown) | — | Inspect the message for details |

@@ -237,6 +237,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_emission_gate_exponent",
         "sudo_set_evm_chain_id",
         "sudo_set_kappa",
+        "sudo_set_liquid_alpha_consensus_mode",
         "sudo_set_lock_reduction_interval",
         "sudo_set_max_allowed_validators",
         "sudo_set_max_epochs_per_block",

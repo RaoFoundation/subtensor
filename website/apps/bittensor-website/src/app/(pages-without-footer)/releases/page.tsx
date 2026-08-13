@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'v446',
+    date: 'August 2026',
+    title: 'Accounting, Liquid Alpha, and Timelock Recovery',
+    summary:
+      'This release repairs historical alpha accounting, bases the conviction ownership gate on ' +
+      'eligible alpha, adds selectable Liquid Alpha consensus modes, makes failed timelock ' +
+      'reveals auditable, and corrects GRANDPA warp-sync set handling.',
+    href: '/releases/v446-upgrade',
+  },
+  {
     tag: 'v445',
     date: 'August 2026',
     title: 'EVM, btcli, and Reliability',
