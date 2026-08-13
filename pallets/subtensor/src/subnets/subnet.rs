@@ -1,5 +1,6 @@
 use super::*;
 use frame_support::PalletId;
+use pallet_alpha_assets::AlphaAssetsInterface;
 use safe_math::FixedExt;
 use sp_core::Get;
 use sp_runtime::{SaturatedConversion, traits::AccountIdConversion};
@@ -319,6 +320,12 @@ impl<T: Config> Pallet<T> {
         if let Some(lock_id) = lock_id {
             Self::unlock_network_registration_cost(coldkey, lock_id)?;
         }
+
+        // A netuid identifies a new alpha asset generation after reuse. Clear any
+        // legacy counters defensively before creating that generation; normal
+        // dissolution cleanup performs the same reset after its last recycle.
+        T::AlphaAssets::clear_alpha_counters(netuid_to_register);
+        weight.saturating_accrue(db_weight.writes(3));
 
         let default_tempo = DefaultTempo::<T>::get();
         weight.saturating_accrue(db_weight.reads(1));

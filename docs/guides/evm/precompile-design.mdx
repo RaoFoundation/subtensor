@@ -336,7 +336,7 @@ interface IPrecompileRegistry {
 }
 ```
 
-In v444, the fields have the following behavior:
+In v445, the fields have the following behavior:
 
 | Field | Meaning |
 |---|---|
@@ -346,7 +346,7 @@ In v444, the fields have the following behavior:
 | `newSelector` | Reserved; always `0x00000000`. |
 | `message` | Reserved; always empty. |
 
-The `selector` parameter is also reserved and is not interpreted in v444. A
+The `selector` parameter is also reserved and is not interpreted in v445. A
 response therefore does not prove that a selector exists or describe its
 lifecycle. Tooling must use the canonical Solidity interfaces and JSON ABIs to
 discover supported selectors.
@@ -455,6 +455,6 @@ Precompiles are a long-lived contract between Subtensor and deployed EVM code.
 Keep addresses and released selectors stable, version functions additively,
 preserve old semantics whenever possible, and replace raw storage access with
 typed views that insulate callers from storage layouts. Use deprecation to guide
-migration and reversible disablement to handle operational risk. The v444
+migration and reversible disablement to handle operational risk. The v445
 registry reports whole-precompile disablement; function-level lifecycle status
 remains a future extension.

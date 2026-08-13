@@ -6,12 +6,11 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V444 Upgrade — Pure Price Emissions',
+  title: 'The V445 Upgrade — EVM, btcli, and Reliability',
   description:
-    'Subnet emission returns to pure price EMA through the emission gate, while v444 ' +
-    'completes the EVM surface, makes btcli safer for multisigs and automation, adds ' +
+    'V445 completes the EVM surface, makes btcli safer for multisigs and automation, adds ' +
     'human-readable Ledger orders, and lands a broad reliability pass.',
-  alternates: {canonical: '/releases/v444-upgrade'},
+  alternates: {canonical: '/releases/v445-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -25,87 +24,23 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>The V444 Upgrade</h1>
+          <h1 className={styles.paper_title}>The V445 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Pure Price Emissions · August 2026
+            EVM, btcli, and Reliability · August 2026
           </p>
         </section>
 
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            The market signal becomes simple again in spec <strong>444</strong>: a subnet&apos;s
-            share of network emission is determined by its moving price, passed through the emission
-            gate. The share is no longer reduced when a subnet directs miner incentive to an owner
-            or burn hotkey. Recycling and burning still do exactly what the subnet chose locally;
-            they no longer change its standing against every other subnet.
-          </p>
-          <p>
-            The release also makes the chain substantially easier to use from every external
-            surface. Solidity contracts gain 31 functions across five new Bittensor precompiles,
-            plus 135 additions to existing interfaces. A saved multisig now behaves like a wallet
-            throughout <code>btcli</code>. Automated dry runs carry enough information to approve
-            and replay a transaction safely. Ledger users can read the actual fields of a limit
-            order before signing it. Underneath those interfaces, v444 corrects transaction-pool
-            validation, proxy charging, commitment cleanup, storage growth, and GRANDPA finality.
-          </p>
-        </section>
-
-        <section className={styles.section}>
-          <h2 className={styles.subtitle}>Price is the signal</h2>
-          <p>
-            The emission gate introduced in <DocLink href='/releases/v440-upgrade'>v440</DocLink>{' '}
-            starts with each subnet&apos;s share of price EMA, then suppresses emission below the
-            market-set bar. A second factor had been applied before that gate:{' '}
-            <code>1 − MinerBurned</code>. That meant two subnets with the same demand could receive
-            different cross-network emission solely because one withheld miner incentive for
-            recycling or burning.
-          </p>
-          <Code
-            language='rust'
-            code={`before v444:  s_i = normalize(price_ema_i × (1 − miner_burned_i))
-              e_i ∝ s_i × gate(s_i)
-
-v444:         s_i = normalize(price_ema_i)
-              e_i ∝ s_i × gate(s_i)`}
-          />
-          <p>
-            V444 removes that extra multiplier. The on-chain value remains as an informational
-            measure called <code>MinerBurned</code>. The miner-incentive path still recycles or
-            burns according to the subnet&apos;s configuration. What changes is the boundary between
-            local token policy and network allocation: demand determines how much emission a subnet
-            earns; the subnet determines what it does with the miner portion after that.
-          </p>
-          <table className={styles.metrics_table}>
-            <thead>
-              <tr>
-                <th>Miner incentive policy</th>
-                <th>Effect on subnet&apos;s network share in v444</th>
-                <th>Local effect</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Paid to miners</td>
-                <td>Price EMA through the gate</td>
-                <td>Miner alpha is distributed</td>
-              </tr>
-              <tr>
-                <td>Withheld and recycled</td>
-                <td>Price EMA through the gate</td>
-                <td>Value returns through the recycle path</td>
-              </tr>
-              <tr>
-                <td>Withheld and burned</td>
-                <td>Price EMA through the gate</td>
-                <td>Value is removed by the burn path</td>
-              </tr>
-            </tbody>
-          </table>
-          <p>
-            Subnet teams do not need to change a setting. Forecasting software should remove the
-            miner-burn factor from cross-subnet share calculations and retain it only where it
-            describes the subnet&apos;s own incentive accounting.
+            Spec <strong>445</strong> makes the chain substantially easier to use from every
+            external surface. Solidity contracts gain 31 functions across five new Bittensor
+            precompiles, plus 135 additions to existing interfaces. A saved multisig now behaves
+            like a wallet throughout <code>btcli</code>. Automated dry runs carry enough information
+            to approve and replay a transaction safely. Ledger users can read the actual fields of a
+            limit order before signing it. Underneath those interfaces, v445 recycles transaction
+            fees and corrects transaction-pool validation, proxy charging, commitment cleanup,
+            storage growth, and GRANDPA finality.
           </p>
         </section>
 
@@ -197,13 +132,13 @@ IRuntimeConfiguration config =
 uint256 chainId = config.getEvmChainId();`}
           />
           <p>
-            In v444, only the registry&apos;s <code>isDisabled</code> field is populated. Its
+            In v445, only the registry&apos;s <code>isDisabled</code> field is populated. Its
             selector parameter and selector-lifecycle fields are reserved for a future extension and
             must not be used to infer whether a selector exists.
           </p>
           <p>
             Canonical Solidity interfaces, JSON ABIs, generated Python ABI copies, documentation,
-            gas accounting, and tests ship together. Integrators should use the v444 copies rather
+            gas accounting, and tests ship together. Integrators should use the v445 copies rather
             than reconstructing selectors from release notes. The new maintainer documentation also
             fixes the rules for ABI versioning, state exposure, lifecycle metadata, coverage, and
             backwards compatibility so later runtime releases can extend this surface without
@@ -273,7 +208,7 @@ btcli wallet transfer --dest 5F... --amount-tao 10 -w team-treasury`}
           <h2 className={styles.subtitle}>Read the order before signing it</h2>
           <p>
             <DocLink href='/releases/v438-upgrade'>V438</DocLink> let Ledger and compatible signers
-            authorize limit orders by signing a wrapped order hash. V444 adds an alternative
+            authorize limit orders by signing a wrapped order hash. V445 adds an alternative
             clear-signing form: one canonical printable message containing the order type, amount,
             subnet, limit or trigger price, expiry, hotkey, relayer policy, fee, slippage, chain ID,
             partial-fill policy, and signer. The hardware wallet displays those fields before
@@ -310,7 +245,7 @@ partial fills <true|false>, signer <ss58>`}
             <thead>
               <tr>
                 <th>Area</th>
-                <th>Change in v444</th>
+                <th>Change in v445</th>
               </tr>
             </thead>
             <tbody>
@@ -379,19 +314,14 @@ partial fills <true|false>, signer <ss58>`}
           <h2 className={styles.subtitle}>What to do</h2>
           <ul className={styles.list}>
             <li>
-              <strong>Subnet teams and analysts:</strong> remove <code>1 − MinerBurned</code> from
-              cross-subnet emission forecasts. The emission gate remains active and miner recycling
-              or burning remains a local policy.
-            </li>
-            <li>
               <strong>EVM integrators:</strong> refresh the complete canonical ABI set before using
-              v444 selectors. Add <code>0x…080f</code> through <code>0x…0813</code> only from the
+              v445 selectors. Add <code>0x…080f</code> through <code>0x…0813</code> only from the
               published interfaces, and use the registry to inspect whole-precompile availability.
               Re-estimate aggregate staking reads and do not rely on fixed gas stipends.
             </li>
             <li>
               <strong>SDK and CLI users:</strong> older clients that read current chain metadata can
-              keep using existing commands. To use the new v444 features, upgrade to{' '}
+              keep using existing commands. To use the new v445 features, upgrade to{' '}
               <code>bittensor 11.1.0</code> and <code>bittensor-core 0.1.3</code> alongside the
               runtime upgrade. Existing wallet files remain usable, and saved multisigs can now be
               passed directly as <code>-w</code>. Rebuild any offline signing payload prepared
@@ -405,7 +335,7 @@ partial fills <true|false>, signer <ss58>`}
           </ul>
           <p>
             Signers: after the release train proposes, use{' '}
-            <code>btcli upgrade sign --url &lt;v444 release URL&gt; -w &lt;wallet&gt;</code>.
+            <code>btcli upgrade sign --url &lt;v445 release URL&gt; -w &lt;wallet&gt;</code>.
           </p>
         </section>
 

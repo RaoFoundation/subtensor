@@ -47,6 +47,7 @@ export function halvingThresholdsTao(count = 8): number[] {
 
 export type SubnetEmissionResult = {
   demandShares: number[];
+  burnAdjustedShares: number[];
   gateFactors: number[];
   shares: number[];
   gateBar: number;
@@ -70,10 +71,11 @@ export function selectEmissionGateBar(
   return positive[positive.length - 1];
 }
 
-/** v444 `get_shares` plus emission-enabled redistribution in subnet_emissions.rs */
+/** `get_shares` plus emission-enabled redistribution in subnet_emissions.rs */
 export function subnetEmissionShares(
   prices: number[],
   options: {
+    minerBurned?: number[];
     emissionEnabled?: boolean[];
     rank?: number;
     quantile?: number;
@@ -84,18 +86,25 @@ export function subnetEmissionShares(
   const safePrices = prices.map((price) => Math.max(price, 0));
   const priceSum = safePrices.reduce((sum, price) => sum + price, 0);
   const demandShares = safePrices.map((price) => (priceSum > 0 ? price / priceSum : 0));
+  const minerBurned = options.minerBurned ?? prices.map(() => 0);
+  const burnWeights = demandShares.map(
+    (share, index) => share * (1 - Math.min(Math.max(minerBurned[index] ?? 0, 0), 1)),
+  );
+  const burnWeightSum = burnWeights.reduce((sum, weight) => sum + weight, 0);
+  const burnAdjustedShares =
+    burnWeightSum > 0 ? burnWeights.map((weight) => weight / burnWeightSum) : demandShares;
   const gateBar =
-    options.gateBar ?? selectEmissionGateBar(demandShares, options.rank, options.quantile);
+    options.gateBar ?? selectEmissionGateBar(burnAdjustedShares, options.rank, options.quantile);
   const exponent = options.exponent ?? DEFAULT_EMISSION_GATE_EXPONENT;
-  const gateFactors = demandShares.map((share) => {
+  const gateFactors = burnAdjustedShares.map((share) => {
     if (share <= 0) return 0;
     if (gateBar <= 0) return 1;
     return 1 / (1 + (gateBar / share) ** exponent);
   });
 
-  let gatedWeights = demandShares.map((share, index) => share * gateFactors[index]);
+  let gatedWeights = burnAdjustedShares.map((share, index) => share * gateFactors[index]);
   if (gatedWeights.reduce((sum, weight) => sum + weight, 0) === 0) {
-    gatedWeights = demandShares;
+    gatedWeights = burnAdjustedShares;
   }
 
   const emissionEnabled = options.emissionEnabled ?? prices.map(() => true);
@@ -107,7 +116,7 @@ export function subnetEmissionShares(
     emissionEnabled[index] !== false && enabledTotal > 0 ? weight / enabledTotal : 0,
   );
 
-  return {demandShares, gateFactors, shares, gateBar};
+  return {demandShares, burnAdjustedShares, gateFactors, shares, gateBar};
 }
 
 /** `update_moving_price` smoothing factor in stake_utils.rs */
