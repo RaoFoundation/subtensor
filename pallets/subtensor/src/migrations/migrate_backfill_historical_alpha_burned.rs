@@ -170,7 +170,7 @@ pub fn migrate_backfill_historical_alpha_burned<T: Config>() -> Weight {
             weight.saturating_accrue(T::DbWeight::get().reads(1));
 
             if registered_at != expected_registered_at {
-                log::warn!(
+                log::error!(
                     "Skipping historical alpha burn for netuid {:?}: registered_at={}, expected={}",
                     netuid,
                     registered_at,

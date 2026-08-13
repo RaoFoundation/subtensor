@@ -78,7 +78,7 @@ pub fn migrate_rebase_recycled_alpha_asset_counters<T: Config>() -> Weight {
             // The constants describe one exact generation. If the slot has moved again,
             // leave it untouched rather than applying an offset to the wrong asset.
             if registered_at != expected_registered_at {
-                log::warn!(
+                log::error!(
                     "Skipping alpha counter rebase for netuid {:?}: registered_at={}, expected={}",
                     netuid,
                     registered_at,
