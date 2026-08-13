@@ -170,11 +170,15 @@ fn test_remove_data_for_dissolved_networks_all_phases() {
             PendingBasketDeposits::<Test>::get(owner_hot, other_netuid),
             AlphaBalance::from(777)
         );
-        // Issuance was conserved via recycle (not a silent delete of earned alpha).
-        assert_eq!(
-            pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid),
-            issuance_before
-        );
+        // The queued credit is recycled before the completed generation is dropped;
+        // no alpha-asset counter from it may survive netuid reuse.
+        assert!(!pallet_alpha_assets::TotalAlphaIssuance::<Test>::contains_key(netuid));
+        assert!(!pallet_alpha_assets::AlphaBurned::<Test>::contains_key(
+            netuid
+        ));
+        assert!(!pallet_alpha_assets::AlphaRecycled::<Test>::contains_key(
+            netuid
+        ));
     });
 }
 

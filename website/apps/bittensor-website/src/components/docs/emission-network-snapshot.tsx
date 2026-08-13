@@ -48,8 +48,8 @@ export function EmissionNetworkSnapshot() {
       <p className='mt-6 border-t border-line pt-4 text-[0.8125rem] leading-relaxed text-mute'>
         This preview starts with each eligible subnet&apos;s{' '}
         <strong className='font-medium text-fg'>SubnetMovingPrice</strong> (EMA of spot alpha price,
-        capped at 1.0), turns it into a share of the total, then applies the emission gate.{' '}
-        <code>MinerBurned</code> is not part of this cross-subnet allocation. Top modeled recipient:{' '}
+        capped at 1.0), scales it by <code>1 − MinerBurned</code>, then applies the emission gate.
+        Top modeled recipient:{' '}
         <strong className='font-medium text-fg'>
           SN{snapshot.topSubnets[0]?.netuid} {snapshot.topSubnets[0]?.name}
         </strong>{' '}
