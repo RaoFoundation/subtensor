@@ -1,7 +1,9 @@
 use super::*;
 use frame_support::traits::Get;
+use frame_system::pallet_prelude::BlockNumberFor;
 use pallet_alpha_assets::AlphaAssetsInterface;
 use scale_info::prelude::string::String;
+use sp_runtime::traits::Zero;
 use subtensor_runtime_common::{AlphaBalance, NetUid};
 
 pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_backfill_historical_alpha_burned";
@@ -155,27 +157,37 @@ pub fn migrate_backfill_historical_alpha_burned<T: Config>() -> Weight {
         return weight;
     }
 
+    let genesis_hash = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
+    weight.saturating_accrue(T::DbWeight::get().reads(1));
+    let mainnet_genesis =
+        hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
     let mut corrected = 0u64;
 
-    // Intentionally not gated by genesis hash so this can run on mainnet state clones.
-    for &(netuid, expected_registered_at, historical_burned) in HISTORICAL_ALPHA_BURNED {
-        let netuid = NetUid::from(netuid);
-        let registered_at = NetworkRegisteredAt::<T>::get(netuid);
-        weight.saturating_accrue(T::DbWeight::get().reads(1));
+    if genesis_hash.as_ref() == mainnet_genesis {
+        for &(netuid, expected_registered_at, historical_burned) in HISTORICAL_ALPHA_BURNED {
+            let netuid = NetUid::from(netuid);
+            let registered_at = NetworkRegisteredAt::<T>::get(netuid);
+            weight.saturating_accrue(T::DbWeight::get().reads(1));
 
-        if registered_at != expected_registered_at {
-            log::warn!(
-                "Skipping historical alpha burn for netuid {:?}: registered_at={}, expected={}",
-                netuid,
-                registered_at,
-                expected_registered_at,
-            );
-            continue;
+            if registered_at != expected_registered_at {
+                log::warn!(
+                    "Skipping historical alpha burn for netuid {:?}: registered_at={}, expected={}",
+                    netuid,
+                    registered_at,
+                    expected_registered_at,
+                );
+                continue;
+            }
+
+            let _ = T::AlphaAssets::burn_alpha(netuid, AlphaBalance::from(historical_burned));
+            weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
+            corrected = corrected.saturating_add(1);
         }
-
-        let _ = T::AlphaAssets::burn_alpha(netuid, AlphaBalance::from(historical_burned));
-        weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
-        corrected = corrected.saturating_add(1);
+    } else {
+        log::info!(
+            "Migration '{}' skipped outside mainnet",
+            String::from_utf8_lossy(MIGRATION_NAME)
+        );
     }
 
     HasMigrationRun::<T>::insert(&migration_name, true);
