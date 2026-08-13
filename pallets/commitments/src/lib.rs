@@ -134,6 +134,8 @@ pub mod pallet {
         SpaceLimitExceeded,
         /// Indicates that unreserve returned a leftover, which is unexpected.
         UnexpectedUnreserveLeftover,
+        /// `TimelockRevealFailed` fields may only be created by the runtime.
+        TimelockRevealFailedNotAllowed,
     }
 
     /// Tracks all CommitmentOf that have at least one timelocked field.
@@ -240,6 +242,13 @@ pub mod pallet {
             ensure!(
                 extra_fields <= T::MaxFields::get(),
                 Error::<T>::TooManyFieldsInCommitmentInfo
+            );
+            ensure!(
+                !info
+                    .fields
+                    .iter()
+                    .any(|field| matches!(field, Data::TimelockRevealFailed { .. })),
+                Error::<T>::TimelockRevealFailedNotAllowed
             );
 
             let cur_block = <frame_system::Pallet<T>>::block_number();

@@ -27,7 +27,7 @@ use tle::{
     curves::drand::TinyBLS381,
     ibe::fullident::Identity,
     stream_ciphers::AESGCMStreamCipherProvider,
-    tlock::{TLECiphertext, tld, tle},
+    tlock::{tld, tle, TLECiphertext},
 };
 use w3f_bls::EngineBLS;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]

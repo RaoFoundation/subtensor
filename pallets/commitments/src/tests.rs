@@ -175,6 +175,28 @@ fn set_commitment_works() {
 }
 
 #[test]
+fn set_commitment_rejects_user_submitted_reveal_failure() {
+    new_test_ext().execute_with(|| {
+        let who = 1;
+        let netuid = NetUid::from(1);
+        let info = Box::new(CommitmentInfo {
+            fields: BoundedVec::try_from(vec![Data::TimelockRevealFailed {
+                encrypted: vec![0u8; 1].try_into().expect("one byte fits"),
+                reveal_round: 1000,
+            }])
+            .expect("one field fits"),
+        });
+
+        assert_noop!(
+            Pallet::<Test>::set_commitment(RuntimeOrigin::signed(who), netuid, info),
+            Error::<Test>::TimelockRevealFailedNotAllowed
+        );
+        assert!(CommitmentOf::<Test>::get(netuid, who).is_none());
+        assert!(!TimelockedIndex::<Test>::get().contains(&(netuid, who)));
+    });
+}
+
+#[test]
 #[should_panic(expected = "BoundedVec::try_from failed")]
 fn set_commitment_too_many_fields_panics() {
     new_test_ext().execute_with(|| {
