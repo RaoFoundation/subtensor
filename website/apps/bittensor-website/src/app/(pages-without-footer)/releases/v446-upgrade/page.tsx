@@ -33,7 +33,7 @@ const page = () => {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>446</strong> makes three pieces of economic state more faithful to what
+            Spec <strong>{'446 '}</strong>makes three pieces of economic state more faithful to what
             actually happened on chain. Historical alpha issuance and burn counters are repaired,
             the conviction ownership quorum excludes alpha that cannot support a challenger, and a
             timelock reveal that cannot succeed becomes a visible terminal state instead of
@@ -135,7 +135,7 @@ ownership quorum = 10% × eligible alpha`}
           <h2 className={styles.subtitle}>Failed timelock reveals remain auditable</h2>
           <p>
             The chain now distinguishes a commitment still waiting for a pulse from one that can
-            never reveal. A current or future missing pulse remains <code>TimelockEncrypted</code>
+            never reveal. A current or future missing pulse remains <code>TimelockEncrypted</code>{' '}
             and stays in the retry index. Corrupt ciphertext, a mismatched round, an invalid
             quicknet point, or an expired pulse becomes <code>TimelockRevealFailed</code>.
           </p>
