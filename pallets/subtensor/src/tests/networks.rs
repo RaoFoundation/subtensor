@@ -3287,6 +3287,57 @@ fn registered_subnet_counter_survives_dissolve_and_bumps_on_reregistration() {
 }
 
 #[test]
+fn alpha_asset_counters_do_not_cross_subnet_generations() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_max_subnets(2);
+
+        let owner_cold = U256::from(200);
+        let owner_hot = U256::from(201);
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+
+        AlphaAssets::mint_alpha(netuid, AlphaBalance::from(100));
+        AlphaAssets::burn_alpha(netuid, AlphaBalance::from(30));
+        AlphaAssets::recycle_alpha(netuid, AlphaBalance::from(20));
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            AlphaBalance::from(30)
+        );
+
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        run_block_idle();
+
+        assert!(!pallet_alpha_assets::TotalAlphaIssuance::<Test>::contains_key(netuid));
+        assert!(!pallet_alpha_assets::AlphaBurned::<Test>::contains_key(
+            netuid
+        ));
+        assert!(!pallet_alpha_assets::AlphaRecycled::<Test>::contains_key(
+            netuid
+        ));
+
+        // Simulate counters left by a legacy cleanup. Registration is a second
+        // generation boundary and must clear them before reusing the netuid.
+        pallet_alpha_assets::TotalAlphaIssuance::<Test>::insert(netuid, AlphaBalance::from(1_000));
+        pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(900));
+        pallet_alpha_assets::AlphaRecycled::<Test>::insert(netuid, AlphaBalance::from(800));
+
+        let reused_netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        assert_eq!(reused_netuid, netuid);
+        assert_eq!(
+            pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+#[test]
 fn dissolve_clears_voting_power_state_before_netuid_reuse() {
     new_test_ext(1).execute_with(|| {
         SubtensorModule::set_max_subnets(2);
