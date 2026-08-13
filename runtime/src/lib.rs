@@ -1021,7 +1021,14 @@ impl pallet_admin_utils::GrandpaInterface<Runtime> for GrandpaInterfaceImpl {
         in_blocks: BlockNumber,
         forced: Option<BlockNumber>,
     ) -> sp_runtime::DispatchResult {
-        Grandpa::schedule_change(next_authorities, in_blocks, forced)
+        let next_set_id = Grandpa::current_set_id()
+            .checked_add(1)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+        Grandpa::schedule_change(next_authorities, in_blocks, forced)?;
+        // This runtime does not use pallet-session, so mirror the bookkeeping performed by
+        // pallet-grandpa's session handler after it successfully schedules an authority change.
+        pallet_grandpa::CurrentSetId::<Runtime>::put(next_set_id);
+        Ok(())
     }
 }
 

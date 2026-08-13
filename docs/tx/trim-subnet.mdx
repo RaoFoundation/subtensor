@@ -21,7 +21,7 @@ at or above the current UID count instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_trim_to_max_allowed_uids`](/code/pallets/admin-utils/src/lib.rs#L1942-L1964) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_trim_to_max_allowed_uids`](/code/pallets/admin-utils/src/lib.rs#L1970-L1992) |
 
 ## Parameters
 
@@ -73,7 +73,7 @@ result = sub.execute_tool("trim_subnet", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_trim_to_max_allowed_uids` — [`pallets/admin-utils/src/lib.rs#L1944`](/code/pallets/admin-utils/src/lib.rs#L1942-L1964):
+`AdminUtils.sudo_trim_to_max_allowed_uids` — [`pallets/admin-utils/src/lib.rs#L1972`](/code/pallets/admin-utils/src/lib.rs#L1970-L1992):
 
 ```rust
 #[pallet::call_index(78)]

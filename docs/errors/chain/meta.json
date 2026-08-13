@@ -115,6 +115,7 @@
     "GasLimitTooHigh",
     "GasLimitTooLow",
     "GasPriceTooLow",
+    "GrandpaChangeDelayMustBeZero",
     "HotKeyAccountNotExists",
     "HotKeyAlreadyDelegate",
     "HotKeyAlreadyRegisteredInSubNet",

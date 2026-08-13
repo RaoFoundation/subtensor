@@ -260,6 +260,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (19, 13): ErrorInfo('AdminUtils', 'Deprecated', 'Call is deprecated'),
     (19, 14): ErrorInfo('AdminUtils', 'CollateralLockShareTooHigh', 'The collateral lock share exceeds the settable maximum (95% of the registration price).'),
     (19, 15): ErrorInfo('AdminUtils', 'CollateralDrainRatioOutOfBounds', 'The collateral drain ratio must be positive and at most the settable maximum.'),
+    (19, 16): ErrorInfo('AdminUtils', 'GrandpaChangeDelayMustBeZero', 'GRANDPA changes must take effect at the end of the current block.'),
     (20, 0): ErrorInfo('SafeMode', 'Entered', 'The safe-mode is (already or still) entered.'),
     (20, 1): ErrorInfo('SafeMode', 'Exited', 'The safe-mode is (already or still) exited.'),
     (20, 2): ErrorInfo('SafeMode', 'NotConfigured', 'This functionality of the pallet is disabled by the configuration.'),

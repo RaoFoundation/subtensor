@@ -178,6 +178,8 @@ pub mod pallet {
         CollateralLockShareTooHigh,
         /// The collateral drain ratio must be positive and at most the settable maximum.
         CollateralDrainRatioOutOfBounds,
+        /// GRANDPA changes must take effect at the end of the current block.
+        GrandpaChangeDelayMustBeZero,
     }
     /// Enum for specifying the type of precompile operation.
     #[derive(
@@ -1467,14 +1469,13 @@ pub mod pallet {
         ///
         /// Schedule a change in the authorities.
         ///
-        /// The change will be applied at the end of execution of the block `in_blocks` after the
-        /// current block. This value may be 0, in which case the change is applied at the end of
-        /// the current block.
+        /// The change is applied at the end of the current block, so `in_blocks` must be 0. This
+        /// keeps the authority set and its set ID consistent in every persisted block state.
         ///
         /// If the `forced` parameter is defined, this indicates that the current set has been
-        /// synchronously determined to be offline and that after `in_blocks` the given change
-        /// should be applied. The given block number indicates the median last finalized block
-        /// number and it should be used as the canon block when starting the new grandpa voter.
+        /// synchronously determined to be offline. The given block number indicates the median
+        /// last finalized block number and it should be used as the canon block when starting the
+        /// new grandpa voter.
         ///
         /// No change should be signaled while any change is pending. Returns an error if a change
         /// is already pending.
@@ -1488,6 +1489,10 @@ pub mod pallet {
             forced: Option<BlockNumberFor<T>>,
         ) -> DispatchResult {
             ensure_root(origin)?;
+            ensure!(
+                in_blocks.is_zero(),
+                Error::<T>::GrandpaChangeDelayMustBeZero
+            );
             T::Grandpa::schedule_change(next_authorities, in_blocks, forced)
         }
 

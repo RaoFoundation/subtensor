@@ -325,12 +325,19 @@ where
         let warp_sync_config =
             grandpa_warp_sync::config(genesis_hash, config.chain_spec.chain_type());
         log::warn!("{}", warp_sync_config.log_message());
-        let warp_sync: Arc<dyn WarpSyncProvider<Block>> =
-            Arc::new(sc_consensus_grandpa::warp_proof::NetworkProvider::new(
-                backend.clone(),
-                grandpa_link.shared_authority_set().clone(),
-                warp_sync_config.into_hard_forks(),
-            ));
+        let initial_set_id = warp_sync_config.one_time_initial_set_id();
+        let inner = sc_consensus_grandpa::warp_proof::NetworkProvider::new(
+            backend.clone(),
+            grandpa_link.shared_authority_set().clone(),
+            warp_sync_config.into_hard_forks(),
+        );
+        let warp_sync: Arc<dyn WarpSyncProvider<Block>> = match initial_set_id {
+            Some(initial_set_id) => Arc::new(grandpa_warp_sync::InitialSetIdProvider::new(
+                inner,
+                initial_set_id,
+            )),
+            None => Arc::new(inner),
+        };
 
         Some(WarpSyncConfig::WithProvider(warp_sync))
     };

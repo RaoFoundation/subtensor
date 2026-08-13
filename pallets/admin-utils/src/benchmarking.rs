@@ -56,7 +56,7 @@ mod benchmarks {
         let next_authorities = (1..=a)
             .map(|idx| account("Authority", idx, 0u32))
             .collect::<Vec<(sp_consensus_grandpa::AuthorityId, u64)>>();
-        let in_blocks = BlockNumberFor::<T>::from(42u32);
+        let in_blocks = BlockNumberFor::<T>::from(0u32);
 
         #[extrinsic_call]
         _(RawOrigin::Root, next_authorities, in_blocks, None);
