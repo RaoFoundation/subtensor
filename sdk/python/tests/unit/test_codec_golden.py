@@ -194,6 +194,14 @@ def test_metadata_ir_shape():
     assert add_stake.args[0].type_ident == "AccountId32"
     assert add_stake.args[1].type_ident == "NetUid"
     assert add_stake.args[2].type_ident == "TaoBalance"
+    admin_pallet = next(p for p in ir.pallets if p.name == "AdminUtils")
+    set_consensus_mode = next(
+        call for call in admin_pallet.calls if call.name == "sudo_set_liquid_alpha_consensus_mode"
+    )
+    assert [(arg.name, arg.type_ident) for arg in set_consensus_mode.args] == [
+        ("netuid", "NetUid"),
+        ("mode", "ConsensusMode"),
+    ]
     assert [e.index for e in subtensor_pallet.errors] == list(range(len(subtensor_pallet.errors)))
     storage_by_name = {s.name: s for s in subtensor_pallet.storage}
     assert "Tempo" in storage_by_name
@@ -202,8 +210,24 @@ def test_metadata_ir_shape():
     assert storage_by_name["Tempo"].value_type_ident == "u16"
     assert storage_by_name["Delegates"].value_type_ident == "PerU16"
     assert storage_by_name["MinBurn"].value_type_ident == "TaoBalance"
+    assert storage_by_name["LiquidAlphaConsensusMode"].value_type_ident == "ConsensusMode"
+    assert storage_by_name["ConsensusByMechanism"].value_type_ident == "Vec<PerU16>"
     assert any(api.name == "NeuronInfoRuntimeApi" for api in ir.runtime_apis)
     assert ir.to_dict()["spec_version"] == ir.spec_version  # JSON-serializable
+
+
+def test_liquid_alpha_consensus_mode_enum_is_in_metadata():
+    consensus_mode = next(
+        entry
+        for entry in codec().registry_types()
+        if entry["type"].get("path", [])[-1:] == ["ConsensusMode"]
+    )
+    variants = consensus_mode["type"]["def"]["variant"]["variants"]
+    assert [(variant["name"], variant["index"]) for variant in variants] == [
+        ("Current", 0),
+        ("Previous", 1),
+        ("Auto", 2),
+    ]
 
 
 def test_emitted_storage_descriptors_carry_value_idents():

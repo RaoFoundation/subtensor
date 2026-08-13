@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 445
+Spec version: 446
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -246,6 +246,7 @@ class SubtensorModule:
     LiquidAlphaOn = Item('SubtensorModule', 'LiquidAlphaOn', 'bool')
     Yuma3On = Item('SubtensorModule', 'Yuma3On', 'bool')
     AlphaValues = Item('SubtensorModule', 'AlphaValues', '(u16, u16)')
+    LiquidAlphaConsensusMode = Item('SubtensorModule', 'LiquidAlphaConsensusMode', 'ConsensusMode')
     SubtokenEnabled = Item('SubtensorModule', 'SubtokenEnabled', 'bool')
     DissolveCleanupQueue = Item('SubtensorModule', 'DissolveCleanupQueue', 'Vec<NetUid>')
     CurrentDissolveCleanupStatus = Item('SubtensorModule', 'CurrentDissolveCleanupStatus', 'DissolveCleanupStatus')
@@ -263,6 +264,7 @@ class SubtensorModule:
     LoadedEmission = Item('SubtensorModule', 'LoadedEmission', 'Vec<(AccountId32, u64, u64)>')
     Active = Item('SubtensorModule', 'Active', 'Vec<bool>')
     Consensus = Item('SubtensorModule', 'Consensus', 'Vec<PerU16>')
+    ConsensusByMechanism = Item('SubtensorModule', 'ConsensusByMechanism', 'Vec<PerU16>')
     Incentive = Item('SubtensorModule', 'Incentive', 'Vec<PerU16>')
     Dividends = Item('SubtensorModule', 'Dividends', 'Vec<PerU16>')
     Emission = Item('SubtensorModule', 'Emission', 'Vec<AlphaBalance>')
