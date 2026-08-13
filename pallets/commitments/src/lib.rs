@@ -418,10 +418,13 @@ use frame_support::{dispatch::DispatchResult, pallet_prelude::TypeInfo};
 #[derive(Decode)]
 struct TimelockUserData {
     encrypted_data: Vec<u8>,
-    _reveal_round: u64,
+    reveal_round: u64,
 }
 
-fn tle_ciphertext_from_bytes(encrypted: &[u8]) -> Result<TLECiphertext<TinyBLS381>, RevealFailure> {
+fn tle_ciphertext_from_bytes(
+    encrypted: &[u8],
+    reveal_round: u64,
+) -> Result<TLECiphertext<TinyBLS381>, RevealFailure> {
     let mut raw_reader = encrypted;
     if let Ok(commit) = TLECiphertext::<TinyBLS381>::deserialize_compressed(&mut raw_reader)
         && raw_reader.is_empty()
@@ -439,8 +442,11 @@ fn tle_ciphertext_from_bytes(encrypted: &[u8]) -> Result<TLECiphertext<TinyBLS38
 
     let TimelockUserData {
         encrypted_data,
-        _reveal_round,
+        reveal_round: envelope_round,
     } = envelope;
+    if envelope_round != reveal_round {
+        return Err(RevealFailure::RoundMismatch);
+    }
     let mut inner_reader = encrypted_data.as_slice();
     let commit = TLECiphertext::<TinyBLS381>::deserialize_compressed(&mut inner_reader)
         .map_err(|_| RevealFailure::CiphertextDeserialize)?;
@@ -452,6 +458,7 @@ fn tle_ciphertext_from_bytes(encrypted: &[u8]) -> Result<TLECiphertext<TinyBLS38
 
 fn decrypt_timelock_ciphertext(
     encrypted: &[u8],
+    reveal_round: u64,
     pulse_signature: &[u8],
 ) -> Result<Vec<u8>, RevealFailure> {
     let signature_bytes = pulse_signature
@@ -461,7 +468,7 @@ fn decrypt_timelock_ciphertext(
     let sig = <TinyBLS381 as EngineBLS>::SignatureGroup::deserialize_compressed(sig_reader)
         .map_err(|_| RevealFailure::SignatureDeserialize)?;
 
-    let commit = tle_ciphertext_from_bytes(encrypted)?;
+    let commit = tle_ciphertext_from_bytes(encrypted, reveal_round)?;
     if commit.header.v.len() != 32 || commit.header.w.len() != 32 {
         return Err(RevealFailure::CiphertextDeserialize);
     }
@@ -540,7 +547,11 @@ impl<T: Config> Pallet<T> {
 
                         mutated = true;
 
-                        match decrypt_timelock_ciphertext(&encrypted, &pulse.signature) {
+                        match decrypt_timelock_ciphertext(
+                            &encrypted,
+                            reveal_round,
+                            &pulse.signature,
+                        ) {
                             Ok(decrypted_bytes) => {
                                 revealed_fields.push(decrypted_bytes);
                             }

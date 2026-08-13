@@ -677,6 +677,54 @@ fn reveal_timelocked_commitment_userdata_envelope_writes_rc() {
     });
 }
 
+#[test]
+fn reveal_timelocked_commitment_rejects_envelope_round_mismatch() {
+    new_test_ext().execute_with(|| {
+        let who = 42;
+        let netuid = NetUid::from(120);
+        let envelope_round = 1000;
+        let reveal_round = 2000;
+        System::<Test>::set_block_number(1);
+
+        let encrypted = wrap_userdata_envelope(
+            produce_ciphertext(b"round mismatch", envelope_round),
+            envelope_round,
+        );
+        let data = Data::TimelockEncrypted {
+            encrypted,
+            reveal_round,
+        };
+        let info = CommitmentInfo {
+            fields: BoundedVec::try_from(vec![data]).expect("one field fits"),
+        };
+        assert_ok!(Pallet::<Test>::set_commitment(
+            RuntimeOrigin::signed(who),
+            netuid,
+            Box::new(info)
+        ));
+
+        let sig_bytes = hex::decode(DRAND_QUICKNET_SIG_2000_HEX).expect("valid signature hex");
+        insert_drand_pulse(reveal_round, &sig_bytes);
+        System::<Test>::set_block_number(2);
+        assert_ok!(Pallet::<Test>::reveal_timelocked_commitments());
+
+        assert!(RevealedCommitments::<Test>::get(netuid, who).is_none());
+        assert_quarantined(netuid, who, reveal_round);
+        let expected_event = RuntimeEvent::Commitments(Event::CommitmentRevealFailed {
+            netuid,
+            who,
+            reveal_round,
+            error: RevealFailure::RoundMismatch,
+        });
+        assert!(
+            System::<Test>::events()
+                .iter()
+                .any(|event| event.event == expected_event),
+            "Expected CommitmentRevealFailed for mismatched reveal rounds"
+        );
+    });
+}
+
 #[allow(clippy::indexing_slicing)]
 #[test]
 fn failed_decrypt_is_not_retried_when_pulse_becomes_valid() {

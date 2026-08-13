@@ -438,6 +438,8 @@ pub enum RevealFailure {
     /// The reveal round is older than the oldest Drand pulse still stored.
     /// That pulse will not return.
     PulseExpired,
+    /// The SDK envelope and outer commitment specify different reveal rounds.
+    RoundMismatch,
 }
 
 /// Contains the decrypted data of a revealed commitment.
