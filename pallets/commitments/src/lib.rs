@@ -433,8 +433,12 @@ fn tle_ciphertext_from_bytes(encrypted: &[u8]) -> Result<TLECiphertext<TinyBLS38
         _reveal_round,
     } = envelope;
     let mut inner_reader = encrypted_data.as_slice();
-    TLECiphertext::<TinyBLS381>::deserialize_compressed(&mut inner_reader)
-        .map_err(|_| RevealFailure::CiphertextDeserialize)
+    let commit = TLECiphertext::<TinyBLS381>::deserialize_compressed(&mut inner_reader)
+        .map_err(|_| RevealFailure::CiphertextDeserialize)?;
+    if !inner_reader.is_empty() {
+        return Err(RevealFailure::CiphertextDeserialize);
+    }
+    Ok(commit)
 }
 
 fn decrypt_timelock_ciphertext(
@@ -467,6 +471,8 @@ impl<T: Config> Pallet<T> {
 
         let index = TimelockedIndex::<T>::get();
         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
+        let oldest_kept = pallet_drand::OldestStoredRound::<T>::get();
+        total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
 
         for (netuid, who) in index.clone() {
             let maybe_registration = <CommitmentOf<T>>::get(netuid, &who);
@@ -484,8 +490,8 @@ impl<T: Config> Pallet<T> {
             let original_fields = registration.info.fields.clone();
             let mut remain_fields = Vec::new();
             let mut revealed_fields = Vec::new();
-            let mut saw_timelock = false;
-            let mut processed_timelock = false;
+            let mut still_pending = false;
+            let mut mutated = false;
 
             for data in original_fields {
                 match data {
@@ -493,20 +499,37 @@ impl<T: Config> Pallet<T> {
                         encrypted,
                         reveal_round,
                     } => {
-                        saw_timelock = true;
                         total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
                         let pulse = match pallet_drand::Pulses::<T>::get(reveal_round) {
                             Some(p) => p,
                             None => {
-                                remain_fields.push(Data::TimelockEncrypted {
-                                    encrypted,
-                                    reveal_round,
-                                });
+                                if oldest_kept > 0 && reveal_round < oldest_kept {
+                                    mutated = true;
+                                    log::warn!(
+                                        "Timelock round {reveal_round} expired for {who:?} (oldest kept {oldest_kept})"
+                                    );
+                                    Self::deposit_event(Event::CommitmentRevealFailed {
+                                        netuid,
+                                        who: who.clone(),
+                                        reveal_round,
+                                        error: RevealFailure::PulseExpired,
+                                    });
+                                    remain_fields.push(Data::TimelockRevealFailed {
+                                        encrypted,
+                                        reveal_round,
+                                    });
+                                } else {
+                                    remain_fields.push(Data::TimelockEncrypted {
+                                        encrypted,
+                                        reveal_round,
+                                    });
+                                    still_pending = true;
+                                }
                                 continue;
                             }
                         };
 
-                        processed_timelock = true;
+                        mutated = true;
 
                         match decrypt_timelock_ciphertext(&encrypted, &pulse.signature) {
                             Ok(decrypted_bytes) => {
@@ -522,7 +545,7 @@ impl<T: Config> Pallet<T> {
                                     reveal_round,
                                     error,
                                 });
-                                remain_fields.push(Data::TimelockEncrypted {
+                                remain_fields.push(Data::TimelockRevealFailed {
                                     encrypted,
                                     reveal_round,
                                 });
@@ -534,17 +557,15 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
-            if !saw_timelock {
-                TimelockedIndex::<T>::mutate(|idx| {
-                    idx.remove(&(netuid, who.clone()));
-                });
-                total_weight = total_weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
-                continue;
-            }
-
-            // Pulse missing, or decrypt failed: leave CommitmentOf / TimelockedIndex
-            // untouched so a later pulse or runtime fix can retry.
-            if !processed_timelock || revealed_fields.is_empty() {
+            // Waiting on a pulse, nothing converted or revealed: leave storage alone.
+            if !mutated {
+                if !still_pending {
+                    TimelockedIndex::<T>::mutate(|idx| {
+                        idx.remove(&(netuid, who.clone()));
+                    });
+                    total_weight =
+                        total_weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
+                }
                 continue;
             }
 
@@ -556,29 +577,31 @@ impl<T: Config> Pallet<T> {
                 continue;
             };
 
-            let mut existing_reveals =
-                RevealedCommitments::<T>::get(netuid, &who).unwrap_or_default();
-            total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
+            if !revealed_fields.is_empty() {
+                let mut existing_reveals =
+                    RevealedCommitments::<T>::get(netuid, &who).unwrap_or_default();
+                total_weight = total_weight.saturating_add(T::DbWeight::get().reads(1));
 
-            let current_block = <frame_system::Pallet<T>>::block_number();
-            let block_u64 = current_block.saturated_into::<u64>();
+                let current_block = <frame_system::Pallet<T>>::block_number();
+                let block_u64 = current_block.saturated_into::<u64>();
 
-            for revealed_bytes in revealed_fields {
-                existing_reveals.push((revealed_bytes, block_u64));
-                Self::deposit_event(Event::CommitmentRevealed {
-                    netuid,
-                    who: who.clone(),
-                });
+                for revealed_bytes in revealed_fields {
+                    existing_reveals.push((revealed_bytes, block_u64));
+                    Self::deposit_event(Event::CommitmentRevealed {
+                        netuid,
+                        who: who.clone(),
+                    });
+                }
+
+                const MAX_REVEALS: usize = 10;
+                if existing_reveals.len() > MAX_REVEALS {
+                    let remove_count = existing_reveals.len().saturating_sub(MAX_REVEALS);
+                    existing_reveals.drain(0..remove_count);
+                }
+
+                RevealedCommitments::<T>::insert(netuid, &who, existing_reveals);
+                total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
             }
-
-            const MAX_REVEALS: usize = 10;
-            if existing_reveals.len() > MAX_REVEALS {
-                let remove_count = existing_reveals.len().saturating_sub(MAX_REVEALS);
-                existing_reveals.drain(0..remove_count);
-            }
-
-            RevealedCommitments::<T>::insert(netuid, &who, existing_reveals);
-            total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
 
             registration.info.fields = remaining_fields;
 
@@ -598,12 +621,7 @@ impl<T: Config> Pallet<T> {
                     <CommitmentOf<T>>::insert(netuid, &who, &registration);
                     total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
 
-                    let has_timelock = registration
-                        .info
-                        .fields
-                        .iter()
-                        .any(|f| matches!(f, Data::TimelockEncrypted { .. }));
-                    if !has_timelock {
+                    if !still_pending {
                         TimelockedIndex::<T>::mutate(|idx| {
                             idx.remove(&(netuid, who.clone()));
                         });
