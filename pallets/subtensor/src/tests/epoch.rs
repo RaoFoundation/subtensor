@@ -13,7 +13,7 @@ use frame_support::{assert_err, assert_ok};
 use rand::{RngExt, SeedableRng, distr::Uniform, rngs::StdRng, seq::SliceRandom};
 use sp_core::{Get, U256};
 use substrate_fixed::types::I32F32;
-use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{AlphaBalance, MechId, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 use super::mock::*;
@@ -3650,41 +3650,54 @@ fn test_liquid_alpha_equal_values_against_itself() {
 fn test_liquid_alpha_consensus_modes() {
     new_test_ext(1).execute_with(|| {
         let netuid = NetUid::from(1);
+        let idx0 = SubtensorModule::get_mechanism_storage_index(netuid, MechId::from(0));
+        let idx1 = SubtensorModule::get_mechanism_storage_index(netuid, MechId::from(1));
         let current = vec_to_fixed(&[0.3, 0.2, 0.1, 0.4]);
         let previous = vec![
             PerU16::from_parts(u16::MAX / 10),
             PerU16::from_parts(u16::MAX / 5),
             PerU16::from_parts(u16::MAX / 3),
         ];
-        Consensus::<Test>::insert(netuid, previous);
+        let other_previous = vec![
+            PerU16::from_parts(u16::MAX / 2),
+            PerU16::from_parts(u16::MAX / 4),
+            PerU16::from_parts(u16::MAX / 8),
+            PerU16::from_parts(u16::MAX / 16),
+        ];
+        ConsensusByMechanism::<Test>::insert(idx0, previous);
+        ConsensusByMechanism::<Test>::insert(idx1, other_previous);
 
         SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Current);
         assert_eq!(
-            SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current),
+            SubtensorModule::compute_consensus_for_liquid_alpha(idx0, &current),
             current
         );
 
         SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Previous);
-        let selected = SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current);
+        let selected = SubtensorModule::compute_consensus_for_liquid_alpha(idx0, &current);
         assert_eq!(selected.len(), current.len());
         assert_eq!(selected[3], I32F32::from_num(0));
         assert_ne!(selected, current);
+        assert_ne!(
+            SubtensorModule::compute_consensus_for_liquid_alpha(idx1, &current),
+            selected
+        );
 
         SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Auto);
         SubtensorModule::set_bonds_penalty(netuid, u16::MAX / 2);
         assert_eq!(
-            SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current),
+            SubtensorModule::compute_consensus_for_liquid_alpha(idx0, &current),
             current
         );
         SubtensorModule::set_bonds_penalty(netuid, u16::MAX);
         assert_eq!(
-            SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current),
+            SubtensorModule::compute_consensus_for_liquid_alpha(idx0, &current),
             selected
         );
 
-        Consensus::<Test>::remove(netuid);
+        ConsensusByMechanism::<Test>::remove(idx0);
         assert_eq!(
-            SubtensorModule::compute_consensus_for_liquid_alpha(netuid, &current),
+            SubtensorModule::compute_consensus_for_liquid_alpha(idx0, &current),
             current
         );
     });
@@ -3705,32 +3718,35 @@ fn test_compute_bonds_uses_selected_consensus() {
             false,
         );
         let current = vec_to_fixed(&[0.3, 0.2, 0.1, 0.4]);
-        Consensus::<Test>::insert(
-            netuid,
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        ConsensusByMechanism::<Test>::insert(
+            netuid_index,
             [6553, 13107, 19660, 26214].map(PerU16::from_parts).to_vec(),
         );
         SubtensorModule::set_liquid_alpha_enabled(netuid, true);
 
         SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Current);
-        let current_bonds = SubtensorModule::compute_bonds(netuid, &weights, &bonds, &current);
+        let current_bonds =
+            SubtensorModule::compute_bonds(netuid_index, &weights, &bonds, &current);
         let legacy_alphas =
             SubtensorModule::compute_liquid_alpha_values(netuid, &weights, &bonds, &current);
         let legacy_bonds = crate::epoch::math::mat_ema_alpha(&weights, &bonds, &legacy_alphas);
         assert_eq!(current_bonds, legacy_bonds);
 
         SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Previous);
-        let previous_bonds = SubtensorModule::compute_bonds(netuid, &weights, &bonds, &current);
+        let previous_bonds =
+            SubtensorModule::compute_bonds(netuid_index, &weights, &bonds, &current);
         assert_ne!(current_bonds, previous_bonds);
 
         SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Auto);
         SubtensorModule::set_bonds_penalty(netuid, u16::MAX / 2);
         assert_eq!(
-            SubtensorModule::compute_bonds(netuid, &weights, &bonds, &current),
+            SubtensorModule::compute_bonds(netuid_index, &weights, &bonds, &current),
             current_bonds
         );
         SubtensorModule::set_bonds_penalty(netuid, u16::MAX);
         assert_eq!(
-            SubtensorModule::compute_bonds(netuid, &weights, &bonds, &current),
+            SubtensorModule::compute_bonds(netuid_index, &weights, &bonds, &current),
             previous_bonds
         );
     });
@@ -3767,12 +3783,12 @@ fn test_compute_bonds_sparse_uses_selected_consensus() {
         let weights = to_sparse(&dense_weights);
         let bonds = to_sparse(&dense_bonds);
         let current = vec_to_fixed(&[0.3, 0.2, 0.1, 0.4]);
-        Consensus::<Test>::insert(
-            netuid,
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        ConsensusByMechanism::<Test>::insert(
+            netuid_index,
             [6553, 13107, 19660, 26214].map(PerU16::from_parts).to_vec(),
         );
         SubtensorModule::set_liquid_alpha_enabled(netuid, true);
-        let netuid_index = NetUidStorageIndex::from(netuid);
 
         SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Current);
         let current_bonds =

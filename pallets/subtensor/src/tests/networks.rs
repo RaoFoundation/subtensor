@@ -395,6 +395,10 @@ fn dissolve_clears_all_per_subnet_storages() {
         Active::<Test>::insert(net, vec![true]);
         Emission::<Test>::insert(net, vec![AlphaBalance::from(1)]);
         Incentive::<Test>::insert(NetUidStorageIndex::from(net), vec![PerU16::from_parts(1)]);
+        ConsensusByMechanism::<Test>::insert(
+            NetUidStorageIndex::from(net),
+            vec![PerU16::from_parts(1)],
+        );
         Consensus::<Test>::insert(net, vec![PerU16::from_parts(1)]);
         Dividends::<Test>::insert(net, vec![PerU16::from_parts(1)]);
         LastUpdate::<Test>::insert(NetUidStorageIndex::from(net), vec![0u64]);
@@ -546,6 +550,9 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!Incentive::<Test>::contains_key(NetUidStorageIndex::from(
             net
         )));
+        assert!(!ConsensusByMechanism::<Test>::contains_key(
+            NetUidStorageIndex::from(net)
+        ));
         assert!(!Consensus::<Test>::contains_key(net));
         assert!(!Dividends::<Test>::contains_key(net));
         assert!(!LastUpdate::<Test>::contains_key(NetUidStorageIndex::from(

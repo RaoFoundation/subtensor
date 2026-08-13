@@ -213,7 +213,7 @@ impl<T: Config> Pallet<T> {
         let mechanisms: u8 = MechanismCountCurrent::<T>::get(netuid).into();
 
         for subid in 0..mechanisms {
-            let mechanism_weight = T::DbWeight::get().reads_writes(1, 2);
+            let mechanism_weight = T::DbWeight::get().reads_writes(1, 3);
             if !weight_meter.can_consume(mechanism_weight) {
                 return false;
             }
@@ -222,6 +222,7 @@ impl<T: Config> Pallet<T> {
 
             LastUpdate::<T>::remove(netuid_index);
             Incentive::<T>::remove(netuid_index);
+            ConsensusByMechanism::<T>::remove(netuid_index);
 
             let result = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 WeightCommits::<T>::clear_prefix(netuid_index, limit, None)

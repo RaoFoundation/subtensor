@@ -2575,6 +2575,11 @@ pub mod pallet {
     pub type Consensus<T: Config> =
         StorageMap<_, Identity, NetUid, Vec<PerU16>, ValueQuery, EmptyPerU16Vec<T>>;
 
+    /// MAP ( netuid storage index ) --> previous epoch consensus for each mechanism
+    #[pallet::storage]
+    pub type ConsensusByMechanism<T: Config> =
+        StorageMap<_, Identity, NetUidStorageIndex, Vec<PerU16>, ValueQuery, EmptyPerU16Vec<T>>;
+
     /// MAP ( netuid ) --> incentive
     #[pallet::storage]
     pub type Incentive<T: Config> =

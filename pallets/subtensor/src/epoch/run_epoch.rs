@@ -97,6 +97,7 @@ impl<T: Config> Pallet<T> {
         terms_sorted.sort_unstable_by_key(|t| t.uid);
 
         let incentive = extract_from_sorted_terms!(terms_sorted, incentive);
+        let consensus = extract_from_sorted_terms!(terms_sorted, consensus);
         let bonds: Vec<Vec<(u16, u16)>> = terms_sorted
             .iter()
             .cloned()
@@ -106,6 +107,8 @@ impl<T: Config> Pallet<T> {
         // Epoch math stays in raw u16; wrap into PerU16 only at the storage boundary.
         let incentive: Vec<PerU16> = incentive.into_iter().map(PerU16::from_parts).collect();
         Incentive::<T>::insert(netuid_index, incentive);
+        let consensus: Vec<PerU16> = consensus.into_iter().map(PerU16::from_parts).collect();
+        ConsensusByMechanism::<T>::insert(netuid_index, consensus);
 
         let server_emission = extract_from_sorted_terms!(terms_sorted, server_emission);
         Self::deposit_event(Event::IncentiveAlphaEmittedToMiners {
@@ -376,7 +379,7 @@ impl<T: Config> Pallet<T> {
             log::trace!("B: {:?}", &bonds);
 
             // Compute the Exponential Moving Average (EMA) of bonds.
-            ema_bonds = Self::compute_bonds(netuid, &weights_for_bonds, &bonds, &consensus);
+            ema_bonds = Self::compute_bonds(netuid_index, &weights_for_bonds, &bonds, &consensus);
             log::trace!("emaB: {:?}", &ema_bonds);
 
             // Normalize EMA bonds.
@@ -527,6 +530,14 @@ impl<T: Config> Pallet<T> {
         // Epoch math stays in raw u16; wrap into PerU16 only at the storage boundary.
         Consensus::<T>::insert(
             netuid,
+            cloned_consensus
+                .clone()
+                .into_iter()
+                .map(PerU16::from_parts)
+                .collect::<Vec<PerU16>>(),
+        );
+        ConsensusByMechanism::<T>::insert(
+            netuid_index,
             cloned_consensus
                 .into_iter()
                 .map(PerU16::from_parts)
@@ -1254,7 +1265,7 @@ impl<T: Config> Pallet<T> {
     /// # Arguments
     /// * `bonds_delta`: A vector of bond deltas.
     /// * `bonds`: A vector of bonds.
-    /// * `netuid`: The network ID.
+    /// * `netuid_index`: The mechanism storage index.
     ///
     /// # Returns
     /// A vector of EMA bonds.
@@ -1322,20 +1333,21 @@ impl<T: Config> Pallet<T> {
     /// Compute the Exponential Moving Average (EMA) of bonds based on the Liquid Alpha setting
     ///
     /// # Arguments
-    /// * `netuid`: The network ID.
+    /// * `netuid_index`: The mechanism storage index.
     /// * `weights`: A vector of weights.
     /// * `bonds`: A vector of bonds.
     /// * `consensus`: A vector of consensus values.
-    /// * `active_stake`: A vector of active stake values.
     ///
     /// # Returns
     /// A vector of EMA bonds.
     pub fn compute_bonds(
-        netuid: NetUid,
+        netuid_index: NetUidStorageIndex,
         weights: &[Vec<I32F32>], // weights_for_bonds
         bonds: &[Vec<I32F32>],
         consensus: &[I32F32],
     ) -> Vec<Vec<I32F32>> {
+        let netuid = Self::get_netuid(netuid_index);
+
         // Check if Liquid Alpha is enabled, consensus is not empty, and contains non-zero values.
         if LiquidAlphaOn::<T>::get(netuid)
             && !consensus.is_empty()
@@ -1343,7 +1355,7 @@ impl<T: Config> Pallet<T> {
                 .iter()
                 .any(|&c| c != I32F32::saturating_from_num(0))
         {
-            let consensus = Self::compute_consensus_for_liquid_alpha(netuid, consensus);
+            let consensus = Self::compute_consensus_for_liquid_alpha(netuid_index, consensus);
             let alphas = Self::compute_liquid_alpha_values(netuid, weights, bonds, &consensus);
             log::trace!("alphas: {:?}", &alphas);
 
@@ -1361,11 +1373,10 @@ impl<T: Config> Pallet<T> {
     /// Compute the Exponential Moving Average (EMA) of bonds based on the Liquid Alpha setting for a sparse matrix.
     ///
     /// # Arguments
-    /// * `netuid`: The network ID.
+    /// * `netuid_index`: The mechanism storage index.
     /// * `weights`: A vector of weights.
     /// * `bonds`: A vector of bonds.
     /// * `consensus`: A vector of consensus values.
-    /// * `active_stake`: A vector of active stake values.
     ///
     /// # Returns
     /// A vector of EMA bonds.
@@ -1384,7 +1395,7 @@ impl<T: Config> Pallet<T> {
                 .iter()
                 .any(|&c| c != I32F32::saturating_from_num(0))
         {
-            let consensus = Self::compute_consensus_for_liquid_alpha(netuid, consensus);
+            let consensus = Self::compute_consensus_for_liquid_alpha(netuid_index, consensus);
             let alphas =
                 Self::compute_liquid_alpha_values_sparse(netuid, weights, bonds, &consensus);
             log::trace!("alphas: {:?}", &alphas);
@@ -1401,9 +1412,10 @@ impl<T: Config> Pallet<T> {
     }
 
     pub(crate) fn compute_consensus_for_liquid_alpha(
-        netuid: NetUid,
+        netuid_index: NetUidStorageIndex,
         current: &[I32F32],
     ) -> Vec<I32F32> {
+        let netuid = Self::get_netuid(netuid_index);
         let use_previous = match Self::get_liquid_alpha_consensus_mode(netuid) {
             ConsensusMode::Current => false,
             ConsensusMode::Previous => true,
@@ -1414,7 +1426,7 @@ impl<T: Config> Pallet<T> {
             return current.to_vec();
         }
 
-        let stored = Consensus::<T>::get(netuid);
+        let stored = ConsensusByMechanism::<T>::get(netuid_index);
         if stored.is_empty() {
             return current.to_vec();
         }
