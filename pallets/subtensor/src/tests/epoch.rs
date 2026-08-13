@@ -3819,6 +3819,122 @@ fn test_compute_bonds_sparse_uses_selected_consensus() {
 }
 
 #[test]
+fn test_compute_bonds_checks_selected_consensus_for_zero() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(2);
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        let weights = vec_to_mat_fixed(
+            &[0., 0.1, 0., 0., 0.2, 0.4, 0., 0.3, 0.1, 0., 0.4, 0.5],
+            4,
+            false,
+        );
+        let bonds = vec_to_mat_fixed(
+            &[0.1, 0.1, 0.5, 0., 0., 0.4, 0.5, 0.1, 0.1, 0., 0.4, 0.2],
+            4,
+            false,
+        );
+        let zero = vec![I32F32::from_num(0); 4];
+        let nonzero = vec_to_fixed(&[0.3, 0.2, 0.1, 0.4]);
+
+        SubtensorModule::set_liquid_alpha_enabled(netuid, true);
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Previous);
+
+        // Current is zero, but selected previous consensus is nonzero: use liquid alpha.
+        ConsensusByMechanism::<Test>::insert(
+            netuid_index,
+            [6553, 13107, 19660, 26214].map(PerU16::from_parts).to_vec(),
+        );
+        let selected = SubtensorModule::compute_consensus_for_liquid_alpha(netuid_index, &zero);
+        let alphas =
+            SubtensorModule::compute_liquid_alpha_values(netuid, &weights, &bonds, &selected);
+        let expected_liquid = crate::epoch::math::mat_ema_alpha(&weights, &bonds, &alphas);
+        let fixed_alpha = SubtensorModule::compute_disabled_liquid_alpha(netuid);
+        let expected_fixed = crate::epoch::math::mat_ema(&weights, &bonds, fixed_alpha);
+        let actual = SubtensorModule::compute_bonds(netuid_index, &weights, &bonds, &zero);
+        assert_eq!(actual, expected_liquid);
+        assert_ne!(actual, expected_fixed);
+
+        // Current is nonzero, but selected previous consensus is zero: use fixed alpha.
+        ConsensusByMechanism::<Test>::insert(netuid_index, vec![PerU16::zero(); 4]);
+        let selected = SubtensorModule::compute_consensus_for_liquid_alpha(netuid_index, &nonzero);
+        let zero_alphas =
+            SubtensorModule::compute_liquid_alpha_values(netuid, &weights, &bonds, &selected);
+        let would_be_liquid = crate::epoch::math::mat_ema_alpha(&weights, &bonds, &zero_alphas);
+        let actual = SubtensorModule::compute_bonds(netuid_index, &weights, &bonds, &nonzero);
+        assert_eq!(actual, expected_fixed);
+        assert_ne!(actual, would_be_liquid);
+    });
+}
+
+#[test]
+fn test_compute_bonds_sparse_checks_selected_consensus_for_zero() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(2);
+        add_network(netuid, 10, 0);
+        let netuid_index = NetUidStorageIndex::from(netuid);
+        let dense_weights = vec_to_mat_fixed(
+            &[0., 0.1, 0., 0., 0.2, 0.4, 0., 0.3, 0.1, 0., 0.4, 0.5],
+            4,
+            false,
+        );
+        let dense_bonds = vec_to_mat_fixed(
+            &[0.1, 0.1, 0.5, 0., 0., 0.4, 0.5, 0.1, 0.1, 0., 0.4, 0.2],
+            4,
+            false,
+        );
+        let to_sparse = |matrix: &[Vec<I32F32>]| {
+            matrix
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .copied()
+                        .enumerate()
+                        .filter(|(_, value)| *value != I32F32::from_num(0))
+                        .map(|(column, value)| (column as u16, value))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        let weights = to_sparse(&dense_weights);
+        let bonds = to_sparse(&dense_bonds);
+        let zero = vec![I32F32::from_num(0); 4];
+        let nonzero = vec_to_fixed(&[0.3, 0.2, 0.1, 0.4]);
+
+        SubtensorModule::set_liquid_alpha_enabled(netuid, true);
+        SubtensorModule::set_liquid_alpha_consensus_mode(netuid, ConsensusMode::Previous);
+
+        // Current is zero, but selected previous consensus is nonzero: use liquid alpha.
+        ConsensusByMechanism::<Test>::insert(
+            netuid_index,
+            [6553, 13107, 19660, 26214].map(PerU16::from_parts).to_vec(),
+        );
+        let selected = SubtensorModule::compute_consensus_for_liquid_alpha(netuid_index, &zero);
+        let alphas = SubtensorModule::compute_liquid_alpha_values_sparse(
+            netuid, &weights, &bonds, &selected,
+        );
+        let expected_liquid = crate::epoch::math::mat_ema_alpha_sparse(&weights, &bonds, &alphas);
+        let fixed_alpha = SubtensorModule::compute_disabled_liquid_alpha(netuid);
+        let expected_fixed = crate::epoch::math::mat_ema_sparse(&weights, &bonds, fixed_alpha);
+        let actual = SubtensorModule::compute_bonds_sparse(netuid_index, &weights, &bonds, &zero);
+        assert_eq!(actual, expected_liquid);
+        assert_ne!(actual, expected_fixed);
+
+        // Current is nonzero, but selected previous consensus is zero: use fixed alpha.
+        ConsensusByMechanism::<Test>::insert(netuid_index, vec![PerU16::zero(); 4]);
+        let selected = SubtensorModule::compute_consensus_for_liquid_alpha(netuid_index, &nonzero);
+        let zero_alphas = SubtensorModule::compute_liquid_alpha_values_sparse(
+            netuid, &weights, &bonds, &selected,
+        );
+        let would_be_liquid =
+            crate::epoch::math::mat_ema_alpha_sparse(&weights, &bonds, &zero_alphas);
+        let actual =
+            SubtensorModule::compute_bonds_sparse(netuid_index, &weights, &bonds, &nonzero);
+        assert_eq!(actual, expected_fixed);
+        assert_ne!(actual, would_be_liquid);
+    });
+}
+
+#[test]
 fn regression_liquid_alpha_event_indices_are_append_only() {
     let netuid = NetUid::from(1);
     let prior_tail = Event::<Test>::MinCollateralSet {

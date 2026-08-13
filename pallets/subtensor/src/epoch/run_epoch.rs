@@ -1348,26 +1348,24 @@ impl<T: Config> Pallet<T> {
     ) -> Vec<Vec<I32F32>> {
         let netuid = Self::get_netuid(netuid_index);
 
-        // Check if Liquid Alpha is enabled, consensus is not empty, and contains non-zero values.
-        if LiquidAlphaOn::<T>::get(netuid)
-            && !consensus.is_empty()
-            && consensus
-                .iter()
-                .any(|&c| c != I32F32::saturating_from_num(0))
-        {
-            let consensus = Self::compute_consensus_for_liquid_alpha(netuid_index, consensus);
-            let alphas = Self::compute_liquid_alpha_values(netuid, weights, bonds, &consensus);
-            log::trace!("alphas: {:?}", &alphas);
+        if LiquidAlphaOn::<T>::get(netuid) {
+            let selected = Self::compute_consensus_for_liquid_alpha(netuid_index, consensus);
+            if !selected.is_empty()
+                && selected
+                    .iter()
+                    .any(|&c| c != I32F32::saturating_from_num(0))
+            {
+                let alphas = Self::compute_liquid_alpha_values(netuid, weights, bonds, &selected);
+                log::trace!("alphas: {:?}", &alphas);
 
-            // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
-            mat_ema_alpha(weights, bonds, &alphas)
-        } else {
-            // Liquid Alpha is disabled, compute the liquid alpha value.
-            let alpha: I32F32 = Self::compute_disabled_liquid_alpha(netuid);
-
-            // Compute the Exponential Moving Average (EMA) of bonds using the calculated alpha value.
-            mat_ema(weights, bonds, alpha)
+                // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
+                return mat_ema_alpha(weights, bonds, &alphas);
+            }
         }
+
+        // Liquid Alpha is disabled or the selected consensus is empty/all-zero.
+        let alpha: I32F32 = Self::compute_disabled_liquid_alpha(netuid);
+        mat_ema(weights, bonds, alpha)
     }
 
     /// Compute the Exponential Moving Average (EMA) of bonds based on the Liquid Alpha setting for a sparse matrix.
@@ -1388,27 +1386,25 @@ impl<T: Config> Pallet<T> {
     ) -> Vec<Vec<(u16, I32F32)>> {
         let (netuid, _) = Self::get_netuid_and_subid(netuid_index).unwrap_or_default();
 
-        // Check if Liquid Alpha is enabled, consensus is not empty, and contains non-zero values.
-        if LiquidAlphaOn::<T>::get(netuid)
-            && !consensus.is_empty()
-            && consensus
-                .iter()
-                .any(|&c| c != I32F32::saturating_from_num(0))
-        {
-            let consensus = Self::compute_consensus_for_liquid_alpha(netuid_index, consensus);
-            let alphas =
-                Self::compute_liquid_alpha_values_sparse(netuid, weights, bonds, &consensus);
-            log::trace!("alphas: {:?}", &alphas);
+        if LiquidAlphaOn::<T>::get(netuid) {
+            let selected = Self::compute_consensus_for_liquid_alpha(netuid_index, consensus);
+            if !selected.is_empty()
+                && selected
+                    .iter()
+                    .any(|&c| c != I32F32::saturating_from_num(0))
+            {
+                let alphas =
+                    Self::compute_liquid_alpha_values_sparse(netuid, weights, bonds, &selected);
+                log::trace!("alphas: {:?}", &alphas);
 
-            // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
-            mat_ema_alpha_sparse(weights, bonds, &alphas)
-        } else {
-            // Liquid Alpha is disabled, compute the liquid alpha value.
-            let alpha: I32F32 = Self::compute_disabled_liquid_alpha(netuid);
-
-            // Compute the Exponential Moving Average (EMA) of bonds using the calculated alpha value.
-            mat_ema_sparse(weights, bonds, alpha)
+                // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
+                return mat_ema_alpha_sparse(weights, bonds, &alphas);
+            }
         }
+
+        // Liquid Alpha is disabled or the selected consensus is empty/all-zero.
+        let alpha: I32F32 = Self::compute_disabled_liquid_alpha(netuid);
+        mat_ema_sparse(weights, bonds, alpha)
     }
 
     pub(crate) fn compute_consensus_for_liquid_alpha(
