@@ -297,6 +297,9 @@ pub(super) fn setup_block_step_benchmark<T: Config>() {
         Subtensor::<T>::init_new_network(netuid, TEMPO);
         SubtokenEnabled::<T>::insert(netuid, true);
         SubnetEmissionEnabled::<T>::insert(netuid, true);
+        // Seed the prior block's reported TAO allocation so the benchmark
+        // measures clearing all 128 per-block entries before writing new ones.
+        SubnetTaoEmission::<T>::insert(netuid, TaoBalance::from(1_u64));
         SubnetOwner::<T>::insert(netuid, subnet_owner);
         Subtensor::<T>::set_network_registration_allowed(netuid, true);
         Subtensor::<T>::set_max_allowed_uids(netuid, MAINNET_NEURONS_PER_SUBNET);

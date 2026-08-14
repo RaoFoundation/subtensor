@@ -55,7 +55,7 @@ impl<T: Config> Pallet<T> {
             tempo: Tempo::<T>::get(netuid).into(),
             last_step: last_step.into(),
             blocks_since_last_step: blocks_since_last_step.into(),
-            emission: 0.into(),
+            emission: u64::from(SubnetTaoEmission::<T>::get(netuid)).into(),
             alpha_in: SubnetAlphaIn::<T>::get(netuid).into(),
             alpha_out: SubnetAlphaOut::<T>::get(netuid).into(),
             tao_in: SubnetTAO::<T>::get(netuid).into(),
@@ -79,5 +79,25 @@ impl<T: Config> Pallet<T> {
             dynamic_info.push(Self::get_dynamic_info(*netuid));
         }
         dynamic_info
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::mock::{SubtensorModule, Test, add_dynamic_network, new_test_ext};
+    use sp_core::U256;
+
+    #[test]
+    fn dynamic_info_reports_final_tao_emission() {
+        new_test_ext(1).execute_with(|| {
+            let netuid = add_dynamic_network(&U256::from(1), &U256::from(2));
+            let final_emission = TaoBalance::from(123_u64);
+            SubnetTaoEmission::<Test>::insert(netuid, final_emission);
+
+            let info = SubtensorModule::get_dynamic_info(netuid).unwrap();
+
+            assert_eq!(info.emission.0, u64::from(final_emission));
+        });
     }
 }

@@ -64,8 +64,87 @@ capped at `root_proportion × alpha_emission`, where
 As a subnet ages its alpha issuance grows, the cap falls, and the TAO that
 can no longer be injected as liquidity is instead swapped for alpha on the
 subnet's own pool — buying pressure that transitions mature subnets from
-liquidity injection to chain buybacks. Alpha bought this way accumulates as
+liquidity injection to chain buybacks. A subnet's chain buy is capped at the
+spot-TAO value of its unburned miner alpha:
+
+```
+unburned_miner_alpha_i =
+  alpha_out_i × (1 − owner_cut_i) × 50% × (1 − miner_burned_i)
+
+chain_buy_cap_i = unburned_miner_alpha_i × spot_price_i
+initial_chain_buy_i = min(local_excess_tao_i, chain_buy_cap_i)
+```
+
+`miner_burned` is the proportion recorded by the subnet's last settled tempo
+for miner incentive directed to owner/immune burn or recycle UIDs. Those
+withheld emissions do not support chain-buy capacity; at 100% miner burn, the
+cap is zero. If owner cut is disabled, the miner half is calculated from the
+full `alpha_out`.
+
+TAO rejected by a subnet's local cap spills over to other subnets with
+uncovered chain-buy capacity. Eligible recipients are ordered by emission
+weight, highest first, with netuid ascending as the deterministic tie-breaker.
+The allocator preserves the normal liquidity-first ordering for each recipient:
+it fills the subnet's remaining liquidity-injection capacity before assigning
+any spillover to chain buys. It moves to the next subnet after both the
+liquidity and unburned-miner-emission caps are full, or when spillover runs out:
+
+```
+spillover = Σ_i (local_excess_tao_i − initial_chain_buy_i)
+
+for j in descending_emission_weight:
+  added_liquidity_j = min(spillover, liquidity_cap_j − tao_in_j)
+  tao_in_j += added_liquidity_j
+  alpha_in_j = min(tao_in_j / spot_price_j, alpha_injection_cap_j)
+  spillover -= added_liquidity_j
+
+  added_chain_buy_j = min(spillover, chain_buy_cap_j − chain_buy_j)
+  chain_buy_j += added_chain_buy_j
+  spillover -= added_chain_buy_j
+```
+
+If all eligible liquidity and chain-buy caps are full and TAO still remains,
+that terminal remainder stays issued and is allocated across emitting subnets
+in proportion to their emission weights. It is held in each subnet's protocol
+TAO reservoir, where it cannot create an uncapped chain buy or an unpaired
+spot-price change. The balancer may activate reservoir TAO in a later block
+when pool weights permit. Alpha bought by the chain-buy path accumulates as
 protocol-owned alpha.
+
+### Illustrative mainnet snapshot
+
+At mainnet block 8,725,138 on July 29, 2026, the top 32 subnets received 97.85%
+of the original TAO allocation. With liquidity-first spillover, they still
+receive 84.20% of block issuance and retain full buyback coverage for their
+unburned miner emissions. Their combined allocation falls by 13.96%.
+
+That change redirects 0.06749 TAO per block to ranks 33 through 66. About
+0.02688 TAO first fills their remaining liquidity capacity, then 0.04061 TAO
+funds chain buybacks. This fully covers the TAO value of unburned miner
+emissions for all 34 subnets. The remaining spillover fills rank 67's liquidity
+and partially funds its buyback.
+
+This is the practical tradeoff: the largest subnets keep most issuance and full
+miner coverage, while a limited reallocation gives lower-ranked networks enough
+liquidity and buyback support to fund the miners they depend on.
+
+This is a one-block example, not a guarantee of the cutoff under future prices,
+emission weights, burn rates, or liquidity requirements.
+
+The chain records each subnet's final current-block TAO allocation after this
+planning and execution:
+
+```
+subnet_tao_emission_i =
+  current_block_liquidity_i
+  + successful_chain_buys_i
+  + current_block_reservoir_allocation_i
+```
+
+This value populates the existing `emission` field in dynamic subnet info and
+`subnet_emission` in metagraph responses. Raw emission weight remains separate
+and is used only to rank spillover recipients and divide any terminal remainder.
+TAO activated from a reservoir in a later block is not counted again.
 
 <RootProportionExplainer />
 

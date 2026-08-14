@@ -533,6 +533,12 @@ impl<T: Config> SwapHandler for Pallet<T> {
         BalancerTaoReservoir::<T>::get(netuid)
     }
 
+    fn reserve_protocol_tao(netuid: NetUid, amount: TaoBalance) {
+        BalancerTaoReservoir::<T>::mutate(netuid, |total| {
+            *total = total.saturating_add(amount);
+        });
+    }
+
     fn clear_protocol_liquidity_reservoirs(netuid: NetUid) {
         BalancerTaoReservoir::<T>::remove(netuid);
         BalancerAlphaReservoir::<T>::remove(netuid);

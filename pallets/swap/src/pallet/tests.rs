@@ -187,6 +187,27 @@ mod dispatchables {
     }
 
     #[test]
+    fn test_reserve_protocol_tao_accumulates_without_activating_reserves() {
+        new_test_ext().execute_with(|| {
+            let netuid = NetUid::from(1);
+            let initial_tao = TaoBalance::from(1_000_u64);
+            let initial_alpha = AlphaBalance::from(2_000_u64);
+            TaoReserve::set_mock_reserve(netuid, initial_tao);
+            AlphaReserve::set_mock_reserve(netuid, initial_alpha);
+
+            Swap::reserve_protocol_tao(netuid, TaoBalance::from(100_u64));
+            Swap::reserve_protocol_tao(netuid, TaoBalance::from(50_u64));
+
+            assert_eq!(
+                Swap::protocol_tao_reservoir(netuid),
+                TaoBalance::from(150_u64)
+            );
+            assert_eq!(TaoReserve::reserve(netuid), initial_tao);
+            assert_eq!(AlphaReserve::reserve(netuid), initial_alpha);
+        });
+    }
+
+    #[test]
     fn test_adjust_protocol_liquidity_materializes_alpha_when_reservoiring_alpha() {
         new_test_ext().execute_with(|| {
             let netuid = NetUid::from(1);
