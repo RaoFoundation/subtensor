@@ -1084,6 +1084,13 @@ impl<T: Config> Pallet<T> {
 
     /// Finds the hotkey with the highest conviction on a given subnet.
     pub fn subnet_king(netuid: NetUid) -> Option<T::AccountId> {
+        Self::subnet_king_with_conviction(netuid).map(|(hotkey, _)| hotkey)
+    }
+
+    /// The conviction leader on a subnet together with its rolled aggregate
+    /// conviction. Selection and takeover admission share this one computation
+    /// so the gate can never disagree with the winner it examined.
+    pub(crate) fn subnet_king_with_conviction(netuid: NetUid) -> Option<(T::AccountId, U64F64)> {
         let now = Self::get_current_block_as_u64();
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
@@ -1151,7 +1158,6 @@ impl<T: Config> Pallet<T> {
         scores
             .into_iter()
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal))
-            .map(|(hotkey, _)| hotkey)
     }
 
     /// Reassigns subnet ownership to the current lock-conviction leader when the subnet
@@ -1189,15 +1195,15 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        // Pick the hotkey with the highest rolled aggregate conviction.
-        let Some(king_hotkey) = Self::subnet_king(netuid) else {
+        // Pick the hotkey with the highest rolled aggregate conviction, keeping the
+        // score that selection already computed.
+        let Some((king_hotkey, king_conviction)) = Self::subnet_king_with_conviction(netuid) else {
             return;
         };
 
         // Require that hotkey's own rolled aggregate conviction to be more than 18% of
         // eligible alpha. Integer form of `conviction > 0.18 * eligible_alpha` to avoid
         // floating point; the winner alone must clear the bar, not the subnet-wide sum.
-        let king_conviction = Self::hotkey_conviction(&king_hotkey, netuid);
         if king_conviction.saturating_mul(U64F64::saturating_from_num(100))
             <= U64F64::saturating_from_num(u64::from(eligible_alpha))
                 .saturating_mul(U64F64::saturating_from_num(18))

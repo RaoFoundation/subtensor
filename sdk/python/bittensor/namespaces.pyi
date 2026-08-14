@@ -312,17 +312,18 @@ class Locks(_ReadNamespace):
         """Every hotkey with locked stake on a subnet, rolled forward to now.
 
         Per hotkey: locked mass, conviction, and the estimated blocks until its
-        conviction reaches 18% of the subnet's eligible alpha. Eligible alpha is
-        `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned` (saturating at
-        zero). `change_subnet_owner_if_needed` reassigns ownership when the
-        subnet is at least ~1 year old (2,629,800 blocks) and the
-        highest-conviction hotkey holds more than 18% of eligible alpha on its
-        own, at which point that hotkey's coldkey becomes the subnet owner. The
-        threshold measures a single hotkey, not the subnet-wide total, so the
-        subnet-wide `total_conviction_alpha` and `total_blocks_to_threshold`
-        are reported for context only and do not gate the takeover; use each
-        hotkey's own `blocks_to_threshold` for takeover projections.
-        Projections assume the lock rates and alpha accounting stay constant.
+        own conviction strictly exceeds 18% of the subnet's eligible alpha.
+        Eligible alpha is `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`
+        (saturating at zero). `change_subnet_owner_if_needed` reassigns
+        ownership when the subnet is at least ~1 year old (2,629,800 blocks) and
+        the highest-conviction hotkey holds more than 18% of eligible alpha on
+        its own, at which point that hotkey's coldkey becomes the subnet owner.
+        The gate measures a single hotkey — exactly 18% is not enough — so
+        `leader_hotkey` and `leader_blocks_to_threshold` describe the current
+        conviction leader's standing against the gate, while the subnet-wide
+        `total_conviction_alpha` is reported for context only and never gates
+        the takeover. Projections assume the lock rates and alpha accounting
+        stay constant.
         """
 
 class Neurons(_ReadNamespace):
