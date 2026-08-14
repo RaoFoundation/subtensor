@@ -1,6 +1,6 @@
 use node_subtensor_runtime::opaque::Block;
 use sc_chain_spec::ChainType;
-use sc_consensus_grandpa::{AuthoritySetHardFork, warp_proof::HardForks};
+use sc_consensus_grandpa::warp_proof::{HardForks, WarpSyncCheckpoint};
 use sc_network_sync::strategy::warp::{EncodedProof, VerificationResult, WarpSyncProvider};
 use sp_consensus_grandpa::{AuthorityId, AuthorityList, SetId};
 use sp_core::{ByteArray, H256};
@@ -13,7 +13,7 @@ const TESTNET_GENESIS: H256 = H256(hex_literal::hex!(
 ));
 
 pub(super) enum Config {
-    TestnetCheckpoints(Vec<AuthoritySetHardFork<Block>>),
+    TestnetCheckpoints(Vec<WarpSyncCheckpoint<Block>>),
     OneTimeInitialSetId(SetId),
     InitialSetId(u64),
 }
@@ -59,7 +59,7 @@ impl Config {
     pub(super) fn into_hard_forks(self) -> HardForks<Block> {
         match self {
             Self::TestnetCheckpoints(checkpoints) => {
-                HardForks::new_hard_forked_authorities(checkpoints)
+                HardForks::new_authority_set_checkpoints(checkpoints)
             }
             // Keep the provider in reinitialized-set mode so a completed proof does not replace
             // its shared authority set. The outer provider supplies the actual one-time offset.
@@ -117,13 +117,14 @@ where
 }
 
 #[allow(clippy::expect_used)]
-fn testnet_authorities() -> AuthorityList {
+fn testnet_checkpoint_authorities() -> AuthorityList {
     [
         hex_literal::hex!("dc832c3b7bdfc721e90e5ee9e532c06b62a0def3c79dab5324460d938db6600a"),
         hex_literal::hex!("c8a00ef71912b3868b101cb70ebd029999d1c9b6a1390122a98f60d72b9a0fc4"),
         hex_literal::hex!("ee70f7b52998c2b4f3d42e509e8360cda92b0cd4ca100cd4d32be5a1ac297909"),
         hex_literal::hex!("b57a038c9139a060358f3b654df74a1cb6d15bcdb8438bcebd64ce67ec4301eb"),
         hex_literal::hex!("755f75dfc66aaa3b1e761a8845249509b8bd2fdf0d94cb74e1e12e1e0f4d3519"),
+        hex_literal::hex!("d97a64267f177505b0565a18677c9f5d4284d7f2eb96d515556e7e52217f82e9"),
     ]
     .into_iter()
     .map(|bytes| {
@@ -135,28 +136,32 @@ fn testnet_authorities() -> AuthorityList {
     .collect()
 }
 
-fn testnet_checkpoints() -> Vec<AuthoritySetHardFork<Block>> {
-    let authorities = testnet_authorities();
+fn testnet_checkpoints() -> Vec<WarpSyncCheckpoint<Block>> {
+    let authorities = testnet_checkpoint_authorities();
 
     [
         (
             1,
             4_589_686,
             hex_literal::hex!("2b001bfdec34d007ab2ac07f712e64d0cb1a6fb4b51f7d47bfb3c7d7336a689b"),
+            None,
         ),
         (
             2,
             5_534_451,
             hex_literal::hex!("4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"),
+            Some(2),
         ),
     ]
     .into_iter()
-    .map(|(set_id, number, hash)| AuthoritySetHardFork {
-        set_id,
-        block: (H256::from(hash), number),
-        authorities: authorities.clone(),
-        last_finalized: None,
-    })
+    .map(
+        |(set_id, number, hash, resulting_set_id)| WarpSyncCheckpoint {
+            set_id,
+            block: (H256::from(hash), number),
+            authorities: authorities.clone(),
+            resulting_set_id,
+        },
+    )
     .collect()
 }
 
@@ -222,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn testnet_checkpoints_are_ordered_and_share_authorities() {
+    fn testnet_checkpoints_use_historical_signing_set_and_transition_override() {
         let checkpoints = testnet_checkpoints();
         let [first, second] = checkpoints.as_slice() else {
             panic!("expected exactly two testnet warp checkpoints");
@@ -242,7 +247,9 @@ mod tests {
                 "4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"
             ))
         );
-        assert_eq!(first.authorities.len(), 5);
+        assert_eq!(first.resulting_set_id, None);
+        assert_eq!(second.resulting_set_id, Some(2));
+        assert_eq!(first.authorities.len(), 6);
         assert_eq!(first.authorities, second.authorities);
         let authority_ids: Vec<&[u8]> = first
             .authorities
@@ -255,6 +262,7 @@ mod tests {
             hex_literal::hex!("ee70f7b52998c2b4f3d42e509e8360cda92b0cd4ca100cd4d32be5a1ac297909"),
             hex_literal::hex!("b57a038c9139a060358f3b654df74a1cb6d15bcdb8438bcebd64ce67ec4301eb"),
             hex_literal::hex!("755f75dfc66aaa3b1e761a8845249509b8bd2fdf0d94cb74e1e12e1e0f4d3519"),
+            hex_literal::hex!("d97a64267f177505b0565a18677c9f5d4284d7f2eb96d515556e7e52217f82e9"),
         ];
         let expected_authority_ids = expected_authority_ids
             .iter()
