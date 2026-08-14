@@ -1,6 +1,6 @@
 use node_subtensor_runtime::opaque::Block;
 use sc_chain_spec::ChainType;
-use sc_consensus_grandpa::warp_proof::{HardForks, WarpSyncCheckpoint};
+use sc_consensus_grandpa::{AuthoritySetHardFork, warp_proof::HardForks};
 use sc_network_sync::strategy::warp::{EncodedProof, VerificationResult, WarpSyncProvider};
 use sp_consensus_grandpa::{AuthorityId, AuthorityList, SetId};
 use sp_core::{ByteArray, H256};
@@ -13,7 +13,7 @@ const TESTNET_GENESIS: H256 = H256(hex_literal::hex!(
 ));
 
 pub(super) enum Config {
-    TestnetCheckpoints(Vec<WarpSyncCheckpoint<Block>>),
+    TestnetCheckpoints(Vec<AuthoritySetHardFork<Block>>),
     OneTimeInitialSetId(SetId),
     InitialSetId(u64),
 }
@@ -59,7 +59,7 @@ impl Config {
     pub(super) fn into_hard_forks(self) -> HardForks<Block> {
         match self {
             Self::TestnetCheckpoints(checkpoints) => {
-                HardForks::new_authority_set_checkpoints(checkpoints)
+                HardForks::new_hard_forked_authorities(checkpoints)
             }
             // Keep the provider in reinitialized-set mode so a completed proof does not replace
             // its shared authority set. The outer provider supplies the actual one-time offset.
@@ -136,7 +136,7 @@ fn testnet_checkpoint_authorities() -> AuthorityList {
     .collect()
 }
 
-fn testnet_checkpoints() -> Vec<WarpSyncCheckpoint<Block>> {
+fn testnet_checkpoints() -> Vec<AuthoritySetHardFork<Block>> {
     let authorities = testnet_checkpoint_authorities();
 
     [
@@ -144,24 +144,20 @@ fn testnet_checkpoints() -> Vec<WarpSyncCheckpoint<Block>> {
             1,
             4_589_686,
             hex_literal::hex!("2b001bfdec34d007ab2ac07f712e64d0cb1a6fb4b51f7d47bfb3c7d7336a689b"),
-            None,
         ),
         (
             3,
             5_534_451,
             hex_literal::hex!("4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"),
-            Some(2),
         ),
     ]
     .into_iter()
-    .map(
-        |(set_id, number, hash, resulting_set_id)| WarpSyncCheckpoint {
-            set_id,
-            block: (H256::from(hash), number),
-            authorities: authorities.clone(),
-            resulting_set_id,
-        },
-    )
+    .map(|(set_id, number, hash)| AuthoritySetHardFork {
+        set_id,
+        block: (H256::from(hash), number),
+        authorities: authorities.clone(),
+        last_finalized: None,
+    })
     .collect()
 }
 
@@ -227,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn testnet_checkpoints_use_historical_signing_set_and_transition_override() {
+    fn testnet_checkpoints_use_historical_signing_sets() {
         let checkpoints = testnet_checkpoints();
         let [first, second] = checkpoints.as_slice() else {
             panic!("expected exactly two testnet warp checkpoints");
@@ -247,8 +243,6 @@ mod tests {
                 "4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"
             ))
         );
-        assert_eq!(first.resulting_set_id, None);
-        assert_eq!(second.resulting_set_id, Some(2));
         assert_eq!(first.authorities.len(), 6);
         assert_eq!(first.authorities, second.authorities);
         let authority_ids: Vec<&[u8]> = first
@@ -293,7 +287,6 @@ mod tests {
                 .is_ok()
         );
         assert!(justification.verify(2, &checkpoint.authorities).is_err());
-        assert_eq!(checkpoint.resulting_set_id, Some(2));
     }
 
     #[test]
