@@ -1084,6 +1084,13 @@ impl<T: Config> Pallet<T> {
 
     /// Finds the hotkey with the highest conviction on a given subnet.
     pub fn subnet_king(netuid: NetUid) -> Option<T::AccountId> {
+        Self::subnet_king_with_conviction(netuid).map(|(hotkey, _)| hotkey)
+    }
+
+    /// The conviction leader on a subnet together with its rolled aggregate
+    /// conviction. Selection and takeover admission share this one computation
+    /// so the gate can never disagree with the winner it examined.
+    pub(crate) fn subnet_king_with_conviction(netuid: NetUid) -> Option<(T::AccountId, U64F64)> {
         let now = Self::get_current_block_as_u64();
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
@@ -1151,22 +1158,28 @@ impl<T: Config> Pallet<T> {
         scores
             .into_iter()
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal))
-            .map(|(hotkey, _)| hotkey)
     }
 
     /// Reassigns subnet ownership to the current lock-conviction leader when the subnet
-    /// is mature enough and enough conviction has accumulated.
+    /// is mature enough and that leader has accumulated enough conviction on its own.
     ///
     /// Ownership can change only after the subnet is at least [`ONE_YEAR`] old and the
-    /// total rolled aggregate conviction on the subnet is at least 10% of
-    /// `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`. If those gates pass, the
-    /// hotkey with the highest rolled aggregate conviction becomes the subnet owner
-    /// hotkey, and that hotkey's owning coldkey becomes the subnet owner coldkey. The new
-    /// owner hotkey's conviction is then progressed to its current locked mass so the new
-    /// owner starts with full owner conviction.
+    /// hotkey with the highest rolled aggregate conviction holds more than 18% of
+    /// `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned` in conviction *by itself*.
+    /// If those gates pass, that hotkey becomes the subnet owner hotkey and its owning
+    /// coldkey becomes the subnet owner coldkey. The new owner hotkey's conviction is
+    /// then progressed to its current locked mass so the new owner starts with full
+    /// owner conviction.
+    ///
+    /// The threshold deliberately measures the winning hotkey alone rather than the
+    /// subnet-wide total. Admission is decided on one hotkey's conviction and the winner
+    /// is decided on the maximum, so gating on the sum let every unrelated locker (the
+    /// incumbent owner included) supply a challenger's quorum. Gating on the winner's own
+    /// conviction closes that path. Coalitions are unaffected: backers lock to the
+    /// challenger's hotkey, so their conviction lands in that hotkey's aggregate.
     pub fn change_subnet_owner_if_needed(netuid: NetUid) {
         // Protocol-owned and burned alpha cannot support a challenger, so exclude both
-        // from the ownership quorum. Saturation keeps inconsistent accounting from
+        // from the ownership threshold. Saturation keeps inconsistent accounting from
         // wrapping the threshold to a very large value.
         let eligible_alpha = SubnetAlphaOut::<T>::get(netuid)
             .saturating_sub(SubnetProtocolAlpha::<T>::get(netuid))
@@ -1182,18 +1195,30 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        // Require total rolled aggregate conviction to be at least 10% of eligible alpha.
-        let total_conviction = Self::get_total_conviction(netuid);
-        if total_conviction.saturating_mul(U64F64::saturating_from_num(10))
-            < U64F64::saturating_from_num(u64::from(eligible_alpha))
-        {
-            return;
-        }
-
-        // Pick the hotkey with the highest rolled aggregate conviction.
-        let Some(king_hotkey) = Self::subnet_king(netuid) else {
+        // Pick the hotkey with the highest rolled aggregate conviction, keeping the
+        // score that selection already computed.
+        let Some((king_hotkey, king_conviction)) = Self::subnet_king_with_conviction(netuid) else {
             return;
         };
+
+        // Require that hotkey's own rolled aggregate conviction to be more than 18% of
+        // eligible alpha: `conviction * 100 > eligible_alpha * 18`, cross-multiplied in
+        // 256-bit integers over the raw U64F64 bits so neither side can saturate (a
+        // U64F64 product saturates near u64::MAX and would reject valid high-range
+        // takeovers as MAX <= MAX). The winner alone must clear the bar, not the
+        // subnet-wide sum. Widths: conviction bits < 2^128 so the left side is below
+        // 2^135, and the right side is below 2^64 * 18 * 2^64 < 2^133 — the saturating
+        // ops can never actually saturate at U256 width; they only satisfy the
+        // arithmetic-side-effects lint.
+        let one = sp_core::U256::from(U64F64::saturating_from_num(1u64).to_bits());
+        let lhs = sp_core::U256::from(king_conviction.to_bits())
+            .saturating_mul(sp_core::U256::from(100u64));
+        let rhs = sp_core::U256::from(u64::from(eligible_alpha))
+            .saturating_mul(sp_core::U256::from(18u64))
+            .saturating_mul(one);
+        if lhs <= rhs {
+            return;
+        }
 
         // The king hotkey must resolve to a real coldkey owner.
         let new_owner_coldkey = Self::get_owning_coldkey_for_hotkey(&king_hotkey);
