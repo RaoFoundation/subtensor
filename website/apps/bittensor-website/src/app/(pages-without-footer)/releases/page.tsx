@@ -23,6 +23,16 @@ type Release = {
 // Newest first. Add new releases to the top.
 const releases: Release[] = [
   {
+    tag: 'next',
+    date: 'August 2026',
+    title: 'Conviction Normalization',
+    summary:
+      'The subnet ownership gate now measures one hotkey alone against an 18% conviction ' +
+      'threshold — matching the owner cut — restoring the TAO cost of a takeover to above ' +
+      'pre-v446 levels.',
+    href: '/releases/conviction-normalization',
+  },
+  {
     tag: 'v446',
     date: 'August 2026',
     title: 'Accounting, Liquid Alpha, and Timelock Recovery',
