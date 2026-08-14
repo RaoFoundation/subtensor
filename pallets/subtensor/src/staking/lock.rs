@@ -1202,12 +1202,21 @@ impl<T: Config> Pallet<T> {
         };
 
         // Require that hotkey's own rolled aggregate conviction to be more than 18% of
-        // eligible alpha. Integer form of `conviction > 0.18 * eligible_alpha` to avoid
-        // floating point; the winner alone must clear the bar, not the subnet-wide sum.
-        if king_conviction.saturating_mul(U64F64::saturating_from_num(100))
-            <= U64F64::saturating_from_num(u64::from(eligible_alpha))
-                .saturating_mul(U64F64::saturating_from_num(18))
-        {
+        // eligible alpha: `conviction * 100 > eligible_alpha * 18`, cross-multiplied in
+        // 256-bit integers over the raw U64F64 bits so neither side can saturate (a
+        // U64F64 product saturates near u64::MAX and would reject valid high-range
+        // takeovers as MAX <= MAX). The winner alone must clear the bar, not the
+        // subnet-wide sum. Widths: conviction bits < 2^128 so the left side is below
+        // 2^135, and the right side is below 2^64 * 18 * 2^64 < 2^133 — the saturating
+        // ops can never actually saturate at U256 width; they only satisfy the
+        // arithmetic-side-effects lint.
+        let one = sp_core::U256::from(U64F64::saturating_from_num(1u64).to_bits());
+        let lhs = sp_core::U256::from(king_conviction.to_bits())
+            .saturating_mul(sp_core::U256::from(100u64));
+        let rhs = sp_core::U256::from(u64::from(eligible_alpha))
+            .saturating_mul(sp_core::U256::from(18u64))
+            .saturating_mul(one);
+        if lhs <= rhs {
             return;
         }
 

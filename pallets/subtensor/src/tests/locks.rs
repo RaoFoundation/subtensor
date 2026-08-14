@@ -3531,6 +3531,63 @@ fn test_change_subnet_owner_if_needed_gate_is_strict_18_percent_of_eligible() {
     assert!(king_takes_over(1_801)); // just over 18% takes the subnet
 }
 
+/// Regression: the gate must stay exact when eligible alpha is near u64::MAX. The
+/// previous U64F64 form saturated both sides of the comparison (`MAX <= MAX`) and
+/// rejected every takeover in that range regardless of conviction.
+#[test]
+fn test_change_subnet_owner_if_needed_gate_is_exact_near_u64_max() {
+    let king_takes_over = |king_conviction: u64| -> bool {
+        new_test_ext(1).execute_with(|| {
+            let old_owner_coldkey = U256::from(1);
+            let old_owner_hotkey = U256::from(2);
+            let netuid =
+                setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+            SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+            SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+            let king_coldkey = U256::from(5);
+            let king_hotkey = U256::from(6);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &king_coldkey,
+                &king_hotkey
+            ));
+
+            let now = crate::staking::lock::ONE_YEAR + 1;
+            System::set_block_number(now);
+            NetworkRegisteredAt::<Test>::insert(netuid, 1);
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(u64::MAX));
+
+            let locked_mass = AlphaBalance::from(king_conviction);
+            Lock::<Test>::insert(
+                (king_coldkey, netuid, king_hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                king_hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+
+            SubtensorModule::change_subnet_owner_if_needed(netuid);
+            SubnetOwnerHotkey::<Test>::get(netuid) == king_hotkey
+        })
+    };
+
+    // 18% of u64::MAX is 3_320_413_933_267_719_290.7; the gate is strict, so the
+    // integer floor stays below the bar and the next rao above it clears.
+    assert!(!king_takes_over(3_000_000_000_000_000_000)); // clearly below 18%
+    assert!(!king_takes_over(3_320_413_933_267_719_290)); // floor of the exact bar
+    assert!(king_takes_over(3_320_413_933_267_719_291)); // first conviction above it
+}
+
 /// Regression: a challenger below 18% on its own hotkey must not win even when the
 /// subnet-wide total conviction (challenger plus owner plus unrelated lockers) is far
 /// past 18%. This is the sum-versus-max hole that flipped SN72 under the old gate.
