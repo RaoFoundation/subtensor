@@ -1097,6 +1097,7 @@ where
     }
 
     #[precompile::public("moveStakeLimit(bytes32,bytes32,uint16,uint16,uint64,uint64,bool)")]
+    #[allow(clippy::too_many_arguments)]
     fn move_stake_limit(
         handle: &mut impl PrecompileHandle,
         origin_hotkey: H256,
