@@ -63,6 +63,12 @@ pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 5000;
 
 pub const ALPHA_MAP_BATCH_SIZE: usize = 30;
 
+/// Maximum bonds moving average allowed for subnet owners.
+pub const MAX_BONDS_MOVING_AVERAGE: u64 = 975_000;
+
+/// Smallest u16 alpha encoding that is not below `1 - MAX_BONDS_MOVING_AVERAGE / 1_000_000`.
+pub const MIN_ALPHA_LOW: u16 = 1_639;
+
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
 /// Declared pre-dispatch weight envelope for `claim_root` (benchmark upper bound). Actual
@@ -374,6 +380,30 @@ pub mod pallet {
         Burn,
         /// Recycle the miner emission sent to the recycle UID
         Recycle,
+    }
+
+    /// Selects which consensus values liquid alpha uses.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Default,
+        TypeInfo,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        MaxEncodedLen,
+    )]
+    pub enum ConsensusMode {
+        /// Use consensus calculated in the current epoch.
+        Current,
+        /// Use consensus persisted by the previous epoch.
+        Previous,
+        /// Use previous consensus at maximum bond penalty, otherwise current consensus.
+        #[default]
+        Auto,
     }
 
     /// Miner registration collateral for a `(hotkey, coldkey)` stake position
@@ -1069,6 +1099,12 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultAlphaValues<T: Config>() -> (u16, u16) {
         (45875, 58982)
+    }
+
+    /// Default consensus mode for liquid alpha.
+    #[pallet::type_value]
+    pub fn DefaultConsensusMode<T: Config>() -> ConsensusMode {
+        ConsensusMode::Auto
     }
 
     /// Default value for coldkey swap announcement delay.
@@ -2400,6 +2436,11 @@ pub mod pallet {
     pub type AlphaValues<T> =
         StorageMap<_, Identity, NetUid, (u16, u16), ValueQuery, DefaultAlphaValues<T>>;
 
+    /// Consensus mode used by liquid alpha for each subnet.
+    #[pallet::storage]
+    pub type LiquidAlphaConsensusMode<T> =
+        StorageMap<_, Identity, NetUid, ConsensusMode, ValueQuery, DefaultConsensusMode<T>>;
+
     /// MAP ( netuid ) --> If subtoken trading enabled
     #[pallet::storage]
     pub type SubtokenEnabled<T> =
@@ -2533,6 +2574,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type Consensus<T: Config> =
         StorageMap<_, Identity, NetUid, Vec<PerU16>, ValueQuery, EmptyPerU16Vec<T>>;
+
+    /// MAP ( netuid storage index ) --> previous epoch consensus for each mechanism
+    #[pallet::storage]
+    pub type ConsensusByMechanism<T: Config> =
+        StorageMap<_, Identity, NetUidStorageIndex, Vec<PerU16>, ValueQuery, EmptyPerU16Vec<T>>;
 
     /// MAP ( netuid ) --> incentive
     #[pallet::storage]

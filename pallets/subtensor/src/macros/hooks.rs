@@ -200,6 +200,15 @@ mod hooks {
                 // rank-32 bar (DefaultEmissionBarRank) applies from the first
                 // recompute after the upgrade instead of the next cadence boundary.
                 .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>())
+                // Repair stabilized SubnetAlphaOut undercounts caused by duplicated RAO-launch
+                // local dividends and legacy root dividends omitted from the root counter.
+                .saturating_add(migrations::migrate_fix_rao_alpha_out_accounting::migrate_fix_rao_alpha_out_accounting::<T>())
+                // Remove prior-generation alpha-asset counter offsets from recycled mainnet
+                // netuids without discarding burns accumulated by their current generations.
+                .saturating_add(migrations::migrate_rebase_recycled_alpha_asset_counters::migrate_rebase_recycled_alpha_asset_counters::<T>())
+                // Add pre-tracking burns to the generation-scoped AlphaBurned counters. This
+                // follows both AlphaOut repair and recycled-generation counter rebasing.
+                .saturating_add(migrations::migrate_backfill_historical_alpha_burned::migrate_backfill_historical_alpha_burned::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>());

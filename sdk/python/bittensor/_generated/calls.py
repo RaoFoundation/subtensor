@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 444
+Spec version: 447
 """
 from typing import Any, NamedTuple
 
@@ -24,6 +24,7 @@ BTreeSet = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
+ConsensusMode = Any
 Determinism = Any
 EquivocationProof = Any
 FixedI128 = Any
@@ -878,7 +879,7 @@ class AdminUtils:
 
     @staticmethod
     def schedule_grandpa_change(next_authorities: 'Any', in_blocks: 'u32', forced: 'Any') -> Call:
-        'A public interface for `pallet_grandpa::Pallet::schedule_grandpa_change`.  Schedule a change in the authorities.  The change will be applied at the end of execution of the block `in_blocks` after the current block. This value may be 0, in which case the change is applied at the end of the current block.  If the `forced` parameter is defined, this indicates that the current set has been synchronously determined to be offline and that after `in_blocks` the given change should be applied. The given block number indicates the median last finalized block number and it should be used as the canon block when starting the new grandpa voter.  No change should be signaled while any change is pending. Returns an error if a change is already pending.'
+        'A public interface for `pallet_grandpa::Pallet::schedule_grandpa_change`.  Schedule a change in the authorities.  The change is applied at the end of the current block, so `in_blocks` must be 0. This keeps the authority set and its set ID consistent in every persisted block state.  If the `forced` parameter is defined, this indicates that the current set has been synchronously determined to be offline. The given block number indicates the median last finalized block number and it should be used as the canon block when starting the new grandpa voter.  No change should be signaled while any change is pending. Returns an error if a change is already pending.'
         return Call('AdminUtils', 'schedule_grandpa_change', {'next_authorities': next_authorities, 'in_blocks': in_blocks, 'forced': forced})
 
     @staticmethod
@@ -1030,6 +1031,11 @@ class AdminUtils:
     def sudo_set_kappa(netuid: 'NetUid', kappa: 'u16') -> Call:
         'The extrinsic sets the kappa for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the kappa.'
         return Call('AdminUtils', 'sudo_set_kappa', {'netuid': netuid, 'kappa': kappa})
+
+    @staticmethod
+    def sudo_set_liquid_alpha_consensus_mode(netuid: 'NetUid', mode: 'ConsensusMode') -> Call:
+        'Sets which consensus values liquid alpha uses for a subnet.'
+        return Call('AdminUtils', 'sudo_set_liquid_alpha_consensus_mode', {'netuid': netuid, 'mode': mode})
 
     @staticmethod
     def sudo_set_liquid_alpha_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:

@@ -10,7 +10,7 @@ description: Registry for precompile availability.
 | Address | `0x0000000000000000000000000000000000000813` |
 | Status | Deployed |
 
-In v444, the registry reports the current operational availability of a whole
+In v445, the registry reports the current operational availability of a whole
 precompile through `isDisabled`. It does not report whether an individual
 selector exists, is deprecated, or has a replacement.
 
@@ -35,7 +35,7 @@ interface IPrecompileRegistry {
 
 The `selector` parameter and the `isDeprecated`, `newPrecompile`, `newSelector`,
 and `message` result fields are reserved for future selector-lifecycle support.
-In v444 those fields are not populated, and the selector is not interpreted.
+In v445 those fields are not populated, and the selector is not interpreted.
 Do not use this call to test whether a selector is supported; use the canonical
 Solidity interfaces and JSON ABIs for selector discovery.
 

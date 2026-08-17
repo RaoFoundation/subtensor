@@ -128,8 +128,10 @@ Quick reference:
   On mainnet today [`MaturityRate`](/code/pallets/subtensor/src/lib.rs#L1654) is 311,622 blocks (~43 days) and
   [`UnlockRate`](/code/pallets/subtensor/src/lib.rs#L1658) is 934,866 blocks (~130 days) — read them live before planning
   around either.
-- Aggregate conviction can trigger **subnet ownership** after one year when
-  total conviction ≥ 10% of [`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424).
+- Conviction can trigger **subnet ownership** after one year when the
+  highest-conviction hotkey holds more than 18% of eligible alpha on its own
+  (`SubnetAlphaOut − SubnetProtocolAlpha − AlphaBurned`). The subtraction
+  saturates at zero; a zero eligible balance cannot trigger a transfer.
 - Query with [`subnet-convictions`](/docs/query/subnet-convictions),
   [`hotkey-conviction`](/docs/query/hotkey-conviction),
   [`coldkey-lock`](/docs/query/coldkey-lock).

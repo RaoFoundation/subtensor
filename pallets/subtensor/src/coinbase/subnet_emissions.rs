@@ -347,17 +347,50 @@ impl<T: Config> Pallet<T> {
         offset_flows
     }
 
-    // Price-based emission shares: each subnet's share is its EMA price normalized
-    // by the sum of EMA prices, passed through the emission gate. Emit-disabled
-    // subnets are zeroed and their share redistributed to enabled subnets in
-    // `get_subnet_block_emissions`, so the effective emission is
-    // e_i = gate(s_i) * s_i / sum(gate(s_j) * s_j) over emit-enabled subnets.
+    // Price-based emission shares: normalize EMA prices, reweight each share by
+    // (1 - MinerBurned), renormalize, then pass the result through the emission
+    // gate. Emit-disabled subnets are zeroed and their share redistributed to
+    // enabled subnets in `get_subnet_block_emissions`.
     pub(crate) fn get_shares(subnets_to_emit_to: &[NetUid]) -> BTreeMap<NetUid, U64F64> {
-        let mut shares = Self::get_shares_price_ema(subnets_to_emit_to);
+        let price_shares = Self::get_shares_price_ema(subnets_to_emit_to);
+        let mut shares = Self::scale_price_shares_by_miner_burn(price_shares);
 
         Self::maybe_update_emission_gate_bar(&shares);
         Self::apply_emission_gate(&mut shares);
         shares
+    }
+
+    /// Scales normalized EMA-price shares by `(1 - MinerBurned)` and
+    /// renormalizes them. If every resulting weight is zero, returns the
+    /// original price shares so emission is not stranded.
+    fn scale_price_shares_by_miner_burn(
+        price_shares: BTreeMap<NetUid, U64F64>,
+    ) -> BTreeMap<NetUid, U64F64> {
+        let zero = U64F64::saturating_from_num(0);
+        let one = U64F64::saturating_from_num(1);
+        let weighted: BTreeMap<NetUid, U64F64> = price_shares
+            .iter()
+            .map(|(netuid, share)| {
+                let burned = U64F64::saturating_from_num(MinerBurned::<T>::get(netuid)).min(one);
+                let factor = one.saturating_sub(burned);
+
+                (*netuid, share.saturating_mul(factor))
+            })
+            .collect();
+
+        let total_weight = weighted
+            .values()
+            .copied()
+            .fold(zero, |acc, weight| acc.saturating_add(weight));
+
+        if total_weight > zero {
+            weighted
+                .into_iter()
+                .map(|(netuid, weight)| (netuid, weight.safe_div(total_weight)))
+                .collect()
+        } else {
+            price_shares
+        }
     }
 
     /// Blocks between emission gate bar recomputations. Matching the standard

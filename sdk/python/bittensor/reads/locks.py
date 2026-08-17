@@ -18,6 +18,14 @@ _DEFAULT_LOCK_RATE = 934_866
 _ONE_YEAR_BLOCKS = 7200 * 365 + 1800
 
 
+def _eligible_alpha(alpha_out: Any, protocol_alpha: Any, alpha_burned: Any) -> int:
+    """Alpha that can support an ownership challenger, saturating at zero."""
+    return max(
+        0,
+        int(alpha_out or 0) - int(protocol_alpha or 0) - int(alpha_burned or 0),
+    )
+
+
 async def _lock_record(view, coldkey_ss58: str, netuid: int, hotkey: str) -> Optional[dict]:
     """One lock rolled forward to now: the runtime API supplies the decayed
     ``LockState`` (``locked_mass``/``conviction``); the hotkey comes from the
@@ -182,31 +190,45 @@ def _conviction_at(
     )
 
 
+def _clears_ownership_gate(conviction: float, eligible_alpha: int) -> bool:
+    """Strict mirror of the runtime admission check:
+    ``conviction * 100 > eligible_alpha * 18``. Exactly 18% does not pass."""
+    return conviction * 100 > eligible_alpha * 18
+
+
 def _blocks_until_conviction(
     buckets: list[_LockBucket],
-    threshold: float,
+    eligible_alpha: int,
     unlock_rate: float,
     maturity_rate: float,
 ) -> Optional[int]:
-    """Blocks until the buckets' combined conviction first reaches ``threshold``,
-    0 when already there, or None when it never gets there at current locks.
+    """Blocks until the buckets' combined conviction first clears the ownership
+    gate (strictly more than 18% of ``eligible_alpha``), 0 when already past,
+    or None when it never gets there at current locks.
 
     Conviction is not monotonic (decaying locks mature and then fade), so this
-    scans forward over ~10 timescales and bisects the first crossing.
+    scans forward over ~10 timescales and bisects the first crossing. Every
+    comparison uses the same strict predicate as the runtime gate.
     """
-    if threshold <= 0:
+    if eligible_alpha <= 0:
         return None
-    if _conviction_at(buckets, 0, unlock_rate, maturity_rate) >= threshold:
+
+    def _clears(dt: float) -> bool:
+        return _clears_ownership_gate(
+            _conviction_at(buckets, dt, unlock_rate, maturity_rate), eligible_alpha
+        )
+
+    if _clears(0):
         return 0
     horizon = int(10 * max(unlock_rate, maturity_rate, 1.0))
     step = max(1, horizon // 4000)
     previous = 0
     for dt in range(step, horizon + 1, step):
-        if _conviction_at(buckets, dt, unlock_rate, maturity_rate) >= threshold:
+        if _clears(dt):
             low, high = previous, dt
             while high - low > 1:
                 mid = (low + high) // 2
-                if _conviction_at(buckets, mid, unlock_rate, maturity_rate) >= threshold:
+                if _clears(mid):
                     high = mid
                 else:
                     low = mid
@@ -225,13 +247,18 @@ async def subnet_convictions(view, netuid: int) -> dict:
     """Every hotkey with locked stake on a subnet, rolled forward to now.
 
     Per hotkey: locked mass, conviction, and the estimated blocks until its
-    conviction reaches 10% of the subnet's outstanding alpha. That per-hotkey
-    figure is a projection heuristic, not a takeover trigger: the ownership
-    takeover in ``change_subnet_owner_if_needed`` requires the subnet to be
-    at least ~1 year old (2,629,800 blocks) and the total aggregate
-    conviction across all lockers to reach 10% of ``SubnetAlphaOut``, at
-    which point the highest-conviction hotkey's coldkey becomes the subnet
-    owner. Projections assume the lock rates and alpha out stay constant.
+    own conviction strictly exceeds 18% of the subnet's eligible alpha.
+    Eligible alpha is ``SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned``
+    (saturating at zero). ``change_subnet_owner_if_needed`` reassigns
+    ownership when the subnet is at least ~1 year old (2,629,800 blocks) and
+    the highest-conviction hotkey holds more than 18% of eligible alpha on
+    its own, at which point that hotkey's coldkey becomes the subnet owner.
+    The gate measures a single hotkey — exactly 18% is not enough — so
+    ``leader_hotkey`` and ``leader_blocks_to_threshold`` describe the current
+    conviction leader's standing against the gate, while the subnet-wide
+    ``total_conviction_alpha`` is reported for context only and never gates
+    the takeover. Projections assume the lock rates and alpha accounting
+    stay constant.
     """
     view = await view.at()
     (
@@ -241,6 +268,8 @@ async def subnet_convictions(view, netuid: int) -> dict:
         decaying_owner_lock,
         owner_hotkey,
         alpha_out,
+        protocol_alpha,
+        alpha_burned,
         unlock_rate,
         maturity_rate,
         registered_at,
@@ -251,6 +280,8 @@ async def subnet_convictions(view, netuid: int) -> dict:
         view.query(st.SubtensorModule.DecayingOwnerLock, [netuid]),
         view.query(st.SubtensorModule.SubnetOwnerHotkey, [netuid]),
         view.query(st.SubtensorModule.SubnetAlphaOut, [netuid]),
+        view.query(st.SubtensorModule.SubnetProtocolAlpha, [netuid]),
+        view.query(st.AlphaAssets.AlphaBurned, [netuid]),
         view.query(st.SubtensorModule.UnlockRate),
         view.query(st.SubtensorModule.MaturityRate),
         view.query(st.SubtensorModule.NetworkRegisteredAt, [netuid]),
@@ -294,7 +325,8 @@ async def subnet_convictions(view, netuid: int) -> dict:
             _rolled_bucket(decaying_owner_lock, perpetual=False, owner=True)
         )
 
-    threshold = int(alpha_out or 0) / 10
+    eligible_alpha = _eligible_alpha(alpha_out, protocol_alpha, alpha_burned)
+    threshold = eligible_alpha * 18 / 100
     entries = []
     for hotkey, hotkey_buckets in buckets.items():
         locked = sum(mass for mass, _, _, _ in hotkey_buckets)
@@ -307,11 +339,12 @@ async def subnet_convictions(view, netuid: int) -> dict:
                 "conviction_alpha": view.balance(int(conviction), netuid),
                 "pct_of_threshold": conviction / threshold if threshold else None,
                 "blocks_to_threshold": _blocks_until_conviction(
-                    hotkey_buckets, threshold, unlock_rate, maturity_rate
+                    hotkey_buckets, eligible_alpha, unlock_rate, maturity_rate
                 ),
             }
         )
     entries.sort(key=lambda entry: -entry["conviction_alpha"].rao)
+    leader = entries[0] if entries else None
 
     all_buckets = [bucket for group in buckets.values() for bucket in group]
     total_locked = sum(mass for mass, _, _, _ in all_buckets)
@@ -320,12 +353,14 @@ async def subnet_convictions(view, netuid: int) -> dict:
         "netuid": netuid,
         "block": now,
         "alpha_out": view.balance(int(alpha_out or 0), netuid),
+        "protocol_alpha": view.balance(int(protocol_alpha or 0), netuid),
+        "alpha_burned": view.balance(int(alpha_burned or 0), netuid),
+        "eligible_alpha": view.balance(eligible_alpha, netuid),
         "threshold_alpha": view.balance(int(threshold), netuid),
         "total_locked_alpha": view.balance(int(total_locked), netuid),
         "total_conviction_alpha": view.balance(int(total_conviction), netuid),
-        "total_blocks_to_threshold": _blocks_until_conviction(
-            all_buckets, threshold, unlock_rate, maturity_rate
-        ),
+        "leader_hotkey": leader["hotkey"] if leader else None,
+        "leader_blocks_to_threshold": leader["blocks_to_threshold"] if leader else None,
         "unlock_rate": unlock_rate,
         "maturity_rate": maturity_rate,
         "owner_hotkey": owner_hotkey,

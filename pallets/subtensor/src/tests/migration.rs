@@ -6611,6 +6611,372 @@ fn test_migrate_reset_emission_gate_bar() {
 }
 
 #[test]
+fn test_rao_alpha_out_corrections_are_generation_safe() {
+    use crate::migrations::migrate_fix_rao_alpha_out_accounting::ALPHA_OUT_CORRECTIONS;
+
+    const RECYCLED_NETUIDS: &[u16] = &[15, 16, 26, 31, 36, 38, 40, 47, 49, 57, 58];
+
+    assert_eq!(ALPHA_OUT_CORRECTIONS.len(), 56);
+    assert!(
+        ALPHA_OUT_CORRECTIONS
+            .windows(2)
+            .all(|entries| entries[0].0 < entries[1].0),
+        "correction netuids must be unique and sorted"
+    );
+    assert!(RECYCLED_NETUIDS.iter().all(|recycled| {
+        !ALPHA_OUT_CORRECTIONS
+            .iter()
+            .any(|(netuid, _, _)| netuid == recycled)
+    }));
+    assert!(
+        ALPHA_OUT_CORRECTIONS
+            .iter()
+            .all(|&(netuid, registered_at, _)| netuid == 0 || registered_at > 0),
+        "every non-root correction must identify its subnet generation"
+    );
+    assert_eq!(
+        ALPHA_OUT_CORRECTIONS
+            .iter()
+            .map(|(_, _, correction)| u128::from(*correction))
+            .sum::<u128>(),
+        1_618_308_219_994_798
+    );
+}
+
+#[test]
+fn test_migrate_fix_rao_alpha_out_accounting() {
+    use crate::migrations::migrate_fix_rao_alpha_out_accounting::{
+        ALPHA_OUT_CORRECTIONS, MIGRATION_NAME, migrate_fix_rao_alpha_out_accounting,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let mainnet_genesis =
+            hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_slice(&mainnet_genesis));
+
+        for &(netuid, registered_at, _) in ALPHA_OUT_CORRECTIONS {
+            let netuid = NetUid::from(netuid);
+            NetworkRegisteredAt::<Test>::insert(netuid, registered_at);
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_u64));
+        }
+
+        let weight = migrate_fix_rao_alpha_out_accounting::<Test>();
+        assert!(!weight.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        for &(netuid, _, correction) in ALPHA_OUT_CORRECTIONS {
+            assert_eq!(
+                SubnetAlphaOut::<Test>::get(NetUid::from(netuid)),
+                AlphaBalance::from(correction.saturating_add(10))
+            );
+        }
+
+        // The run-once guard prevents a second application.
+        migrate_fix_rao_alpha_out_accounting::<Test>();
+        for &(netuid, _, correction) in ALPHA_OUT_CORRECTIONS {
+            assert_eq!(
+                SubnetAlphaOut::<Test>::get(NetUid::from(netuid)),
+                AlphaBalance::from(correction.saturating_add(10))
+            );
+        }
+    });
+}
+
+#[test]
+fn test_migrate_fix_rao_alpha_out_accounting_skips_wrong_generation() {
+    use crate::migrations::migrate_fix_rao_alpha_out_accounting::{
+        ALPHA_OUT_CORRECTIONS, migrate_fix_rao_alpha_out_accounting,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let mainnet_genesis =
+            hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_slice(&mainnet_genesis));
+
+        for &(netuid, registered_at, _) in ALPHA_OUT_CORRECTIONS {
+            let netuid = NetUid::from(netuid);
+            NetworkRegisteredAt::<Test>::insert(netuid, registered_at);
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_u64));
+        }
+
+        let (mismatched_netuid, registered_at, _) = ALPHA_OUT_CORRECTIONS[1];
+        let mismatched_netuid = NetUid::from(mismatched_netuid);
+        NetworkRegisteredAt::<Test>::insert(mismatched_netuid, registered_at.saturating_add(1));
+
+        migrate_fix_rao_alpha_out_accounting::<Test>();
+
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(mismatched_netuid),
+            AlphaBalance::from(10_u64),
+            "a correction must never be applied to a different subnet generation"
+        );
+    });
+}
+
+#[test]
+fn test_migrate_fix_rao_alpha_out_accounting_skips_non_mainnet() {
+    use crate::migrations::migrate_fix_rao_alpha_out_accounting::{
+        MIGRATION_NAME, migrate_fix_rao_alpha_out_accounting,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1_u16);
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_u64));
+
+        migrate_fix_rao_alpha_out_accounting::<Test>();
+
+        assert_eq!(
+            SubnetAlphaOut::<Test>::get(netuid),
+            AlphaBalance::from(10_u64)
+        );
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+    });
+}
+
+#[test]
+fn test_migrate_rebases_recycled_alpha_counters_by_generation() {
+    use crate::migrations::migrate_rebase_recycled_alpha_asset_counters::{
+        MIGRATION_NAME, RECYCLED_ALPHA_COUNTER_OFFSETS,
+        migrate_rebase_recycled_alpha_asset_counters,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let mainnet_genesis =
+            hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_slice(&mainnet_genesis));
+
+        for &(netuid, registered_at, issuance, burned, recycled) in RECYCLED_ALPHA_COUNTER_OFFSETS {
+            let netuid = NetUid::from(netuid);
+            NetworkRegisteredAt::<Test>::insert(netuid, registered_at);
+            pallet_alpha_assets::TotalAlphaIssuance::<Test>::insert(
+                netuid,
+                AlphaBalance::from(issuance.saturating_add(11)),
+            );
+            pallet_alpha_assets::AlphaBurned::<Test>::insert(
+                netuid,
+                AlphaBalance::from(burned.saturating_add(22)),
+            );
+            pallet_alpha_assets::AlphaRecycled::<Test>::insert(
+                netuid,
+                AlphaBalance::from(recycled.saturating_add(33)),
+            );
+        }
+
+        let weight = migrate_rebase_recycled_alpha_asset_counters::<Test>();
+        assert!(!weight.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        for &(netuid, _, _, _, _) in RECYCLED_ALPHA_COUNTER_OFFSETS {
+            let netuid = NetUid::from(netuid);
+            assert_eq!(
+                pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid),
+                AlphaBalance::from(11)
+            );
+            assert_eq!(
+                pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+                AlphaBalance::from(22)
+            );
+            assert_eq!(
+                pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid),
+                AlphaBalance::from(33)
+            );
+        }
+
+        // The run-once guard preserves the already-rebased values.
+        migrate_rebase_recycled_alpha_asset_counters::<Test>();
+        for &(netuid, _, _, _, _) in RECYCLED_ALPHA_COUNTER_OFFSETS {
+            assert_eq!(
+                pallet_alpha_assets::AlphaBurned::<Test>::get(NetUid::from(netuid)),
+                AlphaBalance::from(22)
+            );
+        }
+    });
+}
+
+#[test]
+fn test_migrate_recycled_alpha_counters_skips_wrong_generation() {
+    use crate::migrations::migrate_rebase_recycled_alpha_asset_counters::{
+        RECYCLED_ALPHA_COUNTER_OFFSETS, migrate_rebase_recycled_alpha_asset_counters,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let mainnet_genesis =
+            hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_slice(&mainnet_genesis));
+
+        for &(netuid, registered_at, _, _, _) in RECYCLED_ALPHA_COUNTER_OFFSETS {
+            NetworkRegisteredAt::<Test>::insert(NetUid::from(netuid), registered_at);
+        }
+
+        let (mismatched_netuid, registered_at, _, burned, _) = RECYCLED_ALPHA_COUNTER_OFFSETS[0];
+        let mismatched_netuid = NetUid::from(mismatched_netuid);
+        NetworkRegisteredAt::<Test>::insert(mismatched_netuid, registered_at.saturating_add(1));
+        pallet_alpha_assets::AlphaBurned::<Test>::insert(
+            mismatched_netuid,
+            AlphaBalance::from(burned.saturating_add(99)),
+        );
+
+        migrate_rebase_recycled_alpha_asset_counters::<Test>();
+
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(mismatched_netuid),
+            AlphaBalance::from(burned.saturating_add(99)),
+            "an offset must never be applied to a different subnet generation"
+        );
+    });
+}
+
+#[test]
+fn test_recycled_alpha_counter_offsets_cover_current_registrations() {
+    use crate::migrations::migrate_rebase_recycled_alpha_asset_counters::RECYCLED_ALPHA_COUNTER_OFFSETS;
+
+    assert_eq!(RECYCLED_ALPHA_COUNTER_OFFSETS.len(), 10);
+    assert!(
+        RECYCLED_ALPHA_COUNTER_OFFSETS
+            .windows(2)
+            .all(|rows| rows[0].1 < rows[1].1),
+        "counter offsets must be ordered by registration block"
+    );
+    assert!(RECYCLED_ALPHA_COUNTER_OFFSETS.contains(&(
+        90,
+        8_618_670,
+        345_144_192_991_428,
+        116_392_269_522_858,
+        80_950_014_273,
+    )));
+}
+
+#[test]
+fn test_migrate_backfills_historical_alpha_burns_by_generation() {
+    use crate::migrations::migrate_backfill_historical_alpha_burned::{
+        HISTORICAL_ALPHA_BURNED, MIGRATION_NAME, migrate_backfill_historical_alpha_burned,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let mainnet_genesis =
+            hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_slice(&mainnet_genesis));
+
+        for &(netuid, registered_at, _) in HISTORICAL_ALPHA_BURNED {
+            let netuid = NetUid::from(netuid);
+            NetworkRegisteredAt::<Test>::insert(netuid, registered_at);
+            pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(17_u64));
+            pallet_alpha_assets::TotalAlphaIssuance::<Test>::insert(
+                netuid,
+                AlphaBalance::from(31_u64),
+            );
+            pallet_alpha_assets::AlphaRecycled::<Test>::insert(netuid, AlphaBalance::from(43_u64));
+        }
+
+        let weight = migrate_backfill_historical_alpha_burned::<Test>();
+        assert!(!weight.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        for &(netuid, _, historical_burned) in HISTORICAL_ALPHA_BURNED {
+            let netuid = NetUid::from(netuid);
+            assert_eq!(
+                pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+                AlphaBalance::from(historical_burned.saturating_add(17)),
+            );
+            assert_eq!(
+                pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid),
+                AlphaBalance::from(31_u64),
+            );
+            assert_eq!(
+                pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid),
+                AlphaBalance::from(43_u64),
+            );
+        }
+
+        migrate_backfill_historical_alpha_burned::<Test>();
+        for &(netuid, _, historical_burned) in HISTORICAL_ALPHA_BURNED {
+            assert_eq!(
+                pallet_alpha_assets::AlphaBurned::<Test>::get(NetUid::from(netuid)),
+                AlphaBalance::from(historical_burned.saturating_add(17)),
+            );
+        }
+    });
+}
+
+#[test]
+fn test_historical_alpha_burn_reconstruction_is_complete_and_canonical() {
+    use crate::migrations::migrate_backfill_historical_alpha_burned::HISTORICAL_ALPHA_BURNED;
+
+    assert_eq!(HISTORICAL_ALPHA_BURNED.len(), 119);
+    assert!(
+        HISTORICAL_ALPHA_BURNED
+            .windows(2)
+            .all(|rows| rows[0].0 < rows[1].0),
+        "netuids must be unique and sorted"
+    );
+    assert!(
+        HISTORICAL_ALPHA_BURNED
+            .iter()
+            .all(|&(_, registered_at, burned)| registered_at > 0 && burned > 0)
+    );
+    assert_eq!(
+        HISTORICAL_ALPHA_BURNED
+            .iter()
+            .map(|&(_, _, burned)| burned)
+            .sum::<u64>(),
+        61_723_043_979_842_021,
+    );
+}
+
+#[test]
+fn test_migrate_historical_alpha_burns_skips_wrong_generation() {
+    use crate::migrations::migrate_backfill_historical_alpha_burned::{
+        HISTORICAL_ALPHA_BURNED, migrate_backfill_historical_alpha_burned,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let mainnet_genesis =
+            hex_literal::hex!("2f0555cc76fc2840a25a6ea3b9637146806f1f44b090c175ffde2a7e5ab36c03");
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_slice(&mainnet_genesis));
+
+        for &(netuid, registered_at, _) in HISTORICAL_ALPHA_BURNED {
+            NetworkRegisteredAt::<Test>::insert(NetUid::from(netuid), registered_at);
+        }
+
+        let (mismatched_netuid, registered_at, _) = HISTORICAL_ALPHA_BURNED[0];
+        let mismatched_netuid = NetUid::from(mismatched_netuid);
+        NetworkRegisteredAt::<Test>::insert(mismatched_netuid, registered_at.saturating_add(1));
+        pallet_alpha_assets::AlphaBurned::<Test>::insert(
+            mismatched_netuid,
+            AlphaBalance::from(99_u64),
+        );
+
+        migrate_backfill_historical_alpha_burned::<Test>();
+
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(mismatched_netuid),
+            AlphaBalance::from(99_u64),
+        );
+    });
+}
+
+#[test]
+fn test_migrate_historical_alpha_burns_skips_non_mainnet() {
+    use crate::migrations::migrate_backfill_historical_alpha_burned::{
+        HISTORICAL_ALPHA_BURNED, MIGRATION_NAME, migrate_backfill_historical_alpha_burned,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let (netuid, registered_at, _) = HISTORICAL_ALPHA_BURNED[0];
+        let netuid = NetUid::from(netuid);
+        NetworkRegisteredAt::<Test>::insert(netuid, registered_at);
+        pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(77_u64));
+
+        migrate_backfill_historical_alpha_burned::<Test>();
+
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            AlphaBalance::from(77_u64),
+        );
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+    });
+}
+
+#[test]
 fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
     use crate::migrations::migrate_storage_bloat_v2::{
         StorageBloatCleanupMigration, continue_storage_bloat_cleanup, kickoff_storage_bloat_cleanup,

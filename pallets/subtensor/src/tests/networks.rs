@@ -395,6 +395,10 @@ fn dissolve_clears_all_per_subnet_storages() {
         Active::<Test>::insert(net, vec![true]);
         Emission::<Test>::insert(net, vec![AlphaBalance::from(1)]);
         Incentive::<Test>::insert(NetUidStorageIndex::from(net), vec![PerU16::from_parts(1)]);
+        ConsensusByMechanism::<Test>::insert(
+            NetUidStorageIndex::from(net),
+            vec![PerU16::from_parts(1)],
+        );
         Consensus::<Test>::insert(net, vec![PerU16::from_parts(1)]);
         Dividends::<Test>::insert(net, vec![PerU16::from_parts(1)]);
         LastUpdate::<Test>::insert(NetUidStorageIndex::from(net), vec![0u64]);
@@ -492,6 +496,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         LiquidAlphaOn::<Test>::insert(net, true);
         Yuma3On::<Test>::insert(net, true);
         AlphaValues::<Test>::insert(net, (1u16, 2u16));
+        LiquidAlphaConsensusMode::<Test>::insert(net, ConsensusMode::Previous);
         SubtokenEnabled::<Test>::insert(net, true);
         OwnerCutAutoLockEnabled::<Test>::insert(net, true);
         ImmuneOwnerUidsLimit::<Test>::insert(net, 1u16);
@@ -545,6 +550,9 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!Incentive::<Test>::contains_key(NetUidStorageIndex::from(
             net
         )));
+        assert!(!ConsensusByMechanism::<Test>::contains_key(
+            NetUidStorageIndex::from(net)
+        ));
         assert!(!Consensus::<Test>::contains_key(net));
         assert!(!Dividends::<Test>::contains_key(net));
         assert!(!LastUpdate::<Test>::contains_key(NetUidStorageIndex::from(
@@ -651,6 +659,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!LiquidAlphaOn::<Test>::contains_key(net));
         assert!(!Yuma3On::<Test>::contains_key(net));
         assert!(!AlphaValues::<Test>::contains_key(net));
+        assert!(!LiquidAlphaConsensusMode::<Test>::contains_key(net));
         assert!(!SubtokenEnabled::<Test>::contains_key(net));
         assert!(!OwnerCutAutoLockEnabled::<Test>::contains_key(net));
         assert!(!ImmuneOwnerUidsLimit::<Test>::contains_key(net));
@@ -3282,6 +3291,57 @@ fn registered_subnet_counter_survives_dissolve_and_bumps_on_reregistration() {
             SubtensorModule::get_registered_subnet_counter(netuid),
             2,
             "re-registration must bump counter"
+        );
+    });
+}
+
+#[test]
+fn alpha_asset_counters_do_not_cross_subnet_generations() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_max_subnets(2);
+
+        let owner_cold = U256::from(200);
+        let owner_hot = U256::from(201);
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+
+        AlphaAssets::mint_alpha(netuid, AlphaBalance::from(100));
+        AlphaAssets::burn_alpha(netuid, AlphaBalance::from(30));
+        AlphaAssets::recycle_alpha(netuid, AlphaBalance::from(20));
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            AlphaBalance::from(30)
+        );
+
+        assert_ok!(SubtensorModule::do_dissolve_network(netuid));
+        run_block_idle();
+
+        assert!(!pallet_alpha_assets::TotalAlphaIssuance::<Test>::contains_key(netuid));
+        assert!(!pallet_alpha_assets::AlphaBurned::<Test>::contains_key(
+            netuid
+        ));
+        assert!(!pallet_alpha_assets::AlphaRecycled::<Test>::contains_key(
+            netuid
+        ));
+
+        // Simulate counters left by a legacy cleanup. Registration is a second
+        // generation boundary and must clear them before reusing the netuid.
+        pallet_alpha_assets::TotalAlphaIssuance::<Test>::insert(netuid, AlphaBalance::from(1_000));
+        pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(900));
+        pallet_alpha_assets::AlphaRecycled::<Test>::insert(netuid, AlphaBalance::from(800));
+
+        let reused_netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        assert_eq!(reused_netuid, netuid);
+        assert_eq!(
+            pallet_alpha_assets::TotalAlphaIssuance::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid),
+            AlphaBalance::ZERO
         );
     });
 }

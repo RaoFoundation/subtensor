@@ -97,6 +97,7 @@ impl<T: Config> Pallet<T> {
         terms_sorted.sort_unstable_by_key(|t| t.uid);
 
         let incentive = extract_from_sorted_terms!(terms_sorted, incentive);
+        let consensus = extract_from_sorted_terms!(terms_sorted, consensus);
         let bonds: Vec<Vec<(u16, u16)>> = terms_sorted
             .iter()
             .cloned()
@@ -106,6 +107,8 @@ impl<T: Config> Pallet<T> {
         // Epoch math stays in raw u16; wrap into PerU16 only at the storage boundary.
         let incentive: Vec<PerU16> = incentive.into_iter().map(PerU16::from_parts).collect();
         Incentive::<T>::insert(netuid_index, incentive);
+        let consensus: Vec<PerU16> = consensus.into_iter().map(PerU16::from_parts).collect();
+        ConsensusByMechanism::<T>::insert(netuid_index, consensus);
 
         let server_emission = extract_from_sorted_terms!(terms_sorted, server_emission);
         Self::deposit_event(Event::IncentiveAlphaEmittedToMiners {
@@ -376,7 +379,7 @@ impl<T: Config> Pallet<T> {
             log::trace!("B: {:?}", &bonds);
 
             // Compute the Exponential Moving Average (EMA) of bonds.
-            ema_bonds = Self::compute_bonds(netuid, &weights_for_bonds, &bonds, &consensus);
+            ema_bonds = Self::compute_bonds(netuid_index, &weights_for_bonds, &bonds, &consensus);
             log::trace!("emaB: {:?}", &ema_bonds);
 
             // Normalize EMA bonds.
@@ -527,6 +530,14 @@ impl<T: Config> Pallet<T> {
         // Epoch math stays in raw u16; wrap into PerU16 only at the storage boundary.
         Consensus::<T>::insert(
             netuid,
+            cloned_consensus
+                .clone()
+                .into_iter()
+                .map(PerU16::from_parts)
+                .collect::<Vec<PerU16>>(),
+        );
+        ConsensusByMechanism::<T>::insert(
+            netuid_index,
             cloned_consensus
                 .into_iter()
                 .map(PerU16::from_parts)
@@ -1254,7 +1265,7 @@ impl<T: Config> Pallet<T> {
     /// # Arguments
     /// * `bonds_delta`: A vector of bond deltas.
     /// * `bonds`: A vector of bonds.
-    /// * `netuid`: The network ID.
+    /// * `netuid_index`: The mechanism storage index.
     ///
     /// # Returns
     /// A vector of EMA bonds.
@@ -1322,51 +1333,48 @@ impl<T: Config> Pallet<T> {
     /// Compute the Exponential Moving Average (EMA) of bonds based on the Liquid Alpha setting
     ///
     /// # Arguments
-    /// * `netuid`: The network ID.
+    /// * `netuid_index`: The mechanism storage index.
     /// * `weights`: A vector of weights.
     /// * `bonds`: A vector of bonds.
     /// * `consensus`: A vector of consensus values.
-    /// * `active_stake`: A vector of active stake values.
     ///
     /// # Returns
     /// A vector of EMA bonds.
     pub fn compute_bonds(
-        netuid: NetUid,
+        netuid_index: NetUidStorageIndex,
         weights: &[Vec<I32F32>], // weights_for_bonds
         bonds: &[Vec<I32F32>],
         consensus: &[I32F32],
     ) -> Vec<Vec<I32F32>> {
-        // Check if Liquid Alpha is enabled, consensus is not empty, and contains non-zero values.
-        if LiquidAlphaOn::<T>::get(netuid)
-            && !consensus.is_empty()
-            && consensus
-                .iter()
-                .any(|&c| c != I32F32::saturating_from_num(0))
-        {
-            // Liquid Alpha is enabled, compute the liquid alphas matrix.
-            let alphas: Vec<Vec<I32F32>> =
-                Self::compute_liquid_alpha_values(netuid, weights, bonds, consensus);
-            log::trace!("alphas: {:?}", &alphas);
+        let netuid = Self::get_netuid(netuid_index);
 
-            // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
-            mat_ema_alpha(weights, bonds, &alphas)
-        } else {
-            // Liquid Alpha is disabled, compute the liquid alpha value.
-            let alpha: I32F32 = Self::compute_disabled_liquid_alpha(netuid);
+        if LiquidAlphaOn::<T>::get(netuid) {
+            let selected = Self::compute_consensus_for_liquid_alpha(netuid_index, consensus);
+            if !selected.is_empty()
+                && selected
+                    .iter()
+                    .any(|&c| c != I32F32::saturating_from_num(0))
+            {
+                let alphas = Self::compute_liquid_alpha_values(netuid, weights, bonds, &selected);
+                log::trace!("alphas: {:?}", &alphas);
 
-            // Compute the Exponential Moving Average (EMA) of bonds using the calculated alpha value.
-            mat_ema(weights, bonds, alpha)
+                // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
+                return mat_ema_alpha(weights, bonds, &alphas);
+            }
         }
+
+        // Liquid Alpha is disabled or the selected consensus is empty/all-zero.
+        let alpha: I32F32 = Self::compute_disabled_liquid_alpha(netuid);
+        mat_ema(weights, bonds, alpha)
     }
 
     /// Compute the Exponential Moving Average (EMA) of bonds based on the Liquid Alpha setting for a sparse matrix.
     ///
     /// # Arguments
-    /// * `netuid`: The network ID.
+    /// * `netuid_index`: The mechanism storage index.
     /// * `weights`: A vector of weights.
     /// * `bonds`: A vector of bonds.
     /// * `consensus`: A vector of consensus values.
-    /// * `active_stake`: A vector of active stake values.
     ///
     /// # Returns
     /// A vector of EMA bonds.
@@ -1378,27 +1386,57 @@ impl<T: Config> Pallet<T> {
     ) -> Vec<Vec<(u16, I32F32)>> {
         let (netuid, _) = Self::get_netuid_and_subid(netuid_index).unwrap_or_default();
 
-        // Check if Liquid Alpha is enabled, consensus is not empty, and contains non-zero values.
-        if LiquidAlphaOn::<T>::get(netuid)
-            && !consensus.is_empty()
-            && consensus
-                .iter()
-                .any(|&c| c != I32F32::saturating_from_num(0))
-        {
-            // Liquid Alpha is enabled, compute the liquid alphas matrix.
-            let alphas: Vec<Vec<I32F32>> =
-                Self::compute_liquid_alpha_values_sparse(netuid, weights, bonds, consensus);
-            log::trace!("alphas: {:?}", &alphas);
+        if LiquidAlphaOn::<T>::get(netuid) {
+            let selected = Self::compute_consensus_for_liquid_alpha(netuid_index, consensus);
+            if !selected.is_empty()
+                && selected
+                    .iter()
+                    .any(|&c| c != I32F32::saturating_from_num(0))
+            {
+                let alphas =
+                    Self::compute_liquid_alpha_values_sparse(netuid, weights, bonds, &selected);
+                log::trace!("alphas: {:?}", &alphas);
 
-            // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
-            mat_ema_alpha_sparse(weights, bonds, &alphas)
-        } else {
-            // Liquid Alpha is disabled, compute the liquid alpha value.
-            let alpha: I32F32 = Self::compute_disabled_liquid_alpha(netuid);
-
-            // Compute the Exponential Moving Average (EMA) of bonds using the calculated alpha value.
-            mat_ema_sparse(weights, bonds, alpha)
+                // Compute the Exponential Moving Average (EMA) of bonds using the provided clamped alpha values.
+                return mat_ema_alpha_sparse(weights, bonds, &alphas);
+            }
         }
+
+        // Liquid Alpha is disabled or the selected consensus is empty/all-zero.
+        let alpha: I32F32 = Self::compute_disabled_liquid_alpha(netuid);
+        mat_ema_sparse(weights, bonds, alpha)
+    }
+
+    pub(crate) fn compute_consensus_for_liquid_alpha(
+        netuid_index: NetUidStorageIndex,
+        current: &[I32F32],
+    ) -> Vec<I32F32> {
+        let netuid = Self::get_netuid(netuid_index);
+        let use_previous = match Self::get_liquid_alpha_consensus_mode(netuid) {
+            ConsensusMode::Current => false,
+            ConsensusMode::Previous => true,
+            ConsensusMode::Auto => Self::get_bonds_penalty(netuid) == u16::MAX,
+        };
+
+        if !use_previous {
+            return current.to_vec();
+        }
+
+        let stored = ConsensusByMechanism::<T>::get(netuid_index);
+        if stored.is_empty() {
+            return current.to_vec();
+        }
+
+        let mut previous: Vec<I32F32> = stored
+            .into_iter()
+            .map(|value| {
+                I32F32::saturating_from_num(value.deconstruct())
+                    .safe_div(I32F32::saturating_from_num(u16::MAX))
+            })
+            .collect();
+        previous.resize(current.len(), I32F32::from_num(0));
+        previous.truncate(current.len());
+        previous
     }
 
     /// Compute liquid alphas matrix
@@ -1589,14 +1627,10 @@ impl<T: Config> Pallet<T> {
             Error::<T>::LiquidAlphaDisabled
         );
 
-        let max_u16: u32 = u16::MAX as u32; // 65535
-        let min_alpha_low: u16 = (max_u16.safe_div(40)) as u16; // 1638
-        let min_alpha_high: u16 = min_alpha_low;
-
-        ensure!(alpha_high >= min_alpha_high, Error::<T>::AlphaHighTooLow);
+        ensure!(alpha_high >= MIN_ALPHA_LOW, Error::<T>::AlphaHighTooLow);
 
         ensure!(
-            alpha_low >= min_alpha_low && alpha_low <= alpha_high,
+            alpha_low >= MIN_ALPHA_LOW && alpha_low <= alpha_high,
             Error::<T>::AlphaLowOutOfRange
         );
 

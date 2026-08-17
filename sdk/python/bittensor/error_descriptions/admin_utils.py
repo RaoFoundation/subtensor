@@ -15,6 +15,11 @@ DESCRIPTIONS: dict[str, str] = {
         "strictly positive so re-registration always pays a nonzero, floating burn. Lower the "
         "`lock_share` argument to at most 62258."
     ),
+    "GrandpaChangeDelayMustBeZero": (
+        "`schedule_grandpa_change` was given a nonzero `in_blocks` delay. GRANDPA authority "
+        "changes submitted through AdminUtils must activate at the end of the current block so "
+        "the authority set and its set ID remain consistent. Pass `in_blocks=0`."
+    ),
     "BondsMovingAverageMaxReached": (
         "A subnet owner called `sudo_set_bonds_moving_average` with a value above 975000, the "
         "cap for owner-set values; root is exempt. Lower the `bonds_moving_average` argument or "
