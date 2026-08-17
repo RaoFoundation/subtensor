@@ -591,6 +591,25 @@ interface IStaking {
         uint64 limitPrice,
         bool allowPartial
     ) external;
+    /**
+     * @notice Moves alpha between hotkeys and subnets subject to a relative price limit.
+     * @param originHotkey Hotkey from which alpha is removed.
+     * @param destinationHotkey Hotkey to which the resulting alpha is credited.
+     * @param originNetuid Subnet from which alpha is removed.
+     * @param destinationNetuid Subnet into which TAO is staked.
+     * @param alphaAmount Origin alpha requested to move, in raw alpha units.
+     * @param limitPrice Minimum destination-alpha per origin-alpha ratio, scaled by 1e9.
+     * @param allowPartial Whether to execute only the amount available before the limit.
+     */
+    function moveStakeLimit(
+        bytes32 originHotkey,
+        bytes32 destinationHotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount,
+        uint64 limitPrice,
+        bool allowPartial
+    ) external;
     function recycleAlpha(bytes32 hotkey, uint64 amount, uint16 netuid) external;
     function setColdkeyAutoStakeHotkey(uint16 netuid, bytes32 hotkey) external;
     function claimRoot(uint16[] calldata subnets) external;

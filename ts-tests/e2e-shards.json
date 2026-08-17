@@ -31,6 +31,7 @@
                     "files": [
                         "suites/zombienet_staking/01-add-stake-limit.test.ts",
                         "suites/zombienet_staking/02.04-claim-root-hotkey-swap.test.ts",
+                        "suites/zombienet_staking/03.01-move-stake-limit.test.ts",
                         "suites/zombienet_staking/04-remove-stake.test.ts",
                         "suites/zombienet_staking/06-remove-stake-limit.test.ts",
                         "suites/zombienet_staking/08-swap-stake-limit.test.ts"

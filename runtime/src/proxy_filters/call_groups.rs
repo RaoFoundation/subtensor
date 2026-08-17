@@ -303,6 +303,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::unstake_all),
         RuntimeCall::SubtensorModule(SubtensorCall::unstake_all_alpha),
         RuntimeCall::SubtensorModule(SubtensorCall::move_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::move_stake_limit),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake_limit),
         RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket),

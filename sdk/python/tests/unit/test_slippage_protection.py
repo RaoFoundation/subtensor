@@ -1,6 +1,6 @@
 """Default slippage protection on the staking intents.
 
-``add_stake``, ``remove_stake``, and ``swap_stake`` are slippage-protected by
+``add_stake``, ``remove_stake``, ``move_stake``, and ``swap_stake`` are slippage-protected by
 default: at build time they read the spot price and compose the ``*_limit``
 call variant with a fill-or-kill limit derived from ``rate_tolerance`` (5%).
 These tests pin the call selection, the limit-price math against seeded
@@ -22,6 +22,13 @@ RAO = 10**9
 ADD = {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_tao": 1.0}
 REMOVE = {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_alpha": 1.0}
 SWAP = {"hotkey_ss58": BOB_HOT, "origin_netuid": 1, "dest_netuid": 2, "amount_alpha": 1.0}
+MOVE = {
+    "origin_hotkey_ss58": BOB_HOT,
+    "origin_netuid": 1,
+    "dest_hotkey_ss58": BOB_HOT,
+    "dest_netuid": 2,
+    "amount_alpha": 1.0,
+}
 
 
 @pytest.fixture()
@@ -64,6 +71,13 @@ class TestDefaultProtection:
         assert call.params["allow_partial"] is False
 
     @pytest.mark.asyncio
+    async def test_move_stake_composes_limit_call(self, substrate, wallet):
+        call = await build("move_stake", MOVE).build(substrate, wallet)
+        assert call.function == "move_stake_limit"
+        assert call.params["limit_price"] == int(2 * RAO * 0.95)
+        assert call.params["allow_partial"] is False
+
+    @pytest.mark.asyncio
     async def test_custom_tolerance_moves_the_limit(self, substrate, wallet):
         call = await build("add_stake", {**ADD, "rate_tolerance": 0.1}).build(substrate, wallet)
         assert call.params["limit_price"] == int(2 * RAO * 1.1)
@@ -98,6 +112,7 @@ class TestOptOut:
             ("add_stake", ADD, "add_stake"),
             ("remove_stake", REMOVE, "remove_stake"),
             ("swap_stake", SWAP, "swap_stake"),
+            ("move_stake", MOVE, "move_stake"),
         ],
     )
     @pytest.mark.asyncio
@@ -110,7 +125,8 @@ class TestOptOut:
 class TestFailureModes:
     @pytest.mark.parametrize("bad", [-0.1, 1.0, 5])
     @pytest.mark.parametrize(
-        ("op", "args"), [("add_stake", ADD), ("remove_stake", REMOVE), ("swap_stake", SWAP)]
+        ("op", "args"),
+        [("add_stake", ADD), ("remove_stake", REMOVE), ("move_stake", MOVE), ("swap_stake", SWAP)],
     )
     def test_out_of_range_tolerance_rejected_at_construction(self, op, args, bad):
         with pytest.raises(BittensorError, match="rate_tolerance"):
@@ -140,7 +156,7 @@ class TestErrorSurface:
         assert "slippage_protection=False" in error.remediation
 
     def test_schema_exposes_the_protection_fields(self):
-        for op in ("add_stake", "remove_stake", "swap_stake"):
+        for op in ("add_stake", "remove_stake", "move_stake", "swap_stake"):
             schema = REGISTRY[op].json_schema()
             assert schema["properties"]["slippage_protection"]["type"] == "boolean"
             assert schema["properties"]["rate_tolerance"]["type"] == "number"

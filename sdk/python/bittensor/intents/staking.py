@@ -356,7 +356,9 @@ class MoveStake(Intent):
     free balance: the stake leaves the origin hotkey on the origin subnet and
     lands on the destination hotkey at the destination subnet. Moving within
     one subnet just changes which validator backs the stake; moving across
-    subnets swaps through both pools and can incur slippage on each leg.
+    subnets swaps through both pools and can incur slippage on each leg. Those
+    cross-subnet moves are slippage-protected by default with the same relative
+    price limit used by ``swap_stake``.
     Ownership stays with the signing coldkey — use ``transfer_stake`` to hand
     the position to another coldkey, or ``swap_stake`` when only the subnet
     changes.
@@ -364,7 +366,7 @@ class MoveStake(Intent):
 
     op = "move_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "move_stake"),)
+    wraps = (("SubtensorModule", "move_stake"), ("SubtensorModule", "move_stake_limit"))
     mev_shield_default = True
 
     origin_hotkey_ss58: str = field(metadata={"help": "Hotkey the stake moves away from."})
@@ -377,13 +379,38 @@ class MoveStake(Intent):
             "amount; ``all`` is not accepted)."
         }
     )
+    slippage_protection: bool = field(default=True, metadata={"help": SLIPPAGE_PROTECTION_HELP})
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
+    )
 
     def __post_init__(self):
         self.amount_alpha = call_amount(
             self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
         )
+        _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
+        if self.slippage_protection and self.origin_netuid != self.dest_netuid:
+            origin_price = await _alpha_price_rao(substrate, self.origin_netuid)
+            dest_price = await _alpha_price_rao(substrate, self.dest_netuid)
+            if dest_price <= 0:
+                raise BittensorError(
+                    f"netuid {self.dest_netuid} has no alpha price; cannot derive a "
+                    "slippage limit — disable slippage protection to submit anyway"
+                )
+            ratio_rao = origin_price * RAO_PER_TAO // dest_price
+            return await substrate.compose(
+                calls.SubtensorModule.move_stake_limit(
+                    origin_hotkey=self.origin_hotkey_ss58,
+                    destination_hotkey=self.dest_hotkey_ss58,
+                    origin_netuid=self.origin_netuid,
+                    destination_netuid=self.dest_netuid,
+                    alpha_amount=self.amount_alpha.rao,
+                    limit_price=int(ratio_rao * (1 - self.rate_tolerance)),
+                    allow_partial=False,
+                )
+            )
         return await substrate.compose(
             calls.SubtensorModule.move_stake(
                 origin_hotkey=self.origin_hotkey_ss58,
@@ -395,10 +422,17 @@ class MoveStake(Intent):
         )
 
     def summary(self) -> str:
+        note = ""
+        if self.origin_netuid != self.dest_netuid:
+            note = (
+                f" (fails if price ratio moves >{self.rate_tolerance:.2%})"
+                if self.slippage_protection
+                else " (no slippage protection)"
+            )
         return (
             f"move {self.amount_alpha} from {self.origin_hotkey_ss58} "
             f"on netuid {self.origin_netuid} to {self.dest_hotkey_ss58} "
-            f"on netuid {self.dest_netuid}"
+            f"on netuid {self.dest_netuid}{note}"
         )
 
     def touches_netuids(self) -> list[int]:

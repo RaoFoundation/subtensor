@@ -1090,6 +1090,66 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn move_stake_limit() {
+        let coldkey: T::AccountId = whitelisted_caller::<AccountIdOf<T>>();
+        let origin_hotkey: T::AccountId = account("A", 0, 1);
+        let destination_hotkey: T::AccountId = account("B", 0, 2);
+        let origin_netuid = NetUid::from(1);
+        let destination_netuid = NetUid::from(2);
+
+        for netuid in [origin_netuid, destination_netuid] {
+            SubtokenEnabled::<T>::insert(netuid, true);
+            Subtensor::<T>::init_new_network(netuid, 1);
+            Subtensor::<T>::set_network_registration_allowed(netuid, true);
+            add_lock::<T>(&coldkey, netuid);
+        }
+
+        let tao_reserve = TaoBalance::from(150_000_000_000_u64);
+        let alpha_in = AlphaBalance::from(100_000_000_000_u64);
+        set_reserves::<T>(origin_netuid, tao_reserve, alpha_in);
+        SubnetTAO::<T>::insert(destination_netuid, tao_reserve);
+        Subtensor::<T>::increase_total_stake(1_000_000_000_000_u64.into());
+
+        let balance = TaoBalance::from(900_000_000_000_u64);
+        let stake_limit = TaoBalance::from(6_000_000_000_u64);
+        let move_limit = TaoBalance::from(1_000_000_000_u64);
+        let amount_to_stake = TaoBalance::from(440_000_000_000_u64);
+        let amount_to_move = AlphaBalance::from(30_000_000_000_u64);
+        add_balance_to_coldkey_account::<T>(&coldkey, balance);
+
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            origin_netuid,
+            origin_hotkey.clone()
+        ));
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            destination_netuid,
+            destination_hotkey.clone()
+        ));
+        assert_ok!(Subtensor::<T>::add_stake_limit(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            origin_hotkey.clone(),
+            origin_netuid,
+            amount_to_stake,
+            stake_limit,
+            true,
+        ));
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey),
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            amount_to_move,
+            move_limit,
+            true,
+        );
+    }
+
+    #[benchmark]
     fn transfer_stake() {
         let coldkey: T::AccountId = whitelisted_caller();
         let dest: T::AccountId = account("B", 0, 2);
