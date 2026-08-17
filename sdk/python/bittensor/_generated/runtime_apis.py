@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 447
+Spec version: 448
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """
@@ -179,4 +179,3 @@ class TransactionPaymentCallApi:
     query_call_fee_details = Method('TransactionPaymentCallApi', 'query_call_fee_details')
     query_weight_to_fee = Method('TransactionPaymentCallApi', 'query_weight_to_fee')
     query_length_to_fee = Method('TransactionPaymentCallApi', 'query_length_to_fee')
-

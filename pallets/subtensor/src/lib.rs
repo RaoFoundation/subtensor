@@ -1679,6 +1679,11 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
+    /// MAP ( netuid ) --> alpha | Returns the total alpha staked across all hotkeys on a subnet.
+    #[pallet::storage]
+    pub type TotalAlphaStaked<T: Config> =
+        StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
+
     /// DMAP ( hot, netuid ) --> alpha | Returns the total amount of alpha a hotkey owned in the last epoch.
     #[pallet::storage]
     pub type TotalHotkeyAlphaLastEpoch<T: Config> = StorageDoubleMap<
