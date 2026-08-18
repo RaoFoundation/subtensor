@@ -393,4 +393,12 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 16): ErrorInfo('LimitOrders', 'ArithmeticOverflow', 'A TAO -> alpha conversion overflowed the fixed-point range.'),
     (32, 17): ErrorInfo('LimitOrders', 'DuplicateOrderInBatch', 'The same order appears more than once in a single batch.'),
     (32, 18): ErrorInfo('LimitOrders', 'ZeroShareInBatch', "An order's pro-rata share in the batch rounded down to zero. The whole batch is rejected so the order's input is never consumed without delivering any output (conservation), and the order stays retryable in a differently-composed batch."),
+    (32, 19): ErrorInfo('LimitOrders', 'NoLinkedOutput', 'Linked order named a provider with no recorded output.'),
+    (32, 20): ErrorInfo('LimitOrders', 'LinkedOutputSignerMismatch', "Linked order signer differs from the provider's signer."),
+    (32, 21): ErrorInfo('LimitOrders', 'LinkedOutputAssetMismatch', 'Provider output asset is not what the linked order spends.'),
+    (32, 22): ErrorInfo('LimitOrders', 'LinkedOutputExpired', "Provider record has passed its `expires_at` deadline."),
+    (32, 23): ErrorInfo('LimitOrders', 'LinkedAmountResolvedToZero', 'Linked fraction floored to zero against the recorded output.'),
+    (32, 24): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForLinkedAmount', 'Partial fill submitted against a linked (consuming) order.'),
+    (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
+    (32, 26): ErrorInfo('LimitOrders', 'LinkedOutputNotPrunable', '`prune_linked_output` called by a non-signer on an unexpired record.'),
 }
