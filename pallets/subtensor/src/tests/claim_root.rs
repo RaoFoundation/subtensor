@@ -245,9 +245,7 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         let ghost = NetUid::from(u16::MAX);
         NetworksAdded::<Test>::insert(ghost, false);
         assert_eq!(SubtensorModule::root_claim_existing_networks(), existing);
-        let per_hotkey = SubtensorModule::root_claim_declared_work_for_hotkey(&hotkey);
-        assert_eq!(per_hotkey, existing);
-        assert!(per_hotkey < crate::MAX_ROOT_CLAIM_WORK);
+        assert!(existing < crate::MAX_ROOT_CLAIM_WORK);
         let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
             .expect("claim succeeds")
             .actual_weight

@@ -1957,15 +1957,17 @@ mod dispatches {
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(
-                Pallet::<T>::root_claim_declared_work_for_hotkey(&hotkey)
-            )
+            <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK)
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
+            ensure!(
+                Self::root_claim_fits_declared_budget(core::slice::from_ref(&hotkey)),
+                Error::<T>::RootClaimTooHeavy
+            );
 
             let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
             Self::maybe_add_coldkey_index(&coldkey);

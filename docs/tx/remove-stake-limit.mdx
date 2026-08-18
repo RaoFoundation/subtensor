@@ -20,7 +20,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1975), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1977), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -106,20 +106,22 @@ pub fn remove_stake_limit(
 
 Delegates to [`do_remove_stake_limit`](/code/pallets/subtensor/src/staking/remove_stake.rs#L302).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1964`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1975):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1962`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1977):
 
 ```rust
 #[pallet::call_index(148)]
 #[pallet::weight(
-    <T as crate::pallet::Config>::WeightInfo::claim_root(
-        Pallet::<T>::root_claim_declared_work_for_hotkey(&hotkey)
-    )
+    <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK)
 )]
 pub fn claim_root_with_hotkey(
     origin: OriginFor<T>,
     hotkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
+    ensure!(
+        Self::root_claim_fits_declared_budget(core::slice::from_ref(&hotkey)),
+        Error::<T>::RootClaimTooHeavy
+    );
 
     let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
     Self::maybe_add_coldkey_index(&coldkey);
@@ -129,7 +131,7 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L810), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L839), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L797).
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L761), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L799), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L828).
 
 `Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
 

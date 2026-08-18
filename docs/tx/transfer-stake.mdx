@@ -32,7 +32,7 @@ owners. Pass `all` to hand over the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1323-L1341), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2477-L2497) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1323-L1341), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2479-L2499) |
 
 ## Parameters
 
@@ -120,7 +120,7 @@ pub fn transfer_stake(
 
 Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L120).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2479`](/code/pallets/subtensor/src/macros/dispatches.rs#L2477-L2497):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2481`](/code/pallets/subtensor/src/macros/dispatches.rs#L2479-L2499):
 
 ```rust
 #[pallet::call_index(143)]
