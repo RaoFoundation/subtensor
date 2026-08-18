@@ -1643,4 +1643,9 @@ class LimitOrders:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
 
+    @staticmethod
+    def prune_linked_output(order_id: 'H256') -> Call:
+        "Remove a provider record. The signer may prune at any time; anyone may prune after `expires_at`. Moves no funds."
+        return Call('LimitOrders', 'prune_linked_output', {'order_id': order_id})
+
 

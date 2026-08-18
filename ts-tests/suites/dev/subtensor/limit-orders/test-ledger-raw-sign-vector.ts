@@ -4,9 +4,13 @@ import { hexToU8a, stringToU8a, u8aToHex, u8aWrapBytes } from "@polkadot/util";
 import { blake2AsU8a, ed25519PairFromSeed, ed25519Verify } from "@polkadot/util-crypto";
 import {
     type Order,
+    type OrderV2,
     LEDGER_MAX_SIGN_SIZE,
+    asV1,
     buildReadableSignedOrder,
+    formatOrderAmount,
     formatOrderMessage,
+    formatOrderMessageV2,
 } from "../../../../utils/limit-orders.js";
 
 // Hardware test vector for the human-readable ("clear-signing") signing form.
@@ -144,6 +148,163 @@ const EXECUTABLE_SIGNATURE =
     "0xca9e4c33695072ffef1e3e1d0715979e3a4d8b553ee1ecc29e5da9ead5788910" +
     "4d4bc7760c4f9a867e82b046271e47b554609489d666168b549d75b39b559b04";
 
+// ── v2 device vectors ────────────────────────────────────────────────────────
+//
+// Captured 2026-08-10 from the same Nano S+ / derivation path as the v1 vector.
+// `signer` is the device's own account. These pin the TS formatter to the same
+// messages the Rust half pins against `render_order`.
+
+const DEVICE_ADDRESS = "5EkanzEuqrGX8vyUNrHfBJutwD634HDph1amvAkiEdUZGJ9K";
+const HOTKEY_SS58 = "5HK5tp6t2S59DywmHRWPBVJeJ86T61KjurYqeooqj8sREpeN";
+const FEE_RECIPIENT_SS58 = "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY";
+const RELAYER_A = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+const RELAYER_B = "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy";
+const PROVIDER_A = "0x9f2c7e1d4b6a03f58e7d21c4a09b6538ef1247ac9d0b3e6521748fca35d09b6e";
+
+const DEVICE_V2_BASE: OrderV2 = {
+    signer: DEVICE_ADDRESS,
+    hotkey: HOTKEY_SS58,
+    netuid: 64,
+    order_type: "LimitBuy",
+    amount: { Fixed: 1_000_000_000n },
+    limit_price: 500_000_000n,
+    expiry: 1_793_000_000_000n,
+    fee_rate: 8_500_000,
+    fee_recipient: FEE_RECIPIENT_SS58,
+    relayer: [RELAYER_A],
+    max_slippage: 7_500_000,
+    chain_id: 1n,
+    partial_fills_enabled: true,
+    has_linked_order: false,
+};
+
+const DEVICE_V2_VECTORS: {
+    name: string;
+    order: OrderV2;
+    message: string;
+    payloadLen: number;
+    digest: `0x${string}`;
+}[] = [
+    {
+        name: "device-v2-limit-buy-fixed",
+        order: DEVICE_V2_BASE,
+        message:
+            "TAO.com order v2: Limit buy 1000000000 on subnet 64, " +
+            "limit price 500000000, expiry 1793000000000, " +
+            `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
+            `relayer ${RELAYER_A}, max slippage 7500000, ` +
+            `chain 1, partial fills true, signer ${DEVICE_ADDRESS}, ` +
+            "has-linked-order false",
+        payloadLen: 423,
+        digest: "0xb37d9b6e7f33e10d428db66ad581b7f83558e087dbf8e547af8b5b718a45f63a",
+    },
+    {
+        name: "device-v2-take-profit-linked-pct",
+        order: {
+            ...DEVICE_V2_BASE,
+            order_type: "TakeProfit",
+            amount: { LinkedPercentage: { provider: PROVIDER_A, pct: 250_000_000 } },
+            has_linked_order: true,
+        },
+        message:
+            "TAO.com order v2: Take-profit 250000000 ppb of " +
+            `order ${PROVIDER_A} output on subnet 64, ` +
+            "trigger price 500000000, expiry 1793000000000, " +
+            `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
+            `relayer ${RELAYER_A}, max slippage 7500000, ` +
+            `chain 1, partial fills true, signer ${DEVICE_ADDRESS}, ` +
+            "has-linked-order true",
+        payloadLen: 512,
+        digest: "0x4872611a3656ed87cc8d7f3e78b9f6c9e1f70a5d4eaf86a20ae4a916f21f8190",
+    },
+    {
+        name: "device-v2-stop-loss-empty-relayer",
+        order: {
+            ...DEVICE_V2_BASE,
+            order_type: "StopLoss",
+            relayer: [],
+            max_slippage: 0,
+            partial_fills_enabled: false,
+            has_linked_order: true,
+        },
+        message:
+            "TAO.com order v2: Stop-loss 1000000000 on subnet 64, " +
+            "trigger price 500000000, expiry 1793000000000, " +
+            `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
+            "relayer [], max slippage 0, " +
+            `chain 1, partial fills false, signer ${DEVICE_ADDRESS}, ` +
+            "has-linked-order true",
+        payloadLen: 373,
+        digest: "0x0384ac179ed6f4e14cea6560368e0c72c705db3638df81ae0a235036a1ee5445",
+    },
+    {
+        name: "device-v2-two-relayers-saturated",
+        order: {
+            ...DEVICE_V2_BASE,
+            amount: { Fixed: 18_446_744_073_709_551_615n },
+            limit_price: 18_446_744_073_709_551_615n,
+            expiry: 18_446_744_073_709_551_615n,
+            fee_rate: 1_000_000_000,
+            relayer: [RELAYER_A, RELAYER_B],
+            max_slippage: 1_000_000_000,
+            chain_id: 18_446_744_073_709_551_615n,
+            has_linked_order: true,
+        },
+        message:
+            "TAO.com order v2: Limit buy 18446744073709551615 on subnet 64, " +
+            "limit price 18446744073709551615, expiry 18446744073709551615, " +
+            `hotkey ${HOTKEY_SS58}, fee 1000000000 to ${FEE_RECIPIENT_SS58}, ` +
+            `relayer ${RELAYER_A}+${RELAYER_B}, max slippage 1000000000, ` +
+            `chain 18446744073709551615, partial fills true, signer ${DEVICE_ADDRESS}, ` +
+            "has-linked-order true",
+        payloadLen: 524,
+        digest: "0x755794cb9934648f3939dd1a65c699dcd07105c5544f91f3fdc0dfb578bdec39",
+    },
+    {
+        name: "device-v2-shortest-possible",
+        order: {
+            ...DEVICE_V2_BASE,
+            netuid: 0,
+            amount: { Fixed: 0n },
+            limit_price: 0n,
+            expiry: 0n,
+            fee_rate: 0,
+            relayer: null,
+            max_slippage: null,
+            chain_id: 0n,
+            partial_fills_enabled: false,
+            has_linked_order: false,
+        },
+        message:
+            "TAO.com order v2: Limit buy 0 on subnet 0, " +
+            "limit price 0, expiry 0, " +
+            `hotkey ${HOTKEY_SS58}, fee 0 to ${FEE_RECIPIENT_SS58}, ` +
+            "relayer none, max slippage none, " +
+            `chain 0, partial fills false, signer ${DEVICE_ADDRESS}, ` +
+            "has-linked-order false",
+        payloadLen: 341,
+        digest: "0x7326e6c0ba508f552307354a82325bd795f36223b88f34b8cce443cb61d8f65d",
+    },
+];
+
+const DEFECT_CLIENT_MESSAGE =
+    "TAO.com order v2: Limit buy 1000000000 ppb of " +
+    "order 0x0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output on subnet 64, " +
+    "limit price 500000000, expiry 1793000000000, " +
+    `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
+    `relayer ${RELAYER_A}, max slippage 7500000, ` +
+    "chain 1, partial fills true, signer 5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC, " +
+    "has-linked-order true";
+
+const DEFECT_CORRECTED_MESSAGE =
+    "TAO.com order v2: Limit buy 1000000000 ppb of " +
+    "order 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output on subnet 64, " +
+    "limit price 500000000, expiry 1793000000000, " +
+    `hotkey ${HOTKEY_SS58}, fee 8500000 to ${FEE_RECIPIENT_SS58}, ` +
+    `relayer ${RELAYER_A}, max slippage 7500000, ` +
+    "chain 1, partial fills true, signer 5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC, " +
+    "has-linked-order true";
+
 // `new Uint8Array(...)` is load-bearing: `@polkadot/util`'s `isU8a` tests
 // `constructor === Uint8Array` by identity, so an array from another realm makes
 // `u8aWrapBytes` stringify its input instead of wrapping it — silently producing the
@@ -263,12 +424,89 @@ describeSuite({
                 // The message the order renders to, the digest it hashes to, and the
                 // signature the helper produced must all match the frozen vector —
                 // i.e. our signing path is byte-for-byte the one a Ledger takes.
-                expect(formatOrderMessage(signed.order.V1)).toBe(EXECUTABLE_MESSAGE);
+                expect(formatOrderMessage(asV1(signed.order))).toBe(EXECUTABLE_MESSAGE);
                 const payload = u8aWrapBytes(bytes(EXECUTABLE_MESSAGE));
                 expect(payload.length).toBeGreaterThan(LEDGER_MAX_SIGN_SIZE);
                 expect(u8aToHex(blake2AsU8a(payload, 256))).toBe(EXECUTABLE_DIGEST);
                 expect("Ed25519" in signed.signature).toBe(true);
                 expect((signed.signature as { Ed25519: string }).Ed25519).toBe(EXECUTABLE_SIGNATURE);
+            },
+        });
+
+        it({
+            id: "T07",
+            title: "the TS v2 formatter reproduces each captured device message",
+            test: () => {
+                for (const vector of DEVICE_V2_VECTORS) {
+                    const msg = formatOrderMessageV2(vector.order);
+                    expect(msg, vector.name).toBe(vector.message);
+                    for (let i = 0; i < msg.length; i++) {
+                        const code = msg.charCodeAt(i);
+                        expect(
+                            code >= 0x20 && code <= 0x7e,
+                            `${vector.name}: char ${i} = 0x${code.toString(16)} is not printable ASCII`
+                        ).toBe(true);
+                    }
+                }
+            },
+        });
+
+        it({
+            id: "T08",
+            title: "every captured v2 payload is oversized and hashes to the pinned digest",
+            test: () => {
+                for (const vector of DEVICE_V2_VECTORS) {
+                    const payload = u8aWrapBytes(bytes(formatOrderMessageV2(vector.order)));
+                    expect(payload.length, vector.name).toBe(vector.payloadLen);
+                    expect(payload.length).toBeGreaterThan(LEDGER_MAX_SIGN_SIZE);
+                    expect(u8aToHex(blake2AsU8a(payload, 256)), vector.name).toBe(vector.digest);
+                }
+            },
+        });
+
+        it({
+            id: "T09",
+            title: "formatOrderAmount strips a 0X prefix case-insensitively",
+            test: () => {
+                const provider =
+                    "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" as `0x${string}`;
+                expect(formatOrderAmount({ LinkedPercentage: { provider, pct: 1_000_000_000 } })).toBe(
+                    "1000000000 ppb of order 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output"
+                );
+                expect(
+                    formatOrderAmount({
+                        LinkedPercentage: {
+                            provider:
+                                "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                            pct: 1_000_000_000,
+                        },
+                    })
+                ).toBe(
+                    "1000000000 ppb of order 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output"
+                );
+            },
+        });
+
+        it({
+            id: "T10",
+            title: "the v2 formatter cannot emit the doubled-prefix defect rendering",
+            test: () => {
+                const order: OrderV2 = {
+                    ...DEVICE_V2_BASE,
+                    signer: "5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC",
+                    amount: {
+                        LinkedPercentage: {
+                            provider:
+                                "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                            pct: 1_000_000_000,
+                        },
+                    },
+                    has_linked_order: true,
+                };
+                const msg = formatOrderMessageV2(order);
+                expect(msg).toBe(DEFECT_CORRECTED_MESSAGE);
+                expect(msg).not.toBe(DEFECT_CLIENT_MESSAGE);
+                expect(msg.includes("0x0x")).toBe(false);
             },
         });
     },

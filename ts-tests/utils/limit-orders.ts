@@ -43,14 +43,77 @@ export interface Order {
     partial_fills_enabled: boolean;
 }
 
-export interface VersionedOrder {
-    V1: Order;
+/**
+ * v2 order amount: either an absolute raw amount (v1 semantics) or a fraction of
+ * the output another order recorded.
+ *
+ * `pct` is a Perbill (parts per billion), so 250_000_000 is 25%. `provider` is the
+ * `OrderId` of the order being drawn from, i.e. `orderId(api, providerOrder)`.
+ */
+export type OrderAmount = { Fixed: bigint } | { LinkedPercentage: { provider: `0x${string}`; pct: number } };
+
+/**
+ * The v2 order payload. Field-for-field identical to {@link Order} except that
+ * `amount` is an {@link OrderAmount} and `has_linked_order` is new.
+ *
+ * FIELD ORDER MATTERS: it must match `OrderV2` in `pallets/limit-orders/src/v2.rs`.
+ */
+export interface OrderV2 {
+    signer: string;
+    hotkey: string;
+    netuid: number;
+    order_type: OrderType;
+    amount: OrderAmount;
+    limit_price: bigint;
+    expiry: bigint;
+    fee_rate: number;
+    fee_recipient: string;
+    relayer: string[] | null;
+    max_slippage: number | null;
+    chain_id: bigint;
+    partial_fills_enabled: boolean;
+    /** Record this order's output so a later linked order can draw on it. */
+    has_linked_order: boolean;
 }
+
+export interface OrderV2Params extends Omit<OrderParams, "amount"> {
+    amount: OrderAmount;
+    hasLinkedOrder?: boolean;
+}
+
+export type VersionedOrder = { V1: Order } | { V2: OrderV2 };
 
 export interface SignedOrder {
     order: VersionedOrder;
     signature: { Sr25519: `0x${string}` } | { Ed25519: `0x${string}` } | { Ecdsa: `0x${string}` };
     partial_fill: number | null;
+}
+
+/** Narrow a `VersionedOrder` to its v1 payload. Throws on a version mismatch. */
+export function asV1(order: VersionedOrder): Order {
+    if (!("V1" in order)) {
+        throw new Error("expected a V1 order");
+    }
+    return order.V1;
+}
+
+/** Narrow a `VersionedOrder` to its v2 payload. Throws on a version mismatch. */
+export function asV2(order: VersionedOrder): OrderV2 {
+    if (!("V2" in order)) {
+        throw new Error("expected a V2 order");
+    }
+    return order.V2;
+}
+
+/** The `LinkedAsset` a provider record is stamped with, as decoded from storage. */
+export type LinkedAsset = "Tao" | { netuid: number; hotkey: string };
+
+/** A decoded `LinkedOutputs` entry. */
+export interface LinkedOutput {
+    signer: string;
+    asset: LinkedAsset;
+    total: bigint;
+    expires_at: bigint;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -87,6 +150,31 @@ function buildVersionedOrder(params: OrderParams): VersionedOrder {
 }
 
 /**
+ * Build the `VersionedOrder` (V2) struct from the supplied params. Shared by the
+ * three v2 signing helpers so the field mapping stays identical.
+ */
+function buildVersionedOrderV2(params: OrderV2Params): VersionedOrder {
+    const inner: OrderV2 = {
+        signer: params.signer.address,
+        hotkey: params.hotkey,
+        netuid: params.netuid,
+        order_type: params.orderType,
+        amount: params.amount,
+        limit_price: params.limitPrice,
+        expiry: params.expiry,
+        fee_rate: params.feeRate,
+        fee_recipient: params.feeRecipient,
+        relayer: params.relayer ?? null,
+        max_slippage: params.maxSlippage ?? null,
+        chain_id: params.chainId ?? 42n,
+        partial_fills_enabled: params.partialFillsEnabled ?? false,
+        has_linked_order: params.hasLinkedOrder ?? false,
+    };
+
+    return { V2: inner };
+}
+
+/**
  * Build a SignedOrder ready for submission to execute_orders /
  * execute_batched_orders.  The Order struct is SCALE-encoded via the
  * polkadot.js registry and then signed with the signer's sr25519 key.
@@ -101,6 +189,26 @@ export function buildSignedOrder(api: any, params: OrderParams): SignedOrder {
     return {
         order: versionedOrder,
         signature: { Sr25519: u8aToHex(sig) as `0x${string}` },
+        partial_fill: null,
+    };
+}
+
+/**
+ * v2 counterpart of {@link buildSignedOrder}: signature directly over the
+ * SCALE-encoded `VersionedOrder::V2`.
+ */
+export function buildSignedOrderV2(api: any, params: OrderV2Params): SignedOrder {
+    const versionedOrder = buildVersionedOrderV2(params);
+
+    const encoded = api.registry.createType("LimitVersionedOrder", versionedOrder);
+    const sig = params.signer.sign(encoded.toU8a());
+
+    return {
+        order: versionedOrder,
+        signature:
+            params.signer.type === "ed25519"
+                ? { Ed25519: u8aToHex(sig) as `0x${string}` }
+                : { Sr25519: u8aToHex(sig) as `0x${string}` },
         partial_fill: null,
     };
 }
@@ -141,6 +249,27 @@ export function buildWrappedSignedOrder(api: any, params: OrderParams): SignedOr
     return {
         order: versionedOrder,
         signature,
+        partial_fill: null,
+    };
+}
+
+/**
+ * v2 counterpart of {@link buildWrappedSignedOrder}: signature over
+ * `<Bytes>` ++ blake2_256(SCALE(VersionedOrder::V2)) ++ `</Bytes>`.
+ */
+export function buildWrappedSignedOrderV2(api: any, params: OrderV2Params): SignedOrder {
+    const versionedOrder = buildVersionedOrderV2(params);
+
+    const encoded = api.registry.createType("LimitVersionedOrder", versionedOrder);
+    const wrapped = u8aWrapBytes(blake2AsU8a(encoded.toU8a(), 256));
+    const sig = params.signer.sign(wrapped);
+
+    return {
+        order: versionedOrder,
+        signature:
+            params.signer.type === "ed25519"
+                ? { Ed25519: u8aToHex(sig) as `0x${string}` }
+                : { Sr25519: u8aToHex(sig) as `0x${string}` },
         partial_fill: null,
     };
 }
@@ -220,6 +349,84 @@ export function formatOrderMessage(order: Order): string {
 }
 
 /**
+ * Render an {@link OrderAmount} for the canonical human-readable message.
+ *
+ * MUST match `OrderAmount::render` in `pallets/limit-orders/src/v2.rs`:
+ *
+ * - `Fixed(n)` → `n` (bare digits)
+ * - `LinkedPercentage{p,x}` → `{x} ppb of order 0x{64 hex} output`
+ *
+ * The provider id is 64 lowercase hex characters with a `0x` prefix. The strip
+ * is case-insensitive so `0X…` cannot produce a doubled prefix.
+ */
+export function formatOrderAmount(amount: OrderAmount): string {
+    if ("Fixed" in amount) {
+        return amount.Fixed.toString();
+    }
+    const { provider, pct } = amount.LinkedPercentage;
+    const hex = provider.replace(/^0x/i, "").toLowerCase();
+    return `${pct.toString()} ppb of order 0x${hex} output`;
+}
+
+/**
+ * Format the canonical human-readable ("clear-signing") message for a v2 order.
+ *
+ * MUST match the runtime's `Pallet::render_order` byte-for-byte. Identical to the
+ * v1 form except: version tag `v2`, amount via {@link formatOrderAmount}, and a
+ * `, has-linked-order {true|false}` tail. v1 renders no tail on purpose.
+ */
+export function formatOrderMessageV2(order: OrderV2): string {
+    const label =
+        order.order_type === "LimitBuy" ? "Limit buy" : order.order_type === "TakeProfit" ? "Take-profit" : "Stop-loss";
+
+    const priceWord = order.order_type === "LimitBuy" ? "limit price" : "trigger price";
+
+    const maxSlippage = order.max_slippage === null ? "none" : order.max_slippage.toString();
+
+    let relayer: string;
+    if (order.relayer === null) {
+        relayer = "none";
+    } else if (order.relayer.length === 0) {
+        relayer = "[]";
+    } else {
+        relayer = order.relayer.map(renderAccount).join("+");
+    }
+
+    return (
+        `TAO.com order v2: ${label} ${formatOrderAmount(order.amount)} on subnet ${order.netuid.toString()}, ` +
+        `${priceWord} ${order.limit_price.toString()}, expiry ${order.expiry.toString()}, ` +
+        `hotkey ${renderAccount(order.hotkey)}, ` +
+        `fee ${order.fee_rate.toString()} to ${renderAccount(order.fee_recipient)}, ` +
+        `relayer ${relayer}, ` +
+        `max slippage ${maxSlippage}, chain ${order.chain_id.toString()}, ` +
+        `partial fills ${order.partial_fills_enabled ? "true" : "false"}, ` +
+        `signer ${renderAccount(order.signer)}, ` +
+        `has-linked-order ${order.has_linked_order ? "true" : "false"}`
+    );
+}
+
+/**
+ * v2 counterpart of {@link buildReadableSignedOrder}.
+ */
+export function buildReadableSignedOrderV2(api: any, params: OrderV2Params): SignedOrder {
+    const versionedOrder = buildVersionedOrderV2(params);
+    const v2 = asV2(versionedOrder);
+
+    const wrapped = u8aWrapBytes(stringToU8a(formatOrderMessageV2(v2)));
+    const signedBytes = wrapped.length > LEDGER_MAX_SIGN_SIZE ? blake2AsU8a(wrapped, 256) : wrapped;
+    const sig = params.signer.sign(signedBytes);
+
+    return {
+        order: versionedOrder,
+        signature:
+            params.signer.type === "ed25519"
+                ? { Ed25519: u8aToHex(sig) as `0x${string}` }
+                : { Sr25519: u8aToHex(sig) as `0x${string}` },
+        partial_fill: null,
+    };
+}
+
+/**
  * Build a SignedOrder whose signature is over the `<Bytes>`-wrapped canonical
  * human-readable message (the "clear-signing" / Ledger form that a hardware
  * wallet can display field-by-field).  This exercises the runtime's
@@ -247,7 +454,7 @@ export function buildReadableSignedOrder(api: any, params: OrderParams): SignedO
     const versionedOrder = buildVersionedOrder(params);
 
     // Render the canonical message, convert to UTF-8 bytes, then wrap.
-    const message = formatOrderMessage(versionedOrder.V1);
+    const message = formatOrderMessage(asV1(versionedOrder));
     const wrapped = u8aWrapBytes(stringToU8a(message));
     const signedBytes = wrapped.length > LEDGER_MAX_SIGN_SIZE ? blake2AsU8a(wrapped, 256) : wrapped;
     const sig = params.signer.sign(signedBytes);
@@ -300,9 +507,51 @@ export function registerLimitOrderTypes(api: any): void {
             chain_id: "u64",
             partial_fills_enabled: "bool",
         },
+        LimitLinkedAsset: {
+            _enum: {
+                Tao: "Null",
+                Alpha: {
+                    netuid: "u16",
+                    hotkey: "AccountId",
+                },
+            },
+        },
+        LimitLinkedOutput: {
+            signer: "AccountId",
+            asset: "LimitLinkedAsset",
+            total: "u64",
+            expires_at: "u64",
+        },
+        LimitLinkedPercentage: {
+            provider: "H256",
+            pct: "u32", // Perbill
+        },
+        LimitOrderAmount: {
+            _enum: {
+                Fixed: "u64",
+                LinkedPercentage: "LimitLinkedPercentage",
+            },
+        },
+        LimitOrderV2: {
+            signer: "AccountId",
+            hotkey: "AccountId",
+            netuid: "u16",
+            order_type: "LimitOrderType",
+            amount: "LimitOrderAmount",
+            limit_price: "u64",
+            expiry: "u64",
+            fee_rate: "u32",
+            fee_recipient: "AccountId",
+            relayer: "Option<Vec<AccountId>>",
+            max_slippage: "Option<u32>",
+            chain_id: "u64",
+            partial_fills_enabled: "bool",
+            has_linked_order: "bool",
+        },
         LimitVersionedOrder: {
             _enum: {
                 V1: "LimitOrder",
+                V2: "LimitOrderV2",
             },
         },
         LimitSignedOrder: {
@@ -371,6 +620,42 @@ export async function getPartiallyFilledAmount(polkadotJs: any, id: `0x${string}
     return BigInt(status.asPartiallyFilled.toString());
 }
 
+/**
+ * Read a provider's recorded output from `LinkedOutputs`, or `undefined` when
+ * there is none.
+ */
+export async function getLinkedOutput(polkadotJs: any, id: `0x${string}`): Promise<LinkedOutput | undefined> {
+    const result = await polkadotJs.query.limitOrders.linkedOutputs(id);
+    if (result.isNone) return undefined;
+    const record = result.unwrap();
+    const asset = record.asset;
+    return {
+        signer: record.signer.toString(),
+        asset: asset.isTao
+            ? "Tao"
+            : {
+                  netuid: asset.asAlpha.netuid.toNumber(),
+                  hotkey: asset.asAlpha.hotkey.toString(),
+              },
+        total: BigInt(record.total.toString()),
+        expires_at: BigInt(record.expiresAt.toString()),
+    };
+}
+
+/** As {@link getLinkedOutput}, but throws when there is no record. */
+export async function expectLinkedOutput(polkadotJs: any, id: `0x${string}`): Promise<LinkedOutput> {
+    const record = await getLinkedOutput(polkadotJs, id);
+    if (record === undefined) {
+        throw new Error(`no LinkedOutputs entry for ${id}`);
+    }
+    return record;
+}
+
+/** The pallet's configured `LinkedOutputTtl`, in milliseconds. */
+export function linkedOutputTtl(polkadotJs: any): bigint {
+    return BigInt(polkadotJs.consts.limitOrders.linkedOutputTtl.toString());
+}
+
 /** Filter system events by method name. */
 export function filterEvents(events: any, method: string): any[] {
     return (events as any[]).filter((e: any) => e.event.method === method);
@@ -428,9 +713,11 @@ export async function executeBatchedOrders(
 ): Promise<void> {
     const keyring = new Keyring({ type: "sr25519" });
     const alice = keyring.addFromUri("//Alice");
+    // PAPI descriptors predate `VersionedOrder::V2`; regenerate with
+    // `pnpm generate-types` against a node carrying this runtime to drop the cast.
     const tx = api.tx.LimitOrders.execute_batched_orders({
         netuid,
-        orders,
+        orders: orders as never,
     });
     await waitForTransactionWithRetry(api, tx, alice, "execute_batched_orders");
 }

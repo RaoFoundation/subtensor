@@ -185,4 +185,5 @@ class LimitOrders:
     MaxOrdersPerBatch = Item('LimitOrders', 'MaxOrdersPerBatch')
     PalletId = Item('LimitOrders', 'PalletId')
     PalletHotkey = Item('LimitOrders', 'PalletHotkey')
+    LinkedOutputTtl = Item('LimitOrders', 'LinkedOutputTtl')
 

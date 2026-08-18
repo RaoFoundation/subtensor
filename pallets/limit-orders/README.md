@@ -48,11 +48,32 @@ Versioned wrapper around an order payload. Currently has one variant:
 | Variant | Description |
 |---------|-------------|
 | `V1(Order<AccountId>)` | First version of the order schema. |
+| `V2(OrderV2<AccountId>)` | Same fields as V1, plus linked amounts and an opt-in provider flag. |
 
 Versioning lets the pallet accept orders signed against different schemas
 simultaneously. When a new variant is added (`V2`, etc.), old `V1` signed orders
 remain valid because the `OrderId` and signature both cover the full
 `VersionedOrder` encoding (including the version discriminant byte).
+
+### Linked orders (V2)
+
+A V2 order may be sized as a fraction of another order's already-produced
+output (`OrderAmount::LinkedPercentage { provider, pct }`) instead of a fixed
+amount. The provider must have executed with `has_linked_order = true`, which
+writes a single-use `LinkedOutputs` record. The first consumer to draw takes
+`pct` of that output and the record is removed; `1 - pct` stays with the
+signer as ordinary balance.
+
+Provider and consumer are independent: an order can be either, both (a chain
+longer than two legs), or neither (v1 semantics). Partial fills are rejected
+on both sides. `execute_orders` can chain a provider then its consumer in one
+call; `execute_batched_orders` cannot — amounts are resolved before the
+netted swap, so split them across two calls.
+
+The record is accounting, not custody: the consumer still spends from the
+signer's own balance. The same coldkey must sign both legs, and the
+provider's output asset must match the consumer's input (sell → TAO → buy;
+buy → alpha on that `(netuid, hotkey)` → sell).
 
 ### `Order<AccountId>`
 
@@ -111,6 +132,12 @@ terminal `OrderStatus`. Absence means the order has never been seen and is still
 executable (provided it is valid). Presence means it is permanently closed —
 neither `Fulfilled` nor `Cancelled` orders can be re-executed.
 
+### `LinkedOutputs: StorageMap<H256, LinkedOutput>`
+
+Single-use record of a provider's post-fee output, keyed by the provider's
+`OrderId`. Written when an order with `has_linked_order` executes; removed by
+the first linked draw or by `prune_linked_output`.
+
 ---
 
 ## Config
@@ -123,6 +150,7 @@ neither `Fulfilled` nor `Cancelled` orders can be re-executed.
 | `PalletId`            | `Get<PalletId>` (constant)                        | Used to derive the pallet intermediary account (`PalletId::into_account_truncating`). This account temporarily holds pooled TAO and staked alpha during `execute_batched_orders`. |
 | `PalletHotkey`        | `Get<Self::AccountId>` (constant)                 | Hotkey the pallet intermediary account stakes to/from during batch execution. Must be a dedicated hotkey registered on every subnet the pallet may operate on. Operators should register it as a non-validator neuron. |
 | `WeightInfo`          | `weights::WeightInfo`                             | Benchmarked weight functions for each extrinsic. Use `weights::SubstrateWeight<Runtime>` in production and `()` in tests. |
+| `LinkedOutputTtl`     | `Get<u64>` (constant, milliseconds)               | How long a provider record stays drawable. After this, anyone may prune it. |
 
 ---
 
@@ -204,6 +232,12 @@ Registers a cancellation intent by writing the `OrderId` into `Orders` as
 `Cancelled`. Once cancelled an order can never be executed. The full
 `VersionedOrder` payload is required so the pallet can derive the `OrderId`.
 
+### `prune_linked_output(order_id)` — call index 4
+
+**Origin:** the provider's signer at any time, or anyone after `expires_at`.
+
+Removes a leftover `LinkedOutputs` record. Moves no funds.
+
 ---
 
 ## Events
@@ -230,6 +264,14 @@ Registers a cancellation intent by writing the `OrderId` into `Orders` as
 | `Unauthorized` | Caller of `cancel_order` is not the order's `signer`. |
 | `SwapReturnedZero` | The pool swap returned zero output for a non-zero residual input. |
 | `RelayerMissMatch` | The caller is not the relayer designated in the order's `relayer` field. Only raised when the field is `Some`. |
+| `NoLinkedOutput` | Linked order named a provider with no recorded output (not executed, not a provider, already drawn, or pruned). Also raised when a provider and its consumer share one `execute_batched_orders` call. |
+| `LinkedOutputSignerMismatch` | Linked order signer differs from the provider's signer. |
+| `LinkedOutputAssetMismatch` | Provider output asset is not what the linked order spends. |
+| `LinkedOutputExpired` | Provider record is past `expires_at`. |
+| `LinkedAmountResolvedToZero` | Linked fraction floored to zero against the recorded output. |
+| `PartialFillNotSupportedForLinkedAmount` | Partial fill submitted against a linked (consuming) order. |
+| `PartialFillNotSupportedForProvider` | Partial fill submitted against a provider (`has_linked_order`). |
+| `LinkedOutputNotPrunable` | `prune_linked_output` called by a non-signer on an unexpired record. |
 
 ---
 
