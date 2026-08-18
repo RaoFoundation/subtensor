@@ -28,7 +28,6 @@ from .intents import build as build_intent
 from .intents.base import BuiltCall
 from .intents.proxy import check_proxy_type
 from .result import (
-    BittensorError,
     ChainError,
     ExtrinsicResult,
     PolicyError,
@@ -43,6 +42,7 @@ from .signing import (
     public_view,
     resolve_signer,
 )
+from .sp_core import ss58_decode
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -66,11 +66,47 @@ def _is_sudo_call(call: Any) -> bool:
     return module == "Sudo" and function == "sudo"
 
 
-async def _wrap_root_call(substrate: Substrate, intent: Intent, call: Any) -> Any:
-    """Nest root-origin intents in ``Sudo.sudo`` so privilege matches ``execute``."""
-    if intent.origin == "root" and not _is_sudo_call(call):
-        return await substrate.compose(generated_calls.Sudo.sudo(call=call))
+async def nest_origin_wrappers(
+    substrate: Substrate,
+    call: Any,
+    *,
+    sudo: bool = False,
+    proxy_for: Optional[str] = None,
+    proxy_type: Optional[str] = None,
+) -> Any:
+    """Wrap a call in Sudo, then Proxy. Same order for intents and raw ``btcli call``.
+
+    Each layer composes its inner call first so the outer builder receives
+    chain-ready SCALE. The returned value is a generated builder when a wrap
+    was applied, or the original call when neither wrap is set.
+    """
+    if sudo and not _is_sudo_call(call):
+        inner = call if hasattr(call, "data") else await substrate.compose(call)
+        call = generated_calls.Sudo.sudo(call=inner)
+    if proxy_for is not None:
+        if proxy_type is not None:
+            check_proxy_type(proxy_type)
+        inner = call if hasattr(call, "data") else await substrate.compose(call)
+        call = generated_calls.Proxy.proxy(real=proxy_for, force_proxy_type=proxy_type, call=inner)
     return call
+
+
+async def _prepare_shielded_signer(keypair) -> None:
+    """Label two-stage signers and warm up Vault before the 8-block era starts.
+
+    Vault and the extension set ``two_stage`` so their UI can say "1 of 2".
+    Vault's ``warm_up`` opens the page and camera before the first QR, so the
+    mortal era does not start while the user is still unlocking the phone.
+    Ledger has no extra hook — it just prompts twice.
+    """
+    if hasattr(keypair, "two_stage"):
+        keypair.two_stage = True
+    warm_up = getattr(keypair, "warm_up", None)
+    if not callable(warm_up):
+        return
+    result = warm_up()
+    if inspect.isawaitable(result):
+        await result
 
 
 def _coerce_addresses(intent: Intent) -> Intent:
@@ -91,6 +127,21 @@ def _coerce_addresses(intent: Intent) -> Intent:
     return replace(intent, **changes) if changes else intent
 
 
+class _OriginView:
+    """Public-only account view so semantic build sees the dispatch origin.
+
+    Used when ``proxy_for`` is set: ``add_stake(all)`` and similar origin
+    lookups must read the proxied account, not the delegate or a multisig
+    member. ``public_view`` / ``coldkey_address`` only need ``ss58_address``.
+    """
+
+    crypto_type = 1
+
+    def __init__(self, address: str):
+        self.ss58_address = address
+        self.public_key = bytes(ss58_decode(address))
+
+
 async def _compose_intent_call(
     substrate: Substrate,
     intent: Intent,
@@ -100,26 +151,60 @@ async def _compose_intent_call(
     proxy_type: Optional[str] = None,
 ) -> tuple[Any, dict]:
     """Compose semantic call -> sudo -> proxy -> execution adapter."""
-    semantic = _coerce_addresses(intent.semantic_intent())
-    built = await semantic.build(substrate, wallet)
-    if isinstance(built, BuiltCall):
-        call, extras = built.call, built.extras
-    else:
-        call, extras = built, {}
+    extras: dict = {"proxy_for": proxy_for} if proxy_for is not None else {}
+    pinned = getattr(intent, "inner_call_data", None)
+    if pinned:
+        # Later multisig rounds approve round 1's exact bytes. Rebuilds are
+        # not always stable (timelock commits, ``--all`` balances) and would
+        # throw before wrap_call can apply the pin.
+        wrapped = await intent.wrap_call(substrate, wallet, None)
+        if isinstance(wrapped, BuiltCall):
+            return wrapped.call, {**extras, **wrapped.extras}
+        return wrapped, extras
 
-    call = await _wrap_root_call(substrate, semantic, call)
-    if proxy_for is not None:
-        if proxy_type is not None:
-            check_proxy_type(proxy_type)
-        call = await substrate.compose(
-            generated_calls.Proxy.proxy(real=proxy_for, force_proxy_type=proxy_type, call=call)
-        )
-        extras = {**extras, "proxy_for": proxy_for}
+    semantic = _coerce_addresses(intent.semantic_intent())
+    # Proxy is the dispatch origin of the inner call. The multisig adapter's
+    # origin_view is the multisig itself — correct only when there is no
+    # proxy wrap. With both, build against the proxied account.
+    origin = (
+        _OriginView(proxy_for) if proxy_for is not None else intent.origin_view(substrate, wallet)
+    )
+    built = await semantic.build(substrate, origin)
+    if isinstance(built, BuiltCall):
+        call, extras = built.call, {**extras, **built.extras}
+    else:
+        call = built
+
+    wrapped = await nest_origin_wrappers(
+        substrate,
+        call,
+        sudo=semantic.origin == "root",
+        proxy_for=proxy_for,
+        proxy_type=proxy_type,
+    )
+    if wrapped is not call:
+        call = wrapped if hasattr(wrapped, "data") else await substrate.compose(wrapped)
 
     wrapped = await intent.wrap_call(substrate, wallet, call)
     if isinstance(wrapped, BuiltCall):
         return wrapped.call, {**extras, **wrapped.extras}
     return wrapped, extras
+
+
+def _with_nested_dispatch_failure(result: ExtrinsicResult) -> ExtrinsicResult:
+    """Mark a successful outer dispatch failed when a nested Sudo/Proxy/Multisig Result is Err."""
+    if not result.success:
+        return result
+    inner_error = nested_dispatch_error(result.events)
+    if inner_error is None:
+        return result
+    error = chain_error_from_dispatch(inner_error)
+    return replace(
+        result,
+        success=False,
+        message=f"nested call failed: {error.message}",
+        error=error,
+    )
 
 
 def _find_event(events: list, module_id: str, event_id: str) -> Optional[Any]:
@@ -532,6 +617,7 @@ class Executor:
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
         violations = self._violations(intent, fee, policy)
+        violations.extend(await intent.blocks(self.substrate, origin))
 
         return Plan(
             op=intent.op,
@@ -587,17 +673,17 @@ class Executor:
         optional ``on_progress(dict)`` callback apply only to that wait.
         """
         if intent.semantic_intent().mev_shield_required:
-            if proxy_for is not None:
-                raise BittensorError(
-                    f"{intent.op} must be submitted MEV-shielded and cannot "
-                    "wrap a proxied call; sign directly or use submit_shielded"
-                )
             return await self.submit_shielded(
                 intent,
                 wallet,
                 policy=policy,
+                proxy_for=proxy_for,
+                proxy_type=proxy_type,
                 wait_for_inclusion=wait_for_inclusion,
                 wait_for_finalization=wait_for_finalization,
+                wait_for_registration=wait_for_registration,
+                registration_timeout=registration_timeout,
+                on_progress=on_progress,
             )
         plan = await self.plan(
             intent, wallet, policy=policy, proxy_for=proxy_for, proxy_type=proxy_type
@@ -622,16 +708,7 @@ class Executor:
         # Defense for backends that mark ExtrinsicSuccess without decoding
         # nested Sudo/Proxy/Multisig Results (e.g. in-memory fakes). The RPC
         # path already fails these in resolve_outcome.
-        if result.success:
-            inner_error = nested_dispatch_error(result.events)
-            if inner_error is not None:
-                error = chain_error_from_dispatch(inner_error)
-                result = replace(
-                    result,
-                    success=False,
-                    message=f"nested call failed: {error.message}",
-                    error=error,
-                )
+        result = _with_nested_dispatch_failure(result)
         if result.success:
             data = dict(result.data)
             if intent.op == "create_pure_proxy":
@@ -675,6 +752,8 @@ class Executor:
         wallet: WalletLike,
         *,
         policy: Optional[Policy] = None,
+        proxy_for: Optional[str] = None,
+        proxy_type: Optional[str] = None,
         period: int = MEV_SHIELD_ERA_PERIOD,
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = False,
@@ -691,10 +770,17 @@ class Executor:
         front-run it. Policy is enforced on the intent before anything is signed;
         ``max_fee_tao`` is checked against the inner call's estimated fee (the
         outer carrier extrinsic pays its own small fee on top).
+
+        ``proxy_for`` / ``proxy_type`` are the same as on :meth:`plan` and
+        :meth:`execute`: the inner signed extrinsic is the already-composed
+        call (semantic → sudo → proxy → adapter). Shield wraps that; it does
+        not replace the proxy wrap.
         """
         wallet = as_wallet(wallet)
         intent = _coerce_addresses(intent)
-        call, extras = await _compose_intent_call(self.substrate, intent, wallet)
+        call, extras = await _compose_intent_call(
+            self.substrate, intent, wallet, proxy_for=proxy_for, proxy_type=proxy_type
+        )
         fee = None
         active = self._active_policy(policy)
         if active is not None and active.max_fee_tao is not None:
@@ -711,10 +797,47 @@ class Executor:
                 ) from error
         self._enforce(intent, fee, policy)
 
-        # NextKey rotates every block and is legitimately absent for a beat
-        # when an upcoming author hasn't announced its key yet (always the
-        # case in a chain's first blocks). Wait it out for a couple of
-        # blocks before concluding the pallet is inactive.
+        keypair = resolve_signer(wallet, intent.signer)
+        result = await self._submit_encrypted_call(
+            call,
+            keypair,
+            extras,
+            period=period,
+            wait_for_inclusion=wait_for_inclusion,
+            wait_for_finalization=wait_for_finalization,
+        )
+        if (
+            result.success
+            and intent.op == "register_subnet"
+            and wait_for_registration
+            and (wait_for_inclusion or wait_for_finalization)
+        ):
+            owner = proxy_for or self._public_keypair(wallet, intent.signer).ss58_address
+            if owner is None:
+                raise ChainError("subnet registration signer address is unavailable")
+            hotkey = intent.hotkey_address(wallet, getattr(intent, "hotkey_ss58", None))
+            result = await _complete_subnet_registration(
+                self.substrate,
+                result,
+                owner=owner,
+                hotkey=hotkey,
+                on_progress=on_progress,
+                timeout=registration_timeout,
+                deferred_dispatch=True,
+            )
+        return result
+
+    async def _submit_encrypted_call(
+        self,
+        call,
+        keypair,
+        extras: dict,
+        *,
+        period: int,
+        wait_for_inclusion: bool,
+        wait_for_finalization: bool,
+    ) -> ExtrinsicResult:
+        """Encrypt ``call`` as a shielded inner extrinsic and submit the carrier."""
         pubkey = await self.substrate.mev_next_key()
         for _ in range(2):
             if pubkey:
@@ -724,7 +847,7 @@ class Executor:
         if not pubkey:
             raise ChainError("MEV Shield NextKey not available; is the MevShield pallet active?")
 
-        keypair = resolve_signer(wallet, intent.signer)
+        await _prepare_shielded_signer(keypair)
         nonce = await self.substrate.account_next_index(keypair.ss58_address)
         inner_bytes, inner_hash = await self.substrate.sign_extrinsic(
             call, keypair, nonce=nonce + 1, period=period
@@ -752,28 +875,8 @@ class Executor:
                 },
             )
         if result.success and (wait_for_inclusion or wait_for_finalization):
-            # The carrier's success only proves the ciphertext was accepted;
-            # the decrypted inner extrinsic executes separately and can still
-            # fail. Follow it so success, block, extrinsic id, and explorer
-            # link all describe the actual call, not the carrier.
             result = await self._resolve_shielded_inner(result, inner_hash, period)
-        if (
-            result.success
-            and intent.op == "register_subnet"
-            and wait_for_registration
-            and (wait_for_inclusion or wait_for_finalization)
-        ):
-            owner = self._public_keypair(wallet, intent.signer).ss58_address
-            hotkey = intent.hotkey_address(wallet, getattr(intent, "hotkey_ss58", None))
-            result = await _complete_subnet_registration(
-                self.substrate,
-                result,
-                owner=owner,
-                hotkey=hotkey,
-                on_progress=on_progress,
-                timeout=registration_timeout,
-                deferred_dispatch=True,
-            )
+            result = _with_nested_dispatch_failure(result)
         return result
 
     async def _resolve_shielded_inner(
@@ -836,6 +939,7 @@ class Executor:
         period: Optional[int] = DEFAULT_ERA_PERIOD,
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = True,
+        shielded: bool = False,
     ) -> ExtrinsicResult:
         """Escape hatch: sign and submit a generated raw call with no intent wrapper.
 
@@ -843,11 +947,22 @@ class Executor:
         exposes, including ones no intent wraps). There is no plan/preview, so an
         active policy cannot bound the spend — raw calls are refused unless the
         policy sets ``allow_raw_calls=True``. No policy means no restriction,
-        exactly as for intents.
+        exactly as for intents. ``shielded=True`` encrypts the composed call
+        the same way :meth:`submit_shielded` does for intents.
         """
         self._enforce_raw_call(policy)
         composed = await self.substrate.compose(call)
         keypair = resolve_signer(wallet, signer)
+        if shielded:
+            era = MEV_SHIELD_ERA_PERIOD if period in (None, DEFAULT_ERA_PERIOD) else int(period)
+            return await self._submit_encrypted_call(
+                composed,
+                keypair,
+                {},
+                period=era,
+                wait_for_inclusion=wait_for_inclusion,
+                wait_for_finalization=False,
+            )
         return await self.substrate.submit(
             composed,
             keypair,

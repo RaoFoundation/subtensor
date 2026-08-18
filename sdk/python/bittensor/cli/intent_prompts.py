@@ -16,7 +16,12 @@ import typer
 from .context import AppContext
 from .prompt import PromptSpec, interactive
 from .root_helpers import claim_root_source_spec
-from .stake_picker import stake_source_spec, stake_target_spec, with_free_balance
+from .stake_picker import (
+    dest_account_spec,
+    stake_source_spec,
+    stake_target_spec,
+    with_free_balance,
+)
 
 
 @dataclass(frozen=True)
@@ -71,8 +76,27 @@ _POLICIES: dict[str, IntentPromptPolicy] = {
     "unstake_all": IntentPromptPolicy(rules=(_source("hotkey_ss58", None),)),
     "unstake_all_alpha": IntentPromptPolicy(rules=(_source("hotkey_ss58", None),)),
     "swap_stake": IntentPromptPolicy(rules=(_source("hotkey_ss58", "origin_netuid"),)),
-    "transfer_stake": IntentPromptPolicy(rules=(_source("hotkey_ss58", "origin_netuid"),)),
-    "move_stake": IntentPromptPolicy(rules=(_source("origin_hotkey_ss58", "origin_netuid"),)),
+    "transfer_stake": IntentPromptPolicy(
+        rules=(
+            _source("hotkey_ss58", "origin_netuid"),
+            PromptRule(
+                "dest_coldkey_ss58",
+                functools.partial(dest_account_spec, "dest_coldkey_ss58"),
+            ),
+        )
+    ),
+    "move_stake": IntentPromptPolicy(
+        rules=(
+            _source("origin_hotkey_ss58", "origin_netuid"),
+            _target("dest_hotkey_ss58", "amount_alpha"),
+        )
+    ),
+    "move_swap_stake": IntentPromptPolicy(
+        rules=(
+            _source("origin_hotkey_ss58", "origin_netuid"),
+            _target("dest_hotkey_ss58", "amount_alpha"),
+        )
+    ),
     "claim_root_with_hotkey": IntentPromptPolicy(
         rules=(PromptRule("hotkey_ss58", claim_root_source_spec),),
         required_after_prompt=("hotkey_ss58",),
@@ -88,6 +112,11 @@ _POLICIES: dict[str, IntentPromptPolicy] = {
     "stake_burn": IntentPromptPolicy(
         decorators=(PromptDecorator("amount_tao", with_free_balance),)
     ),
+    "transfer": IntentPromptPolicy(
+        rules=(PromptRule("dest_ss58", dest_account_spec),),
+        decorators=(PromptDecorator("amount_tao", with_free_balance),),
+    ),
+    "transfer_all": IntentPromptPolicy(rules=(PromptRule("dest_ss58", dest_account_spec),)),
 }
 
 

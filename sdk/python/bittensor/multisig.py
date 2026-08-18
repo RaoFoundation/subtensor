@@ -21,6 +21,7 @@ from ._generated import calls as generated_calls
 from ._generated import constants as generated_constants
 from ._generated import storage as generated_storage
 from .result import ChainError, ErrorCode
+from .settings import MEV_SHIELD_ERA_PERIOD
 from .signing import WalletLike, public_view, resolve_signer
 from .sp_core import ss58_decode
 
@@ -210,6 +211,7 @@ class Multisig:
         signer: str = "coldkey",
         wait_for_inclusion: bool = True,
         wait_for_finalization: bool = False,
+        shielded: bool = False,
     ):
         """Approve ``call`` as one signatory; executes it once the threshold is met.
 
@@ -218,16 +220,52 @@ class Multisig:
         (threshold-reaching) approval carries the inner call's events, earlier
         approvals just record consent. Every signatory must pass the identical
         call for the on-chain hashes to match.
+
+        ``shielded=True`` encrypts this signer's ``as_multi`` the same way
+        :meth:`Executor.submit_shielded` encrypts an intent — the inner call
+        hash is unchanged, so later approvals still chain.
         """
         composed = await self._client.compose(call)
         await self._preflight_funds(composed, wallet, signer)
         keypair = resolve_signer(wallet, signer)
-        return await self._client._substrate.submit_multisig(
-            composed,
+        if not shielded:
+            return await self._client._substrate.submit_multisig(
+                composed,
+                keypair,
+                self._account,
+                wait_for_inclusion=wait_for_inclusion,
+                wait_for_finalization=wait_for_finalization,
+            )
+        as_multi = await self._compose_as_multi(composed, keypair)
+        return await self._client._executor._submit_encrypted_call(
+            as_multi,
             keypair,
-            self._account,
+            {},
+            period=MEV_SHIELD_ERA_PERIOD,
             wait_for_inclusion=wait_for_inclusion,
-            wait_for_finalization=wait_for_finalization,
+            wait_for_finalization=False,
+        )
+
+    async def _compose_as_multi(self, composed, keypair):
+        """Build the same ``Multisig.as_multi`` the clear approve path signs."""
+        substrate = self._client._substrate
+        call_hash = "0x" + bytes(composed.call_hash).hex()
+        pending = await substrate.query(
+            *generated_storage.Multisig.Multisigs, [self.address, call_hash]
+        )
+        maybe_timepoint = pending["when"] if pending else None
+        others = [
+            address for address in self._account.signatories if address != keypair.ss58_address
+        ]
+        max_weight = await substrate.estimate_weight(composed, keypair)
+        return await self._client.compose(
+            generated_calls.Multisig.as_multi(
+                threshold=self.threshold,
+                other_signatories=others,
+                maybe_timepoint=maybe_timepoint,
+                call=composed,
+                max_weight=max_weight,
+            )
         )
 
     async def _preflight_funds(self, composed, wallet: WalletLike, signer: str) -> None:

@@ -54,6 +54,13 @@ INTENT_SAMPLES: dict[str, dict] = {
         "dest_netuid": 1,
         "amount_alpha": 1.0,
     },
+    "move_swap_stake": {
+        "origin_hotkey_ss58": BOB_HOT,
+        "origin_netuid": 1,
+        "dest_hotkey_ss58": ALICE_HOT,
+        "dest_netuid": 2,
+        "amount_alpha": 1.0,
+    },
     "swap_stake": {
         "hotkey_ss58": BOB_HOT,
         "origin_netuid": 1,

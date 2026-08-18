@@ -2,9 +2,10 @@
 
 Units are kept explicit end to end: ``free`` is exact on-chain TAO; stake is a
 list of per-subnet alpha positions (each subnet's own currency); the only TAO
-scalar derived from stake is ``stake_value`` — a spot-price mark that excludes
-the slippage and fees a real unstake would incur. Alpha amounts are never
-summed across subnets.
+scalar derived from those positions is ``stake_value`` — a spot-price mark that
+excludes the slippage and fees a real unstake would incur. Accrued basket
+yield is a separate realizable TAO quote (root fund entitlement, not a mark
+of the positions). Alpha amounts are never summed across subnets.
 """
 
 from __future__ import annotations
@@ -74,6 +75,23 @@ def list_coldkeys(path: str) -> list[tuple[str, str]]:
     for ck in wallets.list_wallets_detailed(path):
         if ck.ss58:
             out.append((ck.name, ck.ss58))
+    return out
+
+
+def list_wallets_with_hotkeys(
+    path: str,
+) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    """Return ``(wallet_name, coldkey_ss58, [(hotkey_name, hotkey_ss58), ...])``.
+
+    Only wallets with a readable coldkeypub are included. Hotkeys without a
+    readable ss58 are skipped. Used by ``wallet registrations``.
+    """
+    out: list[tuple[str, str, list[tuple[str, str]]]] = []
+    for ck in wallets.list_wallets_detailed(path):
+        if not ck.ss58:
+            continue
+        hotkeys = [(hk.name, hk.ss58) for hk in ck.hotkeys if hk.ss58]
+        out.append((ck.name, ck.ss58, hotkeys))
     return out
 
 
@@ -174,6 +192,83 @@ def netuid_groups(
 
 STAKE_LIST_TITLE = "stake (per-subnet currency: TAO on netuid 0, alpha elsewhere)"
 
+# Root yield is not auto-claimed; stakers must run ``btcli root claim``.
+ROOT_AUTO_CLAIM = False
+
+
+def root_staked(positions: list[StakePosition]) -> Balance:
+    """Principal on netuid 0 (TAO). Accrued basket yield is not included."""
+    return Balance.from_rao(sum(p.stake.rao for p in positions if p.netuid == 0))
+
+
+def personal_yield_ratio(accrued: Balance, staked: Balance) -> Optional[float]:
+    """``accrued / staked``. Not APY — that needs history the chain does not store."""
+    if staked.rao <= 0:
+        return None
+    return accrued.rao / staked.rao
+
+
+def has_root_yield_context(accrued: Balance, staked: Balance) -> bool:
+    """True when the coldkey has root principal or unclaimed basket yield."""
+    return accrued.rao > 0 or staked.rao > 0
+
+
+def root_yield_record(accrued: Balance, staked: Balance) -> dict[str, object]:
+    """JSON fields for accrued basket yield (coldkey-wide, not per position)."""
+    return {
+        "accrued_basket_yield": accrued,
+        "accrued_basket_yield_tao": accrued.tao,
+        "root_staked": staked,
+        "root_staked_tao": staked.tao,
+        # accrued / staked. Not APY; validator ``lifetime_return`` is the fund.
+        "personal_yield": personal_yield_ratio(accrued, staked),
+        "auto_claim": ROOT_AUTO_CLAIM,
+    }
+
+
+def format_root_yield_value(accrued: Balance, staked: Balance) -> str:
+    """Human amount, plus ``accrued / staked`` when principal is non-zero."""
+    ratio = personal_yield_ratio(accrued, staked)
+    if ratio is None:
+        return str(accrued)
+    return f"{accrued}  ({ratio:.2%} of root stake)"
+
+
+def combine_root_yields(pairs: list[tuple[Balance, Balance]]) -> dict[str, object]:
+    """Sum many ``(accrued, root_staked)`` pairs into one yield record."""
+    accrued = Balance.from_rao(sum(item[0].rao for item in pairs))
+    staked = Balance.from_rao(sum(item[1].rao for item in pairs))
+    return root_yield_record(accrued, staked)
+
+
+def enrich_stake_records_with_root_yield(
+    records: list[dict],
+    owed_by_ss58: dict[str, Balance],
+    staked_by_ss58: dict[str, Balance],
+    *,
+    default_ss58: Optional[str] = None,
+) -> None:
+    """Copy coldkey-wide basket-yield fields onto flat stake-list JSON rows."""
+    for record in records:
+        ss58 = record.get("coldkey") or default_ss58
+        if not ss58:
+            continue
+        accrued = owed_by_ss58.get(ss58, Balance.from_rao(0))
+        staked = staked_by_ss58.get(ss58, Balance.from_rao(0))
+        record.update(root_yield_record(accrued, staked))
+
+
+async def fetch_root_basket_owed_for_coldkeys(
+    client: Client, coldkey_ss58s: list[str]
+) -> dict[str, Balance]:
+    """Realizable TAO each coldkey would get by claiming root dividends now."""
+    if not coldkey_ss58s:
+        return {}
+    values = await asyncio.gather(
+        *[client.read("root_basket_owed", coldkey_ss58=ss58) for ss58 in coldkey_ss58s]
+    )
+    return {ss58: value for ss58, value in zip(coldkey_ss58s, values)}
+
 
 def annotate_stake_groups_with_locks(
     groups: list[dict],
@@ -255,6 +350,10 @@ def human_balance_fields(row: dict) -> dict:
         fields["locked_value"] = (
             f"{row['locked_value']}  ({row['locked_subnets']} subnets; part of stake_value)"
         )
+    accrued = row.get("accrued_basket_yield")
+    staked = row.get("root_staked")
+    if accrued is not None and staked is not None and has_root_yield_context(accrued, staked):
+        fields["accrued_basket_yield"] = format_root_yield_value(accrued, staked)
     fields["total_value"] = row["total_value"]
     fields["block"] = row["block"]
     return fields
@@ -429,12 +528,15 @@ async def wallet_overview_rows(
     renderings that need more than the flat records. Rows whose coldkey holds
     conviction locks carry the locked spot value and subnet count; their stake
     records carry the locked/free split via
-    :func:`enrich_stake_records_with_locks`.
+    :func:`enrich_stake_records_with_locks`. Each row also carries accrued
+    basket yield (``root_basket_owed``) and ``personal_yield`` (accrued /
+    root staked — not APY).
     """
     if not coldkeys:
         return [], {}, {}, {}
+    ss58s = [ss58 for _, ss58 in coldkeys]
     free_by_addr, valuations = await fetch_coldkey_balances_and_valuations(client, coldkeys)
-    contexts, uids = await asyncio.gather(
+    contexts, uids, owed_by_ss58 = await asyncio.gather(
         asyncio.gather(
             *[
                 coldkey_lock_context(client, ss58, valuations[ss58].positions)
@@ -449,6 +551,7 @@ async def wallet_overview_rows(
                 for position in filter_stakes(valuations[ss58].positions, netuid)
             ],
         ),
+        fetch_root_basket_owed_for_coldkeys(client, ss58s),
     )
     lock_ctx = {ss58: ctx for (_, ss58), ctx in zip(coldkeys, contexts)}
     rows: list[dict[str, object]] = []
@@ -460,6 +563,8 @@ async def wallet_overview_rows(
         locked_value = Balance(
             sum(valuations[ss58].spot_value(row["locked"]).rao for row in locked_rows)
         )
+        staked = root_staked(valuations[ss58].positions)
+        accrued = owed_by_ss58.get(ss58, Balance.from_rao(0))
         records = [
             {
                 **_stake_record(position, valuations[ss58]),
@@ -468,6 +573,9 @@ async def wallet_overview_rows(
             for position in stakes
         ]
         enrich_stake_records_with_locks(records, locks_by_netuid, availability_by_netuid)
+        enrich_stake_records_with_root_yield(
+            records, owed_by_ss58, {ss58: staked}, default_ss58=ss58
+        )
         rows.append(
             {
                 "wallet": name,
@@ -482,9 +590,97 @@ async def wallet_overview_rows(
                 "locked_subnets": len(locked_rows),
                 "positions": len(stakes),
                 "stakes": records,
+                **root_yield_record(accrued, staked),
             }
         )
     return rows, valuations, lock_ctx, uids
+
+
+async def wallet_registration_rows(
+    client: Client,
+    targets: list[tuple[str, str, list[tuple[str, str]]]],
+    netuid: Optional[int] = None,
+) -> list[dict[str, object]]:
+    """Every local hotkey and where it is registered, including zero-stake UIDs.
+
+    ``targets`` is ``(wallet_name, coldkey_ss58, [(hotkey_name, hotkey_ss58)])``.
+    Each wallet also picks up on-chain ``owned_hotkeys`` that are not on disk
+    (no local name). When ``netuid`` is set, only that subnet is queried.
+    """
+    if not targets:
+        return []
+    view = await client.at()
+    owned_lists = await asyncio.gather(
+        *[view.read("owned_hotkeys", coldkey_ss58=ss58) for _, ss58, _ in targets]
+    )
+
+    per_wallet: list[list[tuple[Optional[str], str, bool]]] = []
+    seen_hotkeys: list[str] = []
+    seen: set[str] = set()
+    for (_, _, local_hotkeys), owned in zip(targets, owned_lists):
+        by_ss58: dict[str, tuple[Optional[str], bool]] = {}
+        for name, ss58 in local_hotkeys:
+            by_ss58[ss58] = (name, True)
+        for ss58 in owned:
+            by_ss58.setdefault(ss58, (None, False))
+        entries = [(name, ss58, local) for ss58, (name, local) in by_ss58.items()]
+        entries.sort(
+            key=lambda item: (
+                not item[2],
+                wallets.natural_name_key(item[0] or item[1]),
+            )
+        )
+        per_wallet.append(entries)
+        for _, ss58, _ in entries:
+            if ss58 not in seen:
+                seen.add(ss58)
+                seen_hotkeys.append(ss58)
+
+    if netuid is not None:
+        uid_values = await asyncio.gather(
+            *[view.read("uid", hotkey_ss58=hotkey, netuid=netuid) for hotkey in seen_hotkeys]
+        )
+        netuids_by_hotkey = {
+            hotkey: [netuid] if uid is not None else []
+            for hotkey, uid in zip(seen_hotkeys, uid_values)
+        }
+        uid_by_pair = {
+            (netuid, hotkey): int(uid)
+            for hotkey, uid in zip(seen_hotkeys, uid_values)
+            if uid is not None
+        }
+    else:
+        netuid_lists = await asyncio.gather(
+            *[view.read("netuids_for_hotkey", hotkey_ss58=hotkey) for hotkey in seen_hotkeys]
+        )
+        netuids_by_hotkey = {
+            hotkey: list(netuids) for hotkey, netuids in zip(seen_hotkeys, netuid_lists)
+        }
+        pairs = [(n, hotkey) for hotkey, netuids in netuids_by_hotkey.items() for n in netuids]
+        uid_values = await asyncio.gather(
+            *[view.read("uid", hotkey_ss58=hotkey, netuid=n) for n, hotkey in pairs]
+        )
+        uid_by_pair = {pair: int(uid) for pair, uid in zip(pairs, uid_values) if uid is not None}
+
+    rows: list[dict[str, object]] = []
+    for (name, coldkey, _), entries in zip(targets, per_wallet):
+        hotkeys = []
+        for hk_name, hotkey, local in entries:
+            registrations = [
+                {"netuid": n, "uid": uid_by_pair[(n, hotkey)]}
+                for n in netuids_by_hotkey.get(hotkey, [])
+                if (n, hotkey) in uid_by_pair
+            ]
+            hotkeys.append(
+                {
+                    "name": hk_name,
+                    "hotkey": hotkey,
+                    "local": local,
+                    "registrations": registrations,
+                }
+            )
+        rows.append({"wallet": name, "coldkey": coldkey, "hotkeys": hotkeys})
+    return rows
 
 
 def _delegation_record(delegation, valuation: StakeValuation) -> dict[str, object]:
@@ -511,17 +707,27 @@ async def wallet_inspect_data(
     Returns the JSON-shaped record plus the underlying valuation (positions and
     spot prices) for human renderings that need more than the flat records.
     """
-    valuation, delegated, identity = await asyncio.gather(
+    valuation, delegated, identity, owed_by_ss58 = await asyncio.gather(
         client.read("stake_value_for_coldkey", coldkey_ss58=coldkey_ss58),
         client.read("delegated", coldkey_ss58=coldkey_ss58),
         client.read("identity", coldkey_ss58=coldkey_ss58),
+        fetch_root_basket_owed_for_coldkeys(client, [coldkey_ss58]),
     )
     free = await client.balances.get(coldkey_ss58, block=valuation.block)
     balance = _wallet_balance_row(name, coldkey_ss58, free, valuation)
+    staked = root_staked(valuation.positions)
+    accrued = owed_by_ss58.get(coldkey_ss58, Balance.from_rao(0))
+    yield_fields = root_yield_record(accrued, staked)
+    stakes = [_stake_record(position, valuation) for position in valuation.positions]
+    enrich_stake_records_with_root_yield(
+        stakes, owed_by_ss58, {coldkey_ss58: staked}, default_ss58=coldkey_ss58
+    )
+    balance.update(yield_fields)
     data = {
         "balance": balance,
-        "stakes": [_stake_record(position, valuation) for position in valuation.positions],
+        "stakes": stakes,
         "delegations": [_delegation_record(d, valuation) for d in delegated],
         "identity": identity,
+        **yield_fields,
     }
     return data, valuation

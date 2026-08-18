@@ -12,7 +12,7 @@ from ...intents import LockStake, MoveLock, SetPerpetualLock
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import chain_identity_names, dust_note, local_address_names, split_dust
-from ..tx import _parse_money
+from ..tx import resolve_all_amount
 
 app = typer.Typer(no_args_is_help=True, help="Stake-lock and conviction.")
 
@@ -143,12 +143,15 @@ def add_lock(
     netuid: int = typer.Option(
         ..., "--netuid", help=LockStake.field_help("netuid") or "Subnet to lock stake on."
     ),
-    amount_alpha: str = typer.Option(
-        ...,
+    amount_alpha: Optional[str] = typer.Option(
+        None,
         "--amount-alpha",
         "--amount",
         help=LockStake.field_help("amount_alpha")
         or "Amount to lock, in this subnet's alpha (TAO if netuid is 0).",
+    ),
+    all_amount: bool = typer.Option(
+        False, "--all", help="Lock every unlocked alpha on the subnet (same as `--amount all`)."
     ),
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
@@ -157,11 +160,7 @@ def add_lock(
 ):
     """Lock alpha stake on a subnet hotkey."""
     app_ctx: AppContext = ctx_of(ctx)
-    try:
-        amount = _parse_money(amount_alpha, False)
-    except ValueError as error:
-        app_ctx.output.error(f"invalid value for `--amount-alpha`: {error}")
-        raise typer.Exit(2)
+    amount = resolve_all_amount(app_ctx, amount_alpha, all_amount, flag="--amount")
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     if perpetual:
         app_ctx.submit(SetPerpetualLock(netuid=netuid, enabled=True))

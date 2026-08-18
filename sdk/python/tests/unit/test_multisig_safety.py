@@ -32,6 +32,7 @@ async def test_saved_multisig_preserves_inner_policy_and_mev_contract(monkeypatc
         wallet_given=True,
         multisig_wallet_name=None,
         output=output,
+        external_signer_address=lambda: None,
     )
     monkeypatch.setattr(multisig_helpers.cfg, "get_multisig", lambda name: {"name": name})
     monkeypatch.setattr(
@@ -93,8 +94,43 @@ async def test_required_mev_shield_survives_multisig_dispatch():
         wrapped,
         wallet,
         policy=None,
+        proxy_for=None,
+        proxy_type=None,
         wait_for_inclusion=True,
         wait_for_finalization=True,
+        wait_for_registration=True,
+        registration_timeout=None,
+        on_progress=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_required_mev_shield_passes_proxy_for():
+    semantic = BurnedRegister(netuid=7, hotkey_ss58=ALICE_HOT)
+    dispatch = MultisigThreshold1(
+        other_signatories=[BOB],
+        call=semantic.to_dict(),
+    )
+    wrapped = MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=semantic)
+    executor = Executor(Mock())
+    expected = Mock()
+    executor.submit_shielded = AsyncMock(return_value=expected)
+    wallet = Mock()
+
+    result = await executor.execute(wrapped, wallet, proxy_for=BOB, proxy_type="Staking")
+
+    assert result is expected
+    executor.submit_shielded.assert_awaited_once_with(
+        wrapped,
+        wallet,
+        policy=None,
+        proxy_for=BOB,
+        proxy_type="Staking",
+        wait_for_inclusion=True,
+        wait_for_finalization=True,
+        wait_for_registration=True,
+        registration_timeout=None,
+        on_progress=None,
     )
 
 

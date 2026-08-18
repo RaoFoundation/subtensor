@@ -1,11 +1,13 @@
 """Default slippage protection on the staking intents.
 
-``add_stake``, ``remove_stake``, and ``swap_stake`` are slippage-protected by
-default: at build time they read the spot price and compose the ``*_limit``
-call variant with a fill-or-kill limit derived from ``rate_tolerance`` (5%).
-These tests pin the call selection, the limit-price math against seeded
-prices, the opt-out, the failure modes, and the ``SlippageTooHigh``
-remediation that tells the user how to loosen or disable the protection.
+``add_stake``, ``remove_stake``, ``swap_stake``, and cross-subnet
+``move_stake`` / ``move_swap_stake`` are slippage-protected by default: at
+build time they read the spot price and compose a ``*_limit`` call (or a
+``batch_all`` of same-subnet ``move_stake`` plus ``swap_stake_limit``) with
+a fill-or-kill limit derived from ``rate_tolerance`` (5%). These tests pin
+the call selection, the limit-price math against seeded prices, the opt-out,
+the failure modes, and the ``SlippageTooHigh`` remediation that tells the
+user how to loosen or disable the protection.
 """
 
 from __future__ import annotations
@@ -15,13 +17,34 @@ import pytest
 from bittensor.intents import REGISTRY, build
 from bittensor.result import BittensorError, ChainError, ErrorCode
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import BOB_HOT, dev_wallet
+from tests.harness.samples import ALICE_HOT, BOB_HOT, dev_wallet
 
 RAO = 10**9
 
 ADD = {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_tao": 1.0}
 REMOVE = {"hotkey_ss58": BOB_HOT, "netuid": 1, "amount_alpha": 1.0}
 SWAP = {"hotkey_ss58": BOB_HOT, "origin_netuid": 1, "dest_netuid": 2, "amount_alpha": 1.0}
+MOVE_SAME = {
+    "origin_hotkey_ss58": BOB_HOT,
+    "origin_netuid": 1,
+    "dest_hotkey_ss58": ALICE_HOT,
+    "dest_netuid": 1,
+    "amount_alpha": 1.0,
+}
+MOVE_CROSS_SAME_HOTKEY = {
+    "origin_hotkey_ss58": BOB_HOT,
+    "origin_netuid": 1,
+    "dest_hotkey_ss58": BOB_HOT,
+    "dest_netuid": 2,
+    "amount_alpha": 1.0,
+}
+MOVE_SWAP = {
+    "origin_hotkey_ss58": BOB_HOT,
+    "origin_netuid": 1,
+    "dest_hotkey_ss58": ALICE_HOT,
+    "dest_netuid": 2,
+    "amount_alpha": 1.0,
+}
 
 
 @pytest.fixture()
@@ -64,6 +87,42 @@ class TestDefaultProtection:
         assert call.params["allow_partial"] is False
 
     @pytest.mark.asyncio
+    async def test_same_subnet_move_stays_plain_move(self, substrate, wallet):
+        call = await build("move_stake", MOVE_SAME).build(substrate, wallet)
+        assert call.function == "move_stake"
+        assert call.params["destination_netuid"] == 1
+
+    @pytest.mark.asyncio
+    async def test_cross_subnet_same_hotkey_move_composes_swap_limit(self, substrate, wallet):
+        call = await build("move_stake", MOVE_CROSS_SAME_HOTKEY).build(substrate, wallet)
+        assert call.function == "swap_stake_limit"
+        assert call.params["limit_price"] == int(2 * RAO * 0.95)
+        assert call.params["hotkey"] == BOB_HOT
+
+    @pytest.mark.asyncio
+    async def test_cross_subnet_new_hotkey_move_batches_move_then_swap(self, substrate, wallet):
+        call = await build("move_stake", MOVE_SWAP).build(substrate, wallet)
+        assert call.function == "batch_all"
+        move, swap = call.params["calls"]
+        assert move.function == "move_stake"
+        assert move.params["destination_hotkey"] == ALICE_HOT
+        assert move.params["destination_netuid"] == 1
+        assert move.params["alpha_amount"] == RAO
+        assert swap.function == "swap_stake_limit"
+        assert swap.params["hotkey"] == ALICE_HOT
+        assert swap.params["alpha_amount"] == RAO - 1
+        assert swap.params["limit_price"] == int(2 * RAO * 0.95)
+
+    @pytest.mark.asyncio
+    async def test_move_swap_stake_is_the_named_batch(self, substrate, wallet):
+        call = await build("move_swap_stake", MOVE_SWAP).build(substrate, wallet)
+        assert call.function == "batch_all"
+        move, swap = call.params["calls"]
+        assert move.function == "move_stake"
+        assert swap.function == "swap_stake_limit"
+        assert swap.params["alpha_amount"] == RAO - 1
+
+    @pytest.mark.asyncio
     async def test_custom_tolerance_moves_the_limit(self, substrate, wallet):
         call = await build("add_stake", {**ADD, "rate_tolerance": 0.1}).build(substrate, wallet)
         assert call.params["limit_price"] == int(2 * RAO * 1.1)
@@ -98,6 +157,7 @@ class TestOptOut:
             ("add_stake", ADD, "add_stake"),
             ("remove_stake", REMOVE, "remove_stake"),
             ("swap_stake", SWAP, "swap_stake"),
+            ("move_stake", MOVE_CROSS_SAME_HOTKEY, "swap_stake"),
         ],
     )
     @pytest.mark.asyncio
@@ -106,11 +166,38 @@ class TestOptOut:
         assert call.function == plain
         assert "limit_price" not in call.params
 
+    @pytest.mark.asyncio
+    async def test_unprotected_cross_hotkey_move_uses_bare_move_stake(self, substrate, wallet):
+        call = await build("move_stake", {**MOVE_SWAP, "slippage_protection": False}).build(
+            substrate, wallet
+        )
+        assert call.function == "move_stake"
+        assert call.params["destination_netuid"] == 2
+        assert call.params["destination_hotkey"] == ALICE_HOT
+
+    @pytest.mark.asyncio
+    async def test_unprotected_move_swap_still_batches_plain_swap(self, substrate, wallet):
+        call = await build("move_swap_stake", {**MOVE_SWAP, "slippage_protection": False}).build(
+            substrate, wallet
+        )
+        assert call.function == "batch_all"
+        move, swap = call.params["calls"]
+        assert move.function == "move_stake"
+        assert swap.function == "swap_stake"
+        assert "limit_price" not in swap.params
+
 
 class TestFailureModes:
     @pytest.mark.parametrize("bad", [-0.1, 1.0, 5])
     @pytest.mark.parametrize(
-        ("op", "args"), [("add_stake", ADD), ("remove_stake", REMOVE), ("swap_stake", SWAP)]
+        ("op", "args"),
+        [
+            ("add_stake", ADD),
+            ("remove_stake", REMOVE),
+            ("swap_stake", SWAP),
+            ("move_stake", MOVE_CROSS_SAME_HOTKEY),
+            ("move_swap_stake", MOVE_SWAP),
+        ],
     )
     def test_out_of_range_tolerance_rejected_at_construction(self, op, args, bad):
         with pytest.raises(BittensorError, match="rate_tolerance"):
@@ -139,8 +226,14 @@ class TestErrorSurface:
         assert "--no-slippage-protection" in error.remediation
         assert "slippage_protection=False" in error.remediation
 
+    def test_move_swap_stake_rejects_same_hotkey_or_subnet(self):
+        with pytest.raises(BittensorError, match="different dest hotkey"):
+            build("move_swap_stake", {**MOVE_SWAP, "dest_hotkey_ss58": BOB_HOT})
+        with pytest.raises(BittensorError, match="different dest subnet"):
+            build("move_swap_stake", {**MOVE_SWAP, "dest_netuid": 1})
+
     def test_schema_exposes_the_protection_fields(self):
-        for op in ("add_stake", "remove_stake", "swap_stake"):
+        for op in ("add_stake", "remove_stake", "swap_stake", "move_stake", "move_swap_stake"):
             schema = REGISTRY[op].json_schema()
             assert schema["properties"]["slippage_protection"]["type"] == "boolean"
             assert schema["properties"]["rate_tolerance"]["type"] == "number"

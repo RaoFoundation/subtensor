@@ -130,6 +130,13 @@ pallet's [`EncryptedSubmitted`](/code/pallets/shield/src/lib.rs#L206) event, and
 `inner_extrinsic_hash` in the result data so the inner extrinsic can be
 located on chain.
 
+Shield wraps the **already composed** call. `proxy_for=` / `--proxy-for`
+and a saved-multisig adapter are applied first; the encrypted inner
+extrinsic is `Proxy.proxy(...)` or `Multisig.as_multi(...)` when those
+are set. Vault, Ledger, and the browser extension each sign that inner
+call and then the carrier — two approvals, same 8-block era. The
+extension bridge labels them "1 of 2" and "2 of 2".
+
 Shielding is for coldkey-signed operations. The chain accepts a shielded
 wrapper from any signed origin, but the SDK and CLI refuse to shield
 hotkey-signed extrinsics as policy: the wrapper pays a fee, and funding a

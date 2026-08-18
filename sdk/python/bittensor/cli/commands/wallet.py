@@ -33,21 +33,28 @@ from ..helpers import (
     STAKE_LIST_TITLE,
     annotate_stake_groups_with_locks,
     chain_identity_names,
+    combine_root_yields,
     dust_note,
     filter_stakes,
+    format_root_yield_value,
+    has_root_yield_context,
     human_balance_fields,
     list_coldkeys,
+    list_wallets_with_hotkeys,
     local_address_names,
     netuid_groups,
+    root_yield_record,
     split_dust,
     wallet_balance_row,
     wallet_balance_rows,
     wallet_inspect_data,
     wallet_overview_rows,
+    wallet_registration_rows,
 )
 from ..prompt import PromptSpec, confirm_wallet, fill_missing, interactive
 from ..secrets import copy_secret_to_clipboard, warn_argv_secrets
-from ..tx import _parse_money
+from ..stake_picker import dest_account_spec
+from ..tx import resolve_all_amount
 
 app = typer.Typer(no_args_is_help=True, help="Create and manage wallets.")
 
@@ -1067,7 +1074,11 @@ def wallet_overview(
     """Show free TAO and per-subnet stake for a wallet (or all wallets with --all).
 
     Positions whose hotkey is registered on the subnet show the hotkey's UID
-    there, so registrations are visible at a glance.
+    there. Zero-stake registrations are omitted — use `wallet registrations`
+    to list every local hotkey and where it is registered.
+
+    Root positions still list principal only. Accrued basket yield is a
+    separate line (``auto-claim is off → btcli root claim``).
     """
     app_ctx: AppContext = ctx_of(ctx)
     if all_wallets:
@@ -1109,6 +1120,9 @@ def wallet_overview(
             fields["locked_value"] = (
                 f"{row['locked_value']}  (conviction-locked; part of stake_value)"
             )
+        accrued, staked = row.get("accrued_basket_yield"), row.get("root_staked")
+        if accrued is not None and staked is not None and has_root_yield_context(accrued, staked):
+            fields["accrued_basket_yield"] = format_root_yield_value(accrued, staked)
         out.detail(None, fields)
         out.message("")
 
@@ -1140,9 +1154,93 @@ def wallet_overview(
         for row in rows
         for stake in row["stakes"]
     ]
-    out.stake_list(STAKE_LIST_TITLE, shown, records, total)
+    out.stake_list(
+        STAKE_LIST_TITLE,
+        shown,
+        records,
+        total,
+        root_yield=combine_root_yields(
+            [
+                (
+                    row["accrued_basket_yield"],
+                    row["root_staked"],
+                )
+                for row in rows
+            ]
+        ),
+    )
     if dust:
         out.message(dust_note(dust))
+
+
+@app.command("registrations", rich_help_panel=PANEL_INFO)
+@with_globals
+def wallet_registrations(
+    ctx: typer.Context,
+    all_wallets: bool = typer.Option(False, "--all", "-a", help="Registrations for every wallet."),
+    netuid: Optional[int] = typer.Option(None, "--netuid", help="Filter to one subnet."),
+):
+    """List every local hotkey and where it is registered, including zero-stake UIDs.
+
+    `wallet overview` only shows a UID when that hotkey also has stake on the
+    subnet. This command lists every hotkey on disk (and any extra hotkeys the
+    coldkey owns on chain) and every subnet it holds a UID on.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    listed = list_wallets_with_hotkeys(app_ctx.wallet_path)
+    if all_wallets:
+        targets = listed
+        if not targets:
+            app_ctx.output.error(f"no wallets found in {app_ctx.wallet_path}")
+            raise typer.Exit(1)
+    else:
+        targets = [row for row in listed if row[0] == app_ctx.wallet_name]
+        if not targets:
+            ss58 = app_ctx.resolve_address("coldkey_ss58", None)
+            targets = [(app_ctx.wallet_name, ss58, [])]
+
+    rows = app_ctx.run(lambda client: wallet_registration_rows(client, targets, netuid=netuid))
+    out = app_ctx.output
+    if out.json_mode:
+        out.value(rows)
+        return
+
+    table_rows: list[list[object]] = []
+    for row in rows:
+        for hotkey in row["hotkeys"]:
+            out.classify_address(hotkey["hotkey"], "hotkey")
+            if hotkey["name"]:
+                out.name_address(hotkey["hotkey"], hotkey["name"])
+            label = hotkey["name"] or "—"
+            slots = hotkey["registrations"] or [{"netuid": "—", "uid": "—"}]
+            for slot in slots:
+                cells = [label, slot["netuid"], slot["uid"], hotkey["hotkey"]]
+                if all_wallets:
+                    cells.insert(0, row["wallet"])
+                table_rows.append(cells)
+
+    n_hotkeys = sum(len(row["hotkeys"]) for row in rows)
+    n_regs = sum(len(hk["registrations"]) for row in rows for hk in row["hotkeys"])
+    columns = (
+        ["wallet", "hotkey", "netuid", "uid", "hotkey_ss58"]
+        if all_wallets
+        else ["hotkey", "netuid", "uid", "hotkey_ss58"]
+    )
+    uid_col = 3 if all_wallets else 2
+    netuid_col = 2 if all_wallets else 1
+    title = "wallet registrations"
+    if netuid is not None:
+        title = f"{title} — netuid {netuid}"
+    out.columns(
+        title,
+        columns,
+        table_rows,
+        right_align={netuid_col, uid_col},
+        footer=(
+            f"[dim]{n_hotkeys} hotkey{'s' if n_hotkeys != 1 else ''}  ·  "
+            f"{n_regs} registration{'s' if n_regs != 1 else ''}[/dim]"
+        ),
+    )
 
 
 # The indexer behind `wallet history`. The SubQuery indexer btcli used is dead
@@ -1247,29 +1345,37 @@ def wallet_history(
 @with_tx_globals
 def wallet_transfer(
     ctx: typer.Context,
-    dest_ss58: str = typer.Option(
-        ..., address_cli_name("dest_ss58"), help=ss58_param_help("dest_ss58")
+    dest_ss58: Optional[str] = typer.Option(
+        None, address_cli_name("dest_ss58"), help=ss58_param_help("dest_ss58")
     ),
-    amount_tao: str = typer.Option(
-        ...,
+    amount_tao: Optional[str] = typer.Option(
+        None,
         "--amount-tao",
         "--amount",
         help="Amount to send, in TAO. Pass `all` for the entire transferable balance.",
     ),
+    all_amount: bool = typer.Option(
+        False, "--all", help="Send the entire transferable balance (same as `--amount all`)."
+    ),
 ):
     """Transfer TAO to another coldkey.
 
-    Signs with the configured wallet's coldkey (you may be prompted for the
-    wallet password) and submits the transfer on chain. Transfers are
-    irreversible once included in a block, so double-check the destination.
+    On a terminal you can omit `--dest` and `--amount`: the CLI lists address-book
+    contacts and other wallets, then asks for the amount. `--dest` is a coldkey
+    (ss58, address-book name, or local wallet name), not a hotkey.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    try:
-        amount = _parse_money(amount_tao, True)
-    except ValueError as error:
-        app_ctx.output.error(f"invalid value for `--amount-tao`: {error}")
+    answers: dict = {"dest_ss58": dest_ss58}
+    if dest_ss58 is None:
+        fill_missing(app_ctx, [dest_account_spec()], answers)
+    dest = app_ctx.resolve_address("dest_ss58", answers["dest_ss58"])
+    if dest is None:
+        app_ctx.output.error(
+            "missing required option: `--dest`",
+            help="pass a destination account, or run on a terminal to pick one",
+        )
         raise typer.Exit(2)
-    dest = app_ctx.resolve_address("coldkey_ss58", dest_ss58)
+    amount = resolve_all_amount(app_ctx, amount_tao, all_amount, flag="--amount")
     app_ctx.submit(Transfer(dest_ss58=dest, amount_tao=amount))
 
 
@@ -1287,7 +1393,11 @@ def wallet_inspect(
         "JSON always includes them.",
     ),
 ):
-    """Detailed wallet view: balance, stake, delegation, identity."""
+    """Detailed wallet view: balance, stake, delegation, identity.
+
+    Accrued basket yield is listed under the stake total (not inside netuid
+    0). Auto-claim is off — realize it with ``btcli root claim``.
+    """
     app_ctx: AppContext = ctx_of(ctx)
     if coldkey_ss58 is None:
         confirm_wallet(app_ctx, help_text="Wallet to inspect.")
@@ -1314,7 +1424,13 @@ def wallet_inspect(
     takes = {(d["netuid"], d["delegate_hotkey"]): d["take"] for d in data["delegations"]}
     groups = netuid_groups(valuation.positions, valuation, known_names, identity_names, takes=takes)
     shown_groups, dust_groups = (groups, []) if show_dust else split_dust(groups)
-    out.stake_list(STAKE_LIST_TITLE, shown_groups, data["stakes"], valuation.stake_value)
+    out.stake_list(
+        STAKE_LIST_TITLE,
+        shown_groups,
+        data["stakes"],
+        valuation.stake_value,
+        root_yield=root_yield_record(data["accrued_basket_yield"], data["root_staked"]),
+    )
     if dust_groups:
         out.message(dust_note(dust_groups))
 

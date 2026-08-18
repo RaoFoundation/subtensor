@@ -15,15 +15,20 @@ can incur significant slippage. Use `remove_stake` to exit a single
 subnet, or `unstake_all_alpha` to consolidate onto root while staying
 staked.
 
+Pass `claim=True` to redeem this validator's whole root basket
+entitlement first, then unstake everything. That is not a proportional
+payout: the claim pays 100% of the basket.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1235-L1239) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1234-L1238), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1977), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `hotkey_ss58` | string | yes | Hotkey whose entire stake is removed. |
+| `claim` | boolean | no | Also redeem this validator's whole root basket entitlement before unstaking, in one atomic batch. This is not a proportional payout: the claim pays 100% of the basket. Claimed yield is restaked on root, then unstake-all takes principal and that yield out together. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -66,7 +71,7 @@ result = sub.execute_tool("unstake_all", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1237`](/code/pallets/subtensor/src/macros/dispatches.rs#L1235-L1239):
+`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1236`](/code/pallets/subtensor/src/macros/dispatches.rs#L1234-L1238):
 
 ```rust
 #[pallet::call_index(83)]
@@ -77,5 +82,92 @@ pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult
 ```
 
 Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L111).
+
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1962`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1977):
+
+```rust
+#[pallet::call_index(148)]
+#[pallet::weight(
+    <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK)
+)]
+pub fn claim_root_with_hotkey(
+    origin: OriginFor<T>,
+    hotkey: T::AccountId,
+) -> DispatchResultWithPostInfo {
+    let coldkey: T::AccountId = ensure_signed(origin)?;
+    ensure!(
+        Self::root_claim_fits_declared_budget(core::slice::from_ref(&hotkey)),
+        Error::<T>::RootClaimTooHeavy
+    );
+
+    let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
+    Self::maybe_add_coldkey_index(&coldkey);
+
+    let weight = Self::root_claim_actual_weight(1, &outcome);
+    Ok((Some(weight), Pays::Yes).into())
+}
+```
+
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L761), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L798), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L827).
+
+`Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
+
+```rust
+        #[pallet::call_index(2)]
+        #[pallet::weight({
+			let (dispatch_weight, pays) = Pallet::<T>::weight_and_dispatch_class(calls);
+			let dispatch_weight = dispatch_weight.saturating_add(T::WeightInfo::batch_all(calls.len() as u32));
+			(dispatch_weight, DispatchClass::Normal, pays)
+		})]
+        pub fn batch_all(
+            origin: OriginFor<T>,
+            calls: Vec<<T as Config>::RuntimeCall>,
+        ) -> DispatchResultWithPostInfo {
+            // Do not allow the `None` origin.
+            if ensure_none(origin.clone()).is_ok() {
+                return Err(BadOrigin.into());
+            }
+
+            let is_root = ensure_root(origin.clone()).is_ok();
+            let calls_len = calls.len();
+            ensure!(
+                calls_len <= Self::batched_calls_limit() as usize,
+                Error::<T>::TooManyCalls
+            );
+
+            // Track the actual weight of each of the batch calls.
+            let mut weight = Weight::zero();
+            for (index, call) in calls.into_iter().enumerate() {
+                let info = call.get_dispatch_info();
+                // If origin is root, bypass any dispatch filter; root can call anything.
+                let result = if is_root {
+                    call.dispatch_bypass_filter(origin.clone())
+                } else {
+                    let mut filtered_origin = origin.clone();
+                    // Don't allow users to nest `batch_all` calls.
+                    filtered_origin.add_filter(
+                        move |c: &<T as frame_system::Config>::RuntimeCall| {
+                            let c = <T as Config>::RuntimeCall::from_ref(c);
+                            !matches!(c.is_sub_type(), Some(Call::batch_all { .. }))
+                        },
+                    );
+                    call.dispatch(filtered_origin)
+                };
+                // Add the weight of this call.
+                weight = weight.saturating_add(extract_actual_weight(&result, &info));
+                result.map_err(|mut err| {
+                    // Take the weight of this function itself into account.
+                    let base_weight = T::WeightInfo::batch_all(index.saturating_add(1) as u32);
+                    // Return the actual used weight + base_weight of this call.
+                    err.post_info = Some(base_weight.saturating_add(weight)).into();
+                    err
+                })?;
+                Self::deposit_event(Event::ItemCompleted);
+            }
+            Self::deposit_event(Event::BatchCompleted);
+            let base_weight = T::WeightInfo::batch_all(calls_len as u32);
+            Ok(Some(base_weight.saturating_add(weight)).into())
+        }
+```
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

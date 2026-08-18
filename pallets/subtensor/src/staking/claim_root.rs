@@ -743,14 +743,45 @@ impl<T: Config> Pallet<T> {
         swept
     }
 
+    /// Live existing-network count (including root). Ghost `NetworksAdded=false`
+    /// leftovers are excluded so they cannot inflate the single-hotkey quote.
+    pub(crate) fn root_claim_existing_networks() -> u32 {
+        (Self::get_all_subnet_netuids().len() as u32).max(1)
+    }
+
+    /// Pre-dispatch work units for both claim paths. Weight calculation must
+    /// stay storage-independent (no `NetworksAdded` or basket walks here);
+    /// execution then refuses work that would exceed this envelope.
+    pub(crate) fn root_claim_declared_work() -> u32 {
+        crate::MAX_ROOT_CLAIM_WORK
+    }
+
+    /// True when a coldkey-wide claim's reachable work (hotkeys × existing
+    /// networks, and the actual basket rows) fits the admission envelope.
+    pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
+        let budget = Self::root_claim_declared_work();
+        let networks = Self::root_claim_existing_networks();
+        let hotkey_count = hotkeys.len() as u32;
+        if hotkey_count.saturating_mul(networks) > budget {
+            return false;
+        }
+        let mut rows: u32 = 0;
+        for hotkey in hotkeys {
+            rows = rows.saturating_add(Self::get_basket_holdings(hotkey).len() as u32);
+            if rows > budget {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Actual post-dispatch weight of a root claim: full benchmark units for the slots
     /// that did real work (redeemed or swept — a swap plus stake writes each, floored at
     /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row
     /// scan cost for holdings that were only valued. This is what lets a fund's claim fee
     /// decay as dust rows are consolidated, and makes a below-threshold no-op cost a scan
-    /// instead of a full claim. Counts are unbounded — fat baskets may exceed
-    /// [`crate::MAX_ROOT_CLAIM_WORK`]; the extrinsic pays the resulting weight rather
-    /// than hard-failing.
+    /// instead of a full claim. Work above [`crate::MAX_ROOT_CLAIM_WORK`] is
+    /// refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
     pub(crate) fn root_claim_actual_weight(
         hotkey_count: u32,
         outcome: &RootClaimOutcome,

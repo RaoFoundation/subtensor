@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from .._generated import calls
+from .._generated import storage as st
 from .._generated.calls import Call
-from ._money import UNBOUNDED, Money, Spend, alpha_amount
+from .._generated.runtime_apis import StakeInfoRuntimeApi
+from ..result import BittensorError
+from ..signing import public_view
+from ._money import ALL, UNBOUNDED, Money, Spend, alpha_amount
 from .base import Intent
 from .registry import register
 from .staking import (
@@ -16,6 +21,30 @@ from .staking import (
     _alpha_price_rao,
     _check_rate_tolerance,
 )
+
+
+async def _free_collateral_rao(substrate, wallet: Any, hotkey_ss58: str, netuid: int) -> int:
+    """Free (not already collateralized) alpha on ``hotkey_ss58`` at ``netuid``.
+
+    Resolves ``amount = "all"`` for ``add_collateral`` so the call locks
+    existing free stake and does not buy a TAO shortfall.
+    """
+    coldkey = public_view(wallet, "coldkey").ss58_address
+    info, state = await asyncio.gather(
+        substrate.runtime_call(
+            *StakeInfoRuntimeApi.get_stake_info_for_hotkey_coldkey_netuid,
+            [hotkey_ss58, coldkey, netuid],
+        ),
+        substrate.query(*st.SubtensorModule.MinerCollateral, [netuid, hotkey_ss58, coldkey]),
+    )
+    stake = 0 if info is None else int(info.get("stake") or 0)
+    locked = int((state or {}).get("locked") or 0)
+    rao = stake - locked
+    if rao <= 0:
+        raise BittensorError(
+            f"nothing to lock as collateral: no free alpha on {hotkey_ss58} at netuid {netuid}"
+        )
+    return rao
 
 
 @register
@@ -45,14 +74,15 @@ class AddCollateral(Intent):
     wraps = (("SubtensorModule", "add_collateral"),)
     mev_shield_default = True
     mev_shield_required = True
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
     netuid: int = field(metadata={"help": "Subnet to lock collateral on."})
     amount_alpha: Money = field(
         metadata={
             "help": (
-                "Alpha of collateral to add. Uses free stake on the hotkey "
-                "first; only the shortfall is bought with TAO (that remainder "
-                "must meet the staking minimum)."
+                "Alpha of collateral to add, or ``all`` for every free "
+                "(not already collateralized) alpha on the hotkey. Uses free "
+                "stake first; only a shortfall is bought with TAO."
             )
         },
     )
@@ -67,26 +97,36 @@ class AddCollateral(Intent):
     )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid)
+        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
         _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        if self.amount_alpha == ALL:
+            rao = await _free_collateral_rao(substrate, wallet, hotkey, self.netuid)
+        else:
+            rao = self.amount_alpha.rao
         price = await _alpha_price_rao(substrate, self.netuid)
         return await substrate.compose(
             calls.SubtensorModule.add_collateral(
                 netuid=self.netuid,
                 hotkey=hotkey,
-                alpha=self.amount_alpha.rao,
+                alpha=rao,
                 limit_price=int(price * (1 + self.rate_tolerance)),
             )
         )
 
     def summary(self) -> str:
+        amount = "ALL free alpha" if self.amount_alpha == ALL else str(self.amount_alpha)
         return (
-            f"lock {self.amount_alpha} as collateral on netuid {self.netuid}"
+            f"lock {amount} as collateral on netuid {self.netuid}"
             f" (fails if price moves >{self.rate_tolerance:.2%})"
         )
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.amount_alpha == ALL:
+            return ["locks every free (not already collateralized) alpha on this hotkey"]
+        return []
 
     def spend(self) -> Spend:
         # May buy a TAO shortfall when free alpha on the hotkey is insufficient;
