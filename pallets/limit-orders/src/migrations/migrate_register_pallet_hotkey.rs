@@ -1,5 +1,5 @@
 use alloc::string::String;
-use frame_support::{BoundedVec, traits::Get, weights::Weight};
+use frame_support::{traits::Get, weights::Weight, BoundedVec};
 
 use crate::*;
 

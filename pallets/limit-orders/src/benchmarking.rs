@@ -8,7 +8,7 @@ use crate::{NetUid, OrderType, Orders};
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_core::{Get, H256};
-use sp_runtime::{AccountId32, MultiSignature, Perbill, traits::AccountIdConversion};
+use sp_runtime::{traits::AccountIdConversion, AccountId32, MultiSignature, Perbill};
 extern crate alloc;
 use crate::{Call, Config, Pallet};
 
