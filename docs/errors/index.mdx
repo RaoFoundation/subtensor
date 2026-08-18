@@ -15,15 +15,15 @@ A failed `execute` returns an `ExtrinsicResult` whose `error` has a semantic `co
 | [`not_registered`](/docs/errors/not-registered) | 4 | Register the hotkey on this subnet first with `btcli subnets register` |
 | [`not_authorized`](/docs/errors/not-authorized) | 21 | Sign with the key or origin that owns the target object, then retry |
 | [`already_exists`](/docs/errors/already-exists) | 26 | The object or state already exists; treat the goal as met or pick a different target |
-| [`not_found`](/docs/errors/not-found) | 20 | The referenced object is not on-chain; check the identifier |
+| [`not_found`](/docs/errors/not-found) | 21 | The referenced object is not on-chain; check the identifier |
 | [`subnet_not_exists`](/docs/errors/subnet-not-exists) | 4 | Use an existing netuid; `btcli subnets list` shows valid ones |
 | [`subtoken_disabled`](/docs/errors/subtoken-disabled) | 1 | The subnet is not active yet; wait for start_call |
 | [`disabled`](/docs/errors/disabled) | 20 | This call or feature is switched off on this network |
 | [`too_early`](/docs/errors/too-early) | 20 | The required window has not opened yet; wait some blocks and retry |
-| [`expired`](/docs/errors/expired) | 5 | The window has closed; restart the flow with fresh state |
+| [`expired`](/docs/errors/expired) | 6 | The window has closed; restart the flow with fresh state |
 | [`limit_exceeded`](/docs/errors/limit-exceeded) | 38 | A chain-side capacity limit was hit; reduce the size or count of the request |
 | [`unit_mismatch`](/docs/errors/unit-mismatch) | — | Match the Balance netuid to the operation's currency |
-| [`invalid_argument`](/docs/errors/invalid-argument) | 136 | Check the argument values against the operation schema |
+| [`invalid_argument`](/docs/errors/invalid-argument) | 142 | Check the argument values against the operation schema |
 | [`policy_violation`](/docs/errors/policy-violation) | 2 | The action exceeds a configured safety policy |
 | [`internal`](/docs/errors/internal) | 19 | A chain-side invariant failed; nothing to fix client-side — report it if it persists |
 | [`unknown`](/docs/errors/unknown) | — | Inspect the message for details |

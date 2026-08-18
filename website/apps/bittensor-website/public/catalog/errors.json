@@ -411,8 +411,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 373,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L373",
+          "line": 441,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L441",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -807,8 +807,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 367,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L367",
+          "line": 435,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L435",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1525,8 +1525,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 375,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L375",
+          "line": 443,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L443",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1984,8 +1984,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 363,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L363",
+          "line": 431,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L431",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2597,8 +2597,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 339,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L339",
+          "line": 407,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L407",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2821,8 +2821,98 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 357,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L357",
+          "line": 425,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L425",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedAmountResolvedToZero": {
+      "code": "invalid_argument",
+      "description": "The linked fraction floored to zero against the recorded output, so there is nothing to trade. Increase `pct` or wait for a larger provider output.",
+      "docs_url": "/docs/errors/chain/LinkedAmountResolvedToZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedAmountResolvedToZero/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 458,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L458",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputAssetMismatch": {
+      "code": "invalid_argument",
+      "description": "The provider recorded a different asset than the linked order spends: sells record TAO for a later buy, buys record alpha on that `(netuid, hotkey)` for a later sell. Check the consumer's `order_type` and `hotkey` against the provider record's `asset`.",
+      "docs_url": "/docs/errors/chain/LinkedOutputAssetMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputAssetMismatch/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 454,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L454",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputExpired": {
+      "code": "expired",
+      "description": "The provider record's `expires_at` is in the past, so the output is no longer drawable. Compare `LinkedOutputs.expires_at` with the chain `Timestamp`; unused records can be pruned with `prune_linked_output`.",
+      "docs_url": "/docs/errors/chain/LinkedOutputExpired",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputExpired/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 456,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L456",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputNotPrunable": {
+      "code": "invalid_argument",
+      "description": "`prune_linked_output` was called by someone other than the record's signer before `expires_at`. The signer may prune at any time; anyone may prune only after expiry.",
+      "docs_url": "/docs/errors/chain/LinkedOutputNotPrunable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputNotPrunable/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 464,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L464",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputSignerMismatch": {
+      "code": "invalid_argument",
+      "description": "The linked order's signer is not the signer who recorded the named provider output. Only the same account can draw against a record; re-sign the consumer with that key.",
+      "docs_url": "/docs/errors/chain/LinkedOutputSignerMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputSignerMismatch/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 452,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L452",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3402,6 +3492,24 @@
         }
       ]
     },
+    "NoLinkedOutput": {
+      "code": "not_found",
+      "description": "A linked order named a provider `order_id` that has no recorded output \u2014 it was never a provider, already drawn, or pruned. Check `LinkedOutputs` for that id, or execute the provider first via `execute_orders` rather than in the same batched call.",
+      "docs_url": "/docs/errors/chain/NoLinkedOutput",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NoLinkedOutput/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 450,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L450",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
     "NoMigrationPerformed": {
       "code": "invalid_argument",
       "description": "A `migrate` call ran but no migration step executed, either because no migration is pending or the supplied `weight_limit` is too small for one step. Check the in-progress migration status and increase the weight limit argument.",
@@ -3875,8 +3983,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 341,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L341",
+          "line": 409,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L409",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3893,8 +4001,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 343,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L343",
+          "line": 411,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L411",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3911,8 +4019,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 345,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L345",
+          "line": 413,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L413",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3929,8 +4037,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 355,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L355",
+          "line": 423,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L423",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4027,8 +4135,44 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 371,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L371",
+          "line": 439,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L439",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "PartialFillNotSupportedForLinkedAmount": {
+      "code": "invalid_argument",
+      "description": "A `partial_fill` was submitted against a linked (consuming) order. Linked amounts must execute in one shot; omit `partial_fill` and execute the resolved amount in full.",
+      "docs_url": "/docs/errors/chain/PartialFillNotSupportedForLinkedAmount",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PartialFillNotSupportedForLinkedAmount/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 460,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L460",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "PartialFillNotSupportedForProvider": {
+      "code": "invalid_argument",
+      "description": "A `partial_fill` was submitted against a provider (`has_linked_order`). Provider output must be recorded from a single execution; omit `partial_fill` even if `partial_fills_enabled` is set.",
+      "docs_url": "/docs/errors/chain/PartialFillNotSupportedForProvider",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PartialFillNotSupportedForProvider/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 462,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L462",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4045,8 +4189,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 361,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L361",
+          "line": 429,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L429",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4090,8 +4234,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 347,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L347",
+          "line": 415,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L415",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4225,8 +4369,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 359,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L359",
+          "line": 427,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L427",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4243,8 +4387,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 365,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L365",
+          "line": 433,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L433",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4405,8 +4549,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 353,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L353",
+          "line": 421,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L421",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4863,8 +5007,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 351,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L351",
+          "line": 419,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L419",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5423,8 +5567,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 349,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L349",
+          "line": 417,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L417",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5738,8 +5882,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 380,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L380",
+          "line": 448,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L448",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

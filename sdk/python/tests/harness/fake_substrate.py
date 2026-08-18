@@ -47,6 +47,7 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "NetworksAdded"): True,
     ("SubtensorModule", "BlocksSinceLastStep"): 0,
     ("SubtensorModule", "Burn"): 10**9,
+    ("SubtensorModule", "TotalAlphaStaked"): 0,
     ("SubtensorModule", "Difficulty"): 10**7,
     ("SubtensorModule", "ImmunityPeriod"): 4096,
     ("SubtensorModule", "SubnetworkN"): 0,

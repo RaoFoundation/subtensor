@@ -20,7 +20,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1977), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1989-L2008), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -106,7 +106,7 @@ pub fn remove_stake_limit(
 
 Delegates to [`do_remove_stake_limit`](/code/pallets/subtensor/src/staking/remove_stake.rs#L302).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1962`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1977):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1993`](/code/pallets/subtensor/src/macros/dispatches.rs#L1989-L2008):
 
 ```rust
 #[pallet::call_index(148)]

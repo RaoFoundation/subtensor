@@ -26,7 +26,7 @@ Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1977) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1989-L2008) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1962`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1977):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1993`](/code/pallets/subtensor/src/macros/dispatches.rs#L1989-L2008):
 
 ```rust
 #[pallet::call_index(148)]

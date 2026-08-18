@@ -32,7 +32,7 @@ owners. Pass `all` to hand over the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1323-L1341), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2479-L2499) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1323-L1341), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2510-L2530) |
 
 ## Parameters
 
@@ -118,9 +118,9 @@ pub fn transfer_stake(
 }
 ```
 
-Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L120).
+Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L162).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2481`](/code/pallets/subtensor/src/macros/dispatches.rs#L2479-L2499):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2512`](/code/pallets/subtensor/src/macros/dispatches.rs#L2510-L2530):
 
 ```rust
 #[pallet::call_index(143)]
@@ -146,6 +146,6 @@ pub fn transfer_stake_and_hotkey(
 }
 ```
 
-Delegates to [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L193).
+Delegates to [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L235).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

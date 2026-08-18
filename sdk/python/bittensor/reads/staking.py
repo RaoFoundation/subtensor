@@ -249,6 +249,23 @@ async def stake_availability_for_coldkey(view, coldkey_ss58: str, netuids: list[
 
 
 @read(
+    "total_alpha_staked",
+    {"netuid": "integer"},
+    category="Staking",
+    param_docs={"netuid": "Subnet to query."},
+)
+async def total_alpha_staked(view, netuid: int) -> Balance:
+    """Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).
+
+    This is the chain-maintained O(1) aggregate: it equals the sum of
+    `TotalHotkeyAlpha` for the subnet. Use this instead of walking every
+    position.
+    """
+    value = await view.query(st.SubtensorModule.TotalAlphaStaked, [netuid])
+    return view.balance(int(value or 0), netuid)
+
+
+@read(
     "staking_hotkeys",
     {"coldkey_ss58": "string"},
     category="Staking",
