@@ -940,9 +940,11 @@ impl<T: Config> Pallet<T> {
         }
 
         for (hotkey, alpha) in to_remove {
-            TotalAlphaStaked::<T>::mutate(netuid, |total| {
-                *total = total.saturating_sub(alpha);
-            });
+            if !crate::migrations::migrate_total_alpha_staked::in_progress::<T>() {
+                TotalAlphaStaked::<T>::mutate(netuid, |total| {
+                    *total = total.saturating_sub(alpha);
+                });
+            }
             TotalHotkeyAlpha::<T>::remove(&hotkey, netuid);
             TotalHotkeyShares::<T>::remove(&hotkey, netuid);
             TotalHotkeySharesV2::<T>::remove(&hotkey, netuid);

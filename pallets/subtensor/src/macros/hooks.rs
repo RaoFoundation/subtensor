@@ -256,6 +256,14 @@ mod hooks {
             // Storage GC is independent from beta-basket conversion, but both are large. Let the
             // state-sensitive seed finish first and then consume only otherwise-unused block
             // weight, so normal extrinsics and dissolution work retain priority.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_total_alpha_staked::continue_total_alpha_staked::<T>(
+                        limit.saturating_sub(weight),
+                    ),
+                );
+            }
+
             if !seed_in_progress && weight.all_lt(limit) {
                 weight.saturating_accrue(
                     migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<T>(
