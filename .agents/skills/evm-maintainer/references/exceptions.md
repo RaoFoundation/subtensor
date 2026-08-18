@@ -41,3 +41,14 @@ Keep the complete scan, charge for all permitted subnet reads, and test it at
 the configured subnet limit. This exception does not apply to collections
 whose size grows with accounts, neurons, stakes, commitments, or other
 user-created records.
+
+## `getStakingHotkeys(bytes32,uint64,uint16)`
+
+`getStakingHotkeys` reads the existing `StakingHotkeys` vector for one coldkey and returns at most
+64 entries from the requested zero-based offset. `StakingHotkeys` stores the complete vector as one
+SCALE-encoded value, so each call performs one database read and decodes that value before taking
+the requested in-memory slice.
+
+This full-vector decode is accepted because it avoids additional runtime indexes, write-path
+maintenance, and a state migration. Keep the output limit and charge the single database read. Do
+not describe the call as having CPU, memory, or proof-size work bounded by the page limit.

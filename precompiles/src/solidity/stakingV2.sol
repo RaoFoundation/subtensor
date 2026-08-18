@@ -666,6 +666,19 @@ interface IStaking {
     function getMinChildkeyTakePerSubnet(uint16 netuid) external view returns (uint16);
     function getHotkeyOwner(bytes32 hotkey) external view returns (bool exists, bytes32 owner);
     function getOwnedHotkeys(bytes32 coldkey) external view returns (bytes32[] memory);
+
+    /**
+     * @dev Returns at most 64 staking hotkeys beginning at `offset`.
+     * Each call reads the existing staking-hotkey vector and slices it in stored order.
+     * `total` is the vector length; an offset greater than or equal to `total` returns an empty
+     * page.
+     */
+    function getStakingHotkeys(
+        bytes32 coldkey,
+        uint64 offset,
+        uint16 limit
+    ) external view returns (bytes32[] memory hotkeys, uint64 total);
+
     function getAutoStakeDestination(
         bytes32 coldkey,
         uint16 netuid

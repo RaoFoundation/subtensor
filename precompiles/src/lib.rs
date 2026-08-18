@@ -652,6 +652,7 @@ mod address_and_selector_tests {
             "getMinChildkeyTakePerSubnet(uint16)",
             "getHotkeyOwner(bytes32)",
             "getOwnedHotkeys(bytes32)",
+            "getStakingHotkeys(bytes32,uint64,uint16)",
             "getAutoStakeDestination(bytes32,uint16)",
             "getAutoStakeDestinationColdkeys(bytes32,uint16)",
             "getHotkeySuccessor(bytes32,uint16)",
