@@ -4,8 +4,10 @@ import { execSync } from 'node:child_process';
 
 // The on-chain source viewer (/code) reads the Rust straight out of the
 // repository checkout at build time, the same way the docs content is read
-// from ../../../docs (see source.config.ts). Every page is prerendered, so
-// nothing here runs at request time.
+// from ../../../docs (see source.config.ts). Pages, raw files, and index.json
+// are prerendered. /code/search.json is request-time (it needs ?q=) and
+// searches a build-time snapshot — see next.config.mjs — so it never walks
+// the repo on Vercel.
 const repoRoot = path.resolve(process.cwd(), '../../..');
 
 // What actually runs on (or compiles into) the chain: the pallets, the
@@ -94,39 +96,43 @@ function codeContents(): Map<string, string> {
  * Literal substring search over the on-chain Rust corpus (paths + contents).
  * Built for agents: one HTTP hop instead of cloning or fetching every file.
  */
-export function searchCode(query: string, limit = 20): CodeSearchHit[] {
+export function searchCode(
+  query: string,
+  limit = 20,
+  // Default walks the checkout (local / build). Production search.json passes
+  // the snapshot so this never touches the filesystem at request time.
+  contents: Map<string, string> | Record<string, string> = codeContents(),
+): CodeSearchHit[] {
   const q = query.trim();
   if (q.length < 2) return [];
   const capped = Math.min(Math.max(limit, 1), 50);
   const hits: CodeSearchHit[] = [];
-  const contents = codeContents();
+  const files = contents instanceof Map ? contents : new Map(Object.entries(contents));
 
-  for (const file of codeFiles()) {
-    if (file.path.includes(q)) {
+  for (const filePath of files.keys()) {
+    if (filePath.includes(q)) {
       hits.push({
-        path: file.path,
+        path: filePath,
         kind: 'path',
-        raw_url: `/code/raw/${file.path}`,
-        url: `/code/${file.path}`,
+        raw_url: `/code/raw/${filePath}`,
+        url: `/code/${filePath}`,
       });
       if (hits.length >= capped) return hits;
     }
   }
 
-  for (const file of codeFiles()) {
-    const text = contents.get(file.path);
-    if (!text) continue;
+  for (const [filePath, text] of files) {
     const lines = text.split('\n');
     for (let i = 0; i < lines.length; i++) {
       if (!lines[i].includes(q)) continue;
       const line = i + 1;
       hits.push({
-        path: file.path,
+        path: filePath,
         line,
         text: lines[i].trim().slice(0, 200),
         kind: 'content',
-        raw_url: `/code/raw/${file.path}`,
-        url: `/code/${file.path}#L${line}`,
+        raw_url: `/code/raw/${filePath}`,
+        url: `/code/${filePath}#L${line}`,
       });
       if (hits.length >= capped) return hits;
     }
