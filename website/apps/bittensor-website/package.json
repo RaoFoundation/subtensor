@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "yarn build:docs-css && next dev --webpack",
-    "build": "yarn build:docs-css && next build --webpack",
+    "build": "yarn build:docs-css && next build --webpack && yarn check:code-search-trace",
     "build:docs-css": "tailwindcss -i src/app/docs/docs.tw.css -o src/app/docs/docs.css --minify",
+    "check:code-search-trace": "node scripts/check-code-search-trace.mjs",
     "start": "next start",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "postinstall": "fumadocs-mdx"

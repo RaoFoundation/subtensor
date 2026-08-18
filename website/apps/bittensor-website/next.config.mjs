@@ -1,10 +1,31 @@
 import {createMDX} from 'fumadocs-mdx/next';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {CODE_ROOTS, EXCLUDED_CODE_DIRS, EXCLUDED_CODE_FILES} from './src/lib/code-corpus.mjs';
 
 const withMDX = createMDX();
+const appDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(appDir, '../../..');
+const codeCorpusIncludes = CODE_ROOTS.map((root) => `../../../${root}/**/*.rs`);
+const codeCorpusExcludes = CODE_ROOTS.flatMap((root) => [
+  ...EXCLUDED_CODE_DIRS.map((dir) => `../../../${root}/**/${dir}/**`),
+  ...EXCLUDED_CODE_FILES.map((file) => `../../../${root}/**/${file}`),
+]);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+
+  // /code/search.json reads the Rust corpus at request time. The paths are
+  // computed in src/lib/code.ts, so Next cannot discover them automatically
+  // when tracing the serverless function.
+  outputFileTracingRoot: repoRoot,
+  outputFileTracingIncludes: {
+    '/code/search.json': codeCorpusIncludes,
+  },
+  outputFileTracingExcludes: {
+    '/code/search.json': codeCorpusExcludes,
+  },
 
   async redirects() {
     return [

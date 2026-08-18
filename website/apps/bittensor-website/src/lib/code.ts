@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { CODE_ROOTS, EXCLUDED_CODE_DIRS, EXCLUDED_CODE_FILES } from './code-corpus.mjs';
+
+export { CODE_ROOTS } from './code-corpus.mjs';
 
 // The on-chain source viewer (/code) reads the Rust straight out of the
 // repository checkout at build time, the same way the docs content is read
@@ -12,17 +15,8 @@ const repoRoot = path.resolve(process.cwd(), '../../..');
 // runtime that assembles them, and the shared primitives. Excluded on
 // purpose: node/ (the client binary), support/ (proc-macro tooling),
 // vendor/ (upstream forks), and all tests, mocks, and benchmark code.
-export const CODE_ROOTS = [
-  'pallets',
-  'runtime',
-  'primitives',
-  'common',
-  'precompiles',
-  'chain-extensions',
-];
-
-const EXCLUDED_DIRS = new Set(['tests', 'target']);
-const EXCLUDED_FILES = new Set(['tests.rs', 'mock.rs', 'benchmarks.rs', 'benchmarking.rs']);
+const EXCLUDED_DIRS = new Set(EXCLUDED_CODE_DIRS);
+const EXCLUDED_FILES = new Set(EXCLUDED_CODE_FILES);
 
 export interface CodeFile {
   /** Repo-relative path, e.g. "pallets/subtensor/src/coinbase/run_coinbase.rs". */
