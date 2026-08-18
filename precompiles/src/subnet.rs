@@ -1322,6 +1322,7 @@ fn dissolution_cleanup_phase_code(phase: &DissolveCleanupPhase) -> u8 {
         DissolveCleanupPhase::NetworkDecayingLock => 23,
         DissolveCleanupPhase::SubnetBasketHoldingsToRoot => 24,
         DissolveCleanupPhase::NetworkPendingBasketDeposits => 25,
+        DissolveCleanupPhase::NetworkAlphaAssetCounters => 26,
     }
 }
 
@@ -2019,6 +2020,7 @@ mod tests {
             (DissolveCleanupPhase::NetworkDecayingLock, 23),
             (DissolveCleanupPhase::SubnetBasketHoldingsToRoot, 24),
             (DissolveCleanupPhase::NetworkPendingBasketDeposits, 25),
+            (DissolveCleanupPhase::NetworkAlphaAssetCounters, 26),
         ];
 
         for (phase, expected) in phases {

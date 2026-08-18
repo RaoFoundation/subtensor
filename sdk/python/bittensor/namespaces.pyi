@@ -244,10 +244,11 @@ class Identity(_ReadNamespace):
         """Every commitment on a subnet, newest first: hotkey, uid, content, block, age, reveal state.
 
         One row per hotkey that has (or had) a commitment — including sealed
-        timelocked payloads waiting on drand (`is_revealed` false, `reveals_at`
-        set) and fully-revealed ones whose live storage entry the chain already
-        dropped. `commitment` is the currently visible content: the plaintext, or
-        the latest chain-decrypted payload; null while still sealed.
+        timelocked payloads waiting on drand (`status` `sealed`), terminal
+        on-chain reveal failures retained for audit (`status` `failed`), and
+        fully-revealed ones whose live storage entry the chain already dropped.
+        `commitment` is the currently visible content: the plaintext, or the
+        latest chain-decrypted payload; null while sealed or failed.
         """
 
     async def hotkey_identities(self, hotkey_ss58s: list[str], *, block: Optional[int] = None) -> dict[str, dict]:
@@ -311,13 +312,18 @@ class Locks(_ReadNamespace):
         """Every hotkey with locked stake on a subnet, rolled forward to now.
 
         Per hotkey: locked mass, conviction, and the estimated blocks until its
-        conviction reaches 10% of the subnet's outstanding alpha. That per-hotkey
-        figure is a projection heuristic, not a takeover trigger: the ownership
-        takeover in `change_subnet_owner_if_needed` requires the subnet to be
-        at least ~1 year old (2,629,800 blocks) and the total aggregate
-        conviction across all lockers to reach 10% of `SubnetAlphaOut`, at
-        which point the highest-conviction hotkey's coldkey becomes the subnet
-        owner. Projections assume the lock rates and alpha out stay constant.
+        own conviction strictly exceeds 18% of the subnet's eligible alpha.
+        Eligible alpha is `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`
+        (saturating at zero). `change_subnet_owner_if_needed` reassigns
+        ownership when the subnet is at least ~1 year old (2,629,800 blocks) and
+        the highest-conviction hotkey holds more than 18% of eligible alpha on
+        its own, at which point that hotkey's coldkey becomes the subnet owner.
+        The gate measures a single hotkey — exactly 18% is not enough — so
+        `leader_hotkey` and `leader_blocks_to_threshold` describe the current
+        conviction leader's standing against the gate, while the subnet-wide
+        `total_conviction_alpha` is reported for context only and never gates
+        the takeover. Projections assume the lock rates and alpha accounting
+        stay constant.
         """
 
 class Neurons(_ReadNamespace):

@@ -71,27 +71,37 @@ protocol-owned alpha.
 
 ## Subnet emission shares
 
-Each block's TAO emission is divided in two clear steps. First, the chain turns
-each eligible subnet's **EMA price** into a share of total demand:
+Each block's TAO emission is divided in three steps. First, the chain turns each
+eligible subnet's **EMA price** into a share of total demand:
 
 ```
 demand_share_i = price_ema_i / Σ price_ema
 ```
 
-`MinerBurned` does not change this cross-subnet share. It still records what
-happened to miner incentive inside the subnet, but one subnet's local burn or
-recycle choice does not change another subnet's emission.
-
-Second, the **emission gate** reduces weak demand before the final shares are
-normalized. The gate has a midpoint called `theta`. By default, `theta` is the
-32nd-highest positive demand share. It is normally recalculated every 360
-blocks and stays fixed between updates. A subnet at the midpoint passes half
-of its demand weight. Subnets well above it pass almost all; subnets well below
-it pass much less:
+Next, the chain scales that price share by `1 − MinerBurned` and renormalizes:
 
 ```
-gate_i = 1 / (1 + (theta / demand_share_i)^h)
-final_share_i = demand_share_i × gate_i / Σ(demand_share × gate)
+burn_adjusted_share_i = demand_share_i × (1 − miner_burned_i)
+                        / Σ(demand_share × (1 − miner_burned))
+```
+
+`MinerBurned` is the proportion of the last tempo's miner incentive withheld
+because it was directed to subnet-owner hotkeys. Withheld incentive counts
+whether it is recycled or burned, so changing `RecycleOrBurn` cannot bypass the
+scaling. If every adjusted weight is zero, the runtime restores the unadjusted
+price shares so emission is not stranded.
+
+Finally, the **emission gate** reduces weak burn-adjusted shares before the final
+shares are normalized. The gate has a midpoint called `theta`. By default,
+`theta` is the 32nd-highest positive adjusted share. It is normally recalculated
+every 360 blocks and stays fixed between updates. A subnet at the midpoint
+passes half of its adjusted weight. Subnets well above it pass almost all;
+subnets well below it pass much less:
+
+```
+gate_i = 1 / (1 + (theta / burn_adjusted_share_i)^h)
+final_share_i = burn_adjusted_share_i × gate_i
+                / Σ(burn_adjusted_share × gate)
 ```
 
 The default exponent `h` is 3. This makes the gate gradual rather than a hard

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 444
+Spec version: 447
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """

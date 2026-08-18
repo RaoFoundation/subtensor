@@ -223,7 +223,7 @@ const page = () => {
               If a subnet is more than one year old, and the total conviction across its
               lockers exceeds ten percent of its outstanding alpha, ownership of the subnet —
               including the owner&apos;s share of emissions —{' '}
-              <DocLink href='/code/pallets/subtensor/src/staking/lock.rs#L1160-L1377'>
+              <DocLink href='/code/pallets/subtensor/src/staking/lock.rs#L1174-L1398'>
                 transfers to the hotkey with the highest conviction
               </DocLink>
               .

@@ -31,6 +31,11 @@ impl<T: Config> Pallet<T> {
             Incentive::<T>::mutate(netuid_index, |v| {
                 Self::set_element_at(v, neuron_index, PerU16::zero())
             });
+            ConsensusByMechanism::<T>::mutate_exists(netuid_index, |maybe_consensus| {
+                if let Some(v) = maybe_consensus {
+                    Self::set_element_at(v, neuron_index, PerU16::zero())
+                }
+            });
             Bonds::<T>::remove(netuid_index, neuron_uid); // Remove bonds for Validator.
 
             // Clear weights set BY the neuron_uid
@@ -308,20 +313,32 @@ impl<T: Config> Pallet<T> {
             ValidatorPermit::<T>::insert(netuid, trimmed_vpermit);
             StakeWeight::<T>::insert(netuid, trimmed_stake_weight);
 
-            // Update incentives/lastupdates for mechanisms
+            // Update mechanism-scoped vectors
             for mecid in 0..mechanisms_count {
                 let netuid_index = Self::get_mechanism_storage_index(netuid, mecid.into());
                 let incentive = Incentive::<T>::get(netuid_index);
+                let maybe_consensus = ConsensusByMechanism::<T>::try_get(netuid_index).ok();
                 let lastupdate = LastUpdate::<T>::get(netuid_index);
                 let mut trimmed_incentive = Vec::with_capacity(trimmed_uids.len());
+                let mut trimmed_consensus = maybe_consensus
+                    .as_ref()
+                    .map(|_| Vec::with_capacity(trimmed_uids.len()));
                 let mut trimmed_lastupdate = Vec::with_capacity(trimmed_uids.len());
 
                 for uid in &trimmed_uids {
                     trimmed_incentive.push(incentive.get(*uid).cloned().unwrap_or_default());
+                    if let (Some(consensus), Some(trimmed)) =
+                        (maybe_consensus.as_ref(), trimmed_consensus.as_mut())
+                    {
+                        trimmed.push(consensus.get(*uid).cloned().unwrap_or_default());
+                    }
                     trimmed_lastupdate.push(lastupdate.get(*uid).cloned().unwrap_or_default());
                 }
 
                 Incentive::<T>::insert(netuid_index, trimmed_incentive);
+                if let Some(trimmed_consensus) = trimmed_consensus {
+                    ConsensusByMechanism::<T>::insert(netuid_index, trimmed_consensus);
+                }
                 LastUpdate::<T>::insert(netuid_index, trimmed_lastupdate);
             }
 

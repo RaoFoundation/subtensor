@@ -170,17 +170,17 @@ def subnet_price(
 
 
 def _conviction_eta(blocks: Optional[int]) -> str:
-    """Human reading of a blocks-until-10%-threshold estimate."""
+    """Human reading of a blocks-until-18%-gate estimate for one hotkey."""
     if blocks is None:
-        return "won't reach 10%"
+        return "won't clear 18%"
     if blocks == 0:
-        return "10% reached"
+        return "above 18%"
     seconds = int(blocks * BLOCKTIME)
     if seconds >= 86400:
-        return f"10% in ~{seconds / 86400:.0f}d"
+        return f"18% in ~{seconds / 86400:.0f}d"
     if seconds >= 3600:
-        return f"10% in ~{seconds / 3600:.0f}h"
-    return f"10% in ~{max(1, seconds // 60)}m"
+        return f"18% in ~{seconds / 3600:.0f}h"
+    return f"18% in ~{max(1, seconds // 60)}m"
 
 
 @app.command("conviction", rich_help_panel=PANEL_INSPECT)
@@ -201,8 +201,9 @@ def subnet_conviction(
     """Show conviction for one hotkey, or every locked hotkey on a subnet.
 
     Without ``--hotkey``, lists each hotkey holding locked stake: its locked
-    alpha, conviction, and the estimated time until its conviction reaches 10%
-    of the subnet's outstanding alpha (the subnet-ownership threshold).
+    alpha, conviction, and the estimated time until its own conviction exceeds
+    18% of the subnet's eligible alpha — the single-hotkey gate that reassigns
+    subnet ownership.
     """
     app_ctx: AppContext = ctx_of(ctx)
     if hotkey_ss58:
@@ -242,7 +243,8 @@ def subnet_conviction(
         "threshold_alpha": threshold.amount,
         "total_locked_alpha": data["total_locked_alpha"].amount,
         "total_conviction_alpha": data["total_conviction_alpha"].amount,
-        "total_blocks_to_threshold": data["total_blocks_to_threshold"],
+        "leader_hotkey": data["leader_hotkey"],
+        "leader_blocks_to_threshold": data["leader_blocks_to_threshold"],
         "unlock_rate": data["unlock_rate"],
         "maturity_rate": data["maturity_rate"],
         "owner_hotkey": data["owner_hotkey"],
@@ -283,15 +285,21 @@ def subnet_conviction(
             "detail": f"{pct} · {_conviction_eta(entry['blocks_to_threshold'])}",
         }
 
-    total_pct = (
-        f"= {data['total_conviction_alpha'].rao / threshold.rao:.1%} of threshold · "
-        if threshold.rao
-        else ""
+    leader_hotkey = data["leader_hotkey"]
+    leader_label = (
+        hotkey_names.get(leader_hotkey) or identity_names.get(leader_hotkey, leader_hotkey)
+        if leader_hotkey
+        else None
+    )
+    leader_summary = (
+        f"leader {leader_label}: {_conviction_eta(data['leader_blocks_to_threshold'])}"
+        if leader_hotkey
+        else "no locks yet"
     )
     total = {
         "locked": str(data["total_locked_alpha"]),
         "conviction": str(data["total_conviction_alpha"]),
-        "summary": f"{total_pct}{_conviction_eta(data['total_blocks_to_threshold'])}",
+        "summary": f"context only — the gate is per-hotkey · {leader_summary}",
     }
 
     def _halflife(rate: int) -> str:
@@ -319,7 +327,8 @@ def subnet_conviction(
         (
             "takeover threshold",
             str(threshold),
-            "10% of alpha out — total conviction must reach this before ownership can change",
+            "18% of eligible alpha — one hotkey's own conviction must exceed this "
+            "before ownership can change",
         ),
         (
             "unlock rate",
@@ -348,15 +357,16 @@ def subnet_conviction(
         f"rises and then fades away; a perpetual lock (`btcli lock mode --netuid {netuid} "
         "--perpetual`) keeps the full amount locked forever and its conviction keeps "
         "climbing toward 100% of it.",
-        "Once the subnet is a year old and the total conviction of all locks reaches "
-        "the takeover threshold (10% of alpha out), the hotkey with the most conviction "
-        "becomes the subnet owner hotkey and its owning coldkey takes over the subnet. "
-        "The sitting owner's own lock always counts conviction equal to its full locked "
+        "Once the subnet is a year old and one hotkey's own conviction exceeds the "
+        "takeover threshold (18% of eligible alpha), the hotkey with the most "
+        "conviction becomes the subnet owner hotkey and its owning coldkey takes over "
+        "the subnet. Other hotkeys' conviction never counts toward a challenger. The "
+        "sitting owner's own lock always counts conviction equal to its full locked "
         "mass, so an owner defends by keeping more alpha locked than any challenger "
         "can mature.",
         "The times shown are estimates from current locks: they assume the rates and "
-        "alpha out stay constant, while emissions actually keep increasing alpha out "
-        "and push the threshold up over time.",
+        "alpha accounting stay constant, while emissions actually keep increasing "
+        "alpha out and push the threshold up over time.",
     ]
 
     app_ctx.output.conviction_list(

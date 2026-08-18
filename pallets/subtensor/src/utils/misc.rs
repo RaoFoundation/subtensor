@@ -832,6 +832,15 @@ impl<T: Config> Pallet<T> {
         AlphaValues::<T>::get(netuid)
     }
 
+    pub fn get_liquid_alpha_consensus_mode(netuid: NetUid) -> ConsensusMode {
+        LiquidAlphaConsensusMode::<T>::get(netuid)
+    }
+
+    pub fn set_liquid_alpha_consensus_mode(netuid: NetUid, mode: ConsensusMode) {
+        LiquidAlphaConsensusMode::<T>::insert(netuid, mode);
+        Self::deposit_event(Event::LiquidAlphaConsensusModeSet(netuid, mode));
+    }
+
     pub fn set_alpha_values_32(netuid: NetUid, low: I32F32, high: I32F32) {
         let low =
             (low.saturating_mul(I32F32::saturating_from_num(u16::MAX))).saturating_to_num::<u16>();

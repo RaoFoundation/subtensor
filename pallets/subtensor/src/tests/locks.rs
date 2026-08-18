@@ -3155,20 +3155,23 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
             &king_hotkey
         ));
 
-        // Make the subnet old enough and set alpha out so 1_000 conviction is exactly
-        // the 10% minimum required to trigger reassignment.
+        // Make the subnet old enough. Of 10_000 alpha out, 2_000 is protocol-owned and
+        // 1_000 is burned, so eligible alpha is 7_000. 18% of that is 1_260, so 1_400
+        // conviction on the king hotkey alone clears the takeover threshold.
         let now = crate::staking::lock::ONE_YEAR + 1;
         System::set_block_number(now);
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+        SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(2_000u64));
+        pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(1_000u64));
 
         // Seed matching individual and aggregate lock rows for the future king.
-        let locked_mass = AlphaBalance::from(1_000u64);
+        let locked_mass = AlphaBalance::from(1_400u64);
         Lock::<Test>::insert(
             (new_owner_coldkey, netuid, king_hotkey),
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(1_400),
                 last_update: now,
             },
         );
@@ -3177,7 +3180,7 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
             king_hotkey,
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(1_400),
                 last_update: now,
             },
         );
@@ -3190,10 +3193,10 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
 
         // The new owner's aggregate conviction is progressed to locked mass.
         let owner_lock = Lock::<Test>::get((new_owner_coldkey, netuid, king_hotkey)).unwrap();
-        assert_eq!(owner_lock.conviction, U64F64::from_num(1_000));
+        assert_eq!(owner_lock.conviction, U64F64::from_num(1_400));
 
         let king_lock = OwnerLock::<Test>::get(netuid).unwrap();
-        assert_eq!(king_lock.conviction, U64F64::from_num(1_000));
+        assert_eq!(king_lock.conviction, U64F64::from_num(1_400));
     });
 }
 
@@ -3216,17 +3219,19 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
         let now = crate::staking::lock::ONE_YEAR + 1;
         System::set_block_number(now);
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
+        // eligible alpha is 10_000; 18% of that is 1_800, so 2_000 on the king hotkey
+        // clears the takeover threshold.
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
         SubtensorModule::set_tempo_unchecked(netuid, 1);
         LastEpochBlock::<Test>::insert(netuid, now.saturating_sub(1));
         PendingEpochAt::<Test>::insert(netuid, 0);
 
-        let locked_mass = AlphaBalance::from(1_000u64);
+        let locked_mass = AlphaBalance::from(2_000u64);
         Lock::<Test>::insert(
             (new_owner_coldkey, netuid, king_hotkey),
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(2_000),
                 last_update: now,
             },
         );
@@ -3235,7 +3240,7 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
             king_hotkey,
             LockState {
                 locked_mass,
-                conviction: U64F64::from_num(1_000),
+                conviction: U64F64::from_num(2_000),
                 last_update: now,
             },
         );
@@ -3308,11 +3313,13 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
+        // eligible alpha is 10_000; 18% is 1_800, so the king needs more than that on
+        // its own hotkey to take over.
         Lock::<Test>::insert(
             (king_coldkey, netuid, king_hotkey),
             LockState {
-                locked_mass: 1_000u64.into(),
-                conviction: U64F64::from_num(1_000),
+                locked_mass: 2_000u64.into(),
+                conviction: U64F64::from_num(2_000),
                 last_update: now,
             },
         );
@@ -3320,8 +3327,8 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
             netuid,
             king_hotkey,
             LockState {
-                locked_mass: 1_000u64.into(),
-                conviction: U64F64::from_num(1_000),
+                locked_mass: 2_000u64.into(),
+                conviction: U64F64::from_num(2_000),
                 last_update: now,
             },
         );
@@ -3343,7 +3350,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
         );
         assert_eq!(
             OwnerLock::<Test>::get(netuid).unwrap().locked_mass,
-            1_000u64.into()
+            2_000u64.into()
         );
     });
 }
@@ -3457,14 +3464,266 @@ fn test_change_subnet_owner_if_needed_does_not_reassign_when_required_condition_
             });
         };
 
-    // Missing condition 1: total conviction is below 10% of SubnetAlphaOut.
+    // Missing condition 1: the king hotkey's own conviction is below 18% of eligible
+    // alpha (1_000 of 30_000 is 3.3%, well under the 5_400 bar).
     assert_owner_unchanged(30_000, 1, 500, 1_000);
 
     // Missing condition 2: subnet is younger than one year.
     assert_owner_unchanged(20_000, crate::staking::lock::ONE_YEAR, 500, 1_000);
 
-    // Missing condition 3: challenger is not the subnet king because owner's conviction is higher.
+    // Missing condition 3: the owner hotkey is the conviction leader, so no challenger
+    // is crowned. Its 2_000 is also under 18% of 20_000 (3_600), so the gate fails too.
     assert_owner_unchanged(20_000, 1, 2_000, 1_000);
+}
+
+/// The 18% gate is a strict `>` on the king hotkey's own conviction versus eligible
+/// alpha. Exactly 18% is not enough; one unit over crosses the line.
+#[test]
+fn test_change_subnet_owner_if_needed_gate_is_strict_18_percent_of_eligible() {
+    let king_takes_over = |king_conviction: u64| -> bool {
+        new_test_ext(1).execute_with(|| {
+            let old_owner_coldkey = U256::from(1);
+            let old_owner_hotkey = U256::from(2);
+            let netuid =
+                setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+            SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+            SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+            let king_coldkey = U256::from(5);
+            let king_hotkey = U256::from(6);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &king_coldkey,
+                &king_hotkey
+            ));
+
+            let now = crate::staking::lock::ONE_YEAR + 1;
+            System::set_block_number(now);
+            NetworkRegisteredAt::<Test>::insert(netuid, 1);
+            // No protocol or burned alpha, so eligible alpha equals 10_000 and 18% is 1_800.
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+
+            let locked_mass = AlphaBalance::from(king_conviction);
+            Lock::<Test>::insert(
+                (king_coldkey, netuid, king_hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                king_hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+
+            SubtensorModule::change_subnet_owner_if_needed(netuid);
+            SubnetOwnerHotkey::<Test>::get(netuid) == king_hotkey
+        })
+    };
+
+    assert!(!king_takes_over(1_799));
+    assert!(!king_takes_over(1_800)); // exactly 18% is not enough
+    assert!(king_takes_over(1_801)); // just over 18% takes the subnet
+}
+
+/// Regression: the gate must stay exact when eligible alpha is near u64::MAX. The
+/// previous U64F64 form saturated both sides of the comparison (`MAX <= MAX`) and
+/// rejected every takeover in that range regardless of conviction.
+#[test]
+fn test_change_subnet_owner_if_needed_gate_is_exact_near_u64_max() {
+    let king_takes_over = |king_conviction: u64| -> bool {
+        new_test_ext(1).execute_with(|| {
+            let old_owner_coldkey = U256::from(1);
+            let old_owner_hotkey = U256::from(2);
+            let netuid =
+                setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+            SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+            SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+            let king_coldkey = U256::from(5);
+            let king_hotkey = U256::from(6);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &king_coldkey,
+                &king_hotkey
+            ));
+
+            let now = crate::staking::lock::ONE_YEAR + 1;
+            System::set_block_number(now);
+            NetworkRegisteredAt::<Test>::insert(netuid, 1);
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(u64::MAX));
+
+            let locked_mass = AlphaBalance::from(king_conviction);
+            Lock::<Test>::insert(
+                (king_coldkey, netuid, king_hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                king_hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(king_conviction),
+                    last_update: now,
+                },
+            );
+
+            SubtensorModule::change_subnet_owner_if_needed(netuid);
+            SubnetOwnerHotkey::<Test>::get(netuid) == king_hotkey
+        })
+    };
+
+    // 18% of u64::MAX is 3_320_413_933_267_719_290.7; the gate is strict, so the
+    // integer floor stays below the bar and the next rao above it clears.
+    assert!(!king_takes_over(3_000_000_000_000_000_000)); // clearly below 18%
+    assert!(!king_takes_over(3_320_413_933_267_719_290)); // floor of the exact bar
+    assert!(king_takes_over(3_320_413_933_267_719_291)); // first conviction above it
+}
+
+/// Regression: a challenger below 18% on its own hotkey must not win even when the
+/// subnet-wide total conviction (challenger plus owner plus unrelated lockers) is far
+/// past 18%. This is the sum-versus-max hole that flipped SN72 under the old gate.
+#[test]
+fn test_change_subnet_owner_if_needed_ignores_other_lockers_conviction() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1);
+        let owner_hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(owner_coldkey, owner_hotkey, 100_000_000_000);
+        SubnetOwner::<Test>::insert(netuid, owner_coldkey);
+        SubnetOwnerHotkey::<Test>::insert(netuid, owner_hotkey);
+
+        let king_coldkey = U256::from(5);
+        let king_hotkey = U256::from(6);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &king_coldkey,
+            &king_hotkey
+        ));
+        let bystander_coldkey = U256::from(7);
+        let bystander_hotkey = U256::from(8);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &bystander_coldkey,
+            &bystander_hotkey
+        ));
+
+        let now = crate::staking::lock::ONE_YEAR + 1;
+        System::set_block_number(now);
+        NetworkRegisteredAt::<Test>::insert(netuid, 1);
+        // eligible alpha 10_000; 18% is 1_800.
+        SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+
+        let seed = |hotkey: U256, coldkey: U256, conviction: u64| {
+            let locked_mass = AlphaBalance::from(conviction);
+            Lock::<Test>::insert(
+                (coldkey, netuid, hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(conviction),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(conviction),
+                    last_update: now,
+                },
+            );
+        };
+        // Challenger leads on conviction but holds only 1_700 (< 1_800) on its own hotkey.
+        seed(king_hotkey, king_coldkey, 1_700);
+        seed(bystander_hotkey, bystander_coldkey, 1_500);
+        // Owner's instant-maturing defensive lock.
+        OwnerLock::<Test>::insert(
+            netuid,
+            LockState {
+                locked_mass: 1_500u64.into(),
+                conviction: U64F64::from_num(1_500),
+                last_update: now,
+            },
+        );
+
+        // The subnet-wide total (1_700 + 1_500 + 1_500 = 4_700) is well over 18%, which
+        // the old sum gate would have admitted.
+        assert!(
+            SubtensorModule::get_total_conviction(netuid)
+                .saturating_mul(U64F64::saturating_from_num(100))
+                > U64F64::saturating_from_num(10_000u64).saturating_mul(U64F64::from_num(18))
+        );
+
+        SubtensorModule::change_subnet_owner_if_needed(netuid);
+
+        // Ownership stays put: the leader's own conviction did not clear 18%.
+        assert_eq!(SubnetOwner::<Test>::get(netuid), owner_coldkey);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), owner_hotkey);
+    });
+}
+
+/// The gate denominator is eligible alpha (`SubnetAlphaOut - SubnetProtocolAlpha -
+/// AlphaBurned`), not raw alpha out. Shrinking eligible alpha lets the same conviction
+/// clear the bar.
+#[test]
+fn test_change_subnet_owner_if_needed_uses_eligible_alpha_denominator() {
+    let king_takes_over = |protocol: u64, burned: u64| -> bool {
+        new_test_ext(1).execute_with(|| {
+            let old_owner_coldkey = U256::from(1);
+            let old_owner_hotkey = U256::from(2);
+            let netuid =
+                setup_subnet_with_stake(old_owner_coldkey, old_owner_hotkey, 100_000_000_000);
+            SubnetOwner::<Test>::insert(netuid, old_owner_coldkey);
+            SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+
+            let king_coldkey = U256::from(5);
+            let king_hotkey = U256::from(6);
+            assert_ok!(SubtensorModule::create_account_if_non_existent(
+                &king_coldkey,
+                &king_hotkey
+            ));
+
+            let now = crate::staking::lock::ONE_YEAR + 1;
+            System::set_block_number(now);
+            NetworkRegisteredAt::<Test>::insert(netuid, 1);
+            SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+            SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(protocol));
+            pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(burned));
+
+            let locked_mass = AlphaBalance::from(1_000u64);
+            Lock::<Test>::insert(
+                (king_coldkey, netuid, king_hotkey),
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(1_000),
+                    last_update: now,
+                },
+            );
+            HotkeyLock::<Test>::insert(
+                netuid,
+                king_hotkey,
+                LockState {
+                    locked_mass,
+                    conviction: U64F64::from_num(1_000),
+                    last_update: now,
+                },
+            );
+
+            SubtensorModule::change_subnet_owner_if_needed(netuid);
+            SubnetOwnerHotkey::<Test>::get(netuid) == king_hotkey
+        })
+    };
+
+    // Against raw alpha out (10_000), 1_000 conviction is only 10% and fails.
+    assert!(!king_takes_over(0, 0));
+    // Protocol 3_000 + burned 2_000 shrinks eligible to 5_000, so 1_000 is 20% and passes.
+    assert!(king_takes_over(3_000, 2_000));
 }
 
 // =========================================================================

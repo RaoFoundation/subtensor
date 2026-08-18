@@ -400,7 +400,12 @@ impl crate::GrandpaInterface<Test> for GrandpaInterfaceImpl {
         in_blocks: BlockNumber,
         forced: Option<BlockNumber>,
     ) -> sp_runtime::DispatchResult {
-        Grandpa::schedule_change(next_authorities, in_blocks, forced)
+        let next_set_id = Grandpa::current_set_id()
+            .checked_add(1)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+        Grandpa::schedule_change(next_authorities, in_blocks, forced)?;
+        pallet_grandpa::CurrentSetId::<Test>::put(next_set_id);
+        Ok(())
     }
 }
 
