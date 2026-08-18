@@ -1,9 +1,9 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-The chain reserves the pre-dispatch weight fee (one work unit per existing
-network) at inclusion, then refunds down to the work actually done. That
-reserve is what people see leave their free balance, and it is larger than
-the fee that finally settles. That gap is the usual claim-fee surprise.
+Both runtime calls reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units at
+inclusion, then refund down to the work actually done. That reserve is what
+people see leave their free balance, and it is larger than the fee that
+finally settles. That gap is the usual claim-fee surprise.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
 and tells the caller when a claim loses money or cannot even be included.
@@ -24,10 +24,9 @@ from ..sp_core import ss58_decode
 _SCAN_REF_TIME = 6
 _REDEEM_REF_TIME = 70
 
-# Fallback when ``payment_info`` is unavailable: ~τ0.0004475 per redeemed row
-# (LinearWeightToFee on a full ``claim_root`` unit). Per-hotkey reserved is
-# this times the live network count; coldkey-wide reserved is this times
-# ``MAX_ROOT_CLAIM_WORK`` (256) because the signer is not in the call data.
+# One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.0004475).
+# Both claim paths reserve ``MAX_ROOT_CLAIM_WORK`` of these, plus any
+# non-weight base/length fee returned by ``payment_info``.
 _APPROX_REDEEM_FEE_RAO = 447_500
 _MAX_ROOT_CLAIM_WORK = 256
 
@@ -176,14 +175,8 @@ async def _quote(
     networks = await _existing_network_count(substrate)
     threshold_rao = await _threshold_rao(substrate)
     free_rao = await _free_rao(substrate, signer_address)
-    reserved = await _reserved_fee(
-        substrate,
-        signer_address,
-        compose,
-        networks,
-        coldkey_wide=coldkey_wide,
-    )
-    spent = _spent_fee(reserved, holdings, networks, accrued_rao < threshold_rao)
+    reserved = await _reserved_fee(substrate, signer_address, compose)
+    spent = _spent_fee(reserved, holdings, accrued_rao < threshold_rao)
 
     return RootClaimFeeQuote(
         holdings=holdings,
@@ -219,29 +212,34 @@ async def _reserved_fee(
     substrate: Any,
     signer_address: str,
     compose: Callable[[], Awaitable[Any]],
-    networks: int,
-    *,
-    coldkey_wide: bool,
 ) -> Balance:
     try:
         call = await compose()
         return await substrate.estimate_fee(call, _FeeView(signer_address))
     except Exception:
-        units = _MAX_ROOT_CLAIM_WORK if coldkey_wide else max(networks, 1)
-        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * units)
+        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK)
 
 
-def _spent_fee(reserved: Balance, holdings: int, networks: int, scan_only: bool) -> Balance:
-    """Scale the reserved (declared-work) fee down to actual holdings."""
+def _spent_fee(reserved: Balance, holdings: int, scan_only: bool) -> Balance:
+    """Refund unused declared units; keep non-weight base/length fees intact.
+
+    ``estimate_fee`` prices the 256-unit declaration plus extrinsic base/length.
+    Only the weight slice scales with holdings. The fallback (no payment_info)
+    is weight-only, so base is zero there.
+    """
     if reserved.rao <= 0:
         return reserved
-    if networks <= 0:
-        return reserved
+    declared_weight = _APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK
+    weight_part = min(reserved.rao, declared_weight)
+    base_part = max(0, reserved.rao - declared_weight)
+    units = max(holdings, 0 if scan_only else 1)
     if scan_only:
-        spent = reserved.rao * max(holdings, 0) * _SCAN_REF_TIME // (networks * _REDEEM_REF_TIME)
+        spent_weight = (
+            weight_part * units * _SCAN_REF_TIME // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
+        )
     else:
-        spent = reserved.rao * max(holdings, 1) // networks
-    return Balance.from_rao(min(reserved.rao, max(spent, 0)))
+        spent_weight = weight_part * units // _MAX_ROOT_CLAIM_WORK
+    return Balance.from_rao(min(reserved.rao, base_part + max(spent_weight, 0)))
 
 
 async def cached_root_claim_quote(
