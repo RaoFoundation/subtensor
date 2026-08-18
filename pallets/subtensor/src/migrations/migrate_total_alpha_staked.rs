@@ -98,11 +98,11 @@ pub fn continue_total_alpha_staked<T: Config>(limit: Weight) -> Weight {
     };
 
     for (hotkey, netuid, alpha) in iter {
-        if !work_weight.saturating_add(per_item).all_lte(work_limit)
-            && let Some(key) = last_key
-        {
-            progress.cursor = key;
-            TotalAlphaStakedMigration::<T>::put(progress);
+        if !work_weight.saturating_add(per_item).all_lte(work_limit) {
+            if let Some(key) = last_key {
+                progress.cursor = key;
+                TotalAlphaStakedMigration::<T>::put(progress);
+            }
             return pass_overhead.saturating_add(work_weight);
         }
 
@@ -159,6 +159,25 @@ mod tests {
             TotalHotkeyAlpha::<Test>::insert(U256::from(4), first_netuid, AlphaBalance::from(100));
             run_migration();
             assert_eq!(TotalAlphaStaked::<Test>::get(first_netuid), 30.into());
+        });
+    }
+
+    #[test]
+    fn first_item_waits_when_remaining_weight_is_too_small() {
+        new_test_ext(1).execute_with(|| {
+            let netuid = NetUid::from(2);
+            TotalHotkeyAlpha::<Test>::insert(U256::from(1), netuid, AlphaBalance::from(10));
+
+            migrate_total_alpha_staked::<Test>();
+            let overhead = <Test as frame_system::Config>::DbWeight::get().reads_writes(1, 2);
+            continue_total_alpha_staked::<Test>(overhead);
+
+            assert!(in_progress::<Test>());
+            assert!(
+                TotalAlphaStakedMigration::<Test>::get()
+                    .is_some_and(|progress| progress.cursor.is_empty())
+            );
+            assert!(TotalAlphaStaked::<Test>::get(netuid).is_zero());
         });
     }
 
