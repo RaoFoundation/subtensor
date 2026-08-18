@@ -3,7 +3,7 @@
 //!
 //! Extrinsics are NOT tested here. Each section focuses on one helper.
 
-use frame_support::{BoundedVec, assert_noop, assert_ok, traits::ConstU32};
+use frame_support::{assert_noop, assert_ok, traits::ConstU32, BoundedVec};
 use sp_core::H256;
 use sp_keyring::Sr25519Keyring as AccountKeyring;
 use substrate_fixed::types::U64F64;
@@ -664,6 +664,7 @@ fn make_buy_entry(
         effective_swap_limit: u64::MAX, // no slippage constraint
         partial_fill: None,
         has_linked_order: false,
+        provider: None,
     }
 }
 

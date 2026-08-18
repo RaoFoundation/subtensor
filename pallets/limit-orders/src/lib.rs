@@ -16,12 +16,12 @@ pub mod weights;
 type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::{BoundedVec, traits::ConstU32};
+use frame_support::{traits::ConstU32, BoundedVec};
 use scale_info::TypeInfo;
 use sp_core::H256;
 use sp_runtime::{
-    AccountId32, MultiSignature, Perbill,
     traits::{ConstBool, Verify},
+    AccountId32, MultiSignature, Perbill,
 };
 use substrate_fixed::types::U64F64;
 use subtensor_macros::freeze_struct;
@@ -241,6 +241,10 @@ pub(crate) struct OrderEntry<AccountId> {
     pub(crate) partial_fill: Option<u64>,
     /// Record this order's pro-rata output as a provider record after distribution.
     pub(crate) has_linked_order: bool,
+    /// Provider this entry draws from, if any. Consumed after a successful
+    /// distribute — not during classify — so a later `Err` cannot depend on
+    /// FRAME rollback to restore the record.
+    pub(crate) provider: Option<H256>,
 }
 
 // ── Pallet ───────────────────────────────────────────────────────────────────
@@ -253,10 +257,9 @@ pub mod pallet {
     use alloc::format;
     use alloc::string::String;
     use frame_support::{
-        PalletId,
         pallet_prelude::*,
         traits::{Get, UnixTime},
-        transactional,
+        transactional, PalletId,
     };
     use frame_system::pallet_prelude::*;
     use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
@@ -1332,6 +1335,7 @@ partial fills {partial}, signer {signer}{tail}",
             // Track which order_ids we have already seen in this batch. A repeated
             // order_id is never legitimate within a single batch.
             let mut seen_order_ids: BTreeSet<H256> = BTreeSet::new();
+            let mut seen_providers: BTreeSet<H256> = BTreeSet::new();
 
             for signed_order in orders.iter() {
                 let order_id = Self::derive_order_id(&signed_order.order);
@@ -1355,8 +1359,10 @@ partial fills {partial}, signer {signer}{tail}",
                 let (amount, provider) =
                     Self::is_order_valid(signed_order, order_id, now_ms, current_price, &relayer)?;
 
+                // Two consumers of one record in this batch: fail here, without
+                // taking storage. The actual take happens after distribute.
                 if let Some(provider) = provider {
-                    Self::consume_linked_output(provider, order_id, amount)?;
+                    ensure!(seen_providers.insert(provider), Error::<T>::NoLinkedOutput);
                 }
 
                 let amount_in = signed_order.partial_fill.unwrap_or(amount);
@@ -1388,6 +1394,7 @@ partial fills {partial}, signer {signer}{tail}",
                     effective_swap_limit,
                     partial_fill: signed_order.partial_fill,
                     has_linked_order: order.has_linked_order,
+                    provider,
                 };
 
                 // try_push cannot fail: both vecs share the same bound as `orders`.
@@ -1534,6 +1541,9 @@ partial fills {partial}, signer {signer}{tail}",
                 )?;
                 let status = Self::compute_order_status(e.order_id, e.partial_fill, e.order_amount);
                 Orders::<T>::insert(e.order_id, status);
+                if let Some(provider) = e.provider {
+                    Self::consume_linked_output(provider, e.order_id, e.order_amount)?;
+                }
                 Self::record_linked_output(
                     e.order_id,
                     &e.signer,
@@ -1617,6 +1627,9 @@ partial fills {partial}, signer {signer}{tail}",
                 )?;
                 let status = Self::compute_order_status(e.order_id, e.partial_fill, e.order_amount);
                 Orders::<T>::insert(e.order_id, status);
+                if let Some(provider) = e.provider {
+                    Self::consume_linked_output(provider, e.order_id, e.order_amount)?;
+                }
                 Self::record_linked_output(
                     e.order_id,
                     &e.signer,

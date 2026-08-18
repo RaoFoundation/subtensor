@@ -1394,6 +1394,73 @@ fn second_batched_linked_order_finds_nothing() {
             ),
             Error::<Test>::NoLinkedOutput
         );
+        assert!(
+            LinkedOutputs::<Test>::get(provider_id).is_some(),
+            "a rejected second consumer must not take the record",
+        );
+    });
+}
+
+/// Consume happens after distribute. A batch that fails there (`ZeroShareInBatch`)
+/// must leave the provider record in place without relying on FRAME rollback of
+/// an earlier `take`.
+#[test]
+fn batched_zero_share_does_not_consume_record() {
+    new_test_ext().execute_with(|| {
+        MockTime::set(1_000_000);
+        MockSwap::set_price(1.0);
+        MockSwap::set_buy_alpha_return(1000);
+        MockSwap::set_tao_balance(alice(), 1_000_000);
+        MockSwap::set_tao_balance(bob(), 1);
+
+        let provider_id = H256::repeat_byte(0x33);
+        LinkedOutputs::<Test>::insert(
+            provider_id,
+            LinkedOutput {
+                signer: bob(),
+                asset: LinkedAsset::Tao,
+                total: 1,
+                expires_at: FAR_FUTURE,
+            },
+        );
+
+        let big_buyer = make_signed_order(
+            AccountKeyring::Alice,
+            dave(),
+            netuid(),
+            OrderType::LimitBuy,
+            1_000_000,
+            u64::MAX,
+            FAR_FUTURE,
+            Perbill::zero(),
+            fee_recipient(),
+            None,
+        );
+        let consumer = make_signed_v2_order(
+            AccountKeyring::Bob,
+            dave(),
+            netuid(),
+            OrderType::LimitBuy,
+            OrderAmount::LinkedPercentage {
+                provider: provider_id,
+                pct: Perbill::one(),
+            },
+            u64::MAX,
+            false,
+        );
+
+        assert_noop!(
+            LimitOrders::execute_batched_orders(
+                RuntimeOrigin::signed(charlie()),
+                netuid(),
+                bounded(vec![big_buyer, consumer]),
+            ),
+            Error::<Test>::ZeroShareInBatch
+        );
+        assert!(
+            LinkedOutputs::<Test>::get(provider_id).is_some(),
+            "a failed batch must not consume the provider record",
+        );
     });
 }
 

@@ -61,8 +61,9 @@ A V2 order may be sized as a fraction of another order's already-produced
 output (`OrderAmount::LinkedPercentage { provider, pct }`) instead of a fixed
 amount. The provider must have executed with `has_linked_order = true`, which
 writes a single-use `LinkedOutputs` record. The first consumer to draw takes
-`pct` of that output and the record is removed; `1 - pct` stays with the
-signer as ordinary balance.
+`pct` of that output and the record is removed — any remaining fraction stays
+with the signer as ordinary balance and cannot be drawn by another linked
+order. Sign a 100% consumer if you need the full output in one later leg.
 
 Provider and consumer are independent: an order can be either, both (a chain
 longer than two legs), or neither (v1 semantics). Partial fills are rejected
