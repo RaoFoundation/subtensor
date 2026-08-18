@@ -108,14 +108,20 @@ changes.
   function annotation.
 - Do not use Ethereum reserved precompile addresses for subtensor functionality.
 - Assign new Bittensor domain precompiles sequentially from the next unused
-  Bittensor address. The current proposal reserves `0x080f` through `0x0813`
-  for Scheduler, Drand, Timestamp, Runtime Configuration, and the Precompile
-  Registry, respectively. Add routing and tests that lock every implemented
-  address and selector before release.
+  Bittensor address. Addresses `0x080f` through `0x0813` are reserved for
+  Scheduler, Drand, Timestamp, Runtime Configuration, and the Precompile
+  Registry, respectively; treat an address as implemented only once its
+  routing, tests, and runtime registration have shipped. Add routing and
+  tests that lock every implemented address and selector before release.
 - Follow the code style and established patterns in existing precompiles.
 - Represent Substrate account IDs in EVM space as 32-byte public keys.
-- Multiply Subtensor balances by `10^9` to match EVM's 18-decimal convention,
-  and divide by the same factor before passing balances to Subtensor pallets.
+- Preserve each released precompile's documented balance units, scaling,
+  precision, and rounding; several existing interfaces expose amounts directly
+  in rao (or alpha). Apply the `10^9` EVM balance conversion only where that
+  specific interface's ABI is defined in 18-decimal EVM units (for example
+  payable `msg.value` paths), never as a blanket rule. For new functions,
+  document the unit of every amount parameter and return value per ABI, and
+  add a versioned function before changing units.
 
 ## Maintenance workflow
 
