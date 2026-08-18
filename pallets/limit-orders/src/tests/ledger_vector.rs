@@ -53,13 +53,13 @@
 //! goes through the full acceptance path.
 
 use frame_support::{assert_ok, traits::Get};
-use sp_core::{crypto::Ss58Codec, hexdisplay::HexDisplay, Pair, H256};
-use sp_runtime::{traits::Verify, MultiSignature, Perbill};
+use sp_core::{H256, Pair, crypto::Ss58Codec, hexdisplay::HexDisplay};
+use sp_runtime::{MultiSignature, Perbill, traits::Verify};
 use subtensor_runtime_common::NetUid;
 use subtensor_swap_interface::OrderSwapInterface;
 
 use crate::pallet::Pallet as LimitOrders;
-use crate::{Order, OrderAmount, OrderType, OrderV2, VersionedOrder, LEDGER_MAX_SIGN_SIZE};
+use crate::{LEDGER_MAX_SIGN_SIZE, Order, OrderAmount, OrderType, OrderV2, VersionedOrder};
 
 use super::mock::*;
 

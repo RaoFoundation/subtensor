@@ -9,16 +9,15 @@ use std::collections::HashMap;
 
 use codec::Encode;
 use frame_support::{
-    construct_runtime, derive_impl, parameter_types,
+    BoundedVec, PalletId, construct_runtime, derive_impl, parameter_types,
     traits::{ConstU16, ConstU32, ConstU64, Everything},
-    BoundedVec, PalletId,
 };
 use frame_system as system;
-use sp_core::{Pair, H256};
+use sp_core::{H256, Pair};
 use sp_keyring::Sr25519Keyring as AccountKeyring;
 use sp_runtime::{
-    traits::{AccountIdConversion, BlakeTwo256, IdentityLookup},
     AccountId32, BuildStorage, MultiSignature,
+    traits::{AccountIdConversion, BlakeTwo256, IdentityLookup},
 };
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};

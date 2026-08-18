@@ -3,7 +3,7 @@
 //!
 //! Extrinsics are NOT tested here. Each section focuses on one helper.
 
-use frame_support::{assert_noop, assert_ok, traits::ConstU32, BoundedVec};
+use frame_support::{BoundedVec, assert_noop, assert_ok, traits::ConstU32};
 use sp_core::H256;
 use sp_keyring::Sr25519Keyring as AccountKeyring;
 use substrate_fixed::types::U64F64;

@@ -5,9 +5,9 @@
 use alloc::{format, string::String};
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::{traits::ConstU32, BoundedVec};
+use frame_support::{BoundedVec, traits::ConstU32};
 use scale_info::TypeInfo;
-use sp_core::{hexdisplay::HexDisplay, H256};
+use sp_core::{H256, hexdisplay::HexDisplay};
 use sp_runtime::Perbill;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::NetUid;

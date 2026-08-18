@@ -3,15 +3,15 @@
 //! already-produced output.
 
 use codec::{Decode, Encode};
-use frame_support::{assert_noop, assert_ok, BoundedVec};
-use sp_core::{Pair, H256};
+use frame_support::{BoundedVec, assert_noop, assert_ok};
+use sp_core::{H256, Pair};
 use sp_keyring::Sr25519Keyring as AccountKeyring;
-use sp_runtime::{traits::AccountIdConversion, MultiSignature, Perbill};
+use sp_runtime::{MultiSignature, Perbill, traits::AccountIdConversion};
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    pallet::Event, Error, LimitOrdersEnabled, LinkedAsset, LinkedOutput, LinkedOutputs,
-    OrderAmount, OrderStatus, OrderType, OrderV2, Orders, VersionedOrder, LEDGER_MAX_SIGN_SIZE,
+    Error, LEDGER_MAX_SIGN_SIZE, LimitOrdersEnabled, LinkedAsset, LinkedOutput, LinkedOutputs,
+    OrderAmount, OrderStatus, OrderType, OrderV2, Orders, VersionedOrder, pallet::Event,
 };
 
 type LimitOrders = crate::pallet::Pallet<Test>;
@@ -678,12 +678,14 @@ fn failed_swap_does_not_consume_record() {
             u64::MAX,
             false,
         );
-        assert!(LimitOrders::execute_orders(
-            RuntimeOrigin::signed(charlie()),
-            bounded(vec![consumer]),
-            true,
-        )
-        .is_err());
+        assert!(
+            LimitOrders::execute_orders(
+                RuntimeOrigin::signed(charlie()),
+                bounded(vec![consumer]),
+                true,
+            )
+            .is_err()
+        );
         assert!(LinkedOutputs::<Test>::get(provider_id).is_some());
     });
 }

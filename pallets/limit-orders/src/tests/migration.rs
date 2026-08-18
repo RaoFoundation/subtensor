@@ -1,14 +1,14 @@
 #![allow(clippy::unwrap_used)]
 //! Tests for the `migrate_register_pallet_hotkey` migration.
 
-use frame_support::{traits::Hooks, BoundedVec};
-use sp_runtime::{traits::AccountIdConversion, BuildStorage};
+use frame_support::{BoundedVec, traits::Hooks};
+use sp_runtime::{BuildStorage, traits::AccountIdConversion};
 use subtensor_swap_interface::OrderSwapInterface as _;
 
 use crate::{
+    HasMigrationRun, LimitOrdersEnabled, MigrationKeyMaxLen,
     migrations::migrate_register_pallet_hotkey,
     tests::mock::{LimitOrdersPalletId, MockSwap, PalletHotkeyAccount, System, Test},
-    HasMigrationRun, LimitOrdersEnabled, MigrationKeyMaxLen,
 };
 
 fn migration_key() -> BoundedVec<u8, MigrationKeyMaxLen> {

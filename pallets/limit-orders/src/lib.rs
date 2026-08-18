@@ -16,12 +16,12 @@ pub mod weights;
 type MigrationKeyMaxLen = frame_support::traits::ConstU32<128>;
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use frame_support::{traits::ConstU32, BoundedVec};
+use frame_support::{BoundedVec, traits::ConstU32};
 use scale_info::TypeInfo;
 use sp_core::H256;
 use sp_runtime::{
-    traits::{ConstBool, Verify},
     AccountId32, MultiSignature, Perbill,
+    traits::{ConstBool, Verify},
 };
 use substrate_fixed::types::U64F64;
 use subtensor_macros::freeze_struct;
@@ -257,9 +257,10 @@ pub mod pallet {
     use alloc::format;
     use alloc::string::String;
     use frame_support::{
+        PalletId,
         pallet_prelude::*,
         traits::{Get, UnixTime},
-        transactional, PalletId,
+        transactional,
     };
     use frame_system::pallet_prelude::*;
     use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};

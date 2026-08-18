@@ -5,14 +5,14 @@
 //! and event emission are all verified. SwapInterface calls are handled by
 //! `MockSwap`, which records calls and maintains in-memory balance ledgers.
 
-use frame_support::{assert_noop, assert_ok, BoundedVec};
+use frame_support::{BoundedVec, assert_noop, assert_ok};
 use sp_core::Pair;
 use sp_keyring::Sr25519Keyring as AccountKeyring;
 use sp_runtime::{DispatchError, Perbill};
 use subtensor_runtime_common::NetUid;
 
 use crate::{
-    pallet::Event, Error, Order, OrderSide, OrderStatus, OrderType, Orders, VersionedOrder,
+    Error, Order, OrderSide, OrderStatus, OrderType, Orders, VersionedOrder, pallet::Event,
 };
 
 type LimitOrders = crate::pallet::Pallet<Test>;
