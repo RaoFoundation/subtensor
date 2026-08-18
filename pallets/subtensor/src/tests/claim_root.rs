@@ -3,10 +3,11 @@
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
-    Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
-    StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow,
-    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount,
+    DefaultSubnetLimit, Error, Keys, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded,
+    NumStakingColdkeys, RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex,
+    SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake,
+    Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -234,6 +235,11 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             .actual_weight
             .expect("claim reports benchmark-derived actual weight");
 
+        assert_eq!(
+            MAX_ROOT_CLAIM_WORK,
+            u32::from(DefaultSubnetLimit::<Test>::get()),
+            "claim quote must track the default subnet cap"
+        );
         assert!(actual_weight.all_lte(declared_weight));
 
         let max_extrinsic = BlockWeights::get()
