@@ -29,7 +29,7 @@ Read it back with the `validator_root_weights` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L92-L100) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L91-L99) |
 
 ## Parameters
 
@@ -77,7 +77,7 @@ result = sub.execute_tool("set_root_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L94`](/code/pallets/subtensor/src/macros/dispatches.rs#L92-L100):
+`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L93`](/code/pallets/subtensor/src/macros/dispatches.rs#L91-L99):
 
 ```rust
 #[pallet::call_index(146)]

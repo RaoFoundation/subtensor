@@ -7,9 +7,12 @@ sessions get a single error listing *every* missing option); shows the option's
 input; and afterwards echoes the full non-interactive command so the flags are
 learnable and copy-pasteable into scripts.
 
-Two entry points feed this machinery:
-- the generated ``tx`` commands build their own :class:`PromptSpec` list (they
-  know about ss58 resolution, money units, and signer defaults);
+Three entry points feed this machinery:
+- the generated ``tx`` and ``query`` commands build their own :class:`PromptSpec`
+  list for every required field that would fail if omitted (addresses get a
+  picker; numbers, money, and other types get a typed prompt);
+- hand-written commands that keep a param optional and then error call
+  :func:`fill_missing` themselves;
 - every other command is covered generically by :func:`run_app`, which drives
   the Typer app itself, catches click's ``MissingParameter``, prompts for all
   of the command's missing required params, and re-runs with them injected.
@@ -40,7 +43,7 @@ except ImportError:  # older typer uses the external click package
 from .. import config as cfg
 from .. import wallets
 from .context import AppContext
-from .output import STYLE_COMMAND, STYLE_HINT
+from .output import PROMPT_KEY_WIDTH, STYLE_COMMAND, STYLE_HINT, kv_line
 
 # Parses one prompted answer into the value the command body expects; raises
 # ValueError (or typer.Exit, for address resolution) to trigger a re-prompt.
@@ -406,6 +409,11 @@ def signer_specs(
     return specs
 
 
+def record_answers(tokens: list[str]) -> None:
+    """Remember interactively supplied argv tokens for replay / skip-the-prompts."""
+    _entered_tokens.extend(tokens)
+
+
 def replay_command() -> str:
     """The command that submits this invocation for real: the current argv plus
     any prompted answers, minus ``--dry-run`` and ``--json``, quoted for
@@ -429,16 +437,18 @@ def _flush_command_hint(exit_code: int) -> None:
     """
     if exit_code != 0 or not _entered_tokens:
         return
+    if "--dry-run" in sys.argv:
+        # The plan already printed the replay command as a tabbed `run for real`.
+        _entered_tokens.clear()
+        return
     tokens = [Path(sys.argv[0]).name, *sys.argv[1:], *_entered_tokens]
     _entered_tokens.clear()
     command = " ".join(shlex.quote(part) for part in tokens)
-    line = Text(overflow="ignore", no_wrap=True)
-    line.append("hint:".rjust(7), style=STYLE_HINT)
-    line.append(" skip the prompts next time: ", style=STYLE_HINT)
-    line.append(command, style=STYLE_COMMAND)
+    content = Text("skip the prompts next time: ", style=STYLE_HINT)
+    content.append(command, style=STYLE_COMMAND)
     console = Console(stderr=True, highlight=False)
     console.print()
-    console.print(line, soft_wrap=True)
+    console.print(kv_line("hint", PROMPT_KEY_WIDTH, content, key_style=STYLE_HINT), soft_wrap=True)
 
 
 # --- Generic coverage: drive the whole app and intercept MissingParameter ----
@@ -537,6 +547,17 @@ def _missing_click_params(error: Any, args: list[str]) -> list[Any]:
     return missing
 
 
+def _upgrade_address_spec(spec: PromptSpec) -> PromptSpec:
+    """Swap a dest-style address prompt for the address-book / hotkey picker.
+
+    Circular import: stake_picker imports PromptSpec from this module.
+    """
+    from .stake_picker import required_address_spec
+
+    richer = required_address_spec(spec.field)
+    return richer if richer is not None else spec
+
+
 def run_app(app: typer.Typer) -> None:
     """Run the Typer app, prompting for any missing required parameters.
 
@@ -594,10 +615,16 @@ def _run_app(app: typer.Typer) -> None:
             console = Console(stderr=True, highlight=False)
             console.print()
             for spec in specs:
-                _, raw = ask(console, app_ctx, spec)
-                entered = [raw] if spec.positional else [spec.flag, raw]
-                args += entered
-                _entered_tokens.extend(entered)
+                spec = _upgrade_address_spec(spec)
+                if spec.custom is not None:
+                    entered = spec.custom(console, app_ctx, {})
+                    args += entered
+                    _entered_tokens.extend(entered)
+                else:
+                    _, raw = ask(console, app_ctx, spec)
+                    entered = [raw] if spec.positional else [spec.flag, raw]
+                    args += entered
+                    _entered_tokens.extend(entered)
                 console.print()
             continue
         except click_exceptions.ClickException as error:

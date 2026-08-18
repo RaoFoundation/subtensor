@@ -168,6 +168,10 @@ class Intent(ABC):
         """Non-fatal cautions surfaced by ``plan`` (e.g. dust amounts)."""
         return []
 
+    async def blocks(self, substrate: "Substrate", signer_address: str) -> list[str]:
+        """Hard stops merged into ``Plan.violations`` (dry-run shows them; execute refuses)."""
+        return []
+
     async def wrap_call(self, substrate: "Substrate", wallet: "Any", call: Any):
         """Apply an execution wrapper around an already composed semantic call.
 
@@ -176,6 +180,17 @@ class Intent(ABC):
         multisigs add their transport wrapper here.
         """
         return call
+
+    def origin_view(self, substrate: "Substrate", wallet: "Any") -> "Any":
+        """The account view the semantic call builds against.
+
+        Ordinary intents dispatch as the signing wallet, so this is ``wallet``.
+        Execution adapters whose inner call runs from a different origin (a
+        saved multisig) return that account instead, so origin-derived lookups
+        in the semantic build — hotkey/coldkey defaults, registration and
+        balance preflights — see the account that will actually dispatch.
+        """
+        return wallet
 
     # Key views ----------------------------------------------------------------
     #

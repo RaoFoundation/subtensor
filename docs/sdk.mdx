@@ -31,6 +31,7 @@ awaited it is the async client:
 
 ```python
 sub.block                                       # blocking
+sub.finalized_block                             # latest finalized block
 
 client = await bt.Subtensor()                   # async, same surface awaited
 async with bt.Subtensor() as client: ...        # scoped async

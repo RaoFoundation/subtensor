@@ -17,8 +17,9 @@ from bittensor.client import Client
 from bittensor.intents import REGISTRY, build
 from bittensor.intents._money import UNBOUNDED, _Unbounded
 from bittensor.intents.base import BuiltCall
+from bittensor.result import BittensorError
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import BOB, BOB_HOT, INTENT_SAMPLES, dev_wallet
+from tests.harness.samples import ALICE, BOB, BOB_HOT, INTENT_SAMPLES, dev_wallet
 
 
 @pytest.fixture()
@@ -389,6 +390,67 @@ class TestExecuteFlow:
         outer = substrate.last_call
         assert (outer.module, outer.function) == ("MevShield", "submit_encrypted")
 
+    @pytest.mark.asyncio
+    async def test_submit_shielded_wraps_proxy(
+        self, client: Client, substrate: FakeSubstrate, wallet, monkeypatch
+    ):
+        """Shield encrypts the already-proxied call, not the bare semantic call."""
+        from bittensor.intents.transfer import Transfer
+
+        substrate.mev_key = b"\x01" * 32
+        monkeypatch.setattr(
+            "bittensor.executor._core.encrypt_mlkem768",
+            lambda pubkey, plaintext, include_key_hash=True: b"ciphertext",
+        )
+        signed: list = []
+        original_sign = substrate.sign_extrinsic
+
+        async def capture_sign(call, keypair, *, nonce, period):
+            signed.append(call)
+            return await original_sign(call, keypair, nonce=nonce, period=period)
+
+        monkeypatch.setattr(substrate, "sign_extrinsic", capture_sign)
+
+        result = await client.submit_shielded(
+            Transfer(dest_ss58=BOB, amount_tao=1.0), wallet, proxy_for=BOB
+        )
+        assert result.success
+        assert result.data.get("shielded") is True
+        assert result.data.get("proxy_for") == BOB
+        assert len(signed) == 1
+        inner = signed[0]
+        assert (inner.module, inner.function) == ("Proxy", "proxy")
+        assert inner.params["real"] == BOB
+        nested = inner.params["call"]
+        assert nested.module == "Balances"
+        outer = substrate.last_call
+        assert (outer.module, outer.function) == ("MevShield", "submit_encrypted")
+
+    @pytest.mark.asyncio
+    async def test_proxy_all_reads_proxied_account_balance(
+        self, client: Client, substrate: FakeSubstrate, wallet
+    ):
+        """``amount=all`` must drain the proxied coldkey, not the delegate."""
+        from bittensor.intents.staking import _ALL_STAKE_FEE_HEADROOM_RAO, AddStake
+
+        treasury_free = 10**10
+        substrate.seed("System", "Account", [BOB], {"data": {"free": treasury_free}})
+        substrate.seed(
+            "System",
+            "Account",
+            [wallet.coldkey.ss58_address],
+            {"data": {"free": 0}},
+        )
+        plan = await client.plan(
+            AddStake(hotkey_ss58=BOB_HOT, netuid=1, amount_tao="all"),
+            wallet,
+            proxy_for=BOB,
+        )
+        assert plan.call.module == "Proxy"
+        inner = plan.call.params["call"]
+        expected = treasury_free - 500 - _ALL_STAKE_FEE_HEADROOM_RAO
+        assert inner.params["amount_staked"] == expected
+
 
 class TestStakingMoneyUnits:
     """Unit-tagged amounts at the staking intent boundary: a correctly tagged
@@ -472,6 +534,17 @@ class TestStakingMoneyUnits:
                 r"move_stake.*'alpha_amount' takes subnet-1 ALPHA.*tagged TAO",
             ),
             (
+                "move_swap_stake",
+                {
+                    "origin_hotkey_ss58": BOB,
+                    "origin_netuid": 1,
+                    "dest_hotkey_ss58": BOB_HOT,
+                    "dest_netuid": 2,
+                    "amount_alpha": Balance.from_tao(1.0),
+                },
+                r"move_stake.*'alpha_amount' takes subnet-1 ALPHA.*tagged TAO",
+            ),
+            (
                 "swap_stake",
                 {
                     "hotkey_ss58": BOB,
@@ -548,6 +621,68 @@ class TestProportionInputs:
         encoded = intent.to_dict()
         rebuilt = build("set_children", {k: v for k, v in encoded.items() if k != "op"})
         assert rebuilt.to_dict() == encoded
+
+
+class TestRootClaimOnUnstake:
+    """Client-side half of #3008: claim then unstake, whole entitlement only."""
+
+    @pytest.mark.asyncio
+    async def test_claim_batches_claim_then_unstake(self, substrate: FakeSubstrate, wallet):
+        intent = build(
+            "remove_stake",
+            {
+                "hotkey_ss58": BOB_HOT,
+                "netuid": 0,
+                "amount_alpha": 1.0,
+                "slippage_protection": False,
+                "claim": True,
+            },
+        )
+        built = await intent.build(substrate, wallet)
+        module, function, params = built
+        assert (module, function) == ("Utility", "batch_all")
+        claim, unstake = params["calls"]
+        assert (claim.module, claim.function) == ("SubtensorModule", "claim_root_with_hotkey")
+        assert claim.params["hotkey"] == BOB_HOT
+        assert (unstake.module, unstake.function) == ("SubtensorModule", "remove_stake")
+
+    @pytest.mark.asyncio
+    async def test_claim_refused_off_root(self, substrate: FakeSubstrate, wallet):
+        intent = build(
+            "remove_stake",
+            {
+                "hotkey_ss58": BOB_HOT,
+                "netuid": 1,
+                "amount_alpha": 1.0,
+                "claim": True,
+            },
+        )
+        with pytest.raises(BittensorError, match="netuid 0"):
+            await intent.build(substrate, wallet)
+
+    @pytest.mark.asyncio
+    async def test_claim_warning_is_not_proportional(self, substrate: FakeSubstrate, wallet):
+        intent = build(
+            "remove_stake",
+            {
+                "hotkey_ss58": BOB_HOT,
+                "netuid": 0,
+                "amount_alpha": 1.0,
+                "claim": True,
+            },
+        )
+        warnings = await intent.warnings(substrate, ALICE)
+        assert any("not a proportional" in warning for warning in warnings)
+
+    @pytest.mark.asyncio
+    async def test_unstake_all_claim_batches(self, substrate: FakeSubstrate, wallet):
+        intent = build("unstake_all", {"hotkey_ss58": BOB_HOT, "claim": True})
+        built = await intent.build(substrate, wallet)
+        module, function, params = built
+        assert (module, function) == ("Utility", "batch_all")
+        claim, unstake = params["calls"]
+        assert (claim.module, claim.function) == ("SubtensorModule", "claim_root_with_hotkey")
+        assert (unstake.module, unstake.function) == ("SubtensorModule", "unstake_all")
 
 
 def test_tools_catalog_matches_registry():

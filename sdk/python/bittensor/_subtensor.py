@@ -5,6 +5,7 @@
     # Inline, blocking (connects lazily; no close() needed)
     sub = bt.Subtensor()                    # defaults to finney
     print(sub.block)                        # current block number
+    print(sub.finalized_block)              # latest finalized block number
     print(sub.time)                         # UTC time of the head block
     print(sub.spec_version)                 # runtime spec_version
     print(sub.balances.balance(coldkey_ss58="5F..."))
@@ -53,8 +54,8 @@ class Subtensor(SyncClient):
     of code. The first blocking call locks the instance into blocking mode;
     the first ``await`` locks it into async mode. Attribute *inspection* has
     no side effects (safe to repr, probe, or autocomplete a cold instance) —
-    except the chain-reading properties ``block``, ``time``, and
-    ``spec_version``, whose *evaluation* is a blocking read.
+    except the chain-reading properties ``block``, ``finalized_block``,
+    ``time``, and ``spec_version``, whose *evaluation* is a blocking read.
 
     Blocking mode needs no ``close()``: the connection opens on first call and
     is cleaned up when the instance is garbage collected (or at process exit).

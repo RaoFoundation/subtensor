@@ -439,7 +439,8 @@ class Client:
     ) -> ExtrinsicResult:
         """Submit an intent MEV-shielded (encrypted until block-author execution).
 
-        Same policy gating as :meth:`execute`; see ``Executor.submit_shielded``.
+        Same ``policy`` / ``proxy_for`` / ``proxy_type`` options as :meth:`execute`;
+        see ``Executor.submit_shielded``.
         """
         return await self._executor.submit_shielded(intent, wallet, **kwargs)
 
@@ -448,7 +449,8 @@ class Client:
 
         No intent, no preview — an active :class:`Policy` refuses this unless it
         sets ``allow_raw_calls=True``. Pass ``signer="hotkey"`` for hotkey-signed
-        extrinsics.
+        extrinsics. ``shielded=True`` encrypts the composed call like
+        :meth:`submit_shielded`.
         """
         return await self._executor.submit_call(call, wallet, **kwargs)
 
@@ -584,6 +586,10 @@ class Client:
     async def block(self) -> int:
         """Current chain block number."""
         return await self._substrate.block_number()
+
+    async def finalized_block(self) -> int:
+        """Current finalized chain block number."""
+        return await self._substrate.finalized_block_number()
 
     async def spec_version(self) -> int:
         """The connected runtime's ``spec_version`` (at the chain head)."""
