@@ -324,7 +324,7 @@ class TestExecuteFlow:
 
     @pytest.mark.asyncio
     async def test_set_weights_transparently_uses_validate_proxies(
-        self, substrate: FakeSubstrate, wallet, monkeypatch
+        self, substrate: FakeSubstrate, wallet, monkeypatch, caplog
     ):
         from bittensor.intents.weights import SetWeights
         from bittensor.keyfiles import Keypair
@@ -337,6 +337,7 @@ class TestExecuteFlow:
 
         monkeypatch.setattr("bittensor.intents.weights._core.get_encrypted_commit_v2", encrypt)
 
+        caplog.set_level("INFO", logger="bittensor.executor")
         monkeypatch.setenv("WEIGHT_TARGETS", f"{BOB_HOT}, {wallet.hotkey.ss58_address}, {BOB}")
         client = Client("local", substrate=substrate)
         substrate.seed("SubtensorModule", "Uids", [1, wallet.hotkey.ss58_address], 0)
@@ -364,6 +365,14 @@ class TestExecuteFlow:
             child.params["call"].function == "commit_timelocked_mechanism_weights"
             for child in proxied
         )
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(f"target=1/3 hotkey={BOB_HOT} route=Validate proxy" in msg for msg in messages)
+        assert any(
+            f"target=2/3 hotkey={wallet.hotkey.ss58_address} route=direct" in msg
+            for msg in messages
+        )
+        assert any(f"target=3/3 hotkey={BOB} route=Validate proxy" in msg for msg in messages)
+        assert any("submitted=3 failed=0" in msg for msg in messages)
 
     def test_client_merges_constructor_and_environment_weight_targets(
         self, substrate: FakeSubstrate, wallet, monkeypatch
@@ -467,7 +476,7 @@ class TestExecuteFlow:
 
     @pytest.mark.asyncio
     async def test_set_weights_preflight_failure_does_not_block_other_targets(
-        self, substrate: FakeSubstrate, wallet
+        self, substrate: FakeSubstrate, wallet, caplog
     ):
         from dataclasses import replace
 
@@ -475,6 +484,7 @@ class TestExecuteFlow:
         from tests.harness.fake_substrate import success_result
 
         targets = [BOB_HOT, wallet.hotkey.ss58_address]
+        caplog.set_level("WARNING", logger="bittensor.executor")
         client = Client("local", substrate=substrate, weight_targets=targets)
         substrate.seed("SubtensorModule", "Uids", [1, BOB_HOT], None)
         substrate.seed("SubtensorModule", "Uids", [1, wallet.hotkey.ss58_address], 0)
@@ -505,6 +515,10 @@ class TestExecuteFlow:
         assert result.success
         assert [item["success"] for item in result.data["weight_results"]] == [False, True]
         assert "not registered" in result.data["weight_results"][0]["error"]
+        assert any(
+            f"hotkey={BOB_HOT}" in record.getMessage() and "not registered" in record.getMessage()
+            for record in caplog.records
+        )
         call, _, _ = substrate.submissions[-1]
         assert (call.module, call.function) == ("Utility", "force_batch")
         assert len(call.params["calls"]) == 1

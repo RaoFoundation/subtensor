@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
 from typing import Any, Optional
@@ -44,6 +45,8 @@ from .signing import (
     public_view,
     resolve_signer,
 )
+
+logger = logging.getLogger(__name__)
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -568,8 +571,19 @@ class Executor:
         behavior, while an explicit empty list is a no-op.
         """
         if self.weight_targets is None:
+            logger.info(
+                "Building weights: netuid=%s mechid=%s target=1/1 hotkey=%s route=direct",
+                intent.netuid,
+                intent.mechid,
+                delegate,
+            )
             return await intent.build(self.substrate, wallet)
         if not self.weight_targets:
+            logger.info(
+                "Skipping weight submission: netuid=%s mechid=%s no targets configured",
+                intent.netuid,
+                intent.mechid,
+            )
             return BuiltCall(
                 None,
                 {
@@ -587,11 +601,33 @@ class Executor:
         build_extras = {}
         for index, target in enumerate(targets):
             direct = target == delegate
+            route = "direct" if direct else "Validate proxy"
+            logger.info(
+                "Building weights: netuid=%s mechid=%s target=%s/%s hotkey=%s route=%s delegate=%s",
+                intent.netuid,
+                intent.mechid,
+                index + 1,
+                len(targets),
+                target,
+                route,
+                delegate,
+            )
             build_wallet = wallet if direct else _ProxyBuildWallet(wallet, intent.signer, target)
             try:
                 built = await intent.build(self.substrate, build_wallet)
             except ChainError as error:
                 build_errors[target] = error.message
+                logger.warning(
+                    "Skipping weight target: netuid=%s mechid=%s target=%s/%s hotkey=%s "
+                    "route=%s error=%s",
+                    intent.netuid,
+                    intent.mechid,
+                    index + 1,
+                    len(targets),
+                    target,
+                    route,
+                    error.message,
+                )
                 continue
             if isinstance(built, BuiltCall):
                 inner = built.call
@@ -620,6 +656,14 @@ class Executor:
         }
         if not composed:
             return BuiltCall(None, {**extras, "no_op": True})
+        logger.info(
+            "Built weight batch: netuid=%s mechid=%s delegate=%s submitted=%s failed=%s",
+            intent.netuid,
+            intent.mechid,
+            delegate,
+            len(submitted),
+            len(build_errors),
+        )
         call = await self.substrate.compose(generated_calls.Utility.force_batch(calls=composed))
         return BuiltCall(call, extras)
 
