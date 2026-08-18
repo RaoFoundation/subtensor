@@ -2025,6 +2025,7 @@ fn test_incentive_to_subnet_owner_is_burned() {
         assert_eq!(subnet_owner_stake_before, 0.into());
         let other_stake_before = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert_eq!(other_stake_before, 0.into());
+        let total_alpha_staked_before = TotalAlphaStaked::<Test>::get(netuid);
 
         // Distribute dividends and incentives
         SubtensorModule::distribute_dividends_and_incentives(
@@ -2041,6 +2042,13 @@ fn test_incentive_to_subnet_owner_is_burned() {
         assert_eq!(subnet_owner_stake_after, 0.into());
         let other_stake_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert!(other_stake_after > 0.into());
+        // The owner-directed incentive is burned, so only the other miner's
+        // credited stake increases the subnet aggregate.
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(netuid),
+            total_alpha_staked_before.saturating_add(other_stake_after)
+        );
+        assert_total_alpha_staked_invariant(netuid);
     });
 }
 
@@ -2080,6 +2088,7 @@ fn test_incentive_to_subnet_owners_hotkey_is_burned() {
         assert_eq!(subnet_owner_stake_before, 0.into());
         let other_stake_before = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert_eq!(other_stake_before, 0.into());
+        let total_alpha_staked_before = TotalAlphaStaked::<Test>::get(netuid);
 
         // Distribute dividends and incentives
         SubtensorModule::distribute_dividends_and_incentives(
@@ -2096,6 +2105,12 @@ fn test_incentive_to_subnet_owners_hotkey_is_burned() {
         assert_eq!(subnet_owner_stake_after, 0.into());
         let other_stake_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert_eq!(other_stake_after, 0.into());
+        // Both incentives target owner-associated hotkeys and are burned.
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(netuid),
+            total_alpha_staked_before
+        );
+        assert_total_alpha_staked_invariant(netuid);
     });
 }
 
@@ -2694,6 +2709,7 @@ fn test_distribute_emission_no_miners_all_drained() {
             u64::from(emission + init_stake.into()).into(),
             epsilon = 1.into()
         );
+        assert_total_alpha_staked_invariant(netuid);
     });
 }
 

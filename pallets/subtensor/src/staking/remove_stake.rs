@@ -908,23 +908,45 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
         last_key: Option<Vec<u8>>,
     ) -> (bool, Option<Vec<u8>>) {
+        let iter_read = T::DbWeight::get().reads(1);
+        // Updating TotalAlphaStaked reads and writes the aggregate; clearing a
+        // hotkey also removes TotalHotkeyAlpha and both share-denominator maps.
+        let removal_weight = T::DbWeight::get().reads_writes(1, 4);
         let iter = match last_key {
             Some(key) => TotalHotkeyAlpha::<T>::iter_from(key),
             None => TotalHotkeyAlpha::<T>::iter(),
         };
 
-        let (read_all, last_item) = Self::remove_storage_entries_for_netuid(
-            weight_meter,
-            iter,
-            |(_, nu, _)| *nu == netuid,
-            |(hotkey, _, _)| hotkey,
-            |hotkey| {
-                TotalHotkeyAlpha::<T>::remove(hotkey, netuid);
-                TotalHotkeyShares::<T>::remove(hotkey, netuid);
-                TotalHotkeySharesV2::<T>::remove(hotkey, netuid);
-            },
-            3,
-        );
+        let mut read_all = true;
+        let mut last_item = None;
+        let mut to_remove = Vec::new();
+
+        for item @ (_, this_netuid, _) in iter {
+            if !weight_meter.can_consume(iter_read) {
+                read_all = false;
+                break;
+            }
+            weight_meter.consume(iter_read);
+
+            if this_netuid == netuid {
+                if !weight_meter.can_consume(removal_weight) {
+                    read_all = false;
+                    break;
+                }
+                weight_meter.consume(removal_weight);
+                to_remove.push((item.0.clone(), item.2));
+            }
+            last_item = Some(item);
+        }
+
+        for (hotkey, alpha) in to_remove {
+            TotalAlphaStaked::<T>::mutate(netuid, |total| {
+                *total = total.saturating_sub(alpha);
+            });
+            TotalHotkeyAlpha::<T>::remove(&hotkey, netuid);
+            TotalHotkeyShares::<T>::remove(&hotkey, netuid);
+            TotalHotkeySharesV2::<T>::remove(&hotkey, netuid);
+        }
 
         (
             read_all,

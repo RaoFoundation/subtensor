@@ -1605,8 +1605,14 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
     }
 
     fn set_shared_value(&mut self, value: u64) {
-        if value != 0 {
-            TotalHotkeyAlpha::<T>::insert(&(self.hotkey), self.netuid, AlphaBalance::from(value));
+        let previous = TotalHotkeyAlpha::<T>::get(&self.hotkey, self.netuid);
+        let value = AlphaBalance::from(value);
+        TotalAlphaStaked::<T>::mutate(self.netuid, |total| {
+            *total = total.saturating_sub(previous).saturating_add(value);
+        });
+
+        if !value.is_zero() {
+            TotalHotkeyAlpha::<T>::insert(&(self.hotkey), self.netuid, value);
         } else {
             TotalHotkeyAlpha::<T>::remove(&(self.hotkey), self.netuid);
         }

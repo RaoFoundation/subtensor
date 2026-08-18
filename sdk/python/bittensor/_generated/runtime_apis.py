@@ -179,4 +179,3 @@ class TransactionPaymentCallApi:
     query_call_fee_details = Method('TransactionPaymentCallApi', 'query_call_fee_details')
     query_weight_to_fee = Method('TransactionPaymentCallApi', 'query_weight_to_fee')
     query_length_to_fee = Method('TransactionPaymentCallApi', 'query_length_to_fee')
-
