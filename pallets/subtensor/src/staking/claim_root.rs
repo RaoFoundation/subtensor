@@ -743,6 +743,14 @@ impl<T: Config> Pallet<T> {
         swept
     }
 
+    /// Pre-dispatch work units for a root-claim fee quote: one per existing
+    /// network (including root). Using the live `NetworksAdded` set — not the
+    /// stale [`crate::MAX_ROOT_CLAIM_WORK`] envelope of 256 — keeps the quote
+    /// aligned with today's subnet limit (128) instead of double-counting.
+    pub(crate) fn root_claim_declared_work() -> u32 {
+        (Self::get_all_subnet_netuids().len() as u32).max(1)
+    }
+
     /// Actual post-dispatch weight of a root claim: full benchmark units for the slots
     /// that did real work (redeemed or swept — a swap plus stake writes each, floored at
     /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row

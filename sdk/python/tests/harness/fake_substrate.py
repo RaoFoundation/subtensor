@@ -47,6 +47,7 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "NetworksAdded"): True,
     ("SubtensorModule", "BlocksSinceLastStep"): 0,
     ("SubtensorModule", "Burn"): 10**9,
+    ("SubtensorModule", "TotalAlphaStaked"): 0,
     ("SubtensorModule", "Difficulty"): 10**7,
     ("SubtensorModule", "ImmunityPeriod"): 4096,
     ("SubtensorModule", "SubnetworkN"): 0,
@@ -129,6 +130,7 @@ class FakeSubstrate:
         self.connected = False
         self.closed = False
         self.block = 100
+        self.finalized = 100
         self.runtime_spec_version = 300
 
         # (module, item) -> {params-tuple: value}
@@ -206,6 +208,9 @@ class FakeSubstrate:
 
     async def block_number(self) -> int:
         return self.block
+
+    async def finalized_block_number(self) -> int:
+        return self.finalized
 
     async def block_time(self) -> float:
         # Same derivation as production: the chain's Aura.SlotDuration constant.

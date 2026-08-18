@@ -13,7 +13,6 @@ mod dispatches {
 
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
-    use crate::MAX_ROOT_CLAIM_WORK;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
     /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
@@ -1918,10 +1917,10 @@ mod dispatches {
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
         #[pallet::call_index(121)]
-        // Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]; actual work
-        // is measured and refunded post-dispatch (fat coldkeys may exceed the reservation).
+        // Quote against the live existing-network count, not the stale 256-subnet
+        // benchmark envelope. Post-dispatch still charges measured holdings.
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+            <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
         )]
         pub fn claim_root(
             origin: OriginFor<T>,
@@ -1953,7 +1952,7 @@ mod dispatches {
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+            <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,

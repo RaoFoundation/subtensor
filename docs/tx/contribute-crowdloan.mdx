@@ -12,6 +12,8 @@ Contributions are not refunded automatically if the loan fails: they come
 back when the creator calls `refund_crowdloan`, or the contributor can
 `withdraw_crowdloan` themselves any time before finalization. On
 success, the funds go to the loan's target or fund its inner call.
+Pass `all` to contribute the whole free balance minus the existential
+deposit and a small fee headroom.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -22,7 +24,7 @@ success, the funds go to the loan's target or fund its inner call.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `crowdloan_id` | integer | yes | Identifier of the crowdloan, assigned when it was created. |
-| `amount_tao` | number \| `"all"` | yes | Amount to contribute; moved into the crowdloan's pot. Recoverable via refund or withdraw while the loan is not finalized. |
+| `amount_tao` | number \| `"all"` | yes | Amount to contribute, or ``all``. Moved into the crowdloan's pot. Recoverable via refund or withdraw while the loan is not finalized. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

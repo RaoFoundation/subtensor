@@ -14,7 +14,7 @@ from ..result import BittensorError
 from ..settings import RAO_PER_TAO
 from ..signing import public_view
 from ._money import ALL, UNBOUNDED, Money, Spend, call_amount
-from .base import Intent
+from .base import BuiltCall, Intent
 from .registry import register
 
 # Default slippage-protection tolerance: the pool price may move at most this
@@ -74,6 +74,119 @@ async def _alpha_price_rao(substrate, netuid: int) -> int:
     return int(price)
 
 
+async def _swap_limit_price_rao(
+    substrate, origin_netuid: int, dest_netuid: int, rate_tolerance: float
+) -> int:
+    """Fill-or-kill origin/destination price-ratio limit (scaled by 1e9)."""
+    origin_price = await _alpha_price_rao(substrate, origin_netuid)
+    dest_price = await _alpha_price_rao(substrate, dest_netuid)
+    if dest_price <= 0:
+        raise BittensorError(
+            f"netuid {dest_netuid} has no alpha price; cannot derive a "
+            "slippage limit — disable slippage protection to submit anyway"
+        )
+    # The chain compares the limit against the origin/destination price
+    # ratio (falling as the swap executes), scaled by 1e9.
+    ratio_rao = origin_price * RAO_PER_TAO // dest_price
+    return int(ratio_rao * (1 - rate_tolerance))
+
+
+async def _compose_swap_stake(
+    substrate,
+    *,
+    hotkey: str,
+    origin_netuid: int,
+    dest_netuid: int,
+    rao: int,
+    slippage_protection: bool,
+    rate_tolerance: float,
+):
+    """``swap_stake_limit`` when protection is on, else plain ``swap_stake``."""
+    if slippage_protection:
+        return await substrate.compose(
+            calls.SubtensorModule.swap_stake_limit(
+                hotkey=hotkey,
+                origin_netuid=origin_netuid,
+                destination_netuid=dest_netuid,
+                alpha_amount=rao,
+                limit_price=await _swap_limit_price_rao(
+                    substrate, origin_netuid, dest_netuid, rate_tolerance
+                ),
+                allow_partial=False,
+            )
+        )
+    return await substrate.compose(
+        calls.SubtensorModule.swap_stake(
+            hotkey=hotkey,
+            origin_netuid=origin_netuid,
+            destination_netuid=dest_netuid,
+            alpha_amount=rao,
+        )
+    )
+
+
+# Same-subnet ``move_stake`` credits the dest hotkey through share-pool math
+# that can floor the readable position by 1 rao (issue #3081). A following
+# ``swap_stake`` of the exact moved amount then fails ``NotEnoughStakeToWithdraw``.
+# Batch encoding cannot see the post-move balance, so the swap targets one rao
+# less and leaves that dust on the dest hotkey at the origin subnet.
+_SHARE_POOL_FLOOR_RAO = 1
+
+_SHARE_POOL_DUST_WARNING = (
+    "same-subnet move can floor the dest position by 1 rao; the following swap "
+    "uses amount-1 so the batch does not fail, and 1 rao stays on the dest "
+    "hotkey at the origin subnet"
+)
+
+
+def _executable_after_same_subnet_move(rao: int) -> int:
+    if rao <= _SHARE_POOL_FLOOR_RAO:
+        raise BittensorError(
+            f"cannot move-then-swap {rao} rao: same-subnet move_stake can lose "
+            "1 rao to share-pool rounding, leaving nothing to swap. Move a "
+            "larger amount, or change only the hotkey or only the subnet"
+        )
+    return rao - _SHARE_POOL_FLOOR_RAO
+
+
+async def _compose_move_then_swap(
+    substrate,
+    *,
+    origin_hotkey: str,
+    dest_hotkey: str,
+    origin_netuid: int,
+    dest_netuid: int,
+    rao: int,
+    slippage_protection: bool,
+    rate_tolerance: float,
+):
+    """One extrinsic: same-subnet ``move_stake``, then a price-bounded swap.
+
+    The chain has no ``move_stake_limit``. This is the wallet-safe composition
+    until that extrinsic exists: re-delegate on the origin subnet, then
+    ``swap_stake_limit`` on the new hotkey.
+    """
+    move = await substrate.compose(
+        calls.SubtensorModule.move_stake(
+            origin_hotkey=origin_hotkey,
+            destination_hotkey=dest_hotkey,
+            origin_netuid=origin_netuid,
+            destination_netuid=origin_netuid,
+            alpha_amount=rao,
+        )
+    )
+    swap = await _compose_swap_stake(
+        substrate,
+        hotkey=dest_hotkey,
+        origin_netuid=origin_netuid,
+        dest_netuid=dest_netuid,
+        rao=_executable_after_same_subnet_move(rao),
+        slippage_protection=slippage_protection,
+        rate_tolerance=rate_tolerance,
+    )
+    return await substrate.compose(calls.Utility.batch_all(calls=[move, swap]))
+
+
 # Reserved on top of the existential deposit when staking ``all``, so the
 # transaction fee never makes the build unaffordable (typical fees are ~τ0.000125).
 _ALL_STAKE_FEE_HEADROOM_RAO = 500_000  # τ0.0005
@@ -98,7 +211,9 @@ async def _stakeable_rao(substrate, wallet: Any) -> int:
     return rao
 
 
-async def _staked_rao(substrate, wallet: Any, hotkey_ss58: str, netuid: int) -> int:
+async def _staked_rao(
+    substrate, wallet: Any, hotkey_ss58: str, netuid: int, *, action: str = "unstake"
+) -> int:
     """Current stake (rao) the signing coldkey holds on ``hotkey_ss58`` at ``netuid``.
 
     Resolves an ``amount = "all"`` at build time; refuses to build a no-op when
@@ -111,8 +226,20 @@ async def _staked_rao(substrate, wallet: Any, hotkey_ss58: str, netuid: int) -> 
     )
     rao = 0 if info is None else int(info["stake"])
     if rao <= 0:
-        raise BittensorError(f"nothing to unstake: no stake on {hotkey_ss58} at netuid {netuid}")
+        raise BittensorError(f"nothing to {action}: no stake on {hotkey_ss58} at netuid {netuid}")
     return rao
+
+
+async def _lockable_rao(substrate, coldkey_ss58: str, netuid: int) -> int:
+    """Unlocked stake (rao) a coldkey can still lock on ``netuid``.
+
+    Resolves ``amount = "all"`` for ``lock_stake``; refuses to build when
+    nothing is unlocked.
+    """
+    _total, _locked, available = await _availability_rao(substrate, coldkey_ss58, netuid)
+    if available <= 0:
+        raise BittensorError(f"nothing to lock: no unlocked stake on netuid {netuid}")
+    return available
 
 
 async def _lock_hotkey(substrate, coldkey_ss58: str, netuid: int) -> Optional[str]:
@@ -141,12 +268,25 @@ async def _availability_rao(substrate, coldkey_ss58: str, netuid: int) -> tuple[
     )
 
 
-async def _root_claimable_warning(substrate, coldkey_ss58: str, hotkey_ss58: str) -> Optional[str]:
-    """Warn when unstaking root would leave basket yield unclaimed.
+CLAIM_HELP = (
+    "Also redeem this validator's whole basket entitlement before unstaking, "
+    "in one atomic batch. Root only (netuid 0). This is not a proportional "
+    "payout: unstaking 40% still claims 100% of the basket. The chain has no "
+    "proportional-claim call. Claimed yield is restaked on root, then the "
+    "unstake runs — pass `all` to take principal and yield out together."
+)
 
-    Root ``remove_stake`` / ``unstake_all`` move principal only; accrued basket
-    entitlement stays owed until ``btcli root claim``. Best-effort: a failed
-    payout read is silent so warnings never block the plan.
+CLAIM_NOT_PROPORTIONAL = (
+    "claims the entire basket entitlement for this validator (not a "
+    "proportional slice of the unstake), then unstakes principal"
+)
+
+
+async def _root_claimable_rao(substrate, coldkey_ss58: str, hotkey_ss58: str) -> Optional[int]:
+    """Realizable TAO (rao) this coldkey would get from ``claim_root_with_hotkey``.
+
+    ``None`` if the payout read failed. Best-effort: callers must not block
+    the plan or the unstake on a failed read.
     """
     try:
         payout = await substrate.runtime_call(
@@ -155,12 +295,55 @@ async def _root_claimable_warning(substrate, coldkey_ss58: str, hotkey_ss58: str
         )
     except Exception:
         return None
-    rao = int(payout or 0)
-    if rao <= 0:
+    return int(payout or 0)
+
+
+async def _root_claimable_warning(substrate, coldkey_ss58: str, hotkey_ss58: str) -> Optional[str]:
+    """Warn when unstaking root would leave basket yield unclaimed.
+
+    Root ``remove_stake`` / ``unstake_all`` move principal only; accrued basket
+    entitlement stays owed until ``btcli root claim`` or ``--claim``.
+    """
+    rao = await _root_claimable_rao(substrate, coldkey_ss58, hotkey_ss58)
+    if rao is None or rao <= 0:
         return None
     return (
         f"{Balance.from_rao(rao)} remains claimable via `btcli root claim` "
-        "(unstaking root principal does not claim basket yield)"
+        "or `--claim` (whole entitlement, not a slice of this unstake)"
+    )
+
+
+def _as_call(built):
+    """Unwrap a :class:`BuiltCall` so it can sit inside ``Utility.batch_all``."""
+    return built.call if isinstance(built, BuiltCall) else built
+
+
+async def _compose_unstake_with_optional_claim(
+    substrate,
+    unstake_call,
+    *,
+    claim: bool,
+    hotkey_ss58: str,
+    netuid: Optional[int],
+):
+    """Optionally wrap ``claim_root_with_hotkey`` then the unstake in ``batch_all``.
+
+    ``netuid`` is ``None`` for ``unstake_all`` (root is always included). A
+    non-root ``--claim`` is refused: there is no basket on other subnets.
+    """
+    if not claim:
+        return unstake_call
+    if netuid is not None and int(netuid) != 0:
+        raise BittensorError(
+            "claim=True is only valid when unstaking from root (netuid 0). "
+            "claim_root_with_hotkey pays this validator's whole basket "
+            "entitlement, not a proportional slice of the unstake."
+        )
+    claim_call = await substrate.compose(
+        calls.SubtensorModule.claim_root_with_hotkey(hotkey=hotkey_ss58)
+    )
+    return await substrate.compose(
+        calls.Utility.batch_all(calls=[claim_call, _as_call(unstake_call)])
     )
 
 
@@ -279,11 +462,22 @@ class RemoveStake(Intent):
     stake currently available. A partial unstake must leave a remainder
     worth at least 0.002 TAO at the simulated pool price — exit the full
     position instead of leaving dust (``AmountTooLow``).
+
+    On root (netuid 0), unstake returns principal only. Accrued basket yield
+    stays owed until ``claim_root_with_hotkey``. Pass ``claim=True`` to redeem
+    this validator's whole entitlement first, then unstake, in one batch.
+    That is not a proportional payout: the claim pays 100% of the basket,
+    not a slice of the amount you unstake.
     """
 
     op = "remove_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "remove_stake"), ("SubtensorModule", "remove_stake_limit"))
+    wraps = (
+        ("SubtensorModule", "remove_stake"),
+        ("SubtensorModule", "remove_stake_limit"),
+        ("SubtensorModule", "claim_root_with_hotkey"),
+        ("Utility", "batch_all"),
+    )
     mev_shield_default = True
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
@@ -296,6 +490,7 @@ class RemoveStake(Intent):
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
+    claim: bool = field(default=False, metadata={"help": CLAIM_HELP})
 
     def __post_init__(self):
         self.amount_alpha = call_amount(
@@ -310,7 +505,7 @@ class RemoveStake(Intent):
             rao = self.amount_alpha.rao
         if self.slippage_protection:
             price = await _alpha_price_rao(substrate, self.netuid)
-            return await substrate.compose(
+            unstake = await substrate.compose(
                 calls.SubtensorModule.remove_stake_limit(
                     hotkey=self.hotkey_ss58,
                     netuid=self.netuid,
@@ -319,12 +514,20 @@ class RemoveStake(Intent):
                     allow_partial=False,
                 )
             )
-        return await substrate.compose(
-            calls.SubtensorModule.remove_stake(
-                hotkey=self.hotkey_ss58,
-                netuid=self.netuid,
-                amount_unstaked=rao,
+        else:
+            unstake = await substrate.compose(
+                calls.SubtensorModule.remove_stake(
+                    hotkey=self.hotkey_ss58,
+                    netuid=self.netuid,
+                    amount_unstaked=rao,
+                )
             )
+        return await _compose_unstake_with_optional_claim(
+            substrate,
+            unstake,
+            claim=self.claim,
+            hotkey_ss58=self.hotkey_ss58,
+            netuid=self.netuid,
         )
 
     def summary(self) -> str:
@@ -334,13 +537,16 @@ class RemoveStake(Intent):
             if self.slippage_protection
             else " (no slippage protection)"
         )
-        return f"unstake {amount} from {self.hotkey_ss58} on netuid {self.netuid}{note}"
+        prefix = "claim basket yield then " if self.claim else ""
+        return f"{prefix}unstake {amount} from {self.hotkey_ss58} on netuid {self.netuid}{note}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         out: list[str] = []
         if self.amount_alpha == ALL:
             out.append("removes the entire stake from this hotkey on this subnet")
-        if self.netuid == 0:
+        if self.netuid == 0 and self.claim:
+            out.append(CLAIM_NOT_PROPORTIONAL)
+        elif self.netuid == 0:
             claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
             if claimable:
                 out.append(claimable)
@@ -355,51 +561,143 @@ class MoveStake(Intent):
     Re-delegates an existing position without passing through the coldkey's
     free balance: the stake leaves the origin hotkey on the origin subnet and
     lands on the destination hotkey at the destination subnet. Moving within
-    one subnet just changes which validator backs the stake; moving across
+    one subnet just changes which validator backs the stake. Moving across
     subnets swaps through both pools and can incur slippage on each leg.
+
+    The chain's ``move_stake`` has no price limit. When the destination
+    subnet differs, this intent therefore composes a protected path instead:
+    same-hotkey crosses become ``swap_stake_limit``; a new hotkey plus a new
+    subnet becomes one ``batch_all`` of same-subnet ``move_stake`` then
+    ``swap_stake_limit`` (see ``move_swap_stake``). Same-subnet moves stay a
+    single ``move_stake``. Disable ``slippage_protection`` to submit the
+    bare cross-subnet ``move_stake`` at any price.
+
     Ownership stays with the signing coldkey — use ``transfer_stake`` to hand
     the position to another coldkey, or ``swap_stake`` when only the subnet
-    changes.
+    changes. Pass ``all`` to move the entire origin position.
     """
 
     op = "move_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "move_stake"),)
+    wraps = (
+        ("SubtensorModule", "move_stake"),
+        ("SubtensorModule", "swap_stake"),
+        ("SubtensorModule", "swap_stake_limit"),
+        ("Utility", "batch_all"),
+    )
     mev_shield_default = True
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
     origin_hotkey_ss58: str = field(metadata={"help": "Hotkey the stake moves away from."})
     origin_netuid: int = field(metadata={"help": ORIGIN_NETUID_HELP})
     dest_hotkey_ss58: str = field(metadata={"help": "Hotkey the stake moves to."})
     dest_netuid: int = field(metadata={"help": DEST_NETUID_HELP})
     amount_alpha: Money = field(
+        metadata={"help": "How much of the origin position to move, or ``all``."}
+    )
+    slippage_protection: bool = field(
+        default=True,
         metadata={
-            "help": "How much of the origin position to move (an explicit "
-            "amount; ``all`` is not accepted)."
-        }
+            "help": "When the destination subnet differs from the origin, bound the "
+            "swap price (on by default). The call fails (`SlippageTooHigh`) "
+            "instead of filling once the pool price moves more than "
+            "`rate_tolerance` from the price at submission. Ignored for "
+            "same-subnet moves. Disable to submit the bare cross-subnet "
+            "move_stake at any price."
+        },
+    )
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
 
     def __post_init__(self):
         self.amount_alpha = call_amount(
-            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+            self.amount_alpha,
+            self.wraps[0],
+            "alpha_amount",
+            netuid=self.origin_netuid,
+            allow_all=True,
         )
+        _check_rate_tolerance(self.rate_tolerance)
+
+    def _changes_subnet(self) -> bool:
+        return self.origin_netuid != self.dest_netuid
+
+    def _changes_hotkey(self) -> bool:
+        return self.origin_hotkey_ss58 != self.dest_hotkey_ss58
+
+    async def _rao(self, substrate, wallet: Any) -> int:
+        if self.amount_alpha == ALL:
+            return await _staked_rao(
+                substrate, wallet, self.origin_hotkey_ss58, self.origin_netuid, action="move"
+            )
+        return self.amount_alpha.rao
 
     async def build(self, substrate, wallet: Any):
+        rao = await self._rao(substrate, wallet)
+        if not self._changes_subnet():
+            return await substrate.compose(
+                calls.SubtensorModule.move_stake(
+                    origin_hotkey=self.origin_hotkey_ss58,
+                    destination_hotkey=self.dest_hotkey_ss58,
+                    origin_netuid=self.origin_netuid,
+                    destination_netuid=self.dest_netuid,
+                    alpha_amount=rao,
+                )
+            )
+        if not self._changes_hotkey():
+            return await _compose_swap_stake(
+                substrate,
+                hotkey=self.origin_hotkey_ss58,
+                origin_netuid=self.origin_netuid,
+                dest_netuid=self.dest_netuid,
+                rao=rao,
+                slippage_protection=self.slippage_protection,
+                rate_tolerance=self.rate_tolerance,
+            )
+        if self.slippage_protection:
+            return await _compose_move_then_swap(
+                substrate,
+                origin_hotkey=self.origin_hotkey_ss58,
+                dest_hotkey=self.dest_hotkey_ss58,
+                origin_netuid=self.origin_netuid,
+                dest_netuid=self.dest_netuid,
+                rao=rao,
+                slippage_protection=True,
+                rate_tolerance=self.rate_tolerance,
+            )
         return await substrate.compose(
             calls.SubtensorModule.move_stake(
                 origin_hotkey=self.origin_hotkey_ss58,
                 destination_hotkey=self.dest_hotkey_ss58,
                 origin_netuid=self.origin_netuid,
                 destination_netuid=self.dest_netuid,
-                alpha_amount=self.amount_alpha.rao,
+                alpha_amount=rao,
             )
         )
 
     def summary(self) -> str:
+        amount = "ALL alpha" if self.amount_alpha == ALL else str(self.amount_alpha)
+        note = ""
+        if self._changes_subnet():
+            note = (
+                f" (fails if price ratio moves >{self.rate_tolerance:.2%})"
+                if self.slippage_protection
+                else " (no slippage protection)"
+            )
         return (
-            f"move {self.amount_alpha} from {self.origin_hotkey_ss58} "
+            f"move {amount} from {self.origin_hotkey_ss58} "
             f"on netuid {self.origin_netuid} to {self.dest_hotkey_ss58} "
-            f"on netuid {self.dest_netuid}"
+            f"on netuid {self.dest_netuid}{note}"
         )
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        out: list[str] = []
+        if self.amount_alpha == ALL:
+            out.append("moves the entire origin position")
+        if self._changes_subnet() and self._changes_hotkey() and self.slippage_protection:
+            out.append(_SHARE_POOL_DUST_WARNING)
+        return out
 
     def touches_netuids(self) -> list[int]:
         return [self.origin_netuid, self.dest_netuid]
@@ -417,44 +715,66 @@ class AddStakeLimit(Intent):
     ``add_stake``, the amount must be at least the chain minimum of 0.002 TAO
     plus the swap fee (``AmountTooLow``). Prefer this over plain ``add_stake``
     for large amounts or thin pools, where the swap itself moves the price.
+    Pass ``all`` to stake the whole free balance minus the existential
+    deposit and a small fee headroom.
     """
 
     op = "add_stake_limit"
     signer = "coldkey"
     wraps = (("SubtensorModule", "add_stake_limit"),)
     mev_shield_default = True
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_tao",)
 
     hotkey_ss58: str = field(
         metadata={"help": "Hotkey the stake is added to (the validator you are backing)."}
     )
     netuid: int = field(metadata={"help": NETUID_HELP})
-    amount_tao: Money = field(metadata={"help": "How much of the coldkey's free balance to stake."})
+    amount_tao: Money = field(
+        metadata={
+            "help": "How much of the coldkey's free balance to stake, or `all` "
+            "(everything minus the existential deposit and fee headroom)."
+        }
+    )
     limit_price_rao: int = field(metadata={"help": LIMIT_PRICE_HELP})
     allow_partial: bool = field(default=False, metadata={"help": ALLOW_PARTIAL_HELP})
 
     def __post_init__(self):
         self.amount_tao = call_amount(
-            self.amount_tao, self.wraps[0], "amount_staked", netuid=self.netuid
+            self.amount_tao, self.wraps[0], "amount_staked", netuid=self.netuid, allow_all=True
         )
 
     async def build(self, substrate, wallet: Any):
+        if self.amount_tao == ALL:
+            rao = await _stakeable_rao(substrate, wallet)
+        else:
+            rao = self.amount_tao.rao
         return await substrate.compose(
             calls.SubtensorModule.add_stake_limit(
                 hotkey=self.hotkey_ss58,
                 netuid=self.netuid,
-                amount_staked=self.amount_tao.rao,
+                amount_staked=rao,
                 limit_price=self.limit_price_rao,
                 allow_partial=self.allow_partial,
             )
         )
 
     def summary(self) -> str:
+        amount = "ALL free TAO" if self.amount_tao == ALL else str(self.amount_tao)
         return (
-            f"stake {self.amount_tao} to {self.hotkey_ss58} on netuid {self.netuid} "
+            f"stake {amount} to {self.hotkey_ss58} on netuid {self.netuid} "
             f"(limit {self.limit_price_rao} rao/alpha)"
         )
 
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.amount_tao == ALL:
+            return [
+                "stakes the entire free balance (minus the existential deposit and fee headroom)"
+            ]
+        return []
+
     def spend(self) -> Spend:
+        if self.amount_tao == ALL:
+            return UNBOUNDED
         return self.amount_tao
 
 
@@ -471,11 +791,19 @@ class RemoveStakeLimit(Intent):
     ``remove_stake``, a partial unstake must leave a remainder worth at
     least 0.002 TAO at the simulated pool price (``AmountTooLow``). Prefer
     this over plain ``remove_stake`` when exiting large positions.
+
+    On root (netuid 0), pass ``claim=True`` to redeem this validator's whole
+    basket entitlement first, then unstake. That is not a proportional
+    payout: the claim pays 100% of the basket.
     """
 
     op = "remove_stake_limit"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "remove_stake_limit"),)
+    wraps = (
+        ("SubtensorModule", "remove_stake_limit"),
+        ("SubtensorModule", "claim_root_with_hotkey"),
+        ("Utility", "batch_all"),
+    )
     mev_shield_default = True
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
@@ -486,6 +814,7 @@ class RemoveStakeLimit(Intent):
     )
     limit_price_rao: int = field(metadata={"help": LIMIT_PRICE_HELP})
     allow_partial: bool = field(default=False, metadata={"help": ALLOW_PARTIAL_HELP})
+    claim: bool = field(default=False, metadata={"help": CLAIM_HELP})
 
     def __post_init__(self):
         self.amount_alpha = call_amount(
@@ -497,7 +826,7 @@ class RemoveStakeLimit(Intent):
             rao = await _staked_rao(substrate, wallet, self.hotkey_ss58, self.netuid)
         else:
             rao = self.amount_alpha.rao
-        return await substrate.compose(
+        unstake = await substrate.compose(
             calls.SubtensorModule.remove_stake_limit(
                 hotkey=self.hotkey_ss58,
                 netuid=self.netuid,
@@ -506,11 +835,19 @@ class RemoveStakeLimit(Intent):
                 allow_partial=self.allow_partial,
             )
         )
+        return await _compose_unstake_with_optional_claim(
+            substrate,
+            unstake,
+            claim=self.claim,
+            hotkey_ss58=self.hotkey_ss58,
+            netuid=self.netuid,
+        )
 
     def summary(self) -> str:
         amount = "ALL alpha" if self.amount_alpha == ALL else str(self.amount_alpha)
+        prefix = "claim basket yield then " if self.claim else ""
         return (
-            f"unstake {amount} from {self.hotkey_ss58} on netuid "
+            f"{prefix}unstake {amount} from {self.hotkey_ss58} on netuid "
             f"{self.netuid} (limit {self.limit_price_rao} rao/alpha)"
         )
 
@@ -518,7 +855,9 @@ class RemoveStakeLimit(Intent):
         out: list[str] = []
         if self.amount_alpha == ALL:
             out.append("removes the entire stake from this hotkey on this subnet")
-        if self.netuid == 0:
+        if self.netuid == 0 and self.claim:
+            out.append(CLAIM_NOT_PROPORTIONAL)
+        elif self.netuid == 0:
             claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
             if claimable:
                 out.append(claimable)
@@ -539,26 +878,59 @@ class UnstakeAll(Intent):
     can incur significant slippage. Use ``remove_stake`` to exit a single
     subnet, or ``unstake_all_alpha`` to consolidate onto root while staying
     staked.
+
+    Pass ``claim=True`` to redeem this validator's whole root basket
+    entitlement first, then unstake everything. That is not a proportional
+    payout: the claim pays 100% of the basket.
     """
 
     op = "unstake_all"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "unstake_all"),)
+    wraps = (
+        ("SubtensorModule", "unstake_all"),
+        ("SubtensorModule", "claim_root_with_hotkey"),
+        ("Utility", "batch_all"),
+    )
     mev_shield_default = True
 
     hotkey_ss58: str = field(metadata={"help": "Hotkey whose entire stake is removed."})
+    claim: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Also redeem this validator's whole root basket entitlement "
+                "before unstaking, in one atomic batch. This is not a "
+                "proportional payout: the claim pays 100% of the basket. "
+                "Claimed yield is restaked on root, then unstake-all takes "
+                "principal and that yield out together."
+            )
+        },
+    )
 
     async def build(self, substrate, wallet: Any):
-        return await substrate.compose(calls.SubtensorModule.unstake_all(hotkey=self.hotkey_ss58))
+        unstake = await substrate.compose(
+            calls.SubtensorModule.unstake_all(hotkey=self.hotkey_ss58)
+        )
+        return await _compose_unstake_with_optional_claim(
+            substrate,
+            unstake,
+            claim=self.claim,
+            hotkey_ss58=self.hotkey_ss58,
+            netuid=None,
+        )
 
     def summary(self) -> str:
-        return f"unstake ALL from {self.hotkey_ss58}"
+        prefix = "claim basket yield then " if self.claim else ""
+        return f"{prefix}unstake ALL from {self.hotkey_ss58}"
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         out = ["removes the entire stake from this hotkey"]
-        claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
-        if claimable:
-            out.append(claimable)
+        if self.claim:
+            out.append(CLAIM_NOT_PROPORTIONAL)
+        else:
+            claimable = await _root_claimable_warning(substrate, signer_address, self.hotkey_ss58)
+            if claimable:
+                out.append(claimable)
         return out
 
     def affects_all_subnets(self) -> bool:
@@ -614,24 +986,23 @@ class SwapStake(Intent):
     (``SlippageTooHigh``) instead of filling once the origin/destination price
     ratio falls more than ``rate_tolerance`` (5%) below the ratio at submission
     — raise the tolerance or set ``slippage_protection`` to False to execute at
-    any price. The two netuids must differ (``SameNetuid``). Use ``move_stake``
-    when the hotkey should change too, and ``remove_stake`` plus ``add_stake``
-    only if you want to control each leg separately.
+    any price. The two netuids must differ (``SameNetuid``). Use
+    ``move_swap_stake`` (or ``move_stake``) when the hotkey should change too,
+    and ``remove_stake`` plus ``add_stake`` only if you want to control each
+    leg separately. Pass ``all`` to swap the entire origin position.
     """
 
     op = "swap_stake"
     signer = "coldkey"
     wraps = (("SubtensorModule", "swap_stake"), ("SubtensorModule", "swap_stake_limit"))
     mev_shield_default = True
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
     hotkey_ss58: str = field(metadata={"help": STAKE_HOTKEY_HELP})
     origin_netuid: int = field(metadata={"help": ORIGIN_NETUID_HELP})
     dest_netuid: int = field(metadata={"help": DEST_NETUID_HELP})
     amount_alpha: Money = field(
-        metadata={
-            "help": "How much of the origin position to swap across (an "
-            "explicit amount; ``all`` is not accepted)."
-        }
+        metadata={"help": "How much of the origin position to swap across, or ``all``."}
     )
     slippage_protection: bool = field(default=True, metadata={"help": SLIPPAGE_PROTECTION_HELP})
     rate_tolerance: float = field(
@@ -640,51 +1011,152 @@ class SwapStake(Intent):
 
     def __post_init__(self):
         self.amount_alpha = call_amount(
-            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+            self.amount_alpha,
+            self.wraps[0],
+            "alpha_amount",
+            netuid=self.origin_netuid,
+            allow_all=True,
         )
         _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
-        if self.slippage_protection:
-            origin_price = await _alpha_price_rao(substrate, self.origin_netuid)
-            dest_price = await _alpha_price_rao(substrate, self.dest_netuid)
-            if dest_price <= 0:
-                raise BittensorError(
-                    f"netuid {self.dest_netuid} has no alpha price; cannot derive a "
-                    "slippage limit — disable slippage protection to submit anyway"
-                )
-            # The chain compares the limit against the origin/destination price
-            # ratio (falling as the swap executes), scaled by 1e9.
-            ratio_rao = origin_price * RAO_PER_TAO // dest_price
-            return await substrate.compose(
-                calls.SubtensorModule.swap_stake_limit(
-                    hotkey=self.hotkey_ss58,
-                    origin_netuid=self.origin_netuid,
-                    destination_netuid=self.dest_netuid,
-                    alpha_amount=self.amount_alpha.rao,
-                    limit_price=int(ratio_rao * (1 - self.rate_tolerance)),
-                    allow_partial=False,
-                )
+        if self.amount_alpha == ALL:
+            rao = await _staked_rao(
+                substrate, wallet, self.hotkey_ss58, self.origin_netuid, action="swap"
             )
-        return await substrate.compose(
-            calls.SubtensorModule.swap_stake(
-                hotkey=self.hotkey_ss58,
-                origin_netuid=self.origin_netuid,
-                destination_netuid=self.dest_netuid,
-                alpha_amount=self.amount_alpha.rao,
-            )
+        else:
+            rao = self.amount_alpha.rao
+        return await _compose_swap_stake(
+            substrate,
+            hotkey=self.hotkey_ss58,
+            origin_netuid=self.origin_netuid,
+            dest_netuid=self.dest_netuid,
+            rao=rao,
+            slippage_protection=self.slippage_protection,
+            rate_tolerance=self.rate_tolerance,
         )
 
     def summary(self) -> str:
+        amount = "ALL alpha" if self.amount_alpha == ALL else str(self.amount_alpha)
         note = (
             f" (fails if price ratio moves >{self.rate_tolerance:.2%})"
             if self.slippage_protection
             else " (no slippage protection)"
         )
         return (
-            f"swap {self.amount_alpha} on {self.hotkey_ss58} from netuid "
+            f"swap {amount} on {self.hotkey_ss58} from netuid "
             f"{self.origin_netuid} to netuid {self.dest_netuid}{note}"
         )
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.amount_alpha == ALL:
+            return ["swaps the entire origin position"]
+        return []
+
+    def touches_netuids(self) -> list[int]:
+        return [self.origin_netuid, self.dest_netuid]
+
+
+@register
+@dataclass
+class MoveSwapStake(Intent):
+    """Move stake to a new hotkey and swap it to a new subnet in one transaction.
+
+    The chain has no single ``move_stake_limit``. This intent is the safe
+    composition wallets want: same-subnet ``move_stake`` onto the destination
+    hotkey, then ``swap_stake_limit`` to the destination subnet, wrapped in
+    ``Utility.batch_all`` so both legs land or neither does. MEV shield is
+    on by default. The two hotkeys and the two netuids must differ.
+    Same-hotkey crosses are ``swap_stake``; same-subnet re-delegates are
+    ``move_stake``.
+
+    Share-pool rounding can make the post-move dest position readable as
+    one rao less than the amount moved. The swap therefore uses ``amount - 1``
+    so the batch does not fail with ``NotEnoughStakeToWithdraw``, and 1 rao
+    stays on the dest hotkey at the origin subnet. A real one-call extrinsic
+    still needs the chain (issue #3081). Pass ``all`` to take the entire
+    origin position.
+    """
+
+    op = "move_swap_stake"
+    signer = "coldkey"
+    wraps = (
+        ("SubtensorModule", "move_stake"),
+        ("SubtensorModule", "swap_stake"),
+        ("SubtensorModule", "swap_stake_limit"),
+        ("Utility", "batch_all"),
+    )
+    mev_shield_default = True
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
+
+    origin_hotkey_ss58: str = field(metadata={"help": "Hotkey the stake moves away from."})
+    origin_netuid: int = field(metadata={"help": ORIGIN_NETUID_HELP})
+    dest_hotkey_ss58: str = field(metadata={"help": "Hotkey the stake lands on."})
+    dest_netuid: int = field(metadata={"help": DEST_NETUID_HELP})
+    amount_alpha: Money = field(
+        metadata={"help": "How much of the origin position to move and swap, or ``all``."}
+    )
+    slippage_protection: bool = field(default=True, metadata={"help": SLIPPAGE_PROTECTION_HELP})
+    rate_tolerance: float = field(
+        default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
+    )
+
+    def __post_init__(self):
+        if self.origin_hotkey_ss58 == self.dest_hotkey_ss58:
+            raise BittensorError(
+                "move_swap_stake needs a different dest hotkey; use swap_stake "
+                "when only the subnet changes"
+            )
+        if self.origin_netuid == self.dest_netuid:
+            raise BittensorError(
+                "move_swap_stake needs a different dest subnet; use move_stake "
+                "when only the hotkey changes"
+            )
+        self.amount_alpha = call_amount(
+            self.amount_alpha,
+            self.wraps[0],
+            "alpha_amount",
+            netuid=self.origin_netuid,
+            allow_all=True,
+        )
+        _check_rate_tolerance(self.rate_tolerance)
+
+    async def build(self, substrate, wallet: Any):
+        if self.amount_alpha == ALL:
+            rao = await _staked_rao(
+                substrate, wallet, self.origin_hotkey_ss58, self.origin_netuid, action="move"
+            )
+        else:
+            rao = self.amount_alpha.rao
+        return await _compose_move_then_swap(
+            substrate,
+            origin_hotkey=self.origin_hotkey_ss58,
+            dest_hotkey=self.dest_hotkey_ss58,
+            origin_netuid=self.origin_netuid,
+            dest_netuid=self.dest_netuid,
+            rao=rao,
+            slippage_protection=self.slippage_protection,
+            rate_tolerance=self.rate_tolerance,
+        )
+
+    def summary(self) -> str:
+        amount = "ALL alpha" if self.amount_alpha == ALL else str(self.amount_alpha)
+        note = (
+            f" (fails if price ratio moves >{self.rate_tolerance:.2%})"
+            if self.slippage_protection
+            else " (no slippage protection)"
+        )
+        return (
+            f"move {amount} from {self.origin_hotkey_ss58} to "
+            f"{self.dest_hotkey_ss58} on netuid {self.origin_netuid}, then swap "
+            f"to netuid {self.dest_netuid}{note}"
+        )
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        out = [_SHARE_POOL_DUST_WARNING]
+        if self.amount_alpha == ALL:
+            out.append("moves the entire origin position")
+        return out
 
     def touches_netuids(self) -> list[int]:
         return [self.origin_netuid, self.dest_netuid]
@@ -718,7 +1190,7 @@ class TransferStake(Intent):
     the subnet owner has disabled stake transfers on the origin or destination
     subnet. A spend-cap policy treats this as an unbounded spend and blocks it
     until the cap is raised. Use ``move_stake`` to re-delegate without changing
-    owners.
+    owners. Pass ``all`` to hand over the entire origin position.
     """
 
     op = "transfer_stake"
@@ -728,6 +1200,7 @@ class TransferStake(Intent):
         ("SubtensorModule", "transfer_stake_and_hotkey"),
     )
     mev_shield_default = True
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
     dest_coldkey_ss58: str = field(
         metadata={"help": "Coldkey that becomes the new owner of the stake."}
@@ -736,10 +1209,7 @@ class TransferStake(Intent):
     origin_netuid: int = field(metadata={"help": ORIGIN_NETUID_HELP})
     dest_netuid: int = field(metadata={"help": DEST_NETUID_HELP})
     amount_alpha: Money = field(
-        metadata={
-            "help": "How much of the position to hand over (an explicit "
-            "amount; ``all`` is not accepted)."
-        }
+        metadata={"help": "How much of the position to hand over, or ``all``."}
     )
     dest_hotkey_ss58: Optional[str] = field(
         default=None,
@@ -753,13 +1223,23 @@ class TransferStake(Intent):
 
     def __post_init__(self):
         self.amount_alpha = call_amount(
-            self.amount_alpha, self.wraps[0], "alpha_amount", netuid=self.origin_netuid
+            self.amount_alpha,
+            self.wraps[0],
+            "alpha_amount",
+            netuid=self.origin_netuid,
+            allow_all=True,
         )
 
     def _changes_hotkey(self) -> bool:
         return self.dest_hotkey_ss58 is not None and self.dest_hotkey_ss58 != self.hotkey_ss58
 
     async def build(self, substrate, wallet: Any):
+        if self.amount_alpha == ALL:
+            rao = await _staked_rao(
+                substrate, wallet, self.hotkey_ss58, self.origin_netuid, action="transfer"
+            )
+        else:
+            rao = self.amount_alpha.rao
         if self._changes_hotkey():
             return await substrate.compose(
                 calls.SubtensorModule.transfer_stake_and_hotkey(
@@ -768,7 +1248,7 @@ class TransferStake(Intent):
                     destination_hotkey=self.dest_hotkey_ss58,
                     origin_netuid=self.origin_netuid,
                     destination_netuid=self.dest_netuid,
-                    alpha_amount=self.amount_alpha.rao,
+                    alpha_amount=rao,
                 )
             )
         return await substrate.compose(
@@ -777,16 +1257,17 @@ class TransferStake(Intent):
                 hotkey=self.hotkey_ss58,
                 origin_netuid=self.origin_netuid,
                 destination_netuid=self.dest_netuid,
-                alpha_amount=self.amount_alpha.rao,
+                alpha_amount=rao,
             )
         )
 
     def summary(self) -> str:
+        amount = "ALL alpha" if self.amount_alpha == ALL else str(self.amount_alpha)
         hotkey_note = (
             f" (landing on hotkey {self.dest_hotkey_ss58})" if self._changes_hotkey() else ""
         )
         return (
-            f"transfer {self.amount_alpha} on netuid {self.origin_netuid} to "
+            f"transfer {amount} on netuid {self.origin_netuid} to "
             f"coldkey {self.dest_coldkey_ss58}{hotkey_note}"
         )
 
@@ -795,12 +1276,13 @@ class TransferStake(Intent):
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         out = ["transfers stake OWNERSHIP to another coldkey"]
+        if self.amount_alpha == ALL:
+            out.append("hands over the entire origin position")
         # Lock mass only follows same-subnet transfers; cross-subnet swaps have
         # their own availability checks and are left to the chain.
         if self.origin_netuid != self.dest_netuid:
             return out
 
-        amount_rao = int(self.amount_alpha.rao)
         landing = self._landing_hotkey()
         (
             (_total, locked_rao, available_rao),
@@ -817,6 +1299,7 @@ class TransferStake(Intent):
             ),
         )
         position_rao = 0 if position_info is None else int(position_info.get("stake") or 0)
+        amount_rao = position_rao if self.amount_alpha == ALL else int(self.amount_alpha.rao)
 
         if position_rao < amount_rao:
             out.append(

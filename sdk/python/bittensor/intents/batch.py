@@ -107,6 +107,12 @@ class Batch(Intent):
             out.extend(f"[{index}] {w}" for w in await child.warnings(substrate, signer_address))
         return out
 
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        out: list[str] = []
+        for index, child in enumerate(self._children):
+            out.extend(f"[{index}] {b}" for b in await child.blocks(substrate, signer_address))
+        return out
+
     def spend(self) -> Spend:
         """Aggregate TAO spend across children; any unbounded child makes the
         whole batch unbounded."""

@@ -229,6 +229,22 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             subnets: subnets.clone(),
         });
         let declared_weight = call.get_dispatch_info().call_weight;
+        let quoted = SubtensorModule::root_claim_declared_work();
+        let existing = SubtensorModule::get_all_subnet_netuids().len() as u32;
+        assert_eq!(quoted, existing.max(1));
+        assert!(
+            quoted < crate::MAX_ROOT_CLAIM_WORK,
+            "quote must use live networks ({quoted}), not the stale 256 envelope"
+        );
+        let envelope = <Test as crate::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK);
+        assert!(
+            declared_weight.all_lt(envelope),
+            "declared {declared_weight:?} must be below the old 256-subnet envelope {envelope:?}"
+        );
+        // A leftover `added=false` key (old dissolve) must not double the quote.
+        let ghost = NetUid::from(u16::MAX);
+        NetworksAdded::<Test>::insert(ghost, false);
+        assert_eq!(SubtensorModule::root_claim_declared_work(), quoted);
         let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
             .expect("claim succeeds")
             .actual_weight

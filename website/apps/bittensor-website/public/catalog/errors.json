@@ -1830,7 +1830,7 @@
     },
     "HotKeyAccountNotExists": {
       "code": "not_registered",
-      "description": "The hotkey has no on-chain account, meaning it was never created through registration, so staking or delegation operations cannot reference it. Check the `Owner` storage for the hotkey or `btcli wallet overview`; register the hotkey on a subnet first.",
+      "description": "The hotkey has no on-chain account, meaning it was never created through registration, so staking or delegation operations cannot reference it. Check the `Owner` storage for the hotkey or `btcli wallet registrations`; register the hotkey on a subnet first.",
       "docs_url": "/docs/errors/chain/HotKeyAccountNotExists",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyAccountNotExists/content.md",
       "pallets": [
@@ -1866,7 +1866,7 @@
     },
     "HotKeyAlreadyRegisteredInSubNet": {
       "code": "already_exists",
-      "description": "A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet (or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the (netuid, hotkey) pair or `btcli wallet overview`; use a different hotkey or netuid.",
+      "description": "A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet (or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the (netuid, hotkey) pair or `btcli wallet registrations`; use a different hotkey or netuid.",
       "docs_url": "/docs/errors/chain/HotKeyAlreadyRegisteredInSubNet",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyAlreadyRegisteredInSubNet/content.md",
       "pallets": [
@@ -1884,7 +1884,7 @@
     },
     "HotKeyNotRegisteredInNetwork": {
       "code": "not_registered",
-      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli query uid --netuid <n>` (or `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
+      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
       "docs_url": "/docs/errors/chain/HotKeyNotRegisteredInNetwork",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyNotRegisteredInNetwork/content.md",
       "pallets": [
@@ -3494,7 +3494,7 @@
     },
     "NonAssociatedColdKey": {
       "code": "not_authorized",
-      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet overview`, and sign with the coldkey that registered it.",
+      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet registrations`, and sign with the coldkey that registered it.",
       "docs_url": "/docs/errors/chain/NonAssociatedColdKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/NonAssociatedColdKey/content.md",
       "pallets": [

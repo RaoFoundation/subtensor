@@ -181,6 +181,9 @@ class SubstrateConnection:
     async def get_chain_finalised_head(self) -> str:
         return await self._session.request("chain_getFinalizedHead", [])
 
+    async def get_finalized_block_number(self) -> int:
+        return await self.get_block_number(await self.get_chain_finalised_head())
+
     async def get_block_hash(self, block_id: Optional[int]) -> str:
         if block_id is None:
             return await self.get_chain_head()
@@ -472,7 +475,7 @@ class SubstrateConnection:
         if isinstance(era, dict):
             if "current" not in era and "phase" not in era:
                 era = dict(era)
-                era["current"] = await self.get_block_number(await self.get_chain_finalised_head())
+                era["current"] = await self.get_finalized_block_number()
             codec = await self._runtimes.codec_at(None)
             birth = codec.era_birth(era, era.get("current"))
             return era, await self.get_block_hash(birth)

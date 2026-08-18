@@ -13,7 +13,7 @@ is back up.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.serve_axon`](/code/pallets/subtensor/src/macros/dispatches.rs#L658-L683) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.serve_axon`](/code/pallets/subtensor/src/macros/dispatches.rs#L657-L682) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("reset_axon", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.serve_axon` — [`pallets/subtensor/src/macros/dispatches.rs#L660`](/code/pallets/subtensor/src/macros/dispatches.rs#L658-L683):
+`SubtensorModule.serve_axon` — [`pallets/subtensor/src/macros/dispatches.rs#L659`](/code/pallets/subtensor/src/macros/dispatches.rs#L657-L682):
 
 ```rust
 #[pallet::call_index(4)]

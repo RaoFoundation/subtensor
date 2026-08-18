@@ -274,7 +274,7 @@ DESCRIPTIONS: dict[str, str] = {
     "HotKeyAccountNotExists": (
         "The hotkey has no on-chain account, meaning it was never created through registration, "
         "so staking or delegation operations cannot reference it. Check the `Owner` storage for "
-        "the hotkey or `btcli wallet overview`; register the hotkey on a subnet first."
+        "the hotkey or `btcli wallet registrations`; register the hotkey on a subnet first."
     ),
     "HotKeyAlreadyDelegate": (
         "`become_delegate` was called for a hotkey that is already a delegate. Check the "
@@ -284,13 +284,14 @@ DESCRIPTIONS: dict[str, str] = {
     "HotKeyAlreadyRegisteredInSubNet": (
         "A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet "
         "(or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the "
-        "(netuid, hotkey) pair or `btcli wallet overview`; use a different hotkey or netuid."
+        "(netuid, hotkey) pair or `btcli wallet registrations`; use a different hotkey or netuid."
     ),
     "HotKeyNotRegisteredInNetwork": (
         "The hotkey is not registered on the relevant subnet, raised by "
         "`serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring "
-        "registration on any subnet. Verify registration with `btcli query uid --netuid <n>` "
-        "(or `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first."
+        "registration on any subnet. Verify registration with `btcli wallet registrations` "
+        "(or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register "
+        "via `btcli subnets register` first."
     ),
     "HotKeyNotRegisteredInSubNet": (
         "The hotkey holds no UID on the given netuid, so weight setting, commits, or UID "
@@ -540,7 +541,7 @@ DESCRIPTIONS: dict[str, str] = {
     "NonAssociatedColdKey": (
         "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, "
         "serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. "
-        "via `btcli wallet overview`, and sign with the coldkey that registered it."
+        "via `btcli wallet registrations`, and sign with the coldkey that registered it."
     ),
     "NotEnoughAlphaOutToRecycle": (
         "A recycle or burn of alpha requested more than the subnet's outstanding alpha supply. "

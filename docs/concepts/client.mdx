@@ -123,6 +123,7 @@ via the raw-call escape hatch ([Advanced submission](/docs/concepts/advanced)).
 
 ```python
 await client.block()                       # current block number
+await client.finalized_block()             # latest finalized block number
 await client.block_info(123)               # header + extrinsics + timestamp
 async for header in await client.blocks(): ...   # subscribe to new blocks
 

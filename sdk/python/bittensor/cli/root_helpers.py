@@ -22,7 +22,14 @@ from .helpers import (
     list_coldkeys,
     local_address_names,
 )
-from .output import STYLE_COMMAND, STYLE_HINT, STYLE_KEY, STYLE_NAME
+from .output import (
+    PROMPT_KEY_WIDTH,
+    STYLE_COMMAND,
+    STYLE_HINT,
+    STYLE_KEY,
+    STYLE_NAME,
+    kv_line,
+)
 from .prompt import PromptSpec
 
 # Same dust cutoff as ``btcli stake list`` (τ0.001).
@@ -464,11 +471,9 @@ def pick_validator(
 
 
 def print_command_hint(console: Console, argv_prefix: list[str]) -> None:
-    line = Text("  ")
-    line.append("hint:".rjust(7), style=STYLE_HINT)
-    line.append(" ")
-    line.append(" ".join(argv_prefix), style=STYLE_COMMAND)
-    console.print(line)
+    """Replay command as a tabbed `hint` row, aligned with `--hotkey` / `--amount`."""
+    command = Text(" ".join(argv_prefix), style=STYLE_COMMAND)
+    console.print(kv_line("hint", PROMPT_KEY_WIDTH, command, key_style=STYLE_HINT), soft_wrap=True)
 
 
 def render_validator_detail(

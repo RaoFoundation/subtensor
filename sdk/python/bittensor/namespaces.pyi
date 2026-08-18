@@ -481,6 +481,14 @@ class Staking(_ReadNamespace):
         Use `stake_for_coldkey` for the per-subnet amounts behind each entry.
         """
 
+    async def total_alpha_staked(self, netuid: int, *, block: Optional[int] = None) -> Balance:
+        """Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).
+
+        This is the chain-maintained O(1) aggregate: it equals the sum of
+        `TotalHotkeyAlpha` for the subnet. Use this instead of walking every
+        position.
+        """
+
     async def validator_basket(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
         """A validator's basket holdings: per subnet, the alpha held and its TAO value.
 

@@ -15,9 +15,14 @@ per-subnet claim selection.
 
 Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
 
+`plan` (and `btcli root claim --dry-run`) estimates the reserved
+inclusion fee versus the fee that will actually settle, compares that
+spent fee to accrued yield, warns when the claim loses money, and
+refuses when free TAO cannot cover the reserve.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1940) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1919-L1939) |
 
 ## Parameters
 
@@ -64,14 +69,14 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1926`](/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1940):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1925`](/code/pallets/subtensor/src/macros/dispatches.rs#L1919-L1939):
 
 ```rust
 #[pallet::call_index(121)]
-// Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]; actual work
-// is measured and refunded post-dispatch (fat coldkeys may exceed the reservation).
+// Quote against the live existing-network count, not the stale 256-subnet
+// benchmark envelope. Post-dispatch still charges measured holdings.
 #[pallet::weight(
-    <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+    <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
 )]
 pub fn claim_root(
     origin: OriginFor<T>,
@@ -90,6 +95,6 @@ pub fn claim_root(
 }
 ```
 
-Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L767), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L796), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L754).
+Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L775), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L804), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L762).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

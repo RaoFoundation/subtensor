@@ -24,13 +24,19 @@ from __future__ import annotations
 
 import functools
 import inspect
-from typing import Any, Callable, Literal, Optional
+import re
+from typing import Any, Callable, Iterable, Literal, Optional
 
 import typer
 
+from ..intents.proxy import ProxyTypeChoice
 from .logs import setup_logging
+from .multisig_helpers import SIGNATORY_BACKENDS
 
 Tier = Literal["read", "unlock", "extension", "tx"]
+
+# Separators inside one --signatory value (same grammar as --signatories).
+_SIGNATORY_SEP = re.compile(r"[,\s]+")
 
 # Help-panel titles: globals render apart from the command's own options,
 # grouped by what they configure. Typer shows one boxed panel per title.
@@ -191,6 +197,42 @@ _TX_FLOW = [
             rich_help_panel=PANEL_EXECUTION,
         ),
     ),
+    (
+        "proxy_for",
+        Optional[str],
+        typer.Option(
+            None,
+            "--proxy-for",
+            help="Dispatch as this account (ss58, proxy-book/address-book name, or "
+            "local wallet name) via Proxy.proxy; your wallet key signs as its "
+            "registered proxy. Pass `self` to bypass a configured default.",
+            rich_help_panel=PANEL_EXECUTION,
+        ),
+    ),
+    (
+        "force_proxy_type",
+        Optional[ProxyTypeChoice],
+        typer.Option(
+            None,
+            "--force-proxy-type",
+            help="Require this exact proxy type to be used (with --proxy-for).",
+            rich_help_panel=PANEL_EXECUTION,
+        ),
+    ),
+    (
+        "signatory_wallet",
+        Optional[list[str]],
+        typer.Option(
+            None,
+            "--signatory",
+            help="When -w names a saved multisig: which member signs this approval "
+            "(local wallet, address-book name, or ss58). Give several — repeated "
+            "flags or one quoted comma/space list ('LOCALX VAULT') — to collect "
+            "that many approvals in one run, in order. NAME=vault forces the "
+            "backend for one member.",
+            rich_help_panel=PANEL_EXECUTION,
+        ),
+    ),
 ]
 
 # Password sources for unlocking encrypted local coldkeys.
@@ -278,8 +320,10 @@ _SIGNER = [
             None,
             "--signer-address",
             envvar="BT_SIGNER_ADDRESS",
-            help="External signer account ss58 address (extension: prompts when omitted; "
-            "vault: falls back to the wallet's coldkeypub).",
+            help="External signer account (ss58 or address-book name). When -w is a "
+            "multisig, --signatory already names the member — this flag is not "
+            "needed. Extension: prompts when omitted. Vault: falls back to the "
+            "wallet's coldkeypub.",
             rich_help_panel=PANEL_EXTENSION,
         ),
     ),
@@ -337,65 +381,106 @@ def parameters(tier: Tier = "tx") -> list[inspect.Parameter]:
     ]
 
 
-def apply(ctx: typer.Context, kwargs: dict[str, Any]) -> None:
+def apply(
+    ctx: typer.Context,
+    kwargs: dict[str, Any],
+    *,
+    skip: Optional[Iterable[str]] = None,
+) -> None:
     """Pop the global options out of ``kwargs`` and override the AppContext where set.
 
     Every key is popped defensively — a command only carries its tier's subset.
+    ``skip`` leaves those names in ``kwargs`` so a command that already owns
+    the flag (e.g. ``ExecuteProxyAnnounced.force_proxy_type``) keeps it.
     """
+    reserved = set(skip or ())
     obj = ctx.obj
-    if v := kwargs.pop("network", None):
+
+    def _pop(name, default=None):
+        if name in reserved:
+            return default
+        return kwargs.pop(name, default)
+
+    if v := _pop("network"):
         obj.network = v
-    if v := kwargs.pop("fallback_endpoints", None):
+    if v := _pop("fallback_endpoints"):
         obj.fallback_endpoints = v
-    if v := kwargs.pop("archive_endpoints", None):
+    if v := _pop("archive_endpoints"):
         obj.archive_endpoints = v
-    if kwargs.pop("retry_forever", False):
+    if _pop("retry_forever", False):
         obj.retry_forever = True
-    if v := kwargs.pop("wallet", None):
+    if v := _pop("wallet"):
         obj.wallet_name = v
         obj.wallet_given = True
-    if v := kwargs.pop("wallet_hotkey", None):
+    if v := _pop("wallet_hotkey"):
         obj.hotkey_name = v
         obj.hotkey_given = True
-    if v := kwargs.pop("wallet_path", None):
+    if v := _pop("wallet_path"):
         obj.wallet_path = v
-    if kwargs.pop("json_output", False):
+    if _pop("json_output", False):
         obj.output.json_mode = True
-    if kwargs.pop("assume_yes", False):
+    if _pop("assume_yes", False):
         obj.assume_yes = True
-    if kwargs.pop("dry_run", False):
+    if _pop("dry_run", False):
         obj.dry_run = True
-    if (v := kwargs.pop("mev_shield", None)) is not None:
+    if (v := _pop("mev_shield")) is not None:
         obj.mev_shield = v
-    quiet_override = kwargs.pop("quiet", False)
+    if (v := _pop("proxy_for")) is not None:
+        obj.proxy_for = v
+    if (v := _pop("force_proxy_type")) is not None:
+        obj.force_proxy_type = str(getattr(v, "value", v))
+    if v := _pop("signatory_wallet"):
+        # Repeated flags and comma/space-separated lists both work; ss58
+        # addresses and book names never contain the separators.
+        refs = [part for item in v for part in _SIGNATORY_SEP.split(item.strip()) if part]
+        obj.signatory_wallets = refs
+        obj.signatory_wallet = refs[0] if refs else None
+        if len(refs) == 1:
+            # A single NAME=backend value never reaches the rounds planner
+            # (which parses the suffix itself), so split it here: the name
+            # becomes the signatory, the suffix the signing backend.
+            name, sep, forced = refs[0].partition("=")
+            forced = forced.strip().lower()
+            if sep and forced not in SIGNATORY_BACKENDS:
+                raise typer.BadParameter(
+                    f"unknown backend {forced!r} in --signatory {refs[0]!r}; "
+                    "use wallet, vault, ledger, or extension",
+                    param_hint="--signatory",
+                )
+            if sep:
+                obj.signatory_wallet = name
+                obj.signatory_wallets = [name]
+                if forced != "wallet":
+                    obj.signer_backend = forced
+    quiet_override = _pop("quiet", False)
     if quiet_override:
         obj.output.quiet = True
-    verbosity_override = kwargs.pop("verbosity", 0)
+    verbosity_override = _pop("verbosity", 0)
     if verbosity_override:
         obj.verbosity = verbosity_override
     if quiet_override or verbosity_override:
         setup_logging(verbosity=obj.verbosity, quiet=obj.output.quiet)
-    if v := kwargs.pop("wallet_password_file", None):
+    if v := _pop("wallet_password_file"):
         obj.wallet_password_file = v
-    if kwargs.pop("macos_password", False):
+    if _pop("macos_password", False):
         obj.macos_password = True
-    if kwargs.pop("keychain_password", False):
+    if _pop("keychain_password", False):
         obj.keychain_password = True
-    if v := kwargs.pop("signer_backend", None):
+    if v := _pop("signer_backend"):
         obj.signer_backend = v
-    if kwargs.pop("ledger", False):
+    if _pop("ledger", False):
         obj.signer_backend = "ledger"
-    if (v := kwargs.pop("ledger_account", None)) is not None:
+    if (v := _pop("ledger_account")) is not None:
         obj.ledger_account = v
-    if (v := kwargs.pop("ledger_index", None)) is not None:
+    if (v := _pop("ledger_index")) is not None:
         obj.ledger_index = v
-    if v := kwargs.pop("signer_address", None):
+    if v := _pop("signer_address"):
         obj.signer_address = v
-    if v := kwargs.pop("extension_source", None):
+    if v := _pop("extension_source"):
         obj.extension_source = v
-    if v := kwargs.pop("extension_browser", None):
+    if v := _pop("extension_browser"):
         obj.extension_browser = v
-    if v := kwargs.pop("extension_bridge_url", None):
+    if v := _pop("extension_bridge_url"):
         obj.extension_bridge_url = v
 
 
@@ -409,19 +494,22 @@ def _with_tier(tier: Tier) -> Callable[[Callable], Callable]:
 
     def decorate(fn: Callable) -> Callable:
         original = inspect.signature(fn)
+        owned = set(original.parameters)
+        added = [p for p in parameters(tier) if p.name not in owned]
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             ctx = kwargs.get("ctx") or (args[0] if args else None)
-            apply(ctx, kwargs)
+            apply(ctx, kwargs, skip=owned)
             return fn(*args, **kwargs)
 
         wrapper.__signature__ = original.replace(
-            parameters=list(original.parameters.values()) + parameters(tier)
+            parameters=list(original.parameters.values()) + added
         )
         annotations = dict(getattr(fn, "__annotations__", {}))
         for name, ann, _ in specs:
-            annotations[name] = ann
+            if name not in owned:
+                annotations[name] = ann
         wrapper.__annotations__ = annotations
         # The tier marks which commands touch the local wallet (tx/unlock), so
         # the generic prompt round (prompt.py) can confirm the wallet *first*.

@@ -17,7 +17,7 @@ right call instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.clear_coldkey_swap_announcement`](/code/pallets/subtensor/src/macros/dispatches.rs#L2264-L2281) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.clear_coldkey_swap_announcement`](/code/pallets/subtensor/src/macros/dispatches.rs#L2263-L2280) |
 
 ## Parameters
 
@@ -62,7 +62,7 @@ result = sub.execute_tool("clear_coldkey_swap_announcement", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.clear_coldkey_swap_announcement` — [`pallets/subtensor/src/macros/dispatches.rs#L2266`](/code/pallets/subtensor/src/macros/dispatches.rs#L2264-L2281):
+`SubtensorModule.clear_coldkey_swap_announcement` — [`pallets/subtensor/src/macros/dispatches.rs#L2265`](/code/pallets/subtensor/src/macros/dispatches.rs#L2263-L2280):
 
 ```rust
 #[pallet::call_index(133)]
