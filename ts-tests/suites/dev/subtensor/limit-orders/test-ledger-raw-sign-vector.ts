@@ -468,16 +468,14 @@ describeSuite({
             id: "T09",
             title: "formatOrderAmount strips a 0X prefix case-insensitively",
             test: () => {
-                const provider =
-                    "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" as `0x${string}`;
+                const provider = "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" as `0x${string}`;
                 expect(formatOrderAmount({ LinkedPercentage: { provider, pct: 1_000_000_000 } })).toBe(
                     "1000000000 ppb of order 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff output"
                 );
                 expect(
                     formatOrderAmount({
                         LinkedPercentage: {
-                            provider:
-                                "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                            provider: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                             pct: 1_000_000_000,
                         },
                     })
@@ -496,8 +494,7 @@ describeSuite({
                     signer: "5CD9UfFv3FLd9BRP8tK7BumpEYvu2y3KZMuhUnDAhuzPbdtC",
                     amount: {
                         LinkedPercentage: {
-                            provider:
-                                "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                            provider: "0Xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                             pct: 1_000_000_000,
                         },
                     },
