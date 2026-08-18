@@ -85,6 +85,12 @@ DESCRIPTIONS: dict[str, str] = {
         "by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass "
         "a hotkey the beneficiary coldkey actually owns."
     ),
+    "RootClaimTooHeavy": (
+        "Coldkey-wide `claim_root` would walk more work than the pre-dispatch "
+        "weight envelope can admit (hotkeys × existing networks, or leftover "
+        "basket rows, exceed `MAX_ROOT_CLAIM_WORK`). Claim each validator with "
+        "`claim_root_with_hotkey` instead so admission matches the holdings walked."
+    ),
     "BetaBasketSeedInProgress": (
         "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "
         "inside the upgrade block, so this only appears if that run was interrupted). Basket "

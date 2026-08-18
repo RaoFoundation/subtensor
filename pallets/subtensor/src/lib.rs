@@ -71,10 +71,11 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Benchmark upper bound for `claim_root` / `claim_root_scan` (Linear<1, N>).
-/// The pre-dispatch fee quote uses the live existing-network count, not this
-/// constant — 256 is a leftover from when `SubnetLimit` was 256 (now 128).
-/// Actual work may still exceed the quote; post-dispatch charges measured weight.
+/// Benchmark upper bound and coldkey-wide admission envelope for `claim_root`
+/// / `claim_root_scan` (Linear<1, N>). `claim_root` cannot see the signer at
+/// weight-annotation time, so it reserves this many units and refuses work
+/// that would exceed them. Single-hotkey `claim_root_with_hotkey` quotes the
+/// live existing-network count (and real holdings) instead.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened

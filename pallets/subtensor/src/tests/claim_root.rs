@@ -5,8 +5,8 @@ use crate::weights::WeightInfo;
 use crate::{
     BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
     Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
-    StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow,
-    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetMovingPrice,
+    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -229,22 +229,25 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             subnets: subnets.clone(),
         });
         let declared_weight = call.get_dispatch_info().call_weight;
-        let quoted = SubtensorModule::root_claim_declared_work();
-        let existing = SubtensorModule::get_all_subnet_netuids().len() as u32;
-        assert_eq!(quoted, existing.max(1));
-        assert!(
-            quoted < crate::MAX_ROOT_CLAIM_WORK,
-            "quote must use live networks ({quoted}), not the stale 256 envelope"
+        // Coldkey-wide claim_root cannot see the signer in call data, so it
+        // reserves the conservative MAX_ROOT_CLAIM_WORK envelope.
+        assert_eq!(
+            SubtensorModule::root_claim_declared_work(),
+            crate::MAX_ROOT_CLAIM_WORK
         );
         let envelope = <Test as crate::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK);
         assert!(
-            declared_weight.all_lt(envelope),
-            "declared {declared_weight:?} must be below the old 256-subnet envelope {envelope:?}"
+            declared_weight.all_gte(envelope),
+            "declared {declared_weight:?} must cover the {envelope:?} admission envelope"
         );
-        // A leftover `added=false` key (old dissolve) must not double the quote.
+        // Ghost NetworksAdded=false keys must not inflate the single-hotkey quote.
+        let existing = SubtensorModule::root_claim_existing_networks();
         let ghost = NetUid::from(u16::MAX);
         NetworksAdded::<Test>::insert(ghost, false);
-        assert_eq!(SubtensorModule::root_claim_declared_work(), quoted);
+        assert_eq!(SubtensorModule::root_claim_existing_networks(), existing);
+        let per_hotkey = SubtensorModule::root_claim_declared_work_for_hotkey(&hotkey);
+        assert_eq!(per_hotkey, existing);
+        assert!(per_hotkey < crate::MAX_ROOT_CLAIM_WORK);
         let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
             .expect("claim succeeds")
             .actual_weight
@@ -259,6 +262,23 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         assert!(
             declared_weight.all_lte(max_extrinsic),
             "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+    });
+}
+
+#[test]
+fn test_claim_root_rejects_work_above_declared_budget() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1001);
+        let networks = SubtensorModule::root_claim_existing_networks();
+        let too_many = (crate::MAX_ROOT_CLAIM_WORK / networks.max(1)).saturating_add(1);
+        let hotkeys: Vec<U256> = (0..too_many)
+            .map(|i| U256::from(2_000u32.saturating_add(i)))
+            .collect();
+        StakingHotkeys::<Test>::insert(coldkey, hotkeys);
+        assert_noop!(
+            SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), BTreeSet::new()),
+            Error::<Test>::RootClaimTooHeavy
         );
     });
 }

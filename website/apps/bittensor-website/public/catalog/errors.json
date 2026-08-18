@@ -4375,6 +4375,24 @@
         }
       ]
     },
+    "RootClaimTooHeavy": {
+      "code": "limit_exceeded",
+      "description": "Coldkey-wide `claim_root` would walk more work than the pre-dispatch weight envelope can admit (hotkeys \u00d7 existing networks, or leftover basket rows, exceed `MAX_ROOT_CLAIM_WORK`). Claim each validator with `claim_root_with_hotkey` instead so admission matches the holdings walked.",
+      "docs_url": "/docs/errors/chain/RootClaimTooHeavy",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootClaimTooHeavy/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 368,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L368",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "RootNetUidNotAllowed": {
       "code": "invalid_argument",
       "description": "The order or batch targets the root subnet, netuid 0, which the limit orders pallet does not serve. Check the `netuid` field of the order payload or the `netuid` parameter of the batch call and target a non-root subnet.",

@@ -1917,8 +1917,9 @@ mod dispatches {
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
         #[pallet::call_index(121)]
-        // Quote against the live existing-network count, not the stale 256-subnet
-        // benchmark envelope. Post-dispatch still charges measured holdings.
+        // Signer is not in the call data, so admission uses the conservative
+        // MAX_ROOT_CLAIM_WORK envelope. Execution refuses a fat coldkey that
+        // would exceed it — use claim_root_with_hotkey per validator.
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
         )]
@@ -1930,6 +1931,10 @@ mod dispatches {
             let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
             let hotkeys = StakingHotkeys::<T>::get(&coldkey);
+            ensure!(
+                Self::root_claim_fits_declared_budget(&hotkeys),
+                Error::<T>::RootClaimTooHeavy
+            );
             let hotkey_count = hotkeys.len() as u32;
             let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
             Self::maybe_add_coldkey_index(&coldkey);
@@ -1952,7 +1957,9 @@ mod dispatches {
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
+            <T as crate::pallet::Config>::WeightInfo::claim_root(
+                Pallet::<T>::root_claim_declared_work_for_hotkey(&hotkey)
+            )
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,

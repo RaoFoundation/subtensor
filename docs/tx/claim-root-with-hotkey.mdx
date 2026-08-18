@@ -26,7 +26,7 @@ Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1953-L1968) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1975) |
 
 ## Parameters
 
@@ -75,12 +75,14 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1957`](/code/pallets/subtensor/src/macros/dispatches.rs#L1953-L1968):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1964`](/code/pallets/subtensor/src/macros/dispatches.rs#L1958-L1975):
 
 ```rust
 #[pallet::call_index(148)]
 #[pallet::weight(
-    <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
+    <T as crate::pallet::Config>::WeightInfo::claim_root(
+        Pallet::<T>::root_claim_declared_work_for_hotkey(&hotkey)
+    )
 )]
 pub fn claim_root_with_hotkey(
     origin: OriginFor<T>,
@@ -96,6 +98,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L775), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L804), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L762).
+Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L810), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L839), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L797).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

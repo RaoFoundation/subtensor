@@ -25,9 +25,11 @@ _SCAN_REF_TIME = 6
 _REDEEM_REF_TIME = 70
 
 # Fallback when ``payment_info`` is unavailable: ~τ0.0004475 per redeemed row
-# (LinearWeightToFee on a full ``claim_root`` unit). Reserved is this times
-# the live network count.
+# (LinearWeightToFee on a full ``claim_root`` unit). Per-hotkey reserved is
+# this times the live network count; coldkey-wide reserved is this times
+# ``MAX_ROOT_CLAIM_WORK`` (256) because the signer is not in the call data.
 _APPROX_REDEEM_FEE_RAO = 447_500
+_MAX_ROOT_CLAIM_WORK = 256
 
 # Default ``RootClaimableThreshold`` (500_000 rao) when storage is empty.
 _DEFAULT_THRESHOLD_RAO = 500_000
@@ -143,7 +145,8 @@ async def _quote(
     hotkeys: Optional[list[str]],
     compose: Callable[[], Awaitable[Any]],
 ) -> Optional[RootClaimFeeQuote]:
-    if hotkeys is None:
+    coldkey_wide = hotkeys is None
+    if coldkey_wide:
         owed = await substrate.runtime_call(
             *BetaBasketRuntimeApi.get_root_basket_owed, [signer_address]
         )
@@ -173,7 +176,13 @@ async def _quote(
     networks = await _existing_network_count(substrate)
     threshold_rao = await _threshold_rao(substrate)
     free_rao = await _free_rao(substrate, signer_address)
-    reserved = await _reserved_fee(substrate, signer_address, compose, networks)
+    reserved = await _reserved_fee(
+        substrate,
+        signer_address,
+        compose,
+        networks,
+        coldkey_wide=coldkey_wide,
+    )
     spent = _spent_fee(reserved, holdings, networks, accrued_rao < threshold_rao)
 
     return RootClaimFeeQuote(
@@ -211,12 +220,14 @@ async def _reserved_fee(
     signer_address: str,
     compose: Callable[[], Awaitable[Any]],
     networks: int,
+    *,
+    coldkey_wide: bool,
 ) -> Balance:
     try:
         call = await compose()
         return await substrate.estimate_fee(call, _FeeView(signer_address))
     except Exception:
-        units = max(networks, 1)
+        units = _MAX_ROOT_CLAIM_WORK if coldkey_wide else max(networks, 1)
         return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * units)
 
 

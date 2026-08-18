@@ -217,6 +217,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidRootClaimThreshold": _C.INVALID_ARGUMENT,
     "BasketHasNoWeights": _C.INVALID_ARGUMENT,
     "BetaBasketSeedInProgress": _C.TOO_EARLY,
+    "RootClaimTooHeavy": _C.LIMIT_EXCEEDED,
     "RootWeightSettingDisabled": _C.DISABLED,
     "RootStakeLocked": _C.TOO_EARLY,
     "TooManyUIDsPerMechanism": _C.LIMIT_EXCEEDED,

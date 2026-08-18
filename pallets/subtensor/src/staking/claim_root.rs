@@ -743,12 +743,47 @@ impl<T: Config> Pallet<T> {
         swept
     }
 
-    /// Pre-dispatch work units for a root-claim fee quote: one per existing
-    /// network (including root). Using the live `NetworksAdded` set — not the
-    /// stale [`crate::MAX_ROOT_CLAIM_WORK`] envelope of 256 — keeps the quote
-    /// aligned with today's subnet limit (128) instead of double-counting.
-    pub(crate) fn root_claim_declared_work() -> u32 {
+    /// Live existing-network count (including root). Ghost `NetworksAdded=false`
+    /// leftovers are excluded so they cannot inflate the single-hotkey quote.
+    pub(crate) fn root_claim_existing_networks() -> u32 {
         (Self::get_all_subnet_netuids().len() as u32).max(1)
+    }
+
+    /// Pre-dispatch work units for `claim_root_with_hotkey`: the live network
+    /// count, or this hotkey's actual basket rows if leftover dissolved-net
+    /// holdings outnumber existing networks. The hotkey is in the call data,
+    /// so admission can cover every reachable row.
+    pub(crate) fn root_claim_declared_work_for_hotkey(hotkey: &T::AccountId) -> u32 {
+        let networks = Self::root_claim_existing_networks();
+        let holdings = Self::get_basket_holdings(hotkey).len() as u32;
+        networks.max(holdings).max(1)
+    }
+
+    /// Pre-dispatch work units for coldkey-wide `claim_root`. Call weight
+    /// cannot see the signer, so this is the conservative
+    /// [`crate::MAX_ROOT_CLAIM_WORK`] envelope; execution refuses a fat
+    /// coldkey that would exceed it.
+    pub(crate) fn root_claim_declared_work() -> u32 {
+        crate::MAX_ROOT_CLAIM_WORK
+    }
+
+    /// True when a coldkey-wide claim's reachable work (hotkeys × existing
+    /// networks, and the actual basket rows) fits the admission envelope.
+    pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
+        let budget = Self::root_claim_declared_work();
+        let networks = Self::root_claim_existing_networks();
+        let hotkey_count = hotkeys.len() as u32;
+        if hotkey_count.saturating_mul(networks) > budget {
+            return false;
+        }
+        let mut rows: u32 = 0;
+        for hotkey in hotkeys {
+            rows = rows.saturating_add(Self::get_basket_holdings(hotkey).len() as u32);
+            if rows > budget {
+                return false;
+            }
+        }
+        true
     }
 
     /// Actual post-dispatch weight of a root claim: full benchmark units for the slots
