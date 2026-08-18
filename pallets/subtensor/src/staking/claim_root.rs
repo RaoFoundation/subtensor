@@ -780,9 +780,8 @@ impl<T: Config> Pallet<T> {
     /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row
     /// scan cost for holdings that were only valued. This is what lets a fund's claim fee
     /// decay as dust rows are consolidated, and makes a below-threshold no-op cost a scan
-    /// instead of a full claim. Counts are unbounded — fat baskets may exceed
-    /// [`crate::MAX_ROOT_CLAIM_WORK`]; the extrinsic pays the resulting weight rather
-    /// than hard-failing.
+    /// instead of a full claim. Work above [`crate::MAX_ROOT_CLAIM_WORK`] is
+    /// refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
     pub(crate) fn root_claim_actual_weight(
         hotkey_count: u32,
         outcome: &RootClaimOutcome,

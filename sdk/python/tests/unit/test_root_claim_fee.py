@@ -34,5 +34,12 @@ def test_scan_only_uses_scan_ref_time():
     reserved = Balance.from_rao(fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
     spent = fees._spent_fee(reserved, holdings=32, scan_only=True)
     denom = fees._MAX_ROOT_CLAIM_WORK * fees._REDEEM_REF_TIME
-    expected = reserved.rao * 32 * fees._SCAN_REF_TIME // denom
-    assert spent.rao == expected
+    scan = reserved.rao * 32 * fees._SCAN_REF_TIME // denom
+    walk = reserved.rao * 1 // fees._MAX_ROOT_CLAIM_WORK
+    assert spent.rao == walk + scan
+
+
+def test_coldkey_wide_empty_baskets_floor_to_hotkey_count():
+    reserved = Balance.from_rao(fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+    spent = fees._spent_fee(reserved, holdings=0, scan_only=False, hotkey_count=100)
+    assert spent.rao == fees._APPROX_REDEEM_FEE_RAO * 100

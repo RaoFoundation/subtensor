@@ -176,7 +176,12 @@ async def _quote(
     threshold_rao = await _threshold_rao(substrate)
     free_rao = await _free_rao(substrate, signer_address)
     reserved = await _reserved_fee(substrate, signer_address, compose)
-    spent = _spent_fee(reserved, holdings, accrued_rao < threshold_rao)
+    spent = _spent_fee(
+        reserved,
+        holdings,
+        accrued_rao < threshold_rao,
+        hotkey_count=max(len(hotkeys), 1),
+    )
 
     return RootClaimFeeQuote(
         holdings=holdings,
@@ -220,24 +225,37 @@ async def _reserved_fee(
         return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK)
 
 
-def _spent_fee(reserved: Balance, holdings: int, scan_only: bool) -> Balance:
+def _spent_fee(
+    reserved: Balance,
+    holdings: int,
+    scan_only: bool,
+    *,
+    hotkey_count: int = 1,
+) -> Balance:
     """Refund unused declared units; keep non-weight base/length fees intact.
 
-    ``estimate_fee`` prices the 256-unit declaration plus extrinsic base/length.
-    Only the weight slice scales with holdings. The fallback (no payment_info)
-    is weight-only, so base is zero there.
+    Runtime active units are ``max(hotkey_count, realized + swept, 1)``. The
+    quote floors by the selected hotkey count so empty-basket validators still
+    cost a full unit. ``estimate_fee`` prices the 256-unit declaration plus
+    extrinsic base/length; only the weight slice scales.
     """
     if reserved.rao <= 0:
         return reserved
     declared_weight = _APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK
     weight_part = min(reserved.rao, declared_weight)
     base_part = max(0, reserved.rao - declared_weight)
-    units = max(holdings, 0 if scan_only else 1)
+    hotkeys = max(hotkey_count, 1)
     if scan_only:
-        spent_weight = (
-            weight_part * units * _SCAN_REF_TIME // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
+        scan_weight = (
+            weight_part
+            * max(holdings, 0)
+            * _SCAN_REF_TIME
+            // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
         )
+        walk_weight = weight_part * hotkeys // _MAX_ROOT_CLAIM_WORK
+        spent_weight = walk_weight + scan_weight
     else:
+        units = max(holdings, hotkeys)
         spent_weight = weight_part * units // _MAX_ROOT_CLAIM_WORK
     return Balance.from_rao(min(reserved.rao, base_part + max(spent_weight, 0)))
 

@@ -71,11 +71,11 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Benchmark upper bound and coldkey-wide admission envelope for `claim_root`
-/// / `claim_root_scan` (Linear<1, N>). `claim_root` cannot see the signer at
-/// weight-annotation time, so it reserves this many units and refuses work
-/// that would exceed them. Single-hotkey `claim_root_with_hotkey` quotes the
-/// live existing-network count (and real holdings) instead.
+/// Benchmark upper bound and admission envelope for `claim_root` /
+/// `claim_root_scan` (Linear<1, N>). Weight calculation cannot walk storage,
+/// so both claim paths reserve this many units and refuse work that would
+/// exceed the envelope. Post-dispatch weight is refunded to the work
+/// actually performed.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
