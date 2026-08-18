@@ -5,7 +5,7 @@ use scale_info::TypeInfo;
 use scale_info::prelude::string::String;
 use sp_runtime::traits::Zero;
 use sp_std::vec::Vec;
-use subtensor_runtime_common::Token;
+use subtensor_runtime_common::{AlphaBalance, NetUid, Token};
 
 pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_total_alpha_staked";
 
@@ -20,10 +20,38 @@ pub struct TotalAlphaStakedProgress {
 pub type TotalAlphaStakedMigration<T: Config> =
     StorageValue<Pallet<T>, TotalAlphaStakedProgress, OptionQuery>;
 
-/// True while the backfill cursor exists. Live `TotalAlphaStaked` updates stay
-/// off during this window so the paged sum is not double-counted.
+/// True while the backfill cursor exists.
 pub fn in_progress<T: Config>() -> bool {
     TotalAlphaStakedMigration::<T>::exists()
+}
+
+/// Apply a live `TotalHotkeyAlpha` mutation to `TotalAlphaStaked`.
+///
+/// During the paged backfill, only keys already behind the cursor are applied.
+/// Unscanned keys are left alone so the later page adds their current value
+/// once. After the cursor is gone, every mutation applies.
+pub fn apply_live_delta<T: Config>(
+    hotkey: &T::AccountId,
+    netuid: NetUid,
+    previous: AlphaBalance,
+    new: AlphaBalance,
+) {
+    if previous == new || !should_apply_live_delta::<T>(hotkey, netuid) {
+        return;
+    }
+    TotalAlphaStaked::<T>::mutate(netuid, |total| {
+        *total = total.saturating_sub(previous).saturating_add(new);
+    });
+}
+
+fn should_apply_live_delta<T: Config>(hotkey: &T::AccountId, netuid: NetUid) -> bool {
+    let Some(progress) = TotalAlphaStakedMigration::<T>::get() else {
+        return true;
+    };
+    if progress.cursor.is_empty() {
+        return false;
+    }
+    TotalHotkeyAlpha::<T>::hashed_key_for(hotkey, netuid) <= progress.cursor
 }
 
 fn item_weight<T: Config>() -> Weight {
@@ -145,6 +173,61 @@ mod tests {
             assert!(in_progress::<Test>());
             assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
             assert!(TotalAlphaStaked::<Test>::get(netuid).is_zero());
+        });
+    }
+
+    #[test]
+    fn live_deltas_apply_only_behind_the_cursor() {
+        new_test_ext(1).execute_with(|| {
+            let netuid = NetUid::from(2);
+            let first = U256::from(1);
+            let second = U256::from(2);
+            TotalHotkeyAlpha::<Test>::insert(first, netuid, AlphaBalance::from(10));
+            TotalHotkeyAlpha::<Test>::insert(second, netuid, AlphaBalance::from(20));
+
+            migrate_total_alpha_staked::<Test>();
+            let one_item = <Test as frame_system::Config>::DbWeight::get().reads_writes(3, 3);
+            continue_total_alpha_staked::<Test>(one_item);
+
+            let Some(progress) = TotalAlphaStakedMigration::<Test>::get() else {
+                panic!("cursor remains after a partial page");
+            };
+            let cursor = progress.cursor;
+            assert!(!cursor.is_empty());
+
+            let (behind, ahead) =
+                if TotalHotkeyAlpha::<Test>::hashed_key_for(first, netuid) <= cursor {
+                    (first, second)
+                } else {
+                    (second, first)
+                };
+            assert_eq!(
+                TotalAlphaStaked::<Test>::get(netuid),
+                TotalHotkeyAlpha::<Test>::get(behind, netuid)
+            );
+
+            apply_live_delta::<Test>(
+                &behind,
+                netuid,
+                TotalHotkeyAlpha::<Test>::get(behind, netuid),
+                AlphaBalance::from(40),
+            );
+            TotalHotkeyAlpha::<Test>::insert(behind, netuid, AlphaBalance::from(40));
+            assert_eq!(TotalAlphaStaked::<Test>::get(netuid), 40.into());
+
+            apply_live_delta::<Test>(
+                &ahead,
+                netuid,
+                TotalHotkeyAlpha::<Test>::get(ahead, netuid),
+                AlphaBalance::from(50),
+            );
+            TotalHotkeyAlpha::<Test>::insert(ahead, netuid, AlphaBalance::from(50));
+            assert_eq!(TotalAlphaStaked::<Test>::get(netuid), 40.into());
+
+            continue_total_alpha_staked::<Test>(huge_limit());
+
+            assert_eq!(TotalAlphaStaked::<Test>::get(netuid), 90.into());
+            assert!(!in_progress::<Test>());
         });
     }
 }
