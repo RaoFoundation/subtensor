@@ -1097,6 +1097,32 @@ where
         )
     }
 
+    #[precompile::public("moveStakeLimit(bytes32,bytes32,uint16,uint16,uint64,uint64,bool)")]
+    #[allow(clippy::too_many_arguments)]
+    fn move_stake_limit(
+        handle: &mut impl PrecompileHandle,
+        origin_hotkey: H256,
+        destination_hotkey: H256,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        alpha_amount: u64,
+        limit_price: u64,
+        allow_partial: bool,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::move_stake_limit {
+                origin_hotkey: origin_hotkey.0.into(),
+                destination_hotkey: destination_hotkey.0.into(),
+                origin_netuid: origin_netuid.into(),
+                destination_netuid: destination_netuid.into(),
+                alpha_amount: AlphaBalance::from(alpha_amount),
+                limit_price: TaoBalance::from(limit_price),
+                allow_partial,
+            },
+        )
+    }
+
     #[precompile::public("recycleAlpha(bytes32,uint64,uint16)")]
     fn recycle_alpha(
         handle: &mut impl PrecompileHandle,
@@ -2286,6 +2312,50 @@ mod tests {
                 ),
             )
             .execute_returns(());
+    }
+
+    #[test]
+    fn staking_precompile_v2_move_stake_limit_dispatches_to_distinct_hotkey() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x20a1);
+            let coldkey = mapped_account(caller);
+            let origin_hotkey = AccountId::from([0x71; 32]);
+            let destination_hotkey = AccountId::from([0x72; 32]);
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &origin_hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            ensure_hotkey_exists(&destination_hotkey);
+            let origin_before = stake_for(&origin_hotkey, &coldkey, netuid);
+            let amount = origin_before / 2;
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32(
+                            "moveStakeLimit(bytes32,bytes32,uint16,uint16,uint64,uint64,bool)",
+                        ),
+                        (
+                            H256::from_slice(origin_hotkey.as_ref()),
+                            H256::from_slice(destination_hotkey.as_ref()),
+                            TEST_NETUID_U16,
+                            TEST_NETUID_U16,
+                            amount,
+                            u64::MAX,
+                            false,
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            assert_eq!(
+                stake_for(&origin_hotkey, &coldkey, netuid),
+                origin_before - amount
+            );
+            assert_eq!(stake_for(&destination_hotkey, &coldkey, netuid), amount);
+        });
     }
 
     fn assert_proxy_effects(caller: H160, netuid: NetUid) {

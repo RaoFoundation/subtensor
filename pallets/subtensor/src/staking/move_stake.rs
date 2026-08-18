@@ -74,6 +74,48 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Moves stake from one hotkey to another across subnets with a relative
+    /// price limit on the cross-subnet swap.
+    pub fn do_move_stake_limit(
+        origin: OriginFor<T>,
+        origin_hotkey: T::AccountId,
+        destination_hotkey: T::AccountId,
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        alpha_amount: AlphaBalance,
+        limit_price: TaoBalance,
+        allow_partial: bool,
+    ) -> dispatch::DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+
+        let tao_moved = Self::transition_stake_internal(
+            &coldkey,
+            &coldkey,
+            &origin_hotkey,
+            &destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            Some(limit_price),
+            Some(allow_partial),
+            false,
+        )?;
+
+        log::debug!(
+            "StakeMoved(coldkey:{coldkey:?}, origin_hotkey:{origin_hotkey:?}, origin_netuid:{origin_netuid:?}, destination_hotkey:{destination_hotkey:?}, destination_netuid:{destination_netuid:?}, amount:{tao_moved:?})"
+        );
+        Self::deposit_event(Event::StakeMoved(
+            coldkey,
+            origin_hotkey,
+            origin_netuid,
+            destination_hotkey,
+            destination_netuid,
+            tao_moved,
+        ));
+
+        Ok(())
+    }
+
     /// Toggles the atomic alpha transfers for a specific subnet.
     ///
     /// # Arguments

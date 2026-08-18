@@ -162,9 +162,9 @@ async def _compose_move_then_swap(
 ):
     """One extrinsic: same-subnet ``move_stake``, then a price-bounded swap.
 
-    The chain has no ``move_stake_limit``. This is the wallet-safe composition
-    until that extrinsic exists: re-delegate on the origin subnet, then
-    ``swap_stake_limit`` on the new hotkey.
+    Two-leg composition: re-delegate on the origin subnet, then
+    ``swap_stake_limit`` on the new hotkey. Prefer ``move_stake_limit`` when
+    a single cross-subnet move is enough.
     """
     move = await substrate.compose(
         calls.SubtensorModule.move_stake(
@@ -564,13 +564,10 @@ class MoveStake(Intent):
     one subnet just changes which validator backs the stake. Moving across
     subnets swaps through both pools and can incur slippage on each leg.
 
-    The chain's ``move_stake`` has no price limit. When the destination
-    subnet differs, this intent therefore composes a protected path instead:
-    same-hotkey crosses become ``swap_stake_limit``; a new hotkey plus a new
-    subnet becomes one ``batch_all`` of same-subnet ``move_stake`` then
-    ``swap_stake_limit`` (see ``move_swap_stake``). Same-subnet moves stay a
-    single ``move_stake``. Disable ``slippage_protection`` to submit the
-    bare cross-subnet ``move_stake`` at any price.
+    Cross-subnet moves are slippage-protected by default: they compose
+    ``move_stake_limit`` with a fill-or-kill price ratio. Same-subnet moves
+    stay a single ``move_stake``. Disable ``slippage_protection`` to submit
+    the bare cross-subnet ``move_stake`` at any price.
 
     Ownership stays with the signing coldkey — use ``transfer_stake`` to hand
     the position to another coldkey, or ``swap_stake`` when only the subnet
@@ -579,12 +576,7 @@ class MoveStake(Intent):
 
     op = "move_stake"
     signer = "coldkey"
-    wraps = (
-        ("SubtensorModule", "move_stake"),
-        ("SubtensorModule", "swap_stake"),
-        ("SubtensorModule", "swap_stake_limit"),
-        ("Utility", "batch_all"),
-    )
+    wraps = (("SubtensorModule", "move_stake"), ("SubtensorModule", "move_stake_limit"))
     mev_shield_default = True
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
@@ -595,17 +587,7 @@ class MoveStake(Intent):
     amount_alpha: Money = field(
         metadata={"help": "How much of the origin position to move, or ``all``."}
     )
-    slippage_protection: bool = field(
-        default=True,
-        metadata={
-            "help": "When the destination subnet differs from the origin, bound the "
-            "swap price (on by default). The call fails (`SlippageTooHigh`) "
-            "instead of filling once the pool price moves more than "
-            "`rate_tolerance` from the price at submission. Ignored for "
-            "same-subnet moves. Disable to submit the bare cross-subnet "
-            "move_stake at any price."
-        },
-    )
+    slippage_protection: bool = field(default=True, metadata={"help": SLIPPAGE_PROTECTION_HELP})
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
@@ -623,9 +605,6 @@ class MoveStake(Intent):
     def _changes_subnet(self) -> bool:
         return self.origin_netuid != self.dest_netuid
 
-    def _changes_hotkey(self) -> bool:
-        return self.origin_hotkey_ss58 != self.dest_hotkey_ss58
-
     async def _rao(self, substrate, wallet: Any) -> int:
         if self.amount_alpha == ALL:
             return await _staked_rao(
@@ -635,36 +614,20 @@ class MoveStake(Intent):
 
     async def build(self, substrate, wallet: Any):
         rao = await self._rao(substrate, wallet)
-        if not self._changes_subnet():
+        if self.slippage_protection and self._changes_subnet():
+            limit_price = await _swap_limit_price_rao(
+                substrate, self.origin_netuid, self.dest_netuid, self.rate_tolerance
+            )
             return await substrate.compose(
-                calls.SubtensorModule.move_stake(
+                calls.SubtensorModule.move_stake_limit(
                     origin_hotkey=self.origin_hotkey_ss58,
                     destination_hotkey=self.dest_hotkey_ss58,
                     origin_netuid=self.origin_netuid,
                     destination_netuid=self.dest_netuid,
                     alpha_amount=rao,
+                    limit_price=limit_price,
+                    allow_partial=False,
                 )
-            )
-        if not self._changes_hotkey():
-            return await _compose_swap_stake(
-                substrate,
-                hotkey=self.origin_hotkey_ss58,
-                origin_netuid=self.origin_netuid,
-                dest_netuid=self.dest_netuid,
-                rao=rao,
-                slippage_protection=self.slippage_protection,
-                rate_tolerance=self.rate_tolerance,
-            )
-        if self.slippage_protection:
-            return await _compose_move_then_swap(
-                substrate,
-                origin_hotkey=self.origin_hotkey_ss58,
-                dest_hotkey=self.dest_hotkey_ss58,
-                origin_netuid=self.origin_netuid,
-                dest_netuid=self.dest_netuid,
-                rao=rao,
-                slippage_protection=True,
-                rate_tolerance=self.rate_tolerance,
             )
         return await substrate.compose(
             calls.SubtensorModule.move_stake(
@@ -692,12 +655,9 @@ class MoveStake(Intent):
         )
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
-        out: list[str] = []
         if self.amount_alpha == ALL:
-            out.append("moves the entire origin position")
-        if self._changes_subnet() and self._changes_hotkey() and self.slippage_protection:
-            out.append(_SHARE_POOL_DUST_WARNING)
-        return out
+            return ["moves the entire origin position"]
+        return []
 
     def touches_netuids(self) -> list[int]:
         return [self.origin_netuid, self.dest_netuid]
@@ -1062,13 +1022,13 @@ class SwapStake(Intent):
 class MoveSwapStake(Intent):
     """Move stake to a new hotkey and swap it to a new subnet in one transaction.
 
-    The chain has no single ``move_stake_limit``. This intent is the safe
-    composition wallets want: same-subnet ``move_stake`` onto the destination
-    hotkey, then ``swap_stake_limit`` to the destination subnet, wrapped in
-    ``Utility.batch_all`` so both legs land or neither does. MEV shield is
-    on by default. The two hotkeys and the two netuids must differ.
-    Same-hotkey crosses are ``swap_stake``; same-subnet re-delegates are
-    ``move_stake``.
+    Same-subnet ``move_stake`` onto the destination hotkey, then
+    ``swap_stake_limit`` to the destination subnet, wrapped in
+    ``Utility.batch_all`` so both legs land or neither does. Prefer
+    ``move_stake`` (which uses ``move_stake_limit``) for a single
+    cross-subnet move. MEV shield is on by default. The two hotkeys and
+    the two netuids must differ. Same-hotkey crosses are ``swap_stake``;
+    same-subnet re-delegates are ``move_stake``.
 
     Share-pool rounding can make the post-move dest position readable as
     one rao less than the amount moved. The swap therefore uses ``amount - 1``

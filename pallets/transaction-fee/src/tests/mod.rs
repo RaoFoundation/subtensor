@@ -1296,6 +1296,67 @@ fn test_move_stake_fees_alpha() {
     });
 }
 
+// cargo test --package subtensor-transaction-fee --lib -- tests::test_move_stake_limit_fees_alpha --exact --show-output
+#[test]
+fn test_move_stake_limit_fees_alpha() {
+    new_test_ext().execute_with(|| {
+        let stake_amount = TAO;
+        let move_amount = AlphaBalance::from(TAO / 50);
+        let sn = setup_subnets(2, 2);
+        setup_stake(
+            sn.subnets[0].netuid,
+            &sn.coldkey,
+            &sn.hotkeys[0],
+            stake_amount,
+        );
+
+        let current_balance = Balances::free_balance(sn.coldkey);
+        remove_balance_from_coldkey_account(
+            &sn.coldkey,
+            current_balance - ExistentialDeposit::get(),
+        );
+        let balance_before = Balances::free_balance(sn.coldkey);
+        let alpha_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &sn.hotkeys[0],
+            &sn.coldkey,
+            sn.subnets[0].netuid,
+        );
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake_limit {
+            origin_hotkey: sn.hotkeys[0],
+            destination_hotkey: sn.hotkeys[1],
+            origin_netuid: sn.subnets[0].netuid,
+            destination_netuid: sn.subnets[1].netuid,
+            alpha_amount: move_amount,
+            limit_price: TaoBalance::from(1_000_u64),
+            allow_partial: false,
+        });
+
+        let info = call.get_dispatch_info();
+        let ext = pallet_transaction_payment::ChargeTransactionPayment::<Test>::from(0.into());
+        assert_ok!(ext.dispatch_transaction(
+            RuntimeOrigin::signed(sn.coldkey).into(),
+            call,
+            &info,
+            0,
+            0,
+        ));
+
+        let alpha_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &sn.hotkeys[0],
+            &sn.coldkey,
+            sn.subnets[0].netuid,
+        );
+        let destination_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &sn.hotkeys[1],
+            &sn.coldkey,
+            sn.subnets[1].netuid,
+        );
+        assert!(destination_alpha > AlphaBalance::ZERO);
+        assert_eq!(balance_before, Balances::free_balance(sn.coldkey));
+        assert!(alpha_before - alpha_after - move_amount > AlphaBalance::ZERO);
+    });
+}
+
 // cargo test --package subtensor-transaction-fee --lib -- tests::test_transfer_stake_fees_alpha --exact --show-output
 #[test]
 fn test_transfer_stake_fees_alpha() {

@@ -1,11 +1,11 @@
 """Default slippage protection on the staking intents.
 
 ``add_stake``, ``remove_stake``, ``swap_stake``, and cross-subnet
-``move_stake`` / ``move_swap_stake`` are slippage-protected by default: at
-build time they read the spot price and compose a ``*_limit`` call (or a
-``batch_all`` of same-subnet ``move_stake`` plus ``swap_stake_limit``) with
-a fill-or-kill limit derived from ``rate_tolerance`` (5%). These tests pin
-the call selection, the limit-price math against seeded prices, the opt-out,
+``move_stake`` are slippage-protected by default: at build time they read
+the spot price and compose a ``*_limit`` call with a fill-or-kill limit
+derived from ``rate_tolerance`` (5%). ``move_swap_stake`` still batches
+same-subnet ``move_stake`` plus ``swap_stake_limit``. These tests pin the
+call selection, the limit-price math against seeded prices, the opt-out,
 the failure modes, and the ``SlippageTooHigh`` remediation that tells the
 user how to loosen or disable the protection.
 """
@@ -93,25 +93,20 @@ class TestDefaultProtection:
         assert call.params["destination_netuid"] == 1
 
     @pytest.mark.asyncio
-    async def test_cross_subnet_same_hotkey_move_composes_swap_limit(self, substrate, wallet):
+    async def test_cross_subnet_move_composes_limit_call(self, substrate, wallet):
         call = await build("move_stake", MOVE_CROSS_SAME_HOTKEY).build(substrate, wallet)
-        assert call.function == "swap_stake_limit"
+        assert call.function == "move_stake_limit"
         assert call.params["limit_price"] == int(2 * RAO * 0.95)
-        assert call.params["hotkey"] == BOB_HOT
+        assert call.params["allow_partial"] is False
+        assert call.params["destination_hotkey"] == BOB_HOT
 
     @pytest.mark.asyncio
-    async def test_cross_subnet_new_hotkey_move_batches_move_then_swap(self, substrate, wallet):
+    async def test_cross_subnet_new_hotkey_move_uses_limit_call(self, substrate, wallet):
         call = await build("move_stake", MOVE_SWAP).build(substrate, wallet)
-        assert call.function == "batch_all"
-        move, swap = call.params["calls"]
-        assert move.function == "move_stake"
-        assert move.params["destination_hotkey"] == ALICE_HOT
-        assert move.params["destination_netuid"] == 1
-        assert move.params["alpha_amount"] == RAO
-        assert swap.function == "swap_stake_limit"
-        assert swap.params["hotkey"] == ALICE_HOT
-        assert swap.params["alpha_amount"] == RAO - 1
-        assert swap.params["limit_price"] == int(2 * RAO * 0.95)
+        assert call.function == "move_stake_limit"
+        assert call.params["destination_hotkey"] == ALICE_HOT
+        assert call.params["destination_netuid"] == 2
+        assert call.params["limit_price"] == int(2 * RAO * 0.95)
 
     @pytest.mark.asyncio
     async def test_move_swap_stake_is_the_named_batch(self, substrate, wallet):
@@ -157,7 +152,7 @@ class TestOptOut:
             ("add_stake", ADD, "add_stake"),
             ("remove_stake", REMOVE, "remove_stake"),
             ("swap_stake", SWAP, "swap_stake"),
-            ("move_stake", MOVE_CROSS_SAME_HOTKEY, "swap_stake"),
+            ("move_stake", MOVE_CROSS_SAME_HOTKEY, "move_stake"),
         ],
     )
     @pytest.mark.asyncio

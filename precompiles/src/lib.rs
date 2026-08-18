@@ -588,6 +588,7 @@ mod address_and_selector_tests {
             "unstakeAllAlpha(bytes32)",
             "swapStake(bytes32,uint16,uint16,uint64)",
             "swapStakeLimit(bytes32,uint16,uint16,uint64,uint64,bool)",
+            "moveStakeLimit(bytes32,bytes32,uint16,uint16,uint64,uint64,bool)",
             "recycleAlpha(bytes32,uint64,uint16)",
             "setColdkeyAutoStakeHotkey(uint16,bytes32)",
             "claimRoot(uint16[])",

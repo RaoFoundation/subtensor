@@ -182,6 +182,29 @@ export async function moveStake(
     await waitForTransactionWithRetry(api, tx, coldkey, "move_stake");
 }
 
+export async function moveStakeLimit(
+    api: TypedApi<typeof subtensor>,
+    coldkey: KeyringPair,
+    originHotkey: string,
+    destinationHotkey: string,
+    originNetuid: number,
+    destinationNetuid: number,
+    amount: bigint,
+    limitPrice: bigint,
+    allowPartial: boolean
+): Promise<void> {
+    const tx = api.tx.SubtensorModule.move_stake_limit({
+        origin_hotkey: originHotkey,
+        destination_hotkey: destinationHotkey,
+        origin_netuid: originNetuid,
+        destination_netuid: destinationNetuid,
+        alpha_amount: amount,
+        limit_price: limitPrice,
+        allow_partial: allowPartial,
+    });
+    await waitForTransactionWithRetry(api, tx, coldkey, "move_stake_limit");
+}
+
 export async function swapStake(
     api: TypedApi<typeof subtensor>,
     coldkey: KeyringPair,

@@ -1532,6 +1532,37 @@ mod dispatches {
             )
         }
 
+        /// Moves stake from one hotkey to another and, when the subnets differ,
+        /// protects the swap with a relative price limit.
+        ///
+        /// `limit_price` is the minimum acceptable destination-alpha per
+        /// origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the
+        /// call is fill-or-kill; otherwise it moves only the amount executable
+        /// before the limit is crossed.
+        #[pallet::call_index(149)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake_limit())]
+        pub fn move_stake_limit(
+            origin: OriginFor<T>,
+            origin_hotkey: T::AccountId,
+            destination_hotkey: T::AccountId,
+            origin_netuid: NetUid,
+            destination_netuid: NetUid,
+            alpha_amount: AlphaBalance,
+            limit_price: TaoBalance,
+            allow_partial: bool,
+        ) -> DispatchResult {
+            Self::do_move_stake_limit(
+                origin,
+                origin_hotkey,
+                destination_hotkey,
+                origin_netuid,
+                destination_netuid,
+                alpha_amount,
+                limit_price,
+                allow_partial,
+            )
+        }
+
         /// Attempts to associate a hotkey with a coldkey.
         ///
         /// # Arguments
