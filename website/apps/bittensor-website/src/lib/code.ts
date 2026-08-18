@@ -107,7 +107,12 @@ export function searchCode(
   if (q.length < 2) return [];
   const capped = Math.min(Math.max(limit, 1), 50);
   const hits: CodeSearchHit[] = [];
-  const files = contents instanceof Map ? contents : new Map(Object.entries(contents));
+  // Path-sorted so a capped result set is stable across snapshot/build order.
+  const files = new Map(
+    (contents instanceof Map ? [...contents] : Object.entries(contents)).sort(
+      ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0),
+    ),
+  );
 
   for (const filePath of files.keys()) {
     if (filePath.includes(q)) {
