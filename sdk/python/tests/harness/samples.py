@@ -278,7 +278,6 @@ READ_SAMPLES: dict[str, dict] = {
     "timelocked_weight_commits": {"netuid": 1},
     "timestamp": {},
     "token_symbols": {},
-    "total_alpha_staked": {"netuid": 1},
     "tx_rate_limit": {},
     "uid": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "validator_basket": {"hotkey_ss58": ALICE_HOT},

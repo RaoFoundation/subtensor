@@ -2411,28 +2411,6 @@
     ]
   },
   {
-    "name": "total_alpha_staked",
-    "summary": "Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).",
-    "description": "Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).\n\nThis is the chain-maintained O(1) aggregate: it equals the sum of\n`TotalHotkeyAlpha` for the subnet. Use this instead of walking every\nposition.",
-    "params": {
-      "netuid": "integer"
-    },
-    "param_docs": {
-      "netuid": "Subnet to query."
-    },
-    "category": "Staking",
-    "docs_url": "/docs/query/total-alpha-staked",
-    "markdown_url": "/llms.mdx/docs/query/total-alpha-staked/content.md",
-    "python": "sub.staking.total_alpha_staked(...)",
-    "hits": [
-      {
-        "kind": "storage",
-        "container": "SubtensorModule",
-        "name": "TotalAlphaStaked"
-      }
-    ]
-  },
-  {
     "name": "tx_rate_limit",
     "summary": "Global transaction rate limit in blocks.",
     "description": "Global transaction rate limit in blocks.",
