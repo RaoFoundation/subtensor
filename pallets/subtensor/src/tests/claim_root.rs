@@ -6,8 +6,8 @@ use crate::{
     BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount,
     DefaultSubnetLimit, Error, Keys, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded,
     NumStakingColdkeys, RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex,
-    SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake,
-    Uids, Weights,
+    SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo,
+    TotalStake, Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
