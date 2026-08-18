@@ -237,8 +237,8 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
 
         assert_eq!(
             MAX_ROOT_CLAIM_WORK,
-            u32::from(DefaultSubnetLimit::<Test>::get()),
-            "claim quote must track the default subnet cap"
+            u32::from(DefaultSubnetLimit::<Test>::get()).saturating_add(1),
+            "claim quote must cover the default subnet cap plus root"
         );
         assert!(actual_weight.all_lte(declared_weight));
 

@@ -1918,9 +1918,9 @@ mod dispatches {
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
         #[pallet::call_index(121)]
-        // Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`] (the
-        // default subnet cap). Actual work is measured and refunded post-dispatch
-        // (fat coldkeys may exceed the reservation).
+        // Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]
+        // (default subnet cap + root). Actual work is measured and refunded
+        // post-dispatch (fat coldkeys may exceed the reservation).
         #[pallet::weight(
             <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
         )]

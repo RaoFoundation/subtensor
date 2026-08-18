@@ -72,10 +72,10 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
 /// Declared pre-dispatch weight envelope for `claim_root` / `claim_root_with_hotkey`.
-/// Matches the default `SubnetLimit` (128) so the user-facing fee quote is not a
-/// leftover 256-subnet reservation. Actual work is measured and refunded
+/// Default `SubnetLimit` (128 non-root) plus the root cash slot, so the user-facing
+/// fee quote covers a full basket. Actual work is measured and refunded
 /// post-dispatch; fat claims may still exceed this.
-pub const MAX_ROOT_CLAIM_WORK: u32 = 128;
+pub const MAX_ROOT_CLAIM_WORK: u32 = 129;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
 /// to the number of available destinations when fewer networks exist than this floor.
@@ -1219,8 +1219,9 @@ pub mod pallet {
         0
     }
 
-    /// Default value for subnet limit. Keep [`crate::MAX_ROOT_CLAIM_WORK`] in sync —
-    /// that constant is the user-facing `claim_root` fee quote.
+    /// Default value for subnet limit (non-root). Keep [`crate::MAX_ROOT_CLAIM_WORK`]
+    /// at this plus one for the root cash slot — that constant is the user-facing
+    /// `claim_root` fee quote.
     #[pallet::type_value]
     pub fn DefaultSubnetLimit<T: Config>() -> u16 {
         128
