@@ -58,6 +58,7 @@ getTakeLimits()
 getMinChildkeyTakePerSubnet(uint16)
 getHotkeyOwner(bytes32)
 getOwnedHotkeys(bytes32)
+getStakingHotkeys(bytes32,uint64,uint16)
 getAutoStakeDestination(bytes32,uint16)
 getAutoStakeDestinationColdkeys(bytes32,uint16)
 getHotkeySuccessor(bytes32,uint16)
@@ -71,6 +72,12 @@ getLastHotkeySwapOnSubnet(bytes32,uint16)
 
 Optional relationships return an explicit `exists` flag. Child and parent
 links return typed `(proportion, account)` entries.
+
+`getStakingHotkeys` reads the coldkey's existing staking-hotkey vector and
+returns up to 64 entries in stored order beginning at the supplied zero-based
+`offset`, together with the vector's current `total`. An offset greater than or
+equal to `total` returns an empty page. Each call performs one storage read;
+offset selection and result construction happen in memory.
 
 ## Accounting and collateral views
 
