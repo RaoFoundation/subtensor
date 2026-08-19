@@ -4777,6 +4777,7 @@ fn test_unstake_from_subnet_low_amount() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
             AlphaBalance::ZERO,
         );
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
     });
 }
 
@@ -5128,6 +5129,79 @@ fn test_increase_stake_for_hotkey_and_coldkey_on_subnet_adds_to_staking_hotkeys_
         assert!(StakingHotkeys::<Test>::contains_key(coldkey1));
         // check entry has hotkey
         assert!(StakingHotkeys::<Test>::get(coldkey1).contains(&hotkey));
+    });
+}
+
+#[test]
+fn test_maybe_remove_staking_hotkey_only_removes_empty_relationships() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let other_hotkey = U256::from(3);
+        let first_netuid = NetUid::from(1);
+        let second_netuid = NetUid::from(2);
+        let stake = AlphaBalance::from(100_000_u64);
+
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            second_netuid,
+            stake,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &other_hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert!(StakingHotkeys::<Test>::get(coldkey).contains(&hotkey));
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            second_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![other_hotkey]);
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &other_hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&other_hotkey, &coldkey);
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
+    });
+}
+
+#[test]
+fn test_maybe_remove_staking_hotkey_preserves_basket_claimant() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+
+        StakingHotkeys::<Test>::insert(coldkey, vec![hotkey]);
+        BasketClaimed::<Test>::insert(hotkey, coldkey, -1);
+
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![hotkey]);
     });
 }
 
