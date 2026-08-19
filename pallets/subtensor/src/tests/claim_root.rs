@@ -245,7 +245,9 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         let ghost = NetUid::from(u16::MAX);
         NetworksAdded::<Test>::insert(ghost, false);
         assert_eq!(SubtensorModule::root_claim_existing_networks(), existing);
-        assert!(existing < crate::MAX_ROOT_CLAIM_WORK);
+        let per_hotkey = SubtensorModule::root_claim_declared_work_for_hotkey(&hotkey);
+        assert_eq!(per_hotkey, existing);
+        assert!(per_hotkey < crate::MAX_ROOT_CLAIM_WORK);
         let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
             .expect("claim succeeds")
             .actual_weight
@@ -278,6 +280,100 @@ fn test_claim_root_rejects_work_above_declared_budget() {
             SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), BTreeSet::new()),
             Error::<Test>::RootClaimTooHeavy
         );
+    });
+}
+
+#[test]
+fn test_claim_root_with_hotkey_quotes_live_networks() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let owner = U256::from(1003);
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_u64.into(),
+        );
+
+        // A real extra subnet so the quote is the live count, not the max(1) floor.
+        let _seed = add_dynamic_network(&U256::from(9002), &owner);
+
+        let call = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey });
+        let before = call.get_dispatch_info().call_weight;
+        let quoted = SubtensorModule::root_claim_declared_work_for_hotkey(&hotkey);
+        let existing = SubtensorModule::root_claim_existing_networks();
+        assert_eq!(quoted, existing);
+        assert!(quoted < crate::MAX_ROOT_CLAIM_WORK);
+        let live = <Test as crate::Config>::WeightInfo::claim_root(quoted);
+        assert!(
+            before.all_gte(live),
+            "declared {before:?} must cover the live quote {live:?}"
+        );
+        let envelope = <Test as crate::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK);
+        assert!(
+            before.all_lt(envelope),
+            "single-hotkey quote {before:?} must be below the 256-unit envelope {envelope:?}"
+        );
+
+        let _netuid = add_dynamic_network(&U256::from(9004), &U256::from(9003));
+        let after_units = SubtensorModule::root_claim_declared_work_for_hotkey(&hotkey);
+        assert_eq!(after_units, quoted + 1);
+        let after = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey })
+            .get_dispatch_info()
+            .call_weight;
+        assert!(
+            after.ref_time() > before.ref_time(),
+            "live quote must rise when a network is added ({before:?} -> {after:?})"
+        );
+    });
+}
+
+#[test]
+fn test_claim_root_with_hotkey_quotes_leftover_holdings() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        let existing = SubtensorModule::root_claim_existing_networks();
+        let leftover = NetUid::from(u16::MAX - 1);
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_u64.into(),
+        );
+        // Dissolved-net leftovers are not in NetworksAdded, but they are still
+        // walked on claim and must raise the single-hotkey quote. The stake
+        // helper marks the net as added; flip that off to simulate dissolve.
+        for i in 0..=existing {
+            let netuid = NetUid::from(u16::from(leftover).saturating_sub(i as u16));
+            mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                netuid,
+                1_000_u64.into(),
+            );
+            NetworksAdded::<Test>::insert(netuid, false);
+        }
+
+        assert_eq!(
+            SubtensorModule::root_claim_existing_networks(),
+            existing.max(1)
+        );
+        let quoted = SubtensorModule::root_claim_declared_work_for_hotkey(&hotkey);
+        assert!(
+            quoted > existing,
+            "leftover holdings ({quoted}) must out-quote live networks ({existing})"
+        );
+        let call = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey });
+        let declared = call.get_dispatch_info().call_weight;
+        let live = <Test as crate::Config>::WeightInfo::claim_root(quoted);
+        assert!(declared.all_gte(live));
+        let envelope = <Test as crate::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK);
+        assert!(declared.all_lt(envelope));
     });
 }
 

@@ -1,8 +1,10 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-Both runtime calls reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units at
-inclusion, then refund down to the work actually done. That reserve is what
-people see leave their free balance, and it is larger than the fee that
+Coldkey-wide ``claim_root`` reserves ``MAX_ROOT_CLAIM_WORK`` (256) because
+the signer is not in the call data. ``claim_root_with_hotkey`` reserves the
+live existing-network count, or the hotkey's real holdings if those are
+larger. Both refund down to the work actually done. The reserve is what
+people see leave their free balance, and it can be larger than the fee that
 finally settles. That gap is the usual claim-fee surprise.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
@@ -25,8 +27,9 @@ _SCAN_REF_TIME = 6
 _REDEEM_REF_TIME = 70
 
 # One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.0004475).
-# Both claim paths reserve ``MAX_ROOT_CLAIM_WORK`` of these, plus any
-# non-weight base/length fee returned by ``payment_info``.
+# Coldkey-wide reserved is this times ``MAX_ROOT_CLAIM_WORK``; per-hotkey
+# reserved is this times the live network/holdings quote. ``payment_info``
+# may also include a non-weight base/length fee.
 _APPROX_REDEEM_FEE_RAO = 447_500
 _MAX_ROOT_CLAIM_WORK = 256
 
@@ -175,12 +178,14 @@ async def _quote(
     networks = await _existing_network_count(substrate)
     threshold_rao = await _threshold_rao(substrate)
     free_rao = await _free_rao(substrate, signer_address)
-    reserved = await _reserved_fee(substrate, signer_address, compose)
+    declared_units = _declared_units(coldkey_wide, holdings, networks)
+    reserved = await _reserved_fee(substrate, signer_address, compose, declared_units)
     spent = _spent_fee(
         reserved,
         holdings,
         accrued_rao < threshold_rao,
         hotkey_count=max(len(hotkeys), 1),
+        declared_units=declared_units,
     )
 
     return RootClaimFeeQuote(
@@ -213,16 +218,23 @@ async def _free_rao(substrate: Any, ss58: str) -> int:
     return int(((account or {}).get("data") or {}).get("free") or 0)
 
 
+def _declared_units(coldkey_wide: bool, holdings: int, networks: int) -> int:
+    if coldkey_wide:
+        return _MAX_ROOT_CLAIM_WORK
+    return min(_MAX_ROOT_CLAIM_WORK, max(holdings, networks, 1))
+
+
 async def _reserved_fee(
     substrate: Any,
     signer_address: str,
     compose: Callable[[], Awaitable[Any]],
+    declared_units: int,
 ) -> Balance:
     try:
         call = await compose()
         return await substrate.estimate_fee(call, _FeeView(signer_address))
     except Exception:
-        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK)
+        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * max(declared_units, 1))
 
 
 def _spent_fee(
@@ -231,17 +243,19 @@ def _spent_fee(
     scan_only: bool,
     *,
     hotkey_count: int = 1,
+    declared_units: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
     """Refund unused declared units; keep non-weight base/length fees intact.
 
     Runtime active units are ``max(hotkey_count, realized + swept, 1)``. The
     quote floors by the selected hotkey count so empty-basket validators still
-    cost a full unit. ``estimate_fee`` prices the 256-unit declaration plus
+    cost a full unit. ``estimate_fee`` prices the declared units plus
     extrinsic base/length; only the weight slice scales.
     """
     if reserved.rao <= 0:
         return reserved
-    declared_weight = _APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK
+    declared = max(declared_units, 1)
+    declared_weight = _APPROX_REDEEM_FEE_RAO * declared
     weight_part = min(reserved.rao, declared_weight)
     base_part = max(0, reserved.rao - declared_weight)
     hotkeys = max(hotkey_count, 1)
@@ -250,13 +264,13 @@ def _spent_fee(
             weight_part
             * max(holdings, 0)
             * _SCAN_REF_TIME
-            // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
+            // (declared * _REDEEM_REF_TIME)
         )
-        walk_weight = weight_part * hotkeys // _MAX_ROOT_CLAIM_WORK
+        walk_weight = weight_part * hotkeys // declared
         spent_weight = walk_weight + scan_weight
     else:
         units = max(holdings, hotkeys)
-        spent_weight = weight_part * units // _MAX_ROOT_CLAIM_WORK
+        spent_weight = weight_part * units // declared
     return Balance.from_rao(min(reserved.rao, base_part + max(spent_weight, 0)))
 
 

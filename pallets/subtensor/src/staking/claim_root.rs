@@ -749,9 +749,23 @@ impl<T: Config> Pallet<T> {
         (Self::get_all_subnet_netuids().len() as u32).max(1)
     }
 
-    /// Pre-dispatch work units for both claim paths. Weight calculation must
-    /// stay storage-independent (no `NetworksAdded` or basket walks here);
-    /// execution then refuses work that would exceed this envelope.
+    /// Pre-dispatch work units for `claim_root_with_hotkey`: the live network
+    /// count, or this hotkey's actual basket rows if leftover dissolved-net
+    /// holdings outnumber existing networks. The hotkey is in the call data,
+    /// so admission can cover every reachable row.
+    pub(crate) fn root_claim_declared_work_for_hotkey(hotkey: &T::AccountId) -> u32 {
+        let networks = Self::root_claim_existing_networks();
+        let holdings = Self::get_basket_holdings(hotkey).len() as u32;
+        networks
+            .max(holdings)
+            .max(1)
+            .min(crate::MAX_ROOT_CLAIM_WORK)
+    }
+
+    /// Pre-dispatch work units for coldkey-wide `claim_root`. Call weight
+    /// cannot see the signer, so this is the conservative
+    /// [`crate::MAX_ROOT_CLAIM_WORK`] envelope; execution refuses a fat
+    /// coldkey that would exceed it.
     pub(crate) fn root_claim_declared_work() -> u32 {
         crate::MAX_ROOT_CLAIM_WORK
     }
