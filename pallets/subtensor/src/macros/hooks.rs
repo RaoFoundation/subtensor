@@ -211,7 +211,10 @@ mod hooks {
                 .saturating_add(migrations::migrate_backfill_historical_alpha_burned::migrate_backfill_historical_alpha_burned::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
-                .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>());
+                .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())
+                // Schedule stale StakingHotkeys relationship cleanup. It runs after storage GC
+                // and uses only otherwise-unused on_idle weight; normal operations stay enabled.
+                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>());
             weight
         }
 
@@ -259,6 +262,27 @@ mod hooks {
                     migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<T>(
                         limit.saturating_sub(weight),
                     ),
+                );
+            }
+
+            // StakingHotkeys cleanup depends on storage GC having removed zero legacy Alpha rows.
+            // It is otherwise independent and does not block or gate any runtime operation.
+            let storage_bloat_cursor_read = T::DbWeight::get().reads(1);
+            let storage_bloat_in_progress = if !seed_in_progress
+                && weight
+                    .saturating_add(storage_bloat_cursor_read)
+                    .all_lt(limit)
+            {
+                weight.saturating_accrue(storage_bloat_cursor_read);
+                migrations::migrate_storage_bloat_v2::StorageBloatCleanupMigration::<T>::exists()
+            } else {
+                true
+            };
+            if !seed_in_progress && !storage_bloat_in_progress && weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_cleanup_staking_hotkeys::continue_staking_hotkeys_cleanup::<
+                        T,
+                    >(limit.saturating_sub(weight)),
                 );
             }
 

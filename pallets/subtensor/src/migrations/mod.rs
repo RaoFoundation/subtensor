@@ -7,6 +7,7 @@ use sp_io::storage::clear_prefix;
 pub mod migrate_associated_evm_address_index;
 pub mod migrate_auto_stake_destination;
 pub mod migrate_backfill_historical_alpha_burned;
+pub mod migrate_cleanup_staking_hotkeys;
 pub mod migrate_cleanup_swap_v3;
 pub mod migrate_clear_deprecated_registration_maps;
 pub mod migrate_clear_orphan_subnet_identities_v3;
