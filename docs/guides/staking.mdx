@@ -172,11 +172,12 @@ btcli root claim --hotkey 5F...                   # claim accrued into stake onl
 ```
 
 The claim fee scales with how many ALPHA types are in the basket. The
-chain reserves the declared-work fee at inclusion (often around τ0.1)
-and refunds the unused part after. You actually spend around τ0.057 on
-a full 128-holding basket. `--dry-run` and the confirm step show
-reserved versus spent, warn if that spent fee exceeds accrued yield, and
-refuse if free TAO cannot cover the reserve.
+chain reserves a 129-unit envelope (around τ0.058) for a single-validator
+claim and refunds the unused part after. The legacy coldkey-wide call still
+reserves the full 256-unit envelope. You actually spend around τ0.057 on a
+full 128-holding basket. `--dry-run` and the confirm step show reserved versus
+spent, warn if that spent fee exceeds accrued yield, and refuse if free TAO
+cannot cover the reserve.
 
 Per-validator payouts below the claim threshold (default 500,000 rao) are
 skipped and keep accruing — there is no deadline. See

@@ -1988,7 +1988,7 @@ mod dispatches {
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK)
+            <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_HOTKEY_WORK)
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,

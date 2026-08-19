@@ -1,9 +1,8 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-Both runtime calls reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units at
-inclusion, then refund down to the work actually done. That reserve is what
-people see leave their free balance, and it is larger than the fee that
-finally settles. That gap is the usual claim-fee surprise.
+Coldkey-wide claims reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units.
+Single-hotkey claims reserve one basket's 129-unit envelope. Both refund down
+to the work actually done.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
 and tells the caller when a claim loses money or cannot even be included.
@@ -29,6 +28,7 @@ _REDEEM_REF_TIME = 70
 # non-weight base/length fee returned by ``payment_info``.
 _APPROX_REDEEM_FEE_RAO = 447_500
 _MAX_ROOT_CLAIM_WORK = 256
+_MAX_ROOT_CLAIM_HOTKEY_WORK = 129
 
 # Default ``RootClaimableThreshold`` (500_000 rao) when storage is empty.
 _DEFAULT_THRESHOLD_RAO = 500_000
@@ -173,14 +173,21 @@ async def _quote(
         holdings += len(rows)
 
     networks = await _existing_network_count(substrate)
+    declared_work = _MAX_ROOT_CLAIM_WORK if coldkey_wide else _MAX_ROOT_CLAIM_HOTKEY_WORK
     threshold_rao = await _threshold_rao(substrate)
     free_rao = await _free_rao(substrate, signer_address)
-    reserved = await _reserved_fee(substrate, signer_address, compose)
+    reserved = await _reserved_fee(
+        substrate,
+        signer_address,
+        compose,
+        declared_work=declared_work,
+    )
     spent = _spent_fee(
         reserved,
         holdings,
         accrued_rao < threshold_rao,
         hotkey_count=max(len(hotkeys), 1),
+        declared_work=declared_work,
     )
 
     return RootClaimFeeQuote(
@@ -217,12 +224,14 @@ async def _reserved_fee(
     substrate: Any,
     signer_address: str,
     compose: Callable[[], Awaitable[Any]],
+    *,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
     try:
         call = await compose()
         return await substrate.estimate_fee(call, _FeeView(signer_address))
     except Exception:
-        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK)
+        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * max(declared_work, 1))
 
 
 def _spent_fee(
@@ -231,32 +240,31 @@ def _spent_fee(
     scan_only: bool,
     *,
     hotkey_count: int = 1,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
     """Refund unused declared units; keep non-weight base/length fees intact.
 
     Runtime active units are ``max(hotkey_count, realized + swept, 1)``. The
     quote floors by the selected hotkey count so empty-basket validators still
-    cost a full unit. ``estimate_fee`` prices the 256-unit declaration plus
-    extrinsic base/length; only the weight slice scales.
+    cost a full unit. ``estimate_fee`` prices ``declared_work`` plus extrinsic
+    base/length; only the weight slice scales.
     """
     if reserved.rao <= 0:
         return reserved
-    declared_weight = _APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK
+    declared_work = max(declared_work, 1)
+    declared_weight = _APPROX_REDEEM_FEE_RAO * declared_work
     weight_part = min(reserved.rao, declared_weight)
     base_part = max(0, reserved.rao - declared_weight)
     hotkeys = max(hotkey_count, 1)
     if scan_only:
         scan_weight = (
-            weight_part
-            * max(holdings, 0)
-            * _SCAN_REF_TIME
-            // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
+            weight_part * max(holdings, 0) * _SCAN_REF_TIME // (declared_work * _REDEEM_REF_TIME)
         )
-        walk_weight = weight_part * hotkeys // _MAX_ROOT_CLAIM_WORK
+        walk_weight = weight_part * hotkeys // declared_work
         spent_weight = walk_weight + scan_weight
     else:
         units = max(holdings, hotkeys)
-        spent_weight = weight_part * units // _MAX_ROOT_CLAIM_WORK
+        spent_weight = weight_part * units // declared_work
     return Balance.from_rao(min(reserved.rao, base_part + max(spent_weight, 0)))
 
 

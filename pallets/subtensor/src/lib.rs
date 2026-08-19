@@ -71,12 +71,12 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Benchmark upper bound and admission envelope for `claim_root` /
-/// `claim_root_scan` (Linear<1, N>). Weight calculation cannot walk storage,
-/// so both claim paths reserve this many units and refuse work that would
-/// exceed the envelope. Post-dispatch weight is refunded to the work
-/// actually performed.
+/// Benchmark and admission ceiling for root claims and scans.
+/// Coldkey-wide claims reserve this full envelope.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+/// Single-hotkey quote: root plus the current maximum 128 subnet slots.
+/// Raise this in the same runtime upgrade that raises the subnet limit.
+pub const MAX_ROOT_CLAIM_HOTKEY_WORK: u32 = 129;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
 /// to the number of available destinations when fewer networks exist than this floor.

@@ -321,7 +321,7 @@ class ClaimRootWithHotkey(Intent):
     compound. The transaction fee is charged by work actually done:
     holdings redeemed pay full weight, holdings merely scanned pay a small
     per-row cost. The chain reserves the declared-work fee at inclusion
-    (one unit per existing network) and refunds the unused part after.
+    (a 129-unit single-basket envelope) and refunds the unused part after.
     ``plan`` and ``btcli root claim --dry-run`` show reserved versus spent,
     warn when the spent fee exceeds accrued yield, and refuse when free
     TAO cannot cover the reserve.

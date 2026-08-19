@@ -211,9 +211,10 @@ root-stakes to.
   deadline and nothing expires.
 - **Claim fee.** The inclusion fee scales with how many ALPHA types the
   basket holds. The chain reserves the declared-work fee at inclusion
-  (one unit per existing network, often around τ0.1) and refunds the
-  unused part after the claim. The amount you actually spend is smaller
-  (around τ0.057 on a full 128-holding basket).
+  (a 129-unit envelope, around τ0.058, for a single-validator claim) and
+  refunds the unused part after the claim. The legacy coldkey-wide call
+  reserves the full 256-unit envelope. The amount you actually spend is
+  around τ0.057 on a full 128-holding basket.
   `btcli root claim --dry-run` shows reserved versus spent, compares the
   spent fee to accrued yield, warns if the claim loses money, and
   refuses if free TAO cannot cover the reserved amount.
