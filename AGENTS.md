@@ -114,8 +114,10 @@ Run the relevant E2E suite when behavior changes. Commit an intentional
 
 Runtime-affecting changes trigger the spec-version gate. The literal
 `spec_version` in `runtime/src/lib.rs` must be newer than mainnet unless the PR
-has the `no-spec-version-bump` label. Do not silently bump the version for a
-non-release change; explicitly tell the maintainer that the label is required.
+has the `no-spec-version-bump` label. Treat this as advisory: do not change
+`spec_version` unless the user explicitly requests that release action. Never
+initiate a bump merely to satisfy CI. Instead, tell the maintainer that the PR
+needs the label or a deliberate, separately authorized version bump.
 
 Adding or changing a dispatchable requires matching benchmarks and
 `WeightInfo` wiring. Run the pallet's benchmark tests:
