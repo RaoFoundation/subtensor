@@ -423,6 +423,19 @@ class SyncClient:
         multi = self._call(self._client.multisig(signatories, threshold))
         return _SyncNamespace(multi, self._call)
 
+    def preflight(self, intent, wallet, *, proxy_for=None, proxy_type=None):
+        return self._call(
+            self._client.preflight(
+                intent,
+                wallet,
+                proxy_for=proxy_for,
+                proxy_type=proxy_type,
+            )
+        )
+
+    def estimate_shielded_carrier_fee(self, fee_payer):
+        return self._call(self._client.estimate_shielded_carrier_fee(fee_payer))
+
     def plan(self, intent, wallet, **kwargs):
         return self._call(self._client.plan(intent, wallet, **kwargs))
 

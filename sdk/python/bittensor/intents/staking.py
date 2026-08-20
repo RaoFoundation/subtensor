@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Optional, cast
 
 from .._generated import calls, constants
 from .._generated import storage as st
@@ -14,12 +14,17 @@ from ..result import BittensorError
 from ..settings import RAO_PER_TAO
 from ..signing import public_view
 from ._money import ALL, UNBOUNDED, Money, Spend, call_amount
-from .base import BuiltCall, Intent
+from .base import BuiltCall, Intent, IntentPreflight
 from .registry import register
 
 # Default slippage-protection tolerance: the pool price may move at most this
 # fraction from the price observed at build time before the call stops filling.
 DEFAULT_RATE_TOLERANCE = 0.05
+
+# ``remove_stake`` caps its u64 input to the live position.  Using the type's
+# maximum after a root claim is the only atomic way to include yield that does
+# not exist until the preceding batch child executes.
+_MAX_ALPHA_RAO = (1 << 64) - 1
 
 NETUID_HELP = "Subnet the stake lives on (netuid 0 is the root network)."
 
@@ -230,6 +235,26 @@ async def _staked_rao(
     return rao
 
 
+async def _resolve_unstake_amount(
+    substrate,
+    wallet: Any,
+    *,
+    hotkey_ss58: str,
+    netuid: int,
+    amount_alpha: Money,
+    claim: bool,
+) -> tuple[int, bool]:
+    """Resolve ``all`` and identify the atomic root claim-all special case."""
+    claim_all = claim and netuid == 0 and amount_alpha == ALL
+    if amount_alpha != ALL:
+        return cast(Balance, amount_alpha).rao, claim_all
+
+    # Preserve the no-op guard, then let plain remove_stake cap u64::MAX to
+    # the post-claim balance so the just-claimed yield is included atomically.
+    current_rao = await _staked_rao(substrate, wallet, hotkey_ss58, netuid)
+    return (_MAX_ALPHA_RAO if claim_all else current_rao), claim_all
+
+
 async def _lockable_rao(substrate, coldkey_ss58: str, netuid: int) -> int:
     """Unlocked stake (rao) a coldkey can still lock on ``netuid``.
 
@@ -273,7 +298,9 @@ CLAIM_HELP = (
     "in one atomic batch. Root only (netuid 0). This is not a proportional "
     "payout: unstaking 40% still claims 100% of the basket. The chain has no "
     "proportional-claim call. Claimed yield is restaked on root, then the "
-    "unstake runs — pass `all` to take principal and yield out together."
+    "unstake runs — pass `all` to take principal and yield out together. "
+    "Unavailable while RootStakeUnlockInterval is nonzero, because the claim "
+    "starts a new hold window; claim first, wait, then unstake in that mode."
 )
 
 CLAIM_NOT_PROPORTIONAL = (
@@ -339,12 +366,60 @@ async def _compose_unstake_with_optional_claim(
             "claim_root_with_hotkey pays this validator's whole basket "
             "entitlement, not a proportional slice of the unstake."
         )
+    interval = int(await substrate.query(*st.SubtensorModule.RootStakeUnlockInterval) or 0)
+    if interval > 0:
+        raise BittensorError(
+            "claim-then-unstake cannot execute atomically while "
+            f"RootStakeUnlockInterval is {interval} blocks: a successful claim "
+            "refreshes the root-stake hold before the unstake runs. Claim first, "
+            "wait for the hold interval, then unstake."
+        )
     claim_call = await substrate.compose(
         calls.SubtensorModule.claim_root_with_hotkey(hotkey=hotkey_ss58)
     )
     return await substrate.compose(
         calls.Utility.batch_all(calls=[claim_call, _as_call(unstake_call)])
     )
+
+
+class _OptionalRootClaimIntent(Intent):
+    """Preflight the embedded claim in claim-then-unstake intents."""
+
+    hotkey_ss58: str
+    claim: bool
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        base = await super().preflight(
+            substrate,
+            dispatch_origin,
+            fee_payer,
+            call=call,
+        )
+        if not self.claim:
+            return base
+        netuid = getattr(self, "netuid", None)
+        if netuid is not None and int(netuid) != 0:
+            return base  # build() reports the invalid non-root combination
+
+        from .registration import ClaimRootWithHotkey
+
+        claim = ClaimRootWithHotkey(hotkey_ss58=self.hotkey_ss58)
+        claim_preview = await claim.preflight(
+            substrate,
+            dispatch_origin,
+            fee_payer,
+            call=call,
+        )
+        return IntentPreflight(
+            effects=[*base.effects, *claim_preview.effects],
+            warnings=[*base.warnings, *claim_preview.warnings],
+            blocks=[*base.blocks, *claim_preview.blocks],
+            required_free=claim_preview.required_free,
+            available_free=claim_preview.available_free,
+            estimated_fee=claim_preview.estimated_fee,
+        )
 
 
 @register
@@ -445,7 +520,7 @@ class AddStake(Intent):
 
 @register
 @dataclass
-class RemoveStake(Intent):
+class RemoveStake(_OptionalRootClaimIntent):
     """Unstake alpha from a hotkey back to the coldkey.
 
     Swaps the alpha position back to TAO at the current pool price and credits
@@ -499,11 +574,15 @@ class RemoveStake(Intent):
         _check_rate_tolerance(self.rate_tolerance)
 
     async def build(self, substrate, wallet: Any):
-        if self.amount_alpha == ALL:
-            rao = await _staked_rao(substrate, wallet, self.hotkey_ss58, self.netuid)
-        else:
-            rao = self.amount_alpha.rao
-        if self.slippage_protection:
+        rao, claim_all = await _resolve_unstake_amount(
+            substrate,
+            wallet,
+            hotkey_ss58=self.hotkey_ss58,
+            netuid=self.netuid,
+            amount_alpha=self.amount_alpha,
+            claim=self.claim,
+        )
+        if self.slippage_protection and not claim_all:
             price = await _alpha_price_rao(substrate, self.netuid)
             unstake = await substrate.compose(
                 calls.SubtensorModule.remove_stake_limit(
@@ -740,7 +819,7 @@ class AddStakeLimit(Intent):
 
 @register
 @dataclass
-class RemoveStakeLimit(Intent):
+class RemoveStakeLimit(_OptionalRootClaimIntent):
     """Unstake alpha with a limit price (slippage protection).
 
     Same as ``remove_stake`` except the alpha-to-TAO swap only executes while
@@ -761,6 +840,7 @@ class RemoveStakeLimit(Intent):
     signer = "coldkey"
     wraps = (
         ("SubtensorModule", "remove_stake_limit"),
+        ("SubtensorModule", "remove_stake"),
         ("SubtensorModule", "claim_root_with_hotkey"),
         ("Utility", "batch_all"),
     )
@@ -782,19 +862,40 @@ class RemoveStakeLimit(Intent):
         )
 
     async def build(self, substrate, wallet: Any):
-        if self.amount_alpha == ALL:
-            rao = await _staked_rao(substrate, wallet, self.hotkey_ss58, self.netuid)
-        else:
-            rao = self.amount_alpha.rao
-        unstake = await substrate.compose(
-            calls.SubtensorModule.remove_stake_limit(
-                hotkey=self.hotkey_ss58,
-                netuid=self.netuid,
-                amount_unstaked=rao,
-                limit_price=self.limit_price_rao,
-                allow_partial=self.allow_partial,
-            )
+        rao, claim_all = await _resolve_unstake_amount(
+            substrate,
+            wallet,
+            hotkey_ss58=self.hotkey_ss58,
+            netuid=self.netuid,
+            amount_alpha=self.amount_alpha,
+            claim=self.claim,
         )
+        if claim_all:
+            if not 0 <= self.limit_price_rao <= RAO_PER_TAO:
+                raise BittensorError(
+                    "root remove_stake_limit requires limit_price_rao in "
+                    "[0, 1000000000]; "
+                    f"got {self.limit_price_rao}"
+                )
+            # Root has a fixed 1:1 price, so the limit is already satisfied.
+            # Plain remove_stake safely caps MAX to the post-claim position.
+            unstake = await substrate.compose(
+                calls.SubtensorModule.remove_stake(
+                    hotkey=self.hotkey_ss58,
+                    netuid=self.netuid,
+                    amount_unstaked=rao,
+                )
+            )
+        else:
+            unstake = await substrate.compose(
+                calls.SubtensorModule.remove_stake_limit(
+                    hotkey=self.hotkey_ss58,
+                    netuid=self.netuid,
+                    amount_unstaked=rao,
+                    limit_price=self.limit_price_rao,
+                    allow_partial=self.allow_partial,
+                )
+            )
         return await _compose_unstake_with_optional_claim(
             substrate,
             unstake,
@@ -826,7 +927,7 @@ class RemoveStakeLimit(Intent):
 
 @register
 @dataclass
-class UnstakeAll(Intent):
+class UnstakeAll(_OptionalRootClaimIntent):
     """Unstake everything from a hotkey across all subnets.
 
     Sweeps the signing coldkey's entire stake held on this hotkey across every
@@ -862,7 +963,9 @@ class UnstakeAll(Intent):
                 "before unstaking, in one atomic batch. This is not a "
                 "proportional payout: the claim pays 100% of the basket. "
                 "Claimed yield is restaked on root, then unstake-all takes "
-                "principal and that yield out together."
+                "principal and that yield out together. Unavailable while "
+                "RootStakeUnlockInterval is nonzero; claim first, wait for the "
+                "hold, then unstake in that mode."
             )
         },
     )

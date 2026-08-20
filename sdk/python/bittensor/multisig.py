@@ -243,7 +243,7 @@ class Multisig:
             {},
             period=MEV_SHIELD_ERA_PERIOD,
             wait_for_inclusion=wait_for_inclusion,
-            wait_for_finalization=False,
+            wait_for_finalization=wait_for_finalization,
         )
 
     async def _compose_as_multi(self, composed, keypair):

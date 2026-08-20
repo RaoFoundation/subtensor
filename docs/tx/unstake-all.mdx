@@ -28,7 +28,7 @@ payout: the claim pays 100% of the basket.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `hotkey_ss58` | string | yes | Hotkey whose entire stake is removed. |
-| `claim` | boolean | no | Also redeem this validator's whole root basket entitlement before unstaking, in one atomic batch. This is not a proportional payout: the claim pays 100% of the basket. Claimed yield is restaked on root, then unstake-all takes principal and that yield out together. |
+| `claim` | boolean | no | Also redeem this validator's whole root basket entitlement before unstaking, in one atomic batch. This is not a proportional payout: the claim pays 100% of the basket. Claimed yield is restaked on root, then unstake-all takes principal and that yield out together. Unavailable while RootStakeUnlockInterval is nonzero; claim first, wait for the hold, then unstake in that mode. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

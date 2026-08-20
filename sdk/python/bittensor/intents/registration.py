@@ -10,8 +10,12 @@ from .._generated import calls
 from .._generated import storage as st
 from ..balance import Balance
 from ._money import UNBOUNDED, Spend
-from ._root_claim_fee import cached_root_claim_quote
-from .base import Intent
+from ._root_claim_fee import (
+    quote_root_claim_fee,
+    root_claim_admission,
+    root_claim_reserve,
+)
+from .base import Intent, IntentPreflight
 from .registry import register
 
 # CollateralLockShare is u16 where 65535 = 100%. Matches the chain's
@@ -238,9 +242,119 @@ class RootRegister(Intent):
         return [0]
 
 
+class _RootClaimIntent(Intent):
+    """Shared, fail-closed root-claim admission and best-effort fee preview."""
+
+    def _claim_hotkeys(self) -> Optional[list[str]]:
+        raise NotImplementedError
+
+    def _claim_call(self):
+        raise NotImplementedError
+
+    async def _claim_preflight(
+        self,
+        substrate,
+        dispatch_origin: str,
+        fee_payer: str,
+        *,
+        call: Any = None,
+    ) -> IntentPreflight:
+        hotkeys = self._claim_hotkeys()
+        try:
+            admission = await root_claim_admission(
+                substrate,
+                dispatch_origin,
+                hotkeys=hotkeys,
+            )
+        except Exception as error:
+            return IntentPreflight(
+                effects=[self.summary()],
+                warnings=[],
+                blocks=[
+                    "could not verify the root claim's 256-unit admission budget; "
+                    f"refusing to risk the unreduced declared fee ({error})"
+                ],
+            )
+
+        admission_blocks = admission.blocks()
+        if admission_blocks:
+            return IntentPreflight(
+                effects=[self.summary()],
+                warnings=[],
+                blocks=admission_blocks,
+            )
+
+        async def compose():
+            return await substrate.compose(self._claim_call())
+
+        try:
+            reserve = await root_claim_reserve(
+                substrate,
+                fee_payer,
+                compose=compose,
+                call=call,
+            )
+        except Exception as error:
+            return IntentPreflight(
+                effects=[self.summary()],
+                warnings=[],
+                blocks=[
+                    "could not verify the root claim's reserved fee and free TAO; "
+                    f"refusing to risk the unreduced declared fee ({error})"
+                ],
+            )
+
+        quote = await quote_root_claim_fee(
+            substrate,
+            dispatch_origin,
+            fee_payer_address=fee_payer,
+            hotkeys=hotkeys,
+            compose=compose,
+            call=call,
+            admission=admission,
+            reserve=reserve,
+        )
+        if quote is None:
+            return IntentPreflight(
+                effects=[self.summary()],
+                warnings=[],
+                blocks=reserve.blocks(),
+                required_free=reserve.reserved,
+                available_free=reserve.free,
+                estimated_fee=reserve.reserved if reserve.exact else None,
+            )
+        return IntentPreflight(
+            effects=[self.summary(), *quote.effects()],
+            warnings=quote.warnings(),
+            blocks=quote.blocks(),
+            required_free=quote.reserved,
+            available_free=quote.free,
+            estimated_fee=quote.reserved if reserve.exact else None,
+        )
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        return await self._claim_preflight(
+            substrate,
+            dispatch_origin,
+            fee_payer,
+            call=call,
+        )
+
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        return (await self._claim_preflight(substrate, signer_address, signer_address)).effects
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        return (await self._claim_preflight(substrate, signer_address, signer_address)).warnings
+
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        return (await self._claim_preflight(substrate, signer_address, signer_address)).blocks
+
+
 @register
 @dataclass
-class ClaimRoot(Intent):
+class ClaimRoot(_RootClaimIntent):
     """Redeem accrued root dividends across every validator for the coldkey.
 
     Root dividends accrue as shares of each validator's basket — an
@@ -277,35 +391,16 @@ class ClaimRoot(Intent):
     def summary(self) -> str:
         return "claim root dividends on all validators (redeem basket shares to root stake)"
 
-    async def _claim_fee_quote(self, substrate, signer_address: str):
-        return await cached_root_claim_quote(
-            self,
-            substrate,
-            signer_address,
-            hotkeys=None,
-            compose=lambda: substrate.compose(
-                calls.SubtensorModule.claim_root(subnets=self.subnets)
-            ),
-        )
+    def _claim_hotkeys(self) -> Optional[list[str]]:
+        return None
 
-    async def effects(self, substrate, signer_address: str) -> list[str]:
-        quote = await self._claim_fee_quote(substrate, signer_address)
-        if quote is None:
-            return [self.summary()]
-        return [self.summary(), *quote.effects()]
-
-    async def warnings(self, substrate, signer_address: str) -> list[str]:
-        quote = await self._claim_fee_quote(substrate, signer_address)
-        return [] if quote is None else quote.warnings()
-
-    async def blocks(self, substrate, signer_address: str) -> list[str]:
-        quote = await self._claim_fee_quote(substrate, signer_address)
-        return [] if quote is None else quote.blocks()
+    def _claim_call(self):
+        return calls.SubtensorModule.claim_root(subnets=self.subnets)
 
 
 @register
 @dataclass
-class ClaimRootWithHotkey(Intent):
+class ClaimRootWithHotkey(_RootClaimIntent):
     """Redeem accrued root dividends (basket shares) for one validator.
 
     Redeems the signing coldkey's owed shares on the given validator only:
@@ -343,30 +438,11 @@ class ClaimRootWithHotkey(Intent):
     def summary(self) -> str:
         return f"claim root dividends on {self.hotkey_ss58} (redeem basket shares to root stake)"
 
-    async def _claim_fee_quote(self, substrate, signer_address: str):
-        return await cached_root_claim_quote(
-            self,
-            substrate,
-            signer_address,
-            hotkeys=[self.hotkey_ss58],
-            compose=lambda: substrate.compose(
-                calls.SubtensorModule.claim_root_with_hotkey(hotkey=self.hotkey_ss58)
-            ),
-        )
+    def _claim_hotkeys(self) -> Optional[list[str]]:
+        return [self.hotkey_ss58]
 
-    async def effects(self, substrate, signer_address: str) -> list[str]:
-        quote = await self._claim_fee_quote(substrate, signer_address)
-        if quote is None:
-            return [self.summary()]
-        return [self.summary(), *quote.effects()]
-
-    async def warnings(self, substrate, signer_address: str) -> list[str]:
-        quote = await self._claim_fee_quote(substrate, signer_address)
-        return [] if quote is None else quote.warnings()
-
-    async def blocks(self, substrate, signer_address: str) -> list[str]:
-        quote = await self._claim_fee_quote(substrate, signer_address)
-        return [] if quote is None else quote.blocks()
+    def _claim_call(self):
+        return calls.SubtensorModule.claim_root_with_hotkey(hotkey=self.hotkey_ss58)
 
 
 @register

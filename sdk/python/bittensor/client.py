@@ -28,8 +28,9 @@ from ._generated import storage as _st
 from ._substrate import RpcSubstrate, Substrate
 from ._transport.contract import UnsignedExtrinsic
 from .balance import Balance
-from .executor import Executor
+from .executor import Executor, estimate_shielded_carrier_fee
 from .intents import Intent, Plan, Policy
+from .intents.base import IntentPreflight
 from .multisig import Multisig
 from .namespaces import (
     Balances,
@@ -412,6 +413,26 @@ class Client:
         return await asyncio.wait_for(wait(), timeout) if timeout else await wait()
 
     # Intent layer -----------------------------------------------------------
+
+    async def preflight(
+        self,
+        intent: Intent,
+        wallet: WalletLike,
+        *,
+        proxy_for: Optional[str] = None,
+        proxy_type: Optional[str] = None,
+    ) -> IntentPreflight:
+        """Preview context-sensitive effects and hard stops without fee planning."""
+        return await self._executor.preflight(
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            proxy_type=proxy_type,
+        )
+
+    async def estimate_shielded_carrier_fee(self, fee_payer: str) -> Balance:
+        """Conservatively estimate the TAO fee of a MevShield carrier."""
+        return await estimate_shielded_carrier_fee(self._substrate, fee_payer)
 
     async def plan(self, intent: Intent, wallet: WalletLike, **kwargs) -> Plan:
         """Preview an intent (fee, effects, warnings, policy) without submitting.
