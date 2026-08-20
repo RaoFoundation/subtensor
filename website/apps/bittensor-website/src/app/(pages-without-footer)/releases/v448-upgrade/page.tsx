@@ -137,30 +137,6 @@ const page = () => {
             the full composition model.
           </p>
         </section>
-
-        <section className={styles.section}>
-          <h2 className={styles.subtitle}>Upgrade checklist</h2>
-          <ul>
-            <li>Upgrade nodes and metadata-generated clients to runtime spec 448.</li>
-            <li>
-              Let the bounded staking-index migrations finish before treating historical{' '}
-              <code>TotalAlphaStaked</code> values as complete. Operators can confirm the backfill
-              through <code>HasMigrationRun[b&quot;migrate_total_alpha_staked&quot;]</code>.
-            </li>
-            <li>
-              Update cross-subnet stake automation for <code>move_stake_limit</code> and explicit
-              partial-fill policy.
-            </li>
-            <li>
-              Budget the 256-unit root-claim reserve even though unused work is refunded after
-              dispatch.
-            </li>
-            <li>
-              Treat linked-output records as single-use accounting with a seven-day lifetime, not as
-              escrowed funds.
-            </li>
-          </ul>
-        </section>
       </FadeInWrapper>
     </Suspense>
   );
