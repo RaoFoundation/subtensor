@@ -1126,7 +1126,32 @@ class Executor:
                     # Finality applies to the canonical block at this height.
                     # Re-resolve after a reorg instead of returning a receipt
                     # observed on a fork before the finalized head caught up.
-                    canonical_hash = await self.substrate.block_hash(block)
+                    canonical_hash = None
+                    canonical_hash_error: Optional[Exception] = None
+                    rpc_timeout = max(0.1, poll_interval)
+                    for attempt in range(_SHIELDED_FINALITY_RPC_RETRIES):
+                        try:
+                            canonical_hash = await asyncio.wait_for(
+                                self.substrate.block_hash(block),
+                                timeout=rpc_timeout,
+                            )
+                        except Exception as error:
+                            canonical_hash_error = error
+                            if attempt + 1 < _SHIELDED_FINALITY_RPC_RETRIES:
+                                await asyncio.sleep(poll_interval)
+                        else:
+                            if canonical_hash:
+                                break
+                            canonical_hash_error = ChainError(
+                                f"canonical block hash unavailable at finalized block {block}"
+                            )
+                    if not canonical_hash:
+                        message = (
+                            "could not verify shielded inner extrinsic finalization "
+                            f"after {_SHIELDED_FINALITY_RPC_RETRIES} canonical block-hash "
+                            "RPC attempts"
+                        )
+                        raise ChainError(message) from canonical_hash_error
                     if canonical_hash != block_hash:
                         inner = await self.substrate.find_extrinsic(inner_hash, canonical_hash)
                         if inner is None:

@@ -368,6 +368,74 @@ class TestExecuteFlow:
         assert finalized.await_count == 8
 
     @pytest.mark.asyncio
+    async def test_shielded_inner_finalization_recovers_from_canonical_hash_rpc_failure(
+        self, client: Client, substrate: FakeSubstrate, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from tests.harness.fake_substrate import success_result
+
+        outer = success_result(10)
+        inner = success_result(10)
+        block_hash = await substrate.block_hash(10)
+        monkeypatch.setattr(substrate, "block_time", AsyncMock(return_value=0))
+        monkeypatch.setattr(substrate, "finalized_block_number", AsyncMock(return_value=10))
+        hashes = AsyncMock(
+            side_effect=[block_hash, ConnectionError("block hash unavailable"), block_hash]
+        )
+        monkeypatch.setattr(substrate, "block_hash", hashes)
+        monkeypatch.setattr(substrate, "find_extrinsic", AsyncMock(return_value=inner))
+
+        result = await client._executor._resolve_shielded_inner(
+            outer,
+            "0xinner",
+            period=1,
+            wait_for_finalization=True,
+        )
+
+        assert result.extrinsic_id == inner.extrinsic_id
+        assert hashes.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_shielded_inner_finalization_bounds_hung_canonical_hash_rpc(
+        self, client: Client, substrate: FakeSubstrate, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from tests.harness.fake_substrate import success_result
+
+        outer = success_result(10)
+        inner = success_result(10)
+        block_hash = await substrate.block_hash(10)
+        calls = 0
+        never_returns = asyncio.Event()
+
+        async def hanging_canonical_hash(_block):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return block_hash
+            return await never_returns.wait()
+
+        monkeypatch.setattr(substrate, "block_time", AsyncMock(return_value=0))
+        monkeypatch.setattr(substrate, "finalized_block_number", AsyncMock(return_value=10))
+        monkeypatch.setattr(substrate, "block_hash", hanging_canonical_hash)
+        monkeypatch.setattr(substrate, "find_extrinsic", AsyncMock(return_value=inner))
+
+        with pytest.raises(ChainError, match=r"after 4 canonical block-hash RPC attempts"):
+            await asyncio.wait_for(
+                client._executor._resolve_shielded_inner(
+                    outer,
+                    "0xinner",
+                    period=1,
+                    wait_for_finalization=True,
+                ),
+                timeout=1,
+            )
+
+        assert calls == 5
+
+    @pytest.mark.asyncio
     async def test_register_subnet_returns_immediate_network_added(
         self, client: Client, substrate: FakeSubstrate, wallet
     ):
