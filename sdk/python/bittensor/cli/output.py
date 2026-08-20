@@ -835,8 +835,8 @@ class Output:
         if not rows:
             self._out.print("  [dim]none[/dim]")
             return
-        columns = ["price (τ)", "tempo", "burn", "neurons"]
-        keys = ["price", "tempo", "burn", "neurons"]
+        columns = ["state", "pool emission", "price (τ)", "tempo", "burn", "neurons"]
+        keys = ["state", "pool_emission", "price", "tempo", "burn", "neurons"]
         subnet_cells = [self.subnet_text(row["netuid"]) for row in rows]
         subnet_width = max([len("netuid")] + [cell.cell_len for cell in subnet_cells])
         widths = [

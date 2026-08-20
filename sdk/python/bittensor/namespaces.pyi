@@ -15,7 +15,7 @@ from .reads.identity import Commitment
 from .reads.neurons import Neuron
 from .reads.prices import SwapQuote
 from .reads.staking import StakePosition, StakeValuation
-from .reads.subnets import SubnetInfo
+from .reads.subnets import SubnetInfo, SubnetLifecycleState
 
 class _ReadNamespace:
     def __init__(self, view: Any) -> None: ...
@@ -516,6 +516,12 @@ class Staking(_ReadNamespace):
 class Subnets(_ReadNamespace):
     """Aggregating/decoding subnet reads, plus every "Subnets" read."""
 
+    async def state(self, netuid: int, block: Optional[int] = None) -> Optional[SubnetLifecycleState]:
+        """Reporting lifecycle for one subnet, including deferred dissolution."""
+
+    async def states(self, block: Optional[int] = None) -> dict[int, SubnetLifecycleState]:
+        """Reporting lifecycle for every active or dissolving subnet."""
+
     async def burn(self, netuid: int, block: Optional[int] = None) -> Balance:
         """Current burn (recycle) cost to register on a subnet."""
 
@@ -591,6 +597,12 @@ class Subnets(_ReadNamespace):
         All values are block numbers: the subnet can start once the current block
         reaches `earliest_start_block` (registration block plus the chain's delay).
         """
+
+    async def subnet_state(self, netuid: int, *, block: Optional[int] = None) -> Optional[SubnetLifecycleState]:
+        """Reporting lifecycle for one subnet, or None after cleanup/nonexistence."""
+
+    async def subnet_states(self, *, block: Optional[int] = None) -> dict[int, SubnetLifecycleState]:
+        """Reporting lifecycle for every active or dissolving subnet."""
 
     async def subnets(self, *, block: Optional[int] = None) -> list[SubnetInfo]:
         """Info for every subnet, fetched in four batched map queries rather than

@@ -148,6 +148,7 @@ impl<T: Config> Pallet<T> {
 
         // Just remove the network from the added networks, it is used to check if the network is existed.
         NetworksAdded::<T>::remove(netuid);
+        SubnetState::<T>::insert(netuid, SubnetLifecycleState::PendingDissolution);
         // Reduce the total networks count.
         TotalNetworks::<T>::mutate(|n: &mut u16| *n = n.saturating_sub(1));
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(SubnetTAO::<T>::get(netuid)));
@@ -644,7 +645,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn remove_data_for_dissolved_networks(remaining_weight: Weight) -> Weight {
-        let w = T::DbWeight::get().writes(1);
+        let start_writes = T::DbWeight::get().writes(2);
         let r = T::DbWeight::get().reads(1);
         let mut weight_meter = frame_support::weights::WeightMeter::with_limit(remaining_weight);
 
@@ -657,7 +658,8 @@ impl<T: Config> Pallet<T> {
                     queue.retain(|queued_netuid| *queued_netuid != status.netuid);
                 });
                 CurrentDissolveCleanupStatus::<T>::kill();
-                return weight.saturating_add(T::DbWeight::get().writes(2));
+                SubnetState::<T>::remove(status.netuid);
+                return weight.saturating_add(T::DbWeight::get().writes(3));
             }
             return weight;
         }
@@ -669,13 +671,14 @@ impl<T: Config> Pallet<T> {
 
         let dissolved_networks = DissolveCleanupQueue::<T>::get();
         if let Some(netuid) = dissolved_networks.first() {
-            if !weight_meter.can_consume(w) {
+            if !weight_meter.can_consume(start_writes) {
                 return weight_meter.consumed();
             }
-            weight_meter.consume(w);
+            weight_meter.consume(start_writes);
 
             let mut status = DissolveCleanupStatus::new(*netuid);
             CurrentDissolveCleanupStatus::<T>::set(Some(status.clone()));
+            SubnetState::<T>::insert(*netuid, SubnetLifecycleState::Dissolving);
 
             let (cleanup_completed, _weight) =
                 Self::clean_up_data_for_one_dissolved_network(&mut weight_meter, &mut status);
@@ -685,7 +688,8 @@ impl<T: Config> Pallet<T> {
                     queue.retain(|queued_netuid| *queued_netuid != status.netuid);
                 });
                 CurrentDissolveCleanupStatus::<T>::kill();
-                weight_meter.consume(T::DbWeight::get().writes(2));
+                SubnetState::<T>::remove(status.netuid);
+                weight_meter.consume(T::DbWeight::get().writes(3));
             }
         }
 

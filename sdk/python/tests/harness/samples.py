@@ -260,6 +260,8 @@ READ_SAMPLES: dict[str, dict] = {
     "stake_value_for_coldkeys": {"coldkey_ss58s": [ALICE, BOB]},
     "staking_hotkeys": {"coldkey_ss58": ALICE},
     "subnet": {"netuid": 1},
+    "subnet_state": {"netuid": 1},
+    "subnet_states": {},
     "subnet_convictions": {"netuid": 1},
     "subnet_emission_enabled": {"netuid": 1},
     "subnet_hyperparameters": {"netuid": 1},

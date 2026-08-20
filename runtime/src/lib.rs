@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 447,
+    spec_version: 448,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -2483,7 +2483,7 @@ impl_runtime_apis! {
         }
 
         fn current_alpha_price_all() -> Vec<SubnetPrice> {
-            pallet_subtensor::Pallet::<Runtime>::get_all_subnet_netuids()
+            pallet_subtensor::Pallet::<Runtime>::get_all_reportable_subnet_netuids()
                 .into_iter()
                 .map(|netuid| {
                     SubnetPrice {

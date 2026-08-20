@@ -93,6 +93,7 @@ def _position_record(pos, valuation, extra: Optional[dict] = None) -> dict:
         "value": str(value),
         "value_tao": value.tao,
         "registered": pos.is_registered,
+        "subnet_state": pos.subnet_state.value if pos.subnet_state is not None else None,
     }
 
 

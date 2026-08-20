@@ -68,6 +68,7 @@ from .reads import (
     StakePosition,
     StakeValuation,
     SubnetInfo,
+    SubnetLifecycleState,
     SwapQuote,
 )
 from .result import (
@@ -139,6 +140,7 @@ __all__ = [
     "MetagraphNeuron",
     "NeuronCommitment",
     "SubnetInfo",
+    "SubnetLifecycleState",
     "Balance",
     "UnitMismatchError",
     "tao",

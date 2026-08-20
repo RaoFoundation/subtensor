@@ -297,9 +297,15 @@ mod pallet_benchmarks {
         Subtensor::<T>::set_network_rate_limit(1);
         let amount: u64 = 100_000_000_000_000u64.saturating_mul(2);
         add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
+        let netuid = Subtensor::<T>::get_next_netuid();
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), hotkey.clone());
+
+        assert_eq!(
+            SubnetState::<T>::get(netuid),
+            Some(SubnetLifecycleState::Registered)
+        );
     }
 
     #[benchmark]
@@ -804,6 +810,11 @@ mod pallet_benchmarks {
 
         #[extrinsic_call]
         _(RawOrigin::Signed(coldkey.clone()), netuid);
+
+        assert_eq!(
+            SubnetState::<T>::get(netuid),
+            Some(SubnetLifecycleState::Started)
+        );
     }
 
     #[benchmark]
@@ -1452,12 +1463,18 @@ mod pallet_benchmarks {
         Subtensor::<T>::set_network_rate_limit(1);
         let amount: u64 = 9_999_999_999_999;
         add_balance_to_coldkey_account::<T>(&coldkey, amount.into());
+        let netuid = Subtensor::<T>::get_next_netuid();
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
             hotkey.clone(),
             identity.clone(),
+        );
+
+        assert_eq!(
+            SubnetState::<T>::get(netuid),
+            Some(SubnetLifecycleState::Registered)
         );
     }
 
@@ -2781,6 +2798,11 @@ mod pallet_benchmarks {
 
         #[extrinsic_call]
         _(RawOrigin::Root, coldkey.clone(), netuid);
+
+        assert_eq!(
+            SubnetState::<T>::get(netuid),
+            Some(SubnetLifecycleState::PendingDissolution)
+        );
     }
 
     #[benchmark]
@@ -2791,6 +2813,11 @@ mod pallet_benchmarks {
 
         #[extrinsic_call]
         _(RawOrigin::Root, netuid);
+
+        assert_eq!(
+            SubnetState::<T>::get(netuid),
+            Some(SubnetLifecycleState::PendingDissolution)
+        );
     }
 
     #[benchmark]

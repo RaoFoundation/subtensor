@@ -29,7 +29,7 @@ _NETUID_HELP = "Numeric identifier of the subnet."
 @app.command("list", rich_help_panel=PANEL_INSPECT)
 @with_globals
 def list_subnets(ctx: typer.Context):
-    """List all subnets: name, spot alpha price, tempo, burn, and neuron slots."""
+    """List all active and dissolving subnets with lifecycle and pool-emission state."""
     app_ctx: AppContext = ctx_of(ctx)
 
     async def _op(client):
@@ -52,6 +52,8 @@ def list_subnets(ctx: typer.Context):
         rows.append(
             {
                 "netuid": i.netuid,
+                "state": i.state.value if i.state is not None else "—",
+                "pool_emission": "on" if i.pool_emission_enabled else "off",
                 # Root has no alpha pool; its "price" is identically 1 TAO.
                 "price": f"{price:.6f}" if i.netuid != 0 and price is not None else "—",
                 "tempo": i.tempo,
@@ -69,6 +71,8 @@ def list_subnets(ctx: typer.Context):
                 "burn_tao": i.burn.tao,
                 "neurons": i.neuron_count,
                 "max_neurons": max_n,
+                "state": i.state.value if i.state is not None else None,
+                "pool_emission_enabled": i.pool_emission_enabled,
             }
         )
     total_neurons = sum(i.neuron_count for i in infos)
@@ -89,7 +93,7 @@ def show(
     app_ctx: AppContext = ctx_of(ctx)
 
     async def _op(client):
-        if not await client.query(storage.SubtensorModule.NetworksAdded, [netuid]):
+        if await client.subnets.state(netuid) is None:
             return None
         return await client.subnets.info(netuid)
 
@@ -103,6 +107,8 @@ def show(
             "tempo": info.tempo,
             "burn": info.burn,
             "neurons": info.neuron_count,
+            "state": info.state.value if info.state is not None else None,
+            "pool_emission_enabled": info.pool_emission_enabled,
         },
     )
 
