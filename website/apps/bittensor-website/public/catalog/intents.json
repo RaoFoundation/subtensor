@@ -556,7 +556,7 @@
   {
     "name": "claim_root_with_hotkey",
     "summary": "Redeem accrued root dividends (basket shares) for one validator.",
-    "description": "Redeem accrued root dividends (basket shares) for one validator.\n\nRedeems the signing coldkey's owed shares on the given validator only:\nthat basket pays out pro-rata (subnet alpha holdings are sold to TAO at\nthe current pool price) and the proceeds are staked back to root on the\nsame validator. Other validators' accrued yield is left untouched.\nClaims whose estimated payout is below the chain's claim threshold\n(see `root_claim_threshold`) are silently skipped and keep accruing.\nOrphaned dust holdings in the basket (subnets outside the validator's\ncurrent weight vector, worth less than the same threshold) are\nconsolidated into the fund's root (TAO) slot as a side effect, so the\nper-holding claim fee shrinks over time; curated positions are left to\ncompound. The transaction fee is charged by work actually done:\nholdings redeemed pay full weight, holdings merely scanned pay a small\nper-row cost. The chain reserves the declared-work fee at inclusion\n(one unit per existing network) and refunds the unused part after.\n`plan` and `btcli root claim --dry-run` show reserved versus spent,\nwarn when the spent fee exceeds accrued yield, and refuse when free\nTAO cannot cover the reserve.\nPreview per-validator payouts with `root_basket_owed_breakdown`.",
+    "description": "Redeem accrued root dividends (basket shares) for one validator.\n\nRedeems the signing coldkey's owed shares on the given validator only:\nthat basket pays out pro-rata (subnet alpha holdings are sold to TAO at\nthe current pool price) and the proceeds are staked back to root on the\nsame validator. Other validators' accrued yield is left untouched.\nClaims whose estimated payout is below the chain's claim threshold\n(see `root_claim_threshold`) are silently skipped and keep accruing.\nOrphaned dust holdings in the basket (subnets outside the validator's\ncurrent weight vector, worth less than the same threshold) are\nconsolidated into the fund's root (TAO) slot as a side effect, so the\nper-holding claim fee shrinks over time; curated positions are left to\ncompound. The transaction fee is charged by work actually done:\nholdings redeemed pay full weight, holdings merely scanned pay a small\nper-row cost. The chain reserves a fixed 256-unit declared-work envelope at\ninclusion, independent of the current network count, and refunds the unused\npart after.\n`plan` and `btcli root claim --dry-run` show reserved versus spent,\nwarn when the spent fee exceeds accrued yield, and refuse when free\nTAO cannot cover the reserve.\nPreview per-validator payouts with `root_basket_owed_breakdown`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2125,7 +2125,7 @@
         },
         "claim": {
           "type": "boolean",
-          "description": "Also redeem this validator's whole basket entitlement before unstaking, in one atomic batch. Root only (netuid 0). This is not a proportional payout: unstaking 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on root, then the unstake runs \u2014 pass `all` to take principal and yield out together."
+          "description": "Also redeem this validator's whole basket entitlement before unstaking, in one atomic batch. Root only (netuid 0). This is not a proportional payout: unstaking 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on root, then the unstake runs \u2014 pass `all` to take principal and yield out together. Unavailable while RootStakeUnlockInterval is nonzero, because the claim starts a new hold window; claim first, wait, then unstake in that mode."
         }
       },
       "required": [
@@ -2191,6 +2191,10 @@
       ],
       [
         "SubtensorModule",
+        "remove_stake"
+      ],
+      [
+        "SubtensorModule",
         "claim_root_with_hotkey"
       ],
       [
@@ -2239,7 +2243,7 @@
         },
         "claim": {
           "type": "boolean",
-          "description": "Also redeem this validator's whole basket entitlement before unstaking, in one atomic batch. Root only (netuid 0). This is not a proportional payout: unstaking 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on root, then the unstake runs \u2014 pass `all` to take principal and yield out together."
+          "description": "Also redeem this validator's whole basket entitlement before unstaking, in one atomic batch. Root only (netuid 0). This is not a proportional payout: unstaking 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on root, then the unstake runs \u2014 pass `all` to take principal and yield out together. Unavailable while RootStakeUnlockInterval is nonzero, because the claim starts a new hold window; claim first, wait, then unstake in that mode."
         }
       },
       "required": [
@@ -2261,6 +2265,15 @@
         "line": 1470,
         "end_line": 1486,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "remove_stake",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 612,
+        "end_line": 619,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L610-L619",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -4446,7 +4459,7 @@
   {
     "name": "unstake_all",
     "summary": "Unstake everything from a hotkey across all subnets.",
-    "description": "Unstake everything from a hotkey across all subnets.\n\nSweeps the signing coldkey's entire stake held on this hotkey across every\nsubnet (root included) back to TAO in the coldkey's free balance. Subnets\nwhere subtoken trading is disabled or where the position fails validation\n(e.g. dust below the chain minimum) are silently skipped, so the call can\nsucceed while leaving some positions untouched. Alpha positions are sold\nat each pool's current price with no limit protection, so large positions\ncan incur significant slippage. Use `remove_stake` to exit a single\nsubnet, or `unstake_all_alpha` to consolidate onto root while staying\nstaked.\n\nPass `claim=True` to redeem this validator's whole root basket\nentitlement first, then unstake everything. That is not a proportional\npayout: the claim pays 100% of the basket.",
+    "description": "Unstake everything from a hotkey across all subnets.\n\nSweeps the signing coldkey's entire stake held on this hotkey across every\nsubnet (root included) back to TAO in the coldkey's free balance. Subnets\nwhere subtoken trading is disabled or where the position fails validation\nare silently skipped, so the call can\nsucceed while leaving some positions untouched. Alpha positions are sold\nat each pool's current price with no limit protection, so large positions\ncan incur significant slippage. Use `remove_stake` to exit a single\nsubnet, or `unstake_all_alpha` to consolidate onto root while staying\nstaked.\n\nPass `claim=True` to redeem this validator's whole root basket\nentitlement first, then unstake everything. That is not a proportional\npayout: the claim pays 100% of the basket.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -4474,7 +4487,7 @@
         },
         "claim": {
           "type": "boolean",
-          "description": "Also redeem this validator's whole root basket entitlement before unstaking, in one atomic batch. This is not a proportional payout: the claim pays 100% of the basket. Claimed yield is restaked on root, then unstake-all takes principal and that yield out together."
+          "description": "Also redeem this validator's whole root basket entitlement before unstaking, in one atomic batch. This is not a proportional payout: the claim pays 100% of the basket. Claimed yield is restaked on root, then unstake-all takes principal and that yield out together. Unavailable while RootStakeUnlockInterval is nonzero; claim first, wait for the hold, then unstake in that mode."
         }
       },
       "required": [

@@ -514,7 +514,7 @@ The v11 package ships against a runtime that also changed behavior. These are
 not rename mappings — scripts that still "work" can fail or mis-account after
 the upgrade. See the release notes for
 [V431](/releases/v431-upgrade), [V445](/releases/v445-upgrade), and
-[V446](/releases/v446-upgrade).
+[V446](/releases/v446-upgrade), plus the [V448 upgrade](/releases/v448-upgrade).
 
 ### Ownership and emissions
 
@@ -552,9 +552,10 @@ the upgrade. See the release notes for
   commands) apply a 5% price bound by default. Old any-price scripts fail
   with [`SlippageTooHigh`](/code/pallets/subtensor/src/macros/errors.rs#L192) unless you pass
   `slippage_protection=False` / `--no-slippage-protection`, or set an explicit
-  `rate_tolerance` / limit price. The chain has no `move_stake_limit`; a
-  protected hotkey-and-subnet change is `move_stake` then `swap_stake_limit`
-  in one `batch_all`.
+  `rate_tolerance` / limit price. Runtime v448 adds `move_stake_limit` for a
+  single protected hotkey-and-subnet move. Its relative limit is the minimum
+  acceptable destination-alpha per origin-alpha ratio. The SDK and btcli use
+  fill-or-kill; direct runtime, EVM, and WASM callers can set `allow_partial`.
 - **Strict stake moves.** `move_stake` / `transfer_stake` / `swap_stake` no
   longer silently cap the alpha amount to what remains after an alpha-paid
   fee. Submitting the full stake balance can fail with

@@ -15,7 +15,7 @@ from typing import Any
 from .._generated import calls
 from ..balance import Balance
 from ._money import UNBOUNDED, Spend
-from .base import BuiltCall, Intent
+from .base import BuiltCall, Intent, IntentPreflight
 from .registry import build as build_intent
 from .registry import register
 
@@ -112,6 +112,39 @@ class Batch(Intent):
         for index, child in enumerate(self._children):
             out.extend(f"[{index}] {b}" for b in await child.blocks(substrate, signer_address))
         return out
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        effects = [f"all-or-nothing: {len(self._children)} calls in one extrinsic"]
+        warnings: list[str] = []
+        blocks: list[str] = []
+        required_free: Balance | None = None
+        available_free: Balance | None = None
+        estimated_fee: Balance | None = None
+        for index, child in enumerate(self._children):
+            child_preflight = await child.preflight(
+                substrate, dispatch_origin, fee_payer, call=call
+            )
+            effects.extend(f"[{index}] {item}" for item in child_preflight.effects)
+            warnings.extend(f"[{index}] {item}" for item in child_preflight.warnings)
+            blocks.extend(f"[{index}] {item}" for item in child_preflight.blocks)
+            if child_preflight.required_free is not None and (
+                required_free is None or child_preflight.required_free.rao > required_free.rao
+            ):
+                # Every child sees the same fully composed batch call, so its
+                # reserve describes that one extrinsic; do not sum duplicates.
+                required_free = child_preflight.required_free
+                available_free = child_preflight.available_free
+                estimated_fee = child_preflight.estimated_fee
+        return IntentPreflight(
+            effects=effects,
+            warnings=warnings,
+            blocks=blocks,
+            required_free=required_free,
+            available_free=available_free,
+            estimated_fee=estimated_fee,
+        )
 
     def spend(self) -> Spend:
         """Aggregate TAO spend across children; any unbounded child makes the

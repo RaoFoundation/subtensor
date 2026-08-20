@@ -75,7 +75,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.TransferStake(dest_coldkey_ss58="5F...", hotkey_ss58="5F...", origin_netuid=0, dest_netuid=0, amount_alpha=1.0)
+intent = bt.TransferStake(dest_coldkey_ss58="5G...destination", hotkey_ss58="5F...", origin_netuid=1, dest_netuid=2, amount_alpha=1.0)
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission

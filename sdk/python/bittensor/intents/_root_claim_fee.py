@@ -11,6 +11,7 @@ and tells the caller when a claim loses money or cannot even be included.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
@@ -50,6 +51,73 @@ def _i96f32_rao(value: Any) -> int:
     return int(value or 0) >> 32
 
 
+def _admission_blocks(hotkeys: int, networks: int, holdings: int) -> list[str]:
+    work = hotkeys * networks
+    if work <= _MAX_ROOT_CLAIM_WORK and holdings <= _MAX_ROOT_CLAIM_WORK:
+        return []
+    reasons: list[str] = []
+    if work > _MAX_ROOT_CLAIM_WORK:
+        reasons.append(f"{hotkeys} hotkeys × {networks} networks = {work}")
+    if holdings > _MAX_ROOT_CLAIM_WORK:
+        reasons.append(f"{holdings} basket holdings")
+    remediation = (
+        "claim one validator at a time with claim_root_with_hotkey"
+        if hotkeys > 1
+        else "the claim cannot be admitted until this basket's work is reduced"
+    )
+    return [
+        "root claim exceeds the 256-unit admission limit ("
+        + "; ".join(reasons)
+        + f"); {remediation}"
+    ]
+
+
+@dataclass(frozen=True)
+class RootClaimAdmission:
+    """Structural work the runtime checks before charging the declared fee."""
+
+    hotkeys: tuple[str, ...]
+    holding_counts: tuple[int, ...]
+    networks: int
+
+    @property
+    def holdings(self) -> int:
+        return sum(self.holding_counts)
+
+    @property
+    def too_heavy(self) -> bool:
+        return (
+            len(self.hotkeys) * self.networks > _MAX_ROOT_CLAIM_WORK
+            or self.holdings > _MAX_ROOT_CLAIM_WORK
+        )
+
+    def blocks(self) -> list[str]:
+        return _admission_blocks(len(self.hotkeys), self.networks, self.holdings)
+
+
+@dataclass(frozen=True)
+class RootClaimWork:
+    """Actual runtime work split by full redemption and lightweight scans."""
+
+    hotkeys: int
+    redeem_holdings: int
+    scan_holdings: int
+
+
+@dataclass(frozen=True)
+class RootClaimReserve:
+    """Mandatory affordability state, independent of optional payout preview."""
+
+    reserved: Balance
+    free: Balance
+    exact: bool
+
+    def blocks(self) -> list[str]:
+        if self.free.rao >= self.reserved.rao:
+            return []
+        return [f"free TAO ({self.free}) is below the reserved claim fee ({self.reserved})"]
+
+
 @dataclass(frozen=True)
 class RootClaimFeeQuote:
     """Best-effort reserved/spent fee picture for one root claim."""
@@ -61,7 +129,10 @@ class RootClaimFeeQuote:
     accrued: Balance
     free: Balance
     threshold: Balance
-    below_threshold: bool
+    hotkeys: int
+    eligible_hotkeys: int
+    below_threshold_hotkeys: int
+    redeemable: Balance
 
     @property
     def refund(self) -> Balance:
@@ -69,11 +140,22 @@ class RootClaimFeeQuote:
 
     @property
     def loses_money(self) -> bool:
-        return self.spent.rao > self.accrued.rao
+        return self.spent.rao > self.redeemable.rao
 
     @property
     def reserve_shortfall(self) -> bool:
         return self.free.rao < self.reserved.rao
+
+    @property
+    def below_threshold(self) -> bool:
+        return self.eligible_hotkeys == 0 and self.below_threshold_hotkeys > 0
+
+    @property
+    def too_heavy(self) -> bool:
+        return (
+            self.hotkeys * self.networks > _MAX_ROOT_CLAIM_WORK
+            or self.holdings > _MAX_ROOT_CLAIM_WORK
+        )
 
     def effects(self) -> list[str]:
         kinds = "holding" if self.holdings == 1 else "holdings"
@@ -90,9 +172,15 @@ class RootClaimFeeQuote:
                 f"accrued is below the claim threshold ({self.threshold}); "
                 "the claim is a no-op and you still pay the scan fee"
             )
+        elif self.below_threshold_hotkeys:
+            lines.append(
+                f"{self.below_threshold_hotkeys} of {self.hotkeys} validators are below "
+                f"the per-validator claim threshold ({self.threshold}) and remain unclaimed"
+            )
         if self.loses_money:
             lines.append(
-                f"this claim loses money: spent fee ~{self.spent} exceeds accrued {self.accrued}"
+                f"this claim loses money: spent fee ~{self.spent} exceeds "
+                f"redeemable accrued {self.redeemable}"
             )
         return lines
 
@@ -103,25 +191,79 @@ class RootClaimFeeQuote:
                 f"accrued {self.accrued} is below the claim threshold "
                 f"({self.threshold}); the claim pays a scan fee and realizes nothing"
             )
-        elif self.loses_money:
+        elif self.below_threshold_hotkeys:
+            out.append(
+                f"{self.below_threshold_hotkeys} of {self.hotkeys} validators are individually "
+                f"below the claim threshold ({self.threshold}); their yield remains accrued"
+            )
+        if not self.below_threshold and self.loses_money:
             out.append(
                 f"this claim loses money: spent fee ~{self.spent} exceeds "
-                f"accrued {self.accrued}; wait until more yield accrues"
+                f"redeemable accrued {self.redeemable}; wait until more yield accrues"
             )
         return out
 
     def blocks(self) -> list[str]:
-        if not self.reserve_shortfall:
-            return []
-        return [f"free TAO ({self.free}) is below the reserved claim fee ({self.reserved})"]
+        out: list[str] = []
+        if self.too_heavy:
+            out.extend(_admission_blocks(self.hotkeys, self.networks, self.holdings))
+        if self.reserve_shortfall:
+            out.append(f"free TAO ({self.free}) is below the reserved claim fee ({self.reserved})")
+        return out
+
+
+async def root_claim_admission(
+    substrate: Any,
+    claimant_address: str,
+    *,
+    hotkeys: Optional[list[str]],
+) -> RootClaimAdmission:
+    """Read only the state used by the runtime's 256-unit admission guard.
+
+    Unlike the fee/yield quote, this check is not best-effort: callers use a
+    failed read as a hard stop because signing an unverifiable claim can burn
+    the full unreduced declared fee.
+    """
+    if hotkeys is None:
+        raw_keys = await substrate.query(*st.SubtensorModule.StakingHotkeys, [claimant_address])
+        selected = tuple(str(key) for key in (raw_keys or []))
+    else:
+        if len(hotkeys) != 1:
+            raise ValueError("per-validator admission expects exactly one hotkey")
+        selected = tuple(hotkeys)
+
+    semaphore = asyncio.Semaphore(16)
+
+    async def holding_count(hotkey: str) -> int:
+        async with semaphore:
+            rows = await substrate.runtime_call(
+                *BetaBasketRuntimeApi.get_validator_basket,
+                [hotkey],
+            )
+        if rows is None:
+            raise RuntimeError(f"validator basket is unavailable for {hotkey}")
+        return len(rows)
+
+    holding_counts = await asyncio.gather(*(holding_count(hotkey) for hotkey in selected))
+
+    networks = await _existing_network_count(substrate)
+    return RootClaimAdmission(
+        hotkeys=selected,
+        holding_counts=tuple(holding_counts),
+        networks=networks,
+    )
 
 
 async def quote_root_claim_fee(
     substrate: Any,
-    signer_address: str,
+    claimant_address: str,
     *,
+    fee_payer_address: Optional[str] = None,
     hotkeys: Optional[list[str]],
     compose: Callable[[], Awaitable[Any]],
+    call: Any = None,
+    admission: Optional[RootClaimAdmission] = None,
+    reserve: Optional[RootClaimReserve] = None,
 ) -> Optional[RootClaimFeeQuote]:
     """Estimate reserved vs spent fee for a root claim.
 
@@ -132,72 +274,115 @@ async def quote_root_claim_fee(
     harness) or any read fails. Callers must treat that as "no preview".
     """
     try:
-        return await _quote(substrate, signer_address, hotkeys=hotkeys, compose=compose)
+        return await _quote(
+            substrate,
+            claimant_address,
+            fee_payer_address=fee_payer_address or claimant_address,
+            hotkeys=hotkeys,
+            compose=compose,
+            call=call,
+            admission=admission,
+            reserve=reserve,
+        )
     except Exception:
         return None
 
 
 async def _quote(
     substrate: Any,
-    signer_address: str,
+    claimant_address: str,
     *,
+    fee_payer_address: str,
     hotkeys: Optional[list[str]],
     compose: Callable[[], Awaitable[Any]],
+    call: Any,
+    admission: Optional[RootClaimAdmission],
+    reserve: Optional[RootClaimReserve],
 ) -> Optional[RootClaimFeeQuote]:
     coldkey_wide = hotkeys is None
-    if coldkey_wide:
-        owed = await substrate.runtime_call(
-            *BetaBasketRuntimeApi.get_root_basket_owed, [signer_address]
+    if admission is None:
+        admission = await root_claim_admission(
+            substrate,
+            claimant_address,
+            hotkeys=hotkeys,
         )
-        if owed is None:
+    elif hotkeys is not None and tuple(hotkeys) != admission.hotkeys:
+        raise ValueError("root-claim admission does not match the selected hotkey")
+    selected_hotkeys = list(admission.hotkeys)
+
+    if reserve is None:
+        reserve = await root_claim_reserve(
+            substrate,
+            fee_payer_address,
+            compose=compose,
+            call=call,
+        )
+
+    if coldkey_wide:
+        positions = await substrate.runtime_call(
+            *BetaBasketRuntimeApi.get_root_basket_positions,
+            [claimant_address],
+        )
+        if positions is None:
             return None
-        accrued_rao = int(owed)
-        raw_keys = await substrate.query(*st.SubtensorModule.StakingHotkeys, [signer_address])
-        hotkeys = [str(key) for key in (raw_keys or [])]
+        by_hotkey = {str(hotkey): int(payout) for hotkey, _shares, payout in positions}
+        # The runtime API omits validators for which this coldkey has no owed
+        # shares. Preserve that distinction: a missing position exits before
+        # the runtime's basket scan and is not a below-threshold entitlement.
+        payouts: list[Optional[int]] = [by_hotkey.get(hotkey) for hotkey in selected_hotkeys]
+        accrued_rao = sum(payout for payout in payouts if payout is not None)
     else:
-        if len(hotkeys) != 1:
-            raise ValueError("per-validator quote expects exactly one hotkey")
         payout = await substrate.runtime_call(
             *BetaBasketRuntimeApi.get_basket_payout,
-            [hotkeys[0], signer_address],
+            [selected_hotkeys[0], claimant_address],
         )
         if payout is None:
             return None
-        accrued_rao = int(payout)
+        payouts = [int(payout)]
+        accrued_rao = payouts[0]
 
-    holdings = 0
-    for hotkey in hotkeys:
-        rows = await substrate.runtime_call(*BetaBasketRuntimeApi.get_validator_basket, [hotkey])
-        if rows is None:
-            return None
-        holdings += len(rows)
-
-    networks = await _existing_network_count(substrate)
     threshold_rao = await _threshold_rao(substrate)
-    free_rao = await _free_rao(substrate, signer_address)
-    reserved = await _reserved_fee(substrate, signer_address, compose)
+
+    holding_counts = list(admission.holding_counts)
+    eligible = [payout is not None and payout >= threshold_rao for payout in payouts]
+    below_threshold = [payout is not None and payout < threshold_rao for payout in payouts]
+    redeem_holdings = sum(
+        count for count, can_redeem in zip(holding_counts, eligible) if can_redeem
+    )
+    scan_holdings = sum(count for count, below in zip(holding_counts, below_threshold) if below)
+    redeemable_rao = sum(
+        payout for payout, can_redeem in zip(payouts, eligible) if payout is not None and can_redeem
+    )
+    holdings = sum(holding_counts)
     spent = _spent_fee(
-        reserved,
-        holdings,
-        accrued_rao < threshold_rao,
-        hotkey_count=max(len(hotkeys), 1),
+        reserve.reserved,
+        RootClaimWork(
+            hotkeys=max(len(selected_hotkeys), 1),
+            redeem_holdings=redeem_holdings,
+            scan_holdings=scan_holdings,
+        ),
     )
 
     return RootClaimFeeQuote(
         holdings=holdings,
-        networks=max(networks, 1),
-        reserved=reserved,
+        networks=admission.networks,
+        reserved=reserve.reserved,
         spent=spent,
         accrued=Balance.from_rao(accrued_rao),
-        free=Balance.from_rao(free_rao),
+        free=reserve.free,
         threshold=Balance.from_rao(threshold_rao),
-        below_threshold=accrued_rao < threshold_rao,
+        hotkeys=len(selected_hotkeys),
+        eligible_hotkeys=sum(eligible),
+        below_threshold_hotkeys=sum(below_threshold),
+        redeemable=Balance.from_rao(redeemable_rao),
     )
 
 
 async def _existing_network_count(substrate: Any) -> int:
     rows = await substrate.query_map(*st.SubtensorModule.NetworksAdded)
-    return sum(1 for _netuid, added in (rows or []) if added)
+    if rows is None:
+        raise RuntimeError("existing-network map is unavailable")
+    return max(sum(1 for _netuid, added in rows if added), 1)
 
 
 async def _threshold_rao(substrate: Any) -> int:
@@ -217,20 +402,52 @@ async def _reserved_fee(
     substrate: Any,
     signer_address: str,
     compose: Callable[[], Awaitable[Any]],
+    *,
+    call: Any = None,
 ) -> Balance:
+    return (await _reserved_fee_with_status(substrate, signer_address, compose, call=call))[0]
+
+
+async def _reserved_fee_with_status(
+    substrate: Any,
+    signer_address: str,
+    compose: Callable[[], Awaitable[Any]],
+    *,
+    call: Any = None,
+) -> tuple[Balance, bool]:
     try:
-        call = await compose()
-        return await substrate.estimate_fee(call, _FeeView(signer_address))
+        if call is None:
+            call = await compose()
+        return await substrate.estimate_fee(call, _FeeView(signer_address)), True
     except Exception:
-        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK)
+        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK), False
+
+
+async def root_claim_reserve(
+    substrate: Any,
+    fee_payer_address: str,
+    *,
+    compose: Callable[[], Awaitable[Any]],
+    call: Any = None,
+) -> RootClaimReserve:
+    """Read mandatory reserve/free state even when yield preview is unavailable."""
+    free_rao = await _free_rao(substrate, fee_payer_address)
+    reserved, exact = await _reserved_fee_with_status(
+        substrate,
+        fee_payer_address,
+        compose,
+        call=call,
+    )
+    return RootClaimReserve(
+        reserved=reserved,
+        free=Balance.from_rao(free_rao),
+        exact=exact,
+    )
 
 
 def _spent_fee(
     reserved: Balance,
-    holdings: int,
-    scan_only: bool,
-    *,
-    hotkey_count: int = 1,
+    work: RootClaimWork,
 ) -> Balance:
     """Refund unused declared units; keep non-weight base/length fees intact.
 
@@ -244,34 +461,13 @@ def _spent_fee(
     declared_weight = _APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK
     weight_part = min(reserved.rao, declared_weight)
     base_part = max(0, reserved.rao - declared_weight)
-    hotkeys = max(hotkey_count, 1)
-    if scan_only:
-        scan_weight = (
-            weight_part
-            * max(holdings, 0)
-            * _SCAN_REF_TIME
-            // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
-        )
-        walk_weight = weight_part * hotkeys // _MAX_ROOT_CLAIM_WORK
-        spent_weight = walk_weight + scan_weight
-    else:
-        units = max(holdings, hotkeys)
-        spent_weight = weight_part * units // _MAX_ROOT_CLAIM_WORK
+    active = max(work.redeem_holdings, work.hotkeys, 1)
+    active_weight = weight_part * active // _MAX_ROOT_CLAIM_WORK
+    scan_weight = (
+        weight_part
+        * max(work.scan_holdings, 0)
+        * _SCAN_REF_TIME
+        // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
+    )
+    spent_weight = active_weight + scan_weight
     return Balance.from_rao(min(reserved.rao, base_part + max(spent_weight, 0)))
-
-
-async def cached_root_claim_quote(
-    intent: Any,
-    substrate: Any,
-    signer_address: str,
-    *,
-    hotkeys: Optional[list[str]],
-    compose: Callable[[], Awaitable[Any]],
-) -> Optional[RootClaimFeeQuote]:
-    """Return the quote for ``intent``, fetching at most once per instance."""
-    if getattr(intent, "_root_claim_quote_loaded", False):
-        return getattr(intent, "_root_claim_quote", None)
-    quote = await quote_root_claim_fee(substrate, signer_address, hotkeys=hotkeys, compose=compose)
-    intent._root_claim_quote = quote
-    intent._root_claim_quote_loaded = True
-    return quote

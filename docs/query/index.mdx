@@ -140,7 +140,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`stake-for-coldkeys`](/docs/query/stake-for-coldkeys) | Every stake position for several coldkeys at once, in one runtime call. |
 | [`stake-value-for-coldkey`](/docs/query/stake-value-for-coldkey) | A coldkey's stake marked to TAO at spot prices (excludes slippage/fees), block-pinned. |
 | [`stake-value-for-coldkeys`](/docs/query/stake-value-for-coldkeys) | Spot-price stake valuation for several coldkeys at once, at one block. |
-| [`staking-hotkeys`](/docs/query/staking-hotkeys) | Every hotkey a coldkey has stake with, owned or nominated. |
+| [`staking-hotkeys`](/docs/query/staking-hotkeys) | Every hotkey associated with a coldkey's staking or root-basket state. |
 | [`total-alpha-staked`](/docs/query/total-alpha-staked) | Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0). |
 | [`validator-basket`](/docs/query/validator-basket) | A validator's basket holdings: per subnet, the alpha held and its TAO value. |
 | [`validator-basket-nav`](/docs/query/validator-basket-nav) | A validator's basket net asset value in TAO (realizable quote). |
