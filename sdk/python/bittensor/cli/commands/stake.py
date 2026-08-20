@@ -25,6 +25,7 @@ from ..helpers import (
     netuid_groups,
     split_dust,
 )
+from ..stake_exit import mount_stake_exit_commands
 from ..tx import intent_command
 
 app = typer.Typer(no_args_is_help=True, help="Query and manage stake.")
@@ -45,10 +46,10 @@ for _alias, _op in (
     ("transfer", "transfer_stake"),
     ("swap", "swap_stake"),
     ("burn", "stake_burn"),
-    ("unstake-all", "unstake_all"),
-    ("unstake-all-alpha", "unstake_all_alpha"),
 ):
     app.command(_alias, rich_help_panel=PANEL_MOVE)(intent_command(_op))
+
+mount_stake_exit_commands(app, PANEL_MOVE)
 
 
 @app.command(rich_help_panel=PANEL_POSITIONS)
