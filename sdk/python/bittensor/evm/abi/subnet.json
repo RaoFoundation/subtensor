@@ -259,6 +259,25 @@
 				"type": "uint16"
 			}
 		],
+		"name": "getLiquidAlphaConsensusMode",
+		"outputs": [
+			{
+				"internalType": "uint8",
+				"name": "",
+				"type": "uint8"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			}
+		],
 		"name": "getYuma3Enabled",
 		"outputs": [
 			{
@@ -867,6 +886,24 @@
 			}
 		],
 		"name": "setLiquidAlphaEnabled",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint16",
+				"name": "netuid",
+				"type": "uint16"
+			},
+			{
+				"internalType": "uint8",
+				"name": "mode",
+				"type": "uint8"
+			}
+		],
+		"name": "setLiquidAlphaConsensusMode",
 		"outputs": [],
 		"stateMutability": "payable",
 		"type": "function"
