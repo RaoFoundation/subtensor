@@ -690,7 +690,8 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `stake add --amount` | `stake add` / `tx add-stake --amount-tao` |
 | `stake remove --amount` | `stake remove` / `tx remove-stake --amount-alpha` (accepts `all`) |
 | `stake remove --all` | `tx unstake-all` / `tx unstake-all-alpha` |
-| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; `--include-hotkeys`/`--exclude-hotkeys`/`--all-hotkeys` batching is gone — loop in your script) |
+| `stake remove --all --all-hotkeys` | `stake unstake-all --all-hotkeys` |
+| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; multi-hotkey selectors remain unavailable for these operations) |
 | `stake auto` / `set-auto` | same names |
 | `stake set-claim` / `process-claim` | `btcli root claim` / `btcli tx claim-root-with-hotkey --hotkey ...` (per-validator; `claim_root(subnets)` kept for old clients — see [Root Reborn](/docs/guides/root-reborn)) |
 | `stake child get/set/revoke/take` | same names (`child set` takes `--children` as JSON pairs) |
