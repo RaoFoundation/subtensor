@@ -59,6 +59,11 @@ _TRANSIENT_SUBSTRINGS = (
 # asking a signer for the inner signature merely to learn the carrier size.
 _MAX_SHIELDED_CIPHERTEXT_BYTES = 8192
 
+# Allow transient RPC/head lag while keeping both shielded-receipt polling
+# phases bounded by the inner extrinsic's mortal era.
+_SHIELDED_POLL_ATTEMPTS_PER_BLOCK = 4
+_SHIELDED_FINALITY_RPC_RETRIES = 4
+
 
 class _FeeAddressView:
     """Public-only keypair shape for fee estimation (zeroed signature)."""
@@ -1068,7 +1073,7 @@ class Executor:
         block = included_at
         # Bounded so a wedged node (block_hash never resolving) cannot hang the
         # follow-up forever: ~4 block-times of slack per remaining block.
-        waits_left = 4 * (deadline - included_at + 1)
+        waits_left = _SHIELDED_POLL_ATTEMPTS_PER_BLOCK * (deadline - included_at + 1)
         while block <= deadline:
             try:
                 block_hash = await self.substrate.block_hash(block)
@@ -1084,14 +1089,39 @@ class Executor:
             inner = await self.substrate.find_extrinsic(inner_hash, block_hash)
             if inner is not None:
                 if wait_for_finalization:
-                    while True:
+                    max_finalization_polls = _SHIELDED_POLL_ATTEMPTS_PER_BLOCK * (
+                        deadline - included_at + 1
+                    )
+                    finalization_polls_left = max_finalization_polls
+                    finalization_rpc_failures = 0
+                    poll_interval = await self.substrate.block_time()
+                    while finalization_polls_left > 0:
                         try:
-                            finalized = await self.substrate.finalized_block_number()
-                        except Exception:
-                            finalized = block - 1
-                        if finalized >= block:
-                            break
-                        await asyncio.sleep(await self.substrate.block_time())
+                            finalized = await asyncio.wait_for(
+                                self.substrate.finalized_block_number(),
+                                timeout=max(1.0, poll_interval),
+                            )
+                        except Exception as error:
+                            finalization_rpc_failures += 1
+                            if finalization_rpc_failures >= _SHIELDED_FINALITY_RPC_RETRIES:
+                                message = (
+                                    "could not verify shielded inner extrinsic finalization "
+                                    f"after {_SHIELDED_FINALITY_RPC_RETRIES} consecutive "
+                                    f"finalized-head RPC attempts ({error})"
+                                )
+                                raise ChainError(message) from error
+                        else:
+                            finalization_rpc_failures = 0
+                            if finalized >= block:
+                                break
+                        finalization_polls_left -= 1
+                        if finalization_polls_left <= 0:
+                            message = (
+                                f"shielded inner extrinsic at block {block} did not finalize "
+                                f"after {max_finalization_polls} polls"
+                            )
+                            raise ChainError(message)
+                        await asyncio.sleep(poll_interval)
 
                     # Finality applies to the canonical block at this height.
                     # Re-resolve after a reorg instead of returning a receipt

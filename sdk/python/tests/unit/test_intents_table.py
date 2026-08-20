@@ -9,6 +9,8 @@ serialize round-trip exactly, and compose+plan against the in-memory
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from bittensor import Policy, PolicyError
@@ -17,7 +19,7 @@ from bittensor.client import Client
 from bittensor.intents import REGISTRY, build
 from bittensor.intents._money import UNBOUNDED, _Unbounded
 from bittensor.intents.base import BuiltCall
-from bittensor.result import BittensorError
+from bittensor.result import BittensorError, ChainError
 from tests.harness.fake_substrate import FakeSubstrate
 from tests.harness.samples import ALICE, BOB, BOB_HOT, INTENT_SAMPLES, dev_wallet
 
@@ -286,6 +288,84 @@ class TestExecuteFlow:
 
         assert result.extrinsic_id == inner.extrinsic_id
         assert finalized.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_shielded_inner_finalization_recovers_from_transient_rpc_failure(
+        self, client: Client, substrate: FakeSubstrate, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from tests.harness.fake_substrate import success_result
+
+        outer = success_result(10)
+        inner = success_result(10)
+        monkeypatch.setattr(substrate, "block_time", AsyncMock(return_value=0))
+        finalized = AsyncMock(side_effect=[ConnectionError("finality unavailable"), 10])
+        monkeypatch.setattr(substrate, "finalized_block_number", finalized)
+        monkeypatch.setattr(substrate, "find_extrinsic", AsyncMock(return_value=inner))
+
+        result = await client._executor._resolve_shielded_inner(
+            outer,
+            "0xinner",
+            period=1,
+            wait_for_finalization=True,
+        )
+
+        assert result.extrinsic_id == inner.extrinsic_id
+        assert finalized.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_shielded_inner_finalization_fails_after_bounded_rpc_retries(
+        self, client: Client, substrate: FakeSubstrate, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from tests.harness.fake_substrate import success_result
+
+        outer = success_result(10)
+        inner = success_result(10)
+        monkeypatch.setattr(substrate, "block_time", AsyncMock(return_value=0))
+        finalized = AsyncMock(side_effect=ConnectionError("finality unavailable"))
+        monkeypatch.setattr(substrate, "finalized_block_number", finalized)
+        monkeypatch.setattr(substrate, "find_extrinsic", AsyncMock(return_value=inner))
+
+        with pytest.raises(ChainError, match=r"could not verify.*after 4 consecutive"):
+            await asyncio.wait_for(
+                client._executor._resolve_shielded_inner(
+                    outer,
+                    "0xinner",
+                    period=1,
+                    wait_for_finalization=True,
+                ),
+                timeout=1,
+            )
+
+        assert finalized.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_shielded_inner_finalization_fails_when_finality_stalls(
+        self, client: Client, substrate: FakeSubstrate, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from tests.harness.fake_substrate import success_result
+
+        outer = success_result(10)
+        inner = success_result(10)
+        monkeypatch.setattr(substrate, "block_time", AsyncMock(return_value=0))
+        finalized = AsyncMock(return_value=9)
+        monkeypatch.setattr(substrate, "finalized_block_number", finalized)
+        monkeypatch.setattr(substrate, "find_extrinsic", AsyncMock(return_value=inner))
+
+        with pytest.raises(ChainError, match=r"did not finalize after 8 polls"):
+            await client._executor._resolve_shielded_inner(
+                outer,
+                "0xinner",
+                period=1,
+                wait_for_finalization=True,
+            )
+
+        assert finalized.await_count == 8
 
     @pytest.mark.asyncio
     async def test_register_subnet_returns_immediate_network_added(
