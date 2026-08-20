@@ -396,7 +396,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 19): ErrorInfo('LimitOrders', 'NoLinkedOutput', 'Linked order named a provider with no recorded output.'),
     (32, 20): ErrorInfo('LimitOrders', 'LinkedOutputSignerMismatch', "Linked order signer differs from the provider's signer."),
     (32, 21): ErrorInfo('LimitOrders', 'LinkedOutputAssetMismatch', 'Provider output asset is not what the linked order spends.'),
-    (32, 22): ErrorInfo('LimitOrders', 'LinkedOutputExpired', "Provider record has passed its `expires_at` deadline."),
+    (32, 22): ErrorInfo('LimitOrders', 'LinkedOutputExpired', 'Provider record has passed its `expires_at` deadline.'),
     (32, 23): ErrorInfo('LimitOrders', 'LinkedAmountResolvedToZero', 'Linked fraction floored to zero against the recorded output.'),
     (32, 24): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForLinkedAmount', 'Partial fill submitted against a linked (consuming) order.'),
     (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
