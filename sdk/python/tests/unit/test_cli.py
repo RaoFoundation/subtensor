@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 
 import pytest
 from typer.testing import CliRunner
@@ -129,15 +130,18 @@ class TestOffline:
             assert op in result.output
 
     def test_stake_unstake_all_exposes_bulk_selector_only_on_workflow(self):
+        ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
         result = invoke("stake", "unstake-all", "--help")
         assert result.exit_code == 0
-        assert "--hotkey" in result.output
-        assert "--all-hotkeys" in result.output
+        workflow_help = ansi.sub("", result.output)
+        assert "--hotkey" in workflow_help
+        assert "--all-hotkeys" in workflow_help
 
         primitive = invoke("tx", "unstake-all", "--help")
         assert primitive.exit_code == 0
-        assert "--hotkey" in primitive.output
-        assert "--all-hotkeys" not in primitive.output
+        primitive_help = ansi.sub("", primitive.output)
+        assert "--hotkey" in primitive_help
+        assert "--all-hotkeys" not in primitive_help
 
     def test_query_group_help(self):
         result = invoke("query", "--help")
