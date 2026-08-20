@@ -475,10 +475,14 @@ class Staking(_ReadNamespace):
         """Spot-price stake valuation for several coldkeys at once, at one block."""
 
     async def staking_hotkeys(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[str]:
-        """Every hotkey a coldkey has stake with, owned or nominated.
+        """Every hotkey associated with a coldkey's staking or root-basket state.
 
         Unlike `owned_hotkeys` this includes delegates the coldkey has nominated.
-        Use `stake_for_coldkey` for the per-subnet amounts behind each entry.
+        A hotkey may remain listed with no current stake when a root-basket claim
+        watermark still requires the relationship to be discoverable. During the
+        v448 bounded cleanup, unrelated stale relationships may also remain until
+        the cleanup cursor reaches them. Use `stake_for_coldkey` for the
+        per-subnet amounts behind each entry.
         """
 
     async def total_alpha_staked(self, netuid: int, *, block: Optional[int] = None) -> Balance:
@@ -486,7 +490,10 @@ class Staking(_ReadNamespace):
 
         This is the chain-maintained O(1) aggregate: it equals the sum of
         `TotalHotkeyAlpha` for the subnet. Use this instead of walking every
-        position.
+        position. After the v448 upgrade, the historical total is backfilled over
+        otherwise-idle blocks. Until the bounded migration finishes, keys ahead of
+        its cursor are omitted; concurrent stake changes are reconciled by
+        completion but are not necessarily visible in this aggregate immediately.
         """
 
     async def validator_basket(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:

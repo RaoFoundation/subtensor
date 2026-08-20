@@ -7,7 +7,10 @@ description: "Total alpha currently staked on a subnet, across all hotkeys (TAO 
 
 This is the chain-maintained O(1) aggregate: it equals the sum of
 `TotalHotkeyAlpha` for the subnet. Use this instead of walking every
-position.
+position. After the v448 upgrade, the historical total is backfilled over
+otherwise-idle blocks. Until the bounded migration finishes, keys ahead of
+its cursor are omitted; concurrent stake changes are reconciled by
+completion but are not necessarily visible in this aggregate immediately.
 
 **Category:** Staking
 

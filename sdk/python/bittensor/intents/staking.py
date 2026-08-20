@@ -933,7 +933,7 @@ class UnstakeAll(_OptionalRootClaimIntent):
     Sweeps the signing coldkey's entire stake held on this hotkey across every
     subnet (root included) back to TAO in the coldkey's free balance. Subnets
     where subtoken trading is disabled or where the position fails validation
-    (e.g. dust below the chain minimum) are silently skipped, so the call can
+    are silently skipped, so the call can
     succeed while leaving some positions untouched. Alpha positions are sold
     at each pool's current price with no limit protection, so large positions
     can incur significant slippage. Use ``remove_stake`` to exit a single
