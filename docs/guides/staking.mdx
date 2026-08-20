@@ -51,6 +51,21 @@ Exit with [`remove-stake`](/docs/tx/remove-stake), or exit everything at once
 with [`unstake-all`](/docs/tx/unstake-all). Quote the exit the same way you
 quote the entry:
 
+```bash
+# One hotkey, across every subnet
+btcli stake unstake-all --hotkey 5F... --dry-run
+
+# Every live position held by the coldkey, across all hotkeys and subnets
+btcli stake unstake-all --all-hotkeys --dry-run
+btcli stake unstake-all --all-hotkeys -w my_coldkey
+```
+
+The multi-hotkey form discovers hotkeys from live non-zero chain positions,
+deduplicates hotkeys that appear on several subnets, and submits the resulting
+`unstake_all` calls atomically. A Staking proxy cannot wrap the required
+`Utility.batch_all` call on the current runtime; use a direct signer or a broader
+proxy type such as NonTransfer, or invoke the single-hotkey form separately.
+
 ```python
 quote = await client.prices.quote_unstake(netuid=1, amount_alpha=50)  # TAO out, fee, slippage
 await client.execute(bt.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha="all"), wallet)
