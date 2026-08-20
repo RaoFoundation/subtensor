@@ -19,6 +19,7 @@ use pallet_subtensor_proxy as pallet_proxy;
 use pallet_subtensor_proxy::WeightInfo;
 use sp_runtime::{DispatchError, Weight, traits::StaticLookup};
 use sp_std::marker::PhantomData;
+use sp_std::vec;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, ProxyType, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
@@ -897,6 +898,35 @@ where
                 match call_result {
                     Ok(alpha) => {
                         env.write_output(&alpha.encode())
+                            .map_err(|_| DispatchError::Other("Failed to write output"))?;
+                        Ok(RetVal::Converging(Output::Success as u32))
+                    }
+                    Err(e) => {
+                        let error_code = Output::from(e) as u32;
+                        Ok(RetVal::Converging(error_code))
+                    }
+                }
+            }
+            FunctionId::ClaimRootWithHotkeyV1 => {
+                let hotkey: T::AccountId = env
+                    .read_as()
+                    .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
+
+                let rows = pallet_subtensor::Pallet::<T>::get_basket_holdings(&hotkey).len();
+                if rows > pallet_subtensor::MAX_ROOT_CLAIM_WORK as usize {
+                    return Ok(RetVal::Converging(Output::RuntimeError as u32));
+                }
+
+                let weight = <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::claim_root(pallet_subtensor::MAX_ROOT_CLAIM_WORK);
+                env.charge_weight(weight)?;
+
+                let caller = env.caller();
+                let call_result =
+                    pallet_subtensor::Pallet::<T>::do_root_claim(caller, vec![hotkey]);
+
+                match call_result {
+                    Ok(outcome) => {
+                        env.write_output(&outcome.tao.encode())
                             .map_err(|_| DispatchError::Other("Failed to write output"))?;
                         Ok(RetVal::Converging(Output::Success as u32))
                     }

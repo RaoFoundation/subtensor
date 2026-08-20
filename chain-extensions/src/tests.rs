@@ -1286,6 +1286,32 @@ fn assert_success(ret: RetVal) {
 }
 
 #[test]
+fn claim_root_with_hotkey_noop_returns_zero() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61001);
+        let hotkey = U256::from(61002);
+
+        let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::claim_root(
+            pallet_subtensor::MAX_ROOT_CLAIM_WORK,
+        );
+
+        let mut env = MockEnv::new(
+            FunctionId::ClaimRootWithHotkeyV1,
+            coldkey,
+            hotkey.encode(),
+        )
+        .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        assert_success(ret);
+        assert_eq!(env.charged_weight(), Some(expected_weight));
+
+        let tao: u64 = Decode::decode(&mut &env.output()[..]).unwrap();
+        assert_eq!(tao, 0);
+    });
+}
+
+#[test]
 fn add_stake_recycle_rollback_on_recycle_failure() {
     mock::new_test_ext(1).execute_with(|| {
         let owner_hotkey = U256::from(12001);
