@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::indexing_slicing, clippy::unwrap_used)]
 
 use super::mock::*;
 use crate::subnets::dissolution::{DissolveCleanupPhase, DissolveCleanupStatus};
@@ -93,12 +93,12 @@ fn reporting_cursor_hides_paid_hotkeys_and_keeps_unpaid_hotkeys() {
 
         let mut ordered = [
             (
-                TotalHotkeyAlpha::<Test>::hashed_key_for(&hotkey_a, netuid),
+                TotalHotkeyAlpha::<Test>::hashed_key_for(hotkey_a, netuid),
                 hotkey_a,
                 amount_a,
             ),
             (
-                TotalHotkeyAlpha::<Test>::hashed_key_for(&hotkey_b, netuid),
+                TotalHotkeyAlpha::<Test>::hashed_key_for(hotkey_b, netuid),
                 hotkey_b,
                 amount_b,
             ),
@@ -170,15 +170,13 @@ fn reporting_cursor_hides_paid_hotkeys_and_keeps_unpaid_hotkeys() {
         status.last_key = None;
         CurrentDissolveCleanupStatus::<Test>::set(Some(status));
         assert!(SubtensorModule::get_stake_info_for_coldkey(coldkey).is_empty());
-        assert!(
-            SubtensorModule::get_stake_availability_for_coldkeys(
-                vec![coldkey],
-                Some(vec![netuid]),
-            )
-            .get(&coldkey)
-            .unwrap()
-            .is_empty()
-        );
+        assert!(SubtensorModule::get_stake_availability_for_coldkeys(
+            vec![coldkey],
+            Some(vec![netuid]),
+        )
+        .get(&coldkey)
+        .unwrap()
+        .is_empty());
     });
 }
 
