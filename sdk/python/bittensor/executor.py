@@ -1153,7 +1153,26 @@ class Executor:
                         )
                         raise ChainError(message) from canonical_hash_error
                     if canonical_hash != block_hash:
-                        inner = await self.substrate.find_extrinsic(inner_hash, canonical_hash)
+                        canonical_receipt_error: Optional[Exception] = None
+                        for attempt in range(_SHIELDED_FINALITY_RPC_RETRIES):
+                            try:
+                                inner = await asyncio.wait_for(
+                                    self.substrate.find_extrinsic(inner_hash, canonical_hash),
+                                    timeout=rpc_timeout,
+                                )
+                            except Exception as error:
+                                canonical_receipt_error = error
+                                if attempt + 1 < _SHIELDED_FINALITY_RPC_RETRIES:
+                                    await asyncio.sleep(poll_interval)
+                            else:
+                                break
+                        else:
+                            message = (
+                                "could not verify shielded inner extrinsic finalization "
+                                f"after {_SHIELDED_FINALITY_RPC_RETRIES} canonical receipt "
+                                "RPC attempts"
+                            )
+                            raise ChainError(message) from canonical_receipt_error
                         if inner is None:
                             block += 1
                             continue

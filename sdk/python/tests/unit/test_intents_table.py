@@ -436,6 +436,73 @@ class TestExecuteFlow:
         assert calls == 5
 
     @pytest.mark.asyncio
+    async def test_shielded_inner_finalization_recovers_from_canonical_receipt_rpc_failure(
+        self, client: Client, substrate: FakeSubstrate, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from tests.harness.fake_substrate import success_result
+
+        outer = success_result(10)
+        inner = success_result(10)
+        monkeypatch.setattr(substrate, "block_time", AsyncMock(return_value=0))
+        monkeypatch.setattr(substrate, "finalized_block_number", AsyncMock(return_value=10))
+        hashes = AsyncMock(side_effect=["0xold", "0xcanonical"])
+        monkeypatch.setattr(substrate, "block_hash", hashes)
+        receipts = AsyncMock(side_effect=[inner, ConnectionError("receipt unavailable"), inner])
+        monkeypatch.setattr(substrate, "find_extrinsic", receipts)
+
+        result = await client._executor._resolve_shielded_inner(
+            outer,
+            "0xinner",
+            period=1,
+            wait_for_finalization=True,
+        )
+
+        assert result.extrinsic_id == inner.extrinsic_id
+        assert receipts.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_shielded_inner_finalization_bounds_hung_canonical_receipt_rpc(
+        self, client: Client, substrate: FakeSubstrate, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from tests.harness.fake_substrate import success_result
+
+        outer = success_result(10)
+        inner = success_result(10)
+        calls = 0
+        never_returns = asyncio.Event()
+
+        async def hanging_canonical_receipt(_extrinsic_hash, _block_hash):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return inner
+            return await never_returns.wait()
+
+        monkeypatch.setattr(substrate, "block_time", AsyncMock(return_value=0))
+        monkeypatch.setattr(substrate, "finalized_block_number", AsyncMock(return_value=10))
+        monkeypatch.setattr(
+            substrate, "block_hash", AsyncMock(side_effect=["0xold", "0xcanonical"])
+        )
+        monkeypatch.setattr(substrate, "find_extrinsic", hanging_canonical_receipt)
+
+        with pytest.raises(ChainError, match=r"after 4 canonical receipt RPC attempts"):
+            await asyncio.wait_for(
+                client._executor._resolve_shielded_inner(
+                    outer,
+                    "0xinner",
+                    period=1,
+                    wait_for_finalization=True,
+                ),
+                timeout=1,
+            )
+
+        assert calls == 5
+
+    @pytest.mark.asyncio
     async def test_register_subnet_returns_immediate_network_added(
         self, client: Client, substrate: FakeSubstrate, wallet
     ):
