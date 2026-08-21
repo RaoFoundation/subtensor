@@ -749,9 +749,9 @@ impl<T: Config> Pallet<T> {
         (Self::get_all_subnet_netuids().len() as u32).max(1)
     }
 
-    /// Pre-dispatch work units for both claim paths. Weight calculation must
-    /// stay storage-independent (no `NetworksAdded` or basket walks here);
-    /// execution then refuses work that would exceed this envelope.
+    /// Pre-dispatch work units for a coldkey-wide claim. Weight calculation
+    /// cannot inspect the signer, so this path needs the full hard envelope
+    /// and refunds unused work after dispatch.
     pub(crate) fn root_claim_declared_work() -> u32 {
         crate::MAX_ROOT_CLAIM_WORK
     }

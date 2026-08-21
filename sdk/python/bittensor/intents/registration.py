@@ -13,6 +13,7 @@ from ._money import UNBOUNDED, Spend
 from ._root_claim_fee import (
     quote_root_claim_fee,
     root_claim_admission,
+    root_claim_declared_work,
     root_claim_reserve,
 )
 from .base import Intent, IntentPreflight
@@ -260,6 +261,7 @@ class _RootClaimIntent(Intent):
         call: Any = None,
     ) -> IntentPreflight:
         hotkeys = self._claim_hotkeys()
+        declared_work = root_claim_declared_work(hotkeys)
         try:
             admission = await root_claim_admission(
                 substrate,
@@ -293,6 +295,7 @@ class _RootClaimIntent(Intent):
                 fee_payer,
                 compose=compose,
                 call=call,
+                declared_work=declared_work,
             )
         except Exception as error:
             return IntentPreflight(
@@ -415,9 +418,8 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     per-holding claim fee shrinks over time; curated positions are left to
     compound. The transaction fee is charged by work actually done:
     holdings redeemed pay full weight, holdings merely scanned pay a small
-    per-row cost. The chain reserves a fixed 256-unit declared-work envelope at
-    inclusion, independent of the current network count, and refunds the unused
-    part after.
+    per-row cost. The chain reserves the declared-work fee at inclusion
+    (a 129-unit single-basket envelope) and refunds the unused part after.
     ``plan`` and ``btcli root claim --dry-run`` show reserved versus spent,
     warn when the spent fee exceeds accrued yield, and refuse when free
     TAO cannot cover the reserve.

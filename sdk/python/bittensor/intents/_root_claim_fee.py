@@ -1,9 +1,8 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-Both runtime calls reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units at
-inclusion, then refund down to the work actually done. That reserve is what
-people see leave their free balance, and it is larger than the fee that
-finally settles. That gap is the usual claim-fee surprise.
+Coldkey-wide claims reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units.
+Single-hotkey claims reserve one basket's 129-unit envelope. Both refund down
+to the work actually done.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
 and tells the caller when a claim loses money or cannot even be included.
@@ -26,13 +25,20 @@ _SCAN_REF_TIME = 6
 _REDEEM_REF_TIME = 70
 
 # One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.0004475).
-# Both claim paths reserve ``MAX_ROOT_CLAIM_WORK`` of these, plus any
-# non-weight base/length fee returned by ``payment_info``.
+# The coldkey-wide path reserves ``MAX_ROOT_CLAIM_WORK`` of these; the
+# single-hotkey path reserves ``MAX_ROOT_CLAIM_HOTKEY_WORK``. Both also pay
+# any non-weight base/length fee returned by ``payment_info``.
 _APPROX_REDEEM_FEE_RAO = 447_500
 _MAX_ROOT_CLAIM_WORK = 256
+_MAX_ROOT_CLAIM_HOTKEY_WORK = 129
 
 # Default ``RootClaimableThreshold`` (500_000 rao) when storage is empty.
 _DEFAULT_THRESHOLD_RAO = 500_000
+
+
+def root_claim_declared_work(hotkeys: Optional[list[str]]) -> int:
+    """Return the runtime's declared work envelope for the selected call."""
+    return _MAX_ROOT_CLAIM_WORK if hotkeys is None else _MAX_ROOT_CLAIM_HOTKEY_WORK
 
 
 class _FeeView:
@@ -300,6 +306,7 @@ async def _quote(
     reserve: Optional[RootClaimReserve],
 ) -> Optional[RootClaimFeeQuote]:
     coldkey_wide = hotkeys is None
+    declared_work = root_claim_declared_work(hotkeys)
     if admission is None:
         admission = await root_claim_admission(
             substrate,
@@ -316,6 +323,7 @@ async def _quote(
             fee_payer_address,
             compose=compose,
             call=call,
+            declared_work=declared_work,
         )
 
     if coldkey_wide:
@@ -361,6 +369,7 @@ async def _quote(
             redeem_holdings=redeem_holdings,
             scan_holdings=scan_holdings,
         ),
+        declared_work=declared_work,
     )
 
     return RootClaimFeeQuote(
@@ -403,9 +412,18 @@ async def _reserved_fee(
     signer_address: str,
     compose: Callable[[], Awaitable[Any]],
     *,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
     call: Any = None,
 ) -> Balance:
-    return (await _reserved_fee_with_status(substrate, signer_address, compose, call=call))[0]
+    return (
+        await _reserved_fee_with_status(
+            substrate,
+            signer_address,
+            compose,
+            call=call,
+            declared_work=declared_work,
+        )
+    )[0]
 
 
 async def _reserved_fee_with_status(
@@ -414,13 +432,14 @@ async def _reserved_fee_with_status(
     compose: Callable[[], Awaitable[Any]],
     *,
     call: Any = None,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> tuple[Balance, bool]:
     try:
         if call is None:
             call = await compose()
         return await substrate.estimate_fee(call, _FeeView(signer_address)), True
     except Exception:
-        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK), False
+        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * max(declared_work, 1)), False
 
 
 async def root_claim_reserve(
@@ -429,6 +448,7 @@ async def root_claim_reserve(
     *,
     compose: Callable[[], Awaitable[Any]],
     call: Any = None,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> RootClaimReserve:
     """Read mandatory reserve/free state even when yield preview is unavailable."""
     free_rao = await _free_rao(substrate, fee_payer_address)
@@ -437,6 +457,7 @@ async def root_claim_reserve(
         fee_payer_address,
         compose,
         call=call,
+        declared_work=declared_work,
     )
     return RootClaimReserve(
         reserved=reserved,
@@ -448,26 +469,29 @@ async def root_claim_reserve(
 def _spent_fee(
     reserved: Balance,
     work: RootClaimWork,
+    *,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
     """Refund unused declared units; keep non-weight base/length fees intact.
 
     Runtime active units are ``max(hotkey_count, realized + swept, 1)``. The
     quote floors by the selected hotkey count so empty-basket validators still
-    cost a full unit. ``estimate_fee`` prices the 256-unit declaration plus
-    extrinsic base/length; only the weight slice scales.
+    cost a full unit. ``estimate_fee`` prices ``declared_work`` plus extrinsic
+    base/length; only the weight slice scales.
     """
     if reserved.rao <= 0:
         return reserved
-    declared_weight = _APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK
+    declared_work = max(declared_work, 1)
+    declared_weight = _APPROX_REDEEM_FEE_RAO * declared_work
     weight_part = min(reserved.rao, declared_weight)
     base_part = max(0, reserved.rao - declared_weight)
     active = max(work.redeem_holdings, work.hotkeys, 1)
-    active_weight = weight_part * active // _MAX_ROOT_CLAIM_WORK
+    active_weight = weight_part * active // declared_work
     scan_weight = (
         weight_part
         * max(work.scan_holdings, 0)
         * _SCAN_REF_TIME
-        // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
+        // (declared_work * _REDEEM_REF_TIME)
     )
     spent_weight = active_weight + scan_weight
     return Balance.from_rao(min(reserved.rao, base_part + max(spent_weight, 0)))

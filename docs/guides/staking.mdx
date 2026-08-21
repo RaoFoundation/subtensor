@@ -190,13 +190,13 @@ btcli root claim --hotkey 5F... --amount all      # withdraw full position
 btcli root claim --hotkey 5F...                   # claim accrued into stake only
 ```
 
-The claim fee scales with how many ALPHA types are in the basket. Both
-root-claim calls reserve a conservative 256-unit work envelope at inclusion,
-independent of the current network count, and refund the unused part after.
-You actually spend according to the holdings scanned and redeemed (around
-τ0.057 on a full 128-holding basket). `--dry-run` and the confirm step show
-reserved versus spent, warn if that spent fee exceeds accrued yield, and
-refuse if free TAO cannot cover the reserve.
+The claim fee scales with how many ALPHA types are in the basket. The
+chain reserves a 129-unit envelope (around τ0.058) for a single-validator
+claim and refunds the unused part after. The legacy coldkey-wide call still
+reserves the full 256-unit envelope. You actually spend around τ0.057 on a
+full 128-holding basket. `--dry-run` and the confirm step show reserved versus
+spent, warn if that spent fee exceeds accrued yield, and refuse if free TAO
+cannot cover the reserve.
 
 If `RootStakeUnlockInterval` is nonzero, a claim refreshes the root-stake hold
 and cannot be followed by an unstake in the same atomic batch. Claim first,

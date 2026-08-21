@@ -246,6 +246,18 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         NetworksAdded::<Test>::insert(ghost, false);
         assert_eq!(SubtensorModule::root_claim_existing_networks(), existing);
         assert!(existing < crate::MAX_ROOT_CLAIM_WORK);
+
+        // The single-hotkey declaration reserves the configured 128 subnet
+        // slots plus root, not the coldkey-wide 256-unit envelope.
+        let single_work = crate::MAX_ROOT_CLAIM_HOTKEY_WORK;
+        assert_eq!(single_work, 129);
+        let single_call =
+            RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey });
+        let single_declared = single_call.get_dispatch_info().call_weight;
+        let single_envelope = <Test as crate::Config>::WeightInfo::claim_root(single_work);
+        assert!(single_declared.all_gte(single_envelope));
+        assert!(single_declared.all_lt(declared_weight));
+
         let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
             .expect("claim succeeds")
             .actual_weight
