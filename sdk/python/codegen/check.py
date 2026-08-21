@@ -165,6 +165,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "execute_orders",
         "execute_batched_orders",
         "set_pallet_status",
+        "prune_linked_output",
     },
     "MevShield": {
         # submit_encrypted is exposed via client.submit_shielded (a submission mode,

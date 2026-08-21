@@ -99,11 +99,12 @@ jobs:
         run: |
           set -euo pipefail
           deploy_root="${RUNNER_TEMP}/docs-preview-deploy"
+          output_root="${deploy_root}/website/apps/bittensor-website"
           test ! -e "${deploy_root}"
           python3 trusted-source/.github/scripts/docs_preview_bundle.py \
             extract \
             "${GITHUB_WORKSPACE}/artifact/docs-preview-sealed.tgz" \
-            "${deploy_root}"
+            "${output_root}"
           echo "root=${deploy_root}" >> "${GITHUB_OUTPUT}"
 
       - name: Audit preview project and pre-provisioned domain

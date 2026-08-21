@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 447
+Spec version: 448
 """
 from dataclasses import dataclass
 
@@ -200,6 +200,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 156): ErrorInfo('SubtensorModule', 'RootStakeLocked', 'Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window (measured from the last root stake add/remove/claim for that coldkey/hotkey) and cannot leave root yet. Prevents epoch-boundary just-in-time dividend sniping.'),
     (7, 157): ErrorInfo('SubtensorModule', 'BetaBasketSeedInProgress', 'The `migrate_seed_beta_basket_v2` seed or its per-hotkey deferred-dividend release has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes so snapshotted conversion cannot desync from live stake (`Σ owed == BasketShares`).'),
     (7, 158): ErrorInfo('SubtensorModule', 'RootWeightSettingDisabled', '`set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`] is false). Root Reborn launches gated: every fund runs the null strategy (dividends accumulate in place) until weight setting is switched on by governance or a later upgrade.'),
+    (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'Coldkey-wide `claim_root` would process more work units than the pre-dispatch envelope ([`crate::MAX_ROOT_CLAIM_WORK`]). Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
@@ -392,4 +393,12 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 16): ErrorInfo('LimitOrders', 'ArithmeticOverflow', 'A TAO -> alpha conversion overflowed the fixed-point range.'),
     (32, 17): ErrorInfo('LimitOrders', 'DuplicateOrderInBatch', 'The same order appears more than once in a single batch.'),
     (32, 18): ErrorInfo('LimitOrders', 'ZeroShareInBatch', "An order's pro-rata share in the batch rounded down to zero. The whole batch is rejected so the order's input is never consumed without delivering any output (conservation), and the order stays retryable in a differently-composed batch."),
+    (32, 19): ErrorInfo('LimitOrders', 'NoLinkedOutput', 'Linked order named a provider with no recorded output.'),
+    (32, 20): ErrorInfo('LimitOrders', 'LinkedOutputSignerMismatch', "Linked order signer differs from the provider's signer."),
+    (32, 21): ErrorInfo('LimitOrders', 'LinkedOutputAssetMismatch', 'Provider output asset is not what the linked order spends.'),
+    (32, 22): ErrorInfo('LimitOrders', 'LinkedOutputExpired', 'Provider record has passed its `expires_at` deadline.'),
+    (32, 23): ErrorInfo('LimitOrders', 'LinkedAmountResolvedToZero', 'Linked fraction floored to zero against the recorded output.'),
+    (32, 24): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForLinkedAmount', 'Partial fill submitted against a linked (consuming) order.'),
+    (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
+    (32, 26): ErrorInfo('LimitOrders', 'LinkedOutputNotPrunable', '`prune_linked_output` called by a non-signer on an unexpired record.'),
 }

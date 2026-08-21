@@ -215,6 +215,7 @@ CALLER_ROLES: dict[str, dict[str, str]] = {
         "removeStakeFull": "coldkey (must own the stake)",
         "removeStakeFullLimit": "coldkey (must own the stake)",
         "moveStake": "coldkey (must own the stake)",
+        "moveStakeLimit": "coldkey (must own the stake)",
         "transferStake": "coldkey (must own the stake)",
         "burnAlpha": "coldkey (must own the stake)",
         "addProxy": "delegating coldkey",

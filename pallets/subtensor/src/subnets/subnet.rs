@@ -45,12 +45,16 @@ impl<T: Config> Pallet<T> {
     ///
     ///
     /// This iterates through all the networks and returns a list of netuids.
+    /// Only keys with `added == true` are returned — leftover `false` entries
+    /// (old dissolve paths that wrote the flag instead of removing the key)
+    /// must not inflate subnet counts or claim-fee quotes.
     ///
     /// # Returns
-    /// * `Vec<NetUid>`: Netuids of all subnets.
+    /// * `Vec<NetUid>`: Netuids of all existing subnets.
     ///
     pub fn get_all_subnet_netuids() -> Vec<NetUid> {
         NetworksAdded::<T>::iter()
+            .filter(|(_, added)| *added)
             .map(|(netuid, _)| netuid)
             .collect()
     }

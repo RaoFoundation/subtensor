@@ -69,7 +69,7 @@ def _decode_commitment_data(fields: list) -> str:
     """Concatenate Raw* field bytes; utf-8 when possible, else 0x-hex."""
     data = b""
     for entry in fields:
-        for variant, value in (entry or {}).items():
+        for variant, value in metagraph_module._field_items(entry):
             if variant.startswith("Raw") and isinstance(value, str):
                 data += bytes.fromhex(value.removeprefix("0x"))
     try:

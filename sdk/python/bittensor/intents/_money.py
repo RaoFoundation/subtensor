@@ -94,6 +94,8 @@ _FALLBACK_AMOUNT_UNITS: dict[tuple[str, str, str], str] = {
     ("SubtensorModule", "remove_stake_limit", "amount_unstaked"): "ALPHA",
     ("SubtensorModule", "remove_stake_limit", "limit_price"): "TAO",
     ("SubtensorModule", "move_stake", "alpha_amount"): "ALPHA",
+    ("SubtensorModule", "move_stake_limit", "alpha_amount"): "ALPHA",
+    ("SubtensorModule", "move_stake_limit", "limit_price"): "TAO",
     ("SubtensorModule", "transfer_stake", "alpha_amount"): "ALPHA",
     ("SubtensorModule", "transfer_stake_and_hotkey", "alpha_amount"): "ALPHA",
     ("SubtensorModule", "swap_stake", "alpha_amount"): "ALPHA",

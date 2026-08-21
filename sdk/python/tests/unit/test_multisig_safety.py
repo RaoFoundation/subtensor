@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+import bittensor.executor as executor_module
 from bittensor import Policy
 from bittensor._generated import calls
 from bittensor.cli import multisig_helpers
@@ -17,10 +18,42 @@ from bittensor.intents.multisig import (
     MultisigThreshold1,
     MultisigThreshold1IntentAdapter,
 )
-from bittensor.intents.registration import BurnedRegister
+from bittensor.intents.registration import BurnedRegister, ClaimRoot, RegisterSubnet
 from bittensor.intents.root import SetSubnetEmissionEnabled
-from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import ALICE, ALICE_HOT, BOB, dev_wallet
+from bittensor.multisig import Multisig
+from tests.harness.fake_substrate import FakeSubstrate, success_result
+from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, dev_wallet
+
+
+@pytest.mark.asyncio
+async def test_shielded_approval_propagates_finalization_request():
+    substrate = FakeSubstrate()
+    client = Client("local", substrate=substrate)
+    wallet = dev_wallet()
+    account = substrate.multisig_account([ALICE, BOB], 2)
+    multisig = Multisig(
+        signatories=[ALICE, BOB],
+        threshold=2,
+        address=account.ss58_address,
+        _client=client,
+        _account=account,
+    )
+    multisig._preflight_funds = AsyncMock()
+    multisig._compose_as_multi = AsyncMock(return_value=Mock())
+    expected = Mock()
+    client._executor._submit_encrypted_call = AsyncMock(return_value=expected)
+
+    result = await multisig.approve(
+        calls.System.remark(remark="0x00"),
+        wallet,
+        shielded=True,
+        wait_for_finalization=True,
+    )
+
+    assert result is expected
+    assert (
+        client._executor._submit_encrypted_call.await_args.kwargs["wait_for_finalization"] is True
+    )
 
 
 @pytest.mark.asyncio
@@ -32,6 +65,7 @@ async def test_saved_multisig_preserves_inner_policy_and_mev_contract(monkeypatc
         wallet_given=True,
         multisig_wallet_name=None,
         output=output,
+        external_signer_address=lambda: None,
     )
     monkeypatch.setattr(multisig_helpers.cfg, "get_multisig", lambda name: {"name": name})
     monkeypatch.setattr(
@@ -93,9 +127,109 @@ async def test_required_mev_shield_survives_multisig_dispatch():
         wrapped,
         wallet,
         policy=None,
+        proxy_for=None,
+        proxy_type=None,
         wait_for_inclusion=True,
         wait_for_finalization=True,
+        wait_for_registration=True,
+        registration_timeout=None,
+        on_progress=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_required_mev_shield_passes_proxy_for():
+    semantic = BurnedRegister(netuid=7, hotkey_ss58=ALICE_HOT)
+    dispatch = MultisigThreshold1(
+        other_signatories=[BOB],
+        call=semantic.to_dict(),
+    )
+    wrapped = MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=semantic)
+    executor = Executor(Mock())
+    expected = Mock()
+    executor.submit_shielded = AsyncMock(return_value=expected)
+    wallet = Mock()
+
+    result = await executor.execute(wrapped, wallet, proxy_for=BOB, proxy_type="Staking")
+
+    assert result is expected
+    executor.submit_shielded.assert_awaited_once_with(
+        wrapped,
+        wallet,
+        policy=None,
+        proxy_for=BOB,
+        proxy_type="Staking",
+        wait_for_inclusion=True,
+        wait_for_finalization=True,
+        wait_for_registration=True,
+        registration_timeout=None,
+        on_progress=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_multisig_claim_reads_multisig_state_but_checks_member_balance():
+    substrate = FakeSubstrate()
+    wallet = dev_wallet()
+    semantic = ClaimRoot()
+    dispatch = MultisigThreshold1(
+        other_signatories=[BOB],
+        call=semantic.to_dict(),
+    )
+    wrapped = MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=semantic)
+    multisig_address = substrate.multisig_account([ALICE, BOB], 1).ss58_address
+    substrate.seed("SubtensorModule", "StakingHotkeys", [multisig_address], [ALICE_HOT])
+    substrate.seed("SubtensorModule", "RootClaimableThreshold", [0], {"bits": 500_000 << 32})
+    substrate.seed("System", "Account", [multisig_address], {"data": {"free": 10**12}})
+    substrate.seed("System", "Account", [ALICE], {"data": {"free": 0}})
+    substrate.seed_map("SubtensorModule", "NetworksAdded", [(0, True)])
+    substrate.seed_runtime("BetaBasketRuntimeApi", "get_root_basket_owed", 1_000_000)
+    substrate.seed_runtime(
+        "BetaBasketRuntimeApi", "get_root_basket_positions", [(ALICE_HOT, 1, 1_000_000)]
+    )
+    substrate.seed_runtime(
+        "BetaBasketRuntimeApi",
+        "get_basket_payout",
+        lambda params: 1_000_000 if params[1] == multisig_address else None,
+    )
+    substrate.seed_runtime("BetaBasketRuntimeApi", "get_validator_basket", [(0, 1)])
+
+    plan = await Client("local", substrate=substrate).plan(wrapped, wallet)
+
+    assert any("below the reserved claim fee" in violation for violation in plan.violations)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shielded", [False, True])
+async def test_wrapped_registration_completion_uses_multisig_origin(monkeypatch, shielded):
+    substrate = FakeSubstrate()
+    wallet = dev_wallet()
+    semantic = RegisterSubnet(hotkey_ss58=BOB_HOT)
+    dispatch = MultisigThreshold1(
+        other_signatories=[BOB],
+        call=semantic.to_dict(),
+    )
+    wrapped = MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=semantic)
+    multisig_address = substrate.multisig_account([ALICE, BOB], 1).ss58_address
+    client = Client("local", substrate=substrate)
+    completed = success_result(101)
+    complete_registration = AsyncMock(return_value=completed)
+    monkeypatch.setattr(
+        executor_module,
+        "_complete_subnet_registration",
+        complete_registration,
+    )
+
+    if shielded:
+        client._executor._submit_encrypted_call = AsyncMock(return_value=success_result())
+        result = await client.submit_shielded(wrapped, wallet)
+    else:
+        result = await client.execute(wrapped, wallet)
+
+    assert result is completed
+    assert complete_registration.await_args.kwargs["owner"] == multisig_address
+    assert complete_registration.await_args.kwargs["hotkey"] == BOB_HOT
+    assert complete_registration.await_args.kwargs.get("deferred_dispatch", False) is shielded
 
 
 @pytest.mark.asyncio

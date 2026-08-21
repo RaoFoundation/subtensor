@@ -1382,6 +1382,21 @@ pub fn dissolve_cleanup_status(netuid: NetUid) -> DissolveCleanupStatus {
     status
 }
 
+/// Assert the canonical per-subnet alpha-stake accounting invariant.
+pub fn assert_total_alpha_staked_invariant(netuid: NetUid) {
+    let summed = TotalHotkeyAlpha::<Test>::iter()
+        .filter(|(_, this_netuid, _)| *this_netuid == netuid)
+        .fold(AlphaBalance::ZERO, |total, (_, _, alpha)| {
+            total.saturating_add(alpha)
+        });
+
+    assert_eq!(
+        TotalAlphaStaked::<Test>::get(netuid),
+        summed,
+        "TotalAlphaStaked must equal the sum of TotalHotkeyAlpha for netuid {netuid}"
+    );
+}
+
 /// Runs `get_total_alpha_value` then `settle_stakes` with one shared dissolve status.
 pub fn run_destroy_alpha_get_total_and_settle(netuid: NetUid) -> DissolveCleanupStatus {
     let w = Weight::from_parts(u64::MAX, u64::MAX);

@@ -20,7 +20,7 @@ existential deposit stays behind; disable it to empty and reap the account.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `dest_ss58` | string | yes | Account the funds are sent to. |
+| `dest_ss58` | string | yes | Destination account that receives the TAO (a coldkey, not a hotkey). |
 | `keep_alive` | boolean | no | Refuse to drop the sender below the existential deposit. Disable it only when you intend to empty the account, which lets the chain reap it. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
@@ -45,7 +45,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.TransferAll(dest_ss58="5F...")
+intent = bt.TransferAll(dest_ss58="5G...destination")
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission

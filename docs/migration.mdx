@@ -514,7 +514,7 @@ The v11 package ships against a runtime that also changed behavior. These are
 not rename mappings — scripts that still "work" can fail or mis-account after
 the upgrade. See the release notes for
 [V431](/releases/v431-upgrade), [V445](/releases/v445-upgrade), and
-[V446](/releases/v446-upgrade).
+[V446](/releases/v446-upgrade), plus the [V448 upgrade](/releases/v448-upgrade).
 
 ### Ownership and emissions
 
@@ -547,11 +547,15 @@ the upgrade. See the release notes for
 
 ### Staking and fees
 
-- **Default slippage protection.** `AddStake`, `RemoveStake`, and `SwapStake`
-  (and the matching CLI commands) apply a 5% price bound by default. Old
-  any-price scripts fail with [`SlippageTooHigh`](/code/pallets/subtensor/src/macros/errors.rs#L192) unless you pass
+- **Default slippage protection.** `AddStake`, `RemoveStake`, `SwapStake`,
+  and cross-subnet `MoveStake` / `MoveSwapStake` (and the matching CLI
+  commands) apply a 5% price bound by default. Old any-price scripts fail
+  with [`SlippageTooHigh`](/code/pallets/subtensor/src/macros/errors.rs#L192) unless you pass
   `slippage_protection=False` / `--no-slippage-protection`, or set an explicit
-  `rate_tolerance` / limit price.
+  `rate_tolerance` / limit price. Runtime v448 adds `move_stake_limit` for a
+  single protected hotkey-and-subnet move. Its relative limit is the minimum
+  acceptable destination-alpha per origin-alpha ratio. The SDK and btcli use
+  fill-or-kill; direct runtime, EVM, and WASM callers can set `allow_partial`.
 - **Strict stake moves.** `move_stake` / `transfer_stake` / `swap_stake` no
   longer silently cap the alpha amount to what remains after an alpha-paid
   fee. Submitting the full stake balance can fail with
@@ -678,7 +682,8 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `wallet list` / `create` / `new-coldkey` / `new-hotkey` / `regen-*` | same names under `wallet` |
 | `wallet balance [--all]` | `wallet balance [--all]` or `btcli query balance --coldkey NAME --json` |
 | `wallet transfer --dest --amount` | `wallet transfer --dest --amount` or `btcli tx transfer --dest --amount-tao` |
-| `wallet overview` / `inspect` / `sign` / `verify` / `encrypt` / `decrypt` | same names |
+| `wallet overview` | `wallet overview` (stake portfolio) and `wallet registrations` (every hotkey UID, including zero stake) |
+| `wallet inspect` / `sign` / `verify` / `encrypt` / `decrypt` | same names |
 | `wallet swap-hotkey DEST` | `wallet swap-hotkey --new-hotkey ...` / `tx swap-hotkey` |
 | `wallet swap-coldkey announce/execute/...` | `wallet announce-coldkey-swap`, `wallet swap-coldkey`, `wallet swap-check`, `tx dispute-coldkey-swap`, `tx clear-coldkey-swap-announcement` |
 | `wallet set-identity` / `get-identity` / `associate-hotkey` | same names |
@@ -686,7 +691,8 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `stake add --amount` | `stake add` / `tx add-stake --amount-tao` |
 | `stake remove --amount` | `stake remove` / `tx remove-stake --amount-alpha` (accepts `all`) |
 | `stake remove --all` | `tx unstake-all` / `tx unstake-all-alpha` |
-| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; `--include-hotkeys`/`--exclude-hotkeys`/`--all-hotkeys` batching is gone — loop in your script) |
+| `stake remove --all --all-hotkeys` | `stake unstake-all --all-hotkeys` |
+| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; multi-hotkey selectors remain unavailable for these operations) |
 | `stake auto` / `set-auto` | same names |
 | `stake set-claim` / `process-claim` | `btcli root claim` / `btcli tx claim-root-with-hotkey --hotkey ...` (per-validator; `claim_root(subnets)` kept for old clients — see [Root Reborn](/docs/guides/root-reborn)) |
 | `stake child get/set/revoke/take` | same names (`child set` takes `--children` as JSON pairs) |

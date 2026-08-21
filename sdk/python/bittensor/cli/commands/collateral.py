@@ -10,7 +10,7 @@ import typer
 from ...intents import AddCollateral, SetMinCollateral
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
-from ..tx import _parse_money
+from ..tx import _parse_money, resolve_all_amount
 
 app = typer.Typer(no_args_is_help=True, help="Miner registration collateral.")
 
@@ -90,12 +90,18 @@ def add_collateral(
     netuid: int = typer.Option(
         ..., "--netuid", help=AddCollateral.field_help("netuid") or "Subnet to lock collateral on."
     ),
-    amount_alpha: str = typer.Option(
-        ...,
+    amount_alpha: Optional[str] = typer.Option(
+        None,
         "--amount-alpha",
         "--amount",
         help=AddCollateral.field_help("amount_alpha")
         or "Alpha to lock as collateral (free stake first, then buy shortfall).",
+    ),
+    all_amount: bool = typer.Option(
+        False,
+        "--all",
+        help="Lock every free (not already collateralized) alpha on the hotkey "
+        "(same as `--amount all`).",
     ),
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
@@ -113,11 +119,7 @@ def add_collateral(
     (1 + rate tolerance). ``--no-mev-shield`` is refused.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    try:
-        amount = _parse_money(amount_alpha, False)
-    except ValueError as error:
-        app_ctx.output.error(f"invalid value for `--amount-alpha`: {error}")
-        raise typer.Exit(2)
+    amount = resolve_all_amount(app_ctx, amount_alpha, all_amount, flag="--amount")
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     app_ctx.submit(
         AddCollateral(

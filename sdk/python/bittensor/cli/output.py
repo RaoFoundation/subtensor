@@ -136,6 +136,19 @@ def _prose(text: str) -> Text:
     return _linkify_urls(out)
 
 
+# `--hotkey` / `--amount` are 8 characters; prompt `hint` rows share that column.
+PROMPT_KEY_WIDTH = 8
+
+
+def kv_line(key: str, width: int, content: Text, *, key_style: str = STYLE_KEY) -> Text:
+    """One tabbed key/value line: 2-space indent, right-aligned key, value column."""
+    line = Text("  ", overflow="ignore", no_wrap=True)
+    line.append(key.rjust(width), style=key_style)
+    line.append("  ")
+    line.append_text(content)
+    return line
+
+
 _ADDRESS_KEYS = {"address", "ss58", "multisig", "signer", "coldkeypub", "hotkeypub"}
 _NAME_KEYS = {"name", "wallet", "coldkey", "hotkey"}
 _INCIDENTAL_KEYS = {"path", "timepoint", "block"}
@@ -443,14 +456,10 @@ class Output:
         line.style = STYLE_HINT
         (console or self._err).print(line)
 
-    def _kv_line(self, key: str, width: int, content: Text) -> None:
+    def _kv_line(self, key: str, width: int, content: Text, *, key_style: str = STYLE_KEY) -> None:
         """One aligned key/value line, never wrapped (hashes and addresses are
         copy targets; a mid-value wrap breaks copy-paste and the alignment)."""
-        line = Text("  ", overflow="ignore", no_wrap=True)
-        line.append(key.rjust(width), style=STYLE_KEY)
-        line.append("  ")
-        line.append_text(content)
-        self._out.print(line, soft_wrap=True)
+        self._out.print(kv_line(key, width, content, key_style=key_style), soft_wrap=True)
 
     def _print_title(self, title: str) -> None:
         """Section title with netuid references named and hyperlinked."""
@@ -476,6 +485,45 @@ class Output:
             self._out.print("  [dim]none[/dim]")
             return
         self._print_fields(fields)
+
+    def kv_sections(
+        self,
+        title: Optional[str],
+        sections: list[tuple[Optional[str], list[tuple[str, str, Optional[str]]]]],
+        json_fields: dict[str, Any],
+        hint: Optional[str] = None,
+    ) -> None:
+        """Aligned key/value sections (raw value, optional dim reading).
+
+        Same human convention as the metagraph header and hyperparameters:
+        the chain value is primary, a local name or age rides beside it.
+        ``json_fields`` is the machine shape.
+        """
+        if self.json_mode:
+            self._json(json_fields)
+            return
+        if title:
+            self._print_title(title)
+        for header, rows in sections:
+            if not rows:
+                continue
+            self._out.print()
+            if header:
+                self._out.print(Text(header, style=STYLE_KEY))
+            key_width = max(len(key) for key, _, _ in rows)
+            for key, value, note in rows:
+                line = Text("  ", overflow="ignore", no_wrap=True)
+                line.append(key.rjust(key_width), style=STYLE_KEY)
+                line.append("  ")
+                line.append_text(
+                    self._linked_text(value, _value_style(key, value), _address_kind_for_key(key))
+                )
+                if note:
+                    line.append(f"  {note}", style=STYLE_HINT)
+                self._out.print(line, soft_wrap=True)
+        if hint:
+            self._out.print()
+            self._sub_diag("help", hint, console=self._out)
 
     def _print_fields(self, fields: dict[str, Any], indent: int = 2) -> None:
         """Aligned key/value block: dim keys, values colored by semantic role.
@@ -865,17 +913,45 @@ class Output:
             self._out.print()
             self._out.print(footer)
 
+    def _print_root_yield(self, root_yield: Optional[dict[str, Any]]) -> None:
+        """Footer for unclaimed basket yield. Hidden when the coldkey has
+        neither root principal nor accrued entitlement."""
+        if not root_yield:
+            return
+        accrued = root_yield.get("accrued_basket_yield")
+        staked = root_yield.get("root_staked")
+        if accrued is None or staked is None:
+            return
+        if getattr(accrued, "rao", 0) <= 0 and getattr(staked, "rao", 0) <= 0:
+            return
+        ratio = root_yield.get("personal_yield")
+        line = Text()
+        line.append("accrued basket yield", style="dim")
+        line.append(f"  {accrued}")
+        if ratio is not None:
+            line.append(f"  ({ratio:.2%} of root stake)", style="dim")
+        self._out.print(line)
+        hint = Text()
+        hint.append("auto-claim is off → ", style="dim")
+        hint.append("btcli root claim", style=STYLE_COMMAND)
+        self._out.print(hint)
+
     def stake_list(
         self,
         title: str,
         groups: list[dict[str, Any]],
         records: list[dict],
         total: Any,
+        *,
+        root_yield: Optional[dict[str, Any]] = None,
     ) -> None:
         """Grouped stake view: one block per netuid with the subnet total on
         top and the per-hotkey breakdown dimmed beneath it.
 
         ``records`` supplies the JSON shape (flat per-position records).
+        ``root_yield`` is the coldkey-wide accrued basket quote; printed
+        after the total so netuid 0 does not look like old root (principal
+        only, no rewards).
         """
         if self.json_mode:
             self._json(records)
@@ -887,6 +963,7 @@ class Output:
         self._out.print(f"[{STYLE_TITLE}]{escape(head)}[/{STYLE_TITLE}]")
         if not groups:
             self._out.print("  [dim]none[/dim]")
+            self._print_root_yield(root_yield)
             return
         width = max(
             [len(str(g["stake"])) for g in groups]
@@ -943,6 +1020,7 @@ class Output:
         self._out.print(root)
         self._out.print()
         self._out.print(f"[dim]total[/dim] {total}  [dim](spot, excl. slippage/fees)[/dim]")
+        self._print_root_yield(root_yield)
 
     def metagraph(
         self,
@@ -1301,6 +1379,9 @@ class Output:
                 note = entry.get("note")
                 if note:
                     branch.add(Text(note, style="dim italic"))
+                signer = entry.get("signer")
+                if signer:
+                    branch.add(Text(f"signer · {signer}", style="dim"))
             self._out.print(addr_root)
             summary += f"  ·  {len(addresses)} addresses"
         if proxies:
@@ -1367,6 +1448,13 @@ class Output:
             note_line.append(" · ", style="dim")
             note_line.append(note, style="dim italic" if note != "—" else "dim")
             branch.add(note_line)
+            signer = entry.get("signer")
+            if signer:
+                signer_line = Text()
+                signer_line.append("signer", style="dim")
+                signer_line.append(" · ", style="dim")
+                signer_line.append(str(signer), style="dim")
+                branch.add(signer_line)
 
         self._out.print(root)
         count = len(entries)
@@ -1399,43 +1487,46 @@ class Output:
         summary.append(" ")
         summary.append_text(self.linked_prose(plan.summary))
         self._out.print(summary)
+
+        rows: list[tuple[str, Text, str]] = []
         signer_label = self.address_names.get(plan.signer_address or "", plan.signer)
-        line = Text("  ")
-        line.append("signer", style=STYLE_KEY)
-        line.append("  ")
-        line.append(str(signer_label))
+        signer = Text(str(signer_label))
         if plan.signer_address:
-            line.append(" (")
-            line.append_text(self._linked_text(plan.signer_address, STYLE_ADDRESS))
-            line.append(")")
-        self._out.print(line)
+            signer.append(" (")
+            signer.append_text(self._linked_text(plan.signer_address, STYLE_ADDRESS))
+            signer.append(")")
+        rows.append(("signer", signer, STYLE_KEY))
         if plan.fee is not None:
-            self._out.print(f"  [dim]est. fee[/dim]  {plan.fee}")
+            rows.append(("est. fee", Text(str(plan.fee)), STYLE_KEY))
         for effect in plan.effects:
-            line = Text("  ")
-            line.append("effect", style="dim")
-            line.append("  ")
-            line.append_text(self.linked_prose(effect))
-            self._out.print(line)
+            rows.append(("effect", self.linked_prose(effect), STYLE_KEY))
         for warning in plan.warnings:
-            self._out.print(
-                f"  [{STYLE_WARNING}]warning:[/{STYLE_WARNING}] "
-                f"{escape(self.with_subnets(self.with_names(warning)))}"
+            rows.append(
+                (
+                    "warning",
+                    Text(self.with_subnets(self.with_names(warning))),
+                    STYLE_WARNING,
+                )
             )
         for violation in plan.violations:
-            self._out.print(
-                f"  [{STYLE_ERROR}]policy:[/{STYLE_ERROR}] {escape(self.with_subnets(violation))}"
-            )
-        if not plan.ok:
-            self._out.print(f"  [{STYLE_ERROR}]blocked by policy[/{STYLE_ERROR}]")
+            rows.append(("policy", Text(self.with_subnets(violation)), STYLE_ERROR))
+
+        footer: list[tuple[str, Text, str]] = []
         if command and plan.ok:
-            line = Text("  ")
-            line.append("run for real  ", style=STYLE_HINT)
-            line.append(command, style=STYLE_COMMAND)
-            self._out.print(line, soft_wrap=True)
+            footer.append(("run for real", Text(command, style=STYLE_COMMAND), STYLE_HINT))
         # The docs page carries parameters, verify reads, and the on-chain
         # implementation with source links.
-        self._sub_diag("see", tx_docs_url(plan.op), console=self._out)
+        footer.append(("see", self._linked_text(tx_docs_url(plan.op), STYLE_URL), STYLE_HINT))
+
+        width = max(len(key) for key, _, _ in (*rows, *footer))
+        for key, content, key_style in rows:
+            self._kv_line(key, width, content, key_style=key_style)
+        if not plan.ok:
+            self._out.print(f"  [{STYLE_ERROR}]blocked by policy[/{STYLE_ERROR}]")
+        if footer:
+            self._out.print()
+            for key, content, key_style in footer:
+                self._kv_line(key, width, content, key_style=key_style)
 
     def multisig_followup(self, followup: dict[str, Any], *, suppress_decode: bool = False) -> None:
         """Render co-signer instructions after a multisig approval.
@@ -1531,7 +1622,11 @@ class Output:
             self._out.print(":")
             self._print_copyable(str(entry.get("command", "")))
         self._out.print()
-        tail = _prose("add `--macos-password` or `--keychain-password` if the co-signer uses them")
+        tail = _prose(
+            "add `--macos-password` or `--keychain-password` if the co-signer uses them; "
+            "for a Vault/Ledger/extension member, add `--signer vault` "
+            "(or ledger/extension) — `--signatory` already names the account"
+        )
         tail.style = "dim"
         self._out.print(tail)
 

@@ -19,6 +19,7 @@ import typer
 from rich.console import Console
 from rich.text import Text
 
+from .. import config as cfg
 from .. import wallets
 from ..balance import Balance
 from ..reads import StakePosition, StakeValuation
@@ -125,6 +126,135 @@ def _pick_target(
             continue  # the resolver already printed its own error
         kwargs[hotkey_field] = address
         return [flag, address]
+
+
+def required_address_spec(field: str) -> Optional[PromptSpec]:
+    """Richer prompt for a required address that is not the signing wallet.
+
+    Own-key params (``hotkey_ss58`` / ``coldkey_ss58``) fall back to the
+    configured wallet and are left alone. Destination-style hotkeys get the
+    local-hotkey picker; destination-style coldkeys get the address-book
+    picker. Returns None when ``field`` is not an address.
+    """
+    if field in ("hotkey_ss58", "coldkey_ss58"):
+        return None
+    if not (field.endswith("_ss58") or field in ("ss58", "address", "dest")):
+        return None
+    if "hotkey" in field:
+        return stake_target_spec(field)
+    return dest_account_spec(field)
+
+
+def dest_account_spec(field: str = "dest_ss58") -> PromptSpec:
+    """A PromptSpec whose custom flow picks a destination account.
+
+    Lists address-book contacts and other local wallets, then accepts a list
+    number, a name, or a pasted ss58. This is a coldkey / account picker —
+    not a hotkey picker.
+    """
+    return PromptSpec(
+        field=field,
+        flag=address_cli_name(field),
+        help=None,
+        parse=lambda _app_ctx, raw: raw,
+        custom=lambda console, app_ctx, kwargs: _pick_dest_account(console, app_ctx, kwargs, field),
+    )
+
+
+@dataclass
+class _DestChoice:
+    name: str
+    ss58: str
+    kind: str
+
+
+def _pick_dest_account(
+    console: Console, app_ctx: AppContext, kwargs: dict, field: str
+) -> list[str]:
+    """List known accounts and ask which coldkey receives the TAO."""
+    flag = address_cli_name(field)
+    choices = _dest_choices(app_ctx)
+    hint = Text("  ")
+    hint.append(flag, style=STYLE_COMMAND)
+    hint.append("  ")
+    hint.append(
+        "Destination account — a coldkey, not a hotkey.",
+        style=STYLE_HINT,
+    )
+    console.print(hint)
+    if choices:
+        name_width = max(len(choice.name) for choice in choices)
+        number_width = len(str(len(choices)))
+        for index, choice in enumerate(choices, start=1):
+            line = Text("    ", overflow="ignore", no_wrap=True)
+            line.append(str(index).rjust(number_width), style=STYLE_COMMAND)
+            line.append("  ")
+            line.append(choice.name.ljust(name_width), style=STYLE_NAME)
+            line.append(f"  {choice.ss58}", style="dim")
+            if choice.kind != "address-book":
+                line.append(f"  {choice.kind}", style="dim italic")
+            console.print(line, soft_wrap=True)
+        console.print(
+            "  [dim]a number above, or any account: ss58 address, address-book name, "
+            "or local wallet name[/dim]"
+        )
+    else:
+        console.print(
+            "  [dim]no address-book contacts or other local wallets — paste the "
+            "destination ss58[/dim]"
+        )
+
+    prompt = Text("  ")
+    prompt.append(flag.lstrip("-"), style=STYLE_COMMAND)
+    prompt.append(": ", style=STYLE_COMMAND)
+    while True:
+        try:
+            raw = console.input(prompt).strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print()
+            app_ctx.output.message("aborted.")
+            raise typer.Exit(130)
+        if not raw:
+            console.print("  a value is required", style=STYLE_HINT)
+            continue
+        if raw.isdigit() and choices:
+            index = int(raw)
+            if 1 <= index <= len(choices):
+                chosen = choices[index - 1]
+                app_ctx.output.name_address(chosen.ss58, chosen.name)
+                kwargs[field] = chosen.ss58
+                return [flag, chosen.ss58]
+            console.print(f"  enter a number between 1 and {len(choices)}", style=STYLE_HINT)
+            continue
+        try:
+            address = app_ctx.resolve_address(field, raw)
+        except typer.Exit:
+            continue
+        kwargs[field] = address
+        return [flag, address]
+
+
+def _dest_choices(app_ctx: AppContext) -> list[_DestChoice]:
+    """Address-book contacts, then other local wallets, then saved multisigs."""
+    seen: set[str] = set()
+    choices: list[_DestChoice] = []
+
+    def _add(name: str, ss58: Optional[str], kind: str) -> None:
+        if not ss58 or ss58 in seen:
+            return
+        seen.add(ss58)
+        choices.append(_DestChoice(name=name, ss58=ss58, kind=kind))
+
+    for entry in cfg.load_addresses():
+        name = entry.get("name")
+        address = entry.get("address")
+        if isinstance(name, str) and isinstance(address, str):
+            _add(name, address, "address-book")
+    for coldkey in wallets.list_wallets_detailed(app_ctx.wallet_path):
+        if coldkey.name == app_ctx.wallet_name:
+            continue
+        _add(coldkey.name, coldkey.ss58, "wallet")
+    return choices
 
 
 def with_free_balance(spec: PromptSpec) -> PromptSpec:
@@ -277,8 +407,8 @@ def _pick(
 def _stake_owner(app_ctx: AppContext, kwargs: dict) -> tuple[str, str]:
     """The coldkey whose stake is on offer: the proxied account with --proxy-for,
     otherwise the signing wallet's coldkey."""
-    proxied = kwargs.get("proxy_for")
-    if proxied:
+    proxied = kwargs.get("proxy_for") or app_ctx.proxy_for
+    if proxied and proxied != "self":
         owner = app_ctx.resolve_address("proxy_for", proxied)
         return owner, str(proxied)
     try:
