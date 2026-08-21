@@ -120,6 +120,10 @@ class Substrate(Protocol):
         """Current chain block number."""
         ...
 
+    async def finalized_block_number(self) -> int:
+        """Current finalized chain block number."""
+        ...
+
     async def block_time(self) -> float:
         """Seconds per block, detected from the chain."""
         ...
@@ -404,6 +408,14 @@ class RpcSubstrate:
 
     async def block_number(self) -> int:
         return await self._read(lambda raw: raw.get_block_number(None))
+
+    async def finalized_block_number(self) -> int:
+        # A fresh read per call, like block_number: _known_finalized_height's
+        # TTL cache would answer the property with a stale height.
+        async def op(raw: SubstrateConnection) -> int:
+            return await raw.get_block_number(await raw.get_chain_finalised_head())
+
+        return await self._read(op)
 
     async def block_time(self) -> float:
         """Seconds per block, from the chain's ``Aura.SlotDuration`` constant.
