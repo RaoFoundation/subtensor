@@ -311,6 +311,49 @@
     "inputs": [
       {
         "internalType": "bytes32",
+        "name": "originHotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "destinationHotkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint16",
+        "name": "originNetuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "destinationNetuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint64",
+        "name": "alphaAmount",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "limitPrice",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bool",
+        "name": "allowPartial",
+        "type": "bool"
+      }
+    ],
+    "name": "moveStakeLimit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
         "name": "delegate",
         "type": "bytes32"
       }
@@ -1747,6 +1790,40 @@
         "internalType": "bytes32[]",
         "name": "",
         "type": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "coldkey",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "offset",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint16",
+        "name": "limit",
+        "type": "uint16"
+      }
+    ],
+    "name": "getStakingHotkeys",
+    "outputs": [
+      {
+        "internalType": "bytes32[]",
+        "name": "hotkeys",
+        "type": "bytes32[]"
+      },
+      {
+        "internalType": "uint64",
+        "name": "total",
+        "type": "uint64"
       }
     ],
     "stateMutability": "view",

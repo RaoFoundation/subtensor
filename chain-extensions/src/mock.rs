@@ -160,6 +160,7 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for subtensor_runtime_co
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake_limit { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake { .. })
+                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake_limit { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake { .. })
             ),
             _ => false,

@@ -13,6 +13,7 @@ from ....evm import rpc as evm_rpc
 from ....intents import FundEvmKey
 from ...context import ctx_of
 from ...globals import evm_key_signed, with_globals, with_tx_globals
+from ...tx import resolve_all_amount
 from ._shared import (
     EVM_ADDRESS_HELP,
     EVM_KEY_HELP,
@@ -66,8 +67,11 @@ def balance(
 def fund(
     ctx: typer.Context,
     key: Optional[str] = typer.Option(None, "--evm-key", help=EVM_ADDRESS_HELP),
-    amount_tao: str = typer.Option(
-        ..., "--amount-tao", help="How much TAO to send. Pass `all` for the entire balance."
+    amount_tao: Optional[str] = typer.Option(
+        None, "--amount-tao", help="How much TAO to send. Pass `all` for the entire balance."
+    ),
+    all_amount: bool = typer.Option(
+        False, "--all", help="Send the entire transferable balance (same as `--amount-tao all`)."
     ),
 ):
     """Fund an EVM key with TAO from the coldkey (a transfer to its ss58 mirror).
@@ -76,8 +80,9 @@ def fund(
     balance (with 18 decimals) as soon as it lands.
     """
     app_ctx = ctx_of(ctx)
+    amount = resolve_all_amount(app_ctx, amount_tao, all_amount, flag="--amount-tao")
     h160 = _address_of(app_ctx, key, param="--evm-key")
-    app_ctx.submit(FundEvmKey(evm_address=h160, amount_tao=amount_tao))
+    app_ctx.submit(FundEvmKey(evm_address=h160, amount_tao=amount))
 
 
 @with_tx_globals

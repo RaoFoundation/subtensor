@@ -12,13 +12,14 @@ incur slippage. By default the call is slippage-protected: it fails
 (`SlippageTooHigh`) instead of filling once the origin/destination price
 ratio falls more than `rate_tolerance` (5%) below the ratio at submission
 — raise the tolerance or set `slippage_protection` to False to execute at
-any price. The two netuids must differ (`SameNetuid`). Use `move_stake`
-when the hotkey should change too, and `remove_stake` plus `add_stake`
-only if you want to control each leg separately.
+any price. The two netuids must differ (`SameNetuid`). Use
+`move_swap_stake` (or `move_stake`) when the hotkey should change too,
+and `remove_stake` plus `add_stake` only if you want to control each
+leg separately. Pass `all` to swap the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1366-L1382), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1514-L1534) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1365-L1381), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1513-L1533) |
 
 ## Parameters
 
@@ -27,7 +28,7 @@ only if you want to control each leg separately.
 | `hotkey_ss58` | string | yes | Hotkey the stake is held on (the validator backing the position). |
 | `origin_netuid` | integer | yes | Subnet the stake currently sits on. |
 | `dest_netuid` | integer | yes | Subnet the stake ends up on. When it differs from the origin, the position is swapped through both subnet pools, which can incur slippage on each leg. |
-| `amount_alpha` | number \| `"all"` | yes | How much of the origin position to swap across (an explicit amount; ``all`` is not accepted). |
+| `amount_alpha` | number \| `"all"` | yes | How much of the origin position to swap across, or ``all``. |
 | `slippage_protection` | boolean | no | Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price. |
 | `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
 
@@ -59,7 +60,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.SwapStake(hotkey_ss58="5F...", origin_netuid=0, dest_netuid=0, amount_alpha=1.0)
+intent = bt.SwapStake(hotkey_ss58="5F...", origin_netuid=1, dest_netuid=2, amount_alpha=1.0)
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -78,7 +79,7 @@ result = sub.execute_tool("swap_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1368`](/code/pallets/subtensor/src/macros/dispatches.rs#L1366-L1382):
+`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1367`](/code/pallets/subtensor/src/macros/dispatches.rs#L1365-L1381):
 
 ```rust
 #[pallet::call_index(87)]
@@ -100,9 +101,9 @@ pub fn swap_stake(
 }
 ```
 
-Delegates to [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L260).
+Delegates to [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L302).
 
-`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1516`](/code/pallets/subtensor/src/macros/dispatches.rs#L1514-L1534):
+`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1515`](/code/pallets/subtensor/src/macros/dispatches.rs#L1513-L1533):
 
 ```rust
 #[pallet::call_index(90)]
@@ -128,6 +129,6 @@ pub fn swap_stake_limit(
 }
 ```
 
-Delegates to [`do_swap_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L325).
+Delegates to [`do_swap_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L367).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

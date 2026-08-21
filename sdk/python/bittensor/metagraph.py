@@ -472,17 +472,31 @@ def _text(value: Any) -> str:
     return str(value)
 
 
+def _field_items(entry: Any) -> list[tuple[str, Any]]:
+    """(variant, payload) pairs from one decoded Commitments ``Data`` field.
+
+    SCALE unit variants (``None``, ``ResetBondsFlag``) arrive as a string.
+    Variants with a payload arrive as a one-key dict such as
+    ``{"Raw64": "0x…"}`` or ``{"TimelockEncrypted": {...}}``.
+    """
+    if isinstance(entry, str) and entry:
+        return [(entry, None)]
+    if isinstance(entry, dict):
+        return list(entry.items())
+    return []
+
+
 def _decode_fields(fields: list) -> str:
     """The readable content of commitment fields.
 
     ``Raw*`` bytes concatenate to utf-8 (else 0x-hex); hash variants render as
-    ``sha256:0x…``; pending or failed timelock payloads contribute nothing
-    here.
+    ``sha256:0x…``; unit variants and pending or failed timelock payloads
+    contribute nothing here.
     """
     raw = b""
     hashes = []
     for entry in fields:
-        for variant, value in (entry or {}).items():
+        for variant, value in _field_items(entry):
             if variant.startswith("Raw") and isinstance(value, str):
                 raw += bytes.fromhex(value.removeprefix("0x"))
             elif variant != "TimelockEncrypted" and isinstance(value, str):
@@ -501,7 +515,7 @@ def _timelock_round(fields: list) -> Optional[int]:
     rounds = [
         int(value["reveal_round"])
         for entry in fields
-        for variant, value in (entry or {}).items()
+        for variant, value in _field_items(entry)
         if variant == "TimelockEncrypted" and isinstance(value, dict)
     ]
     return max(rounds) if rounds else None
@@ -512,7 +526,7 @@ def _failed_timelock_round(fields: list) -> Optional[int]:
     rounds = [
         int(value["reveal_round"])
         for entry in fields
-        for variant, value in (entry or {}).items()
+        for variant, value in _field_items(entry)
         if variant == "TimelockRevealFailed" and isinstance(value, dict)
     ]
     return max(rounds) if rounds else None

@@ -1,8 +1,9 @@
 """``btcli root``: subscribe to, claim from, and curate root validator funds.
 
 Everything is denominated in TAO. Subscribing moves τ from your free balance
-into root stake with a validator (assets in). Claiming realizes accrued yield
-and optionally withdraws τ back to free balance (assets out).
+into root stake with a validator (assets in). Unstaking returns principal.
+Claiming realizes accrued yield and optionally withdraws τ back to free
+balance (assets out).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from ...intents import AddStake, ClaimRootWithHotkey, RemoveStake, SetRootWeight
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import dust_note, list_coldkeys
-from ..prompt import interactive
+from ..prompt import interactive, record_answers
 from ..root_helpers import (
     fetch_all_root_positions,
     fetch_root_positions,
@@ -33,6 +34,7 @@ from ..root_helpers import (
     resolve_claim_wallet,
     resolve_show_wallet,
 )
+from ..tx import resolve_all_amount
 from .weights import _parse_weight_pairs
 
 app = typer.Typer(
@@ -122,10 +124,17 @@ def root_list(
 @with_tx_globals
 def root_subscribe(
     ctx: typer.Context,
-    amount: str = typer.Option(
-        ...,
+    amount: Optional[str] = typer.Option(
+        None,
         "--amount",
-        help="TAO to subscribe: moved from free balance to root stake with the validator.",
+        help="TAO to subscribe: moved from free balance to root stake with the validator. "
+        "Pass `all` for the entire free balance minus the existential deposit and fee headroom.",
+    ),
+    all_amount: bool = typer.Option(
+        False,
+        "--all",
+        help="Subscribe the entire free balance minus the existential deposit and fee headroom "
+        "(same as `--amount all`).",
     ),
     hotkey_ss58: str = typer.Option(
         ...,
@@ -135,8 +144,85 @@ def root_subscribe(
 ):
     """Subscribe to a validator's root fund (assets in)."""
     app_ctx: AppContext = ctx_of(ctx)
+    resolved = resolve_all_amount(app_ctx, amount, all_amount, flag="--amount")
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-    app_ctx.submit(AddStake(hotkey_ss58=hotkey, netuid=0, amount_tao=amount))
+    app_ctx.submit(AddStake(hotkey_ss58=hotkey, netuid=0, amount_tao=resolved))
+
+
+@app.command("unstake")
+@with_tx_globals
+def root_unstake(
+    ctx: typer.Context,
+    amount: Optional[str] = typer.Option(
+        None,
+        "--amount",
+        help="TAO of root principal to unstake to free balance. Pass `all` for the "
+        "entire position. Accrued basket yield is not included unless you pass `--claim`.",
+    ),
+    all_amount: bool = typer.Option(
+        False,
+        "--all",
+        help="Unstake the entire root position (same as `--amount all`).",
+    ),
+    hotkey_ss58: Optional[str] = typer.Option(
+        None,
+        address_cli_name("hotkey_ss58"),
+        help="Validator to unstake from. Omit on a terminal to pick from your root positions.",
+    ),
+    claim: bool = typer.Option(
+        False,
+        "--claim/--no-claim",
+        help="Redeem this validator's whole basket entitlement first, then unstake, "
+        "in one batch. Not a proportional payout: unstaking 40% still claims 100% "
+        "of the basket. Claimed yield is restaked on root, then the unstake runs — "
+        "pass `--all` to take principal and yield out together.",
+    ),
+    coldkey_ss58: Optional[str] = typer.Option(
+        None,
+        address_cli_name("coldkey_ss58"),
+        help=ss58_param_help("coldkey_ss58"),
+    ),
+):
+    """Unstake root principal (assets out).
+
+    Returns principal only. Accrued basket yield stays owed unless you pass
+    `--claim`, which redeems this validator's whole entitlement (not a
+    slice of the unstake) and then unstakes, in one batch.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    console = Console()
+
+    if hotkey_ss58 is not None:
+        hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+        resolved = resolve_all_amount(app_ctx, amount, all_amount, flag="--amount")
+        app_ctx.submit(
+            RemoveStake(hotkey_ss58=hotkey, netuid=0, amount_alpha=resolved, claim=claim)
+        )
+        return
+
+    if not interactive(app_ctx):
+        app_ctx.output.error(
+            "missing required option: `--hotkey`",
+            help="pass `--hotkey`, or run on a terminal to pick a root position",
+        )
+        raise typer.Exit(2)
+
+    wallet_name, owner = resolve_claim_wallet(console, app_ctx, coldkey_ss58, interactive=True)
+    app_ctx.wallet_name = wallet_name
+    app_ctx.wallet_given = True
+
+    positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
+    chosen = pick_claim_hotkey(console, app_ctx, positions, flag="--hotkey")
+    resolved = resolve_all_amount(app_ctx, amount, all_amount, flag="--amount")
+
+    tokens = ["--hotkey", chosen.hotkey, "--amount", resolved]
+    if claim:
+        tokens.append("--claim")
+    record_answers(tokens)
+
+    app_ctx.submit(
+        RemoveStake(hotkey_ss58=chosen.hotkey, netuid=0, amount_alpha=resolved, claim=claim)
+    )
 
 
 def _claim_position(
@@ -238,6 +324,11 @@ def root_claim(
 
     Interactively: pick a wallet, then a validator (staked + accrued shown),
     then optionally an amount.
+
+    ``--dry-run`` (and the confirm step) estimates the reserved inclusion
+    fee versus the fee that will settle, compares that spent fee to
+    accrued yield, warns when the claim loses money, and refuses when
+    free TAO cannot cover the reserve.
     """
     app_ctx: AppContext = ctx_of(ctx)
     console = Console()
@@ -263,10 +354,10 @@ def root_claim(
     chosen = pick_claim_hotkey(console, app_ctx, positions, flag="--hotkey")
     withdraw = amount if amount is not None else prompt_claim_amount(console, chosen)
 
-    hint = ["btcli", "root", "claim", "-w", wallet_name, "--hotkey", chosen.hotkey]
+    tokens = ["--hotkey", chosen.hotkey]
     if withdraw is not None:
-        hint += ["--amount", withdraw]
-    print_command_hint(console, hint)
+        tokens += ["--amount", withdraw]
+    record_answers(tokens)
 
     _claim_position(app_ctx, hotkey=chosen.hotkey, owner=owner, amount=withdraw)
 
