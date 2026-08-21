@@ -39,8 +39,15 @@ pub fn apply_live_delta<T: Config>(
     if previous == new || !should_apply_live_delta::<T>(hotkey, netuid) {
         return;
     }
-    TotalAlphaStaked::<T>::mutate(netuid, |total| {
-        *total = total.saturating_sub(previous).saturating_add(new);
+    TotalAlphaStaked::<T>::mutate_exists(netuid, |maybe_total| {
+        let total = maybe_total
+            .take()
+            .unwrap_or_else(AlphaBalance::zero)
+            .saturating_sub(previous)
+            .saturating_add(new);
+        if !total.is_zero() {
+            *maybe_total = Some(total);
+        }
     });
 }
 

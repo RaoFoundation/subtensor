@@ -70,6 +70,7 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
 DEFAULT_RUNTIME: dict[tuple[str, str], Any] = {
     ("SwapRuntimeApi", "current_alpha_price"): 10**9,  # 1 TAO per alpha
     ("SubnetRegistrationRuntimeApi", "get_network_registration_cost"): 10**9,
+    ("BetaBasketRuntimeApi", "get_validator_basket"): [],
 }
 
 GENESIS_HASH = "0x" + "00" * 32

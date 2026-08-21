@@ -1935,13 +1935,13 @@
   },
   {
     "name": "staking_hotkeys",
-    "summary": "Every hotkey a coldkey has stake with, owned or nominated.",
-    "description": "Every hotkey a coldkey has stake with, owned or nominated.\n\nUnlike `owned_hotkeys` this includes delegates the coldkey has nominated.\nUse `stake_for_coldkey` for the per-subnet amounts behind each entry.",
+    "summary": "Every hotkey associated with a coldkey's staking or root-basket state.",
+    "description": "Every hotkey associated with a coldkey's staking or root-basket state.\n\nUnlike `owned_hotkeys` this includes delegates the coldkey has nominated.\nA hotkey may remain listed with no current stake when a root-basket claim\nwatermark still requires the relationship to be discoverable. During the\nv448 bounded cleanup, unrelated stale relationships may also remain until\nthe cleanup cursor reaches them. Use `stake_for_coldkey` for the\nper-subnet amounts behind each entry.",
     "params": {
       "coldkey_ss58": "string"
     },
     "param_docs": {
-      "coldkey_ss58": "Coldkey whose staked-to hotkeys to list."
+      "coldkey_ss58": "Coldkey whose staking and root-basket hotkeys to list."
     },
     "category": "Staking",
     "docs_url": "/docs/query/staking-hotkeys",
@@ -2413,7 +2413,7 @@
   {
     "name": "total_alpha_staked",
     "summary": "Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).",
-    "description": "Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).\n\nThis is the chain-maintained O(1) aggregate: it equals the sum of\n`TotalHotkeyAlpha` for the subnet. Use this instead of walking every\nposition.",
+    "description": "Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0).\n\nThis is the chain-maintained O(1) aggregate: it equals the sum of\n`TotalHotkeyAlpha` for the subnet. Use this instead of walking every\nposition. After the v448 upgrade, the historical total is backfilled over\notherwise-idle blocks. Until the bounded migration finishes, keys ahead of\nits cursor are omitted; concurrent stake changes are reconciled by\ncompletion but are not necessarily visible in this aggregate immediately.",
     "params": {
       "netuid": "integer"
     },

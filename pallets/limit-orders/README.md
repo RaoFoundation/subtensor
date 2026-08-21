@@ -43,7 +43,7 @@ User can cancel at any time via cancel_order
 
 ### `VersionedOrder<AccountId>`
 
-Versioned wrapper around an order payload. Currently has one variant:
+Versioned wrapper around an order payload. Currently has two variants:
 
 | Variant | Description |
 |---------|-------------|

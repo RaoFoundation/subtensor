@@ -26,7 +26,7 @@ from .._transport.contract import CallBytes
 from ..multisig import check_multisig_funds, multisig_opening_shortfall
 from ..signing import public_view
 from ..sp_core import ss58_decode
-from .base import BuiltCall, Intent
+from .base import BuiltCall, Intent, IntentPreflight
 from .registry import build as build_intent
 from .registry import register
 
@@ -346,6 +346,23 @@ class MultisigIntentAdapter(Intent):
 
     async def blocks(self, substrate, signer_address: str) -> list[str]:
         return await self.semantic.blocks(substrate, signer_address)
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        # The semantic call reads state owned by the multisig (or by the
+        # proxied account), while the outer approval deposit and fee belong to
+        # the member who signs this extrinsic.
+        semantic = await self.semantic.preflight(substrate, dispatch_origin, fee_payer, call=call)
+        dispatch = await self.dispatch.preflight(substrate, fee_payer, fee_payer, call=call)
+        return IntentPreflight(
+            effects=[*semantic.effects, *dispatch.effects],
+            warnings=[*dispatch.warnings, *semantic.warnings],
+            blocks=[*dispatch.blocks, *semantic.blocks],
+            required_free=semantic.required_free,
+            available_free=semantic.available_free,
+            estimated_fee=semantic.estimated_fee,
+        )
 
     def spend(self):
         return self.semantic.spend()

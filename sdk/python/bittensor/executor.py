@@ -22,10 +22,11 @@ from ._generated import calls as generated_calls
 from ._substrate import Substrate
 from ._transport.contract import UnsignedExtrinsic
 from ._transport.utils.receipt import nested_dispatch_error
+from .balance import Balance
 from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
-from .intents.base import BuiltCall
+from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
 from .result import (
     ChainError,
@@ -52,6 +53,34 @@ _TRANSIENT_SUBSTRINGS = (
     "transaction is outdated",
     "stale",
 )
+
+# Runtime metadata bounds MevShield.submit_encrypted ciphertexts to 8192 bytes.
+# Pricing the bound is conservative by only the length-fee delta and avoids
+# asking a signer for the inner signature merely to learn the carrier size.
+_MAX_SHIELDED_CIPHERTEXT_BYTES = 8192
+
+# Allow transient RPC/head lag while keeping both shielded-receipt polling
+# phases bounded by the inner extrinsic's mortal era.
+_SHIELDED_POLL_ATTEMPTS_PER_BLOCK = 4
+_SHIELDED_FINALITY_RPC_RETRIES = 4
+
+
+class _FeeAddressView:
+    """Public-only keypair shape for fee estimation (zeroed signature)."""
+
+    crypto_type = 1  # sr25519
+
+    def __init__(self, address: str):
+        self.ss58_address = address
+        self.public_key = bytes(ss58_decode(address))
+
+
+async def estimate_shielded_carrier_fee(substrate: Substrate, fee_payer: str) -> Balance:
+    """Conservatively estimate the outer MevShield carrier's TAO fee."""
+    outer = await substrate.compose(
+        generated_calls.MevShield.submit_encrypted(ciphertext=bytes(_MAX_SHIELDED_CIPHERTEXT_BYTES))
+    )
+    return await substrate.estimate_fee(outer, _FeeAddressView(fee_payer))
 
 
 def _is_transient(result: ExtrinsicResult) -> bool:
@@ -166,9 +195,7 @@ async def _compose_intent_call(
     # Proxy is the dispatch origin of the inner call. The multisig adapter's
     # origin_view is the multisig itself — correct only when there is no
     # proxy wrap. With both, build against the proxied account.
-    origin = (
-        _OriginView(proxy_for) if proxy_for is not None else intent.origin_view(substrate, wallet)
-    )
+    origin = _intent_origin_view(substrate, intent, wallet, proxy_for)
     built = await semantic.build(substrate, origin)
     if isinstance(built, BuiltCall):
         call, extras = built.call, {**extras, **built.extras}
@@ -189,6 +216,33 @@ async def _compose_intent_call(
     if isinstance(wrapped, BuiltCall):
         return wrapped.call, {**extras, **wrapped.extras}
     return wrapped, extras
+
+
+def _intent_origin_view(
+    substrate: Substrate,
+    intent: Intent,
+    wallet: WalletLike,
+    proxy_for: Optional[str] = None,
+) -> Any:
+    """Account view whose origin dispatches the semantic intent."""
+    return (
+        _OriginView(proxy_for) if proxy_for is not None else intent.origin_view(substrate, wallet)
+    )
+
+
+def _intent_accounts(
+    substrate: Substrate,
+    intent: Intent,
+    wallet: WalletLike,
+    proxy_for: Optional[str] = None,
+) -> tuple[str, str]:
+    """Return ``(dispatch_origin, fee_payer)`` for a fully wrapped intent."""
+    fee_payer = public_view(wallet, intent.signer).ss58_address
+    if proxy_for is not None:
+        return proxy_for, fee_payer
+    origin_view = _intent_origin_view(substrate, intent, wallet, proxy_for)
+    dispatch_origin = public_view(origin_view, intent.semantic_intent().signer).ss58_address
+    return dispatch_origin, fee_payer
 
 
 def _with_nested_dispatch_failure(result: ExtrinsicResult) -> ExtrinsicResult:
@@ -562,8 +616,15 @@ class Executor:
         active = self._active_policy(policy)
         return active.check(intent, fee) if active else []
 
-    def _enforce(self, intent: Intent, fee: Any, policy: Optional[Policy]) -> None:
+    def _enforce(
+        self,
+        intent: Intent,
+        fee: Any,
+        policy: Optional[Policy],
+        blocks: Optional[list[str]] = None,
+    ) -> None:
         violations = self._violations(intent, fee, policy)
+        violations.extend(blocks or [])
         if violations:
             raise PolicyError(violations)
 
@@ -572,6 +633,54 @@ class Executor:
         violations = active.check_raw_call() if active else []
         if violations:
             raise PolicyError(violations)
+
+    async def preflight(
+        self,
+        intent: Intent,
+        wallet: WalletLike,
+        *,
+        proxy_for: Optional[str] = None,
+        proxy_type: Optional[str] = None,
+    ) -> IntentPreflight:
+        """Preview intent state against its actual dispatch origin and fee payer."""
+        return await self._preflight(
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            proxy_type=proxy_type,
+        )
+
+    async def _preflight(
+        self,
+        intent: Intent,
+        wallet: WalletLike,
+        *,
+        proxy_for: Optional[str] = None,
+        proxy_type: Optional[str] = None,
+        call: Any = None,
+    ) -> IntentPreflight:
+        wallet = as_wallet(wallet)
+        intent = _coerce_addresses(intent)
+        if call is None:
+            call, _extras = await _compose_intent_call(
+                self.substrate,
+                intent,
+                wallet,
+                proxy_for=proxy_for,
+                proxy_type=proxy_type,
+            )
+        dispatch_origin, fee_payer = _intent_accounts(
+            self.substrate,
+            intent,
+            wallet,
+            proxy_for,
+        )
+        return await intent.preflight(
+            self.substrate,
+            dispatch_origin,
+            fee_payer,
+            call=call,
+        )
 
     async def plan(
         self,
@@ -600,24 +709,28 @@ class Executor:
             proxy_type=proxy_type,
         )
         pub = self._public_keypair(wallet, intent.signer)
-        signer_address = pub.ss58_address
-        # The account whose state the call actually touches.
-        origin = proxy_for or signer_address
-
-        warnings: list[str] = list(await intent.warnings(self.substrate, origin))
+        _origin, signer_address = _intent_accounts(self.substrate, intent, wallet, proxy_for)
+        preflight = await self._preflight(
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            call=call,
+        )
+        warnings: list[str] = list(preflight.warnings)
         if intent.signer == "hotkey" and proxy_for is None and charges_coldkey_fee(call):
             warnings.append(COLDKEY_FEE_WARNING)
-        fee = None
-        try:
-            fee = await self.substrate.estimate_fee(call, pub)
-        except Exception as error:  # fee estimation is best-effort
-            warnings.append(f"could not estimate fee: {error}")
+        fee = preflight.estimated_fee
+        if fee is None:
+            try:
+                fee = await self.substrate.estimate_fee(call, pub)
+            except Exception as error:  # fee estimation is best-effort
+                warnings.append(f"could not estimate fee: {error}")
 
-        effects = list(await intent.effects(self.substrate, origin))
+        effects = list(preflight.effects)
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
         violations = self._violations(intent, fee, policy)
-        violations.extend(await intent.blocks(self.substrate, origin))
+        violations.extend(preflight.blocks)
 
         return Plan(
             op=intent.op,
@@ -711,24 +824,35 @@ class Executor:
         result = _with_nested_dispatch_failure(result)
         if result.success:
             data = dict(result.data)
-            if intent.op == "create_pure_proxy":
+            semantic_intent = _coerce_addresses(intent.semantic_intent())
+            if semantic_intent.op == "create_pure_proxy":
                 data.update(_pure_created_data(result))
             data.update(plan.extras)
             if data != result.data:
                 result = replace(result, data=data)
         if (
             result.success
-            and intent.op == "register_subnet"
+            and semantic_intent.op == "register_subnet"
             and wait_for_registration
             and (wait_for_inclusion or wait_for_finalization)
         ):
             resolved_intent = _coerce_addresses(intent)
+            semantic_intent = _coerce_addresses(resolved_intent.semantic_intent())
             resolved_wallet = as_wallet(wallet)
-            owner = proxy_for or plan.signer_address
-            if owner is None:
-                raise ChainError("subnet registration signer address is unavailable")
-            hotkey = resolved_intent.hotkey_address(
-                resolved_wallet, getattr(resolved_intent, "hotkey_ss58", None)
+            owner, _fee_payer = _intent_accounts(
+                self.substrate,
+                resolved_intent,
+                resolved_wallet,
+                proxy_for,
+            )
+            origin_view = _intent_origin_view(
+                self.substrate,
+                resolved_intent,
+                resolved_wallet,
+                proxy_for,
+            )
+            hotkey = semantic_intent.hotkey_address(
+                origin_view, getattr(semantic_intent, "hotkey_ss58", None)
             )
             result = await _complete_subnet_registration(
                 self.substrate,
@@ -778,12 +902,20 @@ class Executor:
         """
         wallet = as_wallet(wallet)
         intent = _coerce_addresses(intent)
+        semantic_intent = _coerce_addresses(intent.semantic_intent())
         call, extras = await _compose_intent_call(
             self.substrate, intent, wallet, proxy_for=proxy_for, proxy_type=proxy_type
         )
-        fee = None
+        dispatch_origin, fee_payer = _intent_accounts(self.substrate, intent, wallet, proxy_for)
+        preflight = await self._preflight(
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            call=call,
+        )
+        fee = preflight.estimated_fee
         active = self._active_policy(policy)
-        if active is not None and active.max_fee_tao is not None:
+        if active is not None and active.max_fee_tao is not None and fee is None:
             # A fee guardrail must not fail open: if the estimate is
             # unavailable the submission is blocked, unlike ``plan`` where a
             # failed estimate only warns.
@@ -795,7 +927,32 @@ class Executor:
                 raise PolicyError(
                     [f"could not estimate fee to enforce max_fee_tao: {error}"]
                 ) from error
-        self._enforce(intent, fee, policy)
+        blocks = list(preflight.blocks)
+        if preflight.required_free is not None:
+            try:
+                if preflight.available_free is None:
+                    account = await self.substrate.query("System", "Account", [fee_payer])
+                    free_rao = int(((account or {}).get("data") or {}).get("free") or 0)
+                else:
+                    free_rao = preflight.available_free.rao
+                carrier_fee = await estimate_shielded_carrier_fee(
+                    self.substrate,
+                    fee_payer,
+                )
+            except Exception as error:
+                blocks.append(
+                    "could not verify free TAO for the shielded call plus its carrier fee; "
+                    f"refusing to risk a post-carrier reserve shortfall ({error})"
+                )
+            else:
+                combined_rao = preflight.required_free.rao + carrier_fee.rao
+                if preflight.required_free.rao <= free_rao < combined_rao:
+                    blocks.append(
+                        f"free TAO ({Balance.from_rao(free_rao)}) covers the inner claim "
+                        f"reserve ({preflight.required_free}) but not that reserve plus the "
+                        f"MEV-shield carrier fee (~{Balance.from_rao(combined_rao)})"
+                    )
+        self._enforce(intent, fee, policy, blocks)
 
         keypair = resolve_signer(wallet, intent.signer)
         result = await self._submit_encrypted_call(
@@ -808,18 +965,23 @@ class Executor:
         )
         if (
             result.success
-            and intent.op == "register_subnet"
+            and semantic_intent.op == "register_subnet"
             and wait_for_registration
             and (wait_for_inclusion or wait_for_finalization)
         ):
-            owner = proxy_for or self._public_keypair(wallet, intent.signer).ss58_address
-            if owner is None:
-                raise ChainError("subnet registration signer address is unavailable")
-            hotkey = intent.hotkey_address(wallet, getattr(intent, "hotkey_ss58", None))
+            origin_view = _intent_origin_view(
+                self.substrate,
+                intent,
+                wallet,
+                proxy_for,
+            )
+            hotkey = semantic_intent.hotkey_address(
+                origin_view, getattr(semantic_intent, "hotkey_ss58", None)
+            )
             result = await _complete_subnet_registration(
                 self.substrate,
                 result,
-                owner=owner,
+                owner=dispatch_origin,
                 hotkey=hotkey,
                 on_progress=on_progress,
                 timeout=registration_timeout,
@@ -875,12 +1037,22 @@ class Executor:
                 },
             )
         if result.success and (wait_for_inclusion or wait_for_finalization):
-            result = await self._resolve_shielded_inner(result, inner_hash, period)
+            result = await self._resolve_shielded_inner(
+                result,
+                inner_hash,
+                period,
+                wait_for_finalization=wait_for_finalization,
+            )
             result = _with_nested_dispatch_failure(result)
         return result
 
     async def _resolve_shielded_inner(
-        self, outer: ExtrinsicResult, inner_hash: str, period: int
+        self,
+        outer: ExtrinsicResult,
+        inner_hash: str,
+        period: int,
+        *,
+        wait_for_finalization: bool = False,
     ) -> ExtrinsicResult:
         """Follow a shielded carrier to the decrypted inner extrinsic's receipt.
 
@@ -901,7 +1073,7 @@ class Executor:
         block = included_at
         # Bounded so a wedged node (block_hash never resolving) cannot hang the
         # follow-up forever: ~4 block-times of slack per remaining block.
-        waits_left = 4 * (deadline - included_at + 1)
+        waits_left = _SHIELDED_POLL_ATTEMPTS_PER_BLOCK * (deadline - included_at + 1)
         while block <= deadline:
             try:
                 block_hash = await self.substrate.block_hash(block)
@@ -916,6 +1088,94 @@ class Executor:
                 continue
             inner = await self.substrate.find_extrinsic(inner_hash, block_hash)
             if inner is not None:
+                if wait_for_finalization:
+                    max_finalization_polls = _SHIELDED_POLL_ATTEMPTS_PER_BLOCK * (
+                        deadline - included_at + 1
+                    )
+                    finalization_polls_left = max_finalization_polls
+                    finalization_rpc_failures = 0
+                    poll_interval = await self.substrate.block_time()
+                    while finalization_polls_left > 0:
+                        try:
+                            finalized = await asyncio.wait_for(
+                                self.substrate.finalized_block_number(),
+                                timeout=max(1.0, poll_interval),
+                            )
+                        except Exception as error:
+                            finalization_rpc_failures += 1
+                            if finalization_rpc_failures >= _SHIELDED_FINALITY_RPC_RETRIES:
+                                message = (
+                                    "could not verify shielded inner extrinsic finalization "
+                                    f"after {_SHIELDED_FINALITY_RPC_RETRIES} consecutive "
+                                    f"finalized-head RPC attempts ({error})"
+                                )
+                                raise ChainError(message) from error
+                        else:
+                            finalization_rpc_failures = 0
+                            if finalized >= block:
+                                break
+                        finalization_polls_left -= 1
+                        if finalization_polls_left <= 0:
+                            message = (
+                                f"shielded inner extrinsic at block {block} did not finalize "
+                                f"after {max_finalization_polls} polls"
+                            )
+                            raise ChainError(message)
+                        await asyncio.sleep(poll_interval)
+
+                    # Finality applies to the canonical block at this height.
+                    # Re-resolve after a reorg instead of returning a receipt
+                    # observed on a fork before the finalized head caught up.
+                    canonical_hash = None
+                    canonical_hash_error: Optional[Exception] = None
+                    rpc_timeout = max(0.1, poll_interval)
+                    for attempt in range(_SHIELDED_FINALITY_RPC_RETRIES):
+                        try:
+                            canonical_hash = await asyncio.wait_for(
+                                self.substrate.block_hash(block),
+                                timeout=rpc_timeout,
+                            )
+                        except Exception as error:
+                            canonical_hash_error = error
+                            if attempt + 1 < _SHIELDED_FINALITY_RPC_RETRIES:
+                                await asyncio.sleep(poll_interval)
+                        else:
+                            if canonical_hash:
+                                break
+                            canonical_hash_error = ChainError(
+                                f"canonical block hash unavailable at finalized block {block}"
+                            )
+                    if not canonical_hash:
+                        message = (
+                            "could not verify shielded inner extrinsic finalization "
+                            f"after {_SHIELDED_FINALITY_RPC_RETRIES} canonical block-hash "
+                            "RPC attempts"
+                        )
+                        raise ChainError(message) from canonical_hash_error
+                    if canonical_hash != block_hash:
+                        canonical_receipt_error: Optional[Exception] = None
+                        for attempt in range(_SHIELDED_FINALITY_RPC_RETRIES):
+                            try:
+                                inner = await asyncio.wait_for(
+                                    self.substrate.find_extrinsic(inner_hash, canonical_hash),
+                                    timeout=rpc_timeout,
+                                )
+                            except Exception as error:
+                                canonical_receipt_error = error
+                                if attempt + 1 < _SHIELDED_FINALITY_RPC_RETRIES:
+                                    await asyncio.sleep(poll_interval)
+                            else:
+                                break
+                        else:
+                            message = (
+                                "could not verify shielded inner extrinsic finalization "
+                                f"after {_SHIELDED_FINALITY_RPC_RETRIES} canonical receipt "
+                                "RPC attempts"
+                            )
+                            raise ChainError(message) from canonical_receipt_error
+                        if inner is None:
+                            block += 1
+                            continue
                 return replace(inner, data={**inner.data, **outer.data})
             block += 1
         message = (
@@ -961,7 +1221,7 @@ class Executor:
                 {},
                 period=era,
                 wait_for_inclusion=wait_for_inclusion,
-                wait_for_finalization=False,
+                wait_for_finalization=wait_for_finalization,
             )
         return await self.substrate.submit(
             composed,

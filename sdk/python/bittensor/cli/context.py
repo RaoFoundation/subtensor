@@ -20,7 +20,6 @@ import typer
 
 from .. import config as cfg
 from .. import wallets
-from .._generated import calls as generated_calls
 from .._generated import runtime_apis, storage
 from ..balance import Balance
 from ..client import Client
@@ -44,23 +43,12 @@ from ..result import (
 )
 from ..settings import error_docs_url
 from ..signing import public_view
-from ..sp_core import ss58_decode
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
 from .output import STYLE_WARNING, Output
 
 T = TypeVar("T")
-
-
-class _FeeAddressView:
-    """Public-only keypair shape for ``estimate_fee`` (zeroed signature)."""
-
-    crypto_type = 1  # sr25519
-
-    def __init__(self, address: str):
-        self.ss58_address = address
-        self.public_key = bytes(ss58_decode(address))
 
 
 def address_cli_name(param: str) -> str:
@@ -912,17 +900,20 @@ class AppContext:
 
             async def _preflight(client):
                 try:
-                    origin = public_view(wallet, intent.signer).ss58_address
+                    preview = await client.preflight(
+                        intent,
+                        wallet,
+                        proxy_for=proxy_for,
+                        proxy_type=force_proxy_type,
+                    )
                 except Exception:
                     return [], [], []
-                target = proxy_for or origin
-                warnings = list(await intent.warnings(client._substrate, target))
+                warnings = list(preview.warnings)
                 if semantic_intent.op in ("claim_root", "claim_root_with_hotkey"):
-                    effects = list(await intent.effects(client._substrate, target))
-                    blocks = list(await intent.blocks(client._substrate, target))
+                    effects = list(preview.effects)
                 else:
-                    effects, blocks = [], []
-                return effects, warnings, blocks
+                    effects = []
+                return effects, warnings, list(preview.blocks)
 
             effects, warnings, blocks = self.run(_preflight)
             summary_line = intent.summary()
@@ -938,7 +929,7 @@ class AppContext:
                 for block in blocks:
                     self.output.error(
                         block,
-                        help="fund the coldkey so free TAO covers the reserved inclusion fee",
+                        help="resolve this hard stop before submitting",
                     )
                 raise typer.Exit(1)
 
@@ -1389,12 +1380,7 @@ class AppContext:
         """
         try:
             free = await client.balances.get(fee_payer_ss58)
-            # Exact ciphertext size is unknown until encrypt; length fee is
-            # 1 rao/byte so a padded dummy keeps the estimate conservative.
-            outer = await client.compose(
-                generated_calls.MevShield.submit_encrypted(ciphertext=bytes(8192))
-            )
-            fee = await client._substrate.estimate_fee(outer, _FeeAddressView(fee_payer_ss58))
+            fee = await client.estimate_shielded_carrier_fee(fee_payer_ss58)
         except Exception:
             # Best-effort: if we only know free is zero, that is enough to warn.
             try:

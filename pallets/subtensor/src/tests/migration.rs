@@ -7104,3 +7104,116 @@ fn test_storage_bloat_cleanup_preserves_root_age_when_hold_is_enabled() {
         );
     });
 }
+
+#[test]
+fn test_staking_hotkeys_cleanup_is_bounded_and_preserves_live_relationships() {
+    use crate::migrations::migrate_cleanup_staking_hotkeys::{
+        MIGRATION_NAME, StakingHotkeysCleanupMigration, continue_staking_hotkeys_cleanup,
+        kickoff_staking_hotkeys_cleanup,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(100);
+        let all_stale_coldkey = U256::from(101);
+        let empty_coldkey = U256::from(102);
+        let stale = U256::from(200);
+        let legacy = U256::from(201);
+        let v2 = U256::from(202);
+        let basket = U256::from(203);
+        let other_stale = U256::from(204);
+        let netuid = NetUid::from(1);
+
+        StakingHotkeys::<Test>::insert(coldkey, vec![stale, legacy, v2, basket]);
+        StakingHotkeys::<Test>::insert(all_stale_coldkey, vec![other_stale]);
+        StakingHotkeys::<Test>::insert(empty_coldkey, Vec::<U256>::new());
+        Alpha::<Test>::insert((legacy, coldkey, netuid), U64F64::from_num(1));
+        AlphaV2::<Test>::insert((v2, coldkey, netuid), share_pool::SafeFloat::from(1_u64));
+        BasketClaimed::<Test>::insert(basket, coldkey, -1);
+
+        let kickoff_weight = kickoff_staking_hotkeys_cleanup::<Test>();
+        assert!(!kickoff_weight.is_zero());
+        assert!(StakingHotkeysCleanupMigration::<Test>::exists());
+
+        let before_tiny_pass = StakingHotkeysCleanupMigration::<Test>::get().unwrap();
+        let tiny_limit = <Test as Config>::DbWeight::get().reads_writes(1, 1);
+        assert!(continue_staking_hotkeys_cleanup::<Test>(tiny_limit).is_zero());
+        assert_eq!(
+            StakingHotkeysCleanupMigration::<Test>::get().unwrap(),
+            before_tiny_pass,
+            "a pass below fixed overhead must not advance the cursor"
+        );
+
+        // This budget admits at most one relationship plus a possible vector rewrite per pass.
+        let limit = <Test as Config>::DbWeight::get().reads_writes(6, 3);
+        let mut passes = 0;
+        while StakingHotkeysCleanupMigration::<Test>::exists() {
+            let used = continue_staking_hotkeys_cleanup::<Test>(limit);
+            assert!(used.all_lte(limit));
+            passes += 1;
+            assert!(passes < 20, "bounded cleanup did not converge");
+        }
+
+        assert!(passes > 1, "test must exercise resumable progress");
+        assert_eq!(
+            StakingHotkeys::<Test>::get(coldkey),
+            vec![legacy, v2, basket]
+        );
+        assert!(!StakingHotkeys::<Test>::contains_key(all_stale_coldkey));
+        assert!(!StakingHotkeys::<Test>::contains_key(empty_coldkey));
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+
+        // Completion is idempotent across later runtime upgrades.
+        kickoff_staking_hotkeys_cleanup::<Test>();
+        assert!(!StakingHotkeysCleanupMigration::<Test>::exists());
+    });
+}
+
+#[test]
+fn test_staking_hotkeys_cleanup_preserves_stake_added_between_passes() {
+    use crate::migrations::migrate_cleanup_staking_hotkeys::{
+        StakingHotkeysCleanupMigration, continue_staking_hotkeys_cleanup,
+        kickoff_staking_hotkeys_cleanup,
+    };
+
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(300);
+        let revived = U256::from(400);
+        let stale_one = U256::from(401);
+        let stale_two = U256::from(402);
+        let added_later = U256::from(403);
+        let netuid = NetUid::from(1);
+
+        StakingHotkeys::<Test>::insert(coldkey, vec![revived, stale_one, stale_two]);
+        kickoff_staking_hotkeys_cleanup::<Test>();
+
+        let limit = <Test as Config>::DbWeight::get().reads_writes(6, 3);
+        let first_used = continue_staking_hotkeys_cleanup::<Test>(limit);
+        assert!(first_used.all_lte(limit));
+        assert!(StakingHotkeysCleanupMigration::<Test>::exists());
+
+        // Both a snapshotted candidate and a newly appended relationship become live while the
+        // migration cursor is paused. Neither may be overwritten by the old row snapshot.
+        AlphaV2::<Test>::insert(
+            (revived, coldkey, netuid),
+            share_pool::SafeFloat::from(1_u64),
+        );
+        AlphaV2::<Test>::insert(
+            (added_later, coldkey, netuid),
+            share_pool::SafeFloat::from(1_u64),
+        );
+        StakingHotkeys::<Test>::mutate(coldkey, |hotkeys| hotkeys.push(added_later));
+
+        let mut passes = 0;
+        while StakingHotkeysCleanupMigration::<Test>::exists() {
+            let used = continue_staking_hotkeys_cleanup::<Test>(limit);
+            assert!(used.all_lte(limit));
+            passes += 1;
+            assert!(passes < 20, "bounded cleanup did not converge");
+        }
+
+        assert_eq!(
+            StakingHotkeys::<Test>::get(coldkey),
+            vec![revived, added_later]
+        );
+    });
+}

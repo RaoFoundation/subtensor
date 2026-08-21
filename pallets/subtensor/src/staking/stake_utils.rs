@@ -634,6 +634,27 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Remove a staking-hotkey association once the pair has no stake left anywhere.
+    ///
+    /// A non-zero basket watermark also keeps the association alive. In particular, an
+    /// unstaked root claimant can have a negative watermark representing basket shares that
+    /// still need to be claimed or moved during a coldkey swap.
+    pub(crate) fn maybe_remove_staking_hotkey(hotkey: &T::AccountId, coldkey: &T::AccountId) {
+        let has_stake = Self::alpha_iter_prefix((hotkey, coldkey)).next().is_some();
+        if has_stake || BasketClaimed::<T>::get(hotkey, coldkey) != 0 {
+            return;
+        }
+
+        StakingHotkeys::<T>::mutate_exists(coldkey, |maybe_hotkeys| {
+            if let Some(hotkeys) = maybe_hotkeys {
+                hotkeys.retain(|staking_hotkey| staking_hotkey != hotkey);
+                if hotkeys.is_empty() {
+                    *maybe_hotkeys = None;
+                }
+            }
+        });
+    }
+
     /// Swaps TAO for the alpha token on the subnet.
     ///
     /// Updates TaoIn, AlphaIn, and AlphaOut
@@ -868,13 +889,7 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // Step 3: Update StakingHotkeys if the hotkey's total alpha, across all subnets, is zero
-        // TODO const: fix.
-        // if Self::get_stake(hotkey, coldkey) == 0 {
-        //     StakingHotkeys::<T>::mutate(coldkey, |hotkeys| {
-        //         hotkeys.retain(|k| k != hotkey);
-        //     });
-        // }
+        Self::maybe_remove_staking_hotkey(hotkey, coldkey);
 
         // Record TAO outflow
         Self::record_tao_outflow(
@@ -1124,13 +1139,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::AmountTooLow
         );
 
-        // Step 3: Update StakingHotkeys if the hotkey's total alpha, across all subnets, is zero
-        // TODO: fix.
-        // if Self::get_stake(hotkey, coldkey) == 0 {
-        //     StakingHotkeys::<T>::mutate(coldkey, |hotkeys| {
-        //         hotkeys.retain(|k| k != hotkey);
-        //     });
-        // }
+        Self::maybe_remove_staking_hotkey(origin_hotkey, origin_coldkey);
 
         if netuid.is_root() {
             Self::touch_root_stake_age(destination_coldkey, destination_hotkey);

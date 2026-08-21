@@ -342,7 +342,7 @@ class SubtensorModule:
 
     @staticmethod
     def move_stake_limit(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance', limit_price: 'TaoBalance', allow_partial: 'bool') -> Call:
-        'Moves stake from one hotkey to another and protects a cross-subnet swap with a relative price limit.'
+        'Moves stake from one hotkey to another and, when the subnets differ, protects the swap with a relative price limit.  `limit_price` is the minimum acceptable destination-alpha per origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the call is fill-or-kill; otherwise it moves only the amount executable before the limit is crossed.'
         return Call('SubtensorModule', 'move_stake_limit', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount, 'limit_price': limit_price, 'allow_partial': allow_partial})
 
     @staticmethod
@@ -1644,12 +1644,11 @@ class LimitOrders:
         return Call('LimitOrders', 'execute_orders', {'orders': orders, 'should_fail': should_fail})
 
     @staticmethod
+    def prune_linked_output(order_id: 'H256') -> Call:
+        'Remove a provider record. The signer may prune at any time; anyone may prune after `expires_at`. Moves no funds.'
+        return Call('LimitOrders', 'prune_linked_output', {'order_id': order_id})
+
+    @staticmethod
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
-
-    @staticmethod
-    def prune_linked_output(order_id: 'H256') -> Call:
-        "Remove a provider record. The signer may prune at any time; anyone may prune after `expires_at`. Moves no funds."
-        return Call('LimitOrders', 'prune_linked_output', {'order_id': order_id})
-

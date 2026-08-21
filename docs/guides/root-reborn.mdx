@@ -167,7 +167,7 @@ btcli wallet overview                             # same yield line on the walle
 btcli root list                                   # staked + accrued τ per validator
 btcli root subscribe --amount 100 --hotkey 5F...  # assets in
 btcli root unstake --amount 40 --hotkey 5F...     # principal only; yield stays in the basket
-btcli root unstake --all --hotkey 5F... --claim   # claim whole basket, then unstake all
+btcli root unstake --all --hotkey 5F... --claim   # atomic only while RootStakeUnlockInterval is 0
 btcli root claim --dry-run --hotkey 5F...         # reserved vs spent fee, vs accrued
 btcli root claim                                  # pick wallet → validator → claim / withdraw
 btcli root claim --hotkey 5F... --amount all      # withdraw full position (accrued + staked)
@@ -176,10 +176,13 @@ btcli root claim --hotkey 5F...                   # claim accrued into stake onl
 
 Unstake returns principal. Basket yield stays owed. After a root unstake,
 `btcli` tells you if yield is still sitting there and offers `btcli root claim`.
-Pass `--claim` on the unstake to redeem that validator's **whole** entitlement
-first, then unstake, in one batch (`btcli stake remove --netuid 0 --claim` is
-the same). That is not a proportional payout: unstaking 40% still claims 100%
-of the basket. The chain has no "pay out 40% of the basket" call.
+When `RootStakeUnlockInterval` is zero, pass `--claim` on the unstake to redeem
+that validator's **whole** entitlement first, then unstake in one batch
+(`btcli stake remove --netuid 0 --claim` is the same). That is not a
+proportional payout: unstaking 40% still claims 100% of the basket. The chain
+has no "pay out 40% of the basket" call. When the interval is nonzero, the
+atomic form is unavailable because the claim starts a new hold window. Claim
+first, wait out the full interval, then unstake separately.
 
 `btcli root claim` is the yield-first exit. Omit `--amount` to realize accrued
 yield into root stake on that validator. Pass `--amount` / `all` to withdraw to
@@ -251,9 +254,10 @@ root-stakes to.
   accruing — there is no deadline and nothing expires.
 - **Withdrawals can have a hold window.** If the network sets
   `RootStakeUnlockInterval`, root stake is locked for that many blocks after
-  your last stake change (anti-sniping around epoch boundaries). A claim
-  with `--amount` inside the window fails with `RootStakeLocked` — wait it
-  out and retry.
+  your last stake change (anti-sniping around epoch boundaries). A claim also
+  refreshes that window, so atomic claim-then-unstake is unavailable whenever
+  the interval is nonzero. Claim without withdrawing, wait out the full hold,
+  then unstake separately.
 
 ## Queries and runtime APIs
 

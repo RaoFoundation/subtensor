@@ -102,6 +102,7 @@ fn hotkey_pool_mutations_keep_total_alpha_staked_in_sync() {
         );
         assert_total_alpha_staked_invariant(netuid);
         assert!(TotalHotkeyAlpha::<Test>::iter().all(|(_, nu, _)| nu != netuid));
+        assert!(!TotalAlphaStaked::<Test>::contains_key(netuid));
     });
 }
 

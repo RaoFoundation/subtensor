@@ -39,7 +39,7 @@ not a slice of the amount you unstake.
 | `amount_alpha` | number \| `"all"` | yes | How much to unstake from this position, or ``all``. |
 | `slippage_protection` | boolean | no | Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price. |
 | `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
-| `claim` | boolean | no | Also redeem this validator's whole basket entitlement before unstaking, in one atomic batch. Root only (netuid 0). This is not a proportional payout: unstaking 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on root, then the unstake runs — pass `all` to take principal and yield out together. |
+| `claim` | boolean | no | Also redeem this validator's whole basket entitlement before unstaking, in one atomic batch. Root only (netuid 0). This is not a proportional payout: unstaking 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on root, then the unstake runs — pass `all` to take principal and yield out together. Unavailable while RootStakeUnlockInterval is nonzero, because the claim starts a new hold window; claim first, wait, then unstake in that mode. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

@@ -259,7 +259,10 @@ async def total_alpha_staked(view, netuid: int) -> Balance:
 
     This is the chain-maintained O(1) aggregate: it equals the sum of
     `TotalHotkeyAlpha` for the subnet. Use this instead of walking every
-    position.
+    position. After the v448 upgrade, the historical total is backfilled over
+    otherwise-idle blocks. Until the bounded migration finishes, keys ahead of
+    its cursor are omitted; concurrent stake changes are reconciled by
+    completion but are not necessarily visible in this aggregate immediately.
     """
     value = await view.query(st.SubtensorModule.TotalAlphaStaked, [netuid])
     return view.balance(int(value or 0), netuid)
@@ -269,13 +272,17 @@ async def total_alpha_staked(view, netuid: int) -> Balance:
     "staking_hotkeys",
     {"coldkey_ss58": "string"},
     category="Staking",
-    param_docs={"coldkey_ss58": "Coldkey whose staked-to hotkeys to list."},
+    param_docs={"coldkey_ss58": "Coldkey whose staking and root-basket hotkeys to list."},
 )
 async def staking_hotkeys(view, coldkey_ss58: str) -> list[str]:
-    """Every hotkey a coldkey has stake with, owned or nominated.
+    """Every hotkey associated with a coldkey's staking or root-basket state.
 
     Unlike `owned_hotkeys` this includes delegates the coldkey has nominated.
-    Use `stake_for_coldkey` for the per-subnet amounts behind each entry.
+    A hotkey may remain listed with no current stake when a root-basket claim
+    watermark still requires the relationship to be discoverable. During the
+    v448 bounded cleanup, unrelated stale relationships may also remain until
+    the cleanup cursor reaches them. Use `stake_for_coldkey` for the
+    per-subnet amounts behind each entry.
     """
     value = await view.query(st.SubtensorModule.StakingHotkeys, [coldkey_ss58])
     return [str(hotkey) for hotkey in value or []]
