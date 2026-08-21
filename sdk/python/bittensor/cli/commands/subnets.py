@@ -41,7 +41,7 @@ _IDENTITY_LINKS = (
 @app.command("list", rich_help_panel=PANEL_INSPECT)
 @with_globals
 def list_subnets(ctx: typer.Context):
-    """List all subnets: name, spot alpha price, tempo, burn, and neuron slots."""
+    """List all active and dissolving subnets with lifecycle and pool-emission state."""
     app_ctx: AppContext = ctx_of(ctx)
 
     async def _op(client):
@@ -64,6 +64,8 @@ def list_subnets(ctx: typer.Context):
         rows.append(
             {
                 "netuid": i.netuid,
+                "state": i.state.value if i.state is not None else "—",
+                "pool_emission": "on" if i.pool_emission_enabled else "off",
                 # Root has no alpha pool; its "price" is identically 1 TAO.
                 "price": f"{price:.6f}" if i.netuid != 0 and price is not None else "—",
                 "tempo": i.tempo,
@@ -81,6 +83,8 @@ def list_subnets(ctx: typer.Context):
                 "burn_tao": i.burn.tao,
                 "neurons": i.neuron_count,
                 "max_neurons": max_n,
+                "state": i.state.value if i.state is not None else None,
+                "pool_emission_enabled": i.pool_emission_enabled,
             }
         )
     total_neurons = sum(i.neuron_count for i in infos)
@@ -97,7 +101,7 @@ def show(
     ctx: typer.Context,
     netuid: int = typer.Argument(..., help=_NETUID_HELP),
 ):
-    """Show one subnet: owner, registration, identity, tempo, burn, and neurons."""
+    """Show one subnet: lifecycle, owner, identity, registration, and capacity."""
     app_ctx: AppContext = ctx_of(ctx)
     local_names = local_address_names(app_ctx.wallet_path)
     for wallet_name, ss58 in list_coldkeys(app_ctx.wallet_path):
@@ -105,7 +109,6 @@ def show(
 
     async def _op(client):
         (
-            exists,
             info,
             identity,
             owner,
@@ -114,7 +117,6 @@ def show(
             max_uids,
             block,
         ) = await asyncio.gather(
-            client.query(storage.SubtensorModule.NetworksAdded, [netuid]),
             client.subnets.info(netuid),
             client.read("subnet_identity", netuid=netuid),
             client.query(storage.SubtensorModule.SubnetOwner, [netuid]),
@@ -123,7 +125,7 @@ def show(
             client.query(storage.SubtensorModule.MaxAllowedUids, [netuid]),
             client.block(),
         )
-        if not exists:
+        if info.state is None:
             return None
         return {
             "info": info,
@@ -141,6 +143,8 @@ def show(
         raise typer.Exit(1)
 
     info = data["info"]
+    state = info.state
+    assert state is not None
     identity = data["identity"]
     owner = data["owner"]
     owner_hotkey = data["owner_hotkey"]
@@ -164,6 +168,8 @@ def show(
     if name:
         overview.append(("name", name, None))
     overview += [
+        ("state", state.value, None),
+        ("pool emission", "on" if info.pool_emission_enabled else "off", None),
         ("owner", owner or "—", local_names.get(owner)),
         ("owner hotkey", owner_hotkey or "—", local_names.get(owner_hotkey)),
         ("registered", f"block {registered_at:,}", _registered_note(registered_at, data["block"])),
@@ -192,6 +198,8 @@ def show(
             "tempo": info.tempo,
             "burn_tao": info.burn.tao,
             "neurons": info.neuron_count,
+            "state": state.value,
+            "pool_emission_enabled": info.pool_emission_enabled,
             "max_neurons": data["max_uids"],
             "identity": identity,
         },

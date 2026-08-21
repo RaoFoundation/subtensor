@@ -285,6 +285,61 @@ impl<T: Config> Pallet<T> {
         (total_stake, alpha_stake, tao_stake)
     }
 
+    /// Reporting-only stake weights that hide hotkeys after dissolution settlement pays them.
+    pub fn get_reported_stake_weights_for_network(
+        netuid: NetUid,
+    ) -> (Vec<I64F64>, Vec<I64F64>, Vec<I64F64>) {
+        let (mut total_stake, mut alpha_stake, mut tao_stake) =
+            Self::get_stake_weights_for_network(netuid);
+
+        for uid in 0..Self::get_subnetwork_n(netuid) {
+            let hotkey = Keys::<T>::get(netuid, uid);
+            if Self::is_hotkey_stake_reportable(netuid, &hotkey) {
+                continue;
+            }
+            let index = usize::from(uid);
+            if let Some(value) = total_stake.get_mut(index) {
+                *value = I64F64::from_num(0);
+            }
+            if let Some(value) = alpha_stake.get_mut(index) {
+                *value = I64F64::from_num(0);
+            }
+            if let Some(value) = tao_stake.get_mut(index) {
+                *value = I64F64::from_num(0);
+            }
+        }
+
+        (total_stake, alpha_stake, tao_stake)
+    }
+
+    /// Reporting-only hotkey stake, zeroed once dissolution settlement has paid the hotkey.
+    pub fn get_reported_stake_for_hotkey_on_subnet(
+        hotkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        if Self::is_hotkey_stake_reportable(netuid, hotkey) {
+            Self::get_stake_for_hotkey_on_subnet(hotkey, netuid)
+        } else {
+            AlphaBalance::ZERO
+        }
+    }
+
+    /// Reporting-only coldkey total that follows the dissolution payout cursor.
+    pub fn get_reported_total_coldkey_alpha_on_subnet(
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> AlphaBalance {
+        StakingHotkeys::<T>::get(coldkey)
+            .into_iter()
+            .filter(|hotkey| Self::is_hotkey_stake_reportable(netuid, hotkey))
+            .map(|hotkey| {
+                Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, coldkey, netuid)
+            })
+            .fold(AlphaBalance::ZERO, |total, stake| {
+                total.saturating_add(stake)
+            })
+    }
+
     /// Calculates the total inherited stake (alpha) held by a hotkey on a network, considering child/parent relationships.
     ///
     /// This function performs the following steps:

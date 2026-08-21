@@ -61,18 +61,17 @@ impl<T: Config> Pallet<T> {
             BTreeMap::<T::AccountId, Vec<(Compact<NetUid>, Compact<u64>)>>::new();
 
         if !skip_nominators {
-            let mut alpha_share_pools = vec![];
-            for netuid in Self::get_all_subnet_netuids() {
-                let alpha_share_pool = Self::get_alpha_share_pool(delegate.clone(), netuid);
-                alpha_share_pools.push(alpha_share_pool);
-            }
+            let alpha_share_pools = Self::get_all_reportable_subnet_netuids()
+                .into_iter()
+                .map(|netuid| (netuid, Self::get_alpha_share_pool(delegate.clone(), netuid)))
+                .collect::<BTreeMap<_, _>>();
 
             for (nominator, netuid, alpha_stake) in Self::alpha_iter_single_prefix(&delegate) {
-                if alpha_stake.is_zero() {
+                if alpha_stake.is_zero() || !Self::is_hotkey_stake_reportable(netuid, &delegate) {
                     continue;
                 }
 
-                if let Some(alpha_share_pool) = alpha_share_pools.get(u16::from(netuid) as usize) {
+                if let Some(alpha_share_pool) = alpha_share_pools.get(&netuid) {
                     let coldkey_stake = alpha_share_pool.get_value_from_shares(alpha_stake);
 
                     nominator_map
@@ -111,7 +110,7 @@ impl<T: Config> Pallet<T> {
         let owner = Self::get_owning_coldkey_for_hotkey(&delegate.clone());
         let take: Compact<PerU16> = <Delegates<T>>::get(delegate.clone()).into();
 
-        let total_stake: U64F64 = u64::from(Self::get_stake_for_hotkey_on_subnet(
+        let total_stake: U64F64 = u64::from(Self::get_reported_stake_for_hotkey_on_subnet(
             &delegate.clone(),
             NetUid::ROOT,
         ))
@@ -169,6 +168,9 @@ impl<T: Config> Pallet<T> {
         for delegate in <Delegates<T> as IterableStorageMap<T::AccountId, PerU16>>::iter_keys() {
             // Staked to this delegate, so add to list
             for (netuid, _) in Self::alpha_iter_prefix((&delegate, &delegatee)) {
+                if !Self::is_hotkey_stake_reportable(netuid, &delegate) {
+                    continue;
+                }
                 let delegate_info = Self::get_delegate_by_existing_account(delegate.clone(), true);
                 delegates.push((
                     delegate_info,

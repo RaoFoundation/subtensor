@@ -52,7 +52,7 @@ impl<T: Config> Pallet<T> {
         if coldkeys.is_empty() {
             return Vec::new(); // No coldkeys to check
         }
-        let netuids = Self::get_all_subnet_netuids();
+        let netuids = Self::get_all_reportable_subnet_netuids();
         let mut stake_info: Vec<(T::AccountId, Vec<StakeInfo<T::AccountId>>)> = Vec::new();
         for coldkey_i in coldkeys.clone().iter() {
             // Get all hotkeys associated with this coldkey.
@@ -60,6 +60,9 @@ impl<T: Config> Pallet<T> {
             let mut stake_info_for_coldkey: Vec<StakeInfo<T::AccountId>> = Vec::new();
             for netuid_i in netuids.clone().iter() {
                 for hotkey_i in staking_hotkeys.clone().iter() {
+                    if !Self::is_hotkey_stake_reportable(*netuid_i, hotkey_i) {
+                        continue;
+                    }
                     let alpha = Self::get_stake_for_hotkey_and_coldkey_on_subnet(
                         hotkey_i, coldkey_i, *netuid_i,
                     );
@@ -120,11 +123,15 @@ impl<T: Config> Pallet<T> {
         coldkey_account: T::AccountId,
         netuid: NetUid,
     ) -> Option<StakeInfo<T::AccountId>> {
-        let alpha = Self::get_stake_for_hotkey_and_coldkey_on_subnet(
-            &hotkey_account,
-            &coldkey_account,
-            netuid,
-        );
+        let alpha = if Self::is_hotkey_stake_reportable(netuid, &hotkey_account) {
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey_account,
+                &coldkey_account,
+                netuid,
+            )
+        } else {
+            AlphaBalance::ZERO
+        };
         let emission = AlphaDividendsPerSubnet::<T>::get(netuid, &hotkey_account);
         // Tao dividends were removed
         let tao_emission = TaoBalance::ZERO;
@@ -158,7 +165,7 @@ impl<T: Config> Pallet<T> {
             return BTreeMap::new();
         }
 
-        let existing_netuids = Self::get_all_subnet_netuids();
+        let existing_netuids = Self::get_all_reportable_subnet_netuids();
 
         let netuids = match netuids {
             None => existing_netuids,
@@ -172,7 +179,7 @@ impl<T: Config> Pallet<T> {
                         .map(|coldkey| (coldkey, BTreeMap::new()))
                         .collect();
                 }
-                requested.retain(|n| Self::if_subnet_exist(*n));
+                requested.retain(|n| Self::is_subnet_reportable(*n));
                 requested
             }
         };
@@ -183,8 +190,22 @@ impl<T: Config> Pallet<T> {
                 let availability: BTreeMap<NetUid, StakeAvailability> = netuids
                     .iter()
                     .filter_map(|netuid| {
-                        let (total, locked, available) =
-                            Self::stake_availability(&coldkey, *netuid);
+                        let dissolving = matches!(
+                            SubnetState::<T>::get(*netuid),
+                            Some(
+                                SubnetLifecycleState::PendingDissolution
+                                    | SubnetLifecycleState::Dissolving
+                            )
+                        );
+                        let (total, locked, available) = if dissolving {
+                            let total =
+                                Self::get_reported_total_coldkey_alpha_on_subnet(&coldkey, *netuid);
+                            let locked =
+                                core::cmp::min(Self::get_current_locked(&coldkey, *netuid), total);
+                            (total, locked, AlphaBalance::ZERO)
+                        } else {
+                            Self::stake_availability(&coldkey, *netuid)
+                        };
                         // Nothing staked and no active lock — skip this subnet.
                         if total.is_zero() && locked.is_zero() {
                             None

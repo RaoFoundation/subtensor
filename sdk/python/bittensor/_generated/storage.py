@@ -190,6 +190,7 @@ class SubtensorModule:
     SubnetMechanism = Item('SubtensorModule', 'SubnetMechanism', 'u16')
     SubnetworkN = Item('SubtensorModule', 'SubnetworkN', 'u16')
     NetworksAdded = Item('SubtensorModule', 'NetworksAdded', 'bool')
+    SubnetState = Item('SubtensorModule', 'SubnetState', 'SubnetLifecycleState')
     IsNetworkMember = Item('SubtensorModule', 'IsNetworkMember', 'bool')
     NetworkRegistrationAllowed = Item('SubtensorModule', 'NetworkRegistrationAllowed', 'bool')
     NetworkPowRegistrationAllowed = Item('SubtensorModule', 'NetworkPowRegistrationAllowed', 'bool')

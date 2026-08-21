@@ -77,6 +77,7 @@ pub mod migrate_storage_bloat_v2;
 pub mod migrate_subnet_balances;
 pub mod migrate_subnet_limit_to_default;
 pub mod migrate_subnet_locked;
+pub mod migrate_subnet_state;
 pub mod migrate_subnet_symbols;
 pub mod migrate_subnet_volume;
 pub mod migrate_tao_in_refund_deployment_block;

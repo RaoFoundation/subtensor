@@ -211,6 +211,9 @@ mod hooks {
                 // Add pre-tracking burns to the generation-scoped AlphaBurned counters. This
                 // follows both AlphaOut repair and recycled-generation counter rebasing.
                 .saturating_add(migrations::migrate_backfill_historical_alpha_burned::migrate_backfill_historical_alpha_burned::<T>())
+                // Backfill the reporting-only subnet lifecycle map before the first post-upgrade
+                // idle block can advance an already queued dissolution.
+                .saturating_add(migrations::migrate_subnet_state::migrate_subnet_state::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())

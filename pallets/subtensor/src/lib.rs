@@ -221,6 +221,38 @@ pub mod pallet {
         pub placeholder2: u8,
     }
 
+    /// User-visible lifecycle state of a subnet.
+    ///
+    /// This state is deliberately separate from [`NetworksAdded`]. The latter remains the
+    /// authority for whether runtime operations may target a subnet, while this state keeps a
+    /// dissolved subnet visible to reporting APIs until its deferred cleanup has settled stake.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        TypeInfo,
+        MaxEncodedLen,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+    )]
+    pub enum SubnetLifecycleState {
+        /// The subnet exists but its start call has not completed.
+        #[codec(index = 0)]
+        Registered,
+        /// The subnet's start call has completed.
+        #[codec(index = 1)]
+        Started,
+        /// The subnet has left the active set and is waiting for cleanup.
+        #[codec(index = 2)]
+        PendingDissolution,
+        /// The subnet is currently being cleaned up by `on_idle`.
+        #[codec(index = 3)]
+        Dissolving,
+    }
+
     /// Struct for NeuronCertificate.
     pub type NeuronCertificateOf = NeuronCertificate;
     /// Data structure for NeuronCertificate information.
@@ -2128,6 +2160,14 @@ pub mod pallet {
     #[pallet::storage]
     pub type NetworksAdded<T: Config> =
         StorageMap<_, Identity, NetUid, bool, ValueQuery, DefaultNeworksAdded<T>>;
+
+    /// MAP (netuid) --> user-visible subnet lifecycle state.
+    ///
+    /// Absence means that the netuid is neither an existing subnet nor one whose deferred
+    /// dissolution cleanup is still in progress.
+    #[pallet::storage]
+    pub type SubnetState<T: Config> =
+        StorageMap<_, Identity, NetUid, SubnetLifecycleState, OptionQuery>;
 
     /// DMAP ( hotkey, netuid ) --> bool
     #[pallet::storage]

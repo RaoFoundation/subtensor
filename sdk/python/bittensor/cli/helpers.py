@@ -160,6 +160,11 @@ def netuid_groups(
     groups: list[dict] = []
     for netuid in sorted(by_netuid):
         group = by_netuid[netuid]
+        subnet_state = group[0].subnet_state
+        automatic_payout_note = {
+            "pending_dissolution": "pending automatic payout",
+            "dissolving": "automatic payout in progress",
+        }.get(subnet_state.value if subnet_state is not None else "")
         # The per-position balances were symbol-tagged at decode; the group sum
         # keeps the same subnet's symbol.
         stake = Balance(sum(p.stake.rao for p in group), netuid, group[0].stake.symbol)
@@ -171,6 +176,8 @@ def netuid_groups(
                 "stake": str(stake),
                 "value": str(value),
                 "value_tao": value.tao,
+                "subnet_state": subnet_state.value if subnet_state is not None else None,
+                "note": automatic_payout_note,
                 "positions": [
                     {
                         "stake": str(p.stake),
@@ -288,7 +295,12 @@ def annotate_stake_groups_with_locks(
         netuid = int(group["netuid"])
         avail = availability_by_netuid.get(netuid)
         lock = locks_by_netuid.get(netuid)
+        availability_notes: list[str] = []
+        if group.get("subnet_state") in {"pending_dissolution", "dissolving"}:
+            availability_notes.append("unavailable for manual unstaking")
         if not avail and not lock:
+            if availability_notes:
+                group["availability_note"] = " · ".join(availability_notes)
             continue
         locked = avail["locked"] if avail else None
         available = avail["available"] if avail else None
@@ -303,7 +315,9 @@ def annotate_stake_groups_with_locks(
             # stake line (see ``availability_note``) so they are not clipped.
             notes.append(f"lock → {lock_label}")
         if locked is not None and locked.rao > 0 and available is not None:
-            group["availability_note"] = f"{locked} locked · {available} free"
+            availability_notes.append(f"{locked} locked · {available} free")
+        if availability_notes:
+            group["availability_note"] = " · ".join(availability_notes)
         if notes:
             existing = group.get("note")
             group["note"] = " · ".join([existing, *notes] if existing else notes)
@@ -490,6 +504,7 @@ def _stake_record(position: StakePosition, valuation: StakeValuation) -> dict[st
         "value": str(value),
         "value_tao": value.tao,
         "registered": position.is_registered,
+        "subnet_state": position.subnet_state.value if position.subnet_state is not None else None,
     }
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 from .._generated import constants
@@ -13,12 +14,116 @@ from ..balance import Balance
 from .base import read, utf8_text
 
 
+class SubnetLifecycleState(str, Enum):
+    """User-visible lifecycle of a subnet."""
+
+    REGISTERED = "registered"
+    STARTED = "started"
+    PENDING_DISSOLUTION = "pending_dissolution"
+    DISSOLVING = "dissolving"
+
+
+_STATE_BY_VARIANT = {
+    "Registered": SubnetLifecycleState.REGISTERED,
+    "Started": SubnetLifecycleState.STARTED,
+    "PendingDissolution": SubnetLifecycleState.PENDING_DISSOLUTION,
+    "Dissolving": SubnetLifecycleState.DISSOLVING,
+}
+
+
+def _decode_subnet_state(value) -> Optional[SubnetLifecycleState]:
+    if value is None:
+        return None
+    if isinstance(value, SubnetLifecycleState):
+        return value
+    if isinstance(value, str):
+        variant = value
+    elif isinstance(value, dict) and len(value) == 1:
+        variant = str(next(iter(value)))
+    else:
+        raise ValueError(f"invalid SubnetLifecycleState value: {value!r}")
+    try:
+        return _STATE_BY_VARIANT[variant]
+    except KeyError:
+        return SubnetLifecycleState(variant)
+
+
 @dataclass
 class SubnetInfo:
     netuid: int
     tempo: int
     burn: Balance
     neuron_count: int
+    state: Optional[SubnetLifecycleState] = None
+    pool_emission_enabled: bool = True
+
+
+async def _legacy_subnet_state(view, netuid: int) -> Optional[SubnetLifecycleState]:
+    status, queue, added = await asyncio.gather(
+        view.query(st.SubtensorModule.CurrentDissolveCleanupStatus),
+        view.query(st.SubtensorModule.DissolveCleanupQueue),
+        view.query(st.SubtensorModule.NetworksAdded, [netuid]),
+    )
+    if status and int(status.get("netuid")) == netuid:
+        return SubnetLifecycleState.DISSOLVING
+    if netuid in [int(value) for value in queue or []]:
+        return SubnetLifecycleState.PENDING_DISSOLUTION
+    if not added:
+        return None
+    if netuid == 0:
+        return SubnetLifecycleState.STARTED
+    first_emission, subtoken_enabled = await asyncio.gather(
+        view.query(st.SubtensorModule.FirstEmissionBlockNumber, [netuid]),
+        view.query(st.SubtensorModule.SubtokenEnabled, [netuid]),
+    )
+    return (
+        SubnetLifecycleState.STARTED
+        if first_emission is not None or subtoken_enabled
+        else SubnetLifecycleState.REGISTERED
+    )
+
+
+@read(
+    "subnet_state",
+    {"netuid": "integer"},
+    category="Subnets",
+    param_docs={"netuid": "Subnet whose reporting lifecycle to query."},
+)
+async def subnet_state(view, netuid: int) -> Optional[SubnetLifecycleState]:
+    """Reporting lifecycle for one subnet, or None after cleanup/nonexistence."""
+    view = await view.at()
+    try:
+        state = _decode_subnet_state(await view.query(st.SubtensorModule.SubnetState, [netuid]))
+        return state if state is not None else await _legacy_subnet_state(view, netuid)
+    except (KeyError, ValueError):
+        return await _legacy_subnet_state(view, netuid)
+
+
+@read("subnet_states", {}, category="Subnets")
+async def subnet_states(view) -> dict[int, SubnetLifecycleState]:
+    """Reporting lifecycle for every active or dissolving subnet."""
+    view = await view.at()
+    try:
+        rows = await view.query_map(st.SubtensorModule.SubnetState)
+        if not rows:
+            raise KeyError("SubnetState is unavailable")
+        return {
+            int(netuid): state
+            for netuid, raw in rows
+            if (state := _decode_subnet_state(raw)) is not None
+        }
+    except (KeyError, ValueError):
+        added, queue, status = await asyncio.gather(
+            view.query_map(st.SubtensorModule.NetworksAdded),
+            view.query(st.SubtensorModule.DissolveCleanupQueue),
+            view.query(st.SubtensorModule.CurrentDissolveCleanupStatus),
+        )
+        netuids = {int(netuid) for netuid, is_added in added if is_added}
+        netuids.update(int(netuid) for netuid in queue or [])
+        if status:
+            netuids.add(int(status["netuid"]))
+        states = await asyncio.gather(*[_legacy_subnet_state(view, netuid) for netuid in netuids])
+        return {netuid: state for netuid, state in zip(netuids, states) if state is not None}
 
 
 @read(
@@ -30,16 +135,20 @@ class SubnetInfo:
 async def subnet(view, netuid: int) -> SubnetInfo:
     """Tempo, burn, and neuron count for one subnet (the three reads run concurrently)."""
     view = await view.at()
-    tempo, burn_rao, count = await asyncio.gather(
+    tempo, burn_rao, count, state, emission_enabled = await asyncio.gather(
         view.query(st.SubtensorModule.Tempo, [netuid]),
         view.query(st.SubtensorModule.Burn, [netuid]),
         view.query(st.SubtensorModule.SubnetworkN, [netuid]),
+        subnet_state(view, netuid),
+        view.query(st.SubtensorModule.SubnetEmissionEnabled, [netuid]),
     )
     return SubnetInfo(
         netuid=netuid,
         tempo=int(tempo),
         burn=Balance.from_rao(int(burn_rao)),
         neuron_count=int(count or 0),
+        state=state,
+        pool_emission_enabled=bool(emission_enabled),
     )
 
 
@@ -49,22 +158,26 @@ async def subnets(view) -> list[SubnetInfo]:
     one-query-per-subnet. This is what listing should use.
     """
     view = await view.at()
-    added, tempos, burns, counts = await asyncio.gather(
-        view.query_map(st.SubtensorModule.NetworksAdded),
+    states, tempos, burns, counts, emission_enabled = await asyncio.gather(
+        subnet_states(view),
         view.query_map(st.SubtensorModule.Tempo),
         view.query_map(st.SubtensorModule.Burn),
         view.query_map(st.SubtensorModule.SubnetworkN),
+        view.query_map(st.SubtensorModule.SubnetEmissionEnabled),
     )
     tempo_map = {int(k): int(v) for k, v in tempos}
     burn_map = {int(k): int(v) for k, v in burns}
     count_map = {int(k): int(v or 0) for k, v in counts}
-    netuids = sorted(int(k) for k, is_added in added if is_added)
+    emission_map = {int(k): bool(v) for k, v in emission_enabled}
+    netuids = sorted(states)
     return [
         SubnetInfo(
             netuid=netuid,
             tempo=tempo_map.get(netuid, 0),
             burn=Balance.from_rao(burn_map.get(netuid, 0)),
             neuron_count=count_map.get(netuid, 0),
+            state=states[netuid],
+            pool_emission_enabled=emission_map.get(netuid, True),
         )
         for netuid in netuids
     ]
