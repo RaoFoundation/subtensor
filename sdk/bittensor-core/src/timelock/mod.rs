@@ -14,7 +14,7 @@ pub mod epoch_schedule;
 mod epoch_schedule_vectors;
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use rand_core::{OsRng, RngCore};
 use serde::Deserialize;
 use sha2::Digest;
@@ -86,7 +86,7 @@ pub fn reveal_round(encrypted_data: &[u8]) -> Result<u64, CoreError> {
 /// and the reveal round as a separate field. `ciphertext` / `hex()` on the
 /// Python `Timelocked` object is the portable envelope, not this inner blob.
 pub fn inner_ciphertext(encrypted_data: &[u8]) -> Result<Vec<u8>, CoreError> {
-    let user_data = UserData::decode(&mut &encrypted_data[..])
+    let user_data = UserData::decode_all(&mut &encrypted_data[..])
         .map_err(|e| tl_err(format!("Error deserializing data: {e:?}")))?;
     Ok(user_data.encrypted_data)
 }
@@ -371,18 +371,19 @@ mod tests {
 
     #[test]
     fn inner_ciphertext_unwraps_user_data_envelope() {
-        let message = b"chain submit bytes";
-        let reveal_round = 30_000_000;
-        let (envelope, round) =
-            encrypt_at_round(message, reveal_round).expect("Encryption should succeed");
-        assert_eq!(round, reveal_round);
+        let expected = b"chain submit bytes".to_vec();
+        let mut envelope = UserData {
+            encrypted_data: expected.clone(),
+            reveal_round: 30_000_000,
+        }
+        .encode();
 
-        let inner = inner_ciphertext(&envelope).expect("envelope should unwrap");
-        assert_ne!(inner, envelope);
-        assert!(inner.len() < envelope.len());
+        assert_eq!(inner_ciphertext(&envelope).unwrap(), expected);
+
+        envelope.push(0);
         assert!(
-            inner_ciphertext(&inner).is_err(),
-            "raw TLE bytes are not a UserData envelope"
+            inner_ciphertext(&envelope).is_err(),
+            "trailing bytes must be rejected"
         );
     }
 
