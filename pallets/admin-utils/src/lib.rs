@@ -222,6 +222,8 @@ pub mod pallet {
         RuntimeConfiguration,
         /// Precompile lifecycle and availability registry
         PrecompileRegistry,
+        /// USD rails (canonical PSM + tUSD/TAO pool) precompile
+        UsdRails,
     }
 
     #[pallet::type_value]

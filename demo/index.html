@@ -1,0 +1,1061 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Subnet tokens — staked alpha in your wallet</title>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<style>
+    /* Same theme as the Vault / extension signer pages: white ground,
+       #292929 ink, thin #262626 borders, #2f46f4 accent, Haffer-style
+       sans + DM Mono labels. */
+    :root {
+        color-scheme: light;
+        --background: #ffffff;
+        --ink: #292929;
+        --muted: #757575;
+        --line: #262626;
+        --line-soft: #e3e3e3;
+        --accent: #2f46f4;
+        --success: #49c24e;
+        --error: #d93737;
+        --warn: #b97a13;
+        --sans: Haffer, HafferSQ, "Helvetica Neue", Arial, system-ui, -apple-system, sans-serif;
+        --mono: "DM Mono", FiraCode, "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; margin: 0; }
+
+    body {
+        background: var(--background);
+        color: var(--ink);
+        font-family: var(--sans);
+    }
+
+    /* Top bar: same anatomy as the signer pages — logo left in a 105px
+       slot, mono uppercase page name centered, status on the right. */
+    .topbar {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        padding: 32px;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        letter-spacing: 0.03em;
+    }
+    .topbar .logo { width: 105px; display: flex; align-items: center; }
+    .topbar .logo svg { width: 21px; height: 23px; color: var(--ink); }
+    .topbar .page-name {
+        flex-grow: 1;
+        display: flex;
+        justify-content: center;
+        text-transform: uppercase;
+        color: var(--ink);
+    }
+    .topbar .session {
+        width: 105px;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .topbar .session .dot {
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 50%;
+        background: var(--line-soft);
+    }
+    body.connected .topbar .session .dot { background: var(--success); }
+
+    .shell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        padding: 0 clamp(1.5rem, 5vw, 4rem) 4rem;
+    }
+
+    .status {
+        text-align: center;
+        max-width: 44rem;
+        margin-bottom: 0.5rem;
+    }
+    .status h1 {
+        margin: 0;
+        font-size: clamp(1.7rem, 3.4vw, 2.5rem);
+        font-weight: 400;
+        letter-spacing: -0.01em;
+        line-height: 1.1;
+    }
+    .status h1 .tick { color: var(--success); }
+    .status p {
+        margin: 0.7rem 0 0;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        line-height: 1.6;
+    }
+
+    .panel {
+        width: 100%;
+        max-width: 28rem;
+        border: 1px solid var(--line);
+        background: var(--background);
+    }
+    .panel-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+        min-height: 2.4rem;
+        padding: 0.3rem 0.9rem;
+        border-bottom: 1px solid var(--line);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+    }
+    .panel-bar .dot {
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 50%;
+        background: var(--line-soft);
+        flex: none;
+    }
+    body.connected .panel-bar .dot { background: var(--success); }
+    .panel-body { padding: 1.1rem; display: grid; gap: 0.9rem; }
+
+    /* Token identity header inside the trade panel. */
+    .token-head {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        min-width: 0;
+    }
+    .token-head img {
+        width: 1.6rem;
+        height: 1.6rem;
+        object-fit: contain;
+        flex: none;
+    }
+    .token-head .tname {
+        font-size: 1.05rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .token-desc {
+        margin: 0;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        line-height: 1.55;
+    }
+
+    .row { display: flex; justify-content: space-between; align-items: baseline; margin: 0; }
+    .label {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+    }
+    .value {
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+    }
+    .big {
+        font-size: 2.1rem;
+        font-weight: 400;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+        transition: color 0.4s;
+    }
+    .big.bump { color: var(--success); }
+    .sub {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.75rem;
+    }
+    .meta-sep { border: 0; border-top: 1px solid var(--line-soft); margin: 0; }
+
+    button {
+        appearance: none;
+        font-family: var(--mono);
+        border: 1px solid var(--line);
+        border-radius: 0;
+        background: var(--background);
+        color: var(--ink);
+        padding: 0.8rem 1rem;
+        font-size: 0.78rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+        width: 100%;
+    }
+    button:hover:not(:disabled) { background: var(--ink); color: var(--background); }
+    button:active { transform: translateY(1px); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-buy { background: var(--ink); color: var(--background); }
+    .btn-buy:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+    .btn-ghost { border: 1px dashed var(--line-soft); color: var(--muted); }
+
+    input[type="number"], select {
+        width: 100%;
+        font-family: var(--mono);
+        background: var(--background);
+        color: var(--ink);
+        border: 1px solid var(--line-soft);
+        border-radius: 0;
+        padding: 0.75rem 0.9rem;
+        font-size: 0.95rem;
+        font-variant-numeric: tabular-nums;
+    }
+    input[type="number"]:focus, select:focus { outline: none; border-color: var(--line); }
+    select {
+        appearance: none;
+        cursor: pointer;
+        text-transform: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23292929'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 0.9rem center;
+    }
+    .split { display: flex; gap: 0.6rem; }
+    .split > * { flex: 1; }
+
+    .pill {
+        display: inline-block;
+        padding: 1px 7px;
+        border: 1px solid var(--line-soft);
+        font-family: var(--mono);
+        font-size: 0.62rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+        margin-left: 8px;
+        flex: none;
+    }
+    .pill.live { color: var(--success); border-color: var(--success); }
+
+    /* Transfer tracker: one row per pipeline stage, states driven from
+       chain signals (receipt, hub escrow attestation, balances). */
+    .quote-line {
+        display: flex;
+        justify-content: center;
+        align-items: baseline;
+        gap: 0.5rem;
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        font-variant-numeric: tabular-nums;
+        flex-wrap: wrap;
+    }
+    .quote-line .arrow { color: var(--muted); }
+    .quote-line .dim { color: var(--muted); font-size: 0.72rem; }
+    .steps { display: grid; }
+    .step {
+        display: flex;
+        align-items: baseline;
+        gap: 0.7rem;
+        padding: 0.5rem 0;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        color: var(--ink);
+        border-bottom: 1px dashed var(--line-soft);
+    }
+    .step:last-child { border-bottom: 0; }
+    .step .glyph { flex: none; width: 1.1rem; text-align: center; }
+    .step .stage-label { flex: 1; }
+    .step .detail {
+        font-variant-numeric: tabular-nums;
+        color: var(--muted);
+        font-size: 0.72rem;
+    }
+    .step.pending { opacity: 0.4; }
+    .step.active .glyph { color: var(--accent); animation: stepPulse 1.1s ease-in-out infinite; }
+    .step.done .glyph { color: var(--success); }
+    .step.fail, .step.fail .glyph { color: var(--error); }
+    .step.warn .glyph { color: var(--warn); animation: none; }
+    @keyframes stepPulse { 50% { opacity: 0.2; } }
+
+    .estimate {
+        margin: -0.55rem 0 0;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        min-height: 1em;
+    }
+
+    #log {
+        width: 100%;
+        max-width: 28rem;
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        color: var(--muted);
+        max-height: 220px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        line-height: 1.7;
+        border-top: 1px solid var(--line-soft);
+        padding-top: 0.8rem;
+    }
+    #log .ok { color: var(--success); }
+    #log .err { color: var(--error); }
+    #log .warn { color: var(--warn); }
+
+    a { color: var(--accent); text-decoration: none; border-bottom: 1px solid currentColor; }
+
+    @media (max-width: 560px) {
+        .topbar { padding: 20px 16px; }
+        .topbar .logo, .topbar .session { width: auto; }
+    }
+</style>
+</head>
+<body>
+<header class="topbar">
+    <div class="logo">
+        <a href="https://bittensor.com" target="_blank" rel="noreferrer" aria-label="Bittensor">
+            <svg width="21" height="23" viewBox="0 0 21 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12.5309 17.7832V8.70318C12.5238 7.60933 12.0844 6.56266 11.3087 5.79143C10.533 5.02019 9.48378 4.58695 8.38991 4.58618V19.0972C8.38387 19.6135 8.48312 20.1256 8.6816 20.6023C8.88007 21.0789 9.17361 21.5102 9.54428 21.8696C9.91496 22.2291 10.355 22.5092 10.8376 22.6929C11.3201 22.8766 11.835 22.9601 12.3509 22.9382C13.3561 23.0064 14.353 22.7174 15.1659 22.1222C12.7769 21.8692 12.5309 20.4292 12.5309 17.7832Z" fill="currentColor"/>
+                <path d="M3.775 0.787109C2.77152 0.793711 1.81138 1.19698 1.10414 1.9089C0.396901 2.62083 -2.17165e-05 3.5836 8.91144e-10 4.58711H16.893C17.8965 4.58051 18.8566 4.17724 19.5639 3.46531C20.2711 2.75339 20.668 1.79062 20.668 0.787109H3.775Z" fill="currentColor"/>
+            </svg>
+        </a>
+    </div>
+    <div class="page-name">Subnet tokens · rails demo</div>
+    <div class="session"><span class="dot" aria-hidden="true"></span><span id="account-short">local</span></div>
+</header>
+
+<main class="shell">
+<div class="status">
+    <h1>Every subnet in your wallet <span class="tick" id="tick">▲</span></h1>
+    <p>
+        One ERC-20 per subnet, each backed by real staked alpha on Bittensor.
+        Names, descriptions and logos come from the chain's subnet identities.
+        Buy with USDC on Base; balances tick upward as emissions accrue.
+        Sell any time; USDC comes back.
+    </p>
+</div>
+
+<section class="panel" id="connect-card">
+    <div class="panel-bar"><span>1 · connect wallet</span><span class="dot"></span></div>
+    <div class="panel-body">
+        <button class="btn-buy" id="btn-connect">Connect MetaMask</button>
+        <p class="sub" style="margin:0">
+            Adds the local Base network (anvil) and unlocks trading below.
+        </p>
+    </div>
+</section>
+
+<section class="panel" id="trade-card" style="display:none">
+    <div class="panel-bar">
+        <span>trade</span>
+        <span style="display:flex;align-items:center">
+            <span class="value" id="usdc-balance" style="font-size:0.72rem">—</span>
+            <span class="pill live">live</span>
+        </span>
+    </div>
+    <div class="panel-body">
+        <select id="token-select" aria-label="Choose a subnet token"></select>
+        <div class="token-head">
+            <img id="tok-logo" src="" alt="" />
+            <span class="tname" id="tok-name">—</span>
+            <span class="pill" id="tok-pill">—</span>
+        </div>
+        <p class="token-desc" id="tok-desc"></p>
+        <hr class="meta-sep" />
+        <div class="big" id="tok-bal">—</div>
+        <div class="sub" id="tok-det">shares — · index —</div>
+        <div class="row">
+            <span class="label">Price (pool quote)</span>
+            <span class="value" id="tok-price">—</span>
+        </div>
+        <div class="row">
+            <span class="label">Hub escrow</span>
+            <span class="value" id="tok-esc">—</span>
+        </div>
+        <hr class="meta-sep" />
+        <input type="number" id="buy-amount" placeholder="USDC amount" value="100" min="0" step="any" />
+        <p class="estimate" id="buy-estimate"></p>
+        <div class="split">
+            <button class="btn-buy" id="btn-buy">Buy</button>
+            <button class="btn-ghost" id="btn-faucet">Faucet USDC</button>
+        </div>
+        <input type="number" id="sell-amount" placeholder="sell amount (blank = all)" min="0" step="any" />
+        <div class="split">
+            <button id="btn-sell">Sell</button>
+            <button class="btn-ghost" id="btn-watch">Watch in MetaMask</button>
+        </div>
+    </div>
+</section>
+
+<section class="panel" id="track-card" style="display:none">
+    <div class="panel-bar">
+        <span id="track-title">transfer</span>
+        <span class="value" id="track-elapsed" style="font-size:0.72rem">0s</span>
+    </div>
+    <div class="panel-body">
+        <div class="quote-line" id="track-quote"></div>
+        <hr class="meta-sep" />
+        <div class="steps" id="track-steps"></div>
+    </div>
+</section>
+
+<div id="log"></div>
+</main>
+
+<script type="module">
+const { ethers } = window;
+
+// ------------------------------------------------------------------ config
+// Served alongside the repo: the rig manifest is the single source of truth.
+// Its token catalog (name, description, logo) was read back from the chain's
+// SubnetIdentitiesV3 by the rig configure step.
+const manifest = await (await fetch("../.rails/manifest.json")).json();
+const BASE = manifest.chains.baselocal;
+const BT = manifest.chains.btlocal;
+const TOKENS = BASE.tokens ?? [];
+const E9 = 1_000_000_000n;
+
+const USDC_ABI = [
+    "function balanceOf(address) view returns (uint256)",
+    "function approve(address,uint256) returns (bool)",
+    "function allowance(address,address) view returns (uint256)",
+    "function mint(address,uint256)",
+];
+const PORTAL_ABI = [
+    "function buy(uint64,uint16,uint64) payable returns (bytes32,uint64)",
+    "function nextNonce() view returns (uint64)",
+];
+const TOKEN_ABI = [
+    "function balanceOf(address) view returns (uint256)",
+    "function sharesOf(address) view returns (uint256)",
+    "function indexE9() view returns (uint64)",
+    "function sell(uint64,uint64) payable returns (bytes32)",
+];
+
+// Live prices come from the hub's own pools (the only quote consistent with
+// what a buy/sell actually executes at): the subnet AMM gives alpha->TAO,
+// the PSM pool gives TAO->USD. Both are exposed as EVM view precompiles on
+// the Bittensor localnet, so a read-only provider suffices.
+const btEvm = new ethers.JsonRpcProvider(BT.rpcHttp);
+const alphaPricer = new ethers.Contract(
+    "0x0000000000000000000000000000000000000808",
+    ["function getAlphaPrice(uint16) view returns (uint256)"],
+    btEvm
+);
+const usdPool = new ethers.Contract(
+    BT.usdRailsPrecompile,
+    ["function simSwapTaoForUsd(uint64) view returns (uint64)"],
+    btEvm
+);
+
+// --------------------------------------------------------------- utilities
+const $ = (id) => document.getElementById(id);
+// USD price per displayed token, cached by refreshAll for the buy estimate.
+let lastUsdPerToken = 0;
+const logEl = $("log");
+function log(message, cls = "") {
+    const line = document.createElement("div");
+    if (cls) line.className = cls;
+    line.textContent = `${new Date().toLocaleTimeString()}  ${message}`;
+    logEl.prepend(line);
+}
+const fmt = (raw, decimals = 4) =>
+    (Number(raw) / 1e9).toLocaleString(undefined, { maximumFractionDigits: decimals });
+const toRaw = (value) => BigInt(Math.round(Number(value) * 1e9));
+
+async function btRpc(method, params = []) {
+    const response = await fetch(BT.rpcHttp, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    return (await response.json()).result;
+}
+
+// Direct RPC to anvil (no wallet, no gas): dev-chain cheats like
+// anvil_setBalance live here.
+async function baseRpc(method, params = []) {
+    const response = await fetch(BASE.rpcHttp, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    return (await response.json()).result;
+}
+
+// Keep the connected account gassed: anvil mints ETH by RPC, so nobody
+// needs a genesis key to try the demo.
+async function ensureGas() {
+    const balance = BigInt(await baseRpc("eth_getBalance", [account, "latest"]) ?? "0x0");
+    if (balance < 1_000_000_000_000_000_000n) {
+        await baseRpc("anvil_setBalance", [account, "0x8AC7230489E80000"]);
+        log("gas topped up: 10 ETH (localnet)", "ok");
+    }
+}
+
+// Anvil dev account #9: unlocked on anvil, unused by the rig tooling. The
+// faucet sends from it by plain RPC, so minting needs no wallet popup and
+// can't trip over MetaMask's cached nonces.
+const FAUCET_SENDER = "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720";
+
+/**
+ * MetaMask caches nonces per chain; after a localnet reset its next nonce
+ * can be higher than the chain's, and the transaction then sits in anvil's
+ * "queued" pool forever (surfacing as a failed/stuck send). While waiting
+ * for a receipt, watch the txpool and, if our account has a queued
+ * future-nonce transaction, jump the chain nonce so it mines.
+ */
+async function waitHealed(tx) {
+    const heal = async () => {
+        try {
+            const pool = await baseRpc("txpool_content", []);
+            const queued = Object.entries(pool?.queued ?? {}).find(
+                ([addr]) => addr.toLowerCase() === account.toLowerCase()
+            )?.[1];
+            if (!queued) return;
+            const nonces = Object.keys(queued).map(Number);
+            const target = Math.min(...nonces);
+            await baseRpc("anvil_setNonce", [account, "0x" + target.toString(16)]);
+            log(`healed stale MetaMask nonce (chain nonce -> ${target}); ` +
+                "transaction will mine now", "warn");
+        } catch { /* txpool inspection is best-effort */ }
+    };
+    const healer = setInterval(heal, 2000);
+    try {
+        return await tx.wait();
+    } finally {
+        clearInterval(healer);
+    }
+}
+
+// ----------------------------------------------------------------- catalog
+const FALLBACK_LOGO =
+    "data:image/svg+xml," +
+    encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 23" fill="none">' +
+        '<path d="M12.5309 17.7832V8.70318C12.5238 7.60933 12.0844 6.56266 11.3087 5.79143C10.533 5.02019 9.48378 4.58695 8.38991 4.58618V19.0972C8.38387 19.6135 8.48312 20.1256 8.6816 20.6023C8.88007 21.0789 9.17361 21.5102 9.54428 21.8696C9.91496 22.2291 10.355 22.5092 10.8376 22.6929C11.3201 22.8766 11.835 22.9601 12.3509 22.9382C13.3561 23.0064 14.353 22.7174 15.1659 22.1222C12.7769 21.8692 12.5309 20.4292 12.5309 17.7832Z" fill="%23292929"/>' +
+        '<path d="M3.775 0.787109C2.77152 0.793711 1.81138 1.19698 1.10414 1.9089C0.396901 2.62083 -2.17165e-05 3.5836 8.91144e-10 4.58711H16.893C17.8965 4.58051 18.8566 4.17724 19.5639 3.46531C20.2711 2.75339 20.668 1.79062 20.668 0.787109H3.775Z" fill="%23292929"/>' +
+        "</svg>"
+    );
+
+// The one selected token drives the whole trade panel.
+let sel = 0;
+
+function renderSelector() {
+    const select = $("token-select");
+    for (const [i, token] of TOKENS.entries()) {
+        const option = document.createElement("option");
+        option.value = i;
+        option.textContent = `${token.name} · SN ${token.netuid} (${token.symbol})`;
+        select.appendChild(option);
+    }
+    select.onchange = () => {
+        sel = Number(select.value);
+        lastBalance = -1n;
+        showToken();
+        refreshAll();
+    };
+    showToken();
+}
+
+/** Repaint the static identity of the selected token (name, logo, blurb). */
+function showToken() {
+    const token = TOKENS[sel];
+    const logo = $("tok-logo");
+    logo.onerror = () => { logo.onerror = null; logo.src = FALLBACK_LOGO; };
+    logo.src = token.logo || FALLBACK_LOGO;
+    $("tok-name").textContent = token.name;
+    $("tok-pill").textContent = `SN ${token.netuid} · ${token.symbol}`;
+    $("tok-desc").textContent = token.description || "";
+    $("tok-bal").textContent = "—";
+    $("tok-det").textContent = "shares — · index —";
+    $("tok-price").textContent = "—";
+    $("tok-esc").textContent = "—";
+    lastUsdPerToken = 0;
+    $("buy-estimate").textContent = "";
+}
+
+renderSelector();
+
+// ------------------------------------------------------------------ wallet
+let provider, signer, account, usdc, portal, wallet;
+// Per-catalog-entry ethers.Contract instances, populated on connect.
+const tokenContracts = [];
+
+// EIP-6963 wallet discovery: every installed wallet announces itself, so a
+// broken extension shadowing `window.ethereum` can't hijack the demo.
+const discovered = [];
+window.addEventListener("eip6963:announceProvider", (event) => {
+    discovered.push(event.detail);
+    log(`wallet detected: ${event.detail.info.name}`, "");
+});
+window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+function pickWallet() {
+    const byRdns = (rdns) => discovered.find((d) => d.info.rdns === rdns)?.provider;
+    return (
+        byRdns("io.metamask") ??
+        discovered[0]?.provider ??
+        window.ethereum?.providers?.find((p) => p.isMetaMask) ??
+        window.ethereum
+    );
+}
+
+async function walletChainId() {
+    // Not every provider supports eth_chainId; fall back through the legacy
+    // surfaces and report null if all fail.
+    try {
+        return parseInt(await wallet.request({ method: "eth_chainId" }), 16);
+    } catch { /* fall through */ }
+    if (wallet.chainId) return parseInt(wallet.chainId, 16);
+    try {
+        return parseInt(await wallet.request({ method: "net_version" }), 10);
+    } catch { return null; }
+}
+
+async function connect() {
+    wallet = pickWallet();
+    if (!wallet) {
+        log("no wallet detected (is MetaMask installed and enabled?)", "err");
+        return;
+    }
+    const walletName = discovered.find((d) => d.provider === wallet)?.info.name ?? "injected provider";
+    log(`using ${walletName}`);
+
+    // Land the wallet on the fake-Base chain. Chain id alone is not proof
+    // (a wallet network can pair our id with a stale RPC), so the ground
+    // truth is whether the rig's USDC contract exists at its address.
+    const chainIdHex = "0x" + BASE.chainId.toString(16);
+    const rigVisible = async () => {
+        const code = await new ethers.BrowserProvider(wallet)
+            .getCode(BASE.mockUsdc)
+            .catch(() => "0x");
+        return code !== "0x";
+    };
+    // Register under `localhost` rather than `127.0.0.1`: same server, but a
+    // distinct URL string, so MetaMask's duplicate-RPC check doesn't collide
+    // with any older network entry that already claimed the 127.0.0.1 form.
+    const walletRpc = BASE.rpcHttp.replace("127.0.0.1", "localhost");
+    const addRigNetwork = () =>
+        wallet.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+                chainId: chainIdHex,
+                chainName: "Base rails localnet",
+                rpcUrls: [walletRpc],
+                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+            }],
+        });
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    if (!(await rigVisible())) {
+        // Switch if the network already exists, otherwise add it. Log the
+        // wallet's actual answers: silent failures here cost us three rounds
+        // of debugging already.
+        try {
+            await wallet.request({
+                method: "wallet_switchEthereumChain",
+                params: [{ chainId: chainIdHex }],
+            });
+            log(`switched to chain ${BASE.chainId}`);
+        } catch (switchError) {
+            log(`switch: ${switchError.message ?? switchError}`, "warn");
+            try {
+                await addRigNetwork();
+                log("network add request accepted");
+            } catch (addError) {
+                log(`add network: ${addError.message ?? addError}`, "warn");
+            }
+        }
+        // The wallet applies the switch asynchronously; give it a moment.
+        for (let i = 0; i < 12 && !(await rigVisible()); i++) await sleep(500);
+        if (!(await rigVisible())) {
+            const reported = await walletChainId();
+            log(`${walletName} still reports chain ${reported ?? "unknown"} and the rig contracts are not visible. Add a network manually: RPC ${walletRpc}, chain ID ${BASE.chainId}, currency ETH — select it, then Connect again. If the wallet complains the RPC is taken, delete ${BASE.rpcHttp} from its old Base network first`, "err");
+            return;
+        }
+    }
+
+    await wallet.request({ method: "eth_requestAccounts" });
+    provider = new ethers.BrowserProvider(wallet);
+    signer = await provider.getSigner();
+    account = await signer.getAddress();
+
+    usdc = new ethers.Contract(BASE.mockUsdc, USDC_ABI, signer);
+    portal = new ethers.Contract(BASE.portal, PORTAL_ABI, signer);
+    tokenContracts.length = 0;
+    for (const token of TOKENS) {
+        tokenContracts.push(new ethers.Contract(token.address, TOKEN_ABI, signer));
+    }
+
+    $("connect-card").style.display = "none";
+    $("trade-card").style.display = "";
+    $("account-short").textContent = account.slice(0, 6) + "…" + account.slice(-4);
+    document.body.classList.add("connected");
+    await ensureGas();
+    log(`connected ${account}`, "ok");
+
+    refreshAll();
+    setInterval(refreshAll, 2000);
+}
+
+function watchAsset() {
+    const token = TOKENS[sel];
+    wallet.request({
+        method: "wallet_watchAsset",
+        params: {
+            type: "ERC20",
+            options: {
+                address: token.address,
+                symbol: token.symbol,
+                decimals: 9,
+                image: token.logo || undefined,
+            },
+        },
+    }).catch(() => log("watchAsset declined (balance still shown here)", "warn"));
+}
+
+// ------------------------------------------------------------------ views
+let lastBalance = -1n;
+
+function updateEstimate() {
+    const spend = Number($("buy-amount").value || "0");
+    const el = $("buy-estimate");
+    if (spend > 0 && lastUsdPerToken > 0 && isFinite(lastUsdPerToken)) {
+        const receive = spend / lastUsdPerToken;
+        el.textContent = `≈ ${receive.toLocaleString(undefined, { maximumFractionDigits: 4 })} ` +
+            `${TOKENS[sel].symbol} at spot`;
+    } else {
+        el.textContent = "";
+    }
+}
+$("buy-amount").addEventListener("input", updateEstimate);
+async function refreshAll() {
+    const token = TOKENS[sel];
+    const contract = tokenContracts[sel];
+    try {
+        $("usdc-balance").textContent = fmt(await usdc.balanceOf(account), 2) + " USDC";
+    } catch { /* transient RPC hiccups are fine on a localnet */ }
+    try {
+        const [balance, shares, index, attestation, alphaPrice, usdPerTao] =
+            await Promise.all([
+                contract.balanceOf(account),
+                contract.sharesOf(account),
+                contract.indexE9(),
+                btRpc("rails_alphaAttestation", [token.netuid]),
+                alphaPricer.getAlphaPrice(token.netuid),
+                usdPool.simSwapTaoForUsd(E9),
+            ]);
+        const el = $("tok-bal");
+        el.textContent = `${fmt(balance, 6)} ${token.symbol}`;
+        if (lastBalance >= 0n && balance > lastBalance) {
+            el.classList.add("bump");
+            $("tick").textContent = "▲ +" + fmt(balance - lastBalance, 9);
+            setTimeout(() => el.classList.remove("bump"), 800);
+        }
+        lastBalance = balance;
+        $("tok-det").textContent =
+            `shares ${fmt(shares, 6)} · index ${(Number(index) / 1e9).toFixed(9)}`;
+        // getAlphaPrice returns TAO-per-alpha in 1e18 fixed point; the wallet
+        // displayed unit is alpha (shares * index), so the USD price per
+        // displayed token is alphaTao * taoUsd.
+        const alphaTao = Number(alphaPrice) / 1e18;
+        const taoUsd = Number(usdPerTao) / 1e9;
+        const usd = alphaTao * taoUsd;
+        $("tok-price").textContent =
+            `$${usd.toLocaleString(undefined, { maximumFractionDigits: 4 })}` +
+            ` · ${alphaTao.toLocaleString(undefined, { maximumFractionDigits: 4 })} τ`;
+        lastUsdPerToken = usd;
+        updateEstimate();
+        if (attestation) {
+            $("tok-esc").textContent = fmt(attestation.escrowed_alpha, 4) + " α";
+        }
+    } catch { /* transient RPC hiccups are fine on a localnet */ }
+}
+
+// -------------------------------------------------------- transfer tracker
+// One tracker at a time (a new trade replaces the record of the last one).
+// Every stage transition is detected from a chain signal — Base receipt,
+// hub escrow attestation, share/USDC balance — never from a timer alone.
+let tracker = null;
+
+const STEP_GLYPHS = { pending: "○", active: "◌", done: "✓", fail: "✕", warn: "!" };
+
+function renderTracker() {
+    if (!tracker) return;
+    $("track-title").textContent = tracker.title;
+    $("track-quote").innerHTML = tracker.quoteHtml;
+    const box = $("track-steps");
+    box.textContent = "";
+    for (const stage of tracker.stages) {
+        const row = document.createElement("div");
+        row.className = `step ${stage.state}`;
+        const glyph = document.createElement("span");
+        glyph.className = "glyph";
+        glyph.textContent = STEP_GLYPHS[stage.state];
+        const label = document.createElement("span");
+        label.className = "stage-label";
+        label.textContent = stage.label;
+        const detail = document.createElement("span");
+        detail.className = "detail";
+        detail.textContent = stage.detail ?? "";
+        row.append(glyph, label, detail);
+        box.appendChild(row);
+    }
+    $("track-elapsed").textContent =
+        Math.floor((Date.now() - tracker.startedAt) / 1000) + "s";
+}
+
+/**
+ * Show the tracker panel and poll `probe` until every stage is done, one
+ * fails, or the timeout passes (then active stages get a warning state —
+ * on this rig that usually means the hub rejected the action and parked
+ * the deposit as tUSD, or the relayer is down).
+ */
+function startTracker(title, quoteHtml, stages, probe) {
+    if (tracker?.timer) clearInterval(tracker.timer);
+    tracker = { title, quoteHtml, stages, startedAt: Date.now(), timer: null };
+    tracker.timer = setInterval(async () => {
+        try { await probe(); } catch { /* transient RPC hiccups are fine */ }
+        const finished =
+            stages.every((s) => s.state === "done") ||
+            stages.some((s) => s.state === "fail");
+        if (!finished && Date.now() - tracker.startedAt > 180_000) {
+            for (const stage of stages) {
+                if (stage.state === "active") {
+                    stage.state = "warn";
+                    stage.detail = "no arrival in 3min — relayer down, or hub fell back to tUSD";
+                }
+            }
+            clearInterval(tracker.timer);
+            tracker.timer = null;
+        } else if (finished) {
+            clearInterval(tracker.timer);
+            tracker.timer = null;
+        }
+        renderTracker();
+    }, 1500);
+    $("track-card").style.display = "";
+    renderTracker();
+}
+
+/** Mark the currently active stage failed (wallet rejection, revert). */
+function failTracker() {
+    const active = tracker?.stages.find((s) => s.state === "active");
+    if (active) active.state = "fail";
+    renderTracker();
+}
+
+// ------------------------------------------------------------------ trade
+async function buy() {
+    const token = TOKENS[sel];
+    const contract = tokenContracts[sel];
+    const amount = toRaw($("buy-amount").value || "0");
+    if (amount <= 0n) return log("enter a USDC amount", "warn");
+    $("btn-buy").disabled = true;
+    try {
+        // Baselines for stage detection: the hub escrow moves the moment the
+        // envelope executes; our shares move when the mint lands back here.
+        const [att0, shares0, taoOut, alphaPriceRaw] = await Promise.all([
+            btRpc("rails_alphaAttestation", [token.netuid]),
+            contract.sharesOf(account),
+            btRpc("rails_quoteUsdToTao", [Number(amount)]),
+            alphaPricer.getAlphaPrice(token.netuid),
+        ]);
+        const escrow0 = BigInt(att0?.escrowed_alpha ?? 0);
+        const sharesBase = BigInt(shares0);
+
+        // Expected alpha: exact pool quote for the USD->TAO leg, spot subnet
+        // AMM price for the TAO->alpha leg. min_alpha at 80% of that bounds
+        // the damage if the pools move mid-flight (the hub parks the deposit
+        // as tUSD instead of filling at a terrible price).
+        const alphaTao = Number(alphaPriceRaw) / 1e18;
+        const expectRaw = taoOut && alphaTao > 0
+            ? BigInt(Math.floor(Number(taoOut) / alphaTao))
+            : 0n;
+        const minAlpha = (expectRaw * 80n) / 100n;
+
+        const stages = [
+            { label: "lock USDC on Base", state: "active" },
+            { label: "bridge → hub delivery", state: "pending" },
+            { label: `hub: tUSD → TAO → stake SN ${token.netuid}`, state: "pending" },
+            { label: `${token.symbol} minted to wallet`, state: "pending" },
+        ];
+        const quoteHtml =
+            `<span>${fmt(amount, 2)} USDC</span><span class="arrow">→</span>` +
+            `<span>~${fmt(expectRaw, 4)} ${token.symbol}</span>` +
+            `<span class="dim">(min ${fmt(minAlpha, 4)})</span>`;
+        startTracker(`buy · ${token.symbol}`, quoteHtml, stages, async () => {
+            if (stages[1].state === "active") {
+                const att = await btRpc("rails_alphaAttestation", [token.netuid]);
+                const escrow = BigInt(att?.escrowed_alpha ?? 0);
+                if (escrow > escrow0) {
+                    stages[1].state = "done";
+                    stages[2].state = "done";
+                    stages[2].detail = `+${fmt(escrow - escrow0, 4)} α escrowed`;
+                    stages[3].state = "active";
+                }
+            }
+            if (stages[3].state === "active") {
+                const shares = BigInt(await contract.sharesOf(account));
+                if (shares > sharesBase) {
+                    stages[3].state = "done";
+                    stages[3].detail = `+${fmt(shares - sharesBase, 4)} shares`;
+                    log(`${token.symbol} arrived`, "ok");
+                }
+            }
+        });
+
+        const allowance = await usdc.allowance(account, BASE.portal);
+        if (allowance < amount) {
+            log("approving USDC…");
+            await waitHealed(await usdc.approve(BASE.portal, amount));
+        }
+        log(`buying ${token.symbol} with ${fmt(amount)} USDC…`);
+        const receipt = await waitHealed(await portal.buy(amount, token.netuid, minAlpha));
+        stages[0].state = "done";
+        stages[0].detail = "tx " + receipt.hash.slice(0, 10) + "…";
+        stages[1].state = "active";
+        renderTracker();
+        log(`buy dispatched — hub is staking into SN ${token.netuid}`, "ok");
+    } catch (e) {
+        failTracker();
+        log(`buy failed: ${e.shortMessage ?? e.message}`, "err");
+    } finally {
+        $("btn-buy").disabled = false;
+    }
+}
+
+async function faucet() {
+    $("btn-faucet").disabled = true;
+    try {
+        await ensureGas();
+        const amount = 1000n * E9;
+        // Mint by direct RPC from an unlocked anvil account: no wallet
+        // popup, no MetaMask nonce state to go stale.
+        const data = usdc.interface.encodeFunctionData("mint", [account, amount]);
+        const hash = await baseRpc("eth_sendTransaction", [
+            { from: FAUCET_SENDER, to: BASE.mockUsdc, data },
+        ]);
+        if (!hash) throw new Error("anvil rejected the faucet transaction");
+        for (let i = 0; i < 20; i++) {
+            if (await baseRpc("eth_getTransactionReceipt", [hash])) break;
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        log(`minted ${fmt(amount)} test USDC`, "ok");
+        refreshAll();
+    } catch (e) {
+        log(`faucet failed: ${e.shortMessage ?? e.message}`, "err");
+    } finally {
+        $("btn-faucet").disabled = false;
+    }
+}
+
+async function sell() {
+    const token = TOKENS[sel];
+    const contract = tokenContracts[sel];
+    $("btn-sell").disabled = true;
+    try {
+        const held = BigInt(await contract.sharesOf(account));
+        const index = BigInt(await contract.indexE9());
+        const input = $("sell-amount").value;
+        // The input is in display units (what wallets show); the contract
+        // burns shares, so convert at the live index and clamp to the actual
+        // holding (display balances round, shares don't).
+        let shares = input ? (toRaw(input) * E9) / index : held;
+        if (shares > held) shares = held;
+        if (shares <= 0n || held <= 0n) {
+            log("nothing to sell", "warn");
+            return;
+        }
+
+        // Baselines: hub escrow drops when the envelope executes; USDC
+        // lands back here when the release message is delivered.
+        const [att0, usdc0Raw, alphaPriceRaw] = await Promise.all([
+            btRpc("rails_alphaAttestation", [token.netuid]),
+            usdc.balanceOf(account),
+            alphaPricer.getAlphaPrice(token.netuid),
+        ]);
+        const escrow0 = BigInt(att0?.escrowed_alpha ?? 0);
+        const usdcBase = BigInt(usdc0Raw);
+
+        // Expected proceeds: shares -> alpha at the live index, alpha -> TAO
+        // at the subnet AMM spot price, TAO -> USD by exact pool quote.
+        // minUsd at 80% guards the fill.
+        const alphaOut = (shares * index) / E9;
+        const alphaTao = Number(alphaPriceRaw) / 1e18;
+        const taoIn = Math.floor(Number(alphaOut) * alphaTao);
+        const usdOut = taoIn > 0 ? await btRpc("rails_quoteTaoToUsd", [taoIn]) : null;
+        const expectUsd = usdOut ? BigInt(usdOut) : 0n;
+        const minUsd = (expectUsd * 80n) / 100n;
+
+        const stages = [
+            { label: `burn ${token.symbol} shares on Base`, state: "active" },
+            { label: "bridge → hub delivery", state: "pending" },
+            { label: `hub: unstake SN ${token.netuid} → TAO → tUSD`, state: "pending" },
+            { label: "USDC released to wallet", state: "pending" },
+        ];
+        const quoteHtml =
+            `<span>${fmt(alphaOut, 4)} ${token.symbol}</span><span class="arrow">→</span>` +
+            `<span>~${fmt(expectUsd, 2)} USDC</span>` +
+            `<span class="dim">(min ${fmt(minUsd, 2)})</span>`;
+        startTracker(`sell · ${token.symbol}`, quoteHtml, stages, async () => {
+            if (stages[1].state === "active") {
+                const att = await btRpc("rails_alphaAttestation", [token.netuid]);
+                const escrow = BigInt(att?.escrowed_alpha ?? 0);
+                if (escrow < escrow0) {
+                    stages[1].state = "done";
+                    stages[2].state = "done";
+                    stages[2].detail = `-${fmt(escrow0 - escrow, 4)} α unstaked`;
+                    stages[3].state = "active";
+                }
+            }
+            if (stages[3].state === "active") {
+                const balance = BigInt(await usdc.balanceOf(account));
+                if (balance > usdcBase) {
+                    stages[3].state = "done";
+                    stages[3].detail = `+${fmt(balance - usdcBase, 2)} USDC`;
+                    log("USDC arrived", "ok");
+                }
+            }
+        });
+
+        log(`selling ${fmt(alphaOut)} ${token.symbol} (${fmt(shares)} shares)…`);
+        const receipt = await waitHealed(await contract.sell(shares, minUsd));
+        stages[0].state = "done";
+        stages[0].detail = "tx " + receipt.hash.slice(0, 10) + "…";
+        stages[1].state = "active";
+        renderTracker();
+        log("sell dispatched — hub is unstaking", "ok");
+    } catch (e) {
+        failTracker();
+        log(`sell failed: ${e.shortMessage ?? e.message}`, "err");
+    } finally {
+        $("btn-sell").disabled = false;
+    }
+}
+
+$("btn-connect").onclick = () => connect().catch((e) => log(e.message, "err"));
+$("btn-buy").onclick = buy;
+$("btn-faucet").onclick = faucet;
+$("btn-sell").onclick = sell;
+$("btn-watch").onclick = watchAsset;
+
+log(`rig manifest loaded: portal ${BASE.portal}, ${TOKENS.length} subnet tokens ` +
+    `(${TOKENS.map((t) => t.symbol).join(", ")})`);
+</script>
+</body>
+</html>

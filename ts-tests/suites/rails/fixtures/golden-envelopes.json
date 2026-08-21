@@ -1,0 +1,66 @@
+{
+    "comment": "Golden GatewayEnvelope wire vectors. The same bytes are pinned on the Rust side in common/src/rails.rs (envelope_golden_vectors) and on the Solidity side in contracts/evm/test/Chutes.t.sol (testGoldenEnvelopes). Any change to the wire format must update all three files consciously — this is the cross-chain compatibility contract.",
+    "cases": [
+        {
+            "name": "credit",
+            "input": {
+                "usdAssetId": 0,
+                "amount": "250000000000",
+                "dest": "0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+                "action": { "kind": "credit" },
+                "nonce": "7"
+            },
+            "wire": "0x010300000000004429353a000000d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d000700000000000000"
+        },
+        {
+            "name": "stake",
+            "input": {
+                "usdAssetId": 0,
+                "amount": "1000000000000",
+                "dest": "0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d",
+                "action": {
+                    "kind": "stake",
+                    "netuid": 64,
+                    "hotkey": "0x9090909090909090909090909090909090909090909090909090909090909090",
+                    "minAlpha": "1"
+                },
+                "nonce": "42"
+            },
+            "wire": "0x0103000000000010a5d4e8000000d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d024000909090909090909090909090909090909090909090909090909090909090909001000000000000002a00000000000000"
+        },
+        {
+            "name": "buy_shares",
+            "input": {
+                "usdAssetId": 0,
+                "amount": "500000000000",
+                "dest": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "action": {
+                    "kind": "buyShares",
+                    "netuid": 64,
+                    "recipient": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                    "minAlpha": "1",
+                    "domain": 8453
+                },
+                "nonce": "0"
+            },
+            "wire": "0x0103000000000088526a740000000000000000000000000000000000000000000000000000000000000000000000044000f39fd6e51aad88f6f4ce6ab8827279cfffb922660100000000000000052100000000000000000000"
+        },
+        {
+            "name": "sell_shares",
+            "input": {
+                "amount": "2000000000",
+                "dest": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "action": {
+                    "kind": "sellShares",
+                    "netuid": 64,
+                    "recipient": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+                    "usdAssetId": 0,
+                    "minUsd": "1000000000",
+                    "domain": 8453
+                },
+                "nonce": "1"
+            },
+            "wire": "0x0102400000943577000000000000000000000000000000000000000000000000000000000000000000000000054000f39fd6e51aad88f6f4ce6ab8827279cfffb922660000000000ca9a3b00000000052100000100000000000000"
+        }
+    ]
+}

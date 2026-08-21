@@ -1,0 +1,33 @@
+[package]
+name = "pallet-usd-psm-runtime-api"
+publish = false
+version = "0.1.0"
+description = "Runtime API for the canonical rails (USD PSM pallet)"
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+codec = { workspace = true, features = ["derive"] }
+frame-support.workspace = true
+scale-info.workspace = true
+serde.workspace = true
+sp-api.workspace = true
+sp-core.workspace = true
+sp-std.workspace = true
+subtensor-macros.workspace = true
+subtensor-runtime-common = { workspace = true, default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-support/std",
+    "scale-info/std",
+    "serde/std",
+    "sp-api/std",
+    "sp-core/std",
+    "sp-std/std",
+    "subtensor-runtime-common/std",
+]

@@ -1,6 +1,6 @@
 {
     "$schema": "https://raw.githubusercontent.com/Moonsong-Labs/moonwall/main/packages/types/config_schema.json",
-    "label": "💃 MasterConfig",
+    "label": "\ud83d\udc83 MasterConfig",
     "defaultTestTimeout": 120000,
     "scriptsDir": "scripts/",
     "environments": [
@@ -279,6 +279,30 @@
                     "type": "polkadotJs",
                     "endpoints": [
                         "wss://test.finney.opentensor.ai:443"
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "rails",
+            "timeout": 600000,
+            "defaultTestTimeout": 600000,
+            "testFileDir": [
+                "suites/rails"
+            ],
+            "multiThreads": false,
+            "reporters": [
+                "basic"
+            ],
+            "foundation": {
+                "type": "read_only"
+            },
+            "connections": [
+                {
+                    "name": "node",
+                    "type": "polkadotJs",
+                    "endpoints": [
+                        "ws://127.0.0.1:9944"
                     ]
                 }
             ]

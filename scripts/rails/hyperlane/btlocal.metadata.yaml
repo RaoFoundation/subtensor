@@ -1,0 +1,18 @@
+# Hyperlane chain metadata for the subtensor localnet EVM.
+name: btlocal
+protocol: ethereum
+chainId: 42
+domainId: 10042
+displayName: Bittensor Localnet
+nativeToken:
+  name: TAO
+  symbol: TAO
+  decimals: 18
+rpcUrls:
+  - http: http://127.0.0.1:9944
+blocks:
+  confirmations: 1
+  reorgPeriod: 1
+  estimateBlockTime: 1
+technicalStack: other
+isTestnet: true

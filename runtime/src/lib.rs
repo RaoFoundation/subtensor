@@ -498,6 +498,172 @@ impl pallet_balances::Config for Runtime {
 
 impl pallet_alpha_assets::Config for Runtime {}
 
+parameter_types! {
+    pub const UsdPsmPalletId: PalletId = PalletId(*b"sn/rails");
+}
+
+/// Bridges the USD PSM pallet to the staking engine in `pallet-subtensor`
+/// (loose coupling: neither pallet crate depends on the other).
+pub struct SubtensorRailsStaking;
+
+impl pallet_usd_psm::RailsStaking<AccountId> for SubtensorRailsStaking {
+    fn stake(
+        coldkey: &AccountId,
+        hotkey: &AccountId,
+        netuid: NetUid,
+        tao: TaoBalance,
+        min_alpha: AlphaBalance,
+    ) -> Result<AlphaBalance, sp_runtime::DispatchError> {
+        let origin: RuntimeOrigin = frame_system::RawOrigin::Signed(coldkey.clone()).into();
+        let alpha =
+            pallet_subtensor::Pallet::<Runtime>::do_add_stake(origin, hotkey.clone(), netuid, tao)?;
+        frame_support::ensure!(
+            alpha >= min_alpha,
+            pallet_usd_psm::Error::<Runtime>::SlippageExceeded
+        );
+        Ok(alpha)
+    }
+
+    fn unstake(
+        coldkey: &AccountId,
+        hotkey: &AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+        min_tao: TaoBalance,
+    ) -> Result<TaoBalance, sp_runtime::DispatchError> {
+        // `do_remove_stake` credits TAO to the coldkey but does not return the
+        // amount; measure the free-balance delta (refunds included).
+        let before = Balances::free_balance(coldkey);
+        let origin: RuntimeOrigin = frame_system::RawOrigin::Signed(coldkey.clone()).into();
+        pallet_subtensor::Pallet::<Runtime>::do_remove_stake(
+            origin,
+            hotkey.clone(),
+            netuid,
+            alpha,
+        )?;
+        let after = Balances::free_balance(coldkey);
+        let tao_out = after.saturating_sub(before);
+        frame_support::ensure!(
+            tao_out >= min_tao,
+            pallet_usd_psm::Error::<Runtime>::SlippageExceeded
+        );
+        Ok(tao_out)
+    }
+
+    fn stake_of(hotkey: &AccountId, coldkey: &AccountId, netuid: NetUid) -> u64 {
+        pallet_subtensor::Pallet::<Runtime>::get_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey, coldkey, netuid,
+        )
+        .into()
+    }
+}
+
+/// Outbound bridge leg: the runtime dispatches a Hyperlane message by
+/// executing `Mailbox.dispatch()` as a real Ethereum transaction from the
+/// keyless hub address.
+///
+/// Novelty note: a bare `Runner::call` would mutate EVM state but its logs
+/// would never appear in an Ethereum block, so bridge agents (which index
+/// via `eth_getLogs`) would miss the dispatch. Instead we build a
+/// dummy-signed EIP-1559 transaction and hand it to `pallet_ethereum` with
+/// an already-authenticated `EthereumTransaction` origin (the signature is
+/// never recovered on this path), which records real receipts and logs.
+pub struct SubtensorRailsOutbound;
+
+impl SubtensorRailsOutbound {
+    /// ABI-encode `dispatch(uint32,bytes32,bytes)`.
+    fn encode_dispatch_call(dest_domain: u32, recipient: [u8; 32], body: &[u8]) -> Vec<u8> {
+        let selector = sp_io::hashing::keccak_256(b"dispatch(uint32,bytes32,bytes)");
+        let mut input = Vec::with_capacity(4 + 32 * 4 + body.len().div_ceil(32) * 32);
+        input.extend_from_slice(selector.get(..4).unwrap_or_default());
+        // uint32 destination (left-padded).
+        let mut word = [0u8; 32];
+        word[28..].copy_from_slice(&dest_domain.to_be_bytes());
+        input.extend_from_slice(&word);
+        // bytes32 recipient.
+        input.extend_from_slice(&recipient);
+        // offset of the dynamic `bytes` argument (3 head words = 0x60).
+        let mut offset = [0u8; 32];
+        offset[31] = 0x60;
+        input.extend_from_slice(&offset);
+        // bytes: length word + right-padded payload.
+        let mut len = [0u8; 32];
+        len[24..].copy_from_slice(&(body.len() as u64).to_be_bytes());
+        input.extend_from_slice(&len);
+        input.extend_from_slice(body);
+        let pad = body.len().div_ceil(32) * 32 - body.len();
+        input.extend_from_slice(&vec![0u8; pad]);
+        input
+    }
+}
+
+impl pallet_usd_psm::RailsOutbound for SubtensorRailsOutbound {
+    fn dispatch_mailbox(
+        mailbox: H160,
+        sender: H160,
+        dest_domain: u32,
+        recipient: [u8; 32],
+        body: Vec<u8>,
+    ) -> sp_runtime::DispatchResult {
+        let input = Self::encode_dispatch_call(dest_domain, recipient, &body);
+        let (who, _) = pallet_evm::Pallet::<Runtime>::account_basic(&sender);
+        let (base_fee, _) = <Runtime as pallet_evm::Config>::FeeCalculator::min_gas_price();
+
+        // Dummy signature: this transaction is applied through an
+        // already-authenticated origin, never signature-recovered. Non-zero
+        // r/s keep the transaction hash well-defined.
+        let signature = ethereum::eip2930::TransactionSignature::new(
+            false,
+            H256::from_low_u64_be(1),
+            H256::from_low_u64_be(1),
+        )
+        .ok_or(sp_runtime::DispatchError::Other("rails: bad dummy signature"))?;
+
+        let transaction = pallet_ethereum::Transaction::EIP1559(ethereum::EIP1559Transaction {
+            chain_id: <Runtime as pallet_evm::Config>::ChainId::get(),
+            nonce: who.nonce,
+            max_priority_fee_per_gas: U256::zero(),
+            max_fee_per_gas: base_fee,
+            gas_limit: U256::from(1_000_000u64),
+            action: pallet_ethereum::TransactionAction::Call(mailbox),
+            value: U256::zero(),
+            input,
+            access_list: Vec::new(),
+            signature,
+        });
+
+        let origin: RuntimeOrigin =
+            pallet_ethereum::RawOrigin::EthereumTransaction(sender).into();
+        pallet_ethereum::Pallet::<Runtime>::transact(origin, transaction).map_err(|e| e.error)?;
+
+        // `transact` succeeds even when the inner EVM frame reverted; the
+        // wrap must not: check the recorded receipt of the transaction we
+        // just appended to the block under construction.
+        let last_index = pallet_ethereum::Pending::<Runtime>::count().saturating_sub(1);
+        if let Some((_, _, receipt)) = pallet_ethereum::Pending::<Runtime>::get(last_index) {
+            let status_code = match receipt {
+                pallet_ethereum::Receipt::Legacy(ref d)
+                | pallet_ethereum::Receipt::EIP2930(ref d)
+                | pallet_ethereum::Receipt::EIP1559(ref d)
+                | pallet_ethereum::Receipt::EIP7702(ref d) => d.status_code,
+            };
+            frame_support::ensure!(
+                status_code == 1,
+                sp_runtime::DispatchError::Other("rails: mailbox dispatch reverted")
+            );
+        }
+        Ok(())
+    }
+}
+
+impl pallet_usd_psm::Config for Runtime {
+    type Currency = Balances;
+    type Staking = SubtensorRailsStaking;
+    type Outbound = SubtensorRailsOutbound;
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type PalletId = UsdPsmPalletId;
+}
+
 // Implement AuthorshipInfo trait for Runtime to satisfy pallet transaction
 // fee OnUnbalanced trait bounds
 pub struct BlockAuthorFromAura<F>(core::marker::PhantomData<F>);
@@ -1488,6 +1654,7 @@ construct_runtime!(
         MevShield: pallet_shield = 30,
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
+        UsdPsm: pallet_usd_psm = 33,
     }
 );
 
@@ -2555,6 +2722,64 @@ impl_runtime_apis! {
                     alpha_slippage: 0.into(),
                 },
             )
+        }
+    }
+
+    impl pallet_usd_psm_runtime_api::RailsRuntimeApi<Block> for Runtime {
+        fn rails_quote_usd_to_tao(amount: u64) -> Option<u64> {
+            pallet_usd_psm::Pallet::<Runtime>::quote_tusd_for_tao(amount)
+        }
+
+        fn rails_quote_tao_to_usd(amount: u64) -> Option<u64> {
+            pallet_usd_psm::Pallet::<Runtime>::quote_tao_for_tusd(amount)
+        }
+
+        fn rails_pool_state() -> pallet_usd_psm_runtime_api::RailsPoolState {
+            pallet_usd_psm_runtime_api::RailsPoolState {
+                tao_reserve: pallet_usd_psm::PoolTaoReserve::<Runtime>::get(),
+                tusd_reserve: pallet_usd_psm::PoolTUsdReserve::<Runtime>::get(),
+                fee_bps: pallet_usd_psm::PoolFeeBps::<Runtime>::get(),
+            }
+        }
+
+        fn rails_assets() -> Vec<pallet_usd_psm_runtime_api::RailsAssetInfo> {
+            let now = frame_system::Pallet::<Runtime>::block_number();
+            pallet_usd_psm::PsmAssets::<Runtime>::iter()
+                .map(|(asset_id, asset)| pallet_usd_psm_runtime_api::RailsAssetInfo {
+                    asset_id,
+                    erc20: asset.erc20,
+                    reserves: asset.reserves,
+                    available: asset.window.available(now),
+                    haircut_bps: asset.haircut_bps,
+                    enabled: asset.enabled,
+                })
+                .collect()
+        }
+
+        fn rails_gateway() -> Option<H160> {
+            pallet_usd_psm::Pallet::<Runtime>::gateway()
+        }
+
+        fn rails_tusd_balance(account: AccountId) -> u64 {
+            pallet_usd_psm::Pallet::<Runtime>::tusd_balance(&account)
+        }
+
+        fn rails_alpha_attestation(netuid: u16) -> pallet_usd_psm_runtime_api::RailsAlphaAttestation {
+            let (escrowed_alpha, shares_outstanding, index_e9) =
+                pallet_usd_psm::Pallet::<Runtime>::alpha_attestation(NetUid::from(netuid));
+            pallet_usd_psm_runtime_api::RailsAlphaAttestation {
+                escrowed_alpha,
+                shares_outstanding,
+                index_e9,
+            }
+        }
+
+        fn rails_hub_info() -> pallet_usd_psm_runtime_api::RailsHubInfo {
+            pallet_usd_psm_runtime_api::RailsHubInfo {
+                hub_sender: pallet_usd_psm::Pallet::<Runtime>::hub_evm_address(),
+                mailbox: pallet_usd_psm::HubMailbox::<Runtime>::get(),
+                next_nonce: pallet_usd_psm::Pallet::<Runtime>::next_nonce(),
+            }
         }
     }
 

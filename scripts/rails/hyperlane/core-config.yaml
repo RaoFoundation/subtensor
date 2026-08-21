@@ -1,0 +1,17 @@
+# Hyperlane core deployment config for both local chains.
+# ISM: 1-of-1 message-id multisig over our own validator (self-run sidecar).
+# Roster ISM / slashing integration is a later, out-of-scope hardening step.
+owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+defaultIsm:
+  type: messageIdMultisigIsm
+  validators:
+    - "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+  threshold: 1
+defaultHook:
+  type: merkleTreeHook
+requiredHook:
+  type: protocolFee
+  owner: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+  beneficiary: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+  maxProtocolFee: "1000000000000000000"
+  protocolFee: "0"

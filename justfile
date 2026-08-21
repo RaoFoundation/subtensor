@@ -51,3 +51,33 @@ lint:
 production:
   @echo "Running cargo build with metadata-hash generation..."
   cargo build --profile production --features="metadata-hash"
+
+# --- Canonical rails local rig ---------------------------------------------
+
+# Bring up the full rig: localnet + anvil + hyperlane core + agents + contracts.
+rails-up:
+  bash scripts/rails/up.sh
+
+# Tear the rig down (pass --purge via `just rails-down --purge` to wipe state).
+rails-down *ARGS:
+  bash scripts/rails/down.sh {{ARGS}}
+
+# Walking-skeleton end-to-end ping (gate G1).
+rails-ping:
+  bash scripts/rails/ping.sh
+
+# Serve the CHUTES MetaMask demo page against the live rig.
+rails-demo:
+  bash scripts/rails/demo.sh
+
+# Tail the hyperlane agent logs.
+rails-agent-logs:
+  bash scripts/rails/agents.sh logs
+
+# Run the Solidity unit tests for the rails contracts.
+rails-forge-test:
+  forge test --root contracts/evm
+
+# Rebuild contracts and export ABIs/bytecode for ts-tests and btcli.
+rails-export:
+  bash contracts/evm/export-artifacts.sh
