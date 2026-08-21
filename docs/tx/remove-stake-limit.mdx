@@ -14,9 +14,13 @@ the entire position (the build fails if nothing is staked there). Like
 least 0.002 TAO at the simulated pool price (`AmountTooLow`). Prefer
 this over plain `remove_stake` when exiting large positions.
 
+On root (netuid 0), pass `claim=True` to redeem this validator's whole
+basket entitlement first, then unstake. That is not a proportional
+payout: the claim pays 100% of the basket.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1469-L1487) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486), [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L610-L619), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1989-L2008), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -27,6 +31,7 @@ this over plain `remove_stake` when exiting large positions.
 | `amount_alpha` | number \| `"all"` | yes | How much to unstake from this position, or ``all``. |
 | `limit_price_rao` | integer | yes | Worst pool price you will accept for the swap. The call fails (or fills partially when allow-partial is set) instead of executing beyond this price. |
 | `allow_partial` | boolean | no | Execute whatever portion fits within the limit price and drop the remainder, instead of failing the whole call when the limit would be breached. |
+| `claim` | boolean | no | Also redeem this validator's whole basket entitlement before unstaking, in one atomic batch. Root only (netuid 0). This is not a proportional payout: unstaking 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on root, then the unstake runs — pass `all` to take principal and yield out together. Unavailable while RootStakeUnlockInterval is nonzero, because the claim starts a new hold window; claim first, wait, then unstake in that mode. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -75,30 +80,11 @@ result = sub.execute_tool("remove_stake_limit", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.remove_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1471`](/code/pallets/subtensor/src/macros/dispatches.rs#L1469-L1487):
-
-```rust
-#[pallet::call_index(89)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::remove_stake_limit())]
-pub fn remove_stake_limit(
-    origin: OriginFor<T>,
-    hotkey: T::AccountId,
-    netuid: NetUid,
-    amount_unstaked: AlphaBalance,
-    limit_price: TaoBalance,
-    allow_partial: bool,
-) -> DispatchResult {
-    Self::do_remove_stake_limit(
-        origin,
-        hotkey,
-        netuid,
-        amount_unstaked,
-        limit_price,
-        allow_partial,
-    )
-}
-```
-
-Delegates to [`do_remove_stake_limit`](/code/pallets/subtensor/src/staking/remove_stake.rs#L302).
+| Chain call | Source |
+| --- | --- |
+| `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1470`](/code/pallets/subtensor/src/macros/dispatches.rs#L1468-L1486) |
+| `SubtensorModule.remove_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L612`](/code/pallets/subtensor/src/macros/dispatches.rs#L610-L619) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L1993`](/code/pallets/subtensor/src/macros/dispatches.rs#L1989-L2008) |
+| `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -40,7 +40,9 @@ class Transfer(Intent):
     )
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_tao",)
 
-    dest_ss58: str = field(metadata={"help": "Account the funds are sent to."})
+    dest_ss58: str = field(
+        metadata={"help": "Destination account that receives the TAO (a coldkey, not a hotkey)."}
+    )
     amount_tao: Money = field(metadata={"help": "How much to send."})
     keep_alive: bool = field(default=True, metadata={"help": KEEP_ALIVE_HELP})
 
@@ -93,7 +95,9 @@ class TransferAll(Intent):
     signer = "coldkey"
     wraps = (("Balances", "transfer_all"),)
 
-    dest_ss58: str = field(metadata={"help": "Account the funds are sent to."})
+    dest_ss58: str = field(
+        metadata={"help": "Destination account that receives the TAO (a coldkey, not a hotkey)."}
+    )
     keep_alive: bool = field(default=True, metadata={"help": KEEP_ALIVE_HELP})
 
     async def build(self, substrate, wallet: Any):

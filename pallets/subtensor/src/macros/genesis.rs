@@ -103,6 +103,7 @@ mod genesis {
                 netuid,
                 AlphaBalance::from(1_000_000_000),
             );
+            TotalAlphaStaked::<T>::insert(netuid, AlphaBalance::from(1_000_000_000));
             TotalHotkeySharesV2::<T>::insert(
                 hotkey.clone(),
                 netuid,

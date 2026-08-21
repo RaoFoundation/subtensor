@@ -133,6 +133,7 @@ class SubtensorModule:
     ColdkeySwapAnnouncements = Item('SubtensorModule', 'ColdkeySwapAnnouncements', '(u32, H256)')
     ColdkeySwapDisputes = Item('SubtensorModule', 'ColdkeySwapDisputes', 'u32')
     TotalHotkeyAlpha = Item('SubtensorModule', 'TotalHotkeyAlpha', 'AlphaBalance')
+    TotalAlphaStaked = Item('SubtensorModule', 'TotalAlphaStaked', 'AlphaBalance')
     TotalHotkeyAlphaLastEpoch = Item('SubtensorModule', 'TotalHotkeyAlphaLastEpoch', 'AlphaBalance')
     TotalHotkeyShares = Item('SubtensorModule', 'TotalHotkeyShares', 'FixedU128')
     Alpha = Item('SubtensorModule', 'Alpha', 'FixedU128')
@@ -448,5 +449,5 @@ class AlphaAssets:
 class LimitOrders:
     Orders = Item('LimitOrders', 'Orders', 'OrderStatus')
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
+    LinkedOutputs = Item('LimitOrders', 'LinkedOutputs', 'LinkedOutput')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
-

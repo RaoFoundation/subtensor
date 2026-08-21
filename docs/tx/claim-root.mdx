@@ -15,9 +15,14 @@ per-subnet claim selection.
 
 Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
 
+`plan` (and `btcli root claim --dry-run`) estimates the reserved
+inclusion fee versus the fee that will actually settle, compares that
+spent fee to accrued yield, warns when the claim loses money, and
+refuses when free TAO cannot cover the reserve.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1940) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1950-L1975) |
 
 ## Parameters
 
@@ -64,14 +69,15 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1926`](/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1940):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1957`](/code/pallets/subtensor/src/macros/dispatches.rs#L1950-L1975):
 
 ```rust
 #[pallet::call_index(121)]
-// Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]; actual work
-// is measured and refunded post-dispatch (fat coldkeys may exceed the reservation).
+// Signer is not in the call data, so admission uses the conservative
+// MAX_ROOT_CLAIM_WORK envelope. Execution refuses a fat coldkey that
+// would exceed it — use claim_root_with_hotkey per validator.
 #[pallet::weight(
-    <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+    <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
 )]
 pub fn claim_root(
     origin: OriginFor<T>,
@@ -81,6 +87,10 @@ pub fn claim_root(
     let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
     let hotkeys = StakingHotkeys::<T>::get(&coldkey);
+    ensure!(
+        Self::root_claim_fits_declared_budget(&hotkeys),
+        Error::<T>::RootClaimTooHeavy
+    );
     let hotkey_count = hotkeys.len() as u32;
     let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
     Self::maybe_add_coldkey_index(&coldkey);
@@ -90,6 +100,6 @@ pub fn claim_root(
 }
 ```
 
-Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L767), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L796), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L754).
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L761), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L798), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L827).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

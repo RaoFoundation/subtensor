@@ -14,7 +14,7 @@ from ...intents import BurnedRegister, RegisterSubnet, RootRegister
 from ...settings import BLOCKTIME
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
-from ..helpers import chain_identity_names, local_address_names
+from ..helpers import chain_identity_names, list_coldkeys, local_address_names
 from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
 from ..metagraph_view import show_metagraph
 
@@ -24,6 +24,18 @@ PANEL_INSPECT = "Inspect"
 PANEL_REGISTER = "Registration"
 
 _NETUID_HELP = "Numeric identifier of the subnet."
+
+# SubnetIdentitiesV3 field -> short label. ``subnet_name`` is the overview
+# ``name`` row, not repeated here.
+_IDENTITY_LINKS = (
+    ("github_repo", "github"),
+    ("subnet_url", "url"),
+    ("discord", "discord"),
+    ("subnet_contact", "contact"),
+    ("description", "description"),
+    ("logo_url", "logo"),
+    ("additional", "additional"),
+)
 
 
 @app.command("list", rich_help_panel=PANEL_INSPECT)
@@ -89,26 +101,107 @@ def show(
     ctx: typer.Context,
     netuid: int = typer.Argument(..., help=_NETUID_HELP),
 ):
-    """Show details for a single subnet."""
+    """Show one subnet: lifecycle, owner, identity, registration, and capacity."""
     app_ctx: AppContext = ctx_of(ctx)
+    local_names = local_address_names(app_ctx.wallet_path)
+    for wallet_name, ss58 in list_coldkeys(app_ctx.wallet_path):
+        local_names.setdefault(ss58, wallet_name)
 
     async def _op(client):
-        if await client.subnets.state(netuid) is None:
+        (
+            info,
+            identity,
+            owner,
+            owner_hotkey,
+            registered_at,
+            max_uids,
+            block,
+        ) = await asyncio.gather(
+            client.subnets.info(netuid),
+            client.read("subnet_identity", netuid=netuid),
+            client.query(storage.SubtensorModule.SubnetOwner, [netuid]),
+            client.query(storage.SubtensorModule.SubnetOwnerHotkey, [netuid]),
+            client.query(storage.SubtensorModule.NetworkRegisteredAt, [netuid]),
+            client.query(storage.SubtensorModule.MaxAllowedUids, [netuid]),
+            client.block(),
+        )
+        if info.state is None:
             return None
-        return await client.subnets.info(netuid)
+        return {
+            "info": info,
+            "identity": identity if isinstance(identity, dict) else None,
+            "owner": str(owner) if owner else None,
+            "owner_hotkey": str(owner_hotkey) if owner_hotkey else None,
+            "registered_at": int(registered_at or 0),
+            "max_uids": int(max_uids) if max_uids else None,
+            "block": int(block),
+        }
 
-    info = app_ctx.run(_op)
-    if info is None:
+    data = app_ctx.run(_op)
+    if data is None:
         app_ctx.output.error(f"subnet {netuid} does not exist")
         raise typer.Exit(1)
-    app_ctx.output.detail(
-        f"subnet {info.netuid}",
+
+    info = data["info"]
+    state = info.state
+    assert state is not None
+    identity = data["identity"]
+    owner = data["owner"]
+    owner_hotkey = data["owner_hotkey"]
+    registered_at = data["registered_at"]
+    name = (identity or {}).get("subnet_name") or None
+    if name:
+        app_ctx.output.update_subnet_names({netuid: name})
+    if owner:
+        app_ctx.output.classify_address(owner, "coldkey")
+        if owner in local_names:
+            app_ctx.output.name_address(owner, local_names[owner])
+    if owner_hotkey:
+        app_ctx.output.classify_address(owner_hotkey, "hotkey")
+        if owner_hotkey in local_names:
+            app_ctx.output.name_address(owner_hotkey, local_names[owner_hotkey])
+
+    neurons = (
+        f"{info.neuron_count}/{data['max_uids']}" if data["max_uids"] else str(info.neuron_count)
+    )
+    overview: list[tuple[str, str, Optional[str]]] = []
+    if name:
+        overview.append(("name", name, None))
+    overview += [
+        ("state", state.value, None),
+        ("pool emission", "on" if info.pool_emission_enabled else "off", None),
+        ("owner", owner or "—", local_names.get(owner)),
+        ("owner hotkey", owner_hotkey or "—", local_names.get(owner_hotkey)),
+        ("registered", f"block {registered_at:,}", _registered_note(registered_at, data["block"])),
+        ("tempo", str(info.tempo), None),
+        ("burn", str(info.burn), None),
+        ("neurons", neurons, None),
+    ]
+    links = [
+        (label, str(identity[key]), None)
+        for key, label in _IDENTITY_LINKS
+        if identity and identity.get(key)
+    ]
+    app_ctx.output.kv_sections(
+        f"subnet {netuid}",
+        [
+            (None, overview),
+            ("identity", links),
+        ],
         {
+            "netuid": netuid,
+            "name": name,
+            "symbol": app_ctx.output.unit(netuid),
+            "owner_coldkey": owner,
+            "owner_hotkey": owner_hotkey,
+            "registered_at": registered_at,
             "tempo": info.tempo,
-            "burn": info.burn,
+            "burn_tao": info.burn.tao,
             "neurons": info.neuron_count,
-            "state": info.state.value if info.state is not None else None,
+            "state": state.value,
             "pool_emission_enabled": info.pool_emission_enabled,
+            "max_neurons": data["max_uids"],
+            "identity": identity,
         },
     )
 
@@ -173,6 +266,22 @@ def subnet_price(
     app_ctx: AppContext = ctx_of(ctx)
     price = app_ctx.run(lambda c: c.read("alpha_price", netuid=netuid))
     app_ctx.output.detail(None, price)
+
+
+def _registered_note(registered_at: int, block: int) -> Optional[str]:
+    """Age of a registration block, or None when the chain has not moved past it."""
+    if block <= registered_at:
+        return None
+    seconds = int((block - registered_at) * BLOCKTIME)
+    if seconds >= 365 * 86400:
+        return f"~{seconds / (365 * 86400):.1f}y ago"
+    if seconds >= 86400:
+        return f"~{seconds / 86400:.0f}d ago"
+    if seconds >= 3600:
+        return f"~{seconds / 3600:.0f}h ago"
+    if seconds >= 60:
+        return f"~{max(1, seconds // 60)}m ago"
+    return "just now"
 
 
 def _conviction_eta(blocks: Optional[int]) -> str:
@@ -405,7 +514,8 @@ def register_subnet(
     coldkey for a neuron slot (UID). When the subnet's collateral lock
     share is zero the full cost is burned/recycled; when it is positive,
     that share is staked and locked as miner collateral (released only
-    through earned emission). Check the current cost with
+    through earned emission). The confirm prompt shows the current burn
+    and lock split. Check the current cost with
     `btcli subnets burn-cost`.
 
     Netuid 0 registers on the root network: the cost is fully recycled, no

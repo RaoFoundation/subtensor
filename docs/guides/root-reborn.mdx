@@ -157,19 +157,37 @@ fund with [`validator-basket`](/docs/query/validator-basket) and
 Yield accrues automatically — subscribing TAO to a validator's fund is all it
 takes. `btcli` presents root positions in TAO: *staked* is your principal on
 netuid 0, *accrued* is your fund yield marked at the realizable quote.
+`btcli stake list` and `btcli wallet overview` show the accrued basket
+yield under the total; auto-claim is off, so realize it with
+`btcli root claim`. Per-validator breakdown is `btcli root list`.
 
 ```bash
+btcli stake list                                  # positions + accrued basket yield
+btcli wallet overview                             # same yield line on the wallet view
 btcli root list                                   # staked + accrued τ per validator
 btcli root subscribe --amount 100 --hotkey 5F...  # assets in
+btcli root unstake --amount 40 --hotkey 5F...     # principal only; yield stays in the basket
+btcli root unstake --all --hotkey 5F... --claim   # atomic only while RootStakeUnlockInterval is 0
+btcli root claim --dry-run --hotkey 5F...         # reserved vs spent fee, vs accrued
 btcli root claim                                  # pick wallet → validator → claim / withdraw
 btcli root claim --hotkey 5F... --amount all      # withdraw full position (accrued + staked)
 btcli root claim --hotkey 5F...                   # claim accrued into stake only
 ```
 
-`btcli root claim` is the exit path. Omit `--amount` to realize accrued yield
-into root stake on that validator. Pass `--amount` / `all` to withdraw to free
-balance — accrued yield is claimed first when needed. Under the hood that uses
-[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) (and
+Unstake returns principal. Basket yield stays owed. After a root unstake,
+`btcli` tells you if yield is still sitting there and offers `btcli root claim`.
+When `RootStakeUnlockInterval` is zero, pass `--claim` on the unstake to redeem
+that validator's **whole** entitlement first, then unstake in one batch
+(`btcli stake remove --netuid 0 --claim` is the same). That is not a
+proportional payout: unstaking 40% still claims 100% of the basket. The chain
+has no "pay out 40% of the basket" call. When the interval is nonzero, the
+atomic form is unavailable because the claim starts a new hold window. Claim
+first, wait out the full interval, then unstake separately.
+
+`btcli root claim` is the yield-first exit. Omit `--amount` to realize accrued
+yield into root stake on that validator. Pass `--amount` / `all` to withdraw to
+free balance — accrued yield is claimed first when needed. Under the hood that
+uses [`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) (and
 [`remove-stake`](/docs/tx/remove-stake) when withdrawing).
 
 ```python
@@ -194,6 +212,15 @@ root-stakes to.
   [`root-claim-threshold`](/docs/query/root-claim-threshold)) are skipped —
   the entitlement keeps accruing and pays out once it clears. There is no
   deadline and nothing expires.
+- **Claim fee.** The inclusion fee scales with how many ALPHA types the
+  basket holds. Both root-claim calls reserve a conservative 256-unit work
+  envelope at inclusion, independent of how many networks currently exist,
+  and refund the unused part after the claim. The amount you actually spend
+  follows the holdings scanned and redeemed (around τ0.057 on a full
+  128-holding basket).
+  `btcli root claim --dry-run` shows reserved versus spent, compares the
+  spent fee to accrued yield, warns if the claim loses money, and
+  refuses if free TAO cannot cover the reserved amount.
 - **Owed is a live quote.** [`root-basket-owed`](/docs/query/root-basket-owed)
   marks your entitlement at current pool prices, so the number moves with the
   market — a claim realizes whatever the pools pay at execution time.
@@ -227,9 +254,10 @@ root-stakes to.
   accruing — there is no deadline and nothing expires.
 - **Withdrawals can have a hold window.** If the network sets
   `RootStakeUnlockInterval`, root stake is locked for that many blocks after
-  your last stake change (anti-sniping around epoch boundaries). A claim
-  with `--amount` inside the window fails with `RootStakeLocked` — wait it
-  out and retry.
+  your last stake change (anti-sniping around epoch boundaries). A claim also
+  refreshes that window, so atomic claim-then-unstake is unavailable whenever
+  the interval is nonzero. Claim without withdrawing, wait out the full hold,
+  then unstake separately.
 
 ## Queries and runtime APIs
 

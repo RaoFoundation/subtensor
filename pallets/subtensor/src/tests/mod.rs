@@ -42,6 +42,7 @@ mod swap_hotkey;
 mod swap_hotkey_with_subnet;
 mod tao;
 mod tempo_control;
+mod total_alpha_staked;
 mod uids;
 mod voting_power;
 mod weights;

@@ -19,6 +19,7 @@
     "test:mainnet-lock-conviction": "tsx tests/mainnet-lock-conviction-read.ts",
     "test:mainnet-hotkey-conviction-increases": "tsx tests/mainnet-hotkey-conviction-increases.ts",
     "test:alpha-deprecated-stake-histogram": "tsx tests/test-alpha-deprecated-stake-histogram.ts",
+    "test:staking-hotkeys-cleanup-migration": "tsx tests/test-staking-hotkeys-cleanup-migration.ts",
     "test:testnet-lock-conviction": "tsx tests/testnet-lock-conviction-smoke.ts",
     "test:testnet-swap-hotkey-v2-lock-conviction": "tsx tests/testnet-swap-hotkey-v2-lock-conviction.ts",
     "test:localnet-subnet-alpha-reserve-drain": "tsx tests/test-localnet-subnet-alpha-reserve-drain.ts",

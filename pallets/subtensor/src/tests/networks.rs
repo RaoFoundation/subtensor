@@ -593,6 +593,7 @@ fn dissolve_clears_all_per_subnet_storages() {
         assert!(!SubnetAlphaIn::<Test>::contains_key(net));
         assert!(!SubnetAlphaOut::<Test>::contains_key(net));
         assert!(!SubnetProtocolAlpha::<Test>::contains_key(net));
+        assert!(!TotalAlphaStaked::<Test>::contains_key(net));
 
         // Collections fully cleared
         assert!(Keys::<Test>::iter_prefix(net).next().is_none());

@@ -154,6 +154,27 @@ mod benchmarks {
         assert_eq!(crate::LimitOrdersEnabled::<T>::get(), false);
     }
 
+    #[benchmark]
+    fn prune_linked_output() {
+        let (_, account_id) = benchmark_key(0);
+        let account: T::AccountId = account_id.into();
+        let order_id = H256::repeat_byte(0x11);
+        crate::LinkedOutputs::<T>::insert(
+            order_id,
+            crate::LinkedOutput {
+                signer: account.clone(),
+                asset: crate::LinkedAsset::Tao,
+                total: 1_000,
+                expires_at: u64::MAX,
+            },
+        );
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(account), order_id);
+
+        assert!(crate::LinkedOutputs::<T>::get(order_id).is_none());
+    }
+
     /// Worst case: `n` valid orders each with a distinct signer (coldkey/hotkey)
     /// and a distinct fee recipient. The benchmark runs in all-or-nothing mode
     /// and verifies every order is fulfilled, so silently skipped or stale orders

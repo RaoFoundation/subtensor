@@ -4429,6 +4429,143 @@ fn test_move_stake_limit_partial() {
     });
 }
 
+struct MoveStakeLimitFixture {
+    coldkey: U256,
+    origin_hotkey: U256,
+    destination_hotkey: U256,
+    origin_netuid: NetUid,
+    destination_netuid: NetUid,
+    stake_amount: AlphaBalance,
+    move_amount: AlphaBalance,
+    limit_price: TaoBalance,
+}
+
+fn setup_move_stake_limit_fixture() -> MoveStakeLimitFixture {
+    let subnet_owner_coldkey = U256::from(1001);
+    let subnet_owner_hotkey = U256::from(1002);
+    let coldkey = U256::from(1);
+    let origin_hotkey = U256::from(2);
+    let destination_hotkey = U256::from(3);
+    let stake_amount = AlphaBalance::from(150_000_000_000_u64);
+    let move_amount = AlphaBalance::from(150_000_000_000_u64);
+
+    let origin_netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+    let destination_netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+    register_ok_neuron(origin_netuid, origin_hotkey, coldkey, 192213123);
+    register_ok_neuron(destination_netuid, destination_hotkey, coldkey, 192213124);
+
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &origin_hotkey,
+        &coldkey,
+        origin_netuid,
+        stake_amount,
+    );
+
+    // Registration initializes swap V3 state. Clear it so these reserves
+    // deterministically control both prices and the amount executable at the limit.
+    for netuid in [origin_netuid, destination_netuid] {
+        let mut weight_meter =
+            frame_support::weights::WeightMeter::with_limit(Weight::from_parts(u64::MAX, u64::MAX));
+        assert!(
+            <Test as pallet::Config>::SwapInterface::clear_protocol_liquidity(
+                netuid,
+                &mut weight_meter,
+            )
+        );
+    }
+
+    let tao_reserve = TaoBalance::from(150_000_000_000_u64);
+    let alpha_in = AlphaBalance::from(100_000_000_000_u64);
+    SubnetTAO::<Test>::insert(origin_netuid, tao_reserve);
+    SubnetAlphaIn::<Test>::insert(origin_netuid, alpha_in);
+    SubnetTAO::<Test>::insert(destination_netuid, tao_reserve * 100_000.into());
+    SubnetAlphaIn::<Test>::insert(destination_netuid, alpha_in * 100_000.into());
+
+    MoveStakeLimitFixture {
+        coldkey,
+        origin_hotkey,
+        destination_hotkey,
+        origin_netuid,
+        destination_netuid,
+        stake_amount,
+        move_amount,
+        limit_price: TaoBalance::from(990_000_000_u64),
+    }
+}
+
+#[test]
+fn test_move_stake_limit_fill_or_kill_preserves_stake_when_limit_is_exceeded() {
+    new_test_ext(1).execute_with(|| {
+        let fixture = setup_move_stake_limit_fixture();
+
+        assert_err!(
+            SubtensorModule::move_stake_limit(
+                RuntimeOrigin::signed(fixture.coldkey),
+                fixture.origin_hotkey,
+                fixture.destination_hotkey,
+                fixture.origin_netuid,
+                fixture.destination_netuid,
+                fixture.move_amount,
+                fixture.limit_price,
+                false,
+            ),
+            Error::<Test>::SlippageTooHigh
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &fixture.origin_hotkey,
+                &fixture.coldkey,
+                fixture.origin_netuid,
+            ),
+            fixture.stake_amount
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &fixture.destination_hotkey,
+                &fixture.coldkey,
+                fixture.destination_netuid,
+            ),
+            AlphaBalance::ZERO
+        );
+    });
+}
+
+#[test]
+fn test_move_stake_limit_partial_moves_stake_to_distinct_hotkey() {
+    new_test_ext(1).execute_with(|| {
+        let fixture = setup_move_stake_limit_fixture();
+
+        assert_ok!(SubtensorModule::move_stake_limit(
+            RuntimeOrigin::signed(fixture.coldkey),
+            fixture.origin_hotkey,
+            fixture.destination_hotkey,
+            fixture.origin_netuid,
+            fixture.destination_netuid,
+            fixture.move_amount,
+            fixture.limit_price,
+            true,
+        ));
+
+        let origin_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &fixture.origin_hotkey,
+            &fixture.coldkey,
+            fixture.origin_netuid,
+        );
+        let destination_alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &fixture.destination_hotkey,
+            &fixture.coldkey,
+            fixture.destination_netuid,
+        );
+
+        assert_abs_diff_eq!(
+            origin_alpha,
+            AlphaBalance::from(149_000_000_000_u64),
+            epsilon = 100_000_000.into()
+        );
+        assert!(destination_alpha > AlphaBalance::ZERO);
+    });
+}
+
 /// cargo test --package pallet-subtensor --lib -- tests::staking::test_unstake_all_hits_liquidity_min --exact --show-output
 #[test]
 fn test_unstake_all_hits_liquidity_min() {
@@ -4777,6 +4914,7 @@ fn test_unstake_from_subnet_low_amount() {
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid),
             AlphaBalance::ZERO,
         );
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
     });
 }
 
@@ -5128,6 +5266,79 @@ fn test_increase_stake_for_hotkey_and_coldkey_on_subnet_adds_to_staking_hotkeys_
         assert!(StakingHotkeys::<Test>::contains_key(coldkey1));
         // check entry has hotkey
         assert!(StakingHotkeys::<Test>::get(coldkey1).contains(&hotkey));
+    });
+}
+
+#[test]
+fn test_maybe_remove_staking_hotkey_only_removes_empty_relationships() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let other_hotkey = U256::from(3);
+        let first_netuid = NetUid::from(1);
+        let second_netuid = NetUid::from(2);
+        let stake = AlphaBalance::from(100_000_u64);
+
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            second_netuid,
+            stake,
+        );
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &other_hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert!(StakingHotkeys::<Test>::get(coldkey).contains(&hotkey));
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            second_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![other_hotkey]);
+
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &other_hotkey,
+            &coldkey,
+            first_netuid,
+            stake,
+        );
+        SubtensorModule::maybe_remove_staking_hotkey(&other_hotkey, &coldkey);
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
+    });
+}
+
+#[test]
+fn test_maybe_remove_staking_hotkey_preserves_basket_claimant() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+
+        StakingHotkeys::<Test>::insert(coldkey, vec![hotkey]);
+        BasketClaimed::<Test>::insert(hotkey, coldkey, -1);
+
+        SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
+
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![hotkey]);
     });
 }
 

@@ -71,8 +71,11 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Declared pre-dispatch weight envelope for `claim_root` (benchmark upper bound). Actual
-/// work may exceed this; post-dispatch refunds the measured weight.
+/// Benchmark upper bound and admission envelope for `claim_root` /
+/// `claim_root_scan` (Linear<1, N>). Weight calculation cannot walk storage,
+/// so both claim paths reserve this many units and refuse work that would
+/// exceed the envelope. Post-dispatch weight is refunded to the work
+/// actually performed.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
@@ -1710,6 +1713,11 @@ pub mod pallet {
         ValueQuery,
         DefaultZeroAlpha<T>,
     >;
+
+    /// MAP ( netuid ) --> alpha | Returns the total alpha staked across all hotkeys on a subnet.
+    #[pallet::storage]
+    pub type TotalAlphaStaked<T: Config> =
+        StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
 
     /// DMAP ( hot, netuid ) --> alpha | Returns the total amount of alpha a hotkey owned in the last epoch.
     #[pallet::storage]
