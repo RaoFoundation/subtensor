@@ -261,6 +261,73 @@ class TestQueries:
         assert payload["coldkey"] == BOB
         assert payload["free_tao"] == pytest.approx(2.5)
 
+    def test_wallet_registrations_includes_unstaked_owned_hotkey(
+        self, fake: FakeSubstrate, wallet_dir: str
+    ):
+        coldkey = wallets.list_wallets_detailed(wallet_dir)[0].ss58
+        fake.seed("SubtensorModule", "OwnedHotkeys", [coldkey], [BOB])
+        fake.seed_map("SubtensorModule", "IsNetworkMember", [(4, True), (7, False)])
+        fake.seed("SubtensorModule", "Uids", [4, BOB], 12)
+        fake.seed_runtime(
+            "NeuronInfoRuntimeApi",
+            "get_neuron_lite",
+            lambda params: (
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "uid": 12,
+                    "netuid": 4,
+                    "active": True,
+                    "axon_info": {"ip": 2_130_706_433, "port": 8091, "ip_type": 4},
+                    "stake": [],
+                    "rank": 16_384,
+                    "emission": 250_000_000,
+                    "incentive": 32_768,
+                    "consensus": 8_192,
+                    "trust": 4_096,
+                    "validator_trust": 2_048,
+                    "dividends": 1_024,
+                    "last_update": 90,
+                    "validator_permit": False,
+                }
+                if params == [4, 12]
+                else None
+            ),
+        )
+
+        result = invoke("--json", "wallet", "registrations", "--all")
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == [
+            {
+                "wallet": _WALLET_NAME,
+                "coldkey": coldkey,
+                "hotkey": BOB,
+                "netuid": 4,
+                "uid": 12,
+                "active": True,
+                "stake": "0.000000000α₄",
+                "stake_amount": 0.0,
+                "rank": pytest.approx(16_384 / 65_535),
+                "trust": pytest.approx(4_096 / 65_535),
+                "consensus": pytest.approx(8_192 / 65_535),
+                "incentive": pytest.approx(32_768 / 65_535),
+                "dividends": pytest.approx(1_024 / 65_535),
+                "emission": "0.250000000α₄",
+                "emission_amount": 0.25,
+                "validator_trust": pytest.approx(2_048 / 65_535),
+                "validator_permit": False,
+                "last_update": 90,
+                "updated": 10,
+                "axon": "127.0.0.1:8091",
+                "hotkey_name": None,
+            }
+        ]
+
+        human = invoke("wallet", "registrations", "--all")
+        assert human.exit_code == 0, human.output
+        assert "0.5000" in human.output
+        assert "127.0.0.1:8091" in human.output
+
 
 class TestAddressResolution:
     @staticmethod
