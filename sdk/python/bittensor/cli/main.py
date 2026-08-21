@@ -10,6 +10,7 @@ before submitting unless ``--yes`` is given.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import importlib.metadata
 import json
@@ -255,8 +256,10 @@ def main_callback(
         None,
         "--signer-address",
         envvar="BT_SIGNER_ADDRESS",
-        help="External signer account ss58 address (extension: last-used account is the "
-        "default; vault: falls back to the wallet's coldkeypub).",
+        help="External signer account (ss58 or address-book name). When -w is a "
+        "multisig, --signatory already names the member — this flag is not "
+        "needed. Extension: last-used account is the default. Vault: falls "
+        "back to the wallet's coldkeypub.",
         rich_help_panel=g.PANEL_EXTENSION,
     ),
     extension_source: Optional[str] = typer.Option(
@@ -495,19 +498,25 @@ def _warn_if_legacy_config() -> None:
     """One-line stderr warning when a v9-era ``~/.bittensor/config.yml`` exists.
 
     This CLI never reads it, so settings people expect (network, wallet, ...)
-    silently fall back to defaults — the most common migration confusion. Warn
-    until the stale file is renamed or removed.
+    silently fall back to defaults — the most common migration confusion. The
+    warning is shown once; a marker file next to the config records that it
+    was already printed (delete the marker to see it again).
     """
     legacy = Path.home() / ".bittensor" / "config.yml"
     if not legacy.is_file():
         return
+    marker = legacy.parent / ".btcli_legacy_config_warned"
+    if marker.is_file():
+        return
     print(
         f"warning: {legacy} is the legacy (v9) btcli config and is ignored by this CLI; "
         f"migrate values with `btcli config set` (stored in {config_path()}), then rename "
-        f"or delete the old file to silence this warning. "
+        f"or delete the old file. "
         f"Migration guide: {DOCS_URL}/migration",
         file=sys.stderr,
     )
+    with contextlib.suppress(OSError):
+        marker.touch()
 
 
 def main() -> None:

@@ -217,6 +217,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidRootClaimThreshold": _C.INVALID_ARGUMENT,
     "BasketHasNoWeights": _C.INVALID_ARGUMENT,
     "BetaBasketSeedInProgress": _C.TOO_EARLY,
+    "RootClaimTooHeavy": _C.LIMIT_EXCEEDED,
     "RootWeightSettingDisabled": _C.DISABLED,
     "RootStakeLocked": _C.TOO_EARLY,
     "TooManyUIDsPerMechanism": _C.LIMIT_EXCEEDED,
@@ -447,6 +448,14 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ArithmeticOverflow": _C.INTERNAL,
     "DuplicateOrderInBatch": _C.INVALID_ARGUMENT,
     "ZeroShareInBatch": _C.INVALID_ARGUMENT,
+    "NoLinkedOutput": _C.NOT_FOUND,
+    "LinkedOutputSignerMismatch": _C.INVALID_ARGUMENT,
+    "LinkedOutputAssetMismatch": _C.INVALID_ARGUMENT,
+    "LinkedOutputExpired": _C.EXPIRED,
+    "LinkedAmountResolvedToZero": _C.INVALID_ARGUMENT,
+    "PartialFillNotSupportedForLinkedAmount": _C.INVALID_ARGUMENT,
+    "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
+    "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

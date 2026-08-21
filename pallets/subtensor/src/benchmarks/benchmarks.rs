@@ -906,6 +906,10 @@ mod pallet_benchmarks {
             netuid,
             alpha_to_move,
         );
+
+        let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
+        assert!(!staking_hotkeys.contains(&origin));
+        assert!(staking_hotkeys.contains(&destination));
     }
 
     #[benchmark]
@@ -952,7 +956,10 @@ mod pallet_benchmarks {
             staked_amt
         ));
 
-        let amount_unstaked = AlphaBalance::from(30_000_000_000_u64);
+        // Remove the complete relationship so the benchmark includes the
+        // StakingHotkeys cleanup path.
+        let amount_unstaked =
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
 
         #[extrinsic_call]
         _(
@@ -961,6 +968,8 @@ mod pallet_benchmarks {
             netuid,
             amount_unstaked,
         );
+
+        assert!(!StakingHotkeys::<T>::contains_key(&coldkey));
     }
 
     #[benchmark]
@@ -1006,13 +1015,12 @@ mod pallet_benchmarks {
             staked_amt
         ));
 
-        let amount_unstaked = AlphaBalance::from(30_000_000_000_u64);
-
-        let current_price = T::SwapInterface::current_alpha_price(netuid);
-        let limit = current_price
-            .saturating_mul(U64F64::saturating_from_num(999_900_000))
-            .saturating_to_num::<u64>()
-            .into();
+        // Remove the complete relationship so the benchmark includes the
+        // StakingHotkeys cleanup path. A permissive limit keeps this on the
+        // successful full-fill path.
+        let amount_unstaked =
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &coldkey, netuid);
+        let limit = T::SwapInterface::min_price();
 
         #[extrinsic_call]
         _(
@@ -1023,6 +1031,8 @@ mod pallet_benchmarks {
             limit,
             true,
         );
+
+        assert!(!StakingHotkeys::<T>::contains_key(&coldkey));
     }
 
     #[benchmark]
@@ -1050,9 +1060,7 @@ mod pallet_benchmarks {
 
         let amount = TaoBalance::from(900_000_000_000_u64);
         let limit_stake = TaoBalance::from(6_000_000_000_u64);
-        let limit_swap = TaoBalance::from(1_000_000_000_u64);
         let amount_to_be_staked = TaoBalance::from(440_000_000_000_u64);
-        let amount_swapped = AlphaBalance::from(30_000_000_000_u64);
         add_balance_to_coldkey_account::<T>(&coldkey.clone(), amount);
         add_lock::<T>(&coldkey, netuid1);
         add_lock::<T>(&coldkey, netuid2);
@@ -1077,6 +1085,12 @@ mod pallet_benchmarks {
             allow
         ));
 
+        // Swap the complete origin relationship so the benchmark includes
+        // its cleanup before the destination stake recreates it.
+        let amount_swapped =
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &coldkey, netuid1);
+        let limit_swap = TaoBalance::ZERO;
+
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
@@ -1086,6 +1100,71 @@ mod pallet_benchmarks {
             amount_swapped,
             limit_swap,
             allow,
+        );
+
+        assert!(
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &coldkey, netuid1,)
+                .is_zero()
+        );
+    }
+
+    #[benchmark]
+    fn move_stake_limit() {
+        let coldkey: T::AccountId = whitelisted_caller::<AccountIdOf<T>>();
+        let origin_hotkey: T::AccountId = account("A", 0, 1);
+        let destination_hotkey: T::AccountId = account("B", 0, 2);
+        let origin_netuid = NetUid::from(1);
+        let destination_netuid = NetUid::from(2);
+
+        for netuid in [origin_netuid, destination_netuid] {
+            SubtokenEnabled::<T>::insert(netuid, true);
+            Subtensor::<T>::init_new_network(netuid, 1);
+            Subtensor::<T>::set_network_registration_allowed(netuid, true);
+            add_lock::<T>(&coldkey, netuid);
+        }
+
+        let tao_reserve = TaoBalance::from(150_000_000_000_u64);
+        let alpha_in = AlphaBalance::from(100_000_000_000_u64);
+        set_reserves::<T>(origin_netuid, tao_reserve, alpha_in);
+        SubnetTAO::<T>::insert(destination_netuid, tao_reserve);
+        Subtensor::<T>::increase_total_stake(1_000_000_000_000_u64.into());
+
+        let balance = TaoBalance::from(900_000_000_000_u64);
+        let stake_limit = TaoBalance::from(6_000_000_000_u64);
+        let move_limit = TaoBalance::from(1_000_000_000_u64);
+        let amount_to_stake = TaoBalance::from(440_000_000_000_u64);
+        let amount_to_move = AlphaBalance::from(30_000_000_000_u64);
+        add_balance_to_coldkey_account::<T>(&coldkey, balance);
+
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            origin_netuid,
+            origin_hotkey.clone()
+        ));
+        assert_ok!(Subtensor::<T>::burned_register(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            destination_netuid,
+            destination_hotkey.clone()
+        ));
+        assert_ok!(Subtensor::<T>::add_stake_limit(
+            RawOrigin::Signed(coldkey.clone()).into(),
+            origin_hotkey.clone(),
+            origin_netuid,
+            amount_to_stake,
+            stake_limit,
+            true,
+        ));
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey),
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            amount_to_move,
+            move_limit,
+            true,
         );
     }
 
@@ -1138,6 +1217,9 @@ mod pallet_benchmarks {
             netuid,
             alpha_to_transfer,
         );
+
+        assert!(!StakingHotkeys::<T>::contains_key(&coldkey));
+        assert!(StakingHotkeys::<T>::get(&dest).contains(&hot));
     }
 
     #[benchmark]
@@ -1191,6 +1273,9 @@ mod pallet_benchmarks {
             netuid,
             alpha_to_transfer,
         );
+
+        assert!(!StakingHotkeys::<T>::contains_key(&coldkey));
+        assert!(StakingHotkeys::<T>::get(&dest).contains(&dest_hot));
     }
 
     #[benchmark]
@@ -1332,6 +1417,11 @@ mod pallet_benchmarks {
             netuid1,
             netuid2,
             alpha_to_swap,
+        );
+
+        assert!(
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(&hot, &coldkey, netuid1,)
+                .is_zero()
         );
     }
 
@@ -1747,6 +1837,8 @@ mod pallet_benchmarks {
             netuid,
             Some(limit),
         );
+
+        assert!(!StakingHotkeys::<T>::contains_key(&coldkey));
     }
 
     #[benchmark]

@@ -1,0 +1,51 @@
+---
+title: Chain consensus
+description: How Subtensor produces and finalizes blocks today, and the planned transition from Proof of Authority to Nominated Proof of Stake.
+---
+
+Subtensor currently uses **Proof of Authority (PoA)** for blockchain consensus.
+A permissioned set of validator authorities produces and finalizes blocks. This
+is separate from [Yuma Consensus](/docs/internals/consensus), which determines
+how subnet participants are evaluated and rewarded.
+
+## Current mechanism: Proof of Authority
+
+Subtensor separates block production from finality:
+
+| Layer            | Current mechanism                             | Role                                                                                                                                                |
+| ---------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Block production | [Aura](/code/runtime/src/lib.rs#L363-L369)    | Assigns block-production slots to members of the authorized validator set.                                                                          |
+| Block finality   | [GRANDPA](/code/runtime/src/lib.rs#L371-L381) | Finalizes a chain after more than two-thirds of authority voting weight agrees, making its blocks irreversible under the protocol's finality rules. |
+
+Only approved authorities can author blocks or vote on finality. Other nodes can
+independently verify the chain, relay blocks and transactions, and expose RPC
+services, but they do not join the authority set merely by running a node or
+holding TAO.
+
+The authority set can be changed through privileged on-chain administration.
+This permissioned validator selection is why the current chain-level mechanism
+is classified as PoA.
+
+## Planned transition to Nominated Proof of Stake
+
+The roadmap is to replace PoA with **Nominated Proof of Stake (NPoS)**. Under
+NPoS, validator selection is stake-backed: nominators support validator
+candidates, and the active validator set is selected from that support.
+
+The current roadmap targets this transition within roughly the next year. This
+is a planning estimate, not a fixed activation date. Implementation details and
+timing may change before on-chain activation.
+
+Until that transition is activated on-chain, Subtensor remains a PoA network.
+
+## Chain consensus and Yuma Consensus
+
+The term “consensus” appears in two different contexts in Bittensor:
+
+- **Chain consensus** decides who may produce blocks and when those blocks are
+  final. It currently uses PoA with Aura and GRANDPA.
+- **Yuma Consensus** aggregates subnet validators' miner evaluations and helps
+  determine participant incentives. It does not produce or finalize blockchain
+  blocks.
+
+See [Yuma Consensus](/docs/internals/consensus) for the subnet-level mechanism.

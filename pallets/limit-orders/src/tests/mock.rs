@@ -542,6 +542,7 @@ impl pallet_limit_orders::Config for Test {
     type PalletHotkey = PalletHotkeyAccount;
     type WeightInfo = ();
     type ChainId = ConstU64<945>;
+    type LinkedOutputTtl = ConstU64<86_400_000>;
 }
 
 // ── Shared test helpers ───────────────────────────────────────────────────────
@@ -657,6 +658,41 @@ pub fn bounded(
 
 pub fn order_id(order: &crate::VersionedOrder<AccountId>) -> H256 {
     crate::pallet::Pallet::<Test>::derive_order_id(order)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn make_signed_v2_order(
+    keyring: AccountKeyring,
+    hotkey: AccountId,
+    netuid: NetUid,
+    order_type: crate::OrderType,
+    amount: crate::OrderAmount,
+    limit_price: u64,
+    has_linked_order: bool,
+) -> crate::SignedOrder<AccountId> {
+    let signer = keyring.to_account_id();
+    let order = crate::VersionedOrder::V2(crate::OrderV2 {
+        signer,
+        hotkey,
+        netuid,
+        order_type,
+        amount,
+        limit_price,
+        expiry: FAR_FUTURE,
+        fee_rate: sp_runtime::Perbill::zero(),
+        fee_recipient: fee_recipient(),
+        relayer: None,
+        max_slippage: None,
+        chain_id: 945,
+        partial_fills_enabled: false,
+        has_linked_order,
+    });
+    let sig = keyring.pair().sign(&order_signing_payload(&order));
+    crate::SignedOrder {
+        order,
+        signature: MultiSignature::Sr25519(sig),
+        partial_fill: None,
+    }
 }
 
 // ── Test externalities ────────────────────────────────────────────────────────

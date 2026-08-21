@@ -74,6 +74,7 @@ fn test_do_move_success() {
             expected_alpha,
             epsilon = expected_alpha / 1000.into()
         );
+        assert_total_alpha_staked_invariant(netuid);
     });
 }
 
@@ -152,6 +153,8 @@ fn test_do_move_different_subnets() {
             alpha - fee,
             epsilon = alpha / 1000.into()
         );
+        assert_total_alpha_staked_invariant(origin_netuid);
+        assert_total_alpha_staked_invariant(destination_netuid);
     });
 }
 

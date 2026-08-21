@@ -189,6 +189,7 @@ fn test_destroy_alpha_in_out_stakes_clear_hotkey_totals() {
             "destroy_alpha_in_out_stakes_clear_hotkey_totals should complete"
         );
         assert!(!TotalHotkeyAlpha::<Test>::contains_key(owner_hot, netuid));
+        assert!(!TotalAlphaStaked::<Test>::contains_key(netuid));
     });
 }
 

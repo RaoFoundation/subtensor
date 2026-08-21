@@ -13,7 +13,6 @@ mod dispatches {
 
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
-    use crate::MAX_ROOT_CLAIM_WORK;
     /// Dispatchable functions allow users to interact with the pallet and invoke state changes.
     /// These functions materialize as "extrinsics", which are often compared to transactions.
     /// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
@@ -1533,6 +1532,37 @@ mod dispatches {
             )
         }
 
+        /// Moves stake from one hotkey to another and, when the subnets differ,
+        /// protects the swap with a relative price limit.
+        ///
+        /// `limit_price` is the minimum acceptable destination-alpha per
+        /// origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the
+        /// call is fill-or-kill; otherwise it moves only the amount executable
+        /// before the limit is crossed.
+        #[pallet::call_index(149)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake_limit())]
+        pub fn move_stake_limit(
+            origin: OriginFor<T>,
+            origin_hotkey: T::AccountId,
+            destination_hotkey: T::AccountId,
+            origin_netuid: NetUid,
+            destination_netuid: NetUid,
+            alpha_amount: AlphaBalance,
+            limit_price: TaoBalance,
+            allow_partial: bool,
+        ) -> DispatchResult {
+            Self::do_move_stake_limit(
+                origin,
+                origin_hotkey,
+                destination_hotkey,
+                origin_netuid,
+                destination_netuid,
+                alpha_amount,
+                limit_price,
+                allow_partial,
+            )
+        }
+
         /// Attempts to associate a hotkey with a coldkey.
         ///
         /// # Arguments
@@ -1918,10 +1948,11 @@ mod dispatches {
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
         #[pallet::call_index(121)]
-        // Declared weight is a soft envelope sized for [`MAX_ROOT_CLAIM_WORK`]; actual work
-        // is measured and refunded post-dispatch (fat coldkeys may exceed the reservation).
+        // Signer is not in the call data, so admission uses the conservative
+        // MAX_ROOT_CLAIM_WORK envelope. Execution refuses a fat coldkey that
+        // would exceed it — use claim_root_with_hotkey per validator.
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+            <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
         )]
         pub fn claim_root(
             origin: OriginFor<T>,
@@ -1931,6 +1962,10 @@ mod dispatches {
             let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
             let hotkeys = StakingHotkeys::<T>::get(&coldkey);
+            ensure!(
+                Self::root_claim_fits_declared_budget(&hotkeys),
+                Error::<T>::RootClaimTooHeavy
+            );
             let hotkey_count = hotkeys.len() as u32;
             let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
             Self::maybe_add_coldkey_index(&coldkey);
@@ -1953,13 +1988,17 @@ mod dispatches {
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+            <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK)
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
+            ensure!(
+                Self::root_claim_fits_declared_budget(core::slice::from_ref(&hotkey)),
+                Error::<T>::RootClaimTooHeavy
+            );
 
             let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
             Self::maybe_add_coldkey_index(&coldkey);

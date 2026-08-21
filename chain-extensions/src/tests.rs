@@ -570,6 +570,79 @@ fn move_stake_success_moves_alpha_between_hotkeys() {
 }
 
 #[test]
+fn move_stake_limit_success_moves_alpha_between_hotkeys() {
+    mock::new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(6201);
+        let owner_coldkey = U256::from(6202);
+        let coldkey = U256::from(7201);
+        let origin_hotkey = U256::from(7202);
+        let destination_hotkey = U256::from(7203);
+        let min_stake = DefaultMinStake::<mock::Test>::get();
+        let stake_amount_raw = min_stake.to_u64().saturating_mul(240);
+        let netuid = mock::add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        mock::setup_reserves(
+            netuid,
+            stake_amount_raw.saturating_mul(15).into(),
+            AlphaBalance::from(stake_amount_raw.saturating_mul(25)),
+        );
+        mock::register_ok_neuron(netuid, origin_hotkey, coldkey, 0);
+        mock::register_ok_neuron(netuid, destination_hotkey, coldkey, 1);
+        add_balance_to_coldkey_account(&coldkey, (stake_amount_raw + 1_000_000_000).into());
+        assert_ok!(pallet_subtensor::Pallet::<mock::Test>::add_stake(
+            RawOrigin::Signed(coldkey).into(),
+            origin_hotkey,
+            netuid,
+            stake_amount_raw.into(),
+        ));
+
+        let origin_before =
+            pallet_subtensor::Pallet::<mock::Test>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &coldkey,
+                netuid,
+            );
+        let amount: AlphaBalance = (origin_before.to_u64() / 2).into();
+        let expected_weight = <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::move_stake_limit();
+        let mut env = MockEnv::new(
+            FunctionId::MoveStakeLimitV1,
+            coldkey,
+            (
+                origin_hotkey,
+                destination_hotkey,
+                netuid,
+                netuid,
+                amount,
+                TaoBalance::MAX,
+                false,
+            )
+                .encode(),
+        )
+        .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        assert_success(ret);
+        assert_eq!(env.charged_weight(), Some(expected_weight));
+        assert_eq!(
+            pallet_subtensor::Pallet::<mock::Test>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &coldkey,
+                netuid,
+            ),
+            origin_before - amount
+        );
+        assert_eq!(
+            pallet_subtensor::Pallet::<mock::Test>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &destination_hotkey,
+                &coldkey,
+                netuid,
+            ),
+            amount
+        );
+    });
+}
+
+#[test]
 fn unstake_all_alpha_success_moves_stake_to_root() {
     mock::new_test_ext(1).execute_with(|| {
         let owner_hotkey = U256::from(4101);

@@ -26,7 +26,7 @@
   "dependencies": {
     "clsx": "1.2.1",
     "framer-motion": "10.12.16",
-    "next": "16.2.10",
+    "next": "16.2.11",
     "postcss-simple-vars": "7.0.1",
     "react-toastify": "9.1.2"
   }

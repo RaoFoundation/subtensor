@@ -64,6 +64,7 @@ const STAKE_INFO_READS_PER_HOTKEY: u64 = 7;
 const STAKE_INFO_INPUT_GAS_PER_HOTKEY: u64 = 64;
 const MAX_STAKE_INFO_HOTKEYS: usize = 64;
 const MAX_CONVICTION_HOTKEYS: usize = 64;
+const MAX_STAKING_HOTKEYS_PAGE_SIZE: u16 = 64;
 // Individual state reads the lock row, mode, owner hotkey, global rates, and current block.
 const COLDKEY_LOCK_READS: u64 = 6;
 // Aggregate state reads the owner hotkey, global rates, current block, and up to four buckets.
@@ -1096,6 +1097,32 @@ where
         )
     }
 
+    #[precompile::public("moveStakeLimit(bytes32,bytes32,uint16,uint16,uint64,uint64,bool)")]
+    #[allow(clippy::too_many_arguments)]
+    fn move_stake_limit(
+        handle: &mut impl PrecompileHandle,
+        origin_hotkey: H256,
+        destination_hotkey: H256,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        alpha_amount: u64,
+        limit_price: u64,
+        allow_partial: bool,
+    ) -> EvmResult<()> {
+        dispatch_subtensor(
+            handle,
+            pallet_subtensor::Call::<R>::move_stake_limit {
+                origin_hotkey: origin_hotkey.0.into(),
+                destination_hotkey: destination_hotkey.0.into(),
+                origin_netuid: origin_netuid.into(),
+                destination_netuid: destination_netuid.into(),
+                alpha_amount: AlphaBalance::from(alpha_amount),
+                limit_price: TaoBalance::from(limit_price),
+                allow_partial,
+            },
+        )
+    }
+
     #[precompile::public("recycleAlpha(bytes32,uint64,uint16)")]
     fn recycle_alpha(
         handle: &mut impl PrecompileHandle,
@@ -1498,6 +1525,44 @@ where
                 .map(account_to_h256)
                 .collect(),
         )
+    }
+
+    /// Returns one page of the coldkey's staking hotkeys in their stored vector order.
+    /// Each call independently reads the vector and returns positions `[offset, offset+limit)`.
+    #[precompile::public("getStakingHotkeys(bytes32,uint64,uint16)")]
+    #[precompile::view]
+    fn get_staking_hotkeys(
+        handle: &mut impl PrecompileHandle,
+        coldkey: H256,
+        offset: u64,
+        limit: u16,
+    ) -> EvmResult<(Vec<H256>, u64)> {
+        if limit == 0 {
+            return Err(revert("staking hotkeys page limit must be nonzero"));
+        }
+        if limit > MAX_STAKING_HOTKEYS_PAGE_SIZE {
+            return Err(revert("staking hotkeys page limit exceeds 64"));
+        }
+
+        let coldkey = R::AccountId::from(coldkey.0);
+        handle.record_db_reads::<R>(1)?;
+        let staking_hotkeys = pallet_subtensor::StakingHotkeys::<R>::get(&coldkey);
+        let total = u64::try_from(staking_hotkeys.len()).unwrap_or(u64::MAX);
+        let start = usize::try_from(offset)
+            .unwrap_or(usize::MAX)
+            .min(staking_hotkeys.len());
+        let end = start
+            .saturating_add(usize::from(limit))
+            .min(staking_hotkeys.len());
+        let hotkeys = staking_hotkeys
+            .get(start..end)
+            .unwrap_or_default()
+            .iter()
+            .cloned()
+            .map(account_to_h256)
+            .collect();
+
+        Ok((hotkeys, total))
     }
 
     #[precompile::public("getAutoStakeDestination(bytes32,uint16)")]
@@ -2249,6 +2314,50 @@ mod tests {
             .execute_returns(());
     }
 
+    #[test]
+    fn staking_precompile_v2_move_stake_limit_dispatches_to_distinct_hotkey() {
+        new_test_ext().execute_with(|| {
+            let netuid = setup_staking_subnet();
+            let caller = addr_from_index(0x20a1);
+            let coldkey = mapped_account(caller);
+            let origin_hotkey = AccountId::from([0x71; 32]);
+            let destination_hotkey = AccountId::from([0x72; 32]);
+
+            fund_account(&coldkey, COLDKEY_BALANCE);
+            add_stake_v2(caller, &origin_hotkey, TEST_NETUID_U16, INITIAL_STAKE_RAO);
+            ensure_hotkey_exists(&destination_hotkey);
+            let origin_before = stake_for(&origin_hotkey, &coldkey, netuid);
+            let amount = origin_before / 2;
+
+            precompiles::<StakingPrecompileV2<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(StakingPrecompileV2::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32(
+                            "moveStakeLimit(bytes32,bytes32,uint16,uint16,uint64,uint64,bool)",
+                        ),
+                        (
+                            H256::from_slice(origin_hotkey.as_ref()),
+                            H256::from_slice(destination_hotkey.as_ref()),
+                            TEST_NETUID_U16,
+                            TEST_NETUID_U16,
+                            amount,
+                            u64::MAX,
+                            false,
+                        ),
+                    ),
+                )
+                .execute_returns(());
+
+            assert_eq!(
+                stake_for(&origin_hotkey, &coldkey, netuid),
+                origin_before - amount
+            );
+            assert_eq!(stake_for(&destination_hotkey, &coldkey, netuid), amount);
+        });
+    }
+
     fn assert_proxy_effects(caller: H160, netuid: NetUid) {
         let caller_account = mapped_account(caller);
         let hotkey = hotkey();
@@ -2425,7 +2534,7 @@ mod tests {
             let netuid = setup_staking_subnet();
             let caller = addr_from_index(0x1105);
             let coldkey = mapped_account(caller);
-            let historical_hotkeys: Vec<AccountId> = (0..=MAX_STAKE_INFO_HOTKEYS)
+            let stored_hotkeys: Vec<AccountId> = (0..=MAX_STAKE_INFO_HOTKEYS)
                 .map(|index| {
                     let mut account = [0u8; 32];
                     let index = u64::try_from(index).expect("test index fits in u64");
@@ -2433,15 +2542,12 @@ mod tests {
                     AccountId::from(account)
                 })
                 .collect();
-            let active_hotkey = historical_hotkeys
+            let active_hotkey = stored_hotkeys
                 .last()
-                .expect("historical hotkeys is non-empty")
+                .expect("stored hotkeys is non-empty")
                 .clone();
 
-            pallet_subtensor::StakingHotkeys::<Runtime>::insert(
-                &coldkey,
-                historical_hotkeys.clone(),
-            );
+            pallet_subtensor::StakingHotkeys::<Runtime>::insert(&coldkey, stored_hotkeys.clone());
             pallet_subtensor::Pallet::<Runtime>::increase_stake_for_hotkey_and_coldkey_on_subnet(
                 &active_hotkey,
                 &coldkey,
@@ -4099,6 +4205,139 @@ mod tests {
                 .with_static_call(true)
                 .expect_cost(cost)
                 .execute_returns(U256::from(subnet_total));
+        });
+    }
+
+    #[test]
+    fn staking_hotkeys_view_reads_independent_offset_pages() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x3007);
+            let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+            let coldkey = AccountId::from([0x72; 32]);
+            let first = AccountId::from([0x10; 32]);
+            let second = AccountId::from([0x20; 32]);
+            let third = AccountId::from([0x30; 32]);
+            let coldkey_word = H256::from_slice(coldkey.as_ref());
+            let first_word = H256::from_slice(first.as_ref());
+            let second_word = H256::from_slice(second.as_ref());
+            let third_word = H256::from_slice(third.as_ref());
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let db_read = RuntimeHelper::<Runtime>::db_read_gas_cost();
+
+            pallet_subtensor::StakingHotkeys::<Runtime>::insert(
+                &coldkey,
+                vec![first.clone(), second.clone(), third.clone()],
+            );
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getStakingHotkeys(bytes32,uint64,uint16)"),
+                        (coldkey_word, 0_u64, 2_u16),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(db_read)
+                .execute_returns((vec![first_word, second_word], 3_u64));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getStakingHotkeys(bytes32,uint64,uint16)"),
+                        (coldkey_word, 2_u64, 2_u16),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(db_read)
+                .execute_returns((vec![third_word], 3_u64));
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(
+                        selector_u32("getStakingHotkeys(bytes32,uint64,uint16)"),
+                        (coldkey_word, u64::MAX, 2_u16),
+                    ),
+                )
+                .with_static_call(true)
+                .expect_cost(db_read)
+                .execute_returns((Vec::<H256>::new(), 3_u64));
+        });
+    }
+
+    #[test]
+    fn staking_hotkeys_view_handles_empty_state_and_rejects_invalid_pages() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x3008);
+            let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+            let coldkey = H256::repeat_byte(0x73);
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let selector = selector_u32("getStakingHotkeys(bytes32,uint64,uint16)");
+            let db_read = RuntimeHelper::<Runtime>::db_read_gas_cost();
+
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(selector, (coldkey, 0_u64, 1_u16)),
+                )
+                .with_static_call(true)
+                .expect_cost(db_read)
+                .execute_returns((Vec::<H256>::new(), 0_u64));
+
+            for (limit, message) in [
+                (
+                    0_u16,
+                    b"staking hotkeys page limit must be nonzero".as_slice(),
+                ),
+                (65_u16, b"staking hotkeys page limit exceeds 64".as_slice()),
+            ] {
+                precompiles
+                    .prepare_test(
+                        caller,
+                        address,
+                        encode_with_selector(selector, (coldkey, 0_u64, limit)),
+                    )
+                    .with_static_call(true)
+                    .expect_cost(0)
+                    .execute_reverts(|output| output == message);
+            }
+        });
+    }
+
+    #[test]
+    fn staking_hotkeys_view_accepts_the_maximum_page_size() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x3009);
+            let address = addr_from_index(StakingPrecompileV2::<Runtime>::INDEX);
+            let coldkey = AccountId::from([0x74; 32]);
+            let coldkey_word = H256::from_slice(coldkey.as_ref());
+            let precompiles = precompiles::<StakingPrecompileV2<Runtime>>();
+            let selector = selector_u32("getStakingHotkeys(bytes32,uint64,uint16)");
+            let (stored, expected): (Vec<_>, Vec<_>) = (0_u8..64)
+                .map(|suffix| {
+                    let mut bytes = [0_u8; 32];
+                    bytes[31] = suffix;
+                    let hotkey = AccountId::from(bytes);
+                    (hotkey, H256::from(bytes))
+                })
+                .unzip();
+
+            pallet_subtensor::StakingHotkeys::<Runtime>::insert(&coldkey, stored);
+            precompiles
+                .prepare_test(
+                    caller,
+                    address,
+                    encode_with_selector(selector, (coldkey_word, 0_u64, 64_u16)),
+                )
+                .with_static_call(true)
+                .expect_cost(RuntimeHelper::<Runtime>::db_read_gas_cost())
+                .execute_returns((expected, 64_u64));
         });
     }
 
