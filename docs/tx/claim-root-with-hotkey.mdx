@@ -17,12 +17,17 @@ consolidated into the fund's root (TAO) slot as a side effect, so the
 per-holding claim fee shrinks over time; curated positions are left to
 compound. The transaction fee is charged by work actually done:
 holdings redeemed pay full weight, holdings merely scanned pay a small
-per-row cost.
+per-row cost. The chain reserves a fixed 256-unit declared-work envelope at
+inclusion, independent of the current network count, and refunds the unused
+part after.
+`plan` and `btcli root claim --dry-run` show reserved versus spent,
+warn when the spent fee exceeds accrued yield, and refuse when free
+TAO cannot cover the reserve.
 Preview per-validator payouts with `root_basket_owed_breakdown`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1954-L1969) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1989-L2008) |
 
 ## Parameters
 
@@ -71,18 +76,22 @@ result = sub.execute_tool("claim_root_with_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1958`](/code/pallets/subtensor/src/macros/dispatches.rs#L1954-L1969):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1993`](/code/pallets/subtensor/src/macros/dispatches.rs#L1989-L2008):
 
 ```rust
 #[pallet::call_index(148)]
 #[pallet::weight(
-    <T as crate::pallet::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
+    <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK)
 )]
 pub fn claim_root_with_hotkey(
     origin: OriginFor<T>,
     hotkey: T::AccountId,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
+    ensure!(
+        Self::root_claim_fits_declared_budget(core::slice::from_ref(&hotkey)),
+        Error::<T>::RootClaimTooHeavy
+    );
 
     let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
     Self::maybe_add_coldkey_index(&coldkey);
@@ -92,6 +101,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L767), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L796), [`root_claim_actual_weight`](/code/pallets/subtensor/src/staking/claim_root.rs#L754).
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L761), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L798), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L827).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

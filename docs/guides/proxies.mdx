@@ -38,7 +38,9 @@ call against the delegation's type
 ([`proxy_type_filter`](/code/runtime/src/proxy_filters/mod.rs#L108-L129))
 before dispatching it *as the real
 account*. Bookkeeping is paid with reserved deposits (returned on removal),
-not fees.
+not fees. `--proxy-for` is a tx-global: it is on every mutation command,
+including `btcli stake add` and `btcli wallet transfer`. MEV shield wraps
+the already-proxied call — the two compose; they do not replace each other.
 
 ### Proxy types
 

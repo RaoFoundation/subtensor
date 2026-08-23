@@ -37,7 +37,7 @@ Prefer the narrowest type that covers the job:
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
   (0.5 alpha for stake transfers).
 - **Staking** — stake operations only: add / remove / move / swap /
-  unstake-all and their limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). The
+  unstake-all and their limit variants. The
   allowlist does **not** include `Utility.batch_all`, so batching staking
   calls through a Staking proxy fails with `CallFiltered` — use a NonTransfer
   proxy for batched staking.
@@ -129,6 +129,19 @@ normally submitted extrinsic. The wrapper's acceptance is marked by the
 pallet's [`EncryptedSubmitted`](/code/pallets/shield/src/lib.rs#L206) event, and a successful submission carries
 `inner_extrinsic_hash` in the result data so the inner extrinsic can be
 located on chain.
+
+With `wait_for_finalization=True`, the SDK waits until the block containing
+the inner extrinsic is finalized, re-reads the canonical block hash at that
+height, and resumes the scan if a reorganization removed it. Finalized-head
+RPC failures and stalled finality are bounded; exhausting either retry budget
+raises a clear `ChainError` instead of waiting forever.
+
+Shield wraps the **already composed** call. `proxy_for=` / `--proxy-for`
+and a saved-multisig adapter are applied first; the encrypted inner
+extrinsic is `Proxy.proxy(...)` or `Multisig.as_multi(...)` when those
+are set. Vault, Ledger, and the browser extension each sign that inner
+call and then the carrier — two approvals, same 8-block era. The
+extension bridge labels them "1 of 2" and "2 of 2".
 
 Shielding is for coldkey-signed operations. The chain accepts a shielded
 wrapper from any signed origin, but the SDK and CLI refuse to shield

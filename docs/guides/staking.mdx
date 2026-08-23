@@ -42,8 +42,9 @@ intent = bt.AddStake(hotkey_ss58="5F...", netuid=1, amount_tao=100)
 await client.execute(intent, wallet)
 ```
 
-Every stake operation must move at least the chain minimum — by default
-2,000,000 rao (0.002 TAO), stored in [`MinStake`](/code/pallets/subtensor/src/lib.rs#L1047). The chain can also sweep
+Partial stake operations must move at least the chain minimum — by default
+2,000,000 rao (0.002 TAO), stored in [`MinStake`](/code/pallets/subtensor/src/lib.rs#L1047). The dedicated
+unstake-all calls bypass that minimum. The chain can also sweep
 nominations that fall below a nominator minimum (a governance-set fraction of
 the minimum stake; currently zero, so the sweep is effectively disabled).
 
@@ -51,13 +52,31 @@ Exit with [`remove-stake`](/docs/tx/remove-stake), or exit everything at once
 with [`unstake-all`](/docs/tx/unstake-all). Quote the exit the same way you
 quote the entry:
 
+```bash
+# One hotkey, across every subnet
+btcli stake unstake-all --hotkey 5F... --dry-run
+
+# Every live position held by the coldkey, across all hotkeys and subnets
+btcli stake unstake-all --all-hotkeys --dry-run
+btcli stake unstake-all --all-hotkeys -w my_coldkey
+```
+
+The multi-hotkey form discovers hotkeys from live non-zero chain positions,
+deduplicates hotkeys that appear on several subnets, and submits the resulting
+`unstake_all` calls atomically. Each `unstake_all` can silently skip positions
+whose subnet is disabled or whose position fails runtime validation, so verify
+the remaining stake after the batch. A Staking proxy cannot wrap the required
+`Utility.batch_all` call on the current runtime; use a direct signer or a broader
+proxy type such as NonTransfer, or invoke the single-hotkey form separately.
+
 ```python
 quote = await client.prices.quote_unstake(netuid=1, amount_alpha=50)  # TAO out, fee, slippage
 await client.execute(bt.RemoveStake(hotkey_ss58="5F...", netuid=1, amount_alpha="all"), wallet)
 ```
 
-`"all"` resolves to the full position at build time — only the remove-stake
-variants accept it.
+`"all"` resolves an amount from current chain state at build time. It is
+accepted by add, remove, move, swap, move-swap, and transfer stake intents,
+including the add/remove limit variants where applicable.
 
 To bound the execution price instead of accepting whatever the pool gives, use
 [`add-stake-limit`](/docs/tx/add-stake-limit) /
@@ -83,7 +102,11 @@ changes.
 ## Move positions without exiting
 
 - [`move-stake`](/docs/tx/move-stake) — different hotkey (and optionally
-  subnet).
+  subnet). Cross-subnet moves are slippage-protected by default with one
+  `move_stake_limit` call; same-subnet moves use `move_stake`.
+- [`move-swap-stake`](/docs/tx/move-swap-stake) — new hotkey and new
+  subnet via an atomic batch of same-subnet `move_stake`, then
+  `swap_stake_limit`. Prefer `move-stake` for the one-call v448 path.
 - [`swap-stake`](/docs/tx/swap-stake) — same hotkey, different subnet.
 - [`transfer-stake`](/docs/tx/transfer-stake) — different coldkey (gives the
   position away). Pass `--dest-hotkey` to land it on a different hotkey in
@@ -149,16 +172,35 @@ value. See [how money moves](/docs/concepts/money) for the swap mechanics
 that root positions skip.
 
 `btcli` shows root positions in TAO: staked τ is principal on netuid 0,
-accrued τ is fund yield. List your positions, then claim — either realize
-accrued yield into stake, or withdraw to free balance:
+accrued τ is fund yield. `btcli stake list` and `btcli wallet overview`
+print that accrued basket yield under the total (auto-claim is off). List
+per validator, then claim — either realize accrued yield into stake, or
+withdraw to free balance:
 
 ```bash
+btcli stake list                                  # positions + accrued basket yield
+btcli wallet overview                             # same yield line on the wallet view
 btcli root list                                   # staked + accrued τ, per validator
 btcli root subscribe --amount 100 --hotkey 5F...  # assets in
+btcli root unstake --amount 40 --hotkey 5F...     # principal only; yield stays in the basket
+btcli root unstake --all --hotkey 5F... --claim   # atomic only while RootStakeUnlockInterval is 0
+btcli root claim --dry-run --hotkey 5F...         # reserved vs spent fee, vs accrued
 btcli root claim                                  # pick wallet → validator → claim / withdraw
 btcli root claim --hotkey 5F... --amount all      # withdraw full position
 btcli root claim --hotkey 5F...                   # claim accrued into stake only
 ```
+
+The claim fee scales with how many ALPHA types are in the basket. Both
+root-claim calls reserve a conservative 256-unit work envelope at inclusion,
+independent of the current network count, and refund the unused part after.
+You actually spend according to the holdings scanned and redeemed (around
+τ0.057 on a full 128-holding basket). `--dry-run` and the confirm step show
+reserved versus spent, warn if that spent fee exceeds accrued yield, and
+refuse if free TAO cannot cover the reserve.
+
+If `RootStakeUnlockInterval` is nonzero, a claim refreshes the root-stake hold
+and cannot be followed by an unstake in the same atomic batch. Claim first,
+wait out the configured interval, then unstake separately.
 
 Per-validator payouts below the claim threshold (default 500,000 rao) are
 skipped and keep accruing — there is no deadline. See

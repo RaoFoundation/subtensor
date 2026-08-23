@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from .._generated import calls
-from ._money import Money, alpha_amount
+from ._money import ALL, Money, alpha_amount
 from .base import Intent
 from .registry import register
+from .staking import _lockable_rao
 
 
 @register
@@ -28,15 +29,19 @@ class LockStake(Intent):
     ``LockHotkeyMismatch`` — repeat calls only top up the lock; use
     ``move_lock`` to change hotkeys. Whether the lock decays over time or
     persists is controlled per coldkey per subnet with
-    ``set_perpetual_lock``.
+    ``set_perpetual_lock``. Pass ``all`` to lock every unlocked alpha the
+    coldkey holds on the subnet (a top-up of the remaining free mass).
     """
 
     op = "lock_stake"
     signer = "coldkey"
     wraps = (("SubtensorModule", "lock_stake"),)
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
     netuid: int = field(metadata={"help": "Subnet the locked stake lives on."})
-    amount_alpha: Money = field(metadata={"help": "How much of the existing stake to lock."})
+    amount_alpha: Money = field(
+        metadata={"help": "How much of the existing unlocked stake to lock, or ``all``."}
+    )
     hotkey_ss58: Optional[str] = field(
         default=None,
         metadata={
@@ -45,18 +50,26 @@ class LockStake(Intent):
     )
 
     def __post_init__(self):
-        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid)
+        self.amount_alpha = alpha_amount(self.amount_alpha, self.netuid, allow_all=True)
 
     async def build(self, substrate, wallet: Any):
         hotkey = self.hotkey_address(wallet, self.hotkey_ss58)
+        if self.amount_alpha == ALL:
+            rao = await _lockable_rao(substrate, self.coldkey_address(wallet), self.netuid)
+        else:
+            rao = self.amount_alpha.rao
         return await substrate.compose(
-            calls.SubtensorModule.lock_stake(
-                hotkey=hotkey, netuid=self.netuid, amount=self.amount_alpha.rao
-            )
+            calls.SubtensorModule.lock_stake(hotkey=hotkey, netuid=self.netuid, amount=rao)
         )
 
     def summary(self) -> str:
-        return f"lock {self.amount_alpha} on netuid {self.netuid}"
+        amount = "ALL unlocked alpha" if self.amount_alpha == ALL else str(self.amount_alpha)
+        return f"lock {amount} on netuid {self.netuid}"
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        if self.amount_alpha == ALL:
+            return ["locks every unlocked alpha this coldkey holds on the subnet"]
+        return []
 
 
 @register

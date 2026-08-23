@@ -2218,6 +2218,9 @@ fn test_do_transfer_stake_same_subnet_transfers_lock_to_destination_coldkey() {
             transfer_amount,
         ));
 
+        assert!(!StakingHotkeys::<Test>::contains_key(coldkey_sender));
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey_receiver), vec![hotkey]);
+
         let expected_sender_lock = roll_forward_lock(
             sender_lock_before,
             SubtensorModule::get_current_block_as_u64(),

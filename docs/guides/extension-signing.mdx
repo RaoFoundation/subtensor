@@ -117,10 +117,10 @@ btcli extension bridge     # run the bridge in the foreground (rarely needed)
 
 ## Limitations
 
-- **No MEV shielding.** Shielding wraps the signed call in a second encrypted
-  extrinsic, which this flow can't produce. Stake-trading commands (which
-  shield by default) print a notice and submit unshielded; an explicitly
-  requested `--mev-shield` fails instead.
+- **MEV shielding is two popups.** Stake-trading commands still shield by
+  default. The extension signs the inner call, then the encrypted carrier —
+  about 96 seconds for both. Have the extension unlocked before you confirm.
+  `--no-mev-shield` submits in the clear (one popup).
 - **Substrate accounts only** — sr25519 or ed25519, not ecdsa/Ethereum.
 - `btcli wallet sign` (raw message signing) still uses local keys.
 
