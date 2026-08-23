@@ -1385,6 +1385,41 @@ fn claim_root_with_hotkey_noop_returns_zero() {
 }
 
 #[test]
+fn claim_root_with_hotkey_rejects_basket_above_envelope() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61101);
+        let hotkey = U256::from(61102);
+
+        // Seed the validator's basket with one escrow holding per netuid, 257 rows
+        // > MAX_ROOT_CLAIM_WORK (256), using the same helper the claim engine uses
+        // to build escrow holdings.
+        let escrow = pallet_subtensor::Pallet::<mock::Test>::get_beta_escrow_account_id();
+        for i in 0..=pallet_subtensor::MAX_ROOT_CLAIM_WORK {
+            pallet_subtensor::Pallet::<mock::Test>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                NetUid::from(i as u16),
+                1u64.into(),
+            );
+        }
+        assert!(
+            pallet_subtensor::Pallet::<mock::Test>::get_basket_holdings(&hotkey).len()
+                > pallet_subtensor::MAX_ROOT_CLAIM_WORK as usize
+        );
+
+        let mut env = MockEnv::new(FunctionId::ClaimRootWithHotkeyV1, coldkey, hotkey.encode());
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        match ret {
+            RetVal::Converging(code) => assert_eq!(code, Output::RuntimeError as u32),
+            _ => panic!("expected converging error code"),
+        }
+
+        assert!(env.charged_weight().is_none());
+    });
+}
+
+#[test]
 fn add_stake_recycle_rollback_on_recycle_failure() {
     mock::new_test_ext(1).execute_with(|| {
         let owner_hotkey = U256::from(12001);
