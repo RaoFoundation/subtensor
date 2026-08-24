@@ -1467,10 +1467,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
-	/// Root-only single map insert plus event, like `sudo_set_net_tao_flow_enabled`;
-	/// estimate reused pending a measured run.
+	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn sudo_set_root_weights_cap() -> Weight {
-		Weight::from_parts(4_000_000, 0)
+		// Measured on the reference Benchmarking runner (validate-benchmarks,
+		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
+		Weight::from_parts(4_916_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
@@ -2861,10 +2862,11 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
-	/// Root-only single map insert plus event, like `sudo_set_net_tao_flow_enabled`;
-	/// estimate reused pending a measured run.
+	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn sudo_set_root_weights_cap() -> Weight {
-		Weight::from_parts(4_000_000, 0)
+		// Measured on the reference Benchmarking runner (validate-benchmarks,
+		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
+		Weight::from_parts(4_916_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
