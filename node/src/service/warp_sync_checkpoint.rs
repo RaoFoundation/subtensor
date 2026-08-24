@@ -3,9 +3,10 @@ use crate::client::FullClient;
 use jsonrpsee::RpcModule;
 use jsonrpsee::types::ErrorObjectOwned;
 use node_subtensor_runtime::opaque::{Block, Header};
-use sc_client_api::BlockBackend;
+use sc_client_api::{BlockBackend, HeaderBackend};
 use sc_consensus_grandpa::{AuthoritySetChanges, AuthoritySetHardFork, SharedAuthoritySet};
 use sc_service::error::Error as ServiceError;
+use serde::Serialize;
 use sp_api::ProvideRuntimeApi;
 use sp_consensus_grandpa::{AuthorityList, GRANDPA_ENGINE_ID, GrandpaApi, SetId};
 use sp_runtime::codec::{DecodeAll, Encode};
@@ -46,6 +47,14 @@ struct WarpSyncCheckpointRpcContext {
     authority_set: SharedAuthoritySet<sp_core::H256, u32>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedGrandpaWarpSyncCheckpoint {
+    chain_spec_id: String,
+    genesis_hash: sp_core::H256,
+    grandpa_warp_sync_checkpoint: GrandpaWarpSyncCheckpoint,
+}
+
 /// Expose a GRANDPA-only generator for a historical signing checkpoint.
 pub(super) fn rpc_methods(
     chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
@@ -58,18 +67,16 @@ pub(super) fn rpc_methods(
         authority_set,
     });
     module
-        .register_method("grandpa_genWarpSyncSpec", |params, context, _| {
-            let raw = params.one::<bool>()?;
-            generate_warp_sync_spec(context, raw).map_err(internal_rpc_error)
+        .register_method("grandpa_genWarpSyncCheckpoint", |_, context, _| {
+            generate_warp_sync_checkpoint(context).map_err(internal_rpc_error)
         })
         .map_err(|error| ServiceError::Other(error.to_string()))?;
     Ok(module.into())
 }
 
-fn generate_warp_sync_spec(
+fn generate_warp_sync_checkpoint(
     context: &WarpSyncCheckpointRpcContext,
-    raw: bool,
-) -> Result<serde_json::Value, ServiceError> {
+) -> Result<GeneratedGrandpaWarpSyncCheckpoint, ServiceError> {
     let changes = authority_change_records(&context.authority_set.authority_set_changes())?;
     let (set_id, block_number) = changes.iter().last().copied().ok_or_else(|| {
         ServiceError::Other("GRANDPA has no finalized authority transition".into())
@@ -124,22 +131,16 @@ fn generate_warp_sync_spec(
         )));
     }
 
-    let mut chain_spec = context.chain_spec.cloned_box();
-    let checkpoint = sc_chain_spec::get_extension_mut::<GrandpaWarpSyncCheckpointExtension>(
-        chain_spec.extensions_mut(),
-    )
-    .ok_or_else(|| {
-        ServiceError::Other("chain spec has no grandpaWarpSyncCheckpoint extension".into())
-    })?;
-    *checkpoint = Some(GrandpaWarpSyncCheckpoint {
+    let checkpoint = GrandpaWarpSyncCheckpoint {
         finalized_block_header: format!("0x{}", hex::encode(header.encode())),
         grandpa_authority_set: format!("0x{}", hex::encode((set_id, authorities).encode())),
-    });
+    };
 
-    let json = chain_spec
-        .as_json(raw)
-        .map_err(|error| ServiceError::Other(error.to_string()))?;
-    serde_json::from_str(&json).map_err(|error| ServiceError::Other(error.to_string()))
+    Ok(GeneratedGrandpaWarpSyncCheckpoint {
+        chain_spec_id: context.chain_spec.id().into(),
+        genesis_hash: context.client.info().genesis_hash,
+        grandpa_warp_sync_checkpoint: checkpoint,
+    })
 }
 
 fn authority_change_records(
@@ -231,6 +232,29 @@ mod tests {
             panic!("valid checkpoint header should decode");
         };
         assert_eq!(decoded_header, header);
+    }
+
+    #[test]
+    fn generated_checkpoint_response_is_compact() {
+        let response = GeneratedGrandpaWarpSyncCheckpoint {
+            chain_spec_id: "bittensor".into(),
+            genesis_hash: H256::repeat_byte(4),
+            grandpa_warp_sync_checkpoint: GrandpaWarpSyncCheckpoint {
+                finalized_block_header: "0x01".into(),
+                grandpa_authority_set: "0x02".into(),
+            },
+        };
+        let Ok(value) = serde_json::to_value(response) else {
+            panic!("generated checkpoint response should serialize");
+        };
+
+        assert_eq!(value.as_object().map(|object| object.len()), Some(3));
+        assert_eq!(value["chainSpecId"], serde_json::json!("bittensor"));
+        assert_eq!(
+            value["genesisHash"],
+            serde_json::json!(H256::repeat_byte(4)),
+        );
+        assert!(value["grandpaWarpSyncCheckpoint"].is_object());
     }
 
     #[test]
