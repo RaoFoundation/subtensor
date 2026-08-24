@@ -1,7 +1,7 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 mod grandpa_warp_sync;
-mod light_sync_state;
+mod warp_sync_checkpoint;
 
 use crate::consensus::ConsensusMechanism;
 use futures::{FutureExt, StreamExt as _, channel::mpsc};
@@ -57,14 +57,15 @@ fn warp_sync_provider(
     chain_type: sc_chain_spec::ChainType,
     backend: Arc<FullBackend>,
     authority_set: sc_consensus_grandpa::SharedAuthoritySet<H256, NumberFor<Block>>,
+    trusted_checkpoint: Option<sc_consensus_grandpa::AuthoritySetHardFork<Block>>,
 ) -> WarpSyncConfig<Block> {
     let warp_sync_config = grandpa_warp_sync::config(genesis_hash, chain_type);
     log::warn!("{}", warp_sync_config.log_message());
-    let initial_set_id = warp_sync_config.one_time_initial_set_id();
+    let initial_set_id = warp_sync_config.one_time_initial_set_id(trusted_checkpoint.is_some());
     let inner = sc_consensus_grandpa::warp_proof::NetworkProvider::new(
         backend,
         authority_set,
-        warp_sync_config.into_hard_forks(),
+        warp_sync_config.into_hard_forks(trusted_checkpoint),
     );
     let provider: Arc<dyn WarpSyncProvider<Block>> = match initial_set_id {
         Some(initial_set_id) => Arc::new(grandpa_warp_sync::InitialSetIdProvider::new(
@@ -290,7 +291,7 @@ pub async fn new_full<NB, CM>(
     sealing: Option<Sealing>,
     custom_service_signal: Option<Arc<AtomicBool>>,
     skip_history_backfill: bool,
-    enable_sync_state_rpc: bool,
+    enable_warp_sync_checkpoint_rpc: bool,
 ) -> Result<TaskManager, ServiceError>
 where
     NumberFor<Block>: BlockNumberOps,
@@ -349,35 +350,24 @@ where
         None
     } else {
         net_config.add_notification_protocol(grandpa_protocol_config);
-        if config.network.sync_mode.is_warp() {
-            if let Some(target_header) =
-                light_sync_state::trusted_checkpoint(config.chain_spec.as_ref())?
-            {
-                use sp_runtime::traits::Header as _;
-
-                log::info!(
-                    target: LOG_TARGET,
-                    "Using trusted warp sync checkpoint at #{} ({:?})",
-                    target_header.number(),
-                    target_header.hash(),
-                );
-                Some(WarpSyncConfig::WithTarget(target_header))
-            } else {
-                Some(warp_sync_provider(
-                    genesis_hash,
-                    config.chain_spec.chain_type(),
-                    backend.clone(),
-                    grandpa_link.shared_authority_set().clone(),
-                ))
-            }
-        } else {
-            Some(warp_sync_provider(
-                genesis_hash,
-                config.chain_spec.chain_type(),
-                backend.clone(),
-                grandpa_link.shared_authority_set().clone(),
-            ))
+        let trusted_checkpoint =
+            warp_sync_checkpoint::trusted_checkpoint(config.chain_spec.as_ref())?;
+        if let Some(checkpoint) = trusted_checkpoint.as_ref() {
+            log::info!(
+                target: LOG_TARGET,
+                "Using trusted GRANDPA authority checkpoint at #{} ({:?}), set ID {}",
+                checkpoint.block.1,
+                checkpoint.block.0,
+                checkpoint.set_id,
+            );
         }
+        Some(warp_sync_provider(
+            genesis_hash,
+            config.chain_spec.chain_type(),
+            backend.clone(),
+            grandpa_link.shared_authority_set().clone(),
+            trusted_checkpoint,
+        ))
     };
 
     let (network, system_rpc_tx, tx_handler_controller, sync_service) =
@@ -500,14 +490,18 @@ where
             async move { CM::pending_create_inherent_data_providers(slot_duration, keystore) }
         };
 
-        let rpc_methods = consensus_mechanism.rpc_methods(
+        let mut rpc_methods = consensus_mechanism.rpc_methods(
             client.clone(),
             keystore_container.keystore(),
             select_chain.clone(),
-            config.chain_spec.cloned_box(),
-            grandpa_link.shared_authority_set().clone(),
-            enable_sync_state_rpc,
         )?;
+        if enable_warp_sync_checkpoint_rpc {
+            rpc_methods.push(warp_sync_checkpoint::rpc_methods(
+                config.chain_spec.cloned_box(),
+                client.clone(),
+                grandpa_link.shared_authority_set().clone(),
+            )?);
+        }
         Box::new(move |subscription_task_executor| {
             let eth_deps = crate::rpc::EthDeps {
                 client: client.clone(),
@@ -710,7 +704,7 @@ pub async fn build_full<CM: ConsensusMechanism>(
     sealing: Option<Sealing>,
     custom_service_signal: Option<Arc<AtomicBool>>,
     skip_history_backfill: bool,
-    enable_sync_state_rpc: bool,
+    enable_warp_sync_checkpoint_rpc: bool,
 ) -> Result<TaskManager, ServiceError> {
     match config.network.network_backend {
         sc_network::config::NetworkBackendType::Libp2p => {
@@ -720,7 +714,7 @@ pub async fn build_full<CM: ConsensusMechanism>(
                 sealing,
                 custom_service_signal,
                 skip_history_backfill,
-                enable_sync_state_rpc,
+                enable_warp_sync_checkpoint_rpc,
             )
             .await
         }
@@ -731,7 +725,7 @@ pub async fn build_full<CM: ConsensusMechanism>(
                 sealing,
                 custom_service_signal,
                 skip_history_backfill,
-                enable_sync_state_rpc,
+                enable_warp_sync_checkpoint_rpc,
             )
             .await
         }

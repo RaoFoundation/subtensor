@@ -44,12 +44,12 @@ pub struct Cli {
     #[arg(long, value_enum, default_value_t = HistoryBackfill::Keep)]
     pub history_backfill: HistoryBackfill,
 
-    /// Expose `sync_state_genSyncSpec` for generating a trusted warp-sync checkpoint.
+    /// Expose `grandpa_genWarpSyncSpec` for generating a trusted warp-sync checkpoint.
     ///
     /// This response is expensive and includes the full chain spec. Enable it only on a private
-    /// or access-controlled RPC endpoint while refreshing `lightSyncState`.
+    /// or access-controlled RPC endpoint while refreshing `grandpaWarpSyncCheckpoint`.
     #[arg(long, default_value_t = false)]
-    pub enable_sync_state_rpc: bool,
+    pub enable_warp_sync_checkpoint_rpc: bool,
 }
 
 #[allow(clippy::large_enum_variant)]

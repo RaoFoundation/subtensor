@@ -5,7 +5,7 @@
 # the old chain specs and insert them into the new chain specs to ensure there
 # are no genesis mismatch issues.
 
-# This script updates the chain spec files while keeping genesis and trusted light-sync
+# This script updates the chain spec files while keeping genesis and trusted GRANDPA warp-sync
 # checkpoints unchanged.
 
 set -e
@@ -21,8 +21,8 @@ save_genesis() {
   jq -r ".genesis" "$1" >"$2"
 }
 
-save_light_sync_state() {
-  jq ".lightSyncState" "$1" >"$2"
+save_grandpa_warp_sync_checkpoint() {
+  jq ".grandpaWarpSyncCheckpoint" "$1" >"$2"
 }
 
 buildspec() {
@@ -33,8 +33,8 @@ buildspec() {
 
 # Restore fields that are sourced from the live chain rather than the static config builders.
 restore_preserved_fields() {
-  jq --slurpfile genesis "$1" --slurpfile light_sync_state "$2" \
-    '.genesis = $genesis[0] | .lightSyncState = $light_sync_state[0]' \
+  jq --slurpfile genesis "$1" --slurpfile checkpoint "$2" \
+    '.genesis = $genesis[0] | .grandpaWarpSyncCheckpoint = $checkpoint[0]' \
     "$3" >"$4"
 }
 
@@ -45,8 +45,8 @@ update_spec() {
 
   raw_genesis_temp=$(mktemp)
   plain_genesis_temp=$(mktemp)
-  raw_light_sync_state_temp=$(mktemp)
-  plain_light_sync_state_temp=$(mktemp)
+  raw_warp_sync_checkpoint_temp=$(mktemp)
+  plain_warp_sync_checkpoint_temp=$(mktemp)
   raw_spec_temp=$(mktemp)
   plain_spec_temp=$(mktemp)
 
@@ -54,8 +54,8 @@ update_spec() {
 
   save_genesis "$raw_path" "$raw_genesis_temp"
   save_genesis "$plain_path" "$plain_genesis_temp"
-  save_light_sync_state "$raw_path" "$raw_light_sync_state_temp"
-  save_light_sync_state "$plain_path" "$plain_light_sync_state_temp"
+  save_grandpa_warp_sync_checkpoint "$raw_path" "$raw_warp_sync_checkpoint_temp"
+  save_grandpa_warp_sync_checkpoint "$plain_path" "$plain_warp_sync_checkpoint_temp"
 
   echo "*** Building new chainspec for '$chain'..."
 
@@ -65,14 +65,14 @@ update_spec() {
 
   echo "*** Restoring genesis in '$chain'..."
 
-  restore_preserved_fields "$raw_genesis_temp" "$raw_light_sync_state_temp" \
+  restore_preserved_fields "$raw_genesis_temp" "$raw_warp_sync_checkpoint_temp" \
     "$raw_spec_temp" "$raw_path"
-  restore_preserved_fields "$plain_genesis_temp" "$plain_light_sync_state_temp" \
+  restore_preserved_fields "$plain_genesis_temp" "$plain_warp_sync_checkpoint_temp" \
     "$plain_spec_temp" "$plain_path"
 
   # cleanup
   rm -f "$raw_genesis_temp" "$plain_genesis_temp" \
-    "$raw_light_sync_state_temp" "$plain_light_sync_state_temp" \
+    "$raw_warp_sync_checkpoint_temp" "$plain_warp_sync_checkpoint_temp" \
     "$raw_spec_temp" "$plain_spec_temp"
 }
 

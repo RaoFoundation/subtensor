@@ -261,12 +261,6 @@ impl ConsensusMechanism for AuraConsensus {
         _client: Arc<FullClient>,
         _keystore: KeystorePtr,
         _select_chain: FullSelectChain,
-        _chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
-        _grandpa_authority_set: sc_consensus_grandpa::SharedAuthoritySet<
-            <Block as BlockT>::Hash,
-            NumberFor<Block>,
-        >,
-        _enable_sync_state_rpc: bool,
     ) -> Result<Vec<jsonrpsee::Methods>, sc_service::Error> {
         // Aura requires no special RPC methods.
         Ok(Default::default())
