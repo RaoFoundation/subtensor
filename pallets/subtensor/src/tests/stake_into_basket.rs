@@ -222,6 +222,76 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
     });
 }
 
+/// Regression: a direct depositor cannot capture the concavity premium from selling a
+/// proportional alpha slice. Shares are minted against full-liquidation NAV, so the claim
+/// pays that same NAV-priced fraction and retains any larger raw sale proceeds as fund cash.
+/// The remaining holder therefore keeps their pre-claim marked value.
+#[test]
+fn test_stake_into_basket_claim_retains_concavity_surplus_for_existing_holders() {
+    new_test_ext(1).execute_with(|| {
+        let (_owner, hotkey, netuid) = setup_stake_in_env();
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+
+        // Make the pool deliberately thin so the old raw-alpha-fraction redemption
+        // overpayment is large and this test is sensitive to the exploit.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(100_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(100_000_000u64));
+
+        let alice = U256::from(2001);
+        let bob = U256::from(2002);
+        let alice_deposit = 50_000_000u64;
+        let bob_deposit = 10_000_000u64;
+        add_balance_to_coldkey_account(&alice, TaoBalance::from(2 * alice_deposit));
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * bob_deposit));
+
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            alice,
+            hotkey,
+            alice_deposit.into(),
+        ));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
+            hotkey,
+            bob_deposit.into(),
+        ));
+
+        let alice_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        let bob_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
+        let bob_shares = SubtensorModule::get_basket_owed_shares(&hotkey, &bob);
+        let shares_total = fund_shares(&hotkey);
+        let holding = escrow_alpha(&hotkey, netuid);
+        let raw_take = SubtensorModule::mul_div_u64(holding, bob_shares, shares_total);
+        let uncapped_raw_sale = SubtensorModule::realizable_tao_for_alpha(netuid, raw_take);
+
+        assert!(
+            uncapped_raw_sale > bob_payout_before,
+            "test setup must expose the concavity premium: raw={uncapped_raw_sale}, nav-priced={bob_payout_before}"
+        );
+        assert_eq!(
+            SubtensorModule::get_basket_subnet_payout_tao(&hotkey, &bob, netuid),
+            bob_payout_before,
+            "subnet payout view must quote the same NAV-priced entitlement as claim"
+        );
+
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
+
+        let bob_received = root_stake_of(&hotkey, &bob);
+        assert!(
+            bob_received <= bob_payout_before,
+            "claim paid more than the depositor's NAV-priced entitlement: {bob_received} > {bob_payout_before}"
+        );
+
+        let alice_payout_after = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        assert!(
+            alice_payout_after.saturating_add(ROUNDING_EPS) >= alice_payout_before,
+            "earlier holder lost value across the deposit/claim cycle: before={alice_payout_before}, after={alice_payout_after}",
+        );
+    });
+}
+
 /// Input validation: nonexistent hotkey, a hotkey that exists but is not on root,
 /// dust amounts, and insufficient balance are rejected before any state changes.
 #[test]
