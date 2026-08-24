@@ -533,12 +533,13 @@ impl<T: Config> Pallet<T> {
 
     /// Claims (redeems) a staker's share of a validator's basket.
     ///
-    /// Redemption is fund-level and purely proportional: the staker's owed shares define a
-    /// fraction `f = owed / P` of the fund, and exactly that fraction of *every* holding is
-    /// redeemed — subnet alpha is sold to TAO (the staker bears slippage), the root-slot portion
-    /// is reassigned as root stake directly (no swap). Because every claim preserves the fund's
-    /// composition, claims and (future) validator-directed rebalancing never interfere. All
-    /// realized TAO is staked on root for the staker.
+    /// Redemption is fund-level and NAV-proportional: the staker's owed shares define a
+    /// fraction `f = owed / P` of the fund's full-liquidation NAV. Exactly that fraction of
+    /// every holding's alpha is removed and sold, but the claimant receives at most `f` of
+    /// that holding's pre-sale realizable value. A concave AMM curve makes selling `f` of a
+    /// holding realize more than `f` of the proceeds from selling the whole holding; that
+    /// surplus is retained in the fund's root (TAO cash) slot for the remaining shareholders.
+    /// The root-slot portion is reassigned directly because it is already TAO.
     ///
     /// Before redeeming, the fund's orphaned dust holdings (subnets outside the
     /// validator's current weight vector) are consolidated into its root slot (see
@@ -584,10 +585,20 @@ impl<T: Config> Pallet<T> {
         outcome.rows = holdings.len() as u32;
 
         // Dust check against the estimated payout (owed fraction of the marked NAV).
-        // Same valuation as `get_validator_basket_nav_tao`, reusing the holdings read.
-        let nav: u64 = holdings.iter().fold(0u64, |acc, (netuid, alpha)| {
-            acc.saturating_add(Self::realizable_tao_for_alpha(*netuid, alpha.to_u64()))
-        });
+        // Keep each slot's pre-sale value as well as the total: redemption caps every
+        // slot independently at the same NAV fraction. Without that cap, selling a raw
+        // alpha fraction on a concave AMM curve overpays the first redeemer and transfers
+        // the loss to the remaining shareholders.
+        let valued_holdings: Vec<(NetUid, AlphaBalance, u64)> = holdings
+            .into_iter()
+            .map(|(netuid, alpha)| {
+                let value = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
+                (netuid, alpha, value)
+            })
+            .collect();
+        let nav: u64 = valued_holdings
+            .iter()
+            .fold(0u64, |acc, (_, _, value)| acc.saturating_add(*value));
         let estimated_payout: u64 = Self::basket_payout_from(owed_shares, nav, shares_total);
         if !ignore_minimum_condition
             && I96F32::saturating_from_num(estimated_payout)
@@ -607,14 +618,12 @@ impl<T: Config> Pallet<T> {
         // shareholders (e.g. 99/100 of a 1-alpha position → floor 0, then the leftover
         // 1-share holder owns the whole unit). Same posture as the all-zero-take rollback
         // below — leave the watermark untouched. Worthless rows (realizable 0) are ignored.
-        for (netuid, slot_alpha) in holdings.iter() {
+        for (_, slot_alpha, slot_value) in valued_holdings.iter() {
             let alpha = slot_alpha.to_u64();
             if alpha == 0 {
                 continue;
             }
-            if Self::mul_div_u64(alpha, owed_shares, shares_total) == 0
-                && Self::realizable_tao_for_alpha(*netuid, alpha) > 0
-            {
+            if Self::mul_div_u64(alpha, owed_shares, shares_total) == 0 && *slot_value > 0 {
                 return Ok(outcome);
             }
         }
@@ -629,9 +638,10 @@ impl<T: Config> Pallet<T> {
             // a stake reassignment (no new TAO on root), while subnet sells realize new TAO that
             // must also be credited to the root reserves.
             let mut root_slot_tao: u64 = 0;
-            let mut swapped_tao: u64 = 0;
+            let mut claimant_swapped_tao: u64 = 0;
+            let mut retained_swapped_tao: u64 = 0;
 
-            for (netuid, slot_alpha) in holdings.iter() {
+            for (netuid, slot_alpha, slot_value) in valued_holdings.iter() {
                 // This staker's pro-rata slice of the holding: slot_alpha * owed / P.
                 let take: u64 = Self::mul_div_u64(slot_alpha.to_u64(), owed_shares, shares_total);
                 if take == 0 {
@@ -663,10 +673,27 @@ impl<T: Config> Pallet<T> {
                     *total = total.saturating_add(tao);
                 });
 
-                swapped_tao = swapped_tao.saturating_add(tao.to_u64());
+                // Shares are minted and quoted against full-liquidation NAV. Selling a raw
+                // alpha fraction on a concave AMM curve realizes more than the same NAV
+                // fraction, so pay only the priced entitlement and retain the surplus as
+                // fund cash. Otherwise a permissionless deposit followed by a claim can
+                // extract the difference from earlier holders.
+                let slot_entitlement =
+                    Self::basket_payout_from(owed_shares, *slot_value, shares_total);
+                let realized_tao = tao.to_u64();
+                // A final claimant has no remaining holders to retain a surplus for. Give
+                // them every realized rao so no root cash is stranded behind zero shares.
+                let claimant_tao = if owed_shares == shares_total {
+                    realized_tao
+                } else {
+                    realized_tao.min(slot_entitlement)
+                };
+                claimant_swapped_tao = claimant_swapped_tao.saturating_add(claimant_tao);
+                retained_swapped_tao =
+                    retained_swapped_tao.saturating_add(realized_tao.saturating_sub(claimant_tao));
             }
 
-            let total_tao: u64 = root_slot_tao.saturating_add(swapped_tao);
+            let total_tao: u64 = root_slot_tao.saturating_add(claimant_swapped_tao);
 
             // Nothing was actually realized (every per-holding take floored to zero, or the
             // swaps returned zero TAO). The marked estimate above can be positive while the raw
@@ -677,16 +704,31 @@ impl<T: Config> Pallet<T> {
                 return TransactionOutcome::Rollback(Ok(0));
             }
 
-            // Stake the redeemed TAO on root for the staker. Only the swapped portion is new TAO
-            // on root (the root-slot portion was already counted in the root reserves).
+            // The sale surplus still belongs to the fund. It already landed in the root
+            // subnet account, so represent it as escrow-owned root stake before burning the
+            // claimant's shares. Together, the remaining alpha and this cash retain the
+            // unclaimed fraction of the pre-sale liquidation NAV (modulo integer floors).
+            if retained_swapped_tao > 0 {
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    hotkey,
+                    &escrow,
+                    NetUid::ROOT,
+                    retained_swapped_tao.into(),
+                );
+            }
+
+            // Stake the redeemed TAO on root for the staker. Only sold TAO is new on root;
+            // the root-slot portion was already counted in the root reserves. Credit both
+            // the claimant payout and the surplus retained by the fund.
             Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                 hotkey,
                 coldkey,
                 NetUid::ROOT,
                 total_tao.into(),
             );
-            if swapped_tao > 0 {
-                Self::credit_root_reserves(swapped_tao.into());
+            let total_swapped_tao = claimant_swapped_tao.saturating_add(retained_swapped_tao);
+            if total_swapped_tao > 0 {
+                Self::credit_root_reserves(total_swapped_tao.into());
             }
 
             // Claimed root stake must start (or refresh) the unlock hold, same as a

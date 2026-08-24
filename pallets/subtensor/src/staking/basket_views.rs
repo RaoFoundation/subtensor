@@ -10,11 +10,12 @@ use subtensor_runtime_common::NetUidStorageIndex;
 use subtensor_swap_interface::{Order, SwapHandler};
 
 impl<T: Config> Pallet<T> {
-    /// Realizable TAO value of `alpha` on `netuid`: the slippage-aware quote a full redemption
-    /// would fetch right now (net of fees), not the marked spot value `price * amount`. On a
-    /// thin pool a tiny buy can push spot arbitrarily high, letting a marked NAV grow without
-    /// bound (and saturate to `u64::MAX`); the realizable quote is bounded by the pool's TAO
-    /// reserve, so NAV computed from it matches what the fund could actually pay out.
+    /// Realizable TAO value of `alpha` on `netuid`: the slippage-aware quote a full basket
+    /// redemption would fetch right now, using the same fee-free protocol swap as the
+    /// money-moving claim path, not the marked spot value `price * amount`. On a thin pool a
+    /// tiny buy can push spot arbitrarily high, letting a marked NAV grow without bound (and
+    /// saturate to `u64::MAX`); the realizable quote is bounded by the pool's TAO reserve, so
+    /// NAV computed from it matches what the fund could actually pay out.
     pub fn realizable_tao_for_alpha(netuid: NetUid, alpha: u64) -> u64 {
         if alpha == 0 {
             return 0;
@@ -30,9 +31,15 @@ impl<T: Config> Pallet<T> {
         #[cfg(test)]
         crate::tests::mock::inc_basket_quote_ops();
         let order = GetTaoForAlpha::<T>::with_amount(alpha);
-        T::SwapInterface::sim_swap(netuid.into(), order)
-            .map(|res| res.amount_paid_out.to_u64())
-            .unwrap_or(0)
+        T::SwapInterface::swap(
+            netuid.into(),
+            order,
+            T::SwapInterface::min_price::<TaoBalance>(),
+            true,
+            true,
+        )
+        .map(|res| res.amount_paid_out.to_u64())
+        .unwrap_or(0)
     }
 
     /// Single source of truth for redemption sizing: a staker's owed shares are worth
@@ -62,9 +69,9 @@ impl<T: Config> Pallet<T> {
         Self::basket_payout_from(owed_shares.min(shares_total), nav, shares_total)
     }
 
-    /// Current realizable TAO value of a staker's unclaimed share of one subnet holding in a
-    /// validator's basket. This is a read-only projection of the same pro-rata holding amount
-    /// that [`Self::root_claim_for_hotkey`] would redeem.
+    /// Current TAO entitlement of a staker's unclaimed share of one subnet holding in a
+    /// validator's basket. Claims sell the corresponding pro-rata alpha amount, but pay this
+    /// full-liquidation-NAV fraction and retain any larger concavity surplus in the fund.
     pub fn get_basket_subnet_payout_tao(
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
@@ -83,8 +90,8 @@ impl<T: Config> Pallet<T> {
         let escrow = Self::get_beta_escrow_account_id();
         let holding =
             Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, netuid).to_u64();
-        let redeemable_alpha = Self::mul_div_u64(holding, owed_shares, shares_total);
-        Self::realizable_tao_for_alpha(netuid, redeemable_alpha)
+        let slot_nav = Self::realizable_tao_for_alpha(netuid, holding);
+        Self::basket_payout_from(owed_shares, slot_nav, shares_total)
     }
 
     /// Total TAO a coldkey would realize by redeeming every beta basket it holds across all of
