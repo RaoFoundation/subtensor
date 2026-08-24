@@ -37,13 +37,15 @@ done
 
 rpc_response=$(mktemp)
 checkpoint_state=$(mktemp)
+curl_config=$(mktemp)
 raw_spec_updated=$(mktemp "${raw_spec}.XXXXXX")
 plain_spec_updated=$(mktemp "${plain_spec}.XXXXXX")
 cleanup() {
-  rm -f "$rpc_response" "$checkpoint_state" "$raw_spec_updated" \
+  rm -f "$rpc_response" "$checkpoint_state" "$curl_config" "$raw_spec_updated" \
     "$plain_spec_updated"
 }
 trap cleanup EXIT
+chmod 600 "$curl_config"
 
 curl_args=(
   --fail
@@ -60,10 +62,21 @@ if [[ -n "${WARP_SYNC_CHECKPOINT_RPC_USER:-}" || -n "${WARP_SYNC_CHECKPOINT_RPC_
     echo "Set both WARP_SYNC_CHECKPOINT_RPC_USER and WARP_SYNC_CHECKPOINT_RPC_PASSWORD for basic authentication" >&2
     exit 1
   fi
-  curl_args+=(--user "${WARP_SYNC_CHECKPOINT_RPC_USER}:${WARP_SYNC_CHECKPOINT_RPC_PASSWORD}")
+  # Keep credentials out of both curl's and helper processes' argument lists. `printf` is a Bash
+  # builtin; escape the characters curl's config parser treats specially before writing the
+  # mode-0600 file removed by the EXIT trap.
+  curl_credentials="${WARP_SYNC_CHECKPOINT_RPC_USER}:${WARP_SYNC_CHECKPOINT_RPC_PASSWORD}"
+  curl_credentials="${curl_credentials//\\/\\\\}"
+  curl_credentials="${curl_credentials//\"/\\\"}"
+  curl_credentials="${curl_credentials//$'\t'/\\t}"
+  curl_credentials="${curl_credentials//$'\n'/\\n}"
+  curl_credentials="${curl_credentials//$'\r'/\\r}"
+  curl_credentials="${curl_credentials//$'\v'/\\v}"
+  printf 'user = "%s"\n' "$curl_credentials" >"$curl_config"
+  unset curl_credentials WARP_SYNC_CHECKPOINT_RPC_USER WARP_SYNC_CHECKPOINT_RPC_PASSWORD
 fi
 
-curl "${curl_args[@]}" "$rpc_url" >"$rpc_response"
+curl --config "$curl_config" "${curl_args[@]}" "$rpc_url" >"$rpc_response"
 
 if jq -e '.error != null' "$rpc_response" >/dev/null; then
   jq -r '"grandpa_genWarpSyncSpec failed: " + (.error | tostring)' "$rpc_response" >&2
