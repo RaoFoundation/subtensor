@@ -259,9 +259,14 @@ impl ConsensusMechanism for BabeConsensus {
     ) -> Result<Vec<Methods>, sc_service::Error> {
         if let Some(ref babe_worker_handle) = self.babe_worker_handle {
             Ok(vec![
-                Babe::new(client, babe_worker_handle.clone(), keystore, select_chain)
-                    .into_rpc()
-                    .into(),
+                Babe::new(
+                    client.clone(),
+                    babe_worker_handle.clone(),
+                    keystore,
+                    select_chain,
+                )
+                .into_rpc()
+                .into(),
             ])
         } else {
             Err(sc_service::Error::Other(
