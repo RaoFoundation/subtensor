@@ -5,7 +5,8 @@
 # the old chain specs and insert them into the new chain specs to ensure there
 # are no genesis mismatch issues.
 
-# This script updates the chain spec files keeping the genesis unchanged.
+# This script updates the chain spec files while keeping genesis and trusted light-sync
+# checkpoints unchanged.
 
 set -e
 
@@ -20,16 +21,21 @@ save_genesis() {
   jq -r ".genesis" "$1" >"$2"
 }
 
+save_light_sync_state() {
+  jq ".lightSyncState" "$1" >"$2"
+}
+
 buildspec() {
   local chain="$1"
   shift
   ./target/debug/node-subtensor build-spec --chain "$chain" --disable-default-bootnode "$@"
 }
 
-# Update genesis in new chainspecs using the extracted genesis data from the
-# temporary files
-update_genesis() {
-  jq --slurpfile genesis "$1" '.genesis = $genesis[0]' "$2" >"$3"
+# Restore fields that are sourced from the live chain rather than the static config builders.
+restore_preserved_fields() {
+  jq --slurpfile genesis "$1" --slurpfile light_sync_state "$2" \
+    '.genesis = $genesis[0] | .lightSyncState = $light_sync_state[0]' \
+    "$3" >"$4"
 }
 
 update_spec() {
@@ -39,6 +45,8 @@ update_spec() {
 
   raw_genesis_temp=$(mktemp)
   plain_genesis_temp=$(mktemp)
+  raw_light_sync_state_temp=$(mktemp)
+  plain_light_sync_state_temp=$(mktemp)
   raw_spec_temp=$(mktemp)
   plain_spec_temp=$(mktemp)
 
@@ -46,6 +54,8 @@ update_spec() {
 
   save_genesis "$raw_path" "$raw_genesis_temp"
   save_genesis "$plain_path" "$plain_genesis_temp"
+  save_light_sync_state "$raw_path" "$raw_light_sync_state_temp"
+  save_light_sync_state "$plain_path" "$plain_light_sync_state_temp"
 
   echo "*** Building new chainspec for '$chain'..."
 
@@ -55,12 +65,15 @@ update_spec() {
 
   echo "*** Restoring genesis in '$chain'..."
 
-  update_genesis "$raw_genesis_temp" "$raw_spec_temp" "$raw_path"
-  update_genesis "$plain_genesis_temp" "$plain_spec_temp" "$plain_path"
+  restore_preserved_fields "$raw_genesis_temp" "$raw_light_sync_state_temp" \
+    "$raw_spec_temp" "$raw_path"
+  restore_preserved_fields "$plain_genesis_temp" "$plain_light_sync_state_temp" \
+    "$plain_spec_temp" "$plain_path"
 
   # cleanup
-  rm -f "$raw_genesis_temp" "$plain_genesis_temp" "$raw_spec_temp" \
-    "$plain_spec_temp"
+  rm -f "$raw_genesis_temp" "$plain_genesis_temp" \
+    "$raw_light_sync_state_temp" "$plain_light_sync_state_temp" \
+    "$raw_spec_temp" "$plain_spec_temp"
 }
 
 # SCRIPT

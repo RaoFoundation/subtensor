@@ -142,5 +142,11 @@ pub trait ConsensusMechanism {
         client: Arc<FullClient>,
         keystore: KeystorePtr,
         select_chain: FullSelectChain,
+        chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
+        grandpa_authority_set: sc_consensus_grandpa::SharedAuthoritySet<
+            <Block as sp_runtime::traits::Block>::Hash,
+            NumberFor<Block>,
+        >,
+        enable_sync_state_rpc: bool,
     ) -> Result<Vec<Methods>, sc_service::Error>;
 }

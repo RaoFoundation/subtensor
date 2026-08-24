@@ -291,6 +291,7 @@ fn start_babe_service(
             cli.sealing,
             None,
             skip_history_backfill,
+            cli.enable_sync_state_rpc,
         )
         .await
     }) {
@@ -346,6 +347,7 @@ fn start_aura_service(
             cli.sealing,
             Some(custom_service_signal_clone),
             skip_history_backfill,
+            cli.enable_sync_state_rpc,
         )
         .await
     }) {
