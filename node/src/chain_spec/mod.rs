@@ -36,7 +36,14 @@ pub struct Extensions {
 }
 
 /// A trusted GRANDPA authority checkpoint used to verify warp proofs.
-pub type GrandpaWarpSyncCheckpointExtension = Option<serde_json::Value>;
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GrandpaWarpSyncCheckpoint {
+    pub finalized_block_header: String,
+    pub grandpa_authority_set: String,
+}
+
+pub type GrandpaWarpSyncCheckpointExtension = Option<GrandpaWarpSyncCheckpoint>;
 
 /// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.
 pub type ChainSpec = sc_service::GenericChainSpec<Extensions>;

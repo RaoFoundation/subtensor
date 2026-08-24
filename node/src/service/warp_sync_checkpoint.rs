@@ -1,4 +1,4 @@
-use crate::chain_spec::GrandpaWarpSyncCheckpointExtension;
+use crate::chain_spec::{GrandpaWarpSyncCheckpoint, GrandpaWarpSyncCheckpointExtension};
 use crate::client::FullClient;
 use jsonrpsee::RpcModule;
 use jsonrpsee::types::ErrorObjectOwned;
@@ -40,19 +40,19 @@ pub(super) fn trusted_checkpoint(
     }))
 }
 
-struct SyncStateRpcContext {
+struct WarpSyncCheckpointRpcContext {
     chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
     client: Arc<FullClient>,
     authority_set: SharedAuthoritySet<sp_core::H256, u32>,
 }
 
-/// Expose an Aura/BABE-independent generator for a historical GRANDPA signing checkpoint.
+/// Expose a GRANDPA-only generator for a historical signing checkpoint.
 pub(super) fn rpc_methods(
     chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
     client: Arc<FullClient>,
     authority_set: SharedAuthoritySet<sp_core::H256, u32>,
 ) -> Result<jsonrpsee::Methods, ServiceError> {
-    let mut module = RpcModule::new(SyncStateRpcContext {
+    let mut module = RpcModule::new(WarpSyncCheckpointRpcContext {
         chain_spec,
         client,
         authority_set,
@@ -60,14 +60,14 @@ pub(super) fn rpc_methods(
     module
         .register_method("grandpa_genWarpSyncSpec", |params, context, _| {
             let raw = params.one::<bool>()?;
-            generate_sync_spec(context, raw).map_err(internal_rpc_error)
+            generate_warp_sync_spec(context, raw).map_err(internal_rpc_error)
         })
         .map_err(|error| ServiceError::Other(error.to_string()))?;
     Ok(module.into())
 }
 
-fn generate_sync_spec(
-    context: &SyncStateRpcContext,
+fn generate_warp_sync_spec(
+    context: &WarpSyncCheckpointRpcContext,
     raw: bool,
 ) -> Result<serde_json::Value, ServiceError> {
     let changes = authority_change_records(&context.authority_set.authority_set_changes())?;
@@ -131,13 +131,10 @@ fn generate_sync_spec(
     .ok_or_else(|| {
         ServiceError::Other("chain spec has no grandpaWarpSyncCheckpoint extension".into())
     })?;
-    *checkpoint = Some(serde_json::json!({
-        FINALIZED_BLOCK_HEADER: format!("0x{}", hex::encode(header.encode())),
-        GRANDPA_AUTHORITY_SET: format!(
-            "0x{}",
-            hex::encode((set_id, authorities).encode()),
-        ),
-    }));
+    *checkpoint = Some(GrandpaWarpSyncCheckpoint {
+        finalized_block_header: format!("0x{}", hex::encode(header.encode())),
+        grandpa_authority_set: format!("0x{}", hex::encode((set_id, authorities).encode())),
+    });
 
     let json = chain_spec
         .as_json(raw)
@@ -156,16 +153,9 @@ fn authority_change_records(
 }
 
 fn decode_authority_set(
-    checkpoint: &serde_json::Value,
+    checkpoint: &GrandpaWarpSyncCheckpoint,
 ) -> Result<(SetId, AuthorityList), ServiceError> {
-    let encoded = checkpoint
-        .get(GRANDPA_AUTHORITY_SET)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| {
-            ServiceError::Other(format!(
-                "grandpaWarpSyncCheckpoint.{GRANDPA_AUTHORITY_SET} must be a SCALE-encoded hex string"
-            ))
-        })?;
+    let encoded = &checkpoint.grandpa_authority_set;
     let encoded = encoded.strip_prefix("0x").ok_or_else(|| {
         ServiceError::Other(format!(
             "grandpaWarpSyncCheckpoint.{GRANDPA_AUTHORITY_SET} must start with 0x"
@@ -197,15 +187,8 @@ fn internal_rpc_error(error: ServiceError) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(-32603, error.to_string(), None::<()>)
 }
 
-fn decode_finalized_header(checkpoint: &serde_json::Value) -> Result<Header, ServiceError> {
-    let encoded_header = checkpoint
-        .get(FINALIZED_BLOCK_HEADER)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| {
-            ServiceError::Other(format!(
-                "grandpaWarpSyncCheckpoint.{FINALIZED_BLOCK_HEADER} must be a SCALE-encoded hex string"
-            ))
-        })?;
+fn decode_finalized_header(checkpoint: &GrandpaWarpSyncCheckpoint) -> Result<Header, ServiceError> {
+    let encoded_header = &checkpoint.finalized_block_header;
     let encoded_header = encoded_header.strip_prefix("0x").ok_or_else(|| {
         ServiceError::Other(format!(
             "grandpaWarpSyncCheckpoint.{FINALIZED_BLOCK_HEADER} must start with 0x"
@@ -239,9 +222,10 @@ mod tests {
             H256::repeat_byte(3),
             Default::default(),
         );
-        let state = serde_json::json!({
-            FINALIZED_BLOCK_HEADER: format!("0x{}", hex::encode(header.encode())),
-        });
+        let state = GrandpaWarpSyncCheckpoint {
+            finalized_block_header: format!("0x{}", hex::encode(header.encode())),
+            grandpa_authority_set: "0x".into(),
+        };
 
         assert_eq!(decode_finalized_header(&state).unwrap(), header);
     }
@@ -252,12 +236,13 @@ mod tests {
             sp_consensus_grandpa::AuthorityId::from(sp_core::ed25519::Public::from_raw([7; 32])),
             1,
         )];
-        let state = serde_json::json!({
-            GRANDPA_AUTHORITY_SET: format!(
+        let state = GrandpaWarpSyncCheckpoint {
+            finalized_block_header: "0x".into(),
+            grandpa_authority_set: format!(
                 "0x{}",
                 hex::encode((6_u64, authorities.clone()).encode()),
             ),
-        });
+        };
 
         assert_eq!(decode_authority_set(&state).unwrap(), (6, authorities));
     }
@@ -291,19 +276,31 @@ mod tests {
 
     #[test]
     fn rejects_missing_checkpoint_fields() {
-        let error = decode_finalized_header(&serde_json::json!({})).unwrap_err();
+        let error = serde_json::from_value::<GrandpaWarpSyncCheckpoint>(serde_json::json!({
+            GRANDPA_AUTHORITY_SET: "0x"
+        }))
+        .unwrap_err();
         assert!(error.to_string().contains(FINALIZED_BLOCK_HEADER));
 
-        let error = decode_authority_set(&serde_json::json!({})).unwrap_err();
+        let error = serde_json::from_value::<GrandpaWarpSyncCheckpoint>(serde_json::json!({
+            FINALIZED_BLOCK_HEADER: "0x"
+        }))
+        .unwrap_err();
         assert!(error.to_string().contains(GRANDPA_AUTHORITY_SET));
     }
 
     #[test]
     fn rejects_non_hex_header() {
-        let state = serde_json::json!({ FINALIZED_BLOCK_HEADER: "not-hex" });
+        let state = GrandpaWarpSyncCheckpoint {
+            finalized_block_header: "not-hex".into(),
+            grandpa_authority_set: "0x".into(),
+        };
         assert!(decode_finalized_header(&state).is_err());
 
-        let state = serde_json::json!({ FINALIZED_BLOCK_HEADER: "0xzz" });
+        let state = GrandpaWarpSyncCheckpoint {
+            finalized_block_header: "0xzz".into(),
+            grandpa_authority_set: "0x".into(),
+        };
         assert!(decode_finalized_header(&state).is_err());
     }
 
@@ -318,17 +315,19 @@ mod tests {
         );
         let mut encoded = header.encode();
         encoded.push(0);
-        let state = serde_json::json!({
-            FINALIZED_BLOCK_HEADER: format!("0x{}", hex::encode(encoded)),
-        });
+        let state = GrandpaWarpSyncCheckpoint {
+            finalized_block_header: format!("0x{}", hex::encode(encoded)),
+            grandpa_authority_set: "0x".into(),
+        };
 
         assert!(decode_finalized_header(&state).is_err());
 
         let mut encoded_authorities = (6_u64, AuthorityList::new()).encode();
         encoded_authorities.push(0);
-        let state = serde_json::json!({
-            GRANDPA_AUTHORITY_SET: format!("0x{}", hex::encode(encoded_authorities)),
-        });
+        let state = GrandpaWarpSyncCheckpoint {
+            finalized_block_header: "0x".into(),
+            grandpa_authority_set: format!("0x{}", hex::encode(encoded_authorities)),
+        };
         assert!(decode_authority_set(&state).is_err());
     }
 
