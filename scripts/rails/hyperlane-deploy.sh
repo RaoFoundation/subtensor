@@ -17,11 +17,23 @@ for chain in "$BT_CHAIN_NAME" "$BASE_CHAIN_NAME"; do
         "$RAILS_REGISTRY_DIR/chains/$chain/metadata.yaml"
 done
 
+rpc_for_chain() { # chain -> rpc url
+    if [ "$1" = "$BT_CHAIN_NAME" ]; then echo "$BT_RPC_HTTP"; else echo "$BASE_RPC_HTTP"; fi
+}
+
 for chain in "$BT_CHAIN_NAME" "$BASE_CHAIN_NAME"; do
     addresses="$RAILS_REGISTRY_DIR/chains/$chain/addresses.yaml"
     if [ -f "$addresses" ] && grep -q mailbox "$addresses"; then
-        echo "[rails] hyperlane core already deployed on $chain"
-        continue
+        # The registry survives chain restarts; trust it only if the mailbox
+        # actually has code on the (possibly fresh-from-genesis) chain.
+        mailbox="$(awk '$1 == "mailbox:" { print $2; exit }' "$addresses" | tr -d '"')"
+        if [ -n "$mailbox" ] && \
+            [ "$(cast code "$mailbox" --rpc-url "$(rpc_for_chain "$chain")")" != "0x" ]; then
+            echo "[rails] hyperlane core already deployed on $chain"
+            continue
+        fi
+        echo "[rails] registry has $chain addresses but chain has no code; redeploying ..."
+        rm -f "$addresses"
     fi
     echo "[rails] deploying hyperlane core to $chain ..."
     $HL core deploy \

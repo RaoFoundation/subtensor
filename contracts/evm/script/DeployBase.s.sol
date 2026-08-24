@@ -18,40 +18,71 @@ import {RailsPortal} from "../src/RailsPortal.sol";
 contract DeployBase is Script {
     function run() external {
         address owner = vm.envAddress("RAILS_OWNER");
-        address mailbox = vm.envAddress("RAILS_MAILBOX");
-        uint32 hubDomain = uint32(vm.envUint("RAILS_HUB_DOMAIN"));
-        address gateway = vm.envAddress("RAILS_GATEWAY");
-        uint32 usdAssetId = uint32(vm.envOr("RAILS_USD_ASSET_ID", uint256(0)));
         bytes32 salt = keccak256(bytes(vm.envOr("RAILS_SALT", string("rails-local-v1"))));
-        string memory tokens = vm.envOr("RAILS_TOKENS", string("Chutes|CHUTES"));
 
         vm.startBroadcast();
-        MockUSDC usdc = new MockUSDC{salt: salt}();
-        RailsPortal portal = new RailsPortal{salt: salt}(
-            owner,
-            address(usdc),
-            mailbox,
-            hubDomain,
-            usdAssetId,
-            bytes32(uint256(uint160(gateway)))
-        );
+        // Skip creation when code already sits at the CREATE2 address, so a
+        // re-run against a live chain re-wires instead of reverting with a
+        // create collision.
+        address usdc = vm.computeCreate2Address(salt, keccak256(type(MockUSDC).creationCode));
+        if (usdc.code.length == 0) {
+            usdc = address(new MockUSDC{salt: salt}());
+        }
 
         // Consumed by the rig manifest writer.
-        console2.log("MOCK_USDC", address(usdc));
-        console2.log("PORTAL", address(portal));
+        console2.log("MOCK_USDC", usdc);
+        console2.log("PORTAL", deployPortal(salt, owner, usdc));
 
         // One share token per "Name|SYMBOL" entry; the salt folds in the
         // symbol so every token gets a stable CREATE2 address.
-        string[] memory entries = split(tokens, ",");
+        string[] memory entries = split(vm.envOr("RAILS_TOKENS", string("Chutes|CHUTES")), ",");
         for (uint256 i = 0; i < entries.length; i++) {
             string[] memory parts = split(entries[i], "|");
             require(parts.length == 2, "bad RAILS_TOKENS entry");
-            Chutes token = new Chutes{salt: keccak256(abi.encodePacked(salt, parts[1]))}(
-                owner, parts[0], parts[1]
+            console2.log(
+                string.concat("TOKEN_", vm.toString(i)),
+                deployToken(salt, owner, parts[0], parts[1])
             );
-            console2.log(string.concat("TOKEN_", vm.toString(i)), address(token));
         }
         vm.stopBroadcast();
+    }
+
+    function deployPortal(bytes32 salt, address owner, address usdc)
+        internal
+        returns (address portal)
+    {
+        address mailbox = vm.envAddress("RAILS_MAILBOX");
+        uint32 hubDomain = uint32(vm.envUint("RAILS_HUB_DOMAIN"));
+        uint32 usdAssetId = uint32(vm.envOr("RAILS_USD_ASSET_ID", uint256(0)));
+        bytes32 gateway32 = bytes32(uint256(uint160(vm.envAddress("RAILS_GATEWAY"))));
+        portal = vm.computeCreate2Address(
+            salt,
+            keccak256(
+                abi.encodePacked(
+                    type(RailsPortal).creationCode,
+                    abi.encode(owner, usdc, mailbox, hubDomain, usdAssetId, gateway32)
+                )
+            )
+        );
+        if (portal.code.length == 0) {
+            portal = address(
+                new RailsPortal{salt: salt}(owner, usdc, mailbox, hubDomain, usdAssetId, gateway32)
+            );
+        }
+    }
+
+    function deployToken(bytes32 salt, address owner, string memory name, string memory symbol)
+        internal
+        returns (address token)
+    {
+        bytes32 tokenSalt = keccak256(abi.encodePacked(salt, symbol));
+        token = vm.computeCreate2Address(
+            tokenSalt,
+            keccak256(abi.encodePacked(type(Chutes).creationCode, abi.encode(owner, name, symbol)))
+        );
+        if (token.code.length == 0) {
+            token = address(new Chutes{salt: tokenSalt}(owner, name, symbol));
+        }
     }
 
     function split(string memory input, string memory sep)

@@ -41,6 +41,10 @@ VALIDATOR_ADDR="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 RELAYER_PK="0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a"
 RELAYER_ADDR="0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
 
+# CREATE2 salt for all rails contracts. Bump the suffix to force a full set
+# of fresh contract addresses on the next deploy.
+export RAILS_SALT="rails-local-v2"
+
 # The USD rails precompile address (2068 = 0x814). The precompile itself is
 # the PSM escrow: it holds the canonical USD ERC-20 reserves and moves them
 # via EVM subcalls (msg.sender = 0x814).

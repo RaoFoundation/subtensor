@@ -17,14 +17,38 @@ contract DeployBittensor is Script {
         bytes32 salt = keccak256(bytes(vm.envOr("RAILS_SALT", string("rails-local-v1"))));
 
         vm.startBroadcast();
-        CanonicalShareToken canonicalUsd =
-            new CanonicalShareToken{salt: salt}("Canonical USD", "cUSD", owner);
-        Gateway gateway =
-            new Gateway{salt: salt}(owner, mailbox, address(canonicalUsd), psmEscrow);
+        // Skip creation when code already sits at the CREATE2 address, so a
+        // re-run against a live chain re-wires instead of reverting with a
+        // create collision.
+        address canonicalUsd = vm.computeCreate2Address(
+            salt,
+            keccak256(
+                abi.encodePacked(
+                    type(CanonicalShareToken).creationCode,
+                    abi.encode("Canonical USD", "cUSD", owner)
+                )
+            )
+        );
+        if (canonicalUsd.code.length == 0) {
+            canonicalUsd =
+                address(new CanonicalShareToken{salt: salt}("Canonical USD", "cUSD", owner));
+        }
+        address gateway = vm.computeCreate2Address(
+            salt,
+            keccak256(
+                abi.encodePacked(
+                    type(Gateway).creationCode,
+                    abi.encode(owner, mailbox, canonicalUsd, psmEscrow)
+                )
+            )
+        );
+        if (gateway.code.length == 0) {
+            gateway = address(new Gateway{salt: salt}(owner, mailbox, canonicalUsd, psmEscrow));
+        }
         vm.stopBroadcast();
 
         // Consumed by the rig manifest writer.
-        console2.log("CANONICAL_USD", address(canonicalUsd));
-        console2.log("GATEWAY", address(gateway));
+        console2.log("CANONICAL_USD", canonicalUsd);
+        console2.log("GATEWAY", gateway);
     }
 }

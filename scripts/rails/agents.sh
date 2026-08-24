@@ -64,9 +64,29 @@ start_relayer() {
     echo "[rails] started rails-relayer"
 }
 
+# Validator databases and signed checkpoints are only valid for the mailboxes
+# they were built against. When a redeploy changes the mailboxes, stale state
+# makes validators fail with "Incorrect tree root", so wipe it.
+reset_stale_state() {
+    local fingerprint_file="$RAILS_STATE_DIR/agents.fingerprint"
+    local fingerprint
+    fingerprint="$(jq -r '[.chains[].mailbox] | sort | join(",")' \
+        "$RAILS_AGENT_DIR/agent-config.docker.json")"
+    if [ -f "$fingerprint_file" ] && [ "$(cat "$fingerprint_file")" = "$fingerprint" ]; then
+        return 0
+    fi
+    echo "[rails] mailbox set changed; wiping agent databases and checkpoints"
+    rm -rf "$RAILS_CHECKPOINT_DIR" "$RAILS_STATE_DIR/relayer-db" \
+        "$RAILS_STATE_DIR/validator-db-$BT_CHAIN_NAME" \
+        "$RAILS_STATE_DIR/validator-db-$BASE_CHAIN_NAME"
+    mkdir -p "$RAILS_STATE_DIR"
+    echo "$fingerprint" >"$fingerprint_file"
+}
+
 case "$CMD" in
     start)
         stop_all
+        reset_stale_state
         start_validator "$BT_CHAIN_NAME"
         start_validator "$BASE_CHAIN_NAME"
         start_relayer
