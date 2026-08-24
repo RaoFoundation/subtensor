@@ -249,12 +249,19 @@ mod tests {
         };
 
         assert_eq!(value.as_object().map(|object| object.len()), Some(3));
-        assert_eq!(value["chainSpecId"], serde_json::json!("bittensor"));
         assert_eq!(
-            value["genesisHash"],
-            serde_json::json!(H256::repeat_byte(4)),
+            value.get("chainSpecId"),
+            Some(&serde_json::json!("bittensor")),
         );
-        assert!(value["grandpaWarpSyncCheckpoint"].is_object());
+        assert_eq!(
+            value.get("genesisHash"),
+            Some(&serde_json::json!(H256::repeat_byte(4))),
+        );
+        assert!(
+            value
+                .get("grandpaWarpSyncCheckpoint")
+                .is_some_and(serde_json::Value::is_object)
+        );
     }
 
     #[test]
