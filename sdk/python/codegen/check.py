@@ -262,6 +262,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_recycle_or_burn",
         # Root Reborn launch gate for set_root_weights — root-only governance toggle
         "sudo_set_root_weight_setting_enabled",
+        # root basket concentration cap (v449) — root-only, no semantic wrapper
+        "sudo_set_root_weights_cap",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",

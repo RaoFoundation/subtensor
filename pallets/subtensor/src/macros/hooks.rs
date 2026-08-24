@@ -198,6 +198,9 @@ mod hooks {
                 .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>())
                 // Floor root basket curation at MIN_ROOT_BASKET_WEIGHTS destinations.
                 .saturating_add(migrations::migrate_set_root_min_allowed_weights::migrate_set_root_min_allowed_weights::<T>())
+                // Open root basket curation: enable set_root_weights and pin the
+                // concentration cap at 1/16 (>= 16 destinations per basket).
+                .saturating_add(migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<T>())
                 // Kill the stale quantile-derived emission gate bar so the
                 // rank-32 bar (DefaultEmissionBarRank) applies from the first
                 // recompute after the upgrade instead of the next cadence boundary.

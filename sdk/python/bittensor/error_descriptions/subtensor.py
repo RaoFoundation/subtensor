@@ -643,11 +643,20 @@ DESCRIPTIONS: dict[str, str] = {
         "only happens on misconfigured or freshly bootstrapped chains. Verify netuid 0 exists "
         "in `NetworksAdded`."
     ),
+    "RootWeightCapExceeded": (
+        "One destination in the `set_root_weights` vector takes a larger share of the basket "
+        "than the `RootWeightsCap` hyperparameter allows (share = weight / sum of weights; "
+        "the cap is u16-normalized, so 4096 means 1/16). Spread the vector across more "
+        "destinations — at the launch cap of 1/16 a basket needs at least 16 — or lower the "
+        "largest entries. Query `RootWeightsCap[0]` for the live cap. Not enforced while "
+        "the chain has fewer subnets than the cap demands."
+    ),
     "RootWeightSettingDisabled": (
-        "`set_root_weights` is disabled network-wide: Root Reborn launched gated, so every "
-        "fund runs the null strategy (dividends accumulate in place on their origin subnet) "
-        "until weight setting is switched on by governance or a later upgrade. No action "
-        "available — wait for the enable; dividends keep accruing meanwhile."
+        "`set_root_weights` is disabled network-wide (`RootWeightSettingEnabled` is false). "
+        "Root Reborn launched gated and runtime 449 opened the gate, so on current mainnet "
+        "this only appears if governance has switched weight setting back off. Funds then "
+        "run the null strategy (dividends accumulate in place on their origin subnet) until "
+        "it is re-enabled; dividends keep accruing meanwhile."
     ),
     "RootStakeLocked": (
         "A root (netuid 0) exit was attempted before `RootStakeUnlockInterval` blocks "

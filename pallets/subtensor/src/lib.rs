@@ -82,6 +82,11 @@ pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 /// to the number of available destinations when fewer networks exist than this floor.
 pub const MIN_ROOT_BASKET_WEIGHTS: u16 = 8;
 
+/// Default [`RootWeightsCap`]: the largest u16-normalized share of a root basket vector a
+/// single destination may take. `u16::MAX / 16 + 1` (= 4096) is the smallest cap that
+/// admits a 16-way equal split, so a fund must curate at least 16 destinations.
+pub const DEFAULT_ROOT_WEIGHTS_CAP: u16 = u16::MAX / 16 + 1;
+
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
     for SubtensorDustRemoval<T>
@@ -2844,6 +2849,24 @@ pub mod pallet {
     /// all read paths are unaffected.
     #[pallet::storage]
     pub type RootWeightSettingEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    #[pallet::type_value]
+    /// Default share cap for a single root basket destination: 1/16 of the vector
+    /// (u16-normalized; 4096/65535 admits exactly 16 equal-weight destinations).
+    pub fn DefaultRootWeightsCap<T: Config>() -> u16 {
+        crate::DEFAULT_ROOT_WEIGHTS_CAP
+    }
+
+    #[pallet::storage] // --- MAP ( netuid ) --> Max share one destination may take of a root basket.
+    /// Concentration cap on `set_root_weights` vectors, u16-normalized (`u16::MAX` = 100%
+    /// of the vector's summed weight). A cap of 1/16 forces a fund to spread across at
+    /// least 16 destinations, so basket curation cannot recreate single-subnet
+    /// concentration. Like [`RootClaimableThreshold`], only the `NetUid::ROOT` entry is
+    /// consulted; other entries are inert. Skipped at check time while fewer destinations
+    /// exist than the cap demands (young chains, tests). Set via
+    /// `AdminUtils::sudo_set_root_weights_cap`.
+    pub type RootWeightsCap<T: Config> =
+        StorageMap<_, Blake2_128Concat, NetUid, u16, ValueQuery, DefaultRootWeightsCap<T>>;
 
     #[pallet::storage] // --- MAP(netuid ) --> Root claim threshold
     /// Basket redemption is fund-level (not per-subnet), so only the `NetUid::ROOT` entry is

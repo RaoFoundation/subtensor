@@ -22,7 +22,7 @@ origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1279-L1297), [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1365-L1381), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1513-L1533), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1281-L1299), [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1367-L1383), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1515-L1535), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -87,9 +87,9 @@ result = sub.execute_tool("move_swap_stake", {...}, wallet)
 
 | Chain call | Source |
 | --- | --- |
-| `SubtensorModule.move_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L1281`](/code/pallets/subtensor/src/macros/dispatches.rs#L1279-L1297) |
-| `SubtensorModule.swap_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L1367`](/code/pallets/subtensor/src/macros/dispatches.rs#L1365-L1381) |
-| `SubtensorModule.swap_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1515`](/code/pallets/subtensor/src/macros/dispatches.rs#L1513-L1533) |
+| `SubtensorModule.move_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L1283`](/code/pallets/subtensor/src/macros/dispatches.rs#L1281-L1299) |
+| `SubtensorModule.swap_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L1369`](/code/pallets/subtensor/src/macros/dispatches.rs#L1367-L1383) |
+| `SubtensorModule.swap_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1517`](/code/pallets/subtensor/src/macros/dispatches.rs#L1515-L1535) |
 | `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

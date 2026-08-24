@@ -1711,6 +1711,111 @@ fn test_set_root_weights_accepts_root_destination() {
     });
 }
 
+/// With enough destinations on chain, no single entry may take a larger share of the
+/// vector than `RootWeightsCap` (default 1/16): concentrated vectors are rejected and
+/// an equal spread is accepted.
+#[test]
+fn test_set_root_weights_enforces_concentration_cap() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+
+        // 15 subnets + root = 16 destinations: exactly what the default 1/16 cap
+        // demands, so the check is live.
+        let mut dests: Vec<u16> = vec![u16::from(NetUid::ROOT)];
+        for i in 0..15u64 {
+            let hk = U256::from(2000u64.saturating_add(i));
+            let ck = U256::from(3000u64.saturating_add(i));
+            dests.push(u16::from(add_dynamic_network(&hk, &ck)));
+        }
+
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
+        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        enable_root_weight_setting();
+        SubtensorModule::set_weights_set_rate_limit(NetUid::ROOT, 0);
+
+        assert_eq!(SubtensorModule::get_all_subnet_netuids().len(), 16);
+        assert_eq!(
+            crate::RootWeightsCap::<Test>::get(NetUid::ROOT),
+            crate::DEFAULT_ROOT_WEIGHTS_CAP
+        );
+
+        // One destination at double everyone else's weight takes 200/1700 > 1/16.
+        let mut concentrated = vec![100u16; dests.len()];
+        if let Some(first) = concentrated.first_mut() {
+            *first = 200;
+        }
+        assert_noop!(
+            SubtensorModule::set_root_weights(
+                RuntimeOrigin::signed(hotkey),
+                dests.clone(),
+                concentrated,
+            ),
+            Error::<Test>::RootWeightCapExceeded
+        );
+
+        // An equal 16-way split sits exactly at the cap and passes.
+        assert_ok!(SubtensorModule::set_root_weights(
+            RuntimeOrigin::signed(hotkey),
+            dests.clone(),
+            vec![100u16; dests.len()],
+        ));
+
+        // Governance can relax the cap: at 100% the same concentrated vector passes.
+        crate::RootWeightsCap::<Test>::insert(NetUid::ROOT, u16::MAX);
+        let mut concentrated = vec![100u16; dests.len()];
+        if let Some(first) = concentrated.first_mut() {
+            *first = u16::MAX;
+        }
+        assert_ok!(SubtensorModule::set_root_weights(
+            RuntimeOrigin::signed(hotkey),
+            dests,
+            concentrated,
+        ));
+    });
+}
+
+/// While the chain has fewer destinations than the cap demands (here 2 < 16), the
+/// concentration check is skipped entirely — mirroring the diversity-floor softening —
+/// so young chains and tests can still set skewed vectors.
+#[test]
+fn test_set_root_weights_cap_skipped_below_required_destinations() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
+        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        enable_root_weight_setting();
+
+        // Maximally concentrated (a dust root slot plus everything on one subnet), yet
+        // accepted: only 2 destinations exist, far below the 16 the default cap demands.
+        assert_ok!(SubtensorModule::set_root_weights(
+            RuntimeOrigin::signed(hotkey),
+            vec![u16::from(NetUid::ROOT), u16::from(netuid)],
+            vec![1, u16::MAX],
+        ));
+    });
+}
+
 // =============================================================================
 // Claims 1-4: the staker-facing guarantees, proven directly.
 // =============================================================================

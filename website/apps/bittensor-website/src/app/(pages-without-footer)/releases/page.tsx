@@ -25,6 +25,16 @@ const releases: Release[] = [
   {
     tag: 'next',
     date: 'August 2026',
+    title: 'Root Weights Open',
+    summary:
+      'V449 enables set_root_weights network-wide: root validators can now curate their ' +
+      'dividend baskets, bounded by a new 1/16 concentration cap that keeps every basket ' +
+      'spread across at least 16 destinations.',
+    href: '/releases/v449-upgrade',
+  },
+  {
+    tag: 'v448',
+    date: 'August 2026',
     title: 'Root Claims, Safer Staking, and Linked Orders',
     summary:
       'V448 makes root claims predictable, protects cross-subnet stake moves, adds bulk ' +

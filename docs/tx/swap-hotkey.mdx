@@ -23,7 +23,7 @@ instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L858-L871) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L860-L873) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("swap_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L864`](/code/pallets/subtensor/src/macros/dispatches.rs#L858-L871):
+`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L866`](/code/pallets/subtensor/src/macros/dispatches.rs#L860-L873):
 
 ```rust
 #[pallet::call_index(70)]

@@ -141,6 +141,13 @@ pub mod pallet {
             /// Whether validators can now set root basket weights.
             enabled: bool,
         },
+
+        /// The root basket concentration cap (`RootWeightsCap`) was set.
+        RootWeightsCapSet {
+            /// Max u16-normalized share of a basket vector one destination may take
+            /// (`u16::MAX` = 100%).
+            cap: u16,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2476,6 +2483,22 @@ pub mod pallet {
             pallet_subtensor::RootWeightSettingEnabled::<T>::put(enabled);
             Self::deposit_event(Event::RootWeightSettingToggled { enabled });
             log::debug!("RootWeightSettingToggled( enabled: {enabled:?} )");
+            Ok(())
+        }
+
+        /// Sets the root basket concentration cap ([`pallet_subtensor::RootWeightsCap`]):
+        /// the largest u16-normalized share (`u16::MAX` = 100%) any single destination may
+        /// take of a `set_root_weights` vector. A cap of `u16::MAX / 16 + 1` forces funds
+        /// to spread across at least 16 destinations. The check softens to an equal split
+        /// when fewer destinations exist on chain. Root-only.
+        #[pallet::call_index(105)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_commit_reveal_weights_enabled())]
+        pub fn sudo_set_root_weights_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(cap > 0, Error::<T>::ValueNotInBounds);
+            pallet_subtensor::RootWeightsCap::<T>::insert(NetUid::ROOT, cap);
+            Self::deposit_event(Event::RootWeightsCapSet { cap });
+            log::debug!("RootWeightsCapSet( cap: {cap:?} )");
             Ok(())
         }
 

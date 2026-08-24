@@ -24,6 +24,7 @@ pub mod migrate_delete_subnet_21;
 pub mod migrate_delete_subnet_3;
 pub mod migrate_disable_commit_reveal;
 pub mod migrate_dynamic_tempo;
+pub mod migrate_enable_root_weight_setting;
 pub mod migrate_fix_bad_hk_swap;
 pub mod migrate_fix_childkeys;
 pub mod migrate_fix_is_network_member;

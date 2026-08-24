@@ -22,7 +22,7 @@ changes. Pass `all` to move the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1279-L1297), [`SubtensorModule.move_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1542-L1564) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1281-L1299), [`SubtensorModule.move_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1544-L1566) |
 
 ## Parameters
 
@@ -85,7 +85,7 @@ result = sub.execute_tool("move_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1281`](/code/pallets/subtensor/src/macros/dispatches.rs#L1279-L1297):
+`SubtensorModule.move_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1283`](/code/pallets/subtensor/src/macros/dispatches.rs#L1281-L1299):
 
 ```rust
 #[pallet::call_index(85)]
@@ -111,7 +111,7 @@ pub fn move_stake(
 
 Delegates to [`do_move_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L30).
 
-`SubtensorModule.move_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1544`](/code/pallets/subtensor/src/macros/dispatches.rs#L1542-L1564):
+`SubtensorModule.move_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1546`](/code/pallets/subtensor/src/macros/dispatches.rs#L1544-L1566):
 
 ```rust
 #[pallet::call_index(149)]
