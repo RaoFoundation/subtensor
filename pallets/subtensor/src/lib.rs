@@ -71,12 +71,10 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Benchmark upper bound and admission envelope for `claim_root` /
-/// `claim_root_scan` (Linear<1, N>). Weight calculation cannot walk storage,
-/// so both claim paths reserve this many units and refuse work that would
-/// exceed the envelope. Post-dispatch weight is refunded to the work
-/// actually performed.
-pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+/// Benchmark upper bound for `claim_root` / `claim_root_scan` (`Linear<1, N>`).
+/// Every network admits this envelope. Post-dispatch weight is refunded to the
+/// work actually performed.
+pub const MAX_ROOT_CLAIM_WORK: u32 = 1_000;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
 /// to the number of available destinations when fewer networks exist than this floor.

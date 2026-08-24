@@ -749,11 +749,22 @@ impl<T: Config> Pallet<T> {
         (Self::get_all_subnet_netuids().len() as u32).max(1)
     }
 
-    /// Pre-dispatch work units for both claim paths. Weight calculation must
-    /// stay storage-independent (no `NetworksAdded` or basket walks here);
-    /// execution then refuses work that would exceed this envelope.
+    /// Pre-dispatch work units for both claim paths. Weight calculation stays
+    /// storage-independent (no `NetworksAdded` or basket walks here); execution
+    /// then refuses work that would exceed this envelope.
     pub(crate) fn root_claim_declared_work() -> u32 {
         crate::MAX_ROOT_CLAIM_WORK
+    }
+
+    /// Conservative pre-dispatch claim weight for both independently bounded dimensions.
+    pub(crate) fn root_claim_declared_weight() -> Weight {
+        let limit = Self::root_claim_declared_work();
+        <T as crate::pallet::Config>::WeightInfo::claim_root(limit)
+            // A valid request can contain `limit` empty hotkeys and independently scan
+            // `limit` holdings, so reserve both bounded dimensions.
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                limit,
+            ))
     }
 
     /// True when a coldkey-wide claim's reachable work (hotkeys × existing
@@ -780,8 +791,8 @@ impl<T: Config> Pallet<T> {
     /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row
     /// scan cost for holdings that were only valued. This is what lets a fund's claim fee
     /// decay as dust rows are consolidated, and makes a below-threshold no-op cost a scan
-    /// instead of a full claim. Work above [`crate::MAX_ROOT_CLAIM_WORK`] is
-    /// refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
+    /// instead of a full claim. Work above [`crate::MAX_ROOT_CLAIM_WORK`] is refused
+    /// at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
     pub(crate) fn root_claim_actual_weight(
         hotkey_count: u32,
         outcome: &RootClaimOutcome,

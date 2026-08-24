@@ -362,7 +362,7 @@ mod errors {
         /// governance or a later upgrade.
         RootWeightSettingDisabled,
         /// Coldkey-wide `claim_root` would process more work units than the
-        /// pre-dispatch envelope ([`crate::MAX_ROOT_CLAIM_WORK`]). Use
+        /// global pre-dispatch envelope. Use
         /// `claim_root_with_hotkey` per validator so admission weight matches
         /// the holdings actually walked.
         RootClaimTooHeavy,

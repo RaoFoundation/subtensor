@@ -281,6 +281,75 @@ fn test_claim_root_rejects_work_above_declared_budget() {
     });
 }
 
+#[test]
+fn test_claim_root_succeeds_with_one_thousand_live_subnets() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+
+        // Global target topology: 1,000 live subnet keys and a holding on every one.
+        for raw_netuid in 0..crate::MAX_ROOT_CLAIM_WORK as u16 {
+            let netuid = NetUid::from(raw_netuid);
+            NetworksAdded::<Test>::insert(netuid, true);
+            if !netuid.is_root() {
+                fund_pool(netuid);
+                mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey,
+                    &escrow,
+                    netuid,
+                    1_000_000_u64.into(),
+                );
+            }
+        }
+        assert_eq!(SubtensorModule::root_claim_existing_networks(), 1_000);
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            1_000_000_u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 1);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+        zero_claim_threshold();
+
+        let holdings = SubtensorModule::get_basket_holdings(&hotkey);
+        assert_eq!(holdings.len(), 1_000, "fixture must contain 1,000 holdings");
+        assert!(
+            holdings
+                .iter()
+                .all(|(netuid, _)| NetworksAdded::<Test>::get(netuid)),
+            "every holding must point to a live subnet"
+        );
+        assert!(
+            SubtensorModule::root_claim_fits_declared_budget(&[hotkey]),
+            "the exact 1,000-work boundary must be admitted"
+        );
+
+        let started = std::time::Instant::now();
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+        ));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(6),
+            "1,000-subnet, 1,000-holding claim exceeded one target block"
+        );
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+        assert!(
+            SubtensorModule::get_basket_holdings(&hotkey).is_empty(),
+            "all 1,000 holdings must be processed"
+        );
+    });
+}
+
 // =============================================================================
 // Beta basket: setting weights (extrinsic validation)
 // =============================================================================
