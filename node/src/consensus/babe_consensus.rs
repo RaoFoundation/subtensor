@@ -18,6 +18,7 @@ use sc_consensus_grandpa::BlockNumberOps;
 use sc_consensus_slots::{BackoffAuthoringBlocksStrategy, InherentDataProviderExt};
 use sc_network_sync::SyncingService;
 use sc_service::{Configuration, TaskManager};
+use sc_sync_state_rpc::{SyncState, SyncStateApiServer};
 use sc_telemetry::TelemetryHandle;
 use sc_transaction_pool::TransactionPoolHandle;
 use sc_transaction_pool_api::OffchainTransactionPoolFactory;
@@ -256,9 +257,15 @@ impl ConsensusMechanism for BabeConsensus {
         client: Arc<FullClient>,
         keystore: KeystorePtr,
         select_chain: FullSelectChain,
+        chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
+        grandpa_authority_set: sc_consensus_grandpa::SharedAuthoritySet<
+            <Block as sp_runtime::traits::Block>::Hash,
+            sp_runtime::traits::NumberFor<Block>,
+        >,
+        enable_sync_state_rpc: bool,
     ) -> Result<Vec<Methods>, sc_service::Error> {
         if let Some(ref babe_worker_handle) = self.babe_worker_handle {
-            Ok(vec![
+            let mut methods = vec![
                 Babe::new(
                     client.clone(),
                     babe_worker_handle.clone(),
@@ -267,7 +274,21 @@ impl ConsensusMechanism for BabeConsensus {
                 )
                 .into_rpc()
                 .into(),
-            ])
+            ];
+            if enable_sync_state_rpc {
+                methods.push(
+                    SyncState::new(
+                        chain_spec,
+                        client,
+                        grandpa_authority_set,
+                        babe_worker_handle.clone(),
+                    )
+                    .map_err(|error| sc_service::Error::Other(error.to_string()))?
+                    .into_rpc()
+                    .into(),
+                );
+            }
+            Ok(methods)
         } else {
             Err(sc_service::Error::Other(
 				"Babe link not initialized. Ensure that the import queue has been built before calling slot_duration.".to_string()

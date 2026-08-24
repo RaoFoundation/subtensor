@@ -43,6 +43,13 @@ pub struct Cli {
     /// For `build-patched-spec`, the implicit default is `skip` unless this flag is explicitly set.
     #[arg(long, value_enum, default_value_t = HistoryBackfill::Keep)]
     pub history_backfill: HistoryBackfill,
+
+    /// Expose `sync_state_genSyncSpec` for generating a trusted warp-sync checkpoint.
+    ///
+    /// This response is expensive and includes the full chain spec. Enable it only on a private
+    /// or access-controlled RPC endpoint while refreshing `lightSyncState`.
+    #[arg(long, default_value_t = false)]
+    pub enable_sync_state_rpc: bool,
 }
 
 #[allow(clippy::large_enum_variant)]
