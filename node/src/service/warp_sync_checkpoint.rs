@@ -272,6 +272,24 @@ mod tests {
     }
 
     #[test]
+    fn finney_chain_spec_contains_the_verified_transition_checkpoint() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../chainspecs/raw_spec_finney.json");
+        let spec = crate::chain_spec::ChainSpec::from_json_file(path).unwrap();
+        let checkpoint = trusted_checkpoint(&spec).unwrap().unwrap();
+
+        assert_eq!(checkpoint.set_id, 5);
+        assert_eq!(checkpoint.block.1, 8_867_448);
+        assert_eq!(
+            checkpoint.block.0,
+            H256::from(hex_literal::hex!(
+                "511948e96e1d479d0a92d89bb976638780f2c65a93a5d5be710f22ee15c60200"
+            )),
+        );
+        assert_eq!(checkpoint.authorities.len(), 20);
+    }
+
+    #[test]
     fn rejects_missing_checkpoint_fields() {
         let error = decode_finalized_header(&serde_json::json!({})).unwrap_err();
         assert!(error.to_string().contains(FINALIZED_BLOCK_HEADER));
