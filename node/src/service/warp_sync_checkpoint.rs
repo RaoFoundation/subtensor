@@ -227,7 +227,10 @@ mod tests {
             grandpa_authority_set: "0x".into(),
         };
 
-        assert_eq!(decode_finalized_header(&state).unwrap(), header);
+        let Ok(decoded_header) = decode_finalized_header(&state) else {
+            panic!("valid checkpoint header should decode");
+        };
+        assert_eq!(decoded_header, header);
     }
 
     #[test]
@@ -244,24 +247,31 @@ mod tests {
             ),
         };
 
-        assert_eq!(decode_authority_set(&state).unwrap(), (6, authorities));
+        let Ok(decoded_authorities) = decode_authority_set(&state) else {
+            panic!("valid checkpoint authority set should decode");
+        };
+        assert_eq!(decoded_authorities, (6, authorities));
     }
 
     #[test]
     fn reads_authority_history_with_a_non_zero_initial_set() {
         let changes = AuthoritySetChanges::from(vec![(3, 10), (4, 20), (5, 30)]);
-        assert_eq!(
-            authority_change_records(&changes).unwrap(),
-            vec![(3, 10), (4, 20), (5, 30)],
-        );
+        let Ok(records) = authority_change_records(&changes) else {
+            panic!("valid authority history should decode");
+        };
+        assert_eq!(records, vec![(3, 10), (4, 20), (5, 30)]);
     }
 
     #[test]
     fn finney_chain_spec_contains_the_verified_transition_checkpoint() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../chainspecs/raw_spec_finney.json");
-        let spec = crate::chain_spec::ChainSpec::from_json_file(path).unwrap();
-        let checkpoint = trusted_checkpoint(&spec).unwrap().unwrap();
+        let Ok(spec) = crate::chain_spec::ChainSpec::from_json_file(path) else {
+            panic!("Finney chain spec should load");
+        };
+        let Ok(Some(checkpoint)) = trusted_checkpoint(&spec) else {
+            panic!("Finney chain spec should contain a valid GRANDPA checkpoint");
+        };
 
         assert_eq!(checkpoint.set_id, 5);
         assert_eq!(checkpoint.block.1, 8_867_448);
@@ -276,16 +286,18 @@ mod tests {
 
     #[test]
     fn rejects_missing_checkpoint_fields() {
-        let error = serde_json::from_value::<GrandpaWarpSyncCheckpoint>(serde_json::json!({
+        let Err(error) = serde_json::from_value::<GrandpaWarpSyncCheckpoint>(serde_json::json!({
             GRANDPA_AUTHORITY_SET: "0x"
-        }))
-        .unwrap_err();
+        })) else {
+            panic!("checkpoint without a finalized header should be rejected");
+        };
         assert!(error.to_string().contains(FINALIZED_BLOCK_HEADER));
 
-        let error = serde_json::from_value::<GrandpaWarpSyncCheckpoint>(serde_json::json!({
+        let Err(error) = serde_json::from_value::<GrandpaWarpSyncCheckpoint>(serde_json::json!({
             FINALIZED_BLOCK_HEADER: "0x"
-        }))
-        .unwrap_err();
+        })) else {
+            panic!("checkpoint without an authority set should be rejected");
+        };
         assert!(error.to_string().contains(GRANDPA_AUTHORITY_SET));
     }
 
