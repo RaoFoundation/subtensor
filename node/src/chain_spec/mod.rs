@@ -32,8 +32,11 @@ pub struct Extensions {
     /// Known bad block hashes.
     pub bad_blocks: sc_client_api::BadBlocks<Block>,
     /// A trusted finalized checkpoint for bootstrapping warp sync.
-    pub light_sync_state: sc_sync_state_rpc::LightSyncStateExtension,
+    pub grandpa_warp_sync_checkpoint: GrandpaWarpSyncCheckpointExtension,
 }
+
+/// A trusted GRANDPA authority checkpoint used to verify warp proofs.
+pub type GrandpaWarpSyncCheckpointExtension = Option<serde_json::Value>;
 
 /// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.
 pub type ChainSpec = sc_service::GenericChainSpec<Extensions>;
