@@ -44,10 +44,10 @@ pub struct Cli {
     #[arg(long, value_enum, default_value_t = HistoryBackfill::Keep)]
     pub history_backfill: HistoryBackfill,
 
-    /// Expose `grandpa_genWarpSyncSpec` for generating a trusted warp-sync checkpoint.
+    /// Expose `grandpa_genWarpSyncCheckpoint` for generating a trusted warp-sync checkpoint.
     ///
-    /// This response is expensive and includes the full chain spec. Enable it only on a private
-    /// or access-controlled RPC endpoint while refreshing `grandpaWarpSyncCheckpoint`.
+    /// The response is compact but requires retained GRANDPA transition history. Public endpoints
+    /// should apply their normal RPC rate limits.
     #[arg(long, default_value_t = false)]
     pub enable_warp_sync_checkpoint_rpc: bool,
 }
