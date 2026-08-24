@@ -2492,7 +2492,7 @@ pub mod pallet {
         /// to spread across at least 16 destinations. The check softens to an equal split
         /// when fewer destinations exist on chain. Root-only.
         #[pallet::call_index(105)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_commit_reveal_weights_enabled())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
         pub fn sudo_set_root_weights_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
             ensure_root(origin)?;
             ensure!(cap > 0, Error::<T>::ValueNotInBounds);

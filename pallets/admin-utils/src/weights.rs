@@ -123,6 +123,7 @@ pub trait WeightInfo {
 	fn sudo_set_owner_cut_auto_lock_enabled() -> Weight;
 	fn sudo_set_collateral_lock_share() -> Weight;
 	fn sudo_set_collateral_drain_ratio() -> Weight;
+	fn sudo_set_root_weights_cap() -> Weight;
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.
@@ -1464,6 +1465,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(42_884_000, 4467)
 			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
+	/// Root-only single map insert plus event, like `sudo_set_net_tao_flow_enabled`;
+	/// estimate reused pending a measured run.
+	fn sudo_set_root_weights_cap() -> Weight {
+		Weight::from_parts(4_000_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -2851,6 +2859,13 @@ impl WeightInfo for () {
 		Weight::from_parts(42_884_000, 4467)
 			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
+	/// Root-only single map insert plus event, like `sudo_set_net_tao_flow_enabled`;
+	/// estimate reused pending a measured run.
+	fn sudo_set_root_weights_cap() -> Weight {
+		Weight::from_parts(4_000_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
