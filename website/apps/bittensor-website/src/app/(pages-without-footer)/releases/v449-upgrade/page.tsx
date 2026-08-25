@@ -44,8 +44,8 @@ const BasketPricesChart = () => {
   const maxDay = days[days.length - 1];
   const values = [
     ...chart.index,
-    ...chart.funds.flatMap((f) => f.series.filter((v): v is number => v != null)),
-  ];
+    ...chart.funds.flatMap((f) => f.series),
+  ].filter((v): v is number => v != null);
   const lo = Math.min(...values);
   const hi = Math.max(...values);
   const pad = (hi - lo) * 0.12 || 0.01;

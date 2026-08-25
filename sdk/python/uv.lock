@@ -117,7 +117,7 @@ wheels = [
 
 [[package]]
 name = "bittensor"
-version = "11.3.0.dev0"
+version = "11.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "bittensor-core" },

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bittensor"
-version = "11.3.0.dev0"
+version = "11.3.0"
 description = "A lean Python SDK (import bittensor) and CLI (btcli) for the Bittensor chain."
 readme = "README.md"
 requires-python = ">=3.10,<3.15"

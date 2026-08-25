@@ -754,7 +754,7 @@ class TestTransactions:
 
         @contextlib.contextmanager
         def tracked_activity(self, initial):
-            order.append("activity")
+            order.append(("activity", initial))
             with real_activity(self, initial) as update:
                 yield update
 
@@ -764,7 +764,12 @@ class TestTransactions:
         result = invoke("--yes", "subnets", "create")
 
         assert result.exit_code == 0, result.output
-        assert order == ["unlock", "activity"]
+        assert "unlock" in order
+        unlock_at = order.index("unlock")
+        submit_at = next(
+            i for i, step in enumerate(order) if isinstance(step, tuple) and "submitting" in step[1]
+        )
+        assert unlock_at < submit_at
 
     def test_subnet_create_waits_and_explains_deregistration(
         self, fake: FakeSubstrate, wallet_dir: str, monkeypatch
