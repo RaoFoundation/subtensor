@@ -94,9 +94,6 @@ RAW_ONLY: dict[str, set[str]] = {
         "batch_reveal_weights",
         # PoW registration — out of scope by design
         "register",
-        # Direct basket deposit — agent surface still uses claim_root / stake
-        # intents; reachable via raw compose until a dedicated intent lands
-        "stake_into_basket",
         # coldkey swap: announce/execute/clear/dispute are wrapped by intents; these
         # remain raw — deprecated (schedule) or root-only (reset, arbitrary swap)
         "reset_coldkey_swap",

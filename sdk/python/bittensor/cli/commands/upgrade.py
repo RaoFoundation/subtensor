@@ -1,12 +1,12 @@
-"""`btcli upgrade`: runtime-upgrade proposals — discover, verify, sign.
+"""`btcli misc upgrade`: runtime-upgrade proposals — discover, verify, sign.
 
 The release train proposes a mainnet runtime upgrade as the CI half of a
 2-of-2 deployment multisig and publishes a proposal pre-release whose URL is
 the one thing signers need:
 
-    btcli upgrade pending                       # what is waiting, from chain state
-    btcli upgrade check --url <release-url>     # verify the call data end to end
-    btcli upgrade sign  --url <release-url> -w <wallet>   # approve it
+    btcli misc upgrade pending                       # what is waiting, from chain state
+    btcli misc upgrade check --url <release-url>     # verify the call data end to end
+    btcli misc upgrade sign  --url <release-url> -w <wallet>   # approve it
 
 `sign` re-runs every check first and refuses on any mismatch, then picks the
 right approval (first / interior / final) from chain state — no signer
@@ -73,7 +73,7 @@ def upgrade_record_fields(record: dict[str, Any]) -> dict[str, Any]:
     elif not release:
         fields["note"] = (
             "no matching release manifest found — pass the proposal's release URL "
-            "to `btcli upgrade check/sign` directly"
+            "to `btcli misc upgrade check/sign` directly"
         )
     return fields
 
@@ -226,7 +226,7 @@ def _print_reproduce_recipe(app_ctx: AppContext, bundle: uh.ProposalBundle) -> N
 @app.command(
     "check",
     epilog=(
-        "Example: btcli upgrade check "
+        "Example: btcli misc upgrade check "
         "--url https://github.com/RaoFoundation/subtensor/releases/tag/v426 "
         "--wasm ./my-srtool-build.wasm"
     ),
@@ -314,7 +314,7 @@ def _resolve_sudo_signer_set(
 @app.command(
     "sign",
     epilog=(
-        "Example: btcli upgrade sign "
+        "Example: btcli misc upgrade sign "
         "--url https://github.com/RaoFoundation/subtensor/releases/tag/v426 -w trium-a"
     ),
 )
@@ -597,7 +597,7 @@ def _report_after_sign(
         # lagged; `upgrade pending` will confirm).
         app_ctx.output.message(
             "the sudo multisig operation is complete — the upgrade should now "
-            "execute; verify with `btcli upgrade pending` and the chain's spec version"
+            "execute; verify with `btcli misc upgrade pending` and the chain's spec version"
         )
         return
     approvals = sudo_layer.get("approvals") or []

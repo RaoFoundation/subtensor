@@ -1,4 +1,10 @@
-"""`btcli utils`: conversion and connection helpers."""
+"""`btcli misc`: helpers and less-used command groups.
+
+Carries the old `btcli utils` commands (convert, latency) directly, and hosts
+the specialised groups that used to live at the top level: extension,
+timelock, axon, weights, upgrade, and crowd. The groups keep their full
+functionality; only their path changed (e.g. `btcli misc weights set`).
+"""
 
 from __future__ import annotations
 
@@ -18,8 +24,31 @@ from ...settings import NETWORKS, resolve_endpoint
 from ..context import AppContext, ctx_of
 from ..globals import with_globals
 from ..output import GLYPH_FAIL, GLYPH_OK, PASTEL_RED, STYLE_SUCCESS
+from . import axon, collateral, crowd, extension, timelock, upgrade, weights
 
-app = typer.Typer(no_args_is_help=True, help="Utility commands.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help="Helpers and less-used command groups.",
+)
+
+# Grouped panels so `btcli misc --help` reads as a map. The plain helper
+# commands (convert, latency) render first in the default panel; the hosted
+# groups follow, themed by what they touch.
+PANEL_OPERATORS = "Validating & mining"
+PANEL_STAKING = "Staking & markets"
+PANEL_SIGNING = "Signing"
+PANEL_UPGRADES = "Runtime upgrades"
+
+app.add_typer(weights.app, name="weights", rich_help_panel=PANEL_OPERATORS)
+app.add_typer(axon.app, name="axon", rich_help_panel=PANEL_OPERATORS)
+app.add_typer(collateral.app, name="collateral", rich_help_panel=PANEL_OPERATORS)
+app.add_typer(timelock.app, name="timelock", rich_help_panel=PANEL_OPERATORS)
+
+app.add_typer(crowd.app, name="crowd", rich_help_panel=PANEL_STAKING)
+
+app.add_typer(extension.app, name="extension", rich_help_panel=PANEL_SIGNING)
+
+app.add_typer(upgrade.app, name="upgrade", rich_help_panel=PANEL_UPGRADES)
 
 
 @app.command("convert")

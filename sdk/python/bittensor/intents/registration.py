@@ -212,9 +212,9 @@ class RootRegister(Intent):
     op = "root_register"
     signer = "coldkey"
     wraps = (("SubtensorModule", "root_register"),)
-    # Docs: the friendly path is the ordinary subnet register command, which
-    # routes netuid 0 here.
-    cli_example = "btcli subnets register --netuid 0"
+    # Docs: the friendly path is the dedicated root register command
+    # (`btcli subnets register --netuid 0` routes here too).
+    cli_example = "btcli root register"
 
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -330,6 +330,7 @@ class _RootClaimIntent(Intent):
             required_free=quote.reserved,
             available_free=quote.free,
             estimated_fee=quote.reserved if reserve.exact else None,
+            facts=quote.facts(),
         )
 
     async def preflight(

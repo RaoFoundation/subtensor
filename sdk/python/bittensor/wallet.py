@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .keyfiles import Keyfile, Keypair
 from .sp_core import CRYPTO_SR25519
@@ -175,10 +175,15 @@ class Wallet:
         save_coldkey_to_env: bool = False,
         coldkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
+        on_mnemonic: Callable[[str], None] | None = None,
     ) -> Wallet:
         mnemonic = Keypair.generate_mnemonic(n_words)
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
-        if not suppress:
+        # on_mnemonic lets a caller (the CLI) render the mnemonic itself
+        # instead of this library printing it raw to stdout.
+        if on_mnemonic is not None:
+            on_mnemonic(mnemonic)
+        elif not suppress:
             print(f"Generating new coldkey\nMnemonic: {mnemonic}")
         if coldkey_password is not None:
             use_password = True
@@ -201,10 +206,13 @@ class Wallet:
         save_hotkey_to_env: bool = False,
         hotkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
+        on_mnemonic: Callable[[str], None] | None = None,
     ) -> Wallet:
         mnemonic = Keypair.generate_mnemonic(n_words)
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
-        if not suppress:
+        if on_mnemonic is not None:
+            on_mnemonic(mnemonic)
+        elif not suppress:
             print(f"Generating new hotkey\nMnemonic: {mnemonic}")
         if hotkey_password is not None:
             use_password = True

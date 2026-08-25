@@ -24,7 +24,8 @@ from ...intents import (
     Transfer,
 )
 from ...keyfiles import WrongPasswordError
-from ...settings import BLOCKTIME, resolve_endpoint
+from ...masked_input import masked_input
+from ...settings import BLOCKTIME, DOCS_URL, query_docs_url, resolve_endpoint
 from ...timelock import format_duration
 from .. import multisig_helpers as ms_helpers
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
@@ -56,7 +57,10 @@ from ..secrets import copy_secret_to_clipboard, warn_argv_secrets
 from ..stake_picker import dest_account_spec
 from ..tx import resolve_all_amount
 
-app = typer.Typer(no_args_is_help=True, help="Create and manage wallets.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Create and manage wallets.\n\nDocs: {DOCS_URL}/concepts/wallets",
+)
 
 # Semantic --help sections (btcli-style) instead of one long command list.
 PANEL_MANAGE = "Wallet management"
@@ -194,10 +198,7 @@ def _resolve_coldkey_source(
                     help="pass it explicitly, or run on a terminal to be prompted",
                 )
                 raise typer.Exit(2)
-            json_password = typer.prompt(
-                "Enter the backup password for the JSON file",
-                hide_input=True,
-            )
+            json_password = masked_input("Enter the backup password for the JSON file: ")
         if not json_password:
             app_ctx.output.error("JSON keystore password cannot be empty")
             raise typer.Exit(2)
@@ -290,6 +291,12 @@ def create(
     )
     coldkey_crypto = _resolve_crypto_type(app_ctx, crypto_type)
     hotkey_crypto = _resolve_crypto_type(app_ctx, hotkey_crypto_type)
+    mnemonics: dict[str, str] = {}
+
+    def _on_mnemonic(role: str, mnemonic: str) -> None:
+        mnemonics[f"{role}_mnemonic"] = mnemonic
+        app_ctx.output.mnemonic(role, mnemonic)
+
     try:
         wallet = wallets.create(
             name=app_ctx.wallet_name,
@@ -300,21 +307,23 @@ def create(
             overwrite=overwrite,
             coldkey_crypto_type=coldkey_crypto,
             hotkey_crypto_type=hotkey_crypto,
+            on_mnemonic=_on_mnemonic,
         )
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
-    app_ctx.output.detail(
-        "created wallet",
-        {
-            "coldkey": app_ctx.wallet_name,
-            "hotkey": app_ctx.hotkey_name,
-            "coldkey_crypto_type": wallets.format_crypto_type(coldkey_crypto),
-            "hotkey_crypto_type": wallets.format_crypto_type(hotkey_crypto),
-            "coldkey_ss58": wallet.coldkeypub.ss58_address,
-            "path": app_ctx.wallet_path,
-        },
-    )
+    fields = {
+        "coldkey": app_ctx.wallet_name,
+        "hotkey": app_ctx.hotkey_name,
+        "coldkey_crypto_type": wallets.format_crypto_type(coldkey_crypto),
+        "hotkey_crypto_type": wallets.format_crypto_type(hotkey_crypto),
+        "coldkey_ss58": wallet.coldkeypub.ss58_address,
+        "path": app_ctx.wallet_path,
+    }
+    # Human mode already showed the mnemonics above; JSON carries them in the
+    # payload so scripted consumers can capture them.
+    app_ctx.output.detail("created wallet", fields, json_fields={**fields, **mnemonics})
+    app_ctx.output.mnemonic_clear_hint()
 
 
 @app.command("new-coldkey", rich_help_panel=PANEL_MANAGE)
@@ -335,6 +344,12 @@ def new_coldkey(
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet to create the coldkey in.", must_exist=False)
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
+    mnemonics: dict[str, str] = {}
+
+    def _on_mnemonic(mnemonic: str) -> None:
+        mnemonics["mnemonic"] = mnemonic
+        app_ctx.output.mnemonic("coldkey", mnemonic)
+
     try:
         wallet = wallets.new_coldkey(
             name=app_ctx.wallet_name,
@@ -343,18 +358,18 @@ def new_coldkey(
             use_password=not no_password,
             overwrite=overwrite,
             crypto_type=crypto,
+            on_mnemonic=_on_mnemonic,
         )
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
-    app_ctx.output.detail(
-        "created coldkey",
-        {
-            "wallet": app_ctx.wallet_name,
-            "crypto_type": wallets.format_crypto_type(crypto),
-            "ss58": wallet.coldkeypub.ss58_address,
-        },
-    )
+    fields = {
+        "wallet": app_ctx.wallet_name,
+        "crypto_type": wallets.format_crypto_type(crypto),
+        "ss58": wallet.coldkeypub.ss58_address,
+    }
+    app_ctx.output.detail("created coldkey", fields, json_fields={**fields, **mnemonics})
+    app_ctx.output.mnemonic_clear_hint()
 
 
 @app.command("new-hotkey", rich_help_panel=PANEL_MANAGE)
@@ -380,6 +395,12 @@ def new_hotkey(
         hotkey_must_exist=False,
     )
     crypto = _resolve_crypto_type(app_ctx, crypto_type)
+    mnemonics: dict[str, str] = {}
+
+    def _on_mnemonic(mnemonic: str) -> None:
+        mnemonics["mnemonic"] = mnemonic
+        app_ctx.output.mnemonic("hotkey", mnemonic)
+
     wallet = wallets.new_hotkey(
         name=app_ctx.wallet_name,
         hotkey=app_ctx.hotkey_name,
@@ -387,16 +408,16 @@ def new_hotkey(
         n_words=n_words,
         overwrite=overwrite,
         crypto_type=crypto,
+        on_mnemonic=_on_mnemonic,
     )
-    app_ctx.output.detail(
-        "created hotkey",
-        {
-            "wallet": app_ctx.wallet_name,
-            "hotkey": app_ctx.hotkey_name,
-            "crypto_type": wallets.format_crypto_type(crypto),
-            "ss58": wallet.hotkey.ss58_address,
-        },
-    )
+    fields = {
+        "wallet": app_ctx.wallet_name,
+        "hotkey": app_ctx.hotkey_name,
+        "crypto_type": wallets.format_crypto_type(crypto),
+        "ss58": wallet.hotkey.ss58_address,
+    }
+    app_ctx.output.detail("created hotkey", fields, json_fields={**fields, **mnemonics})
+    app_ctx.output.mnemonic_clear_hint()
 
 
 @app.command("regen-coldkey", rich_help_panel=PANEL_SECURITY)
@@ -634,7 +655,10 @@ def sign(
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(
-        app_ctx, help_text="Wallet that signs the message.", require_coldkey=not use_hotkey
+        app_ctx,
+        help_text="Wallet that signs the message.",
+        require_coldkey=not use_hotkey,
+        allow_multisig=False,
     )
     try:
         signed = wallets.sign_message(
@@ -736,7 +760,10 @@ def decrypt(
         )
         raise typer.Exit(2)
     confirm_wallet(
-        app_ctx, help_text="Wallet that decrypts the message.", require_coldkey=not use_hotkey
+        app_ctx,
+        help_text="Wallet that decrypts the message.",
+        require_coldkey=not use_hotkey,
+        allow_multisig=False,
     )
     try:
         plaintext = wallets.decrypt_message(
@@ -755,12 +782,12 @@ def decrypt(
     app_ctx.output.detail("decrypted", {"message": plaintext})
 
 
-@app.command("unlock", rich_help_panel=PANEL_SECURITY)
+@app.command("unlock", rich_help_panel=PANEL_OPS)
 @with_unlock_globals
 def unlock_wallet(ctx: typer.Context):
     """Unlock the configured wallet's coldkey (prompts for the password on a terminal)."""
     app_ctx: AppContext = ctx_of(ctx)
-    confirm_wallet(app_ctx, help_text="Wallet to unlock.")
+    confirm_wallet(app_ctx, help_text="Wallet to unlock.", allow_multisig=False)
     wallet = app_ctx.wallet()
     if not wallet.coldkey_file.is_encrypted():
         app_ctx.output.detail(
@@ -790,9 +817,7 @@ def unlock_wallet(ctx: typer.Context):
     keypair = None
     for attempts_left in (2, 1, 0):
         if password is None:
-            password = typer.prompt(
-                f"password for wallet {app_ctx.wallet_name!r}", hide_input=True, err=True
-            )
+            password = masked_input(f"password for wallet {app_ctx.wallet_name!r}: ")
         try:
             keypair = wallets.signing_keypair(
                 wallet,
@@ -829,7 +854,10 @@ def keychain_save(ctx: typer.Context):
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(
-        app_ctx, help_text="Wallet whose coldkey password to save.", require_coldkey=False
+        app_ctx,
+        help_text="Wallet whose coldkey password to save.",
+        require_coldkey=False,
+        allow_multisig=False,
     )
     if not macos_password.is_macos():
         app_ctx.output.error("macOS Keychain is only available on darwin")
@@ -862,7 +890,10 @@ def keychain_show(ctx: typer.Context):
     """Check whether a coldkey password is stored in macOS Keychain."""
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(
-        app_ctx, help_text="Wallet whose keychain entry to check.", require_coldkey=False
+        app_ctx,
+        help_text="Wallet whose keychain entry to check.",
+        require_coldkey=False,
+        allow_multisig=False,
     )
     if not macos_password.is_macos():
         app_ctx.output.error("macOS Keychain is only available on darwin")
@@ -884,7 +915,10 @@ def keychain_delete(ctx: typer.Context):
     """Remove the wallet coldkey password from macOS Keychain."""
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(
-        app_ctx, help_text="Wallet whose keychain entry to remove.", require_coldkey=False
+        app_ctx,
+        help_text="Wallet whose keychain entry to remove.",
+        require_coldkey=False,
+        allow_multisig=False,
     )
     if not macos_password.is_macos():
         app_ctx.output.error("macOS Keychain is only available on darwin")
@@ -902,20 +936,44 @@ def show_wallet(ctx: typer.Context):
     """Show the configured wallet's public keys and crypto schemes."""
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet to show.")
+    # Same precedence as the write path: `-w <multisig>` means the multisig
+    # account. There are no local key files to show — render the saved signer
+    # set and its derived account instead.
+    entry = cfg.get_multisig(app_ctx.wallet_name)
+    if entry is not None:
+        detail = {
+            "multisig_address": app_ctx._saved_multisig_address(app_ctx.wallet_name),
+            "threshold": entry["threshold"],
+            "signatories": entry["signatories"],
+        }
+        if entry.get("note"):
+            detail["note"] = entry["note"]
+        app_ctx.output.detail(app_ctx.wallet_name, detail)
+        return
     wallet = app_ctx.wallet()
-    coldkey_crypto = wallet.coldkeypub.crypto_type
-    hotkey_crypto = wallet.hotkey.crypto_type
-    app_ctx.output.detail(
-        app_ctx.wallet_name,
-        {
-            "coldkey_ss58": wallet.coldkeypub.ss58_address,
-            "coldkey_crypto_type": wallets.format_crypto_type(coldkey_crypto),
-            "hotkey": app_ctx.hotkey_name,
-            "hotkey_ss58": wallet.hotkey.ss58_address,
-            "hotkey_crypto_type": wallets.format_crypto_type(hotkey_crypto),
-            "path": app_ctx.wallet_path,
-        },
-    )
+    # Partial wallets are legitimate (Vault companions carry only
+    # coldkeypub.txt; some wallets have no hotkey named like -H): show what
+    # exists and say what is missing instead of failing on the first absence.
+    detail: dict[str, Any] = {}
+    try:
+        detail["coldkey_ss58"] = wallet.coldkeypub.ss58_address
+        detail["coldkey_crypto_type"] = wallets.format_crypto_type(wallet.coldkeypub.crypto_type)
+    except Exception as error:
+        detail["coldkey"] = f"unavailable ({error})"
+    detail["hotkey"] = app_ctx.hotkey_name
+    try:
+        detail["hotkey_ss58"] = wallet.hotkey.ss58_address
+        detail["hotkey_crypto_type"] = wallets.format_crypto_type(wallet.hotkey.crypto_type)
+    except Exception as error:
+        detail["hotkey"] = f"{app_ctx.hotkey_name} — unavailable ({error})"
+    detail["path"] = app_ctx.wallet_path
+    if "coldkey_ss58" not in detail and "hotkey_ss58" not in detail:
+        app_ctx.output.error(
+            f"wallet {app_ctx.wallet_name!r} has no readable keys",
+            note=detail.get("coldkey"),
+        )
+        raise typer.Exit(1)
+    app_ctx.output.detail(app_ctx.wallet_name, detail)
 
 
 @app.command("list", rich_help_panel=PANEL_INFO)
@@ -965,13 +1023,15 @@ def wallet_balance(
         "saved multisig name. Defaults to the configured wallet's coldkey.",
     ),
     all_wallets: bool = typer.Option(
-        False, "--all", "-a", help="Show balances for every wallet under --wallet-path."
+        False,
+        "--all",
+        "-a",
+        help="Show balances for every wallet under --wallet-path and every saved multisig.",
     ),
     sort_by: Optional[str] = typer.Option(
         None,
         "--sort",
-        help="When using --all: name, free, stake-value, or total-value "
-        "(default: total-value, largest first).",
+        help="When using --all: name, free, alpha, beta, or total (default: total, largest first).",
     ),
     show_empty: bool = typer.Option(
         False,
@@ -984,27 +1044,38 @@ def wallet_balance(
     app_ctx: AppContext = ctx_of(ctx)
     if all_wallets:
         coldkeys = list_coldkeys(app_ctx.wallet_path)
-        if not coldkeys:
+        # Saved multisigs are accounts too: derive each address offline and
+        # query it alongside the local coldkeys in the same batched fetch.
+        multisig_accounts = ms_helpers.saved_multisig_accounts(app_ctx)
+        if not coldkeys and not multisig_accounts:
             app_ctx.output.error(f"no wallets found in {app_ctx.wallet_path}")
             raise typer.Exit(1)
 
         async def _all(client):
-            return await wallet_balance_rows(client, coldkeys)
+            return await wallet_balance_rows(client, [*coldkeys, *multisig_accounts])
 
         rows_data = app_ctx.run(_all)
+        multisig_by_name = dict(multisig_accounts)
+        for r in rows_data:
+            is_multisig = multisig_by_name.get(r["wallet"]) == r["coldkey"]
+            r["kind"] = "multisig" if is_multisig else "wallet"
         key_map = {
             "name": lambda r: wallets.natural_name_key(r["wallet"]),
             "free": lambda r: r["free_tao"],
+            "alpha": lambda r: r["stake_value_tao"],
+            "beta": lambda r: r["beta_value_tao"],
+            "total": lambda r: r["total_value_tao"],
+            # Former column names, kept as sort aliases.
             "stake-value": lambda r: r["stake_value_tao"],
             "total-value": lambda r: r["total_value_tao"],
         }
         if sort_by is not None and sort_by not in key_map:
             app_ctx.output.error(
                 f"unknown sort key {sort_by!r}",
-                help="use: name, free, stake-value, or total-value",
+                help="use: name, free, alpha, beta, or total",
             )
             raise typer.Exit(1)
-        chosen = sort_by or "total-value"
+        chosen = sort_by or "total"
         rows_data.sort(key=key_map[chosen], reverse=chosen != "name")
 
         shown = rows_data if show_empty else [r for r in rows_data if r["total_value_tao"] > 0]
@@ -1015,9 +1086,10 @@ def wallet_balance(
 
         table_rows = [
             [
-                r["wallet"],
+                r["wallet"] + (" (multisig)" if r["kind"] == "multisig" else ""),
                 _amount(r["free"], r["free_tao"]),
                 _amount(r["stake_value"], r["stake_value_tao"]),
+                _amount(r["beta_value"], r["beta_value_tao"]),
                 _amount(r["total_value"], r["total_value_tao"]),
                 r["coldkey"],
             ]
@@ -1028,16 +1100,16 @@ def wallet_balance(
         by_coldkey = {r["coldkey"]: r for r in rows_data}
         grand_total = Balance(sum(int(r["total_value"].rao) for r in by_coldkey.values()))
         duplicates = len(rows_data) - len(by_coldkey)
-        footer = f"[bold]total[/bold] {grand_total}  [dim](spot, excl. slippage/fees"
+        footer = f"[bold]total[/bold] {grand_total}  [dim](alpha at spot; beta realizable"
         if duplicates:
             footer += f"; {duplicates} duplicate-coldkey wallets counted once"
         footer += ")[/dim]"
         app_ctx.output.columns(
-            "wallet balances (stake at spot value; excludes slippage/fees)",
-            ["wallet", "free (TAO)", "stake value (TAO)", "total value (TAO)", "coldkey"],
+            "wallet balances (alpha stake at spot; beta = claimable root dividends)",
+            ["name", "free (TAO)", "alpha (TAO)", "beta (TAO)", "total (TAO)", "coldkey"],
             table_rows,
             rows_data,
-            right_align={1, 2, 3},
+            right_align={1, 2, 3, 4},
             footer=footer,
         )
         if hidden:
@@ -1055,7 +1127,16 @@ def wallet_balance(
         else app_ctx.wallet_name
     )
     row = app_ctx.run(lambda client: wallet_balance_row(client, label, resolved))
-    app_ctx.output.detail(None, human_balance_fields(row), json_fields=row)
+    app_ctx.output.detail(
+        None,
+        human_balance_fields(row),
+        json_fields=row,
+        docs=[
+            query_docs_url("stake_value_for_coldkey"),
+            query_docs_url("root_basket_portfolio"),
+            query_docs_url("root_basket_owed"),
+        ],
+    )
 
 
 @app.command("overview", rich_help_panel=PANEL_INFO)
@@ -1406,9 +1487,11 @@ def wallet_inspect(
 
     async def _fetch(client):
         data, valuation = await wallet_inspect_data(client, app_ctx.wallet_name, owner)
-        hotkeys = [s["hotkey"] for s in data["stakes"]] + [
-            d["delegate_hotkey"] for d in data["delegations"]
-        ]
+        hotkeys = (
+            [s["hotkey"] for s in data["stakes"]]
+            + [d["delegate_hotkey"] for d in data["delegations"]]
+            + [b["hotkey"] for b in data["baskets"]]
+        )
         unnamed = [hk for hk in hotkeys if hk not in known_names]
         return data, valuation, await chain_identity_names(client, unnamed)
 
@@ -1424,7 +1507,7 @@ def wallet_inspect(
     takes = {(d["netuid"], d["delegate_hotkey"]): d["take"] for d in data["delegations"]}
     groups = netuid_groups(valuation.positions, valuation, known_names, identity_names, takes=takes)
     shown_groups, dust_groups = (groups, []) if show_dust else split_dust(groups)
-    out.stake_list(
+    out.stake_table(
         STAKE_LIST_TITLE,
         shown_groups,
         data["stakes"],
@@ -1434,6 +1517,41 @@ def wallet_inspect(
     if dust_groups:
         out.message(dust_note(dust_groups))
 
+    if data["baskets"]:
+        out.message("")
+        basket_rows = []
+        for record in data["baskets"]:
+            hotkey = record["hotkey"]
+            lifetime = record["lifetime_return"]
+            basket_rows.append(
+                [
+                    known_names.get(hotkey) or identity_names.get(hotkey) or "—",
+                    f"{record['beta']:,.9f}",
+                    f"{record['beta_price_tao']:.6f}",
+                    str(record["claimable"]),
+                    f"{record['fund_share']:.4%}",
+                    f"{lifetime:.4f}x" if lifetime is not None else "—",
+                    hotkey,
+                ]
+            )
+        out.columns(
+            "beta baskets (root dividends escrowed per validator)",
+            [
+                "validator",
+                "beta (β)",
+                "τ/β",
+                "claimable (τ)",
+                "fund share",
+                "lifetime",
+                "hotkey",
+            ],
+            basket_rows,
+            data["baskets"],
+            right_align={1, 2, 3, 4, 5},
+            footer="[dim]beta grows with accruals and shrinks with claims; τ/β is the fund's "
+            "realizable price (par 1.0 at inception); claim with `btcli root claim`[/dim]",
+        )
+
     out.message("")
     if data["identity"]:
         out.detail("identity", data["identity"])
@@ -1441,32 +1559,39 @@ def wallet_inspect(
         out.message("[dim]no on-chain identity[/dim]")
 
 
-_IDENTITY_HELP = {
-    "name": "Public display name shown for the coldkey.",
-    "url": "Website URL published with the identity.",
-    "description": "Short description published with the identity.",
-}
-
-
 @app.command("set-identity", rich_help_panel=PANEL_IDENTITY)
 @with_tx_globals
 def set_identity(
     ctx: typer.Context,
-    name: Optional[str] = typer.Option(None, "--name", help=_IDENTITY_HELP["name"]),
-    url: Optional[str] = typer.Option(None, "--url", help=_IDENTITY_HELP["url"]),
+    name: Optional[str] = typer.Option(None, "--name", help=SetIdentity.field_help("name")),
+    url: Optional[str] = typer.Option(None, "--url", help=SetIdentity.field_help("url")),
     description: Optional[str] = typer.Option(
-        None, "--description", help=_IDENTITY_HELP["description"]
+        None, "--description", help=SetIdentity.field_help("description")
+    ),
+    github_repo: Optional[str] = typer.Option(
+        None, "--github-repo", help=SetIdentity.field_help("github_repo")
+    ),
+    image: Optional[str] = typer.Option(None, "--image", help=SetIdentity.field_help("image")),
+    discord: Optional[str] = typer.Option(
+        None, "--discord", help=SetIdentity.field_help("discord")
+    ),
+    additional: Optional[str] = typer.Option(
+        None, "--additional", help=SetIdentity.field_help("additional")
     ),
 ):
     """Set on-chain identity for the wallet coldkey.
 
-    The identity is public and stored on chain. Fields not passed as flags
-    are prompted for interactively, keeping their current values by default;
-    fields without flags (image, discord, etc.) are carried over unchanged.
+    The identity is public and stored on chain. Every field not passed as a
+    flag is prompted for interactively, with Enter keeping its current value.
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet whose coldkey identity to set.")
-    owner = app_ctx.wallet().coldkeypub.ss58_address
+    # Same precedence as the write path: `-w <multisig>` means the multisig
+    # account, even if a wallet dir shares the name.
+    owner = (
+        app_ctx._saved_multisig_address(app_ctx.wallet_name)
+        or app_ctx.wallet().coldkeypub.ss58_address
+    )
     current = app_ctx.run(lambda c: c.read("identity", coldkey_ss58=owner)) or {}
 
     out = app_ctx.output
@@ -1479,12 +1604,20 @@ def set_identity(
     def current_value(field: str) -> str:
         return str(current.get(field) or "")
 
-    fields = {"name": name, "url": url, "description": description}
+    fields = {
+        "name": name,
+        "url": url,
+        "description": description,
+        "github_repo": github_repo,
+        "image": image,
+        "discord": discord,
+        "additional": additional,
+    }
     specs = [
         PromptSpec(
             field=field,
-            flag=f"--{field}",
-            help=_IDENTITY_HELP[field],
+            flag="--" + field.replace("_", "-"),
+            help=SetIdentity.field_help(field),
             parse=lambda _app_ctx, raw: raw,
             # Enter keeps the current value; the name has no fallback when
             # there is no identity yet, so it stays required.
@@ -1499,17 +1632,7 @@ def set_identity(
         if value is None:
             fields[field] = current_value(field)
 
-    # Fields without CLI flags are carried over so re-setting the identity
-    # doesn't wipe them.
-    app_ctx.submit(
-        SetIdentity(
-            **fields,
-            github_repo=current_value("github_repo"),
-            image=current_value("image"),
-            discord=current_value("discord"),
-            additional=current_value("additional"),
-        )
-    )
+    app_ctx.submit(SetIdentity(**fields))
 
 
 @app.command("get-identity", rich_help_panel=PANEL_IDENTITY)

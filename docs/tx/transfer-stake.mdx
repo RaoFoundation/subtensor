@@ -19,7 +19,7 @@ stake — that locked portion must land on the **receiver's** existing lock
 hotkey or the call fails with `LockHotkeyMismatch`. Fix: keep
 `hotkey_ss58` as the hotkey that holds the stake and set
 `dest_hotkey_ss58` to the receiver's lock hotkey (see `btcli stake
-list` / `btcli lock show`). Pulling from the lock hotkey when the stake
+list` / `btcli conviction show`). Pulling from the lock hotkey when the stake
 still sits elsewhere fails with `NotEnoughStakeToWithdraw`. See the
 conviction guide's "Transferring locked stake" section.
 
@@ -32,7 +32,7 @@ owners. Pass `all` to hand over the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1325-L1343), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2512-L2532) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1325-L1343), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2507-L2527) |
 
 ## Parameters
 
@@ -43,7 +43,7 @@ owners. Pass `all` to hand over the entire origin position.
 | `origin_netuid` | integer | yes | Subnet the stake currently sits on. |
 | `dest_netuid` | integer | yes | Subnet the stake ends up on. When it differs from the origin, the position is swapped through both subnet pools, which can incur slippage on each leg. |
 | `amount_alpha` | number \| `"all"` | yes | How much of the position to hand over, or ``all``. |
-| `dest_hotkey_ss58` | string | no | Hotkey the stake lands on. Defaults to the origin hotkey. Required when the transfer moves locked alpha and the receiver already locks to a different hotkey — pass their lock hotkey (see `btcli stake list` / `btcli lock show`). |
+| `dest_hotkey_ss58` | string | no | Hotkey the stake lands on. Defaults to the origin hotkey. Required when the transfer moves locked alpha and the receiver already locks to a different hotkey — pass their lock hotkey (see `btcli stake list` / `btcli conviction show`). |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -120,7 +120,7 @@ pub fn transfer_stake(
 
 Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L162).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2514`](/code/pallets/subtensor/src/macros/dispatches.rs#L2512-L2532):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2509`](/code/pallets/subtensor/src/macros/dispatches.rs#L2507-L2527):
 
 ```rust
 #[pallet::call_index(143)]

@@ -174,20 +174,19 @@ that root positions skip.
 `btcli` shows root positions in TAO: staked τ is principal on netuid 0,
 accrued τ is fund yield. `btcli stake list` and `btcli wallet overview`
 print that accrued basket yield under the total (auto-claim is off). List
-per validator, then claim — either realize accrued yield into stake, or
-withdraw to free balance:
+per validator, claim accrued yield into root stake, then unstake normally
+to withdraw to free balance:
 
 ```bash
 btcli stake list                                  # positions + accrued basket yield
 btcli wallet overview                             # same yield line on the wallet view
-btcli root list                                   # staked + accrued τ, per validator
+btcli root list --mine                            # staked + accrued τ, per validator
 btcli root subscribe --amount 100 --hotkey 5F...  # assets in
-btcli root unstake --amount 40 --hotkey 5F...     # principal only; yield stays in the basket
-btcli root unstake --all --hotkey 5F... --claim   # atomic only while RootStakeUnlockInterval is 0
 btcli root claim --dry-run --hotkey 5F...         # reserved vs spent fee, vs accrued
-btcli root claim                                  # pick wallet → validator → claim / withdraw
-btcli root claim --hotkey 5F... --amount all      # withdraw full position
-btcli root claim --hotkey 5F...                   # claim accrued into stake only
+btcli root claim                                  # pick wallet → validator → claim
+btcli root claim --hotkey 5F...                   # claim accrued into root stake
+btcli stake remove --netuid 0 --hotkey 5F... --amount 40   # principal only; yield stays owed
+btcli stake remove --netuid 0 --hotkey 5F... --amount all --claim  # claim all, then unstake
 ```
 
 The claim fee scales with how many ALPHA types are in the basket. Both

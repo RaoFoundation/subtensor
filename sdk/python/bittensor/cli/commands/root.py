@@ -1,9 +1,12 @@
-"""``btcli root``: subscribe to, claim from, and curate root validator funds.
+"""``btcli root``: subscribe to, claim from, and curate root validator baskets.
 
-Everything is denominated in TAO. Subscribing moves τ from your free balance
-into root stake with a validator (assets in). Unstaking returns principal.
-Claiming realizes accrued yield and optionally withdraws τ back to free
-balance (assets out).
+Everything is denominated in TAO. Subscribing deploys τ from your free
+balance into a validator's basket and credits β immediately (assets in).
+Claiming sells that β and folds the TAO into root stake (assets out).
+``list`` is the fund leaderboard (one fund in detail with a validator
+argument, your own positions with ``--mine``), ``register`` joins the root
+network, and the ``weights`` sub-group curates a validator's dividend
+basket. ``show`` remains as a hidden, deprecated alias of ``list``.
 """
 
 from __future__ import annotations
@@ -14,10 +17,18 @@ import typer
 from rich.console import Console
 
 from ...balance import Balance
-from ...intents import AddStake, ClaimRootWithHotkey, RemoveStake, SetRootWeights
+from ...basket_index import age_days, index_level, normalize_position
+from ...intents import ALL, ClaimRootWithHotkey, RootRegister, StakeIntoBasket
+from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
-from ..helpers import dust_note, list_coldkeys
+from ..helpers import (
+    DUST_VALUE_TAO,
+    chain_identity_names,
+    dust_note,
+    list_coldkeys,
+    local_address_names,
+)
 from ..prompt import interactive, record_answers
 from ..root_helpers import (
     fetch_all_root_positions,
@@ -25,64 +36,90 @@ from ..root_helpers import (
     filter_dust_positions,
     is_dust_position,
     pick_claim_hotkey,
-    pick_validator,
+    pick_fund,
     position_columns,
     position_rows,
     print_command_hint,
-    prompt_claim_amount,
     render_validator_detail,
-    resolve_claim_wallet,
-    resolve_show_wallet,
+    resolve_position_wallet,
+    resolve_validator_selector,
 )
 from ..tx import resolve_all_amount
-from .weights import _parse_weight_pairs
+from . import root_weights
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Root network: validator funds, dividend weights, and your TAO positions.",
+    help="Root network: validator baskets, dividend weights, and your TAO positions."
+    f"\n\nGuide: {guide_docs_url('root-reborn')}",
 )
 
 
-@app.command("list")
-@with_globals
-def root_list(
-    ctx: typer.Context,
-    all_wallets: bool = typer.Option(
-        False,
-        "--all",
-        "-a",
-        help="List root positions for every wallet (unified view).",
-    ),
-    coldkey_ss58: Optional[str] = typer.Option(
-        None, address_cli_name("coldkey_ss58"), help=ss58_param_help("coldkey_ss58")
-    ),
-    show_dust: bool = typer.Option(
-        False,
-        "--dust",
-        help="Also show validators whose total position is below τ0.001. JSON always includes all.",
-    ),
-):
-    """List your root positions: staked principal and accrued yield per validator.
+def _fund_display_context(app_ctx: AppContext, hotkeys: list[str]) -> tuple[dict, dict]:
+    """Fund rates and validator names for the given hotkeys.
 
-    Each row shows staked τ (principal on netuid 0), accrued τ (fund yield,
-    realizable quote), and the total value. JSON records use ``staked_tao``,
-    ``accrued_tao``, and ``total_tao``.
+    Returns ``(funds, names)``: normalized fund summary per hotkey (index-spliced
+    display rate, ``vs_index``) and the best available label per hotkey (local
+    wallet / address book first, then on-chain identity).
     """
-    app_ctx: AppContext = ctx_of(ctx)
+    if not hotkeys:
+        return {}, {}
+    wanted = set(hotkeys)
+    summaries = app_ctx.run(lambda c: c.read("root_baskets"))
+    funds = {s["hotkey"]: normalize_position(s) for s in summaries if s["hotkey"] in wanted}
+    local = local_address_names(app_ctx.wallet_path)
+    unnamed = [hk for hk in hotkeys if hk not in local]
+    identities = app_ctx.run(lambda c: chain_identity_names(c, unnamed)) if unnamed else {}
+    names = {hk: local.get(hk) or identities.get(hk) for hk in hotkeys}
+    return funds, names
 
+
+def _enrich_position_records(records: list[dict], funds: dict, names: dict) -> list[dict]:
+    for record in records:
+        fund = funds.get(record["hotkey"])
+        record["name"] = names.get(record["hotkey"])
+        record["price_tao"] = fund["display_price_tao"] if fund else None
+        record["vs_index"] = fund["vs_index"] if fund else None
+        record["index_provisional"] = fund["index_provisional"] if fund else None
+    return records
+
+
+def _render_positions(
+    app_ctx: AppContext,
+    *,
+    all_wallets: bool,
+    coldkey_ss58: Optional[str],
+    show_dust: bool,
+) -> None:
+    """Your root positions: staked principal and accrued yield per validator.
+
+    Each row shows the validator's name, staked τ (principal on netuid 0),
+    accrued τ (fund yield, realizable quote), the total value, and the fund's
+    index-spliced beta rate with its performance vs the basket index. JSON
+    records use ``staked_tao``, ``accrued_tao``, ``total_tao``, ``price_tao``,
+    and ``vs_index``.
+    """
+    # Resolve wallets before starting the spinner: resolve_address may prompt
+    # interactively, and a prompt under a live spinner cannot take input.
     if all_wallets:
         coldkeys = list_coldkeys(app_ctx.wallet_path)
         if not coldkeys:
             app_ctx.output.error(f"no wallets found in {app_ctx.wallet_path}")
             raise typer.Exit(1)
-        positions = app_ctx.run(lambda c: fetch_all_root_positions(c, coldkeys))
+        owner = None
         title = "root positions (all wallets)"
     else:
         owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-        positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
         title = f"root positions of {owner}"
 
-    records = [pos.as_record() for pos in positions]
+    with app_ctx.output.activity("reading root positions…") as update:
+        if all_wallets:
+            positions = app_ctx.run(lambda c: fetch_all_root_positions(c, coldkeys))
+        else:
+            positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
+
+        update("comparing funds against the index…")
+        funds, names = _fund_display_context(app_ctx, sorted({pos.hotkey for pos in positions}))
+    records = _enrich_position_records([pos.as_record() for pos in positions], funds, names)
     if app_ctx.output.json_mode:
         app_ctx.output.value(records)
         return
@@ -104,125 +141,239 @@ def root_list(
             app_ctx.output.message(dust_note([pos.as_record() for pos in dust]))
         return
 
-    shown_records = [pos.as_record() for pos in shown]
+    shown_records = _enrich_position_records([pos.as_record() for pos in shown], funds, names)
     total = Balance(sum(pos.total.rao for pos in shown))
-    app_ctx.output.table(
+    entities = [
+        app_ctx.output.account_text(pos.hotkey, names.get(pos.hotkey), kind="hotkey")
+        for pos in shown
+    ]
+    app_ctx.output.entity_list(
         title,
+        "validator",
+        entities,
         position_columns(all_wallets),
-        position_rows(shown, all_wallets),
+        position_rows(shown, all_wallets, funds=funds),
         shown_records,
-    )
-    app_ctx.output.message(
-        f"total: {total} (τ {total.tao:.6f}) — "
-        "staked is principal; accrued is fund yield (realizable quote)"
+        footer=f"[dim]total {total}  ·  basket index {index_level():.4f}[/dim]",
+        legend=[
+            (
+                "staked (τ)",
+                "your principal: TAO staked on root (netuid 0) with this validator.",
+            ),
+            (
+                "accrued (τ)",
+                "unclaimed fund yield: the TAO your accrued beta would pay if "
+                "claimed right now (realizable quote).",
+            ),
+            (
+                "return",
+                "accrued over staked — yield earned since your last claim "
+                "(claims fold yield into stake and reset this meter).",
+            ),
+            ("total (τ)", "staked + accrued: the full position value."),
+            (
+                "rate (τ/β)",
+                "TAO per beta, index-spliced: starts at the index level of the "
+                "fund's launch, so higher = better lifetime performance.",
+            ),
+            (
+                "vs index",
+                "the fund's cumulative out/under-performance vs the average "
+                "basket; 0% = market-average.",
+            ),
+        ],
     )
     if dust:
         app_ctx.output.message(dust_note([pos.as_record() for pos in dust]))
 
 
-@app.command("subscribe")
-@with_tx_globals
-def root_subscribe(
-    ctx: typer.Context,
-    amount: Optional[str] = typer.Option(
-        None,
-        "--amount",
-        help="TAO to subscribe: moved from free balance to root stake with the validator. "
-        "Pass `all` for the entire free balance minus the existential deposit and fee headroom.",
-    ),
-    all_amount: bool = typer.Option(
-        False,
-        "--all",
-        help="Subscribe the entire free balance minus the existential deposit and fee headroom "
-        "(same as `--amount all`).",
-    ),
-    hotkey_ss58: str = typer.Option(
-        ...,
-        address_cli_name("hotkey_ss58"),
-        help="Validator whose fund to subscribe to.",
-    ),
-):
-    """Subscribe to a validator's root fund (assets in)."""
-    app_ctx: AppContext = ctx_of(ctx)
-    resolved = resolve_all_amount(app_ctx, amount, all_amount, flag="--amount")
-    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-    app_ctx.submit(AddStake(hotkey_ss58=hotkey, netuid=0, amount_tao=resolved))
+def _render_leaderboard(app_ctx: AppContext, show_dust: bool) -> None:
+    """The fund leaderboard: every validator basket measured against the index."""
+
+    async def _fetch(client):
+        snapshot = await client.at()
+        return await snapshot.read("root_baskets"), snapshot.block
+
+    with app_ctx.output.activity("loading validators…") as update:
+        records, current_block = app_ctx.run(_fetch)
+        level = index_level()
+        for record in records:
+            normalize_position(record)
+            age = age_days(record["index_first_block"], current_block)
+            record["age_days"] = age
+            spot = record["spot_nav_tao"].tao
+            record["redemption_slippage"] = 1 - record["nav_tao"].tao / spot if spot > 0 else None
+        records.sort(key=lambda entry: -entry["nav_tao"].rao)
+
+        shown = records if show_dust else [r for r in records if r["nav_tao"].tao >= DUST_VALUE_TAO]
+        hidden = len(records) - len(shown)
+
+        update("resolving validator identities…")
+        names = local_address_names(app_ctx.wallet_path)
+        unnamed = [r["hotkey"] for r in shown if r["hotkey"] not in names]
+        identities = app_ctx.run(lambda c: chain_identity_names(c, unnamed)) if unnamed else {}
+        for record in shown:
+            record["name"] = names.get(record["hotkey"]) or identities.get(record["hotkey"])
+
+    if app_ctx.output.json_mode:
+        app_ctx.output.value({"basket_index": level, "funds": records})
+        return
+
+    if not shown:
+        app_ctx.output.message("no funds above dust (τ0.001); pass --dust to show all")
+        return
+
+    entities = [
+        app_ctx.output.account_text(record["hotkey"], record.get("name"), kind="hotkey")
+        for record in shown
+    ]
+    columns = ["rate (τ/β)", "vs index", "nav (τ)", "slippage", "age (days)"]
+    rows = [
+        [
+            f"{record['display_price_tao']:.4f}" + ("*" if record["index_provisional"] else ""),
+            f"{record['vs_index']:+.2%}",
+            f"{record['nav_tao'].tao:,.4f}",
+            f"{record['redemption_slippage']:.2%}"
+            if record["redemption_slippage"] is not None
+            else "—",
+            f"{record['age_days']:.1f}" if record["age_days"] is not None else "—",
+        ]
+        for record in shown
+    ]
+    summary = f"basket index {level:.4f}  ·  above index = beating the average basket"
+    if hidden:
+        summary += f"  ·  {hidden} dust funds hidden (--dust to show)"
+    summary += "  ·  your positions: btcli root list --mine"
+    app_ctx.output.entity_list(
+        "validator baskets vs basket index",
+        "validator",
+        entities,
+        columns,
+        rows,
+        shown,
+        footer=f"[dim]{summary}[/dim]",
+        legend=[
+            (
+                "rate (τ/β)",
+                "TAO per beta. Index-spliced: every fund starts at the index level "
+                "of its launch, so higher = better lifetime performance at any age.",
+            ),
+            (
+                "vs index",
+                "cumulative out/under-performance vs the average basket "
+                "(the index); 0% = market-average.",
+            ),
+            (
+                "nav (τ)",
+                "net asset value: the TAO a full redemption of the fund's holdings "
+                "would fetch right now (slippage-aware).",
+            ),
+            (
+                "slippage",
+                "the haircut between the fund's spot value and its realizable NAV "
+                "— what redeeming the whole fund would cost at current pool depth.",
+            ),
+            ("age (days)", "days since value first entered the fund."),
+        ],
+    )
+    if any(record["index_provisional"] for record in shown):
+        app_ctx.output.message(
+            "* fund not yet in the frozen baseline table; shown at the index level "
+            "until the table is rebuilt"
+        )
 
 
-@app.command("unstake")
-@with_tx_globals
-def root_unstake(
+@app.command("list")
+@with_globals
+def root_list(
     ctx: typer.Context,
-    amount: Optional[str] = typer.Option(
+    validator: Optional[str] = typer.Argument(
         None,
-        "--amount",
-        help="TAO of root principal to unstake to free balance. Pass `all` for the "
-        "entire position. Accrued basket yield is not included unless you pass `--claim`.",
+        help="Validator to inspect: a hotkey ss58, a root UID, or a name "
+        "(address book or on-chain identity, case-insensitive). "
+        "Omit for the full fund leaderboard.",
+        show_default=False,
     ),
-    all_amount: bool = typer.Option(
+    mine: bool = typer.Option(
+        False,
+        "--mine",
+        "-m",
+        help="Your root positions instead: staked principal, accrued yield, "
+        "and return per validator.",
+    ),
+    all_wallets: bool = typer.Option(
         False,
         "--all",
-        help="Unstake the entire root position (same as `--amount all`).",
-    ),
-    hotkey_ss58: Optional[str] = typer.Option(
-        None,
-        address_cli_name("hotkey_ss58"),
-        help="Validator to unstake from. Omit on a terminal to pick from your root positions.",
-    ),
-    claim: bool = typer.Option(
-        False,
-        "--claim/--no-claim",
-        help="Redeem this validator's whole basket entitlement first, then unstake, "
-        "in one batch. Not a proportional payout: unstaking 40% still claims 100% "
-        "of the basket. Claimed yield is restaked on root, then the unstake runs — "
-        "pass `--all` to take principal and yield out together.",
+        "-a",
+        help="With --mine (implied): positions for every wallet (unified view).",
     ),
     coldkey_ss58: Optional[str] = typer.Option(
-        None,
-        address_cli_name("coldkey_ss58"),
-        help=ss58_param_help("coldkey_ss58"),
+        None, address_cli_name("coldkey_ss58"), help=ss58_param_help("coldkey_ss58")
+    ),
+    show_dust: bool = typer.Option(
+        False,
+        "--dust",
+        help="Also show funds (or positions) below τ0.001. JSON always includes all.",
     ),
 ):
-    """Unstake root principal (assets out).
+    """The fund leaderboard, one fund in detail, or your own positions.
 
-    Returns principal only. Accrued basket yield stays owed unless you pass
-    `--claim`, which redeems this validator's whole entitlement (not a
-    slice of the unstake) and then unstakes, in one batch.
+    Without arguments: every validator basket measured against the basket
+    index, sorted by NAV. Rates are index-spliced: each fund's rate starts
+    at the index level of its launch, so a mediocre fund sits on the index
+    whether it is three days or three years old; `vs index` is the fund's
+    out/under-performance against the average basket.
+
+    With a validator (hotkey ss58, root UID, or name): that fund's weights,
+    holdings, and performance — plus your position on it, if any.
+
+    With ``--mine``: your root positions per validator — staked τ (principal
+    on netuid 0), accrued τ (unclaimed fund yield), and the return since your
+    last claim.
     """
     app_ctx: AppContext = ctx_of(ctx)
-    console = Console()
 
-    if hotkey_ss58 is not None:
-        hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-        resolved = resolve_all_amount(app_ctx, amount, all_amount, flag="--amount")
-        app_ctx.submit(
-            RemoveStake(hotkey_ss58=hotkey, netuid=0, amount_alpha=resolved, claim=claim)
+    if all_wallets:
+        mine = True
+
+    if mine:
+        if validator is not None:
+            app_ctx.output.error(
+                "--mine lists your positions across validators; drop the "
+                "validator argument, or drop --mine for that fund's detail view"
+            )
+            raise typer.Exit(2)
+        _render_positions(
+            app_ctx,
+            all_wallets=all_wallets,
+            coldkey_ss58=coldkey_ss58,
+            show_dust=show_dust,
         )
         return
 
-    if not interactive(app_ctx):
-        app_ctx.output.error(
-            "missing required option: `--hotkey`",
-            help="pass `--hotkey`, or run on a terminal to pick a root position",
-        )
-        raise typer.Exit(2)
+    if validator is None:
+        _render_leaderboard(app_ctx, show_dust)
+        return
 
-    wallet_name, owner = resolve_claim_wallet(console, app_ctx, coldkey_ss58, interactive=True)
-    app_ctx.wallet_name = wallet_name
-    app_ctx.wallet_given = True
+    # Resolve the wallet before any chain read: the resolver may prompt, and a
+    # prompt under a live query spinner cannot take input (same as --mine).
+    owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
+    hotkey = resolve_validator_selector(app_ctx, validator)
 
-    positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
-    chosen = pick_claim_hotkey(console, app_ctx, positions, flag="--hotkey")
-    resolved = resolve_all_amount(app_ctx, amount, all_amount, flag="--amount")
+    with app_ctx.output.activity("reading the validator's fund…"):
+        your_rows = app_ctx.run(lambda c: fetch_root_positions(c, owner))
+        yours = next((p for p in your_rows if p.hotkey == hotkey), None)
+        summary = app_ctx.run(lambda c: c.read("validator_basket_summary", hotkey_ss58=hotkey))
+    render_validator_detail(app_ctx, summary, yours)
 
-    tokens = ["--hotkey", chosen.hotkey, "--amount", resolved]
-    if claim:
-        tokens.append("--claim")
-    record_answers(tokens)
+    if validator != hotkey and not app_ctx.output.json_mode:
+        console = Console(stderr=True, highlight=False)
+        print_command_hint(console, ["btcli", "root", "list", hotkey])
 
-    app_ctx.submit(
-        RemoveStake(hotkey_ss58=chosen.hotkey, netuid=0, amount_alpha=resolved, claim=claim)
-    )
+
+# Deprecated spelling, kept as a hidden alias so scripts and muscle memory
+# keep working (same convention as the hidden group aliases in main.py).
+app.command("show", hidden=True)(root_list)
 
 
 def _claim_position(
@@ -230,68 +381,56 @@ def _claim_position(
     *,
     hotkey: str,
     owner: str,
-    amount: Optional[str],
+    accrued: Optional[Balance] = None,
 ) -> None:
-    """Realize accrued yield, and optionally withdraw τ to free balance."""
-    positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
-    row = next((p for p in positions if p.hotkey == hotkey), None)
-    staked = row.staked if row else Balance.from_rao(0)
-    accrued = row.accrued if row else Balance.from_rao(0)
-    total = staked.rao + accrued.rao
+    """Redeem accrued beta into root stake, showing what the claim sells.
 
-    if amount is None:
-        if accrued.rao <= 0:
-            app_ctx.output.error(f"no accrued yield to claim on {hotkey}")
-            raise typer.Exit(1)
-        app_ctx.submit(ClaimRootWithHotkey(hotkey_ss58=hotkey))
-        return
-
-    if amount.strip().lower() == "all":
-        if total == 0:
-            app_ctx.output.error(f"nothing to claim on {hotkey}")
-            raise typer.Exit(1)
-        if accrued.rao > 0:
-            app_ctx.output.message("claiming accrued yield into root stake…")
-            app_ctx.submit(ClaimRootWithHotkey(hotkey_ss58=hotkey))
-        app_ctx.submit(RemoveStake(hotkey_ss58=hotkey, netuid=0, amount_alpha="all"))
-        return
-
-    try:
-        amount_rao = Balance.from_tao(amount).rao
-    except Exception as error:
-        app_ctx.output.error(f"invalid --amount: {error}")
-        raise typer.Exit(1) from error
-
-    if amount_rao <= 0:
-        app_ctx.output.error("--amount must be positive")
-        raise typer.Exit(1)
-
-    if amount_rao > total:
-        app_ctx.output.error(
-            f"only {Balance.from_rao(total)} on {hotkey} (staked {staked}, accrued {accrued})"
+    A claim only converts the fund entitlement (beta) into root stake — it
+    never touches staked principal. Withdrawing τ to free balance is a
+    separate, ordinary unstake: ``btcli stake remove --netuid 0``. The claim
+    facts (accrued, rate, redeem estimate, destination) render as the
+    "Claim" stage of the pre-sign review card.
+    """
+    with app_ctx.output.activity("reading your position…"):
+        if accrued is None:
+            positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
+            row = next((p for p in positions if p.hotkey == hotkey), None)
+            accrued = row.accrued if row else Balance.from_rao(0)
+        summary = (
+            app_ctx.run(lambda c: c.read("validator_basket_summary", hotkey_ss58=hotkey))
+            if accrued.rao > 0
+            else None
         )
+        name = local_address_names(app_ctx.wallet_path).get(hotkey)
+        if name is None and accrued.rao > 0:
+            name = app_ctx.run(lambda c: chain_identity_names(c, [hotkey])).get(hotkey)
+    if accrued.rao <= 0:
+        app_ctx.output.error(f"no accrued yield to claim on {hotkey}")
         raise typer.Exit(1)
 
-    if amount_rao > staked.rao and accrued.rao > 0:
-        app_ctx.output.message("claiming accrued yield into root stake…")
-        app_ctx.submit(ClaimRootWithHotkey(hotkey_ss58=hotkey))
-        positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
-        row = next((p for p in positions if p.hotkey == hotkey), None)
-        staked = row.staked if row else Balance.from_rao(0)
-
-    if amount_rao > staked.rao:
-        app_ctx.output.error(
-            f"after the claim, staked τ is only {staked}; "
-            "accrued yield may be below the claim threshold"
+    app_ctx.output.name_address(hotkey, name)
+    label = name or f"{hotkey[:8]}…"
+    rate = (summary or {}).get("beta_price_tao") or 0.0
+    rows: list[tuple] = [
+        ("wallet", owner),
+        ("validator", hotkey),
+        ("accrued", str(accrued)),
+    ]
+    if rate > 0:
+        rows.append(("rate", f"{rate:.4f} τ/β"))
+        rows.append(("redeem", f"~{accrued.tao / rate:,.4f} β"))
+    rows.append(("destination", f"root stake · {label}"))
+    rows.append(
+        (
+            "note",
+            "principal stays staked — withdraw τ with btcli stake remove (netuid 0)",
+            "dim",
         )
-        raise typer.Exit(1)
-
+    )
     app_ctx.submit(
-        RemoveStake(
-            hotkey_ss58=hotkey,
-            netuid=0,
-            amount_alpha=Balance.from_rao(amount_rao).tao,
-        )
+        ClaimRootWithHotkey(hotkey_ss58=hotkey),
+        summary=f"claim {accrued} into {label}'s root stake",
+        card_sections=[("Claim", rows)],
     )
 
 
@@ -299,12 +438,6 @@ def _claim_position(
 @with_tx_globals
 def root_claim(
     ctx: typer.Context,
-    amount: Optional[str] = typer.Option(
-        None,
-        "--amount",
-        help="TAO to withdraw to free balance (`all` for the full position). "
-        "Omit to only claim accrued yield into root stake.",
-    ),
     hotkey_ss58: Optional[str] = typer.Option(
         None,
         address_cli_name("hotkey_ss58"),
@@ -316,14 +449,14 @@ def root_claim(
         help=ss58_param_help("coldkey_ss58"),
     ),
 ):
-    """Claim from a validator's root fund.
+    """Redeem accrued beta from a validator's root fund into root stake.
 
-    Without ``--amount``: realize accrued yield into root stake on that
-    validator. With ``--amount`` / ``all``: withdraw to free balance, claiming
-    accrued yield first when needed.
+    A claim sells your accrued beta back to the fund and folds its TAO
+    value into your root stake on that validator — principal is never
+    touched. To withdraw τ to free balance afterwards, unstake normally:
+    ``btcli stake remove --netuid 0``.
 
-    Interactively: pick a wallet, then a validator (staked + accrued shown),
-    then optionally an amount.
+    Interactively: pick a wallet, then a validator (staked + accrued shown).
 
     ``--dry-run`` (and the confirm step) estimates the reserved inclusion
     fee versus the fee that will settle, compares that spent fee to
@@ -336,7 +469,7 @@ def root_claim(
     if hotkey_ss58 is not None:
         hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
         owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-        _claim_position(app_ctx, hotkey=hotkey, owner=owner, amount=amount)
+        _claim_position(app_ctx, hotkey=hotkey, owner=owner)
         return
 
     if not interactive(app_ctx):
@@ -346,152 +479,144 @@ def root_claim(
         )
         raise typer.Exit(2)
 
-    wallet_name, owner = resolve_claim_wallet(console, app_ctx, coldkey_ss58, interactive=True)
+    # Resolve the wallet before any chain read: the resolver may prompt, and a
+    # prompt under a live query spinner cannot take input (same as root list).
+    wallet_name, owner = resolve_position_wallet(app_ctx, coldkey_ss58)
     app_ctx.wallet_name = wallet_name
     app_ctx.wallet_given = True
 
-    positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
+    with app_ctx.output.activity("reading root positions…"):
+        positions = app_ctx.run(lambda c: fetch_root_positions(c, owner))
     chosen = pick_claim_hotkey(console, app_ctx, positions, flag="--hotkey")
-    withdraw = amount if amount is not None else prompt_claim_amount(console, chosen)
+    record_answers(["--hotkey", chosen.hotkey])
+    console.print()  # one blank line between the picker and what follows
 
-    tokens = ["--hotkey", chosen.hotkey]
-    if withdraw is not None:
-        tokens += ["--amount", withdraw]
-    record_answers(tokens)
-
-    _claim_position(app_ctx, hotkey=chosen.hotkey, owner=owner, amount=withdraw)
+    _claim_position(app_ctx, hotkey=chosen.hotkey, owner=owner, accrued=chosen.accrued)
 
 
-@app.command("set-weights")
+def _subscribe_summary(
+    intent: StakeIntoBasket, *, name: Optional[str], beta_price_tao: Optional[float]
+) -> tuple[str, Optional[str]]:
+    """Fund-aware confirmation line for root subscribe.
+
+    The intent's own summary talks in hotkeys; a subscription is better
+    described in fund terms — the fund's name, its raw beta rate (NAV over
+    beta supply), and roughly how many beta the TAO buys. The beta estimate
+    is approximate: the mint is priced on the NAV the deposit actually
+    adds, so the depositor bears entry slippage and swap fees.
+    """
+    label = name or f"{intent.hotkey_ss58[:8]}…"
+    amount = "ALL free TAO" if intent.amount_tao == ALL else str(intent.amount_tao)
+    line = f"subscribe {amount} into {label}'s fund"
+    if beta_price_tao and beta_price_tao > 0:
+        line += f" at {beta_price_tao:.4f} τ/β"
+        if intent.amount_tao != ALL:
+            line += f" for ~{intent.amount_tao.tao / beta_price_tao:,.4f} β"
+    note = (
+        "deploys this TAO into the fund's holdings and credits β at the value "
+        "actually added — you bear entry slippage and swap fees"
+    )
+    return line, note
+
+
+@app.command("subscribe")
 @with_tx_globals
-def root_set_weights(
+def root_subscribe(
     ctx: typer.Context,
-    weights: str = typer.Option(
-        ...,
-        "--weights",
-        help="Comma-separated netuid:weight pairs (e.g. '0:0.2,4:0.3,8:0.5'). "
-        "Netuid 0 holds that share as TAO instead of subnet alpha.",
+    amount: Optional[str] = typer.Option(
+        None,
+        "--amount",
+        help="TAO to deploy into the validator's basket. You receive β immediately. "
+        "Pass `all` for the entire free balance minus the existential deposit and fee headroom.",
     ),
-):
-    """Set how your root dividends are deployed (validator fund weights)."""
-    app_ctx: AppContext = ctx_of(ctx)
-    pairs = _parse_weight_pairs(weights)
-    app_ctx.submit(
-        SetRootWeights(
-            netuids=sorted(pairs),
-            weights=[pairs[netuid] for netuid in sorted(pairs)],
-        )
-    )
-
-
-@app.command("get-weights")
-@with_globals
-def root_get_weights(
-    ctx: typer.Context,
+    all_amount: bool = typer.Option(
+        False,
+        "--all",
+        help="Subscribe the entire free balance minus the existential deposit and fee headroom "
+        "(same as `--amount all`).",
+    ),
     hotkey_ss58: Optional[str] = typer.Option(
-        None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
+        None,
+        address_cli_name("hotkey_ss58"),
+        help="Validator whose fund to subscribe to. Omit on a terminal to pick "
+        "from all validator baskets.",
     ),
 ):
-    """Show a validator's root dividend weights (fund allocation)."""
+    """Buy shares in a validator's basket with free TAO."""
     app_ctx: AppContext = ctx_of(ctx)
-    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-    rows = app_ctx.run(lambda c: c.read("validator_root_weights", hotkey_ss58=hotkey))
-    if not rows:
-        app_ctx.output.detail("root weights", {"hotkey": hotkey, "weights": []})
-        app_ctx.output.message(
-            "no custom weights set: dividends accumulate in place on their origin subnet"
-        )
+
+    def _submit_subscription(
+        hotkey: str, resolved: str, *, name: Optional[str], beta_price_tao: Optional[float]
+    ) -> None:
+        intent = StakeIntoBasket(hotkey_ss58=hotkey, amount_tao=resolved)
+        summary, note = _subscribe_summary(intent, name=name, beta_price_tao=beta_price_tao)
+        app_ctx.submit(intent, summary=summary, summary_note=note)
+
+    if hotkey_ss58 is not None:
+        hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+        resolved = resolve_all_amount(app_ctx, amount, all_amount, flag="--amount")
+
+        async def _fund_context(client) -> tuple[Optional[str], Optional[float]]:
+            summary = await client.read("validator_basket_summary", hotkey_ss58=hotkey)
+            name = local_address_names(app_ctx.wallet_path).get(hotkey)
+            if name is None:
+                name = (await chain_identity_names(client, [hotkey])).get(hotkey)
+            return name, summary["beta_price_tao"]
+
+        try:
+            with app_ctx.output.activity("quoting the fund…"):
+                name, beta_price_tao = app_ctx.run(_fund_context)
+        except Exception:
+            # Display-only context; a pricing hiccup must not block the buy.
+            name, beta_price_tao = None, None
+        _submit_subscription(hotkey, resolved, name=name, beta_price_tao=beta_price_tao)
         return
-    table_rows = [[r["netuid"], f"{r['share']:.2%}", r["weight"]] for r in rows]
-    app_ctx.output.table(
-        f"weights of {hotkey}", ["netuid", "share", "weight (u16)"], table_rows, rows
+
+    if not interactive(app_ctx):
+        app_ctx.output.error(
+            "missing required option: `--hotkey`",
+            help="pass `--hotkey`, or run on a terminal to pick a validator basket",
+        )
+        raise typer.Exit(2)
+
+    console = Console()
+    with app_ctx.output.activity("fetching validator baskets…"):
+        records = app_ctx.run(lambda c: c.read("root_baskets"))
+        for record in records:
+            normalize_position(record)
+        records.sort(key=lambda record: -record["nav_tao"].rao)
+
+    chosen = pick_fund(console, app_ctx, records, flag=address_cli_name("hotkey_ss58"))
+    record_answers(["--hotkey", chosen["hotkey"]])
+    console.print()  # one blank line between the picker and what follows
+    resolved = resolve_all_amount(app_ctx, amount, all_amount, flag="--amount")
+    _submit_subscription(
+        chosen["hotkey"],
+        resolved,
+        name=chosen.get("name"),
+        beta_price_tao=chosen.get("beta_price_tao"),
     )
 
 
-@app.command("show")
-@with_globals
-def root_show(
+@app.command("register")
+@with_tx_globals
+def root_register(
     ctx: typer.Context,
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
     ),
-    coldkey_ss58: Optional[str] = typer.Option(
-        None, address_cli_name("coldkey_ss58"), help=ss58_param_help("coldkey_ss58")
-    ),
 ):
-    """Inspect a validator's fund: weights, holdings, and performance.
+    """Register a hotkey on the root network (netuid 0).
 
-    Without ``--hotkey``, prompts for a wallet, lists validators where you hold
-    more than dust, then prompts for one to inspect. Pass ``--hotkey`` to skip
-    the picker.
+    The same flow as `btcli subnets register --netuid 0`: the coldkey pays
+    the current root burn price (fully recycled), no prior stake is needed,
+    and a full root network prunes its lowest-staked member to make room.
+    Registration is what lets the hotkey receive root stake and curate its
+    dividend basket (`btcli root weights`).
     """
     app_ctx: AppContext = ctx_of(ctx)
-    console = Console(stderr=True, highlight=False)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    app_ctx.submit(RootRegister(hotkey_ss58=hotkey))
 
-    if hotkey_ss58:
-        hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-        owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-        your_rows = app_ctx.run(lambda c: fetch_root_positions(c, owner))
-        yours = next((p for p in your_rows if p.hotkey == hotkey), None)
-        summary = app_ctx.run(lambda c: c.read("validator_basket_summary", hotkey_ss58=hotkey))
-        render_validator_detail(app_ctx, summary, yours)
-        return
 
-    wallet_name, owner = resolve_show_wallet(
-        console, app_ctx, coldkey_ss58, interactive=interactive(app_ctx)
-    )
-
-    async def _fetch(client):
-        yours = await fetch_root_positions(client, owner)
-        by_hotkey = {p.hotkey: p for p in yours}
-        held = filter_dust_positions(yours)
-        if not held:
-            return [], by_hotkey, wallet_name, owner
-
-        summaries = await client.read("root_baskets")
-        summary_by_hotkey = {row["hotkey"]: row for row in summaries}
-        rows = []
-        for pos in sorted(held, key=lambda p: -p.total.rao):
-            hotkey = pos.hotkey
-            summary = summary_by_hotkey.get(hotkey)
-            if summary is None:
-                summary = await client.read("validator_basket_summary", hotkey_ss58=hotkey)
-            rows.append(
-                {
-                    "hotkey": hotkey,
-                    "nav_tao": summary["nav_tao"],
-                    "weight_count": len(summary.get("weights") or []),
-                    "lifetime_return": summary.get("lifetime_return"),
-                    "your_tao": pos.total.tao,
-                    "summary": summary,
-                }
-            )
-        return rows, by_hotkey, wallet_name, owner
-
-    validator_rows, by_hotkey, wallet_name, owner = app_ctx.run(_fetch)
-
-    if app_ctx.output.json_mode:
-        app_ctx.output.value(
-            {
-                "wallet": wallet_name,
-                "coldkey": owner,
-                "validators": validator_rows,
-            }
-        )
-        return
-
-    app_ctx.output.message(f"wallet {wallet_name} ({owner})")
-    chosen = pick_validator(
-        console,
-        app_ctx,
-        validator_rows,
-        flag=address_cli_name("hotkey_ss58"),
-    )
-    hotkey = chosen["hotkey"]
-    summary = chosen["summary"]
-    render_validator_detail(app_ctx, summary, by_hotkey.get(hotkey))
-    hint_argv = ["btcli"]
-    if wallet_name != app_ctx.wallet_name:
-        hint_argv += ["-w", wallet_name]
-    hint_argv += ["root", "show", "--hotkey", hotkey]
-    print_command_hint(console, hint_argv)
+app.add_typer(root_weights.app, name="weights")

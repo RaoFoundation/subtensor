@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
-    basket_info::BasketSummary,
+    basket_info::{BasketPosition, BasketSummary},
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
@@ -105,5 +105,14 @@ sp_api::decl_runtime_apis! {
         fn get_all_validator_baskets() -> Vec<BasketSummary<AccountId32>>;
         /// A staker's positions across all its validators: (hotkey, owed shares, payout TAO).
         fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)>;
+        /// One staker's share-denominated position on one validator: owed shares, outstanding
+        /// supply, fund NAV, and the position's realizable and spot TAO values. `None` when
+        /// the staker has no owed shares there.
+        #[api_version(2)]
+        fn get_basket_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<BasketPosition<AccountId32>>;
+        /// A coldkey's full basket portfolio: one share-denominated position per validator
+        /// on which it has owed shares.
+        #[api_version(2)]
+        fn get_root_basket_portfolio(coldkey: AccountId32) -> Vec<BasketPosition<AccountId32>>;
     }
 }

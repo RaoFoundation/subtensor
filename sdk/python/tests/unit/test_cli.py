@@ -322,7 +322,7 @@ class TestRoot:
 
         monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
 
-        result = invoke("root", "list", "--coldkey", BOB)
+        result = invoke("root", "list", "--mine", "--coldkey", BOB)
 
         assert result.exit_code == 0, result.exception
         assert "root positions of" in result.output
@@ -358,12 +358,12 @@ class TestRoot:
         monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
         seed_root_validator_summary(fake)
 
-        result = invoke("root", "show", "--hotkey", BOB, "--coldkey", BOB)
+        result = invoke("root", "list", BOB, "--coldkey", BOB)
 
         assert result.exit_code == 0, result.exception
         assert "weights of" in result.output
         assert "fund holdings of" in result.output
-        assert "fund nav: τ1.250000000" in result.output
+        assert "nav τ1.250000000" in result.output
 
     def test_show_explicit_hotkey_json_emits_one_document(self, fake: FakeSubstrate, monkeypatch):
         async def root_positions(_client, _coldkey_ss58):
@@ -372,7 +372,8 @@ class TestRoot:
         monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
         seed_root_validator_summary(fake)
 
-        result = invoke("--json", "root", "show", "--hotkey", BOB, "--coldkey", BOB)
+        # Through the hidden deprecated alias: `show` must keep behaving as `list`.
+        result = invoke("--json", "root", "show", BOB, "--coldkey", BOB)
 
         assert result.exit_code == 0, result.exception
         payload = json.loads(result.output)
@@ -663,7 +664,7 @@ class TestTransactions:
         assert result.exit_code == 0, result.output
         assert "subnet 8 registered" in result.output
         assert "immediate · no deregistration needed" in result.output
-        assert "price  τ2.500000000" in result.output
+        assert re.search(r"price\s+τ2\.500000000", result.output)
 
     @pytest.mark.parametrize(
         ("subnet_limit", "prune_netuid", "expected_flow"),
@@ -710,16 +711,18 @@ class TestTransactions:
 
         prompts = []
 
-        def tracked_confirm(self, prompt):
+        def tracked_confirm(self, prompt, **kwargs):
             prompts.append(prompt)
 
         monkeypatch.setattr(cli_context.AppContext, "confirm", tracked_confirm)
         result = invoke("subnets", "create")
 
         assert result.exit_code == 0, result.output
-        assert prompts == ["register a new subnet for 7,998.452462874 TAO?"]
+        assert prompts == ["sign and submit?"]
+        assert "cost" in result.output
+        assert "τ7,998.452462874" in result.output
         assert expected_flow in result.output
-        assert "price  τ7,998.452462874" in result.output
+        assert re.search(r"price\s+τ7,998\.452462874", result.output)
 
     def test_subnet_create_unlocks_before_starting_activity(self, fake: FakeSubstrate, monkeypatch):
         from dataclasses import replace

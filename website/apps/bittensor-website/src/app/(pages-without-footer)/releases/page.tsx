@@ -25,11 +25,11 @@ const releases: Release[] = [
   {
     tag: 'next',
     date: 'August 2026',
-    title: 'Root Weights Open',
+    title: 'Curated Beta',
     summary:
-      'V449 enables set_root_weights network-wide: root validators can now curate their ' +
-      'dividend baskets, bounded by a new 1/16 concentration cap that keeps every basket ' +
-      'spread across at least 16 destinations.',
+      'V449 enables set_root_weights. Validators curate their dividend baskets under a ' +
+      '1/16 concentration cap. btcli root list, subscribe, claim, and weights are the ' +
+      'working surface.',
     href: '/releases/v449-upgrade',
   },
   {

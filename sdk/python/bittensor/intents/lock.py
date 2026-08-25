@@ -107,6 +107,42 @@ class SetPerpetualLock(Intent):
 
 @register
 @dataclass
+class SetRejectLockedAlpha(Intent):
+    """Opt the signing coldkey in or out of receiving locked alpha.
+
+    Coldkeys reject incoming locked alpha by default, so a locked-stake
+    transfer (``transfer_stake`` of conviction-locked alpha, or a coldkey
+    swap that carries locks) to a coldkey that has not opted in fails with
+    ``AccountRejectsLockedAlpha``. Pass ``enabled=False`` to opt in and
+    accept locked alpha, or ``enabled=True`` to restore the default and
+    reject it again. A per-coldkey account flag that moves no funds by
+    itself.
+    """
+
+    op = "set_reject_locked_alpha"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "set_reject_locked_alpha"),)
+
+    enabled: bool = field(
+        metadata={
+            "help": (
+                "True to reject incoming locked alpha (the chain default), false to accept it."
+            )
+        }
+    )
+
+    async def build(self, substrate, wallet: Any):
+        return await substrate.compose(
+            calls.SubtensorModule.set_reject_locked_alpha(enabled=self.enabled)
+        )
+
+    def summary(self) -> str:
+        action = "reject" if self.enabled else "accept"
+        return f"{action} incoming locked alpha transfers"
+
+
+@register
+@dataclass
 class MoveLock(Intent):
     """Move an existing lock from one hotkey to another on a subnet.
 

@@ -302,6 +302,29 @@ def derive_saved_multisig_address(app_ctx, name: str) -> Optional[str]:
     return multisig_account(signatories, int(entry["threshold"])).ss58_address
 
 
+def saved_multisig_accounts(app_ctx) -> list[tuple[str, str]]:
+    """``(name, derived ss58)`` for every saved multisig resolvable locally.
+
+    Same offline derivation as ``derive_saved_multisig_address``, but soft:
+    presets whose signatories cannot all be resolved on this machine are
+    skipped instead of aborting, so bulk read-only views (``wallet balance
+    --all``) degrade gracefully.
+    """
+    accounts: list[tuple[str, str]] = []
+    for entry in cfg.load_multisigs():
+        name = entry.get("name")
+        threshold = int(entry.get("threshold") or 0)
+        refs = list(entry.get("signatories") or [])
+        if not name or threshold < 1 or not refs:
+            continue
+        signatories = [_soft_resolve_coldkey(app_ctx, ref) for ref in refs]
+        if any(address is None for address in signatories):
+            continue
+        unique = list(dict.fromkeys(signatories))
+        accounts.append((str(name), multisig_account(unique, threshold).ss58_address))
+    return accounts
+
+
 def resolve_multisig_preset(app_ctx, name: str) -> tuple[int, list[str], list[str]]:
     """Return threshold, resolved ss58 signatories, and preset refs."""
     threshold, signatories, _, refs = resolve_multisig(app_ctx, multisig_name=name)
@@ -387,7 +410,7 @@ def prompt_member_backend(app_ctx, *, ref: str, ss58: str) -> Optional[str]:
         cfg.add_address({**entry, "signer": backend})
         app_ctx.output.message(
             f"[dim]saved signer tag on contact {entry['name']} — future runs won't ask "
-            f"(change with `btcli addresses add {entry['name']} --signer …`)[/dim]"
+            f"(change with `btcli addr add {entry['name']} --signer …`)[/dim]"
         )
     return backend
 
@@ -445,7 +468,7 @@ def plan_signatory_rounds(
             raise ValueError(
                 f"member {ref!r} has no local wallet and no saved signing backend; "
                 f"pass `--signatory {ref}=vault` (or ledger/extension), or tag the "
-                f"contact once: `btcli addresses add {ref} --signer vault`"
+                f"contact once: `btcli addr add {ref} --signer vault`"
             )
         rounds.append((name, ss58, backend))
     return rounds
@@ -604,11 +627,10 @@ def pick_local_signatory(app_ctx, *, preset: str, signatories: list[str]) -> tup
             "`--signer vault` (also: extension, ledger); `--signatory` already names the member"
         )
     if len(locals_) == 1:
+        # The review card names the signer too; this early line exists so a
+        # coldkey password prompt that follows is attributable to a wallet.
         name, ss58 = locals_[0]
-        app_ctx.output.message(
-            f"[dim]signing as local member {format_signatory_display(ss58, name)} "
-            f"for multisig {preset}[/dim]"
-        )
+        app_ctx.output.message(f"[dim]signing as local member {name or ss58} of {preset}[/dim]")
         return name, ss58
 
     by_name = {name: ss58 for name, ss58 in locals_}
@@ -729,18 +751,12 @@ def wrap_intent_for_multisig_wallet(app_ctx, intent):
     others = [ss58 for ss58 in signatories if ss58 != signer_ss58]
     call_dict = intent.to_dict()
 
+    # No narration here: the pre-sign review card carries a "Multisig" stage
+    # (account, threshold, signer), so a log line would only repeat it.
     if threshold == 1:
-        app_ctx.output.message(
-            f"[dim]dispatching via 1-of-{len(signatories)} multisig {preset}[/dim]"
-        )
         dispatch = MultisigThreshold1(other_signatories=others, call=call_dict)
         return MultisigThreshold1IntentAdapter(dispatch=dispatch, semantic=intent)
 
-    if first_wrap:
-        app_ctx.output.message(
-            f"[dim]dispatching via {threshold}-of-{len(signatories)} multisig {preset} "
-            f"as {format_signatory_display(signer_ss58, member_name)}[/dim]"
-        )
     dispatch = MultisigExecute(
         threshold=threshold,
         other_signatories=others,

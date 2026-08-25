@@ -15,8 +15,8 @@ the call in ``Sudo.sudo(...)``; drop it to submit the call directly.
 
 When finney's sudo key is a multisig, save contacts once::
 
-    btcli addresses triumph-a 5OtherA...
-    btcli addresses triumph-b 5OtherB...
+    btcli addr triumph-a 5OtherA...
+    btcli addr triumph-b 5OtherB...
     btcli multisig add finney-sudo --threshold 2 \\
       --signatories suro,triumph-a,triumph-b
 
@@ -441,8 +441,10 @@ def call(
                     app_ctx.wallet_given = True
                 elif app_ctx.uses_vault_signer():
                     app_ctx.vault_signer().summary = label
-                app_ctx.output.message(
-                    f"[dim]approval {index + 1} of {threshold} — {name} via {backend}[/dim]"
+                app_ctx.output.step(
+                    f"approval {index + 1} of {threshold}",
+                    f"{name} via {backend}",
+                    state="active",
                 )
                 result = await _approve_once(client, ms, call)
                 if not result.success:

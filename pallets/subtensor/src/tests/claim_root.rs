@@ -3454,7 +3454,7 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
 }
 
 // =============================================================================
-// The full "become a root validator fund" journey, through real extrinsics.
+// The full "become a root validator basket" journey, through real extrinsics.
 // =============================================================================
 
 /// End-to-end operator flow: burn-based root registration with **zero prior
@@ -3464,7 +3464,7 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
 /// Pins the burn accounting introduced by burn-based admission: the coldkey
 /// pays exactly `Burn(0)`, and the price bumps for the next registrant.
 #[test]
-fn test_become_root_validator_fund_journey() {
+fn test_become_root_validator_basket_journey() {
     new_test_ext(1).execute_with(|| {
         let subnet_owner_coldkey = U256::from(1001);
         let validator_coldkey = U256::from(1003);

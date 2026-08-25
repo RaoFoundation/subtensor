@@ -62,9 +62,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2572,
-        "end_line": 2580,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2570-L2580",
+        "line": 2567,
+        "end_line": 2575,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2565-L2575",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -318,9 +318,9 @@
         "pallet": "SubtensorModule",
         "call": "announce_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2108,
-        "end_line": 2134,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2106-L2134",
+        "line": 2103,
+        "end_line": 2129,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2101-L2129",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -623,9 +623,9 @@
         "pallet": "SubtensorModule",
         "call": "clear_coldkey_swap_announcement",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2307,
-        "end_line": 2322,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2305-L2322",
+        "line": 2302,
+        "end_line": 2317,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2300-L2317",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -978,9 +978,9 @@
         "pallet": "SubtensorModule",
         "call": "dispute_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2177,
-        "end_line": 2194,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2175-L2194",
+        "line": 2172,
+        "end_line": 2189,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2170-L2189",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1394,9 +1394,9 @@
         "pallet": "SubtensorModule",
         "call": "lock_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2379,
-        "end_line": 2387,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2377-L2387",
+        "line": 2374,
+        "end_line": 2382,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2372-L2382",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1441,9 +1441,9 @@
         "pallet": "SubtensorModule",
         "call": "move_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2403,
-        "end_line": 2410,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2401-L2410",
+        "line": 2398,
+        "end_line": 2405,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2396-L2405",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3448,9 +3448,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2607,
-        "end_line": 2614,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2605-L2614",
+        "line": 2602,
+        "end_line": 2609,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2600-L2609",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3495,9 +3495,51 @@
         "pallet": "SubtensorModule",
         "call": "set_perpetual_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2419,
-        "end_line": 2426,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2417-L2426",
+        "line": 2414,
+        "end_line": 2421,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2412-L2421",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "set_reject_locked_alpha",
+    "summary": "Opt the signing coldkey in or out of receiving locked alpha.",
+    "description": "Opt the signing coldkey in or out of receiving locked alpha.\n\nColdkeys reject incoming locked alpha by default, so a locked-stake\ntransfer (`transfer_stake` of conviction-locked alpha, or a coldkey\nswap that carries locks) to a coldkey that has not opted in fails with\n`AccountRejectsLockedAlpha`. Pass `enabled=False` to opt in and\naccept locked alpha, or `enabled=True` to restore the default and\nreject it again. A per-coldkey account flag that moves no funds by\nitself.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "set_reject_locked_alpha"
+      ]
+    ],
+    "docs_url": "/docs/tx/set-reject-locked-alpha",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "True to reject incoming locked alpha (the chain default), false to accept it."
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx set-reject-locked-alpha --enabled/--no-enabled",
+    "python_class": "SetRejectLockedAlpha",
+    "markdown_url": "/llms.mdx/docs/tx/set-reject-locked-alpha/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "set_reject_locked_alpha",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2470,
+        "end_line": 2475,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2468-L2475",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3550,9 +3592,9 @@
         "pallet": "SubtensorModule",
         "call": "sudo_set_root_claim_threshold",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2071,
-        "end_line": 2090,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2069-L2090",
+        "line": 2066,
+        "end_line": 2085,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2064-L2085",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3937,9 +3979,71 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_burn",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2291,
-        "end_line": 2299,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2289-L2299",
+        "line": 2286,
+        "end_line": 2294,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2284-L2294",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "stake_into_basket",
+    "summary": "Buy shares in a validator's root basket with free TAO.",
+    "description": "Buy shares in a validator's root basket with free TAO.\n\nDeploys TAO from the signing coldkey across the validator's basket and\ncredits beta immediately. A curated fund follows its root weight vector;\nan uncurated fund mirrors current holdings by realizable value; an empty\nuncurated fund holds the deposit as the fund's root (TAO cash) slot. The\nshare mint is priced on the realizable NAV the deposit added, so the\ndepositor bears their own entry slippage and swap fees. The shares do\nnot require or change root stake, and they do not change anyone's\ndividend accrual. Redeem them later with `claim_root_with_hotkey`.\nPass `all` to deploy the whole free balance minus the existential\ndeposit and a small fee headroom.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "SubtensorModule",
+        "stake_into_basket"
+      ]
+    ],
+    "docs_url": "/docs/tx/stake-into-basket",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Validator whose basket receives the deposit."
+        },
+        "amount_tao": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "all"
+              ]
+            }
+          ],
+          "description": "How much of the coldkey's free balance to deploy into the basket, or `all` (everything minus the existential deposit and fee headroom)."
+        }
+      },
+      "required": [
+        "hotkey_ss58",
+        "amount_tao"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx stake-into-basket --hotkey <ss58|name> --amount-tao <amount|all>",
+    "python_class": "StakeIntoBasket",
+    "markdown_url": "/llms.mdx/docs/tx/stake-into-basket/content.md",
+    "sources": [
+      {
+        "pallet": "SubtensorModule",
+        "call": "stake_into_basket",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 2048,
+        "end_line": 2056,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2041-L2056",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4021,9 +4125,9 @@
         "pallet": "SubtensorModule",
         "call": "swap_coldkey_announced",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2146,
-        "end_line": 2166,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2144-L2166",
+        "line": 2141,
+        "end_line": 2161,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2139-L2161",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4318,7 +4422,7 @@
   {
     "name": "transfer_stake",
     "summary": "Transfer stake ownership to another coldkey.",
-    "description": "Transfer stake ownership to another coldkey.\n\nHands the position itself to the destination coldkey: after this call that\ncoldkey \u2014 not you \u2014 controls and can unstake those funds, so this is a\ntransfer of value and is irreversible. Double-check the destination\naddress. The stake stays on the same hotkey by default; pass a destination\nhotkey to re-delegate it in the same call (dispatched as\n`transfer_stake_and_hotkey`).\n\nConviction locks: a lock is a coldkey-wide floor (stake hotkey and lock\nhotkey may differ). Amounts at or below free (unlocked) alpha transfer\nwithout moving the lock. Amounts above free pull locked mass with the\nstake \u2014 that locked portion must land on the **receiver's** existing lock\nhotkey or the call fails with `LockHotkeyMismatch`. Fix: keep\n`hotkey_ss58` as the hotkey that holds the stake and set\n`dest_hotkey_ss58` to the receiver's lock hotkey (see `btcli stake\nlist` / `btcli lock show`). Pulling from the lock hotkey when the stake\nstill sits elsewhere fails with `NotEnoughStakeToWithdraw`. See the\nconviction guide's \"Transferring locked stake\" section.\n\nIt can also land on a different subnet, swapping through both pools (with\nslippage) when the netuids differ. Fails with `TransferDisallowed` when\nthe subnet owner has disabled stake transfers on the origin or destination\nsubnet. A spend-cap policy treats this as an unbounded spend and blocks it\nuntil the cap is raised. Use `move_stake` to re-delegate without changing\nowners. Pass `all` to hand over the entire origin position.",
+    "description": "Transfer stake ownership to another coldkey.\n\nHands the position itself to the destination coldkey: after this call that\ncoldkey \u2014 not you \u2014 controls and can unstake those funds, so this is a\ntransfer of value and is irreversible. Double-check the destination\naddress. The stake stays on the same hotkey by default; pass a destination\nhotkey to re-delegate it in the same call (dispatched as\n`transfer_stake_and_hotkey`).\n\nConviction locks: a lock is a coldkey-wide floor (stake hotkey and lock\nhotkey may differ). Amounts at or below free (unlocked) alpha transfer\nwithout moving the lock. Amounts above free pull locked mass with the\nstake \u2014 that locked portion must land on the **receiver's** existing lock\nhotkey or the call fails with `LockHotkeyMismatch`. Fix: keep\n`hotkey_ss58` as the hotkey that holds the stake and set\n`dest_hotkey_ss58` to the receiver's lock hotkey (see `btcli stake\nlist` / `btcli conviction show`). Pulling from the lock hotkey when the stake\nstill sits elsewhere fails with `NotEnoughStakeToWithdraw`. See the\nconviction guide's \"Transferring locked stake\" section.\n\nIt can also land on a different subnet, swapping through both pools (with\nslippage) when the netuids differ. Fails with `TransferDisallowed` when\nthe subnet owner has disabled stake transfers on the origin or destination\nsubnet. A spend-cap policy treats this as an unbounded spend and blocks it\nuntil the cap is raised. Use `move_stake` to re-delegate without changing\nowners. Pass `all` to hand over the entire origin position.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -4373,7 +4477,7 @@
         },
         "dest_hotkey_ss58": {
           "type": "string",
-          "description": "Hotkey the stake lands on. Defaults to the origin hotkey. Required when the transfer moves locked alpha and the receiver already locks to a different hotkey \u2014 pass their lock hotkey (see `btcli stake list` / `btcli lock show`)."
+          "description": "Hotkey the stake lands on. Defaults to the origin hotkey. Required when the transfer moves locked alpha and the receiver already locks to a different hotkey \u2014 pass their lock hotkey (see `btcli stake list` / `btcli conviction show`)."
         }
       },
       "required": [
@@ -4402,9 +4506,9 @@
         "pallet": "SubtensorModule",
         "call": "transfer_stake_and_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2514,
-        "end_line": 2532,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2512-L2532",
+        "line": 2509,
+        "end_line": 2527,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2507-L2527",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]

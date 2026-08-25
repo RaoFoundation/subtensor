@@ -180,10 +180,12 @@ while their **stake** can still be moved to another validator afterward —
 lock target and stake hotkey may differ on both sides. That is not the lock
 "unlocking"; it is the floor moving with the coldkey.
 
-Recipient coldkeys reject locked α by default — they must opt in via
-`SubtensorModule.set_reject_locked_alpha(false)` before accepting a transfer
-that moves lock mass
+Recipient coldkeys reject locked α by default — they must opt in with
+`btcli conviction accept --allow` (the `set_reject_locked_alpha` call) before
+accepting a transfer that moves lock mass
 ([`AccountRejectsLockedAlpha`](/docs/errors/chain/AccountRejectsLockedAlpha)).
+`btcli conviction list` shows the current setting; `--reject` restores the
+default.
 
 ## Rules worth remembering
 

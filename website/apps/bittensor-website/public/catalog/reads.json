@@ -1,5 +1,31 @@
 [
   {
+    "name": "accepts_locked_alpha",
+    "summary": "Whether a coldkey accepts incoming locked alpha transfers.",
+    "description": "Whether a coldkey accepts incoming locked alpha transfers.\n\nColdkeys reject locked alpha by default; the pallet's\n`set_reject_locked_alpha(false)` sets bit 0 of the coldkey's\n`AccountFlags` to opt in.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose locked-alpha acceptance flag to read."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/accepts-locked-alpha",
+    "markdown_url": "/llms.mdx/docs/query/accepts-locked-alpha/content.md",
+    "python": "sub.locks.accepts_locked_alpha(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "AccountFlags",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1374,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1374",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "alpha_price",
     "summary": "Current spot alpha price for a subnet, as TAO per alpha.",
     "description": "Current spot alpha price for a subnet, as TAO per alpha.",
@@ -42,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2488,
-        "end_line": 2498,
-        "url": "/code/runtime/src/lib.rs#L2488-L2498",
+        "line": 2495,
+        "end_line": 2505,
+        "url": "/code/runtime/src/lib.rs#L2495-L2505",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -174,6 +200,23 @@
         "name": "Account"
       }
     ]
+  },
+  {
+    "name": "basket_position",
+    "summary": "A staker's beta token position in one validator's basket.",
+    "description": "A staker's beta token position in one validator's basket.\n\n`beta` is the staker's beta token balance \u2014 the product-facing number:\nit never moves with market prices, only grows as root dividends accrue\nand shrinks when you claim. One beta is 10^9 raw chain units and had a\npar value of \u03c41 at fund inception, so `beta_price_tao` (fund NAV over\noutstanding beta) tracks the fund's performance from 1.0. `value_tao`\nis the realizable TAO a claim would pay right now \u2014 exactly what\n`claim_root_with_hotkey` would redeem; `spot_value_tao` marks the\nsame slice at spot prices (display only). Returns `None` when the\nstaker holds no beta there.",
+    "params": {
+      "hotkey_ss58": "string",
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Validator whose basket the position is in.",
+      "coldkey_ss58": "Staker whose position to read."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/basket-position",
+    "markdown_url": "/llms.mdx/docs/query/basket-position/content.md",
+    "python": "sub.staking.basket_position(...)"
   },
   {
     "name": "block_info",
@@ -1081,6 +1124,34 @@
     ]
   },
   {
+    "name": "locks_for_hotkey",
+    "summary": "Every coldkey's lock targeting a hotkey on a subnet, rolled forward to now.",
+    "description": "Every coldkey's lock targeting a hotkey on a subnet, rolled forward to now.\n\nThe reverse of `locks_for_coldkey`: scans the `LockingColdkeys`\nreverse index for the coldkeys with a non-zero lock pointed at the\nhotkey, then loads each lock record. This is the target-side view \u2014 a\nsubnet owner can see which coldkeys are building conviction toward a\nhotkey, not just the locks their own coldkey created.",
+    "params": {
+      "hotkey_ss58": "string",
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "hotkey_ss58": "Hotkey the locks target.",
+      "netuid": "Subnet to query."
+    },
+    "category": "Locks & conviction",
+    "docs_url": "/docs/query/locks-for-hotkey",
+    "markdown_url": "/llms.mdx/docs/query/locks-for-hotkey/content.md",
+    "python": "sub.locks.locks_for_hotkey(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "LockingColdkeys",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1774,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1774",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "max_weight_limit",
     "summary": "Normalized-fraction cap on any single weight: after the chain normalizes the submitted vector, no weight may exceed max_weight_limit/65535 of the total. Not a raw u16 ceiling per weight.",
     "description": "Normalized-fraction cap on any single weight: after the chain normalizes the submitted vector, no weight may exceed max_weight_limit/65535 of the total. Not a raw u16 ceiling per weight.",
@@ -1535,9 +1606,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2500,
-        "end_line": 2528,
-        "url": "/code/runtime/src/lib.rs#L2500-L2528",
+        "line": 2507,
+        "end_line": 2535,
+        "url": "/code/runtime/src/lib.rs#L2507-L2535",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1564,9 +1635,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2530,
-        "end_line": 2558,
-        "url": "/code/runtime/src/lib.rs#L2530-L2558",
+        "line": 2537,
+        "end_line": 2565,
+        "url": "/code/runtime/src/lib.rs#L2537-L2565",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1645,9 +1716,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2387,
-        "end_line": 2389,
-        "url": "/code/runtime/src/lib.rs#L2387-L2389",
+        "line": 2388,
+        "end_line": 2390,
+        "url": "/code/runtime/src/lib.rs#L2388-L2390",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1672,12 +1743,27 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_positions",
         "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
-        "line": 108,
-        "end_line": 123,
-        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L108-L123",
+        "line": 173,
+        "end_line": 188,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L173-L188",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
       }
     ]
+  },
+  {
+    "name": "root_basket_portfolio",
+    "summary": "A coldkey's basket portfolio: beta tokens held per validator, with values.",
+    "description": "A coldkey's basket portfolio: beta tokens held per validator, with values.\n\nOne `basket_position` record per validator on which the coldkey holds\nbeta, sorted by `value_tao` descending. `beta` is the stable holding\ncount (grows with accruals, shrinks with claims), and `value_tao` is\nwhat claiming would realize right now at current pool depth. Multiply\n`value_tao` by an off-chain TAO/USD price for fiat value \u2014 the chain\nhas no USD oracle.",
+    "params": {
+      "coldkey_ss58": "string"
+    },
+    "param_docs": {
+      "coldkey_ss58": "Coldkey whose basket portfolio to list."
+    },
+    "category": "Staking",
+    "docs_url": "/docs/query/root-basket-portfolio",
+    "markdown_url": "/llms.mdx/docs/query/root-basket-portfolio/content.md",
+    "python": "sub.staking.root_basket_portfolio(...)"
   },
   {
     "name": "root_basket_total_nav",
@@ -1695,9 +1781,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2399,
-        "end_line": 2401,
-        "url": "/code/runtime/src/lib.rs#L2399-L2401",
+        "line": 2400,
+        "end_line": 2402,
+        "url": "/code/runtime/src/lib.rs#L2400-L2402",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1718,9 +1804,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_all_validator_baskets",
         "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
-        "line": 99,
-        "end_line": 103,
-        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L99-L103",
+        "line": 122,
+        "end_line": 126,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L122-L126",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
       }
     ]
@@ -2301,6 +2387,28 @@
     ]
   },
   {
+    "name": "subnet_tao_flows",
+    "summary": "Per-subnet EMA of net TAO flow, in rao per block.",
+    "description": "Per-subnet EMA of net TAO flow, in rao per block.\n\nTAO flow is the chain's running measure of user stake activity on a\nsubnet: every stake adds to the accumulator and every unstake subtracts,\nso a positive value means TAO is (on average) flowing into the subnet\nand a negative value means it is flowing out. The chain smooths the\nper-block accumulator (`SubnetTaoFlow`) into an exponential moving\naverage (`SubnetEmaTaoFlow`); this read returns that EMA per netuid.\nSubnets with no recorded flow are omitted.",
+    "params": {},
+    "param_docs": {},
+    "category": "Subnets",
+    "docs_url": "/docs/query/subnet-tao-flows",
+    "markdown_url": "/llms.mdx/docs/query/subnet-tao-flows/content.md",
+    "python": "sub.subnets.subnet_tao_flows(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "SubtensorModule",
+        "name": "SubnetEmaTaoFlow",
+        "path": "pallets/subtensor/src/lib.rs",
+        "line": 1877,
+        "url": "/code/pallets/subtensor/src/lib.rs#L1877",
+        "raw_url": "/code/raw/pallets/subtensor/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "subnets",
     "summary": "Info for every subnet, fetched in four batched map queries rather than",
     "description": "Info for every subnet, fetched in four batched map queries rather than\none-query-per-subnet. This is what listing should use.",
@@ -2533,9 +2641,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2393,
-        "end_line": 2395,
-        "url": "/code/runtime/src/lib.rs#L2393-L2395",
+        "line": 2394,
+        "end_line": 2396,
+        "url": "/code/runtime/src/lib.rs#L2394-L2396",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2560,9 +2668,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_summary",
         "path": "pallets/subtensor/src/rpc_info/basket_info.rs",
-        "line": 66,
-        "end_line": 95,
-        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L66-L95",
+        "line": 89,
+        "end_line": 118,
+        "url": "/code/pallets/subtensor/src/rpc_info/basket_info.rs#L89-L118",
         "raw_url": "/code/raw/pallets/subtensor/src/rpc_info/basket_info.rs"
       }
     ]
@@ -2587,9 +2695,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_weights",
         "path": "runtime/src/lib.rs",
-        "line": 2402,
-        "end_line": 2404,
-        "url": "/code/runtime/src/lib.rs#L2402-L2404",
+        "line": 2403,
+        "end_line": 2405,
+        "url": "/code/runtime/src/lib.rs#L2403-L2405",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

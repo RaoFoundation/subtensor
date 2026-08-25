@@ -1,4 +1,4 @@
-"""`btcli addresses`: local ss58 address book for named contacts."""
+"""`btcli addr`: local ss58 address book for named contacts."""
 
 from __future__ import annotations
 
@@ -174,16 +174,16 @@ def add_address(
     ),
     note: str = typer.Option("", "--note", help="Optional note stored with the entry."),
 ):
-    """Save a named address: `btcli addresses add triumph-a 5FHne...`.
+    """Save a named address: `btcli addr add triumph-a 5FHne...`.
 
     With `--vault`, the address is scanned from your Polkadot Vault phone
-    instead of typed: `btcli addresses add my-vault --vault`. With
+    instead of typed: `btcli addr add my-vault --vault`. With
     `--extension`, it is picked from your browser extension via the local
-    bridge: `btcli addresses add my-ext --extension`. Both also tag the
+    bridge: `btcli addr add my-ext --extension`. Both also tag the
     contact so a multisig co-sign is just `--signatory <name>` — and a bare
     `-w <multisig>` run can plan the member's approval automatically.
 
-    To tag an existing contact without re-scanning: `btcli addresses add
+    To tag an existing contact without re-scanning: `btcli addr add
     VAULT --signer vault`.
     """
     app_ctx = ctx_of(ctx)
@@ -232,7 +232,7 @@ def save(
     ss58: str = typer.Argument(..., help="ss58 address for that name."),
     note: str = typer.Option("", "--note", help="Optional note stored with the entry."),
 ):
-    """Alias for `add`: `btcli addresses save triumph-a 5FHne...`."""
+    """Alias for `add`: `btcli addr save triumph-a 5FHne...`."""
     _save(ctx_of(ctx), name, ss58, note)
 
 

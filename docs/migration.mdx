@@ -542,8 +542,9 @@ the upgrade. See the release notes for
   `root_dissolve_network`. Owner proxies are limited to owner-settable subnet
   configuration and identity calls (not owner-key rotation).
 - **Reject locked alpha.** Coldkeys that should accept locked-alpha transfers
-  must opt in with `set_reject_locked_alpha` (raw call / `submit_call` —
-  no first-class intent yet). Default is to reject.
+  must opt in with `btcli conviction accept --allow` (the
+  `set_reject_locked_alpha` call, also available as the
+  `SetRejectLockedAlpha` intent). Default is to reject.
 
 ### Staking and fees
 

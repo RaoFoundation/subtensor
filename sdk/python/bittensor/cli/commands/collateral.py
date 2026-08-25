@@ -1,4 +1,4 @@
-"""`btcli collateral`: miner registration-collateral commands."""
+"""`btcli misc collateral`: miner registration-collateral commands."""
 
 from __future__ import annotations
 
@@ -8,11 +8,15 @@ from typing import Optional
 import typer
 
 from ...intents import AddCollateral, SetMinCollateral
+from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..tx import _parse_money, resolve_all_amount
 
-app = typer.Typer(no_args_is_help=True, help="Miner registration collateral.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Miner registration collateral.\n\nGuide: {guide_docs_url('mining/collateral')}",
+)
 
 
 @app.command("show")
