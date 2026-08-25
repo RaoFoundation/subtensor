@@ -100,9 +100,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "schedule_swap_coldkey",
         "swap_coldkey",
         "swap_hotkey_v2",
-        # locks / liquidity-adjacent (lock_stake, move_lock, set_perpetual_lock
-        # are wrapped by lock intents)
-        "set_reject_locked_alpha",
+        # locks / liquidity-adjacent (lock_stake, move_lock, set_perpetual_lock,
+        # set_reject_locked_alpha are wrapped by lock intents)
         # alpha burn/recycle + buyback variants (add_stake_burn is wrapped)
         "burn_alpha",
         "recycle_alpha",
