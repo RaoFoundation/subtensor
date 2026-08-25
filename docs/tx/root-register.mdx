@@ -11,15 +11,20 @@ Admission is burn-based, like subnet registration: the coldkey pays the
 root burn price (recycled out of issuance, demand-priced — each
 registration bumps it and it decays back toward the floor). No prior
 stake is required, but root slots are limited: joining a full root
-network evicts the member with the least stake, so a seat is only held
-by keeping stake behind the hotkey. Root registrations are also capped
-per block (`max_registrations_per_block`) and per interval (three
-times `target_registrations_per_interval`); hitting either cap fails
-until the window passes. Use `burned_register` for ordinary subnets.
+network evicts the lowest-staked non-immune member
+(`ImmunityPeriod`). If every seat is still immune, registration
+fails with `NoNeuronIdAvailable`. A seat is only held by keeping
+stake behind the hotkey after that window. Root registrations are
+also capped per block (`max_registrations_per_block`) and per
+interval (three times `target_registrations_per_interval`); hitting
+either cap fails until the window passes. After a successful
+registration the hotkey is auto-childkeyed to every existing subnet
+owner (full proportion) unless the validator opted out of auto parent
+delegation. Use `burned_register` for ordinary subnets.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L833-L837) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L842-L846) |
 
 ## Parameters
 
@@ -66,7 +71,7 @@ result = sub.execute_tool("root_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L835`](/code/pallets/subtensor/src/macros/dispatches.rs#L833-L837):
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L844`](/code/pallets/subtensor/src/macros/dispatches.rs#L842-L846):
 
 ```rust
 #[pallet::call_index(62)]
@@ -76,6 +81,6 @@ pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResu
 }
 ```
 
-Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L80).
+Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L85).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

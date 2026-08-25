@@ -16,7 +16,7 @@ incur slippage.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L1260-L1264) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all_alpha`](/code/pallets/subtensor/src/macros/dispatches.rs#L1269-L1273) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("unstake_all_alpha", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L1262`](/code/pallets/subtensor/src/macros/dispatches.rs#L1260-L1264):
+`SubtensorModule.unstake_all_alpha` — [`pallets/subtensor/src/macros/dispatches.rs#L1271`](/code/pallets/subtensor/src/macros/dispatches.rs#L1269-L1273):
 
 ```rust
 #[pallet::call_index(84)]

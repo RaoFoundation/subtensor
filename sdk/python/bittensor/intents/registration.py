@@ -202,14 +202,16 @@ class RootRegister(Intent):
     root burn price (recycled out of issuance, demand-priced — each
     registration bumps it and it decays back toward the floor). No prior
     stake is required, but root slots are limited: joining a full root
-    network evicts the member with the least stake, so a seat is only held
-    by keeping stake behind the hotkey. Root registrations are also capped
-    per block (``max_registrations_per_block``) and per interval (three
-    times ``target_registrations_per_interval``); hitting either cap fails
-    until the window passes. After a successful registration the hotkey is
-    auto-childkeyed to every existing subnet owner (full proportion) unless
-    the validator opted out of auto parent delegation. Use
-    ``burned_register`` for ordinary subnets.
+    network evicts the lowest-staked non-immune member
+    (``ImmunityPeriod``). If every seat is still immune, registration
+    fails with ``NoNeuronIdAvailable``. A seat is only held by keeping
+    stake behind the hotkey after that window. Root registrations are
+    also capped per block (``max_registrations_per_block``) and per
+    interval (three times ``target_registrations_per_interval``); hitting
+    either cap fails until the window passes. After a successful
+    registration the hotkey is auto-childkeyed to every existing subnet
+    owner (full proportion) unless the validator opted out of auto parent
+    delegation. Use ``burned_register`` for ordinary subnets.
     """
 
     op = "root_register"

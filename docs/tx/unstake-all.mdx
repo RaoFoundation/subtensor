@@ -21,7 +21,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1236-L1240), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1991-L2010), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1245-L1249), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2000-L2019), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -71,7 +71,7 @@ result = sub.execute_tool("unstake_all", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1238`](/code/pallets/subtensor/src/macros/dispatches.rs#L1236-L1240):
+`SubtensorModule.unstake_all` — [`pallets/subtensor/src/macros/dispatches.rs#L1247`](/code/pallets/subtensor/src/macros/dispatches.rs#L1245-L1249):
 
 ```rust
 #[pallet::call_index(83)]
@@ -83,7 +83,7 @@ pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult
 
 Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L111).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1995`](/code/pallets/subtensor/src/macros/dispatches.rs#L1991-L2010):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2004`](/code/pallets/subtensor/src/macros/dispatches.rs#L2000-L2019):
 
 ```rust
 #[pallet::call_index(148)]

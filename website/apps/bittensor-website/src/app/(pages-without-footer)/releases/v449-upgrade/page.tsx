@@ -252,8 +252,9 @@ const page = () => {
           <div className={styles.step}>
             <p className={styles.step_title}>1 · Register</p>
             <p>
-              Burn-based seat. Floor is τ1. A full root evicts the lowest-staked
-              non-immune member. A new seat is immune for 7200 blocks.
+              Burn-based seat. This upgrade writes ``MinBurn`` and
+              ``ImmunityPeriod`` on root. A full senate evicts the
+              lowest-staked non-immune member.
             </p>
             <pre className={styles.step_code}>
               {`btcli subnets burn-cost 0

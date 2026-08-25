@@ -18,7 +18,7 @@ deposit and a small fee headroom.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2041-L2056) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2050-L2065) |
 
 ## Parameters
 
@@ -70,7 +70,7 @@ result = sub.execute_tool("stake_into_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2048`](/code/pallets/subtensor/src/macros/dispatches.rs#L2041-L2056):
+`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2057`](/code/pallets/subtensor/src/macros/dispatches.rs#L2050-L2065):
 
 ```rust
 #[pallet::call_index(147)]
