@@ -1,0 +1,17 @@
+node_modules
+
+# Hardhat files and other artifacts
+/cache
+/artifacts
+deployed-contract.json
+
+# TypeChain files
+/typechain
+/typechain-types
+
+# solidity-coverage files
+/coverage
+/coverage.json
+
+# secrets and other local configs
+config.ts
