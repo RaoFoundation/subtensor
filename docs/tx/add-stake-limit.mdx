@@ -17,7 +17,7 @@ deposit and a small fee headroom.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1426-L1445) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1428-L1447) |
 
 ## Parameters
 
@@ -76,7 +76,7 @@ result = sub.execute_tool("add_stake_limit", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1428`](/code/pallets/subtensor/src/macros/dispatches.rs#L1426-L1445):
+`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1430`](/code/pallets/subtensor/src/macros/dispatches.rs#L1428-L1447):
 
 ```rust
 #[pallet::call_index(88)]

@@ -32,7 +32,7 @@ owners. Pass `all` to hand over the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1334-L1352), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2515-L2535) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1336-L1354), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2518-L2538) |
 
 ## Parameters
 
@@ -94,7 +94,7 @@ result = sub.execute_tool("transfer_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1336`](/code/pallets/subtensor/src/macros/dispatches.rs#L1334-L1352):
+`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1338`](/code/pallets/subtensor/src/macros/dispatches.rs#L1336-L1354):
 
 ```rust
 #[pallet::call_index(86)]
@@ -118,9 +118,9 @@ pub fn transfer_stake(
 }
 ```
 
-Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L162).
+Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L196).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2517`](/code/pallets/subtensor/src/macros/dispatches.rs#L2515-L2535):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2520`](/code/pallets/subtensor/src/macros/dispatches.rs#L2518-L2538):
 
 ```rust
 #[pallet::call_index(143)]
@@ -146,6 +146,6 @@ pub fn transfer_stake_and_hotkey(
 }
 ```
 
-Delegates to [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L235).
+Delegates to [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L269).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

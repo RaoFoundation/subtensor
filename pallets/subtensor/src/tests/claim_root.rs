@@ -1872,6 +1872,85 @@ fn test_claim1_principal_never_lost() {
     });
 }
 
+/// A pre-execution `get_basket_payout_tao` quote is not the post-claim balance:
+/// the claim first flushes pending basket deposits. `move_stake(MAX)` must cap
+/// to the live origin after that flush, not to the stale quote.
+#[test]
+fn test_claim_then_move_max_includes_pending_basket() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let origin_hotkey = U256::from(1002);
+        let dest_hotkey = U256::from(1005);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&origin_hotkey, &owner_coldkey);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let principal = 2_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            principal.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &owner_coldkey,
+            netuid,
+            10_000_000u64.into(),
+        );
+        set_root_weights_direct(&origin_hotkey, 0, &[(netuid, u16::MAX)]);
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        crate::SubtokenEnabled::<Test>::insert(NetUid::ROOT, true);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &dest_hotkey);
+
+        SubtensorModule::distribute_emission(
+            netuid,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            1_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+
+        let quoted_payout = SubtensorModule::get_basket_payout_tao(&origin_hotkey, &coldkey);
+        assert_eq!(
+            quoted_payout, 0,
+            "pending credits must not count in the pre-flush payout quote"
+        );
+        assert!(
+            crate::PendingBasketDeposits::<Test>::iter_prefix(origin_hotkey)
+                .next()
+                .is_some(),
+            "epoch must have queued a pending basket credit"
+        );
+
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            origin_hotkey
+        ));
+        let post_claim = root_stake_of(&origin_hotkey, &coldkey);
+        assert!(
+            post_claim > principal,
+            "claim must realize the flushed pending credit"
+        );
+
+        assert_ok!(SubtensorModule::do_move_stake(
+            RuntimeOrigin::signed(coldkey),
+            origin_hotkey,
+            dest_hotkey,
+            NetUid::ROOT,
+            NetUid::ROOT,
+            AlphaBalance::MAX,
+        ));
+
+        assert_eq!(root_stake_of(&origin_hotkey, &coldkey), 0);
+        assert_eq!(root_stake_of(&dest_hotkey, &coldkey), post_claim);
+    });
+}
+
 /// CLAIM 2 — accrued beta is unaffected by *others* staking the same validator: another staker
 /// joining does not change your already-accrued basket value, and they accrue nothing of yours.
 #[test]

@@ -167,8 +167,8 @@ allocated per its root weights, and root stakers accrue an entitlement to that f
 in proportion to their root stake.
 
 Unlike subnet staking, moving TAO in and out of root is not a pool swap: no
-swap fee, no slippage, no MEV exposure — you subscribe and redeem at face
-value. See [how money moves](/docs/concepts/money) for the swap mechanics
+swap fee, no slippage, no MEV exposure — you add and remove root stake at
+face value. See [how money moves](/docs/concepts/money) for the swap mechanics
 that root positions skip.
 
 `btcli` shows root positions in TAO: staked τ is principal on netuid 0,
@@ -205,7 +205,8 @@ Per-validator payouts below the claim threshold (default 500,000 rao) are
 skipped and keep accruing — there is no deadline. See
 [Root Reborn](/docs/guides/root-reborn) for the full basket model, the
 validator-side curation commands, and migration notes from the retired
-per-subnet claim system.
+per-subnet claim system. [Beta tokens](/docs/concepts/beta-tokens) is the
+share unit itself.
 
 ## Child hotkeys
 

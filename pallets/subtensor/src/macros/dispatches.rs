@@ -1285,7 +1285,9 @@ mod dispatches {
         ///
         /// * `destination_netuid`: The subnet ID to move stake to.
         ///
-        /// * `alpha_amount`: The alpha stake amount to move.
+        /// * `alpha_amount`: The alpha stake amount to move. `AlphaBalance::MAX`
+        ///   means the live origin position at execution (so a preceding
+        ///   `claim_root_with_hotkey` in the same batch is included).
         ///
         #[pallet::call_index(85)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake())]
@@ -1549,7 +1551,8 @@ mod dispatches {
         /// `limit_price` is the minimum acceptable destination-alpha per
         /// origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the
         /// call is fill-or-kill; otherwise it moves only the amount executable
-        /// before the limit is crossed.
+        /// before the limit is crossed. `alpha_amount` of `AlphaBalance::MAX`
+        /// means the live origin position at execution.
         #[pallet::call_index(149)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake_limit())]
         pub fn move_stake_limit(

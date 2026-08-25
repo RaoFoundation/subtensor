@@ -372,8 +372,7 @@ class TestRoot:
         monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
         seed_root_validator_summary(fake)
 
-        # Through the hidden deprecated alias: `show` must keep behaving as `list`.
-        result = invoke("--json", "root", "show", BOB, "--coldkey", BOB)
+        result = invoke("--json", "root", "list", BOB, "--coldkey", BOB)
 
         assert result.exit_code == 0, result.exception
         payload = json.loads(result.output)

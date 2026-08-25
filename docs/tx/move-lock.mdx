@@ -16,7 +16,7 @@ existing lock on the subnet to move.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_lock`](/code/pallets/subtensor/src/macros/dispatches.rs#L2404-L2413) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_lock`](/code/pallets/subtensor/src/macros/dispatches.rs#L2407-L2416) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("move_lock", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2406`](/code/pallets/subtensor/src/macros/dispatches.rs#L2404-L2413):
+`SubtensorModule.move_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2409`](/code/pallets/subtensor/src/macros/dispatches.rs#L2407-L2416):
 
 ```rust
 #[pallet::call_index(137)]

@@ -23,7 +23,7 @@ larger than 1000x the pool's TAO reserve (`InsufficientLiquidity`).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L578-L587), [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1426-L1445) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L578-L587), [`SubtensorModule.add_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1428-L1447) |
 
 ## Parameters
 
@@ -97,7 +97,7 @@ pub fn add_stake(
 
 Delegates to [`do_add_stake`](/code/pallets/subtensor/src/staking/add_stake.rs#L30).
 
-`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1428`](/code/pallets/subtensor/src/macros/dispatches.rs#L1426-L1445):
+`SubtensorModule.add_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1430`](/code/pallets/subtensor/src/macros/dispatches.rs#L1428-L1447):
 
 ```rust
 #[pallet::call_index(88)]

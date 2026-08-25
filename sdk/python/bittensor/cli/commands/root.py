@@ -8,8 +8,7 @@ whole root position (principal + that yield) onto a destination validator.
 ``list`` is the fund leaderboard (one fund in detail with a validator
 argument, your own positions with ``--mine``), ``register`` joins the root
 network, and the ``weights`` sub-group curates a validator's dividend
-basket. ``show`` remains as a hidden, deprecated alias of ``list``.
-``subscribe`` remains as a hidden, deprecated alias of ``allocate``.
+basket.
 """
 
 from __future__ import annotations
@@ -390,11 +389,6 @@ def root_list(
         print_command_hint(console, ["btcli", "root", "list", hotkey])
 
 
-# Deprecated spelling, kept as a hidden alias so scripts and muscle memory
-# keep working (same convention as the hidden group aliases in main.py).
-app.command("show", hidden=True)(root_list)
-
-
 def _claim_position(
     app_ctx: AppContext,
     *,
@@ -642,9 +636,6 @@ def root_allocate(
     )
 
 
-# Deprecated spelling, kept as a hidden alias so scripts and muscle memory
-# keep working (same convention as the hidden `show` alias of `list`).
-app.command("subscribe", hidden=True)(root_allocate)
 app.command("move")(root_move.root_move)
 
 

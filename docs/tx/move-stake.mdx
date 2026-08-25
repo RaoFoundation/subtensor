@@ -24,14 +24,15 @@ On root (netuid 0), a move takes principal only. Accrued basket yield
 stays owed on the origin until `claim_root_with_hotkey`. Pass
 `claim=True` to redeem this validator's whole entitlement first, then
 move, in one batch. That is not a proportional payout: the claim pays
-100% of the basket, not a slice of the amount you move. Because
-`move_stake` does not cap an oversize amount, a claim-all move is
-sized as live stake plus the quoted payout so the just-claimed yield
-is included.
+100% of the basket, not a slice of the amount you move. Pass `all`
+with `claim=True` to move the live origin position after the claim:
+the follow-up uses `u64::MAX`, which the runtime caps to whatever
+root stake exists once the claim has flushed pending basket deposits
+and restaked the payout.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1290-L1308), [`SubtensorModule.move_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1553-L1575), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2000-L2019), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1292-L1310), [`SubtensorModule.move_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1556-L1578), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2003-L2022), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -97,9 +98,9 @@ result = sub.execute_tool("move_stake", {...}, wallet)
 
 | Chain call | Source |
 | --- | --- |
-| `SubtensorModule.move_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L1292`](/code/pallets/subtensor/src/macros/dispatches.rs#L1290-L1308) |
-| `SubtensorModule.move_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1555`](/code/pallets/subtensor/src/macros/dispatches.rs#L1553-L1575) |
-| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2004`](/code/pallets/subtensor/src/macros/dispatches.rs#L2000-L2019) |
+| `SubtensorModule.move_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L1294`](/code/pallets/subtensor/src/macros/dispatches.rs#L1292-L1310) |
+| `SubtensorModule.move_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1558`](/code/pallets/subtensor/src/macros/dispatches.rs#L1556-L1578) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2007`](/code/pallets/subtensor/src/macros/dispatches.rs#L2003-L2022) |
 | `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

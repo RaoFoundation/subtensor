@@ -19,7 +19,7 @@ effect afterwards with the `root_claim_threshold` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | root (chain sudo) | SubtensorModule | [`SubtensorModule.sudo_set_root_claim_threshold`](/code/pallets/subtensor/src/macros/dispatches.rs#L2073-L2094), `Sudo.sudo` |
+| `coldkey` | root (chain sudo) | SubtensorModule | [`SubtensorModule.sudo_set_root_claim_threshold`](/code/pallets/subtensor/src/macros/dispatches.rs#L2076-L2097), `Sudo.sudo` |
 
 ## Verify
 
@@ -77,7 +77,7 @@ result = sub.execute_tool("set_root_claim_threshold", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.sudo_set_root_claim_threshold` — [`pallets/subtensor/src/macros/dispatches.rs#L2075`](/code/pallets/subtensor/src/macros/dispatches.rs#L2073-L2094):
+`SubtensorModule.sudo_set_root_claim_threshold` — [`pallets/subtensor/src/macros/dispatches.rs#L2078`](/code/pallets/subtensor/src/macros/dispatches.rs#L2076-L2097):
 
 ```rust
 #[pallet::call_index(124)]

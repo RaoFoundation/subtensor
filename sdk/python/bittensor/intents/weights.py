@@ -402,19 +402,22 @@ async def _root_cap_check(substrate, dests: list[int], values: list[int]) -> Non
 
     No destination may take a larger share of the vector than the cap allows
     (share = value / sum; the cap is u16-normalized). The chain skips the
-    check while fewer networks exist than the cap demands, so this preflight
-    keys off the live network count the same way. Checked on the exact u16
-    values that will be submitted, so preflight and dispatch agree.
+    check while fewer *active* networks exist than the cap demands
+    (``NetworksAdded == true``, same set ``do_set_root_weights`` walks), so
+    this preflight keys off that count and not ``TotalNetworks``. Checked on
+    the exact u16 values that will be submitted, so preflight and dispatch
+    agree.
     """
-    cap_raw, total_raw = await asyncio.gather(
+    cap_raw, networks = await asyncio.gather(
         substrate.query(*st.RootWeightsCap, [0]),
-        substrate.query(*st.TotalNetworks, []),
+        substrate.query_map(*st.NetworksAdded),
     )
     cap = int(cap_raw) if cap_raw is not None else DEFAULT_ROOT_WEIGHTS_CAP
     if cap <= 0:
         return
     min_dests_for_cap = -(-U16_MAX // cap)  # ceil division
-    if int(total_raw or 0) < min_dests_for_cap:
+    available = sum(1 for _netuid, added in (networks or []) if added)
+    if available < min_dests_for_cap:
         return
     total = sum(values)
     worst = max(values)

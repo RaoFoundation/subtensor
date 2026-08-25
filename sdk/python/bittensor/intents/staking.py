@@ -21,9 +21,10 @@ from .registry import register
 # fraction from the price observed at build time before the call stops filling.
 DEFAULT_RATE_TOLERANCE = 0.05
 
-# ``remove_stake`` caps its u64 input to the live position.  Using the type's
-# maximum after a root claim is the only atomic way to include yield that does
-# not exist until the preceding batch child executes.
+# ``remove_stake`` always caps its u64 input to the live position.
+# ``move_stake`` / ``move_stake_limit`` do the same when the input is the type
+# maximum. Using that sentinel after a root claim is the only atomic way to
+# include yield that does not exist until the preceding batch child executes.
 _MAX_ALPHA_RAO = (1 << 64) - 1
 
 NETUID_HELP = "Subnet the stake lives on (netuid 0 is the root network)."
@@ -323,10 +324,11 @@ async def _resolve_move_amount(
 ) -> tuple[int, bool]:
     """Resolve the move amount and whether a root claim must precede it.
 
-    ``move_stake`` does not cap an oversize amount the way ``remove_stake``
-    does, so a claim-all move cannot pass ``u64::MAX``. When claiming the
-    whole origin position, size the follow-up as live stake plus the
-    quoted basket payout so the just-claimed yield moves too.
+    ``claim=True`` always precedes the move on root. A pre-execution
+    ``get_basket_payout`` quote is not the post-claim balance: the claim
+    first flushes pending basket deposits, then pays what is owed. For
+    ``all``, pass ``u64::MAX`` so the runtime caps to the live origin
+    position after that claim.
     """
     if claim and int(origin_netuid) != 0:
         raise BittensorError(
@@ -337,33 +339,16 @@ async def _resolve_move_amount(
     will_claim = claim and int(origin_netuid) == 0
     if amount_alpha != ALL:
         return cast(Balance, amount_alpha).rao, will_claim
-
+    if will_claim:
+        return _MAX_ALPHA_RAO, True
     current_rao = await _staked_rao(
         substrate,
         wallet,
         origin_hotkey_ss58,
         origin_netuid,
         action="move",
-        allow_empty=will_claim,
     )
-    if not will_claim:
-        return current_rao, False
-
-    payout = await _root_claimable_rao(
-        substrate, public_view(wallet, "coldkey").ss58_address, origin_hotkey_ss58
-    )
-    if payout is None:
-        raise BittensorError(
-            "could not quote claimable yield to size the move after claim; "
-            "retry, or move without claim and run `btcli root claim` separately"
-        )
-    if payout <= 0:
-        if current_rao <= 0:
-            raise BittensorError(
-                f"nothing to move: no stake on {origin_hotkey_ss58} at netuid {origin_netuid}"
-            )
-        return current_rao, False
-    return current_rao + payout, True
+    return current_rao, False
 
 
 async def _lockable_rao(substrate, coldkey_ss58: str, netuid: int) -> int:
@@ -817,10 +802,11 @@ class MoveStake(_OptionalRootClaimIntent):
     stays owed on the origin until ``claim_root_with_hotkey``. Pass
     ``claim=True`` to redeem this validator's whole entitlement first, then
     move, in one batch. That is not a proportional payout: the claim pays
-    100% of the basket, not a slice of the amount you move. Because
-    ``move_stake`` does not cap an oversize amount, a claim-all move is
-    sized as live stake plus the quoted payout so the just-claimed yield
-    is included.
+    100% of the basket, not a slice of the amount you move. Pass ``all``
+    with ``claim=True`` to move the live origin position after the claim:
+    the follow-up uses ``u64::MAX``, which the runtime caps to whatever
+    root stake exists once the claim has flushed pending basket deposits
+    and restaked the payout.
     """
 
     op = "move_stake"

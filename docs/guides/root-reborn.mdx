@@ -10,6 +10,11 @@ into **baskets** — per-validator, escrowed index funds of subnet alpha,
 curated by each validator's root weights — and realized only when a staker
 claims.
 
+The share unit of a basket is a **beta token**: a stable count that grows
+with accruals and shrinks on claim, while its TAO value moves with the
+holdings. [Beta tokens](/docs/concepts/beta-tokens) covers the
+representation, the owed formula, and the raw-versus-display scale.
+
 This replaces the old per-subnet claimable system and retires
 `set_root_claim_type`. The `claim_root(subnets)` call keeps its SCALE
 signature for old clients, but `subnets` is ignored and the call claims
@@ -87,8 +92,9 @@ their stakers the most TAO.
 Admission is **burn-based**: your coldkey pays the root burn price and the
 hotkey is registered — no prior stake required. The price is demand-set like
 subnet registration: each registration bumps it (~×1.26) and it decays back
-toward the floor (τ1) with a ~72-minute half-life, so entry costs at least
-1 TAO when the network is quiet and more under registration pressure.
+toward the current ``MinBurn`` floor with a ~72-minute half-life, so
+entry costs at least that floor when the network is quiet and more under
+registration pressure.
 
 ```bash
 btcli subnets burn-cost 0                        # current root registration price
@@ -109,8 +115,9 @@ Steps to a working fund:
    `set_auto_parent_delegation_enabled(false)` first. New subnets later do
    the same for every root validator that has not opted out.
 2. **Stake your seat.** Root seats are limited (64): when the network is
-   full, each new registration prunes the **lowest-staked** member. A seat
-   with no stake behind it earns nothing and is the first to be evicted, so
+   full, each new registration prunes the **lowest-staked non-immune**
+   member (``ImmunityPeriod``). A seat with no stake behind it earns
+   nothing and is the first to be evicted after that window, so
    add root TAO to your own hotkey right away
    (`btcli stake add --netuid 0 --amount ... --hotkey <your hotkey>`). Stake
    also gates weight-setting: the hotkey must clear the minimum stake to
