@@ -6,10 +6,10 @@ use frame_support::pallet_macros::pallet_section;
 #[pallet_section]
 mod dispatches {
     use frame_support::pallet_prelude::DispatchResultWithPostInfo;
-    use frame_support::traits::{schedule::v3::Anon as ScheduleAnon, Get};
+    use frame_support::traits::{Get, schedule::v3::Anon as ScheduleAnon};
     use frame_system::pallet_prelude::BlockNumberFor;
     use sp_core::ecdsa::Signature;
-    use sp_runtime::{traits::Hash, Percent, Saturating};
+    use sp_runtime::{Percent, Saturating, traits::Hash};
 
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;

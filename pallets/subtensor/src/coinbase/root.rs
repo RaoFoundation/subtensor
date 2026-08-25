@@ -16,6 +16,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 use super::*;
+use crate::weights::WeightInfo;
 use safe_math::*;
 use substrate_fixed::types::{I64F64, U64F64};
 use subtensor_runtime_common::{NetUid, TaoBalance, Token};
