@@ -39,35 +39,17 @@ def associate(
     assert hotkey is not None
     summary = f"associate EVM key {info.address} with the hotkey on netuid {netuid}"
 
-    if app_ctx.dry_run:
-        block_number = app_ctx.run(lambda client: client.block())
-        account = _unlock(app_ctx, key)
-        signature, block_number = evm_transactions.association_proof(account, hotkey, block_number)
-        app_ctx.submit(
-            AssociateEvmKey(
-                netuid=netuid,
-                evm_key=info.address,
-                block_number=block_number,
-                signature=signature,
-            )
-        )
-        return
-
-    app_ctx.confirm(f"{summary}?")
+    # Unlock and build the proof first — the intent cannot be composed
+    # without the signature. submit then shows the universal review card.
     block_number = app_ctx.run(lambda client: client.block())
     account = _unlock(app_ctx, key)
     signature, block_number = evm_transactions.association_proof(account, hotkey, block_number)
-
-    previous_assume_yes = app_ctx.assume_yes
-    app_ctx.assume_yes = True
-    try:
-        app_ctx.submit(
-            AssociateEvmKey(
-                netuid=netuid,
-                evm_key=info.address,
-                block_number=block_number,
-                signature=signature,
-            )
-        )
-    finally:
-        app_ctx.assume_yes = previous_assume_yes
+    app_ctx.submit(
+        AssociateEvmKey(
+            netuid=netuid,
+            evm_key=info.address,
+            block_number=block_number,
+            signature=signature,
+        ),
+        summary=summary,
+    )

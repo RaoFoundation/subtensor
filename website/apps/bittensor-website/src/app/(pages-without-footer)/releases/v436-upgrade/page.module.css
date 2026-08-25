@@ -110,6 +110,46 @@
   text-align: left;
 }
 
+.step {
+  width: calc(100vw - 64px);
+  max-width: 896px;
+  border: 1px solid rgba(41, 41, 41, 0.2);
+  box-sizing: border-box;
+  padding: 24px 28px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  text-align: left;
+}
+
+.step_title {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+.step p {
+  margin: 0;
+  text-align: left;
+}
+
+.step_code {
+  font-family: 'FiraCode';
+  font-size: 12px;
+  font-weight: 200;
+  margin: 0;
+  padding: 14px 16px;
+  background: rgba(41, 41, 41, 0.04);
+  box-sizing: border-box;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+
 .connect_links {
   display: flex;
   justify-content: center;

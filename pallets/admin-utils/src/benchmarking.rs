@@ -960,5 +960,11 @@ mod benchmarks {
         _(RawOrigin::Signed(owner), netuid, true);
     }
 
+    #[benchmark]
+    fn sudo_set_root_weights_cap() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 4096u16);
+    }
+
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);
 }

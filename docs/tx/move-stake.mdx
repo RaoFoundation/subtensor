@@ -20,9 +20,19 @@ Ownership stays with the signing coldkey — use `transfer_stake` to hand
 the position to another coldkey, or `swap_stake` when only the subnet
 changes. Pass `all` to move the entire origin position.
 
+On root (netuid 0), a move takes principal only. Accrued basket yield
+stays owed on the origin until `claim_root_with_hotkey`. Pass
+`claim=True` to redeem this validator's whole entitlement first, then
+move, in one batch. That is not a proportional payout: the claim pays
+100% of the basket, not a slice of the amount you move. Pass `all`
+with `claim=True` to move the live origin position after the claim:
+the follow-up uses `u64::MAX`, which the runtime caps to whatever
+root stake exists once the claim has flushed pending basket deposits
+and restaked the payout.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1279-L1297), [`SubtensorModule.move_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1542-L1564) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1293-L1311), [`SubtensorModule.move_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1557-L1579), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2004-L2023), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -35,6 +45,7 @@ changes. Pass `all` to move the entire origin position.
 | `amount_alpha` | number \| `"all"` | yes | How much of the origin position to move, or ``all``. |
 | `slippage_protection` | boolean | no | Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price. |
 | `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
+| `claim` | boolean | no | Also redeem this validator's whole basket entitlement before moving, in one atomic batch. Root only (netuid 0). This is not a proportional payout: moving 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on the origin, then the move runs — pass `all` to take principal and yield together. Unavailable while RootStakeUnlockInterval is nonzero, because the claim starts a new hold window; claim first, wait, then move in that mode. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -85,60 +96,11 @@ result = sub.execute_tool("move_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1281`](/code/pallets/subtensor/src/macros/dispatches.rs#L1279-L1297):
-
-```rust
-#[pallet::call_index(85)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake())]
-pub fn move_stake(
-    origin: OriginFor<T>,
-    origin_hotkey: T::AccountId,
-    destination_hotkey: T::AccountId,
-    origin_netuid: NetUid,
-    destination_netuid: NetUid,
-    alpha_amount: AlphaBalance,
-) -> DispatchResult {
-    Self::do_move_stake(
-        origin,
-        origin_hotkey,
-        destination_hotkey,
-        origin_netuid,
-        destination_netuid,
-        alpha_amount,
-    )
-}
-```
-
-Delegates to [`do_move_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L30).
-
-`SubtensorModule.move_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1544`](/code/pallets/subtensor/src/macros/dispatches.rs#L1542-L1564):
-
-```rust
-#[pallet::call_index(149)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake_limit())]
-pub fn move_stake_limit(
-    origin: OriginFor<T>,
-    origin_hotkey: T::AccountId,
-    destination_hotkey: T::AccountId,
-    origin_netuid: NetUid,
-    destination_netuid: NetUid,
-    alpha_amount: AlphaBalance,
-    limit_price: TaoBalance,
-    allow_partial: bool,
-) -> DispatchResult {
-    Self::do_move_stake_limit(
-        origin,
-        origin_hotkey,
-        destination_hotkey,
-        origin_netuid,
-        destination_netuid,
-        alpha_amount,
-        limit_price,
-        allow_partial,
-    )
-}
-```
-
-Delegates to [`do_move_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L79).
+| Chain call | Source |
+| --- | --- |
+| `SubtensorModule.move_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L1295`](/code/pallets/subtensor/src/macros/dispatches.rs#L1293-L1311) |
+| `SubtensorModule.move_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1559`](/code/pallets/subtensor/src/macros/dispatches.rs#L1557-L1579) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2008`](/code/pallets/subtensor/src/macros/dispatches.rs#L2004-L2023) |
+| `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

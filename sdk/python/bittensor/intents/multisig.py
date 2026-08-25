@@ -331,7 +331,17 @@ class MultisigIntentAdapter(Intent):
         return await dispatch._build_with_inner(substrate, wallet, call)
 
     def summary(self) -> str:
-        return self.dispatch.summary()
+        """The approval line plus what the inner call actually does.
+
+        The dispatch summary alone names only the inner op ("multisig 2-of-3
+        execute move_stake"), which is not enough to review before signing —
+        the amounts and keys live in the semantic intent's summary.
+        """
+        outer = self.dispatch.summary()
+        op = self.semantic.op
+        if op and outer.endswith(f" {op}"):
+            outer = outer[: -(len(op) + 1)]
+        return f"{outer}: {self.semantic.summary()}"
 
     async def effects(self, substrate, signer_address: str) -> list[str]:
         inner = await self.semantic.effects(substrate, signer_address)
@@ -362,6 +372,8 @@ class MultisigIntentAdapter(Intent):
             required_free=semantic.required_free,
             available_free=semantic.available_free,
             estimated_fee=semantic.estimated_fee,
+            facts=[*semantic.facts, *dispatch.facts],
+            facts_title=semantic.facts_title,
         )
 
     def spend(self):

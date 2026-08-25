@@ -290,6 +290,7 @@
     "RootNetUidNotAllowed",
     "RootNetworkDoesNotExist",
     "RootStakeLocked",
+    "RootWeightCapExceeded",
     "RootWeightSettingDisabled",
     "SameAutoStakeHotkeyAlreadySet",
     "SameNetuid",

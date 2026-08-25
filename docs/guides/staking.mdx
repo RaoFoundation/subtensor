@@ -167,27 +167,26 @@ allocated per its root weights, and root stakers accrue an entitlement to that f
 in proportion to their root stake.
 
 Unlike subnet staking, moving TAO in and out of root is not a pool swap: no
-swap fee, no slippage, no MEV exposure — you subscribe and redeem at face
-value. See [how money moves](/docs/concepts/money) for the swap mechanics
+swap fee, no slippage, no MEV exposure — you add and remove root stake at
+face value. See [how money moves](/docs/concepts/money) for the swap mechanics
 that root positions skip.
 
 `btcli` shows root positions in TAO: staked τ is principal on netuid 0,
 accrued τ is fund yield. `btcli stake list` and `btcli wallet overview`
 print that accrued basket yield under the total (auto-claim is off). List
-per validator, then claim — either realize accrued yield into stake, or
-withdraw to free balance:
+per validator, claim accrued yield into root stake, then unstake normally
+to withdraw to free balance:
 
 ```bash
 btcli stake list                                  # positions + accrued basket yield
 btcli wallet overview                             # same yield line on the wallet view
-btcli root list                                   # staked + accrued τ, per validator
-btcli root subscribe --amount 100 --hotkey 5F...  # assets in
-btcli root unstake --amount 40 --hotkey 5F...     # principal only; yield stays in the basket
-btcli root unstake --all --hotkey 5F... --claim   # atomic only while RootStakeUnlockInterval is 0
+btcli root list --mine                            # staked + accrued τ, per validator
+btcli root allocate --amount 100 --hotkey 5F...  # assets in
 btcli root claim --dry-run --hotkey 5F...         # reserved vs spent fee, vs accrued
-btcli root claim                                  # pick wallet → validator → claim / withdraw
-btcli root claim --hotkey 5F... --amount all      # withdraw full position
-btcli root claim --hotkey 5F...                   # claim accrued into stake only
+btcli root claim                                  # pick wallet → validator → claim
+btcli root claim --hotkey 5F...                   # claim accrued into root stake
+btcli stake remove --netuid 0 --hotkey 5F... --amount 40   # principal only; yield stays owed
+btcli stake remove --netuid 0 --hotkey 5F... --amount all --claim  # claim all, then unstake
 ```
 
 The claim fee scales with how many ALPHA types are in the basket. Both
@@ -206,7 +205,8 @@ Per-validator payouts below the claim threshold (default 500,000 rao) are
 skipped and keep accruing — there is no deadline. See
 [Root Reborn](/docs/guides/root-reborn) for the full basket model, the
 validator-side curation commands, and migration notes from the retired
-per-subnet claim system.
+per-subnet claim system. [Beta tokens](/docs/concepts/beta-tokens) is the
+share unit itself.
 
 ## Child hotkeys
 
@@ -215,6 +215,12 @@ per subnet with [`set-children`](/docs/tx/set-children). Two reasons to do
 this: confine a hotkey compromise to a single subnet (one child per subnet
 instead of one hotkey exposed everywhere), or lend stake weight to another
 operator without moving stake.
+
+Root registration does this automatically: a new root validator is
+childkeyed at full proportion to each existing subnet owner. A new subnet
+does the same for every current root validator. Opt out beforehand with
+`set_auto_parent_delegation_enabled(false)`. The protocol will not overwrite
+children you already set on a subnet.
 
 The chain enforces:
 

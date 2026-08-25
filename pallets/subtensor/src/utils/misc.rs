@@ -934,7 +934,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CannotUseSystemAccount
         );
 
+        let old_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
         SubnetOwnerHotkey::<T>::insert(netuid, hotkey.clone());
+        Self::retarget_auto_parent_on_owner_change(netuid, &old_hotkey, hotkey);
         Self::deposit_event(Event::SubnetOwnerHotkeySet(netuid, hotkey.clone()));
         Ok(())
     }

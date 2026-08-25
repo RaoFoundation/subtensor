@@ -3494,3 +3494,42 @@ fn test_sudo_set_start_call_delay_permissions_and_zero_delay() {
         );
     });
 }
+
+#[test]
+fn test_sudo_set_root_weights_cap() {
+    new_test_ext().execute_with(|| {
+        // Launch default: 1/16 of the basket vector.
+        assert_eq!(
+            pallet_subtensor::RootWeightsCap::<Test>::get(NetUid::ROOT),
+            pallet_subtensor::DEFAULT_ROOT_WEIGHTS_CAP
+        );
+
+        // Only root may set the cap.
+        assert_noop!(
+            AdminUtils::sudo_set_root_weights_cap(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                21846
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // Zero would make every vector unsatisfiable once enforced.
+        assert_noop!(
+            AdminUtils::sudo_set_root_weights_cap(<<Test as Config>::RuntimeOrigin>::root(), 0),
+            Error::<Test>::ValueNotInBounds
+        );
+
+        // Root sets a looser cap (~1/3) and the storage + event reflect it.
+        assert_ok!(AdminUtils::sudo_set_root_weights_cap(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            21846
+        ));
+        assert_eq!(
+            pallet_subtensor::RootWeightsCap::<Test>::get(NetUid::ROOT),
+            21846
+        );
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::RootWeightsCapSet { cap: 21846 },
+        ));
+    });
+}

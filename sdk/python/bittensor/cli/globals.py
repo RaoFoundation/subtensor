@@ -30,6 +30,7 @@ from typing import Any, Callable, Iterable, Literal, Optional
 import typer
 
 from ..intents.proxy import ProxyTypeChoice
+from ..settings import guide_docs_url
 from .logs import setup_logging
 from .multisig_helpers import SIGNATORY_BACKENDS
 
@@ -279,7 +280,8 @@ _SIGNER = [
             None,
             "--signer",
             help="Signing backend: wallet (default), extension, ledger, or vault "
-            "(Polkadot Vault via QR).",
+            "(Polkadot Vault via QR). Guides: "
+            f"{guide_docs_url('ledger')} and {guide_docs_url('vault')}.",
             rich_help_panel=PANEL_EXTENSION,
         ),
     ),

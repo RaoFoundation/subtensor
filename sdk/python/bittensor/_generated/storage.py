@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 448
+Spec version: 449
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -293,6 +293,7 @@ class SubtensorModule:
     LastColdkeyHotkeyStakeBlock = Item('SubtensorModule', 'LastColdkeyHotkeyStakeBlock', 'u64')
     RootStakeUnlockInterval = Item('SubtensorModule', 'RootStakeUnlockInterval', 'u64')
     RootWeightSettingEnabled = Item('SubtensorModule', 'RootWeightSettingEnabled', 'bool')
+    RootWeightsCap = Item('SubtensorModule', 'RootWeightsCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')
     RootClaimed = Item('SubtensorModule', 'RootClaimed', 'u128')

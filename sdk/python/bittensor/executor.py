@@ -9,6 +9,7 @@ adds the submission (and refuses if policy is violated).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
@@ -642,13 +643,36 @@ class Executor:
         proxy_for: Optional[str] = None,
         proxy_type: Optional[str] = None,
     ) -> IntentPreflight:
-        """Preview intent state against its actual dispatch origin and fee payer."""
-        return await self._preflight(
+        """Preview intent state against its actual dispatch origin and fee payer.
+
+        ``estimated_fee`` is always filled in when possible: intents with their
+        own fee model (root claim, registration) supply it from their preflight;
+        for everything else the composed call is priced via payment info
+        (best-effort — a failed estimate leaves the field None).
+        """
+        wallet = as_wallet(wallet)
+        intent = _coerce_addresses(intent)
+        call, _extras = await _compose_intent_call(
+            self.substrate,
             intent,
             wallet,
             proxy_for=proxy_for,
             proxy_type=proxy_type,
         )
+        preview = await self._preflight(
+            intent,
+            wallet,
+            proxy_for=proxy_for,
+            proxy_type=proxy_type,
+            call=call,
+        )
+        if preview.estimated_fee is None:
+            # Fee estimation is best-effort; the preview stands without it.
+            with contextlib.suppress(Exception):
+                preview.estimated_fee = await self.substrate.estimate_fee(
+                    call, self._public_keypair(wallet, intent.signer)
+                )
+        return preview
 
     async def _preflight(
         self,

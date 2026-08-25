@@ -23,7 +23,7 @@ to clear unshielded at an unbounded AMM price.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L2568-L2578) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.add_collateral`](/code/pallets/subtensor/src/macros/dispatches.rs#L2578-L2588) |
 
 ## Parameters
 
@@ -77,7 +77,7 @@ result = sub.execute_tool("add_collateral", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.add_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L2570`](/code/pallets/subtensor/src/macros/dispatches.rs#L2568-L2578):
+`SubtensorModule.add_collateral` — [`pallets/subtensor/src/macros/dispatches.rs#L2580`](/code/pallets/subtensor/src/macros/dispatches.rs#L2578-L2588):
 
 ```rust
 #[pallet::call_index(144)]

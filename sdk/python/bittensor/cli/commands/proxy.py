@@ -17,13 +17,18 @@ from ...intents import (
     RemoveProxy,
 )
 from ...intents.proxy import DELAY_HELP, PROXY_TYPE_HELP, ProxyTypeChoice
+from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import list_coldkeys
 from ..prompt import PromptSpec, fill_missing, interactive
 from ..stake_picker import dest_account_spec
 
-app = typer.Typer(no_args_is_help=True, help="On-chain proxy management and the local proxy book.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help="On-chain proxy management and the local proxy book."
+    f"\n\nGuide: {guide_docs_url('proxies')}",
+)
 
 book_app = typer.Typer(
     no_args_is_help=True,

@@ -331,7 +331,8 @@ impl<T: Config> Pallet<T> {
         Ok((nav_before, nav_after.saturating_sub(nav_before)))
     }
 
-    /// Stakes `tao` from `coldkey`'s free balance directly into a validator's basket:
+    /// Stakes `tao` from `coldkey`'s free balance directly into a root-registered
+    /// validator's basket:
     /// the TAO is deployed across subnets per the validator's root weight vector (exactly
     /// like a dividend deposit), and the resulting fund shares are credited to the staker
     /// through their signed claimed watermark — `owed = rate * root_stake - claimed`, so a
@@ -363,6 +364,13 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists
+        );
+        // Direct deposits open per-(caller, validator) entitlement state. Restricting
+        // the target to a live root uid caps the validator axis at MaxAllowedUids on
+        // root, the same bound as a normal root-stake position.
+        ensure!(
+            Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
+            Error::<T>::HotKeyNotRegisteredInSubNet
         );
         // Deposit queued dividend credits first so the share mint below prices against
         // the fund's full, current NAV.

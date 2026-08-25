@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import getpass
 import os
 import sys
 from pathlib import Path
 
+from .masked_input import masked_input
 from .sp_core import (
     KeyfileError,
     Keypair,
@@ -45,14 +45,14 @@ def _prompt_password(
 ) -> str:
     """Prompt for a password; re-ask on empty (and mismatch) when stdin is a TTY."""
     while True:
-        password = getpass.getpass(prompt)
+        password = masked_input(prompt)
         if not password:
             if not sys.stdin.isatty():
                 raise ValueError("password cannot be empty")
             print("password cannot be empty", file=sys.stderr)
             continue
         if confirm:
-            again = getpass.getpass("Retype password: ")
+            again = masked_input("Retype password: ")
             if again != password:
                 if not sys.stdin.isatty():
                     raise ValueError("passwords do not match")

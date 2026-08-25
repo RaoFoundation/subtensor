@@ -125,6 +125,13 @@ class IntentPreflight:
     # Exact fee estimate already obtained from the fully composed call. The
     # executor reuses it; conservative fallbacks stay out of this field.
     estimated_fee: Optional[Balance] = None
+    # The same information as ``effects``, as (label, value) pairs, for
+    # renderers that lay the preview out structurally (the CLI's pre-sign
+    # review). Optional: intents that only produce prose leave it empty.
+    facts: list[tuple[str, str]] = field(default_factory=list)
+    # Stage heading for ``facts`` in the review card: "Fees" for cost
+    # breakdowns, "Quote" for simulated swap outcomes (what you receive).
+    facts_title: str = "Fees"
 
 
 @dataclass

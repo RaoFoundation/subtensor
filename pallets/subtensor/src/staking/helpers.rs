@@ -230,7 +230,7 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         netuid: NetUid,
     ) {
-        // The beta-basket escrow holds validator fund holdings `(hotkey, escrow, netuid)`, which
+        // The beta-basket escrow holds validator basket holdings `(hotkey, escrow, netuid)`, which
         // are not nominations. Sweeping one would force-unstake the holding into the keyless
         // escrow account (stranded, no controller) while leaving `BasketShares` untouched,
         // silently shrinking the fund NAV that backs every staker's `owed * N/P` payout.

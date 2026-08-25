@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import json
 import sys
 from dataclasses import dataclass, field, replace
+from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
 from typing import Awaitable, Callable, Optional, TypeVar
 
@@ -77,6 +79,44 @@ def ss58_param_help(param: str) -> str:
         elif param == "coldkey_ss58":
             text += " Defaults to your wallet's coldkey."
     return text
+
+
+# Short context-stage titles for the ops users see most. Everything else
+# becomes the op name with underscores as spaces ("set children").
+_REVIEW_TITLES = {
+    "claim_root": "Claim",
+    "claim_root_with_hotkey": "Claim",
+    "stake_into_basket": "Allocate",
+    "add_stake": "Stake",
+    "add_stake_limit": "Stake",
+    "remove_stake": "Unstake",
+    "remove_stake_limit": "Unstake",
+    "unstake_all": "Unstake",
+    "unstake_all_alpha": "Unstake",
+    "transfer": "Transfer",
+    "transfer_all": "Transfer",
+    "swap_stake": "Swap",
+    "move_stake": "Move",
+    "move_swap_stake": "Move",
+    "transfer_stake": "Transfer stake",
+    "root_register": "Register",
+    "burned_register": "Register",
+    "register_subnet": "Register",
+    "set_root_weights": "Weights",
+    "set_weights": "Weights",
+    "commit_weights": "Weights",
+    "reveal_weights": "Weights",
+    "stake_burn": "Burn",
+    "fund_evm_key": "Fund",
+    "associate_evm_key": "Associate",
+}
+
+
+def _review_title(op: str) -> str:
+    """Context-stage heading for an intent op."""
+    if op in _REVIEW_TITLES:
+        return _REVIEW_TITLES[op]
+    return op.replace("_", " ").capitalize()
 
 
 @dataclass(frozen=True)
@@ -532,7 +572,7 @@ class AppContext:
 
         Six accepted forms:
         - a raw ss58 address: used as-is;
-        - an address-book name (``btcli addresses NAME SS58``);
+        - an address-book name (``btcli addr NAME SS58``);
         - a proxy-book name (``btcli proxy book add``);
         - a saved multisig name (``btcli multisig add``), coldkey params only:
           resolved to the derived multisig account address, so a multisig
@@ -591,8 +631,24 @@ class AppContext:
                 self.output.classify_address(address, "coldkey")
                 return address
             return None
+        except typer.Exit:
+            raise
         except Exception as error:
-            shown = f"{self.wallet_name}/{self.hotkey_name}"
+            if self.wallet_name not in wallets.list_wallets(self.wallet_path):
+                # The usual cause is a name from another wallet dir / HOME
+                # (e.g. a different btcli environment) — say that instead of
+                # leaking the keyfile path of a wallet that never existed.
+                book = " or saved multisig" if kind == "coldkey" else ""
+                self.output.error(
+                    f"no wallet{book} named {self.wallet_name!r} in this environment",
+                    help="`btcli wallet list` shows local wallets and saved multisigs",
+                )
+                raise typer.Exit(1)
+            shown = (
+                self.wallet_name
+                if param == "coldkey_ss58"
+                else f"{self.wallet_name}/{self.hotkey_name}"
+            )
             self.output.error(f"cannot resolve {address_cli_name(param)} {shown!r}: {error}")
             raise typer.Exit(1)
 
@@ -657,12 +713,198 @@ class AppContext:
         for entry in cfg.load_proxies():
             self.output.name_address(entry.get("address"), entry.get("name"))
 
+    def _card_value(self, key: str, value) -> str:
+        """Canonical display text for one intent field on the pre-sign card."""
+        if isinstance(value, str) and not value.strip():
+            # Empty is meaningful (e.g. set_identity clears omitted fields),
+            # so show a placeholder instead of a blank cell or a hidden row.
+            return "—"
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        if isinstance(value, Balance):
+            return str(value)
+        if "netuid" in key and isinstance(value, int):
+            name = self.output.subnet_names.get(value)
+            return f"{value} ({name})" if name else str(value)
+        if key.endswith("tolerance") and isinstance(value, float):
+            return f"{value:.2%}"
+        if isinstance(value, (list, dict)):
+            text = json.dumps(value, default=str)
+            return text if len(text) <= 160 else text[:159] + "…"
+        return str(value)
+
+    def review_account(self) -> Optional[str]:
+        """ss58 for a review-card wallet row: saved multisig, then local coldkey."""
+        if self.multisig_wallet_name:
+            derived = self._saved_multisig_address(self.multisig_wallet_name)
+            if derived:
+                return derived
+        name = self.wallet_name
+        if not name:
+            return None
+        derived = self._saved_multisig_address(name)
+        if derived:
+            return derived
+        try:
+            return self.wallet().coldkeypub.ss58_address
+        except Exception:
+            return name
+
+    def _signer_display(self, intent, wallet) -> str:
+        """The account that actually signs, for review rows."""
+        if self.uses_external_signer():
+            return self.external_signer_address() or f"{self.signer_backend} signer"
+        try:
+            return public_view(wallet, intent.signer).ss58_address
+        except Exception:
+            return self.review_account() or self.wallet_name
+
+    def _multisig_route(self, intent) -> Optional[tuple[str, Optional[int], int]]:
+        """(name, threshold, member count) when routing via a saved multisig."""
+        if not self.multisig_wallet_name:
+            return None
+        threshold = getattr(intent, "threshold", None)
+        members = len(getattr(intent, "other_signatories", ())) + 1
+        return self.multisig_wallet_name, threshold, members
+
+    def _confirm_facts(self, intent, *, proxy_for: Optional[str], shield: bool) -> list:
+        """Routing facts shown under the final confirmation question."""
+        facts: list[tuple[str, str]] = []
+        route = self._multisig_route(intent)
+        if route:
+            name, threshold, members = route
+            facts.append(("via", f"{name} · {threshold}-of-{members}" if threshold else name))
+        if self.uses_external_signer():
+            member = self.external_signer_address() or ""
+            backend = str(self.signer_backend)
+            facts.append(("signing as", f"{member} via {backend}" if member else backend))
+        else:
+            facts.append(("signing as", self.wallet_name))
+        if proxy_for:
+            facts.append(("proxy for", proxy_for))
+        facts.append(("mev shield", "on" if shield else "off — no protection"))
+        return facts
+
+    def _transaction_card(
+        self,
+        intent,
+        semantic,
+        wallet,
+        *,
+        proxy_for: Optional[str],
+        shield: bool,
+        extra_rows: list[tuple],
+        sections: Optional[list[tuple[str, list[tuple]]]] = None,
+        fee_facts: Optional[list[tuple[str, str]]] = None,
+        facts_title: str = "Fees",
+        estimated_fee=None,
+        shield_note: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> None:
+        """Print the canonical pre-sign review: titled stages of aligned rows.
+
+        Every mutation renders the same universal stage schema:
+        any command-provided context stage first (e.g. "Claim", "Allocate"),
+        then the preflight's structured facts ("Quote" for simulated swap
+        outcomes), then "Fees", "Signer" (who signs, and the multisig /
+        proxy / MEV-shield routing), and "Transaction" last with the
+        semantic intent's raw fields — so what is about to be signed is
+        reviewable at a glance instead of parsed out of prose. Intents with
+        their own fee model (root claim, registration) supply the whole
+        "Fees" stage via ``fee_facts``; everything else gets the universal
+        ``estimated_fee`` row priced from the composed call. Fees is always
+        present, even when the estimate is unavailable. The post-submit
+        counterpart is ``Output.result_fields`` (the "Result" stage).
+        """
+        stages: list[tuple[str, list[tuple]]] = list(sections or [])
+        if fee_facts and facts_title != "Fees":
+            stages.append((facts_title, list(fee_facts)))
+            fee_facts = []
+        if fee_facts:
+            stages.append(("Fees", list(fee_facts)))
+        elif estimated_fee is not None:
+            stages.append(("Fees", [("estimated fee", f"~{estimated_fee}")]))
+        else:
+            stages.append(("Fees", [("estimated fee", "unavailable")]))
+
+        signer_rows: list[tuple] = []
+        if self.uses_external_signer():
+            member = self.external_signer_address() or f"{self.signer_backend} signer"
+            signer_rows.append(("signer", f"{member} via {self.signer_backend}"))
+        else:
+            signer_rows.append(("signer", self._signer_display(intent, wallet)))
+        route = self._multisig_route(intent)
+        if route:
+            name, threshold, members = route
+            account = name
+            derived = self._saved_multisig_address(name)
+            if derived:
+                account = f"{name} ({derived})"
+            signer_rows.append(("multisig", account))
+            if threshold == 1:
+                signer_rows.append(("threshold", f"1 of {members} — executes immediately"))
+            elif threshold:
+                signer_rows.append(("threshold", f"{threshold} of {members}"))
+        if proxy_for:
+            signer_rows.append(("proxy for", proxy_for))
+        if shield:
+            signer_rows.append(("mev shield", "on — encrypted in the mempool until executed"))
+        else:
+            state = "off — no protection (call is visible in the mempool)"
+            if shield_note:
+                state = f"off — no protection: {shield_note}"
+            signer_rows.append(("mev shield", state))
+        stages.append(("Signer", signer_rows))
+
+        tx_rows: list[tuple] = [("operation", semantic.op)]
+        tx_rows.extend(extra_rows)
+        children = getattr(semantic, "_children", None)
+        if children:
+            # A batch's own fields are just the child specs as JSON; one row
+            # per child summary reads better than the raw list.
+            for index, child in enumerate(children, start=1):
+                tx_rows.append((f"call {index}", child.summary()))
+        else:
+            for spec in dataclass_fields(semantic):
+                value = getattr(semantic, spec.name, None)
+                if value is None:
+                    continue
+                label = spec.name.removesuffix("_ss58").replace("_", " ")
+                tx_rows.append((label, self._card_value(spec.name, value)))
+        if note:
+            tx_rows.append(("note", note, "dim"))
+        stages.append(("Transaction", tx_rows))
+        self.output.transaction_card(stages)
+
+    def show_review(
+        self,
+        stages: list[tuple[str, list[tuple]]],
+        *,
+        question: str,
+        confirm_facts: Optional[list[tuple[str, str]]] = None,
+    ) -> None:
+        """Print the universal review card and ask to sign.
+
+        Used by paths that do not go through ``submit`` (raw ``btcli call``,
+        EVM, upgrade). ``submit`` builds the same stages via ``_transaction_card``.
+        """
+        self.output.transaction_card(stages)
+        prompt = question if question.endswith("?") else f"{question}?"
+        if self.assume_yes or self.output.quiet or self.output.json_mode:
+            self.confirm(prompt)
+            return
+        self.output.confirm_block(prompt, confirm_facts)
+        self.confirm("sign and submit?", indent=4)
+
     def submit(
         self,
         intent,
         *,
         proxy_for: Optional[str] = None,
         force_proxy_type: Optional[str] = None,
+        summary: Optional[str] = None,
+        summary_note: Optional[str] = None,
+        card_sections: Optional[list[tuple[str, list[tuple]]]] = None,
     ) -> Optional[ExtrinsicResult]:
         """Run a mutation with a uniform dry-run / confirm / execute / render flow.
 
@@ -670,7 +912,16 @@ class AppContext:
         Otherwise the intent's own summary is the confirmation prompt; the intent
         is then executed, its result rendered, and the ``ExtrinsicResult``
         returned (None when the dry-run path stopped early). The prompt/summary
-        is never hand-written per command — it comes from the intent.
+        comes from the intent; a command that holds richer display context than
+        the intent's fields (e.g. the fund name and beta rate behind a root
+        allocation) may pass ``summary`` to replace that one line,
+        ``card_sections`` for the context stage (e.g. "Claim" / "Allocate"),
+        and ``summary_note`` for a dim note row in Transaction when there is
+        no context stage. All display context that describes the semantic
+        call — ``summary_note``, ``card_sections``, and the summary as the
+        confirm-block question — survives a multisig rewrite; only the
+        one-line receipt summary is replaced, since the signed extrinsic is
+        then a multisig round, not the call itself.
 
         ``proxy_for`` dispatches the call as that account via ``Proxy.proxy``,
         signed by the local wallet key (which must be its registered proxy).
@@ -703,18 +954,38 @@ class AppContext:
 
         rounds_plan = self._plan_signatory_rounds(intent)
         if rounds_plan is not None:
+            # Each round re-enters submit; the command's display context
+            # (summary, note, context stage) must survive into every round's
+            # review card, not just a direct single-wrap submission.
             return self._submit_signatory_rounds(
-                intent, rounds_plan, proxy_for=proxy_for, force_proxy_type=force_proxy_type
+                intent,
+                rounds_plan,
+                proxy_for=proxy_for,
+                force_proxy_type=force_proxy_type,
+                summary=summary,
+                summary_note=summary_note,
+                card_sections=card_sections,
             )
 
         # ``-w <multisig>``: rewrite the intent as a multisig approval signed
         # by a member. Must run before confirm_wallet / wallet() because the
         # multisig name is not a coldkey directory.
+        unwrapped_intent = intent
         try:
             intent = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
         except ValueError as error:
             self.output.error(str(error))
             raise typer.Exit(2) from error
+        semantic_question = None
+        if intent is not unwrapped_intent:
+            # The signature now approves a multisig round, so the caller's
+            # one-line summary no longer names what gets signed. It still
+            # describes the semantic call, so keep it as the confirm-block
+            # question, where the routing facts spell out the multisig layer.
+            # The note (like card_sections) also describes the semantic call
+            # and survives the rewrite.
+            semantic_question = summary or unwrapped_intent.summary()
+            summary = None
         if self.signatory_wallet and self.multisig_wallet_name is None:
             # A typo'd or missing multisig name must not degrade into a plain
             # single-signer transaction: the user explicitly asked for a
@@ -732,6 +1003,9 @@ class AppContext:
             required=semantic_intent.mev_shield_required,
             op=semantic_intent.op,
         )
+        # Why the shield is off when it normally would be on; rendered with
+        # the card's "mev shield  off" row instead of as floating prose.
+        shield_note: Optional[str] = None
 
         # The signing wallet is confirmed when it was only defaulted (generated
         # tx commands already did this via signer_specs and set wallet_given).
@@ -744,6 +1018,19 @@ class AppContext:
             ),
             require_coldkey=intent.signer == "coldkey",
         )
+        # The prompt may have just named a saved multisig. Wrap now so
+        # Signer / Transaction show the same routing as ``-w MULTIX``.
+        if intent is unwrapped_intent:
+            try:
+                rewritten = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
+            except ValueError as error:
+                self.output.error(str(error))
+                raise typer.Exit(2) from error
+            if rewritten is not intent:
+                intent = rewritten
+                semantic_question = summary or unwrapped_intent.summary()
+                summary = None
+                semantic_intent = intent.semantic_intent()
         wallet = self.wallet()
         self._register_local_names(wallet)
         # Outer MevShield.submit_encrypted has no netuid, so fees_in_alpha cannot
@@ -775,17 +1062,19 @@ class AppContext:
                             ),
                         )
                         raise typer.Exit(2)
-                    self.output.message(
-                        "[dim]MEV shield skipped: free TAO cannot cover the outer "
-                        "carrier fee (alpha fees only work on the unshielded call) "
-                        "— submitting unshielded[/dim]"
-                    )
                     shield = False
+                    shield_note = (
+                        "free TAO cannot cover the outer carrier fee "
+                        "(alpha fees only work on the unshielded call)"
+                    )
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
         registration_quote = None
         registration_flow = None
+        neuron_reg_cost = None
         neuron_reg_lines: list[str] = []
-        summary = intent.summary()
+        intent_summary = intent.summary()
+        base_summary = summary or intent_summary
+        summary = base_summary
         if intent.op == "register_subnet":
 
             async def _registration_preview(client):
@@ -835,6 +1124,9 @@ class AppContext:
             burn, lock = self.run(_neuron_reg_preview)
             summary += f" — {_registration_split_suffix(burn, lock)}"
             recycled = semantic_intent.op == "root_register"
+            neuron_reg_cost = f"{burn} {'recycled' if recycled else 'burned'}"
+            if lock.rao:
+                neuron_reg_cost += f" + {lock} locked as collateral"
             if lock.rao:
                 lock_line = f"lock {lock} as miner collateral"
             elif recycled:
@@ -874,6 +1166,13 @@ class AppContext:
 
         if self.dry_run:
             plan = self.run(_plan)
+            if base_summary != intent_summary:
+                plan.summary = base_summary
+                plan.effects = [
+                    base_summary if effect == intent_summary else effect for effect in plan.effects
+                ]
+            if summary_note:
+                plan.effects.append(summary_note)
             if shield:
                 plan.effects.append(
                     "submitted MEV-shielded: the call stays encrypted in the "
@@ -892,10 +1191,13 @@ class AppContext:
             return None
 
         # Surface intent warnings before the user confirms (dry-run already
-        # prints them via ``output.plan``). Root-claim also prints the fee
+        # prints them via ``output.plan``). Root-claim also computes the fee
         # preview and refuses when free TAO cannot cover the reserved
         # inclusion fee. Skip when an external signer still needs its
         # account picker — those paths resolve the origin later.
+        fee_facts: list[tuple[str, str]] = []
+        facts_title = "Fees"
+        estimated_fee = None
         if not self.uses_external_signer():
 
             async def _preflight(client):
@@ -907,16 +1209,28 @@ class AppContext:
                         proxy_type=force_proxy_type,
                     )
                 except Exception:
-                    return [], [], []
+                    return [], [], [], [], "Fees", None
                 warnings = list(preview.warnings)
                 if semantic_intent.op in ("claim_root", "claim_root_with_hotkey"):
                     effects = list(preview.effects)
                 else:
                     effects = []
-                return effects, warnings, list(preview.blocks)
+                return (
+                    effects,
+                    warnings,
+                    list(preview.blocks),
+                    list(preview.facts),
+                    preview.facts_title,
+                    preview.estimated_fee,
+                )
 
-            effects, warnings, blocks = self.run(_preflight)
+            effects, warnings, blocks, fee_facts, facts_title, estimated_fee = self.run(_preflight)
             summary_line = intent.summary()
+            # Structured facts render as the review card's "Fees" stage; the
+            # prose effect lines only print where the card cannot (quiet/json
+            # sessions, or intents with no structured preview).
+            if fee_facts and not (self.output.quiet or self.output.json_mode):
+                effects = []
             for effect in effects:
                 if effect == summary_line:
                     continue
@@ -941,6 +1255,29 @@ class AppContext:
             for line in neuron_reg_lines:
                 self.output.message(f"[dim]{line}[/dim]")
 
+        # Every mutation gets a context stage: command-provided rows, or a
+        # default built from the semantic summary so transfer / stake / …
+        # use the same Claim / Allocate skeleton.
+        if card_sections is None:
+            context_rows: list[tuple] = []
+            owner = self.review_account()
+            if owner:
+                context_rows.append(("wallet", owner))
+            context_rows.append(("summary", semantic_question or semantic_intent.summary()))
+            if summary_note:
+                context_rows.append(("note", summary_note, "dim"))
+            card_sections = [(_review_title(semantic_intent.op), context_rows)]
+
+        # Registration cost is not an intent field; it lands on Transaction.
+        card_extras: list[tuple] = []
+        if registration_quote is not None:
+            card_extras.append(("cost", str(registration_quote)))
+        if neuron_reg_cost is not None:
+            # Registration burn belongs on the card itself: dim prose notes
+            # are skipped under --yes, and the card renders in every human
+            # session.
+            card_extras.append(("cost", neuron_reg_cost))
+
         if self.uses_extension_signer():
 
             async def _prepare(_client):
@@ -952,13 +1289,60 @@ class AppContext:
             # The extension popup is the approval surface: it shows this same
             # transaction and requires an explicit approve/reject there, so a
             # terminal prompt would only bounce the user between windows.
-            self.output.message(summary)
+            self._transaction_card(
+                intent,
+                semantic_intent,
+                wallet,
+                proxy_for=proxy_for,
+                shield=shield,
+                extra_rows=card_extras,
+                sections=card_sections,
+                fee_facts=fee_facts,
+                facts_title=facts_title,
+                estimated_fee=estimated_fee,
+                shield_note=shield_note,
+                note=None if card_sections else summary_note,
+            )
             self.output.message(
                 "[dim]approve or reject the request in the wallet extension popup[/dim]"
             )
         else:
             _print_registration_notes()
-            self.confirm(f"{summary}?")
+            # The review card renders in every human session, including
+            # --yes (it is information, not a prompt); quiet/json suppress
+            # it inside transaction_card.
+            self._transaction_card(
+                intent,
+                semantic_intent,
+                wallet,
+                proxy_for=proxy_for,
+                shield=shield,
+                extra_rows=card_extras,
+                sections=card_sections,
+                fee_facts=fee_facts,
+                facts_title=facts_title,
+                estimated_fee=estimated_fee,
+                shield_note=shield_note,
+                note=None if card_sections else summary_note,
+            )
+            if self.assume_yes or self.output.quiet or self.output.json_mode:
+                # --yes skips the prompt; quiet/json sessions keep the
+                # one-line prompt (which errors without --yes).
+                self.confirm(f"{summary}?")
+            else:
+                # Behind a multisig rewrite the adapter summary front-loads the
+                # dispatch mechanics; the question should name the semantic
+                # action while the facts below carry the routing.
+                question = summary
+                if self._multisig_route(intent):
+                    question = self.output.with_names(
+                        semantic_question or semantic_intent.summary()
+                    )
+                self.output.confirm_block(
+                    f"{question}?",
+                    self._confirm_facts(intent, proxy_for=proxy_for, shield=shield),
+                )
+                self.confirm("sign and submit?", indent=4)
 
         # Native keyfiles unlock synchronously on their first signature. Unlock
         # encrypted coldkeys eagerly instead: a wrong password can be retried
@@ -986,6 +1370,25 @@ class AppContext:
                 coldkey=signing_key,
                 coldkeypub=wallet.coldkeypub,
                 hotkey=hotkey,
+            )
+        elif (
+            intent.signer == "hotkey"
+            and not self.uses_external_signer()
+            and not (self.macos_password or self.keychain_password or self.wallet_password_file)
+            and _hotkey_encrypted(wallet)
+        ):
+            # Same hazard for encrypted hotkeys: the lazy unlock at first
+            # signature would prompt underneath the submission spinner. Unlock
+            # now, while the terminal still belongs to prompts.
+            hotkey_pair = wallet.get_hotkey()
+            try:
+                coldkeypub = wallet.coldkeypub
+            except FileNotFoundError:
+                coldkeypub = None  # hotkey-only wallet; intents needing it fail on use
+            local_signer = SimpleNamespace(
+                coldkey=None,
+                coldkeypub=coldkeypub,
+                hotkey=hotkey_pair,
             )
 
         def activity_update(_text: str, _announce: bool = False) -> None:
@@ -1129,13 +1532,16 @@ class AppContext:
                     },
                 )
         else:
-            result = self.run(_execute)
+            with self.output.activity("submitting transaction…"):
+                result = self.run(_execute)
         if result.success and self.rounds_intermediate():
             # Chained run, and another approval follows immediately: a one-line
             # acknowledgment is enough. The full receipt and the co-signer
             # followup render once, after the final round.
-            extrinsic = f" — extrinsic {result.extrinsic_id}" if result.extrinsic_id else ""
-            self.output.message(f"[green]✓ approval recorded{extrinsic}[/green]")
+            recorded = (
+                f"recorded — extrinsic {result.extrinsic_id}" if result.extrinsic_id else "recorded"
+            )
+            self.output.step("approval", recorded, state="done")
             return result
         rendered = (
             self.output.registration_result(result)
@@ -1163,7 +1569,8 @@ class AppContext:
         return result
 
     def _maybe_offer_root_claim(self, intent) -> None:
-        """After a root unstake, offer ``btcli root claim`` if yield is still owed.
+        """After unstaking root principal (`btcli stake remove` on netuid 0),
+        offer ``btcli root claim`` if yield is still owed.
 
         ``--claim`` already redeemed the basket in the same batch. ``--yes`` and
         non-interactive sessions print the leftover-yield hint and stop — they
@@ -1275,8 +1682,8 @@ class AppContext:
         """
         preset, threshold, signatories, rounds = plan
         sequence = " → ".join(f"{name} ({backend})" for name, _ss58, backend in rounds)
-        self.output.message(
-            f"[dim]{len(rounds)} approvals in this run for multisig {preset}: {sequence}[/dim]"
+        self.output.step(
+            "approvals", f"{len(rounds)} in this run for {preset}: {sequence}", state="info"
         )
         # MEV shielding chains fine: a shielded round returns the *decrypted*
         # inner extrinsic's receipt (Executor._resolve_shielded_inner), so the
@@ -1320,8 +1727,10 @@ class AppContext:
                 self._ledger_signer = None
                 self.reset_extension_session()
                 if not self.dry_run:
-                    self.output.message(
-                        f"[dim]approval {index + 1} of {threshold} — {name} via {backend}[/dim]"
+                    self.output.step(
+                        f"approval {index + 1} of {threshold}",
+                        f"{name} via {backend}",
+                        state="active",
                     )
                 try:
                     result = self.submit(intent, **submit_kwargs)
@@ -1481,6 +1890,13 @@ class AppContext:
         While connected, the netuid -> subnet-name cache is refreshed (at most
         once per TTL) concurrently with ``work``, so netuid references render
         as "4 (Targon)" everywhere — including prompts that run offline.
+
+        Every call animates a default braille spinner so slow commands never
+        look hung. Commands that narrate phases wrap their ``run`` calls in
+        ``output.activity`` themselves; this default one then yields to the
+        outer spinner (``activity`` is re-entrant). Interactive prompts must
+        happen before ``run``, never inside ``work`` — a prompt under a live
+        spinner cannot take input.
         """
 
         async def _main() -> T:
@@ -1513,7 +1929,8 @@ class AppContext:
                 return result
 
         try:
-            return asyncio.run(_main())
+            with self.output.activity(f"querying {self.network}…"):
+                return asyncio.run(_main())
         except (BittensorError, ValueError) as error:
             # A raised ChainError carries the same diagnostics a failed
             # ExtrinsicResult would (remediation, docs page with source links)
@@ -1580,7 +1997,7 @@ class AppContext:
             self.output.message("aborted.")
             raise typer.Exit(130)
 
-    def confirm(self, prompt: str) -> None:
+    def confirm(self, prompt: str, *, indent: int = 2) -> None:
         """Gate a state-changing action. ``--yes`` skips it; a non-interactive
         session without ``--yes`` is refused rather than left hanging on a prompt."""
         if self.assume_yes:
@@ -1592,7 +2009,7 @@ class AppContext:
             )
             raise typer.Exit(1)
         try:
-            accepted = self.output.confirm(prompt)
+            accepted = self.output.confirm(prompt, indent=indent)
         except (KeyboardInterrupt, EOFError):
             self.output.message("aborted.")
             raise typer.Exit(130)
@@ -1605,6 +2022,14 @@ def _coldkey_encrypted(wallet) -> bool:
     """Whether the wallet's coldkey file exists and is password-protected."""
     try:
         return bool(wallet.coldkey_file.is_encrypted())
+    except Exception:
+        return False
+
+
+def _hotkey_encrypted(wallet) -> bool:
+    """Whether the wallet's hotkey file exists and is password-protected."""
+    try:
+        return bool(wallet.hotkey_file.is_encrypted())
     except Exception:
         return False
 

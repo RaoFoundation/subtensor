@@ -17,6 +17,10 @@ _DEFAULT_LOCK_RATE = 934_866
 # The pallet's ONE_YEAR: a subnet's ownership can only change after this age.
 _ONE_YEAR_BLOCKS = 7200 * 365 + 1800
 
+# Bit 0 of `AccountFlags`: the coldkey opted into receiving locked alpha
+# (the pallet's ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA).
+_ACCEPT_LOCKED_ALPHA_FLAG = 1 << 0
+
 
 def _eligible_alpha(alpha_out: Any, protocol_alpha: Any, alpha_burned: Any) -> int:
     """Alpha that can support an ownership challenger, saturating at zero."""
@@ -81,6 +85,51 @@ async def locks_for_coldkey(view, coldkey_ss58: str) -> list[dict]:
         *[_lock_record(view, coldkey_ss58, nid, hk) for nid, hk in pairs]
     )
     return [r for r in records if r]
+
+
+@read(
+    "locks_for_hotkey",
+    {"hotkey_ss58": "string", "netuid": "integer"},
+    category="Locks & conviction",
+    param_docs={
+        "hotkey_ss58": "Hotkey the locks target.",
+        "netuid": "Subnet to query.",
+    },
+)
+async def locks_for_hotkey(view, hotkey_ss58: str, netuid: int) -> list[dict]:
+    """Every coldkey's lock targeting a hotkey on a subnet, rolled forward to now.
+
+    The reverse of ``locks_for_coldkey``: scans the ``LockingColdkeys``
+    reverse index for the coldkeys with a non-zero lock pointed at the
+    hotkey, then loads each lock record. This is the target-side view — a
+    subnet owner can see which coldkeys are building conviction toward a
+    hotkey, not just the locks their own coldkey created.
+    """
+    rows = await view.query_map(st.SubtensorModule.LockingColdkeys, [netuid, hotkey_ss58])
+    coldkeys = sorted(
+        str(key[0]) if isinstance(key, (tuple, list)) else str(key) for key, _ in rows
+    )
+    records = await asyncio.gather(
+        *[_lock_record(view, coldkey, netuid, hotkey_ss58) for coldkey in coldkeys]
+    )
+    return [{"coldkey": coldkey, **record} for coldkey, record in zip(coldkeys, records) if record]
+
+
+@read(
+    "accepts_locked_alpha",
+    {"coldkey_ss58": "string"},
+    category="Locks & conviction",
+    param_docs={"coldkey_ss58": "Coldkey whose locked-alpha acceptance flag to read."},
+)
+async def accepts_locked_alpha(view, coldkey_ss58: str) -> bool:
+    """Whether a coldkey accepts incoming locked alpha transfers.
+
+    Coldkeys reject locked alpha by default; the pallet's
+    ``set_reject_locked_alpha(false)`` sets bit 0 of the coldkey's
+    ``AccountFlags`` to opt in.
+    """
+    flags = await view.query(st.SubtensorModule.AccountFlags, [coldkey_ss58])
+    return bool(int(flags or 0) & _ACCEPT_LOCKED_ALPHA_FLAG)
 
 
 @read(

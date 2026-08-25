@@ -2,7 +2,7 @@
 //! attribution.
 
 use crate::tests::claim_root::{
-    escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, root_stake_of,
+    escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, register_on_root, root_stake_of,
     set_root_weights_direct, zero_claim_threshold,
 };
 use crate::tests::mock::*;
@@ -38,6 +38,7 @@ fn setup_stake_in_env() -> (U256, U256, NetUid) {
     fund_pool(netuid);
     SubtensorModule::set_tao_weight(u64::MAX);
     zero_claim_threshold();
+    register_on_root(&hotkey, 0);
     (owner_coldkey, hotkey, netuid)
 }
 
@@ -221,8 +222,8 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
     });
 }
 
-/// Input validation: nonexistent hotkey, dust amounts, insufficient balance, and a weight
-/// vector that filters to nothing are all rejected before any state changes.
+/// Input validation: nonexistent hotkey, a hotkey that exists but is not on root,
+/// dust amounts, and insufficient balance are rejected before any state changes.
 #[test]
 fn test_stake_into_basket_rejections() {
     new_test_ext(1).execute_with(|| {
@@ -235,6 +236,15 @@ fn test_stake_into_basket_rejections() {
         assert_noop!(
             SubtensorModule::do_stake_into_basket(bob, U256::from(777), 10_000_000u64.into(),),
             Error::<Test>::HotKeyAccountNotExists
+        );
+
+        // Hotkey exists (another subnet owner) but is not registered on root.
+        let other_owner = U256::from(3001);
+        let other_hotkey = U256::from(3002);
+        add_dynamic_network(&other_hotkey, &other_owner);
+        assert_noop!(
+            SubtensorModule::do_stake_into_basket(bob, other_hotkey, 10_000_000u64.into(),),
+            Error::<Test>::HotKeyNotRegisteredInSubNet
         );
 
         // Below the minimum stake.

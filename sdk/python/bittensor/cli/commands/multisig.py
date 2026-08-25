@@ -13,6 +13,7 @@ import typer
 
 from ... import config as cfg
 from ... import storage, wallets
+from ...settings import guide_docs_url
 from .. import multisig_helpers as ms_helpers
 from .. import upgrade_helpers as uh
 from ..context import AppContext, ctx_of
@@ -22,7 +23,8 @@ from .upgrade import load_pending_upgrades, render_upgrade_records
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Save multisig signer sets and track pending multisig operations.",
+    help="Save multisig signer sets and track pending multisig operations."
+    f"\n\nGuide: {guide_docs_url('multisig')}",
 )
 
 _SIGNATORIES_HELP = (

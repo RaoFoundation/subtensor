@@ -215,19 +215,57 @@ def _submit_evm_tx(
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
 
-    if preview_fields and not app_ctx.output.json_mode:
-        app_ctx.output.detail(None, preview_fields)
+    data = preview.data
+    if isinstance(data, str) and len(data) > 80:
+        data = f"{data[:80]}… (+{len(data) - 80} chars)"
+    context_rows: list[tuple] = [("summary", summary), ("from", preview.sender)]
+    context_rows.append(("to", preview.to or "(contract creation)"))
+    if preview.value_wei:
+        context_rows.append(("value", str(preview.value)))
+    if preview_fields:
+        context_rows.extend(
+            (str(key).replace("_", " "), value) for key, value in preview_fields.items()
+        )
+    stages = [
+        ("Evm", context_rows),
+        (
+            "Fees",
+            [
+                ("max fee", str(preview.max_fee)),
+                ("gas", str(preview.gas)),
+            ],
+        ),
+        ("Signer", [("signer", info.address)]),
+        (
+            "Transaction",
+            [
+                ("operation", summary),
+                ("nonce", preview.nonce),
+                ("chain id", preview.chain_id),
+                ("data", data, "dim"),
+            ],
+        ),
+    ]
     if app_ctx.dry_run:
+        app_ctx.output.transaction_card(stages)
         app_ctx.output.detail("evm transaction preview", preview.to_dict())
         return None
-    app_ctx.confirm(f"{summary} (max fee {preview.max_fee})?")
+    app_ctx.show_review(
+        stages,
+        question=f"{summary} (max fee {preview.max_fee})",
+        confirm_facts=[("signing as", info.address)],
+    )
     account = _unlock(app_ctx, key)
     result = _run_evm(app_ctx, lambda: evm_transactions.send_transaction(rpc, account, preview))
     rendered = {**result, "from": info.address, "to": to or "(contract creation)"}
     if not result.get("success", True):
         app_ctx.output.error("transaction reverted", note=json.dumps(rendered))
         raise typer.Exit(1)
-    app_ctx.output.detail(summary, rendered)
+    if app_ctx.output.json_mode:
+        app_ctx.output.detail(summary, rendered)
+    else:
+        app_ctx.output.message(f"[green]✓ {summary}[/green]")
+        app_ctx.output.result_fields(rendered)
     return result
 
 

@@ -18,18 +18,22 @@ quantized to u16 before submission, and zero weights are dropped. Signed
 by the hotkey, which must be registered on the root network and hold the
 minimum stake to set weights; the root weights rate limit applies, and
 every destination must be netuid 0 or an existing subnet. At least 8
-positive destinations are required (softened when fewer networks exist).
+positive destinations are required (softened when fewer networks exist),
+and no destination may take a larger share of the vector than the
+`RootWeightsCap` hyperparameter allows — 1/16 at launch, so a basket
+needs at least 16 destinations (`RootWeightCapExceeded` otherwise;
+preflighted here with the same rule the chain enforces).
 Validators with no stored root weights accumulate dividends in place —
 each subnet's dividend stays in that subnet's alpha, trade-free; setting
 this vector is what turns on the sell-and-redeploy engine.
-Weight setting launched gated off network-wide (every call fails with
-`RootWeightSettingDisabled` until governance or a later upgrade enables
-it), so all funds start on the null accumulate strategy.
+Root Reborn launched with weight setting gated off network-wide; runtime
+449 opened the gate. `RootWeightSettingDisabled` now only appears if
+governance switches it back off.
 Read it back with the `validator_root_weights` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L91-L99) |
+| `hotkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_root_weights`](/code/pallets/subtensor/src/macros/dispatches.rs#L93-L101) |
 
 ## Parameters
 
@@ -77,7 +81,7 @@ result = sub.execute_tool("set_root_weights", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L93`](/code/pallets/subtensor/src/macros/dispatches.rs#L91-L99):
+`SubtensorModule.set_root_weights` — [`pallets/subtensor/src/macros/dispatches.rs#L95`](/code/pallets/subtensor/src/macros/dispatches.rs#L93-L101):
 
 ```rust
 #[pallet::call_index(146)]

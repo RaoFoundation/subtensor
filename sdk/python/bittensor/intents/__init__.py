@@ -38,7 +38,7 @@ from .governance import (
 from .hyperparameters import OWNER_HYPERPARAMETERS, SetHyperparameter
 from .identity import SetIdentity, SetSubnetIdentity
 from .leasing import RegisterLeasedNetwork, TerminateLease
-from .lock import LockStake, MoveLock, SetPerpetualLock
+from .lock import LockStake, MoveLock, SetPerpetualLock, SetRejectLockedAlpha
 from .multisig import (
     MultisigApprove,
     MultisigCancel,
@@ -75,6 +75,7 @@ from .staking import (
     RemoveStake,
     RemoveStakeLimit,
     SetAutoStake,
+    StakeIntoBasket,
     SwapStake,
     TransferStake,
     UnstakeAll,
@@ -150,6 +151,7 @@ __all__ = [
     "SetMechanismCount",
     "SetMinCollateral",
     "SetPerpetualLock",
+    "SetRejectLockedAlpha",
     "SetRootClaimThreshold",
     "SetRootWeights",
     "SetSubnetEmissionEnabled",
@@ -158,6 +160,7 @@ __all__ = [
     "SetWeights",
     "Spend",
     "StakeBurn",
+    "StakeIntoBasket",
     "StartCall",
     "SwapColdkeyAnnounced",
     "SwapHotkey",
