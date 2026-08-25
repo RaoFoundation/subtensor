@@ -2960,36 +2960,42 @@ fn test_migrate_enable_root_weight_setting() {
 #[test]
 fn test_migrate_tune_root_registration() {
     new_test_ext(1).execute_with(|| {
-        const MIG_NAME: &[u8] = b"tune_root_registration_v1";
+        use crate::migrations::migrate_tune_root_registration::{
+            MIGRATION_NAME, ROOT_IMMUNITY_PERIOD, ROOT_MAX_REGISTRATIONS_PER_BLOCK,
+            ROOT_MIN_BURN_RAO, ROOT_TARGET_REGISTRATIONS_PER_INTERVAL,
+        };
 
         crate::ImmunityPeriod::<Test>::insert(NetUid::ROOT, 4096u16);
         crate::MaxRegistrationsPerBlock::<Test>::insert(NetUid::ROOT, 64u16);
         crate::TargetRegistrationsPerInterval::<Test>::insert(NetUid::ROOT, 64u16);
         crate::MinBurn::<Test>::insert(NetUid::ROOT, TaoBalance::from(500_000u64));
         crate::Burn::<Test>::insert(NetUid::ROOT, TaoBalance::from(500_000u64));
-        assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
 
         let w = crate::migrations::migrate_tune_root_registration::migrate_tune_root_registration::<
             Test,
         >();
         assert!(!w.is_zero());
-        assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
-        assert_eq!(crate::ImmunityPeriod::<Test>::get(NetUid::ROOT), 7200u16);
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(
+            crate::ImmunityPeriod::<Test>::get(NetUid::ROOT),
+            ROOT_IMMUNITY_PERIOD
+        );
         assert_eq!(
             crate::MaxRegistrationsPerBlock::<Test>::get(NetUid::ROOT),
-            1u16
+            ROOT_MAX_REGISTRATIONS_PER_BLOCK
         );
         assert_eq!(
             crate::TargetRegistrationsPerInterval::<Test>::get(NetUid::ROOT),
-            2u16
+            ROOT_TARGET_REGISTRATIONS_PER_INTERVAL
         );
         assert_eq!(
             crate::MinBurn::<Test>::get(NetUid::ROOT),
-            1_000_000_000u64.into()
+            ROOT_MIN_BURN_RAO.into()
         );
         assert_eq!(
             crate::Burn::<Test>::get(NetUid::ROOT),
-            1_000_000_000u64.into()
+            ROOT_MIN_BURN_RAO.into()
         );
 
         crate::ImmunityPeriod::<Test>::insert(NetUid::ROOT, 1u16);

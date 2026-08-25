@@ -4413,16 +4413,7 @@ fn test_root_children_enable_subnet_owner_set_weights() {
         ));
 
         // --- Verify do_set_root_validators_for_subnet creates parent-child relationships ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
-
         assert_ok!(SubtensorModule::do_set_root_validators_for_subnet(netuid));
-
-        // Activate pending children (cooldown is 0, advance 1 block)
-        step_block(1);
-        SubtensorModule::do_set_pending_children(netuid);
 
         // Each root validator should have the subnet owner hotkey as a child on netuid
         let children_1 = SubtensorModule::get_children(&root_val_hotkey_1, netuid);
@@ -4483,12 +4474,6 @@ fn test_register_network_schedules_root_validators() {
             NetUid::ROOT,
             root_stake,
         );
-
-        // --- Minimize cooldown so pending children activate quickly ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
 
         // --- Set a high stake threshold ---
         let high_threshold = 500_000_000u64;
@@ -4600,12 +4585,6 @@ fn test_register_network_schedules_root_validators_auto_parent_delegation_flag()
             NetUid::ROOT,
             root_stake,
         );
-
-        // --- Minimize cooldown so pending children activate quickly ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
 
         // --- Set a high stake threshold ---
         let high_threshold = 500_000_000u64;

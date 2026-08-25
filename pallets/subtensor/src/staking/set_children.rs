@@ -628,7 +628,7 @@ impl<T: Config> Pallet<T> {
     }
 
     // If child-parent consistency is broken, fail setting new children silently
-    fn persist_pending_chidren_ok(
+    pub(crate) fn persist_pending_chidren_ok(
         netuid: NetUid,
         hotkey: &T::AccountId,
         children: &Vec<(u64, T::AccountId)>,
@@ -782,147 +782,9 @@ impl<T: Config> Pallet<T> {
         AutoParentDelegationEnabled::<T>::get(root_validator_hotkey)
     }
 
-    /// Protocol-initiated childkey from a root validator to one subnet owner.
-    ///
-    /// Skips user-extrinsic guards (rate limit, min stake, cooldown) so
-    /// registration and new-subnet hooks can establish the link even
-    /// before the validator has staked. Applies immediately. Leaves an
-    /// existing or pending child set untouched so a validator who already
-    /// chose children is not overwritten. Still enforces root exclusion,
-    /// subnet existence, no self-loop, and parent/child consistency.
-    fn schedule_auto_parent_to_owner(
-        parent_hotkey: &T::AccountId,
-        netuid: NetUid,
-        owner_hotkey: T::AccountId,
-    ) -> DispatchResult {
-        ensure!(
-            !netuid.is_root(),
-            Error::<T>::RegistrationNotPermittedOnRootSubnet
-        );
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
-        ensure!(*parent_hotkey != owner_hotkey, Error::<T>::InvalidChild);
-
-        // Do not clobber a validator who already chose children on this subnet.
-        if !ChildKeys::<T>::get(parent_hotkey, netuid).is_empty()
-            || PendingChildKeys::<T>::contains_key(netuid, parent_hotkey)
-        {
-            return Ok(());
-        }
-
-        let children = vec![(u64::MAX, owner_hotkey)];
-        let relations = Self::load_child_parent_relations(parent_hotkey, netuid)?;
-        relations.ensure_pending_consistency(&children)?;
-        Self::persist_pending_chidren_ok(netuid, parent_hotkey, &children);
-        Ok(())
-    }
-
     ////////////////////////////////////////////////////////////
     // State cleaners (for use in migration)
     // TODO: Deprecate when the state is clean for a while
-
-    /// Establishes parent-child relationships between all root validators and
-    /// a subnet owner's hotkey on the specified subnet.
-    ///
-    /// For each validator on the root network (netuid 0), this function
-    /// schedules the subnet owner hotkey as a child of that root validator
-    /// on the given subnet, with full proportion (`u64::MAX`).
-    ///
-    /// # Arguments
-    /// * `netuid`: The subnet on which to establish relationships.
-    ///
-    /// # Returns
-    /// * `DispatchResult`: Ok if at least the setup completes; individual
-    ///   scheduling failures per validator are logged but do not abort the loop.
-    pub fn do_set_root_validators_for_subnet(netuid: NetUid) -> DispatchResult {
-        // Cannot set children on root network itself.
-        ensure!(
-            !netuid.is_root(),
-            Error::<T>::RegistrationNotPermittedOnRootSubnet
-        );
-
-        // Subnet must exist.
-        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
-
-        // Get the subnet owner hotkey.
-        let subnet_owner_hotkey =
-            SubnetOwnerHotkey::<T>::try_get(netuid).map_err(|_| Error::<T>::SubnetNotExists)?;
-
-        // Iterate over all root validators and schedule each one as a parent
-        // of the subnet owner hotkey.
-        for (_uid, root_validator_hotkey) in Keys::<T>::iter_prefix(NetUid::ROOT) {
-            // Skip if the root validator is the subnet owner hotkey itself
-            // (cannot be both parent and child).
-            if root_validator_hotkey == subnet_owner_hotkey {
-                continue;
-            }
-
-            // Skip if root validator disabled auto parent delegation via AutoParentDelegationEnabled flag
-            if !Self::get_auto_parent_delegation_enabled(&root_validator_hotkey) {
-                continue;
-            }
-
-            if let Err(e) = Self::schedule_auto_parent_to_owner(
-                &root_validator_hotkey,
-                netuid,
-                subnet_owner_hotkey.clone(),
-            ) {
-                log::warn!(
-                    "Failed to schedule children for root validator {:?} on netuid {:?}: {:?}",
-                    root_validator_hotkey,
-                    netuid,
-                    e
-                );
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Establishes parent-child relationships from one root validator to
-    /// every existing subnet owner's hotkey.
-    ///
-    /// For each non-root subnet that has an owner hotkey, this schedules
-    /// that owner as a child of `root_validator_hotkey` with full
-    /// proportion (`u64::MAX`).
-    ///
-    /// Respects `AutoParentDelegationEnabled` (default true). Individual
-    /// subnet failures are logged and do not abort the loop.
-    pub fn do_set_subnet_owners_for_root_validator(
-        root_validator_hotkey: &T::AccountId,
-    ) -> DispatchResult {
-        if !Self::get_auto_parent_delegation_enabled(root_validator_hotkey) {
-            return Ok(());
-        }
-
-        for netuid in Self::get_all_subnet_netuids() {
-            if netuid.is_root() {
-                continue;
-            }
-
-            let Ok(subnet_owner_hotkey) = SubnetOwnerHotkey::<T>::try_get(netuid) else {
-                continue;
-            };
-
-            if *root_validator_hotkey == subnet_owner_hotkey {
-                continue;
-            }
-
-            if let Err(e) = Self::schedule_auto_parent_to_owner(
-                root_validator_hotkey,
-                netuid,
-                subnet_owner_hotkey,
-            ) {
-                log::warn!(
-                    "Failed to schedule children for root validator {:?} on netuid {:?}: {:?}",
-                    root_validator_hotkey,
-                    netuid,
-                    e
-                );
-            }
-        }
-
-        Ok(())
-    }
 
     pub fn clean_zero_childkey_vectors(weight: &mut Weight) {
         // Collect keys to delete first to avoid mutating while iterating.

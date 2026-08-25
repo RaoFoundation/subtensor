@@ -130,19 +130,8 @@ impl<T: Config> Pallet<T> {
             if current_num_root_validators < Self::get_max_root_validators() {
                 None
             } else {
-                let mut lowest_stake = AlphaBalance::MAX;
-                let mut lowest_uid: Option<u16> = None;
-                for (uid_i, hotkey_i) in Keys::<T>::iter_prefix(NetUid::ROOT) {
-                    if Self::get_neuron_is_immune(NetUid::ROOT, uid_i) {
-                        continue;
-                    }
-                    let stake_i = Self::get_stake_for_hotkey_on_subnet(&hotkey_i, NetUid::ROOT);
-                    if lowest_uid.is_none() || stake_i < lowest_stake {
-                        lowest_stake = stake_i;
-                        lowest_uid = Some(uid_i);
-                    }
-                }
-                let lowest_uid = lowest_uid.ok_or(Error::<T>::NoNeuronIdAvailable)?;
+                let lowest_uid =
+                    Self::get_root_neuron_to_prune().ok_or(Error::<T>::NoNeuronIdAvailable)?;
                 let replaced_hotkey: T::AccountId =
                     Self::get_hotkey_for_net_and_uid(NetUid::ROOT, lowest_uid)?;
                 Some((lowest_uid, replaced_hotkey))
@@ -202,11 +191,8 @@ impl<T: Config> Pallet<T> {
         ));
 
         // --- 16. Auto-childkey this root validator to every subnet owner.
-        if let Err(e) = Self::do_set_subnet_owners_for_root_validator(&hotkey) {
-            log::warn!("Failed to auto-childkey root validator {hotkey:?} to subnet owners: {e:?}");
-        }
+        Self::do_set_subnet_owners_for_root_validator(&hotkey);
 
-        // --- 17. Finish and return success.
         Ok(())
     }
 

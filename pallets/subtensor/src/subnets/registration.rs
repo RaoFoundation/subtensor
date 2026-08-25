@@ -1,10 +1,10 @@
 use super::*;
-use frame_support::storage::{TransactionOutcome, with_transaction};
+use frame_support::storage::{with_transaction, TransactionOutcome};
 use sp_core::{H256, U256};
 use sp_io::hashing::{keccak_256, sha2_256};
 use sp_runtime::Saturating;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{NetUid, Token};
+use subtensor_runtime_common::{AlphaBalance, NetUid, Token};
 use system::pallet_prelude::BlockNumberFor;
 
 const LOG_TARGET: &str = "runtime::subtensor::registration";
@@ -358,6 +358,40 @@ impl<T: Config> Pallet<T> {
             return Some(uid);
         }
         best_immune.map(|(_, _, uid)| uid)
+    }
+
+    /// Lowest-staked non-immune root member, or `None` if every seat is immune.
+    ///
+    /// Sibling of [`Self::get_neuron_to_prune`]: that helper uses emission and
+    /// can fall back to an immune UID. Root admission uses stake, skips
+    /// immune UIDs, and never falls back — the caller then fails with
+    /// `NoNeuronIdAvailable`. Equal stake breaks by older
+    /// `BlockAtRegistration`, then lower UID.
+    pub fn get_root_neuron_to_prune() -> Option<u16> {
+        let mut best: Option<(AlphaBalance, u64, u16)> = None;
+        for (uid, hotkey) in Keys::<T>::iter_prefix(NetUid::ROOT) {
+            if Self::get_neuron_is_immune(NetUid::ROOT, uid) {
+                continue;
+            }
+            let stake = Self::get_stake_for_hotkey_on_subnet(&hotkey, NetUid::ROOT);
+            let reg_block = Self::get_neuron_block_at_registration(NetUid::ROOT, uid);
+            let better = match best {
+                None => true,
+                Some((best_stake, best_block, best_uid)) => {
+                    if stake != best_stake {
+                        stake < best_stake
+                    } else if reg_block != best_block {
+                        reg_block < best_block
+                    } else {
+                        uid < best_uid
+                    }
+                }
+            };
+            if better {
+                best = Some((stake, reg_block, uid));
+            }
+        }
+        best.map(|(_, _, uid)| uid)
     }
 
     /// Determine whether the given hash satisfies the given difficulty.
