@@ -833,7 +833,12 @@ mod dispatches {
         ///
         /// After a successful registration, the hotkey is auto-childkeyed
         /// to every existing subnet owner unless the validator opted out
-        /// of auto parent delegation.
+        /// of auto parent delegation. Pruning a seat clears that
+        /// validator's protocol auto-parent edges.
+        ///
+        /// `WeightInfo::root_register` is still the pre-auto-parent
+        /// measurement. Re-benchmark on reference hardware so the declared
+        /// weight covers the per-subnet persist (and prune cleanup).
         #[pallet::call_index(62)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
         pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {

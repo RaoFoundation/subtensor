@@ -4710,6 +4710,57 @@ fn test_root_register_auto_childkeys_to_every_subnet_owner() {
     });
 }
 
+// Root prune must drop the protocol auto-parent edges so ParentKeys
+// on owners do not grow with senate churn.
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_prune_clears_auto_parent_edges --exact --show-output --nocapture
+#[test]
+fn test_root_prune_clears_auto_parent_edges() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 1);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 0);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let old_cold = U256::from(3001);
+        let old_hot = U256::from(3002);
+        let new_cold = U256::from(4001);
+        let new_hot = U256::from(4002);
+
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, old_hot, old_cold, 0);
+        register_ok_neuron(netuid, new_hot, new_cold, 0);
+
+        root_register_ok(old_hot, old_cold);
+        assert_eq!(
+            SubtensorModule::get_children(&old_hot, netuid),
+            vec![(u64::MAX, owner_hot)]
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner_hot, netuid),
+            vec![(u64::MAX, old_hot)]
+        );
+
+        root_register_ok(new_hot, new_cold);
+        assert!(
+            !Uids::<Test>::contains_key(NetUid::ROOT, old_hot),
+            "old validator must be pruned"
+        );
+        assert_eq!(
+            SubtensorModule::get_children(&old_hot, netuid),
+            vec![],
+            "pruned validator must lose the protocol auto-parent edge"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner_hot, netuid),
+            vec![(u64::MAX, new_hot)],
+            "owner parent list must drop the pruned validator"
+        );
+    });
+}
+
 // Opt-out must work before root registration, otherwise auto-CK on
 // root_register cannot be refused.
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_register_respects_auto_parent_delegation_opt_out --exact --show-output --nocapture

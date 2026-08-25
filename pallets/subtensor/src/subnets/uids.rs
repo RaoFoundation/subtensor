@@ -94,6 +94,7 @@ impl<T: Config> Pallet<T> {
         // merge by earning more.
         if netuid.is_root() {
             let _ = Self::flush_basket_deposits_for_hotkey(&old_hotkey);
+            Self::clear_auto_parent_for_root_validator(&old_hotkey);
         }
 
         T::CommitmentsInterface::purge_neuron(netuid, &old_hotkey);

@@ -33,6 +33,35 @@ impl<T: Config> Pallet<T> {
         Self::persist_pending_chidren_ok(netuid, parent_hotkey, &vec![(u64::MAX, owner_hotkey)]);
     }
 
+    /// True when this parent still has the protocol auto-parent edge
+    /// this module writes: one child, full proportion, the current
+    /// subnet owner. A validator who set a different child set is left
+    /// alone.
+    fn is_auto_parent_to_owner(parent_hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        let Ok(owner_hotkey) = SubnetOwnerHotkey::<T>::try_get(netuid) else {
+            return false;
+        };
+        ChildKeys::<T>::get(parent_hotkey, netuid) == vec![(u64::MAX, owner_hotkey)]
+    }
+
+    /// Drop protocol auto-parent edges after a hotkey leaves root.
+    ///
+    /// `replace_neuron` on root does not walk other subnets. Without this
+    /// cleanup, each churned validator would leave a `ParentKeys` row on
+    /// every owner, and the epoch inherited-stake walk would grow without
+    /// bound.
+    pub fn clear_auto_parent_for_root_validator(root_validator_hotkey: &T::AccountId) {
+        for netuid in Self::get_all_subnet_netuids() {
+            if netuid.is_root() {
+                continue;
+            }
+            if !Self::is_auto_parent_to_owner(root_validator_hotkey, netuid) {
+                continue;
+            }
+            Self::persist_pending_chidren_ok(netuid, root_validator_hotkey, &Vec::new());
+        }
+    }
+
     /// Childkey every root validator to the owner of `netuid`.
     ///
     /// Used when a new subnet is registered. Setup fails if `netuid` is
