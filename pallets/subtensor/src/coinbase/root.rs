@@ -62,6 +62,30 @@ impl<T: Config> Pallet<T> {
         false
     }
 
+    /// Declared weight for [`crate::Pallet::root_register`].
+    ///
+    /// `WeightInfo::root_register` is the pre-auto-parent measurement.
+    /// The extra term is `TotalNetworks`-scaled `DbWeight` for one persist
+    /// per subnet on apply, and one more persist per subnet if a seat is
+    /// pruned. This is not a substitute for a reference re-benchmark.
+    pub fn root_register_dispatch_weight() -> Weight {
+        let n = TotalNetworks::<T>::get() as u64;
+        // Per persist: subnet exists, owner, child set, pending, parent
+        // of the owner, plus the child/parent writes.
+        const READS_PER_PERSIST: u64 = 6;
+        const WRITES_PER_PERSIST: u64 = 4;
+        const PROOF_PER_PERSIST: u64 = 256;
+        let persists = n.saturating_mul(2);
+        <T as crate::pallet::Config>::WeightInfo::root_register()
+            .saturating_add(T::DbWeight::get().reads(1))
+            .saturating_add(T::DbWeight::get().reads(persists.saturating_mul(READS_PER_PERSIST)))
+            .saturating_add(T::DbWeight::get().writes(persists.saturating_mul(WRITES_PER_PERSIST)))
+            .saturating_add(Weight::from_parts(
+                0,
+                persists.saturating_mul(PROOF_PER_PERSIST),
+            ))
+    }
+
     /// Registers a user's hotkey to the root network.
     ///
     /// Admission is burn-based: the coldkey pays the root burn price

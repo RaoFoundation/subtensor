@@ -6,10 +6,10 @@ use frame_support::pallet_macros::pallet_section;
 #[pallet_section]
 mod dispatches {
     use frame_support::pallet_prelude::DispatchResultWithPostInfo;
-    use frame_support::traits::{Get, schedule::v3::Anon as ScheduleAnon};
+    use frame_support::traits::{schedule::v3::Anon as ScheduleAnon, Get};
     use frame_system::pallet_prelude::BlockNumberFor;
     use sp_core::ecdsa::Signature;
-    use sp_runtime::{Percent, Saturating, traits::Hash};
+    use sp_runtime::{traits::Hash, Percent, Saturating};
 
     use crate::MAX_CRV3_COMMIT_SIZE_BYTES;
     use crate::MAX_ROOT_CLAIM_THRESHOLD;
@@ -836,11 +836,12 @@ mod dispatches {
         /// of auto parent delegation. Pruning a seat clears that
         /// validator's protocol auto-parent edges.
         ///
-        /// `WeightInfo::root_register` is still the pre-auto-parent
-        /// measurement. Re-benchmark on reference hardware so the declared
-        /// weight covers the per-subnet persist (and prune cleanup).
+        /// Declared weight is `WeightInfo::root_register` plus a
+        /// `TotalNetworks`-scaled `DbWeight` term for the per-subnet
+        /// persist (and prune cleanup). Re-benchmark on reference
+        /// hardware so the base measurement includes that work.
         #[pallet::call_index(62)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
+        #[pallet::weight(Pallet::<T>::root_register_dispatch_weight())]
         pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
             Self::do_root_register(origin, hotkey)
         }
@@ -2038,7 +2039,7 @@ mod dispatches {
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
-        /// * `hotkey`: The validator whose basket to deposit into.
+        /// * `hotkey`: The root-registered validator whose basket to deposit into.
         /// * `amount_staked`: TAO to take from the caller's balance and deploy.
         ///
         /// # Events
@@ -2047,6 +2048,7 @@ mod dispatches {
         ///
         /// # Errors
         /// * `HotKeyAccountNotExists`: The hotkey is not a registered account.
+        /// * `HotKeyNotRegisteredInSubNet`: The hotkey is not registered on root.
         /// * `AmountTooLow`: Below the minimum stake, or the deposit's realizable value
         ///   rounds to zero entitlement.
         /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.

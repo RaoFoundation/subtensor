@@ -1634,18 +1634,20 @@ class SetAutoStake(Intent):
 @register
 @dataclass
 class StakeIntoBasket(Intent):
-    """Buy shares in a validator's root basket with free TAO.
+    """Buy shares in a root-registered validator's basket with free TAO.
 
     Deploys TAO from the signing coldkey across the validator's basket and
-    credits beta immediately. A curated fund follows its root weight vector;
-    an uncurated fund mirrors current holdings by realizable value; an empty
-    uncurated fund holds the deposit as the fund's root (TAO cash) slot. The
-    share mint is priced on the realizable NAV the deposit added, so the
-    depositor bears their own entry slippage and swap fees. The shares do
-    not require or change root stake, and they do not change anyone's
-    dividend accrual. Redeem them later with ``claim_root_with_hotkey``.
-    Pass ``all`` to deploy the whole free balance minus the existential
-    deposit and a small fee headroom.
+    credits beta immediately. The hotkey must already hold a root seat
+    (``HotKeyNotRegisteredInSubNet``). A curated fund follows its root
+    weight vector; an uncurated fund mirrors current holdings by
+    realizable value; an empty uncurated fund holds the deposit as the
+    fund's root (TAO cash) slot. The share mint is priced on the
+    realizable NAV the deposit added, so the depositor bears their own
+    entry slippage and swap fees. The shares do not require or change
+    root stake, and they do not change anyone's dividend accrual.
+    Redeem them later with ``claim_root_with_hotkey``. Pass ``all`` to
+    deploy the whole free balance minus the existential deposit and a
+    small fee headroom.
     """
 
     op = "stake_into_basket"
@@ -1654,7 +1656,9 @@ class StakeIntoBasket(Intent):
     mev_shield_default = True
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_tao",)
 
-    hotkey_ss58: str = field(metadata={"help": "Validator whose basket receives the deposit."})
+    hotkey_ss58: str = field(
+        metadata={"help": "Root-registered validator whose basket receives the deposit."}
+    )
     amount_tao: Money = field(
         metadata={
             "help": "How much of the coldkey's free balance to deploy into the "

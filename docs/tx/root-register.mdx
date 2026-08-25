@@ -24,7 +24,7 @@ delegation. Use `burned_register` for ordinary subnets.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L842-L846) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.root_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L843-L847) |
 
 ## Parameters
 
@@ -71,16 +71,16 @@ result = sub.execute_tool("root_register", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L844`](/code/pallets/subtensor/src/macros/dispatches.rs#L842-L846):
+`SubtensorModule.root_register` — [`pallets/subtensor/src/macros/dispatches.rs#L845`](/code/pallets/subtensor/src/macros/dispatches.rs#L843-L847):
 
 ```rust
 #[pallet::call_index(62)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
+#[pallet::weight(Pallet::<T>::root_register_dispatch_weight())]
 pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
     Self::do_root_register(origin, hotkey)
 }
 ```
 
-Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L85).
+Delegates to [`do_root_register`](/code/pallets/subtensor/src/coinbase/root.rs#L109).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
