@@ -34,14 +34,16 @@ impl<T: Config> Pallet<T> {
     }
 
     /// True when this parent still has the protocol auto-parent edge
-    /// this module writes: one child, full proportion, the current
-    /// subnet owner. A validator who set a different child set is left
-    /// alone.
-    fn is_auto_parent_to_owner(parent_hotkey: &T::AccountId, netuid: NetUid) -> bool {
-        let Ok(owner_hotkey) = SubnetOwnerHotkey::<T>::try_get(netuid) else {
-            return false;
-        };
-        ChildKeys::<T>::get(parent_hotkey, netuid) == vec![(u64::MAX, owner_hotkey)]
+    /// this module writes: one child, full proportion. The child may be
+    /// a former owner after lock takeover; matching only the current
+    /// `SubnetOwnerHotkey` would skip those leftovers. A validator who
+    /// set a different child set (other proportion or more than one
+    /// child) is left alone.
+    fn is_protocol_auto_parent_edge(parent_hotkey: &T::AccountId, netuid: NetUid) -> bool {
+        matches!(
+            ChildKeys::<T>::get(parent_hotkey, netuid).as_slice(),
+            [(u64::MAX, _)]
+        )
     }
 
     /// Drop protocol auto-parent edges after a hotkey leaves root.
@@ -55,10 +57,41 @@ impl<T: Config> Pallet<T> {
             if netuid.is_root() {
                 continue;
             }
-            if !Self::is_auto_parent_to_owner(root_validator_hotkey, netuid) {
+            if !Self::is_protocol_auto_parent_edge(root_validator_hotkey, netuid) {
                 continue;
             }
             Self::persist_pending_chidren_ok(netuid, root_validator_hotkey, &Vec::new());
+        }
+    }
+
+    /// Move protocol auto-parent edges from `old_owner` to `new_owner`.
+    ///
+    /// Lock takeover and `set_subnet_owner_hotkey` change the owner
+    /// without rewriting childkeys. Until this runs, every root
+    /// validator still parents the former owner, who keeps inheriting
+    /// stake. Custom child sets are left alone.
+    pub fn retarget_auto_parent_on_owner_change(
+        netuid: NetUid,
+        old_owner: &T::AccountId,
+        new_owner: &T::AccountId,
+    ) {
+        if netuid.is_root() || old_owner == new_owner {
+            return;
+        }
+
+        for (_uid, parent_hotkey) in Keys::<T>::iter_prefix(NetUid::ROOT) {
+            if ChildKeys::<T>::get(&parent_hotkey, netuid) != vec![(u64::MAX, old_owner.clone())] {
+                continue;
+            }
+            if parent_hotkey == *new_owner {
+                Self::persist_pending_chidren_ok(netuid, &parent_hotkey, &Vec::new());
+            } else {
+                Self::persist_pending_chidren_ok(
+                    netuid,
+                    &parent_hotkey,
+                    &vec![(u64::MAX, new_owner.clone())],
+                );
+            }
         }
     }
 

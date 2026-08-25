@@ -238,6 +238,7 @@ impl<T: Config> Pallet<T> {
                         // still on root, then recycle leftover dust after membership drops.
                         if netuid.is_root() {
                             let _ = Self::flush_basket_deposits_for_hotkey(&hotkey);
+                            Self::clear_auto_parent_for_root_validator(&hotkey);
                         }
                         Uids::<T>::remove(netuid, &hotkey);
                         IsNetworkMember::<T>::remove(&hotkey, netuid);

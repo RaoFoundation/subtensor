@@ -4761,6 +4761,68 @@ fn test_root_prune_clears_auto_parent_edges() {
     });
 }
 
+// Lock takeover / owner-hotkey change must retarget protocol edges so
+// the former owner does not keep inherited stake, and prune still
+// clears the edge after that rotation.
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_auto_parent_retargets_on_owner_hotkey_change --exact --show-output --nocapture
+#[test]
+fn test_auto_parent_retargets_on_owner_hotkey_change() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 1);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 0);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let king_cold = U256::from(2001);
+        let king_hot = U256::from(2002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+        let incoming_cold = U256::from(4001);
+        let incoming_hot = U256::from(4002);
+
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, val_hot, val_cold, 0);
+        register_ok_neuron(netuid, incoming_hot, incoming_cold, 0);
+        register_ok_neuron(netuid, king_hot, king_cold, 0);
+
+        root_register_ok(val_hot, val_cold);
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![(u64::MAX, owner_hot)]
+        );
+
+        assert_ok!(SubtensorModule::set_subnet_owner_hotkey(netuid, &king_hot));
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![(u64::MAX, king_hot)],
+            "protocol edge must follow the new owner hotkey"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner_hot, netuid),
+            vec![],
+            "former owner must drop the protocol parent row"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&king_hot, netuid),
+            vec![(u64::MAX, val_hot)]
+        );
+
+        root_register_ok(incoming_hot, incoming_cold);
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![],
+            "prune after owner rotation must still clear the protocol edge"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&king_hot, netuid),
+            vec![(u64::MAX, incoming_hot)]
+        );
+    });
+}
+
 // Opt-out must work before root registration, otherwise auto-CK on
 // root_register cannot be refused.
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_register_respects_auto_parent_delegation_opt_out --exact --show-output --nocapture
