@@ -109,6 +109,18 @@ class TestPrecompileEncoding:
             ["[1, 2]", ["0x" + "11" * 32, "0x" + "22" * 32]],
         ).startswith("0x")
 
+    def test_liquid_alpha_consensus_mode_calls_encode(self):
+        subnet = precompiles.get_precompile("subnet")
+        getter = subnet.function("getLiquidAlphaConsensusMode")
+        setter = subnet.function("setLiquidAlphaConsensusMode")
+
+        assert precompiles.encode_call(getter, [1]).startswith("0x")
+        assert precompiles.encode_call(setter, [1, 2]).startswith("0x")
+        assert getter["outputs"] == [
+            {"internalType": "uint8", "name": "", "type": "uint8"}
+        ]
+        assert setter["stateMutability"] == "payable"
+
 
 # The vendored ABIs in bittensor/evm/abi must stay in sync with the canonical
 # .abi artifacts in precompiles/src/solidity (see the bittensor.evm.precompiles

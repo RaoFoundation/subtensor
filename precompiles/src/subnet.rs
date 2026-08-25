@@ -7,7 +7,7 @@ use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, PrecompileHandle};
 use precompile_utils::{
     EvmResult,
-    prelude::{BoundedString, BoundedVec, UnboundedBytes},
+    prelude::{BoundedString, BoundedVec, UnboundedBytes, revert},
 };
 use sp_core::H256;
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, UniqueSaturatedInto};
@@ -764,6 +764,46 @@ where
         let call = pallet_admin_utils::Call::<R>::sudo_set_liquid_alpha_enabled {
             netuid: netuid.into(),
             enabled,
+        };
+
+        handle.try_dispatch_runtime_call::<R, _>(
+            call,
+            RawOrigin::Signed(handle.caller_account_id::<R>()),
+        )
+    }
+
+    #[precompile::public("getLiquidAlphaConsensusMode(uint16)")]
+    #[precompile::view]
+    fn get_liquid_alpha_consensus_mode(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+    ) -> EvmResult<u8> {
+        handle.record_db_reads::<R>(1)?;
+        let mode = match pallet_subtensor::LiquidAlphaConsensusMode::<R>::get(NetUid::from(netuid))
+        {
+            pallet_subtensor::ConsensusMode::Current => 0,
+            pallet_subtensor::ConsensusMode::Previous => 1,
+            pallet_subtensor::ConsensusMode::Auto => 2,
+        };
+        Ok(mode)
+    }
+
+    #[precompile::public("setLiquidAlphaConsensusMode(uint16,uint8)")]
+    #[precompile::payable]
+    fn set_liquid_alpha_consensus_mode(
+        handle: &mut impl PrecompileHandle,
+        netuid: u16,
+        mode: u8,
+    ) -> EvmResult<()> {
+        let mode = match mode {
+            0 => pallet_subtensor::ConsensusMode::Current,
+            1 => pallet_subtensor::ConsensusMode::Previous,
+            2 => pallet_subtensor::ConsensusMode::Auto,
+            _ => return Err(revert("invalid liquid alpha consensus mode")),
+        };
+        let call = pallet_admin_utils::Call::<R>::sudo_set_liquid_alpha_consensus_mode {
+            netuid: netuid.into(),
+            mode,
         };
 
         handle.try_dispatch_runtime_call::<R, _>(
@@ -1844,6 +1884,97 @@ mod tests {
                 ),
                 U256::from(99_u64),
             );
+        });
+    }
+
+    #[test]
+    fn liquid_alpha_consensus_mode_preserves_encoding_and_owner_authorization() {
+        new_test_ext().execute_with(|| {
+            let owner = addr_from_index(0x5012);
+            let non_owner = addr_from_index(0x5013);
+            let netuid = setup_owner_subnet(owner);
+            let precompiles = precompiles::<SubnetPrecompile<Runtime>>();
+            let address = addr_from_index(SubnetPrecompile::<Runtime>::INDEX);
+            let get_input = encode_with_selector(
+                selector_u32("getLiquidAlphaConsensusMode(uint16)"),
+                (TEST_NETUID_U16,),
+            );
+
+            assert!(!pallet_subtensor::LiquidAlphaConsensusMode::<Runtime>::contains_key(netuid));
+            precompiles
+                .prepare_test(owner, address, get_input.clone())
+                .with_static_call(true)
+                .expect_cost(
+                    precompile_utils::prelude::RuntimeHelper::<Runtime>::db_read_gas_cost(),
+                )
+                .execute_returns(2_u8);
+
+            for (encoded, expected) in [
+                (0_u8, pallet_subtensor::ConsensusMode::Current),
+                (1_u8, pallet_subtensor::ConsensusMode::Previous),
+                (2_u8, pallet_subtensor::ConsensusMode::Auto),
+            ] {
+                precompiles
+                    .prepare_test(
+                        owner,
+                        address,
+                        encode_with_selector(
+                            selector_u32("setLiquidAlphaConsensusMode(uint16,uint8)"),
+                            (TEST_NETUID_U16, encoded),
+                        ),
+                    )
+                    .execute_returns(());
+                assert_eq!(
+                    pallet_subtensor::LiquidAlphaConsensusMode::<Runtime>::get(netuid),
+                    expected
+                );
+                precompiles
+                    .prepare_test(owner, address, get_input.clone())
+                    .with_static_call(true)
+                    .expect_cost(
+                        precompile_utils::prelude::RuntimeHelper::<Runtime>::db_read_gas_cost(),
+                    )
+                    .execute_returns(encoded);
+            }
+
+            precompiles
+                .prepare_test(
+                    owner,
+                    address,
+                    encode_with_selector(
+                        selector_u32("setLiquidAlphaConsensusMode(uint16,uint8)"),
+                        (TEST_NETUID_U16, 3_u8),
+                    ),
+                )
+                .execute_reverts(|output| output == b"invalid liquid alpha consensus mode");
+            assert_eq!(
+                pallet_subtensor::LiquidAlphaConsensusMode::<Runtime>::get(netuid),
+                pallet_subtensor::ConsensusMode::Auto
+            );
+
+            let set_previous = encode_with_selector(
+                selector_u32("setLiquidAlphaConsensusMode(uint16,uint8)"),
+                (TEST_NETUID_U16, 1_u8),
+            );
+            let rejected = execute_precompile(
+                &precompiles,
+                address,
+                non_owner,
+                set_previous.clone(),
+                U256::zero(),
+            );
+            assert!(matches!(rejected, Some(Err(_))));
+            assert_eq!(
+                pallet_subtensor::LiquidAlphaConsensusMode::<Runtime>::get(netuid),
+                pallet_subtensor::ConsensusMode::Auto
+            );
+
+            precompiles
+                .prepare_test(owner, address, set_previous)
+                .with_static_call(true)
+                .execute_reverts(|output| {
+                    output == b"Can't call non-static function in static context"
+                });
         });
     }
 
