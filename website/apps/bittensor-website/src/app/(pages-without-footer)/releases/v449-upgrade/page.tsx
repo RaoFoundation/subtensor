@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   title: 'The V449 Upgrade — Curated Beta',
   description:
     'V449 enables set_root_weights. Validators curate their dividend baskets under a ' +
-    '1/16 concentration cap. btcli root list, subscribe, claim, and weights are the ' +
+    '1/16 concentration cap. btcli root list, allocate, claim, and weights are the ' +
     'working surface.',
   alternates: {canonical: '/releases/v449-upgrade'},
 };
@@ -192,12 +192,12 @@ const page = () => {
           <p>
             A new <code>RootWeightsCap</code> of 1/16 is added which limits concentration of the validator's dividend stream. Validators must spread across
             at least 16 destinations. <code>btcli root</code> is the working surface: list,
-            subscribe, claim, and weights.
+            allocate, claim, and weights.
           </p>
         </section>
 
         <section className={styles.section}>
-          <h2 className={styles.subtitle}>Subscribe, accrue, claim</h2>
+          <h2 className={styles.subtitle}>Allocate, accrue, claim</h2>
           <p className={styles.graph_caption}>
             As the root reborn update, root principal stays as root stake in TAO, yield accrues as beta (a share in a basket of alpha tokens).
             These can be 'claimed' into TAO which folds the yeild back into stake.
@@ -215,13 +215,13 @@ const page = () => {
           </div>
 
           <div className={styles.step}>
-            <p className={styles.step_title}>2 · Subscribe</p>
+            <p className={styles.step_title}>2 · Allocate</p>
             <p>
               Deploys τ from free balance into the chosen validator&apos;s basket and credits
               β immediately.
             </p>
             <pre className={styles.step_code}>
-              {`btcli root subscribe`}
+              {`btcli root allocate`}
             </pre>
           </div>
 
@@ -252,7 +252,8 @@ const page = () => {
           <div className={styles.step}>
             <p className={styles.step_title}>1 · Register</p>
             <p>
-              Burn-based seat. A full root evicts the lowest-staked member.
+              Burn-based seat. Floor is τ1. A full root evicts the lowest-staked
+              non-immune member. A new seat is immune for 7200 blocks.
             </p>
             <pre className={styles.step_code}>
               {`btcli subnets burn-cost 0
@@ -315,7 +316,7 @@ btcli root register`}
           </p>
           <p>
             SDK 11.3.0 ships with the runtime. That is the version that has{' '}
-            <code>btcli root list</code>, <code>subscribe</code>, <code>claim</code>, and{' '}
+            <code>btcli root list</code>, <code>allocate</code>, <code>claim</code>, and{' '}
             <code>weights</code>, plus the index-spliced β rate. Upgrade:
           </p>
           <pre className={styles.code_block}>{`pip install -U bittensor`}</pre>

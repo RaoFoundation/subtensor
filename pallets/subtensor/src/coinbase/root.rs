@@ -67,8 +67,13 @@ impl<T: Config> Pallet<T> {
     /// Admission is burn-based: the coldkey pays the root burn price
     /// (`Burn(0)`, demand-priced like subnet registration — bumped on every
     /// registration, decaying back toward the floor each block). No prior
-    /// stake is required. When the network is full, the lowest-staked member
-    /// is pruned to make room.
+    /// stake is required. When the network is full, the lowest-staked
+    /// non-immune member is pruned to make room. A just-registered seat is
+    /// immune for `ImmunityPeriod` blocks.
+    ///
+    /// After a successful registration, the hotkey is auto-childkeyed to
+    /// every existing subnet owner (unless the validator opted out of
+    /// auto parent delegation).
     ///
     /// # Arguments
     /// * `origin`: Represents the origin of the call.
@@ -116,23 +121,28 @@ impl<T: Config> Pallet<T> {
         let current_num_root_validators: u16 = Self::get_num_root_validators();
 
         // --- 8. Resolve the slot: append while below capacity (max allowed is
-        // senate size), otherwise prune the lowest-staked member. Resolution
-        // only reads state, so the burn charged below can never be taken for a
+        // senate size), otherwise prune the lowest-staked *non-immune* member.
+        // A just-registered seat is immune (`ImmunityPeriod`) so it can attract
+        // stake before the next registration can evict it. Resolution only
+        // reads state, so the burn charged below can never be taken for a
         // registration that fails.
         let maybe_replacement: Option<(u16, T::AccountId)> =
             if current_num_root_validators < Self::get_max_root_validators() {
                 None
             } else {
-                // Find the neuron with the lowest stake value to replace.
                 let mut lowest_stake = AlphaBalance::MAX;
-                let mut lowest_uid: u16 = 0;
+                let mut lowest_uid: Option<u16> = None;
                 for (uid_i, hotkey_i) in Keys::<T>::iter_prefix(NetUid::ROOT) {
+                    if Self::get_neuron_is_immune(NetUid::ROOT, uid_i) {
+                        continue;
+                    }
                     let stake_i = Self::get_stake_for_hotkey_on_subnet(&hotkey_i, NetUid::ROOT);
-                    if stake_i < lowest_stake {
+                    if lowest_uid.is_none() || stake_i < lowest_stake {
                         lowest_stake = stake_i;
-                        lowest_uid = uid_i;
+                        lowest_uid = Some(uid_i);
                     }
                 }
+                let lowest_uid = lowest_uid.ok_or(Error::<T>::NoNeuronIdAvailable)?;
                 let replaced_hotkey: T::AccountId =
                     Self::get_hotkey_for_net_and_uid(NetUid::ROOT, lowest_uid)?;
                 Some((lowest_uid, replaced_hotkey))
@@ -188,10 +198,15 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::NeuronRegistered(
             NetUid::ROOT,
             subnetwork_uid,
-            hotkey,
+            hotkey.clone(),
         ));
 
-        // --- 16. Finish and return success.
+        // --- 16. Auto-childkey this root validator to every subnet owner.
+        if let Err(e) = Self::do_set_subnet_owners_for_root_validator(&hotkey) {
+            log::warn!("Failed to auto-childkey root validator {hotkey:?} to subnet owners: {e:?}");
+        }
+
+        // --- 17. Finish and return success.
         Ok(())
     }
 

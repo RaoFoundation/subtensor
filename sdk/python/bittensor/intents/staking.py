@@ -267,12 +267,19 @@ async def _stakeable_rao(substrate, wallet: Any) -> int:
 
 
 async def _staked_rao(
-    substrate, wallet: Any, hotkey_ss58: str, netuid: int, *, action: str = "unstake"
+    substrate,
+    wallet: Any,
+    hotkey_ss58: str,
+    netuid: int,
+    *,
+    action: str = "unstake",
+    allow_empty: bool = False,
 ) -> int:
     """Current stake (rao) the signing coldkey holds on ``hotkey_ss58`` at ``netuid``.
 
     Resolves an ``amount = "all"`` at build time; refuses to build a no-op when
-    there is nothing staked.
+    there is nothing staked, unless ``allow_empty`` (a following claim will
+    create the position).
     """
     coldkey = public_view(wallet, "coldkey").ss58_address
     info = await substrate.runtime_call(
@@ -280,7 +287,7 @@ async def _staked_rao(
         [hotkey_ss58, coldkey, netuid],
     )
     rao = 0 if info is None else int(info["stake"])
-    if rao <= 0:
+    if rao <= 0 and not allow_empty:
         raise BittensorError(f"nothing to {action}: no stake on {hotkey_ss58} at netuid {netuid}")
     return rao
 
@@ -303,6 +310,60 @@ async def _resolve_unstake_amount(
     # the post-claim balance so the just-claimed yield is included atomically.
     current_rao = await _staked_rao(substrate, wallet, hotkey_ss58, netuid)
     return (_MAX_ALPHA_RAO if claim_all else current_rao), claim_all
+
+
+async def _resolve_move_amount(
+    substrate,
+    wallet: Any,
+    *,
+    origin_hotkey_ss58: str,
+    origin_netuid: int,
+    amount_alpha: Money,
+    claim: bool,
+) -> tuple[int, bool]:
+    """Resolve the move amount and whether a root claim must precede it.
+
+    ``move_stake`` does not cap an oversize amount the way ``remove_stake``
+    does, so a claim-all move cannot pass ``u64::MAX``. When claiming the
+    whole origin position, size the follow-up as live stake plus the
+    quoted basket payout so the just-claimed yield moves too.
+    """
+    if claim and int(origin_netuid) != 0:
+        raise BittensorError(
+            "claim=True is only valid when moving from root (netuid 0). "
+            "claim_root_with_hotkey pays this validator's whole basket "
+            "entitlement, not a proportional slice of the move."
+        )
+    will_claim = claim and int(origin_netuid) == 0
+    if amount_alpha != ALL:
+        return cast(Balance, amount_alpha).rao, will_claim
+
+    current_rao = await _staked_rao(
+        substrate,
+        wallet,
+        origin_hotkey_ss58,
+        origin_netuid,
+        action="move",
+        allow_empty=will_claim,
+    )
+    if not will_claim:
+        return current_rao, False
+
+    payout = await _root_claimable_rao(
+        substrate, public_view(wallet, "coldkey").ss58_address, origin_hotkey_ss58
+    )
+    if payout is None:
+        raise BittensorError(
+            "could not quote claimable yield to size the move after claim; "
+            "retry, or move without claim and run `btcli root claim` separately"
+        )
+    if payout <= 0:
+        if current_rao <= 0:
+            raise BittensorError(
+                f"nothing to move: no stake on {origin_hotkey_ss58} at netuid {origin_netuid}"
+            )
+        return current_rao, False
+    return current_rao + payout, True
 
 
 async def _lockable_rao(substrate, coldkey_ss58: str, netuid: int) -> int:
@@ -358,6 +419,21 @@ CLAIM_NOT_PROPORTIONAL = (
     "proportional slice of the unstake), then unstakes principal"
 )
 
+MOVE_CLAIM_HELP = (
+    "Also redeem this validator's whole basket entitlement before moving, "
+    "in one atomic batch. Root only (netuid 0). This is not a proportional "
+    "payout: moving 40% still claims 100% of the basket. The chain has no "
+    "proportional-claim call. Claimed yield is restaked on the origin, then "
+    "the move runs — pass `all` to take principal and yield together. "
+    "Unavailable while RootStakeUnlockInterval is nonzero, because the claim "
+    "starts a new hold window; claim first, wait, then move in that mode."
+)
+
+CLAIM_THEN_MOVE_NOT_PROPORTIONAL = (
+    "claims the entire basket entitlement for this validator (not a "
+    "proportional slice of the move), then moves principal"
+)
+
 
 async def _root_claimable_rao(substrate, coldkey_ss58: str, hotkey_ss58: str) -> Optional[int]:
     """Realizable TAO (rao) this coldkey would get from ``claim_root_with_hotkey``.
@@ -397,46 +473,49 @@ def _as_call(built):
 
 async def _compose_unstake_with_optional_claim(
     substrate,
-    unstake_call,
+    follow_up_call,
     *,
     claim: bool,
     hotkey_ss58: str,
     netuid: Optional[int],
 ):
-    """Optionally wrap ``claim_root_with_hotkey`` then the unstake in ``batch_all``.
+    """Optionally wrap ``claim_root_with_hotkey`` then the follow-up in ``batch_all``.
 
     ``netuid`` is ``None`` for ``unstake_all`` (root is always included). A
     non-root ``--claim`` is refused: there is no basket on other subnets.
+    Used by unstake and by same-coldkey ``move_stake``.
     """
     if not claim:
-        return unstake_call
+        return follow_up_call
     if netuid is not None and int(netuid) != 0:
         raise BittensorError(
-            "claim=True is only valid when unstaking from root (netuid 0). "
+            "claim=True is only valid when the origin is root (netuid 0). "
             "claim_root_with_hotkey pays this validator's whole basket "
-            "entitlement, not a proportional slice of the unstake."
+            "entitlement, not a proportional slice of the follow-up."
         )
     interval = int(await substrate.query(*st.SubtensorModule.RootStakeUnlockInterval) or 0)
     if interval > 0:
         raise BittensorError(
-            "claim-then-unstake cannot execute atomically while "
+            "claim then move/unstake cannot execute atomically while "
             f"RootStakeUnlockInterval is {interval} blocks: a successful claim "
-            "refreshes the root-stake hold before the unstake runs. Claim first, "
-            "wait for the hold interval, then unstake."
+            "refreshes the root-stake hold before the follow-up runs. Claim "
+            "first, wait for the hold interval, then move or unstake."
         )
     claim_call = await substrate.compose(
         calls.SubtensorModule.claim_root_with_hotkey(hotkey=hotkey_ss58)
     )
     return await substrate.compose(
-        calls.Utility.batch_all(calls=[claim_call, _as_call(unstake_call)])
+        calls.Utility.batch_all(calls=[claim_call, _as_call(follow_up_call)])
     )
 
 
 class _OptionalRootClaimIntent(Intent):
-    """Preflight the embedded claim in claim-then-unstake intents."""
+    """Preflight the embedded claim in claim-then-unstake / claim-then-move intents."""
 
-    hotkey_ss58: str
     claim: bool
+
+    def claim_hotkey(self) -> str:
+        return self.hotkey_ss58
 
     async def preflight(
         self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
@@ -450,12 +529,14 @@ class _OptionalRootClaimIntent(Intent):
         if not self.claim:
             return base
         netuid = getattr(self, "netuid", None)
+        if netuid is None:
+            netuid = getattr(self, "origin_netuid", None)
         if netuid is not None and int(netuid) != 0:
             return base  # build() reports the invalid non-root combination
 
         from .registration import ClaimRootWithHotkey
 
-        claim = ClaimRootWithHotkey(hotkey_ss58=self.hotkey_ss58)
+        claim = ClaimRootWithHotkey(hotkey_ss58=self.claim_hotkey())
         claim_preview = await claim.preflight(
             substrate,
             dispatch_origin,
@@ -714,7 +795,7 @@ class RemoveStake(_OptionalRootClaimIntent):
 
 @register
 @dataclass
-class MoveStake(Intent):
+class MoveStake(_OptionalRootClaimIntent):
     """Move alpha between hotkeys and/or subnets.
 
     Re-delegates an existing position without passing through the coldkey's
@@ -731,11 +812,25 @@ class MoveStake(Intent):
     Ownership stays with the signing coldkey — use ``transfer_stake`` to hand
     the position to another coldkey, or ``swap_stake`` when only the subnet
     changes. Pass ``all`` to move the entire origin position.
+
+    On root (netuid 0), a move takes principal only. Accrued basket yield
+    stays owed on the origin until ``claim_root_with_hotkey``. Pass
+    ``claim=True`` to redeem this validator's whole entitlement first, then
+    move, in one batch. That is not a proportional payout: the claim pays
+    100% of the basket, not a slice of the amount you move. Because
+    ``move_stake`` does not cap an oversize amount, a claim-all move is
+    sized as live stake plus the quoted payout so the just-claimed yield
+    is included.
     """
 
     op = "move_stake"
     signer = "coldkey"
-    wraps = (("SubtensorModule", "move_stake"), ("SubtensorModule", "move_stake_limit"))
+    wraps = (
+        ("SubtensorModule", "move_stake"),
+        ("SubtensorModule", "move_stake_limit"),
+        ("SubtensorModule", "claim_root_with_hotkey"),
+        ("Utility", "batch_all"),
+    )
     mev_shield_default = True
     all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
 
@@ -750,6 +845,7 @@ class MoveStake(Intent):
     rate_tolerance: float = field(
         default=DEFAULT_RATE_TOLERANCE, metadata={"help": RATE_TOLERANCE_HELP}
     )
+    claim: bool = field(default=False, metadata={"help": MOVE_CLAIM_HELP})
 
     def __post_init__(self):
         self.amount_alpha = call_amount(
@@ -761,23 +857,26 @@ class MoveStake(Intent):
         )
         _check_rate_tolerance(self.rate_tolerance)
 
+    def claim_hotkey(self) -> str:
+        return self.origin_hotkey_ss58
+
     def _changes_subnet(self) -> bool:
         return self.origin_netuid != self.dest_netuid
 
-    async def _rao(self, substrate, wallet: Any) -> int:
-        if self.amount_alpha == ALL:
-            return await _staked_rao(
-                substrate, wallet, self.origin_hotkey_ss58, self.origin_netuid, action="move"
-            )
-        return self.amount_alpha.rao
-
     async def build(self, substrate, wallet: Any):
-        rao = await self._rao(substrate, wallet)
+        rao, will_claim = await _resolve_move_amount(
+            substrate,
+            wallet,
+            origin_hotkey_ss58=self.origin_hotkey_ss58,
+            origin_netuid=self.origin_netuid,
+            amount_alpha=self.amount_alpha,
+            claim=self.claim,
+        )
         if self.slippage_protection and self._changes_subnet():
             limit_price = await _swap_limit_price_rao(
                 substrate, self.origin_netuid, self.dest_netuid, self.rate_tolerance
             )
-            return await substrate.compose(
+            move = await substrate.compose(
                 calls.SubtensorModule.move_stake_limit(
                     origin_hotkey=self.origin_hotkey_ss58,
                     destination_hotkey=self.dest_hotkey_ss58,
@@ -788,14 +887,22 @@ class MoveStake(Intent):
                     allow_partial=False,
                 )
             )
-        return await substrate.compose(
-            calls.SubtensorModule.move_stake(
-                origin_hotkey=self.origin_hotkey_ss58,
-                destination_hotkey=self.dest_hotkey_ss58,
-                origin_netuid=self.origin_netuid,
-                destination_netuid=self.dest_netuid,
-                alpha_amount=rao,
+        else:
+            move = await substrate.compose(
+                calls.SubtensorModule.move_stake(
+                    origin_hotkey=self.origin_hotkey_ss58,
+                    destination_hotkey=self.dest_hotkey_ss58,
+                    origin_netuid=self.origin_netuid,
+                    destination_netuid=self.dest_netuid,
+                    alpha_amount=rao,
+                )
             )
+        return await _compose_unstake_with_optional_claim(
+            substrate,
+            move,
+            claim=will_claim,
+            hotkey_ss58=self.origin_hotkey_ss58,
+            netuid=self.origin_netuid,
         )
 
     def summary(self) -> str:
@@ -807,16 +914,26 @@ class MoveStake(Intent):
                 if self.slippage_protection
                 else " (no slippage protection)"
             )
+        prefix = "claim basket yield then " if self.claim else ""
         return (
-            f"move {amount} from {self.origin_hotkey_ss58} "
+            f"{prefix}move {amount} from {self.origin_hotkey_ss58} "
             f"on netuid {self.origin_netuid} to {self.dest_hotkey_ss58} "
             f"on netuid {self.dest_netuid}{note}"
         )
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
+        out: list[str] = []
         if self.amount_alpha == ALL:
-            return ["moves the entire origin position"]
-        return []
+            out.append("moves the entire origin position")
+        if self.origin_netuid == 0 and self.claim:
+            out.append(CLAIM_THEN_MOVE_NOT_PROPORTIONAL)
+        elif self.origin_netuid == 0:
+            claimable = await _root_claimable_warning(
+                substrate, signer_address, self.origin_hotkey_ss58
+            )
+            if claimable:
+                out.append(claimable)
+        return out
 
     def touches_netuids(self) -> list[int]:
         return [self.origin_netuid, self.dest_netuid]

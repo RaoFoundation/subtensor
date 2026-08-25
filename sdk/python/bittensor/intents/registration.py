@@ -206,7 +206,10 @@ class RootRegister(Intent):
     by keeping stake behind the hotkey. Root registrations are also capped
     per block (``max_registrations_per_block``) and per interval (three
     times ``target_registrations_per_interval``); hitting either cap fails
-    until the window passes. Use ``burned_register`` for ordinary subnets.
+    until the window passes. After a successful registration the hotkey is
+    auto-childkeyed to every existing subnet owner (full proportion) unless
+    the validator opted out of auto parent delegation. Use
+    ``burned_register`` for ordinary subnets.
     """
 
     op = "root_register"
@@ -236,6 +239,7 @@ class RootRegister(Intent):
             self.summary(),
             f"burn {burn} (recycled into issuance)",
             "lock none",
+            "auto-childkey to every subnet owner unless opted out",
         ]
 
     def touches_netuids(self) -> list[int]:

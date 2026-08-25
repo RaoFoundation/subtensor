@@ -458,7 +458,41 @@ def upgrade_sign(
         )
         return
 
-    app_ctx.confirm(prompt + "?")
+    spec = ((outcome.data.get("manifest") or {}).get("spec_version")) or "?"
+    app_ctx.show_review(
+        [
+            (
+                "Upgrade",
+                [
+                    ("action", prompt),
+                    ("position", position),
+                    ("spec", spec),
+                    ("sudo multisig", plan["multisig_address"]),
+                ],
+            ),
+            ("Fees", [("estimated fee", "unavailable")]),
+            (
+                "Signer",
+                [
+                    ("signer", signer_address),
+                    ("multisig", plan["multisig_address"]),
+                    ("threshold", f"{sudo_threshold} of {len(sudo_signatories)}"),
+                ],
+            ),
+            (
+                "Transaction",
+                [
+                    ("operation", "runtime-upgrade approval"),
+                    ("call hash", plan["finalizing_call_hash"], "dim"),
+                ],
+            ),
+        ],
+        question=prompt,
+        confirm_facts=[
+            ("via", f"sudo · {sudo_threshold}-of-{len(sudo_signatories)}"),
+            ("signing as", app_ctx.wallet_name),
+        ],
+    )
     signing = app_ctx.signer("coldkey")
 
     # Phase 2: re-read the position from live state and submit the matching

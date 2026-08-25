@@ -1,6 +1,6 @@
 ---
 title: Root Reborn
-description: Validator-curated baskets — why root yield stopped being force-sold, how the fund works, and the btcli commands to subscribe, curate, and claim.
+description: Validator-curated baskets — why root yield stopped being force-sold, how the fund works, and the btcli commands to allocate, curate, and claim.
 ---
 
 **Root Reborn** (runtime v441) turns the root network from a passive dividend
@@ -104,7 +104,10 @@ Steps to a working fund:
 
 1. **Register** ([`root-register`](/docs/tx/root-register)). The burn is
    recycled out of issuance; registrations are rate-limited per block and per
-   root tempo.
+   root tempo. The hotkey is also auto-childkeyed to every existing subnet
+   owner (100% of stake weight on that subnet), unless you opted out with
+   `set_auto_parent_delegation_enabled(false)` first. New subnets later do
+   the same for every root validator that has not opted out.
 2. **Stake your seat.** Root seats are limited (64): when the network is
    full, each new registration prunes the **lowest-staked** member. A seat
    with no stake behind it earns nothing and is the first to be evicted, so
@@ -166,7 +169,7 @@ fund with [`validator-basket`](/docs/query/validator-basket) and
 ## For stakers: accrue and claim
 
 Two ways in. `btcli stake add --netuid 0` puts principal on a validator;
-dividends then accrue as β. `btcli root subscribe` deploys TAO into the
+dividends then accrue as β. `btcli root allocate` deploys TAO into the
 fund now and credits β immediately (you bear entry slippage). `btcli`
 presents root positions in TAO: *staked* is your principal on netuid 0,
 *accrued* is your β marked at the realizable quote.
@@ -180,7 +183,7 @@ btcli wallet overview                             # same yield line on the walle
 btcli root list                                   # fund leaderboard: NAV, rate vs index
 btcli root list 5F...                             # one fund in detail + your position
 btcli root list --mine                            # staked + accrued τ per validator
-btcli root subscribe --amount 100 --hotkey 5F...  # buy β now
+btcli root allocate --amount 100 --hotkey 5F...  # buy β now
 btcli stake remove --netuid 0 --hotkey 5F... --amount 40   # principal only; yield stays owed
 btcli stake remove --netuid 0 --hotkey 5F... --amount all --claim  # claim all, then unstake
 btcli root claim --dry-run --hotkey 5F...         # reserved vs spent fee, vs accrued
@@ -259,7 +262,7 @@ root-stakes to.
   root weight vector, and it differs per validator. Inspect it before — and
   while — you delegate: `btcli root list 5F...` shows weights,
   holdings, NAV, and lifetime return. If you disagree with the curation,
-  claim out and subscribe to a different validator; your principal moves at
+  claim out and allocate to a different validator; your principal moves at
   face value.
 - **Accrued yield is market-priced.** Until claimed, your entitlement is a
   slice of a fund holding subnet alpha: its TAO quote moves with the pools.

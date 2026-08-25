@@ -60,9 +60,10 @@ STYLE_INCIDENTAL = "dim"
 STYLE_COMMAND = "bold"  # inline `commands`: emphasis without hue
 STYLE_URL = "underline"
 STYLE_TITLE = "dim"  # section titles recede; the data carries the weight
-# Stage headings on the pre-sign review ("Claim" / "Multisig" / "Transaction"):
-# the one place bold appears in data output, so the eye can jump between
-# stages. Keys stay dim and values plain beneath them.
+# Stage headings on the review card ("Claim" / "Fees" / "Signer" /
+# "Transaction" / "Result"): the one place bold appears in data output,
+# so the eye can jump between stages. Keys stay dim and values plain
+# beneath them.
 STYLE_SECTION = "bold"
 STYLE_ERROR = f"bold {PASTEL_RED}"
 STYLE_WARNING = f"bold {PASTEL_YELLOW}"
@@ -2212,7 +2213,7 @@ class Output:
             self._print_decode_diag({"decode_note": note, "decode_hint": hint})
 
     def result_fields(self, fields: dict[str, Any]) -> None:
-        """The post-submit grid: same design language as the review card.
+        """The post-submit "Result" stage: same design language as the review card.
 
         Left-aligned dim keys (underscores read as spaces), values through
         ``card_text`` so addresses pick up names and links. Long technical
@@ -2221,6 +2222,8 @@ class Output:
         """
         rows = [(key.replace("_", " "), value) for key, value in fields.items()]
         width = max(len(label) for label, _ in rows)
+        self._out.print()
+        self._out.print(Text("Result", style=STYLE_SECTION))
         for label, value in rows:
             if isinstance(value, (dict, list)):
                 text = _json.dumps(value, default=str)

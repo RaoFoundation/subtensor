@@ -4685,3 +4685,116 @@ fn test_register_network_schedules_root_validators_auto_parent_delegation_flag()
         ));
     });
 }
+
+// Root registration auto-childkeys the new validator to every existing
+// subnet owner (the reverse of register_network, which childkeys existing
+// root validators to the new owner).
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_register_auto_childkeys_to_every_subnet_owner --exact --show-output --nocapture
+#[test]
+fn test_root_register_auto_childkeys_to_every_subnet_owner() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+
+        let owner1_cold = U256::from(1001);
+        let owner1_hot = U256::from(1002);
+        let owner2_cold = U256::from(2001);
+        let owner2_hot = U256::from(2002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+
+        let netuid1 = add_dynamic_network(&owner1_hot, &owner1_cold);
+        let netuid2 = add_dynamic_network(&owner2_hot, &owner2_cold);
+
+        register_ok_neuron(netuid1, val_hot, val_cold, 0);
+        root_register_ok(val_hot, val_cold);
+
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid1),
+            vec![(u64::MAX, owner1_hot)],
+            "new root validator should childkey to owner of subnet 1"
+        );
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid2),
+            vec![(u64::MAX, owner2_hot)],
+            "new root validator should childkey to owner of subnet 2"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner1_hot, netuid1),
+            vec![(u64::MAX, val_hot)],
+            "owner 1 should list the new root validator as parent"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner2_hot, netuid2),
+            vec![(u64::MAX, val_hot)],
+            "owner 2 should list the new root validator as parent"
+        );
+    });
+}
+
+// Opt-out must work before root registration, otherwise auto-CK on
+// root_register cannot be refused.
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_register_respects_auto_parent_delegation_opt_out --exact --show-output --nocapture
+#[test]
+fn test_root_register_respects_auto_parent_delegation_opt_out() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, val_hot, val_cold, 0);
+
+        assert_ok!(SubtensorModule::set_auto_parent_delegation_enabled(
+            RuntimeOrigin::signed(val_cold),
+            val_hot,
+            false,
+        ));
+
+        root_register_ok(val_hot, val_cold);
+
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![],
+            "opted-out root validator must not be auto-childkeyed"
+        );
+    });
+}
+
+// Auto-CK on root register must not overwrite children the validator
+// already set on a subnet.
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_register_does_not_overwrite_existing_children --exact --show-output --nocapture
+#[test]
+fn test_root_register_does_not_overwrite_existing_children() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+        let custom_child = U256::from(4002);
+
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, val_hot, val_cold, 0);
+        register_ok_neuron(netuid, custom_child, val_cold, 0);
+
+        let custom_proportion = 1_000u64;
+        mock_set_children(
+            &val_cold,
+            &val_hot,
+            netuid,
+            &[(custom_proportion, custom_child)],
+        );
+
+        root_register_ok(val_hot, val_cold);
+
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![(custom_proportion, custom_child)],
+            "existing children must survive root registration"
+        );
+    });
+}

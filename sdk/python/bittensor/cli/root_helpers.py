@@ -241,6 +241,7 @@ def pick_claim_hotkey(
     positions: list[RootPosition],
     *,
     flag: str,
+    prompt: str = "Validator to claim from — answer with a number, name, or hotkey.",
 ) -> RootPosition:
     """Numbered picker over root positions; returns the chosen position."""
     held = filter_dust_positions(positions)
@@ -253,9 +254,7 @@ def pick_claim_hotkey(
     unnamed = [pos.hotkey for pos in held if pos.hotkey not in names]
     identities = app_ctx.run(lambda c: chain_identity_names(c, unnamed)) if unnamed else {}
 
-    console.print(
-        prompt_header(flag, "Validator to claim from — answer with a number, name, or hotkey.")
-    )
+    console.print(prompt_header(flag, prompt))
 
     labels = [_hotkey_label(pos.hotkey, names, identities) for pos in held]
     number_width = len(str(len(held)))
@@ -308,20 +307,21 @@ def pick_fund(
     records: list[dict],
     *,
     flag: str,
-    prompt: str = "Validator whose fund to subscribe to — answer with a number, "
+    prompt: str = "Validator whose fund to allocate to — answer with a number, "
     "name, or hotkey; Enter shows more.",
+    exclude: Optional[set[str]] = None,
 ) -> dict:
     """Numbered picker over all validator baskets; returns the chosen record.
 
     ``records`` are normalized fund summaries (``root_baskets`` read passed
     through ``normalize_position``), sorted by the caller. Shown one page at a
     time (Enter reveals more), all the way through the near-zero-NAV tail.
+    ``exclude`` drops hotkeys (e.g. the move source) from the list.
     """
-    if not records:
+    listed = [record for record in records if not exclude or record["hotkey"] not in exclude]
+    if not listed:
         app_ctx.output.message("no validator baskets found")
         raise typer.Exit(0)
-
-    listed = records
     names = local_address_names(app_ctx.wallet_path)
     unnamed = [r["hotkey"] for r in listed if r["hotkey"] not in names]
     identities = app_ctx.run(lambda c: chain_identity_names(c, unnamed)) if unnamed else {}
@@ -332,7 +332,7 @@ def pick_fund(
     entities = []
     for index, record in enumerate(listed, start=1):
         # Stash the resolved label so the caller can describe the chosen fund
-        # (e.g. root subscribe's confirmation line) without re-reading names.
+        # (e.g. root allocate's confirmation line) without re-reading names.
         record["name"] = names.get(record["hotkey"]) or identities.get(record["hotkey"])
         cell = Text()
         cell.append(f"{str(index).rjust(number_width)}. ", style=STYLE_KEY)
@@ -374,13 +374,13 @@ def pick_fund(
 
     show_page()
 
-    if len(records) == 1:
+    if len(listed) == 1:
         console.print(prompt_hint("only validator — selected"))
-        return records[0]
+        return listed[0]
 
     matchable = {str(i): record for i, record in enumerate(listed, start=1)}
-    matchable.update({record["hotkey"]: record for record in records})
-    for record in records:
+    matchable.update({record["hotkey"]: record for record in listed})
+    for record in listed:
         label = _hotkey_label(record["hotkey"], names, identities)
         if label not in matchable:
             matchable[label] = record
@@ -450,7 +450,7 @@ def render_validator_detail(
     lifetime = summary.get("lifetime_return")
     nav_line = (
         f"nav {summary['nav_tao']} (spot {summary['spot_nav_tao']})  ·  "
-        f"subscribed {summary['deposited_tao']}, redeemed {summary['redeemed_tao']}"
+        f"deposited {summary['deposited_tao']}, redeemed {summary['redeemed_tao']}"
         + (f"  ·  lifetime {lifetime:.4f}x" if lifetime is not None else "")
     )
     if holdings:

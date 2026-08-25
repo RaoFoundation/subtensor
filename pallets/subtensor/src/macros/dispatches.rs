@@ -829,7 +829,11 @@ mod dispatches {
         /// Admission is burn-based: the coldkey pays the root burn price
         /// (demand-priced like subnet registration), recycled out of issuance.
         /// No prior stake is required. When the network is full, the
-        /// lowest-staked member is pruned to make room.
+        /// lowest-staked non-immune member is pruned to make room.
+        ///
+        /// After a successful registration, the hotkey is auto-childkeyed
+        /// to every existing subnet owner unless the validator opted out
+        /// of auto parent delegation.
         #[pallet::call_index(62)]
         #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::root_register())]
         pub fn root_register(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult {
@@ -2331,8 +2335,10 @@ mod dispatches {
             Self::do_register_limit(origin, netuid, hotkey, limit_price)
         }
 
-        /// Allows a root validator to toggle auto parent delegation
-        /// for new subnets owner hotkey
+        /// Allows a root validator to toggle auto parent delegation.
+        /// When enabled (the default), the validator is childkeyed to
+        /// subnet owners on new subnet registration and on this
+        /// validator's own root registration.
         #[pallet::call_index(135)]
         #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_auto_parent_delegation_enabled(), DispatchClass::Normal, Pays::Yes))]
         pub fn set_auto_parent_delegation_enabled(
@@ -2347,11 +2353,8 @@ mod dispatches {
                 Error::<T>::NonAssociatedColdKey
             );
 
-            ensure!(
-                Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
-                Error::<T>::HotKeyNotRegisteredInSubNet
-            );
-
+            // Allowed before root registration so a validator can opt out
+            // and then `root_register` without being auto-childkeyed.
             AutoParentDelegationEnabled::<T>::insert(&hotkey, enabled);
 
             Self::deposit_event(Event::AutoParentDelegationEnabledSet { hotkey, enabled });

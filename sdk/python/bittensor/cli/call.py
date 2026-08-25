@@ -391,7 +391,44 @@ def call(
         prompt = f"submit raw call {label} (signed by {signer})?"
         success_msg = f"submitted {label}"
 
-    app_ctx.confirm(prompt)
+    context_rows: list[tuple] = [("target", target)]
+    if sudo:
+        context_rows.append(("sudo", "yes"))
+    if proxy_for:
+        context_rows.append(("proxy for", proxy_for))
+    context_rows.append(("summary", label))
+    signer_rows: list[tuple] = [("signer", app_ctx.wallet_name)]
+    if via_multisig:
+        signer_rows.append(("multisig", who))
+        signer_rows.append(("threshold", f"{threshold} of {len(sigs)}"))
+    if proxy_for:
+        signer_rows.append(("proxy for", proxy_for))
+    signer_rows.append(
+        (
+            "mev shield",
+            "on — encrypted in the mempool until executed"
+            if shield
+            else "off — no protection (call is visible in the mempool)",
+        )
+    )
+    tx_rows: list[tuple] = [("operation", target)]
+    for key, value in _for_display(params).items():
+        tx_rows.append((str(key).replace("_", " "), value))
+    confirm_facts: list[tuple[str, str]] = []
+    if via_multisig:
+        confirm_facts.append(("via", f"{who} · {threshold}-of-{len(sigs)}"))
+    confirm_facts.append(("signing as", app_ctx.wallet_name))
+    confirm_facts.append(("mev shield", "on" if shield else "off — no protection"))
+    app_ctx.show_review(
+        [
+            ("Call", context_rows),
+            ("Fees", [("estimated fee", "unavailable")]),
+            ("Signer", signer_rows),
+            ("Transaction", tx_rows),
+        ],
+        question=prompt,
+        confirm_facts=confirm_facts,
+    )
     if app_ctx.uses_vault_signer():
         # Display-only context for the vault page ("what am I signing?").
         app_ctx.vault_signer().summary = label

@@ -28,7 +28,7 @@ const releases: Release[] = [
     title: 'Curated Beta',
     summary:
       'V449 enables set_root_weights. Validators curate their dividend baskets under a ' +
-      '1/16 concentration cap. btcli root list, subscribe, claim, and weights are the ' +
+      '1/16 concentration cap. btcli root list, allocate, claim, and weights are the ' +
       'working surface.',
     href: '/releases/v449-upgrade',
   },

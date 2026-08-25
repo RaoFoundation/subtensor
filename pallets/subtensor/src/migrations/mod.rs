@@ -86,6 +86,7 @@ pub mod migrate_to_v2_fixed_total_stake;
 pub mod migrate_total_alpha_staked;
 pub mod migrate_total_voting_power;
 pub mod migrate_transfer_ownership_to_foundation;
+pub mod migrate_tune_root_registration;
 pub mod migrate_upgrade_revealed_commitments;
 
 pub(crate) fn migrate_storage<T: Config>(

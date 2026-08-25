@@ -3588,6 +3588,8 @@ fn test_root_register_zero_stake_keys_shield_staked_members() {
         SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 2);
         SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
         SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+        // This test is about stake-order prune, not the immunity window.
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 0);
 
         // A staked validator and one zero-stake key fill the two slots.
         root_register_ok(staked_hotkey, staked_coldkey);
@@ -3616,5 +3618,60 @@ fn test_root_register_zero_stake_keys_shield_staked_members() {
             );
             assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));
         }
+    });
+}
+
+/// A just-registered zero-stake key is immune: the next registration evicts an
+/// older zero-stake member instead.
+#[test]
+fn test_root_register_skips_immune_when_pruning() {
+    new_test_ext(1).execute_with(|| {
+        let staked_coldkey = U256::from(2101);
+        let staked_hotkey = U256::from(2102);
+        let old_zero_coldkey = U256::from(2103);
+        let old_zero_hotkey = U256::from(2104);
+        let new_zero_coldkey = U256::from(2105);
+        let new_zero_hotkey = U256::from(2106);
+        let incoming_coldkey = U256::from(2107);
+        let incoming_hotkey = U256::from(2108);
+
+        add_network(NetUid::ROOT, 10, 0);
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 3);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 100);
+
+        root_register_ok(old_zero_hotkey, old_zero_coldkey);
+        step_block(101);
+        assert!(!SubtensorModule::get_neuron_is_immune(
+            NetUid::ROOT,
+            Uids::<Test>::get(NetUid::ROOT, old_zero_hotkey).expect("old zero uid")
+        ));
+
+        root_register_ok(staked_hotkey, staked_coldkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &staked_hotkey,
+            &staked_coldkey,
+            NetUid::ROOT,
+            5_000_000u64.into(),
+        );
+        root_register_ok(new_zero_hotkey, new_zero_coldkey);
+        assert_eq!(SubnetworkN::<Test>::get(NetUid::ROOT), 3);
+        assert!(SubtensorModule::get_neuron_is_immune(
+            NetUid::ROOT,
+            Uids::<Test>::get(NetUid::ROOT, new_zero_hotkey).expect("new zero uid")
+        ));
+
+        root_register_ok(incoming_hotkey, incoming_coldkey);
+        assert!(
+            !Uids::<Test>::contains_key(NetUid::ROOT, old_zero_hotkey),
+            "older zero-stake key must be pruned"
+        );
+        assert!(
+            Uids::<Test>::contains_key(NetUid::ROOT, new_zero_hotkey),
+            "just-registered zero-stake key is immune"
+        );
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, incoming_hotkey));
     });
 }

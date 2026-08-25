@@ -81,6 +81,44 @@ def ss58_param_help(param: str) -> str:
     return text
 
 
+# Short context-stage titles for the ops users see most. Everything else
+# becomes the op name with underscores as spaces ("set children").
+_REVIEW_TITLES = {
+    "claim_root": "Claim",
+    "claim_root_with_hotkey": "Claim",
+    "stake_into_basket": "Allocate",
+    "add_stake": "Stake",
+    "add_stake_limit": "Stake",
+    "remove_stake": "Unstake",
+    "remove_stake_limit": "Unstake",
+    "unstake_all": "Unstake",
+    "unstake_all_alpha": "Unstake",
+    "transfer": "Transfer",
+    "transfer_all": "Transfer",
+    "swap_stake": "Swap",
+    "move_stake": "Move",
+    "move_swap_stake": "Move",
+    "transfer_stake": "Transfer stake",
+    "root_register": "Register",
+    "burned_register": "Register",
+    "register_subnet": "Register",
+    "set_root_weights": "Weights",
+    "set_weights": "Weights",
+    "commit_weights": "Weights",
+    "reveal_weights": "Weights",
+    "stake_burn": "Burn",
+    "fund_evm_key": "Fund",
+    "associate_evm_key": "Associate",
+}
+
+
+def _review_title(op: str) -> str:
+    """Context-stage heading for an intent op."""
+    if op in _REVIEW_TITLES:
+        return _REVIEW_TITLES[op]
+    return op.replace("_", " ").capitalize()
+
+
 @dataclass(frozen=True)
 class ResolvedAddress:
     """A locally resolved account reference and how it was resolved."""
@@ -695,6 +733,23 @@ class AppContext:
             return text if len(text) <= 160 else text[:159] + "…"
         return str(value)
 
+    def review_account(self) -> Optional[str]:
+        """ss58 for a review-card wallet row: saved multisig, then local coldkey."""
+        if self.multisig_wallet_name:
+            derived = self._saved_multisig_address(self.multisig_wallet_name)
+            if derived:
+                return derived
+        name = self.wallet_name
+        if not name:
+            return None
+        derived = self._saved_multisig_address(name)
+        if derived:
+            return derived
+        try:
+            return self.wallet().coldkeypub.ss58_address
+        except Exception:
+            return name
+
     def _signer_display(self, intent, wallet) -> str:
         """The account that actually signs, for review rows."""
         if self.uses_external_signer():
@@ -702,7 +757,7 @@ class AppContext:
         try:
             return public_view(wallet, intent.signer).ss58_address
         except Exception:
-            return self.wallet_name
+            return self.review_account() or self.wallet_name
 
     def _multisig_route(self, intent) -> Optional[tuple[str, Optional[int], int]]:
         """(name, threshold, member count) when routing via a saved multisig."""
@@ -749,7 +804,7 @@ class AppContext:
         """Print the canonical pre-sign review: titled stages of aligned rows.
 
         Every mutation renders the same universal stage schema:
-        any command-provided context stage first (e.g. root claim's "Claim"),
+        any command-provided context stage first (e.g. "Claim", "Allocate"),
         then the preflight's structured facts ("Quote" for simulated swap
         outcomes), then "Fees", "Signer" (who signs, and the multisig /
         proxy / MEV-shield routing), and "Transaction" last with the
@@ -757,15 +812,20 @@ class AppContext:
         reviewable at a glance instead of parsed out of prose. Intents with
         their own fee model (root claim, registration) supply the whole
         "Fees" stage via ``fee_facts``; everything else gets the universal
-        ``estimated_fee`` row priced from the composed call. The post-submit
-        counterpart is ``Output.result_fields``.
+        ``estimated_fee`` row priced from the composed call. Fees is always
+        present, even when the estimate is unavailable. The post-submit
+        counterpart is ``Output.result_fields`` (the "Result" stage).
         """
         stages: list[tuple[str, list[tuple]]] = list(sections or [])
-        if fee_facts:
+        if fee_facts and facts_title != "Fees":
             stages.append((facts_title, list(fee_facts)))
-        has_fee_stage = bool(fee_facts) and facts_title == "Fees"
-        if not has_fee_stage and estimated_fee is not None:
+            fee_facts = []
+        if fee_facts:
+            stages.append(("Fees", list(fee_facts)))
+        elif estimated_fee is not None:
             stages.append(("Fees", [("estimated fee", f"~{estimated_fee}")]))
+        else:
+            stages.append(("Fees", [("estimated fee", "unavailable")]))
 
         signer_rows: list[tuple] = []
         if self.uses_external_signer():
@@ -816,6 +876,26 @@ class AppContext:
         stages.append(("Transaction", tx_rows))
         self.output.transaction_card(stages)
 
+    def show_review(
+        self,
+        stages: list[tuple[str, list[tuple]]],
+        *,
+        question: str,
+        confirm_facts: Optional[list[tuple[str, str]]] = None,
+    ) -> None:
+        """Print the universal review card and ask to sign.
+
+        Used by paths that do not go through ``submit`` (raw ``btcli call``,
+        EVM, upgrade). ``submit`` builds the same stages via ``_transaction_card``.
+        """
+        self.output.transaction_card(stages)
+        prompt = question if question.endswith("?") else f"{question}?"
+        if self.assume_yes or self.output.quiet or self.output.json_mode:
+            self.confirm(prompt)
+            return
+        self.output.confirm_block(prompt, confirm_facts)
+        self.confirm("sign and submit?", indent=4)
+
     def submit(
         self,
         intent,
@@ -834,14 +914,14 @@ class AppContext:
         returned (None when the dry-run path stopped early). The prompt/summary
         comes from the intent; a command that holds richer display context than
         the intent's fields (e.g. the fund name and beta rate behind a root
-        subscription) may pass ``summary`` to replace that one line, and
-        ``summary_note`` for a dim note row in the review card's Transaction
-        stage (also shown with the dry-run plan). All display context that
-        describes the semantic call — ``summary_note``, ``card_sections``
-        (extra titled stages, e.g. root claim's "Claim" facts), and the
-        summary as the confirm-block question — survives a multisig rewrite;
-        only the one-line receipt summary is replaced, since the signed
-        extrinsic is then a multisig round, not the call itself.
+        allocation) may pass ``summary`` to replace that one line,
+        ``card_sections`` for the context stage (e.g. "Claim" / "Allocate"),
+        and ``summary_note`` for a dim note row in Transaction when there is
+        no context stage. All display context that describes the semantic
+        call — ``summary_note``, ``card_sections``, and the summary as the
+        confirm-block question — survives a multisig rewrite; only the
+        one-line receipt summary is replaced, since the signed extrinsic is
+        then a multisig round, not the call itself.
 
         ``proxy_for`` dispatches the call as that account via ``Proxy.proxy``,
         signed by the local wallet key (which must be its registered proxy).
@@ -904,7 +984,7 @@ class AppContext:
             # question, where the routing facts spell out the multisig layer.
             # The note (like card_sections) also describes the semantic call
             # and survives the rewrite.
-            semantic_question = summary
+            semantic_question = summary or unwrapped_intent.summary()
             summary = None
         if self.signatory_wallet and self.multisig_wallet_name is None:
             # A typo'd or missing multisig name must not degrade into a plain
@@ -938,6 +1018,19 @@ class AppContext:
             ),
             require_coldkey=intent.signer == "coldkey",
         )
+        # The prompt may have just named a saved multisig. Wrap now so
+        # Signer / Transaction show the same routing as ``-w MULTIX``.
+        if intent is unwrapped_intent:
+            try:
+                rewritten = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
+            except ValueError as error:
+                self.output.error(str(error))
+                raise typer.Exit(2) from error
+            if rewritten is not intent:
+                intent = rewritten
+                semantic_question = summary or unwrapped_intent.summary()
+                summary = None
+                semantic_intent = intent.semantic_intent()
         wallet = self.wallet()
         self._register_local_names(wallet)
         # Outer MevShield.submit_encrypted has no netuid, so fees_in_alpha cannot
@@ -1162,13 +1255,21 @@ class AppContext:
             for line in neuron_reg_lines:
                 self.output.message(f"[dim]{line}[/dim]")
 
-        # Facts the card cannot derive from the intent's fields: a caller's
-        # richer summary line and the live subnet-registration quote. The
-        # caller's dim note renders as the Transaction stage's last row (a
-        # free-floating prose line would break the grid).
+        # Every mutation gets a context stage: command-provided rows, or a
+        # default built from the semantic summary so transfer / stake / …
+        # use the same Claim / Allocate skeleton.
+        if card_sections is None:
+            context_rows: list[tuple] = []
+            owner = self.review_account()
+            if owner:
+                context_rows.append(("wallet", owner))
+            context_rows.append(("summary", semantic_question or semantic_intent.summary()))
+            if summary_note:
+                context_rows.append(("note", summary_note, "dim"))
+            card_sections = [(_review_title(semantic_intent.op), context_rows)]
+
+        # Registration cost is not an intent field; it lands on Transaction.
         card_extras: list[tuple] = []
-        if base_summary != intent_summary:
-            card_extras.append(("summary", base_summary))
         if registration_quote is not None:
             card_extras.append(("cost", str(registration_quote)))
         if neuron_reg_cost is not None:
@@ -1200,7 +1301,7 @@ class AppContext:
                 facts_title=facts_title,
                 estimated_fee=estimated_fee,
                 shield_note=shield_note,
-                note=summary_note,
+                note=None if card_sections else summary_note,
             )
             self.output.message(
                 "[dim]approve or reject the request in the wallet extension popup[/dim]"
@@ -1222,7 +1323,7 @@ class AppContext:
                 facts_title=facts_title,
                 estimated_fee=estimated_fee,
                 shield_note=shield_note,
-                note=summary_note,
+                note=None if card_sections else summary_note,
             )
             if self.assume_yes or self.output.quiet or self.output.json_mode:
                 # --yes skips the prompt; quiet/json sessions keep the

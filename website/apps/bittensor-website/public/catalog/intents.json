@@ -1451,7 +1451,7 @@
   {
     "name": "move_stake",
     "summary": "Move alpha between hotkeys and/or subnets.",
-    "description": "Move alpha between hotkeys and/or subnets.\n\nRe-delegates an existing position without passing through the coldkey's\nfree balance: the stake leaves the origin hotkey on the origin subnet and\nlands on the destination hotkey at the destination subnet. Moving within\none subnet just changes which validator backs the stake. Moving across\nsubnets swaps through both pools and can incur slippage on each leg.\n\nCross-subnet moves are slippage-protected by default: they compose\n`move_stake_limit` with a fill-or-kill price ratio. Same-subnet moves\nstay a single `move_stake`. Disable `slippage_protection` to submit\nthe bare cross-subnet `move_stake` at any price.\n\nOwnership stays with the signing coldkey \u2014 use `transfer_stake` to hand\nthe position to another coldkey, or `swap_stake` when only the subnet\nchanges. Pass `all` to move the entire origin position.",
+    "description": "Move alpha between hotkeys and/or subnets.\n\nRe-delegates an existing position without passing through the coldkey's\nfree balance: the stake leaves the origin hotkey on the origin subnet and\nlands on the destination hotkey at the destination subnet. Moving within\none subnet just changes which validator backs the stake. Moving across\nsubnets swaps through both pools and can incur slippage on each leg.\n\nCross-subnet moves are slippage-protected by default: they compose\n`move_stake_limit` with a fill-or-kill price ratio. Same-subnet moves\nstay a single `move_stake`. Disable `slippage_protection` to submit\nthe bare cross-subnet `move_stake` at any price.\n\nOwnership stays with the signing coldkey \u2014 use `transfer_stake` to hand\nthe position to another coldkey, or `swap_stake` when only the subnet\nchanges. Pass `all` to move the entire origin position.\n\nOn root (netuid 0), a move takes principal only. Accrued basket yield\nstays owed on the origin until `claim_root_with_hotkey`. Pass\n`claim=True` to redeem this validator's whole entitlement first, then\nmove, in one batch. That is not a proportional payout: the claim pays\n100% of the basket, not a slice of the amount you move. Because\n`move_stake` does not cap an oversize amount, a claim-all move is\nsized as live stake plus the quoted payout so the just-claimed yield\nis included.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1463,6 +1463,14 @@
       [
         "SubtensorModule",
         "move_stake_limit"
+      ],
+      [
+        "SubtensorModule",
+        "claim_root_with_hotkey"
+      ],
+      [
+        "Utility",
+        "batch_all"
       ]
     ],
     "docs_url": "/docs/tx/move-stake",
@@ -1511,6 +1519,10 @@
         "rate_tolerance": {
           "type": "number",
           "description": "Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled."
+        },
+        "claim": {
+          "type": "boolean",
+          "description": "Also redeem this validator's whole basket entitlement before moving, in one atomic batch. Root only (netuid 0). This is not a proportional payout: moving 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on the origin, then the move runs \u2014 pass `all` to take principal and yield together. Unavailable while RootStakeUnlockInterval is nonzero, because the claim starts a new hold window; claim first, wait, then move in that mode."
         }
       },
       "required": [
@@ -1543,6 +1555,24 @@
         "end_line": 1566,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1544-L1566",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "SubtensorModule",
+        "call": "claim_root_with_hotkey",
+        "path": "pallets/subtensor/src/macros/dispatches.rs",
+        "line": 1995,
+        "end_line": 2010,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1991-L2010",
+        "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      },
+      {
+        "pallet": "Utility",
+        "call": "batch_all",
+        "path": "pallets/utility/src/lib.rs",
+        "line": 314,
+        "end_line": 362,
+        "url": "/code/pallets/utility/src/lib.rs#L308-L362",
+        "raw_url": "/code/raw/pallets/utility/src/lib.rs"
       }
     ]
   },

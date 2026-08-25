@@ -2958,6 +2958,50 @@ fn test_migrate_enable_root_weight_setting() {
 }
 
 #[test]
+fn test_migrate_tune_root_registration() {
+    new_test_ext(1).execute_with(|| {
+        const MIG_NAME: &[u8] = b"tune_root_registration_v1";
+
+        crate::ImmunityPeriod::<Test>::insert(NetUid::ROOT, 4096u16);
+        crate::MaxRegistrationsPerBlock::<Test>::insert(NetUid::ROOT, 64u16);
+        crate::TargetRegistrationsPerInterval::<Test>::insert(NetUid::ROOT, 64u16);
+        crate::MinBurn::<Test>::insert(NetUid::ROOT, TaoBalance::from(500_000u64));
+        crate::Burn::<Test>::insert(NetUid::ROOT, TaoBalance::from(500_000u64));
+        assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+
+        let w = crate::migrations::migrate_tune_root_registration::migrate_tune_root_registration::<
+            Test,
+        >();
+        assert!(!w.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+        assert_eq!(crate::ImmunityPeriod::<Test>::get(NetUid::ROOT), 7200u16);
+        assert_eq!(
+            crate::MaxRegistrationsPerBlock::<Test>::get(NetUid::ROOT),
+            1u16
+        );
+        assert_eq!(
+            crate::TargetRegistrationsPerInterval::<Test>::get(NetUid::ROOT),
+            2u16
+        );
+        assert_eq!(
+            crate::MinBurn::<Test>::get(NetUid::ROOT),
+            1_000_000_000u64.into()
+        );
+        assert_eq!(
+            crate::Burn::<Test>::get(NetUid::ROOT),
+            1_000_000_000u64.into()
+        );
+
+        crate::ImmunityPeriod::<Test>::insert(NetUid::ROOT, 1u16);
+        let w2 = crate::migrations::migrate_tune_root_registration::migrate_tune_root_registration::<
+            Test,
+        >();
+        assert!(w2.ref_time() <= w.ref_time());
+        assert_eq!(crate::ImmunityPeriod::<Test>::get(NetUid::ROOT), 1u16);
+    });
+}
+
+#[test]
 fn test_migrate_remove_tao_dividends() {
     const MIGRATION_NAME: &str = "migrate_remove_tao_dividends";
     let pallet_name = "SubtensorModule";

@@ -201,6 +201,9 @@ mod hooks {
                 // Open root basket curation: enable set_root_weights and pin the
                 // concentration cap at 1/16 (>= 16 destinations per basket).
                 .saturating_add(migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<T>())
+                // Root admission: 1 reg/block, 2/interval, 7200-block immunity,
+                // 1 TAO burn floor. Prune in `do_root_register` skips immune UIDs.
+                .saturating_add(migrations::migrate_tune_root_registration::migrate_tune_root_registration::<T>())
                 // Kill the stale quantile-derived emission gate bar so the
                 // rank-32 bar (DefaultEmissionBarRank) applies from the first
                 // recompute after the upgrade instead of the next cadence boundary.

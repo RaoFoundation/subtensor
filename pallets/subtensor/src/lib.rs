@@ -3167,7 +3167,9 @@ pub mod pallet {
 
     /// MAP ( hotkey ) --> parent_delegation_enabled
     ///
-    /// When `true`, this root validator allows auto parent delegation.
+    /// When `true`, this root validator allows auto parent delegation:
+    /// new subnets childkey existing root validators to the new owner,
+    /// and a new root validator childkeys to all current subnet owners.
     /// Defaults to `true`; validators can opt out at any time
     /// by calling `set_auto_parent_delegation_enabled(false)`.
     #[pallet::storage]
