@@ -305,8 +305,20 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    /// [`Self::advance_beta_index_sweep`] wrapped for the `on_initialize` hook: the
+    /// page's rows are priced like `stake_into_basket_weight`'s per-holding term (one
+    /// read set plus a realizable quote each), plus the sweep-state reads and write, so
+    /// the block declares the work it performs.
+    pub(crate) fn advance_beta_index_sweep_weight() -> Weight {
+        let rows = Self::advance_beta_index_sweep();
+        Weight::from_parts(10_000_000, 1000)
+            .saturating_add(T::DbWeight::get().reads(4_u64))
+            .saturating_mul(rows)
+            .saturating_add(T::DbWeight::get().reads_writes(2_u64, 1_u64))
+    }
+
     /// Advance the background beta-index sweep by one strictly bounded page; runs every
-    /// block from `block_step`, right after the deposit-queue drain.
+    /// block from `on_initialize`, right after the block step.
     ///
     /// No pass in progress: start one only when the published [`BetaIndexSnapshot`] is
     /// absent or at least [`BETA_INDEX_REFRESH_INTERVAL_BLOCKS`] old. Mid-pass: resume

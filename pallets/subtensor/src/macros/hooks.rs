@@ -19,18 +19,23 @@ mod hooks {
             let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
 
             let block_step_result = Self::block_step();
+            // Advance the paged beta-index sweep right after the block step (deposit
+            // queue drained), charging its bounded page into the hook weight.
+            let beta_index_sweep_weight = Self::advance_beta_index_sweep_weight();
             match block_step_result {
                 Ok(_) => {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
+                        .saturating_add(beta_index_sweep_weight)
                 }
                 Err(e) => {
                     // --- If the block step was unsuccessful, return the weight anyway.
                     log::error!("Error while stepping block: {:?}", e);
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
+                        .saturating_add(beta_index_sweep_weight)
                 }
             }
         }
