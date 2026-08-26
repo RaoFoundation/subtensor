@@ -478,6 +478,40 @@ pub mod pallet {
         pub first_block: u64,
     }
 
+    /// A published beta-index snapshot: the NAV-weighted `(bag, stake)` index levels over
+    /// every stamped fund, marked at realizable quotes. Baseline stamps splice onto the
+    /// latest snapshot instead of sweeping inline, which is what keeps stamp work bounded
+    /// in signed dispatch and block processing (see `advance_beta_index_sweep`).
+    #[crate::freeze_struct("50476bfcd15ffba5")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaIndexSnapshotOf {
+        /// NAV-weighted mean display price across stamped funds (realizable mark).
+        pub bag_level: U64F64,
+        /// NAV-weighted mean total-return stake price across stamped funds.
+        pub stake_level: U64F64,
+        /// Block at which the sweep that produced these levels completed.
+        pub block: u64,
+    }
+
+    /// In-progress state of the paged beta-index sweep: partial NAV-weighted sums plus the
+    /// raw storage key to resume iteration from. One bounded page advances per block; when
+    /// the pass completes the sums publish as a [`BetaIndexSnapshotOf`].
+    #[crate::freeze_struct("a344782f21a8d170")]
+    #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+    pub struct BetaIndexSweepOf {
+        /// Raw storage key of the last `BetaBaseline` entry processed; empty means the
+        /// pass starts from the top of the map.
+        pub cursor: Vec<u8>,
+        /// Σ nav (rao) across qualifying funds processed so far.
+        pub weight_sum: u128,
+        /// Σ nav × display price so far.
+        pub bag_sum: U64F64,
+        /// Σ nav × stake price so far.
+        pub stake_sum: U64F64,
+    }
+
     // ============================
     // ==== Staking + Accounts ====
     // ============================
@@ -3002,6 +3036,22 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketTwr<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, U64F64, ValueQuery, DefaultOneU64F64<T>>;
+
+    /// --- ITEM --> the latest published beta-index snapshot (see [`BetaIndexSnapshotOf`]).
+    ///
+    /// Refreshed by the paged background sweep in block processing; read by baseline stamps
+    /// so no state-changing path ever sweeps every fund inline. Absent until the first
+    /// pass after genesis (or the runtime upgrade that introduced it) completes; stamps
+    /// simply wait for the next mint while it is absent.
+    #[pallet::storage]
+    pub type BetaIndexSnapshot<T: Config> = StorageValue<_, BetaIndexSnapshotOf, OptionQuery>;
+
+    /// --- ITEM --> in-progress paged beta-index sweep (see [`BetaIndexSweepOf`]).
+    ///
+    /// Present only mid-pass. `advance_beta_index_sweep` processes one strictly bounded
+    /// page per block and clears this on completion.
+    #[pallet::storage]
+    pub type BetaIndexSweep<T: Config> = StorageValue<_, BetaIndexSweepOf, OptionQuery>;
 
     /// --- DMAP ( validator_hotkey, staker_coldkey ) --> fund shares already claimed (watermark).
     ///

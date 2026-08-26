@@ -33,6 +33,109 @@ const MUTED = 'rgba(41, 41, 41, 0.45)';
 const GOLD = '#e0a53f';
 const FAINT = 'rgba(41, 41, 41, 0.12)';
 
+/**
+ * Aggregate USD value of all outstanding β (every validator basket's NAV in τ, marked
+ * hourly, times the TAO/USD close of the same hour), sampled every 3 hours since the
+ * Root Reborn launch. Sources: TaoMarketCap root-basket aggregate NAV and TAO/USD
+ * hourly candles, 2026-08-26.
+ */
+const USD_M = [
+  0.267, 0.29, 0.311, 0.33, 0.363, 0.379, 0.406, 0.43, 0.449, 0.466, 0.493, 0.514,
+  0.52, 0.542, 0.56, 0.582, 0.602, 0.619, 0.628, 0.65, 0.671, 0.696, 0.714, 0.732,
+  0.749, 0.774, 0.79, 0.801, 0.833, 0.85, 0.874, 0.907, 0.934, 0.955, 0.974, 1.002,
+  1.021, 1.066, 1.093, 1.123, 1.145, 1.174, 1.203, 1.215, 1.228, 1.227, 1.262, 1.284,
+  1.301, 1.33, 1.313, 1.329, 1.342, 1.348, 1.368, 1.386, 1.412, 1.437, 1.454, 1.462,
+  1.484, 1.522, 1.573, 1.586, 1.596, 1.625, 1.604, 1.64, 1.664, 1.683, 1.686, 1.72,
+  1.743, 1.76, 1.813, 1.814, 1.861, 1.882, 1.893, 1.895, 1.909, 1.906, 1.876, 1.914,
+  1.954, 1.987, 2.017, 2.017, 2.039, 2.05, 2.08, 2.098, 2.118, 2.13, 2.146, 2.168,
+  2.188, 2.215, 2.248, 2.26, 2.279, 2.282, 2.326, 2.332, 2.339, 2.372, 2.4, 2.399,
+  2.441, 2.452, 2.394, 2.433, 2.465, 2.483, 2.494, 2.509, 2.507, 2.548, 2.56, 2.581,
+  2.63, 2.652, 2.708, 2.78, 2.88, 2.927, 2.921, 2.954, 3.057, 3.072, 3.051, 3.146,
+  3.136, 3.198, 3.28, 3.378, 3.494, 3.51, 3.642, 3.65, 3.647, 3.754, 3.977, 3.854,
+  3.807, 3.725, 3.694, 3.833, 3.837, 3.815, 3.789, 3.751, 3.869, 3.938, 4.127, 4.15,
+  4.355, 4.265, 4.279, 4.293, 4.267, 4.388, 4.472, 4.47, 4.538, 4.547, 4.546, 4.634,
+  4.517, 4.377, 4.365, 4.405, 4.304, 4.357, 4.472, 4.489, 4.539, 4.583, 4.431, 4.515,
+  4.51,
+];
+const USD_STEP_HOURS = 3;
+
+/** Total β value in USD since launch — the dollar footprint of the basket system. */
+const BasketUsdChart = () => {
+  const x0 = 80;
+  const y0 = 44;
+  const w = 560;
+  const h = 300;
+  const axis = y0 + h;
+
+  const days = USD_M.map((_, i) => (i * USD_STEP_HOURS) / 24);
+  const maxDay = days[days.length - 1];
+  const hi = Math.max(...USD_M);
+  const yHi = hi * 1.08;
+
+  const xFor = (d: number) => x0 + (d / maxDay) * w;
+  const yFor = (v: number) => axis - (v / yHi) * h;
+  const path = USD_M.map(
+    (v, i) => `${i === 0 ? 'M' : 'L'} ${xFor(days[i]).toFixed(1)} ${yFor(v).toFixed(1)}`,
+  ).join(' ');
+
+  const yTicks = [0, 1, 2, 3, 4].filter((v) => v <= yHi);
+  const xTicks = [0, 7, 14, 21].filter((d) => d <= maxDay + 0.5);
+  const last = USD_M[USD_M.length - 1];
+
+  return (
+    <svg
+      className={styles.graph}
+      viewBox='0 0 840 400'
+      role='img'
+      aria-label={`Total USD value of all outstanding beta across validator baskets over the ${Math.round(
+        maxDay,
+      )} days since the Root Reborn launch, growing from roughly $270 thousand to $${last.toFixed(
+        1,
+      )} million.`}
+    >
+      <text {...GRAPH_TEXT} x='420' y='28' textAnchor='middle' fill={MUTED} fontSize={12}>
+        TOTAL β VALUE · USD · ALL FUNDS · SINCE LAUNCH
+      </text>
+      <line x1={x0} y1={y0} x2={x0} y2={axis} stroke={INK} strokeWidth='1' />
+      <line x1={x0} y1={axis} x2={x0 + w} y2={axis} stroke={INK} strokeWidth='1' />
+      {yTicks.map((v) => (
+        <g key={v}>
+          <line
+            x1={x0}
+            y1={yFor(v)}
+            x2={x0 + w}
+            y2={yFor(v)}
+            stroke={FAINT}
+            strokeWidth='1'
+            strokeDasharray='4 3'
+          />
+          <text {...GRAPH_TEXT} x={x0 - 8} y={yFor(v) + 3} textAnchor='end' fill={MUTED}>
+            {`$${v}M`}
+          </text>
+        </g>
+      ))}
+      {xTicks.map((d) => (
+        <text key={d} {...GRAPH_TEXT} x={xFor(d)} y={axis + 20} textAnchor='middle' fill={MUTED}>
+          {d}
+        </text>
+      ))}
+      <text {...GRAPH_TEXT} x={x0 + w} y={axis + 38} textAnchor='end' fill={MUTED}>
+        DAYS SINCE LAUNCH →
+      </text>
+      <path d={path} fill='none' stroke={INK} strokeWidth='1.5' />
+      <text
+        {...GRAPH_TEXT}
+        x={x0 + w + 10}
+        y={yFor(last) + 3}
+        fontSize={11}
+        fill={GOLD}
+      >
+        {`$${last.toFixed(2)}M`}
+      </text>
+    </svg>
+  );
+};
+
 /** Live fund prices since launch, index-spliced — the same numbers btcli shows. */
 const BasketPricesChart = () => {
   const chart = snapshot.basketChart;
@@ -181,6 +284,15 @@ const page = () => {
           <BasketPricesChart />
           <p className={styles.graph_caption}>
             Largest funds by NAV since launch. Gold is the index (average basket). Height above it is cumulative outperformance versus the average basket.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <BasketUsdChart />
+          <p className={styles.graph_caption}>
+            The same system in dollars: every fund&apos;s NAV marked hourly in τ, times the
+            TAO/USD price of the same hour. Three weeks in, outstanding β across all
+            validator baskets is worth about $4.5M.
           </p>
         </section>
 
