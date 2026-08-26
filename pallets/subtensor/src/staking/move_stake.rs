@@ -37,6 +37,12 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Check that the origin is signed by the origin_hotkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount = Self::cap_move_all_to_live_origin(
+            &origin_hotkey,
+            &coldkey,
+            origin_netuid,
+            alpha_amount,
+        );
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -87,6 +93,12 @@ impl<T: Config> Pallet<T> {
         allow_partial: bool,
     ) -> dispatch::DispatchResult {
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount = Self::cap_move_all_to_live_origin(
+            &origin_hotkey,
+            &coldkey,
+            origin_netuid,
+            alpha_amount,
+        );
 
         let tao_moved = Self::transition_stake_internal(
             &coldkey,
@@ -114,6 +126,28 @@ impl<T: Config> Pallet<T> {
         ));
 
         Ok(())
+    }
+
+    /// `AlphaBalance::MAX` means "the live origin position".
+    ///
+    /// A client can batch `claim_root_with_hotkey` then `move_stake`. The claim
+    /// first flushes pending basket deposits and restakes a payout that did not
+    /// exist when the extrinsic was built, so a pre-execution quote cannot size
+    /// the follow-up. Other oversize amounts still fail `NotEnoughStakeToWithdraw`.
+    fn cap_move_all_to_live_origin(
+        origin_hotkey: &T::AccountId,
+        origin_coldkey: &T::AccountId,
+        origin_netuid: NetUid,
+        alpha_amount: AlphaBalance,
+    ) -> AlphaBalance {
+        if alpha_amount != AlphaBalance::MAX {
+            return alpha_amount;
+        }
+        Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+            origin_hotkey,
+            origin_coldkey,
+            origin_netuid,
+        )
     }
 
     /// Toggles the atomic alpha transfers for a specific subnet.

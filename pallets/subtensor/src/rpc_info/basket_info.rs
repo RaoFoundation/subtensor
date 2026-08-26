@@ -43,6 +43,29 @@ pub struct BasketSummary<AccountId: TypeInfo + Encode + Decode> {
     pub holdings: Vec<BasketHolding>,
 }
 
+/// One staker's beta-denominated position in one validator's beta basket. `beta` is the
+/// staker's beta token balance — the product-facing number: it never moves with market
+/// prices, only grows as dividends accrue and shrinks when the staker claims. Everything
+/// else is valuation context: `beta_total` and `nav_tao` give the beta price
+/// (`nav_tao / beta_total`, par 1.0 at inception), `value_tao` is what a claim would pay
+/// right now (realizable, slippage-aware), and `spot_value_tao` is the same slice marked
+/// at spot prices (display only).
+#[freeze_struct("b42252207e6e2d4b")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BasketPosition<AccountId: TypeInfo + Encode + Decode> {
+    pub hotkey: AccountId,
+    /// The staker's owed beta tokens on this validator (capped at `beta_total`).
+    pub beta: u64,
+    /// Outstanding beta tokens `P` across all stakers of this validator.
+    pub beta_total: u64,
+    /// Fund NAV `N` in TAO at realizable (slippage-aware) quotes.
+    pub nav_tao: TaoBalance,
+    /// Realizable TAO a claim would pay now: `min(beta * N / P, N)`.
+    pub value_tao: TaoBalance,
+    /// The same pro-rata slice marked at spot prices — never used for redemption sizing.
+    pub spot_value_tao: TaoBalance,
+}
+
 impl<T: Config> Pallet<T> {
     /// Spot-marked TAO value of `alpha` on `netuid`: `current_price * alpha`. Unlike
     /// [`Self::realizable_tao_for_alpha`] this ignores depth/slippage, so it can exceed what a
@@ -99,6 +122,48 @@ impl<T: Config> Pallet<T> {
     pub fn get_all_validator_baskets() -> Vec<BasketSummary<T::AccountId>> {
         BasketShares::<T>::iter_keys()
             .map(|hotkey| Self::get_validator_basket_summary(&hotkey))
+            .collect()
+    }
+
+    /// One staker's beta-denominated position on one validator, or `None` when the staker
+    /// has no owed beta there. Valuation reuses the same primitives as claims
+    /// (`get_validator_basket_nav_tao` / `basket_payout_from`), so `value_tao` is exactly
+    /// what `claim_root_with_hotkey` would pay right now.
+    pub fn get_basket_position(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Option<BasketPosition<T::AccountId>> {
+        let beta_total = BasketShares::<T>::get(hotkey);
+        let beta = Self::get_basket_owed_shares(hotkey, coldkey).min(beta_total);
+        if beta == 0 {
+            return None;
+        }
+
+        let mut nav: u64 = 0;
+        let mut spot_nav: u64 = 0;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            nav = nav.saturating_add(Self::realizable_tao_for_alpha(netuid, alpha.to_u64()));
+            spot_nav = spot_nav.saturating_add(Self::spot_tao_for_alpha(netuid, alpha.to_u64()));
+        }
+
+        Some(BasketPosition {
+            hotkey: hotkey.clone(),
+            beta,
+            beta_total,
+            nav_tao: nav.into(),
+            value_tao: Self::basket_payout_from(beta, nav, beta_total).into(),
+            spot_value_tao: Self::mul_div_u64(beta, spot_nav, beta_total)
+                .min(spot_nav)
+                .into(),
+        })
+    }
+
+    /// A coldkey's full basket portfolio: one beta-denominated position per validator on
+    /// which it has owed beta.
+    pub fn get_root_basket_portfolio(coldkey: &T::AccountId) -> Vec<BasketPosition<T::AccountId>> {
+        StakingHotkeys::<T>::get(coldkey)
+            .into_iter()
+            .filter_map(|hotkey| Self::get_basket_position(&hotkey, coldkey))
             .collect()
     }
 

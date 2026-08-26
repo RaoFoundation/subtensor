@@ -144,6 +144,9 @@ pub(super) fn setup_full_root_registration_benchmark<T: Config>() {
     );
 
     Subtensor::<T>::set_max_allowed_uids(NetUid::ROOT, root_validator_count);
+    // Seeded seats must be pruneable: `root_register` on a full senate
+    // skips immune UIDs and fails with `NoNeuronIdAvailable` if none remain.
+    Subtensor::<T>::set_immunity_period(NetUid::ROOT, 0);
     Subtensor::<T>::set_max_registrations_per_block(
         NetUid::ROOT,
         root_validator_count.saturating_add(1),

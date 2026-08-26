@@ -366,5 +366,11 @@ mod errors {
         /// `claim_root_with_hotkey` per validator so admission weight matches
         /// the holdings actually walked.
         RootClaimTooHeavy,
+        /// A single destination in a `set_root_weights` vector takes a larger share of the
+        /// basket than [`crate::RootWeightsCap`] allows (share = value / sum of values).
+        /// With the cap at 1/16 a validator must spread its basket across at least 16
+        /// destinations. Not enforced while the chain has fewer destinations than the cap
+        /// demands.
+        RootWeightCapExceeded,
     }
 }

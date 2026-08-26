@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 448,
+    spec_version: 449,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -2383,6 +2383,7 @@ impl_runtime_apis! {
         }
     }
 
+    #[api_version(2)]
     impl subtensor_custom_rpc_runtime_api::BetaBasketRuntimeApi<Block> for Runtime {
         fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance {
             SubtensorModule::get_root_basket_owed_tao(&coldkey)
@@ -2410,6 +2411,12 @@ impl_runtime_apis! {
         }
         fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)> {
             SubtensorModule::get_root_basket_positions(&coldkey)
+        }
+        fn get_basket_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BasketPosition<AccountId32>> {
+            SubtensorModule::get_basket_position(&hotkey, &coldkey)
+        }
+        fn get_root_basket_portfolio(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BasketPosition<AccountId32>> {
+            SubtensorModule::get_root_basket_portfolio(&coldkey)
         }
     }
 

@@ -542,8 +542,9 @@ the upgrade. See the release notes for
   `root_dissolve_network`. Owner proxies are limited to owner-settable subnet
   configuration and identity calls (not owner-key rotation).
 - **Reject locked alpha.** Coldkeys that should accept locked-alpha transfers
-  must opt in with `set_reject_locked_alpha` (raw call / `submit_call` —
-  no first-class intent yet). Default is to reject.
+  must opt in with `btcli conviction accept --allow` (the
+  `set_reject_locked_alpha` call, also available as the
+  `SetRejectLockedAlpha` intent). Default is to reject.
 
 ### Staking and fees
 
@@ -718,6 +719,18 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `deriv quote/positions/market/open/topup/close` | **removed** — chain feature not available on current runtime |
 | any other chain read | `btcli query <name>` — `btcli query --help` lists all of them |
 | any other mutation | `btcli tx <name>` — `btcli tx --help`, or `btcli call Pallet.function --args '{...}'` for raw extrinsics |
+
+Spec 448 shipped two `btcli root` names that no longer exist. Do not keep
+them as aliases: the later spellings do different work.
+
+| Spec 448 command | Current command |
+| --- | --- |
+| `root subscribe --hotkey X --amount N` (added root stake) | `stake add --netuid 0 --hotkey X --amount N` |
+| `root show --hotkey X` (one fund in detail) | `root list X` |
+| `root show` with no args (pick from your positions) | `root list --mine`, then `root list X` |
+
+Buying basket shares (β) is `root allocate`, not `subscribe`. The
+network-wide fund leaderboard is bare `root list`.
 
 Two new commands help automated migration directly: `btcli tools` dumps the
 full transaction catalog with JSON schemas, and `btcli explain <code>`

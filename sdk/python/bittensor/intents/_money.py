@@ -89,6 +89,7 @@ def alpha_amount(value: Money, netuid: int, *, allow_all: bool = False) -> "Bala
 _FALLBACK_AMOUNT_UNITS: dict[tuple[str, str, str], str] = {
     ("SubtensorModule", "add_stake", "amount_staked"): "TAO",
     ("SubtensorModule", "add_stake_limit", "amount_staked"): "TAO",
+    ("SubtensorModule", "stake_into_basket", "amount_staked"): "TAO",
     ("SubtensorModule", "add_stake_limit", "limit_price"): "TAO",
     ("SubtensorModule", "remove_stake", "amount_unstaked"): "ALPHA",
     ("SubtensorModule", "remove_stake_limit", "amount_unstaked"): "ALPHA",

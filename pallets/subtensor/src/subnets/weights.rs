@@ -953,6 +953,25 @@ impl<T: Config> Pallet<T> {
         let required = (crate::MIN_ROOT_BASKET_WEIGHTS as usize).min(available);
         ensure!(nonzero >= required, Error::<T>::WeightVecLengthIsLow);
 
+        // --- 8.6 Concentration cap: no destination may take a larger share of the vector
+        // than `RootWeightsCap` (u16-normalized, share = value / sum). A cap of 1/16 needs
+        // at least 16 destinations to be satisfiable, so — mirroring the diversity floor
+        // above — the check is skipped while the chain has fewer destinations than the cap
+        // demands (young chains, tests). Checked on the raw values so the cap is
+        // independent of the max-upscale that follows.
+        let cap = RootWeightsCap::<T>::get(NetUid::ROOT) as u64;
+        let min_dests_for_cap = (u16::MAX as u64).div_ceil(cap.max(1));
+        if available as u64 >= min_dests_for_cap {
+            let sum: u64 = values.iter().map(|w| *w as u64).sum();
+            ensure!(
+                values
+                    .iter()
+                    .all(|w| (*w as u64).saturating_mul(u16::MAX as u64)
+                        <= cap.saturating_mul(sum)),
+                Error::<T>::RootWeightCapExceeded
+            );
+        }
+
         // --- 9. Max-upscale the weights.
         let max_upscaled_weights: Vec<u16> = vec_u16_max_upscale_to_u16(&values);
 

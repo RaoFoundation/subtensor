@@ -23,14 +23,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import bittensor as bt
+from bittensor._generated import runtime_apis as api
 from bittensor._generated import storage as st
+from bittensor.basket_index import fund_pricing
+from bittensor.basket_index_data import EPOCH_BLOCK, INDEX
+from bittensor.cli.helpers import chain_identity_names
 
 RAO = 1_000_000_000
 BLOCKS_PER_DAY = 7200
 TMC_SUBNETS_URL = "https://api.taomarketcap.com/public/v1/subnets/"
-TMC_REVENUE_URL = "https://api.taomarketcap.com/internal/v1/general/protocol-revenue-chart/?span=ALL"
+TMC_REVENUE_URL = (
+    "https://api.taomarketcap.com/internal/v1/general/protocol-revenue-chart/?span=ALL"
+)
 TMC_TAO_PRICE_URL = "https://api.taomarketcap.com/internal/v1/market/candle-data/?span=1D"
 TOP_N = 8
+BASKET_TOP_N = 8
 WEBSITE_DIR = Path(__file__).resolve().parent.parent
 OUTPUT = WEBSITE_DIR / "public" / "catalog" / "root-reborn-snapshot.json"
 
@@ -141,23 +148,74 @@ async def chain_fields() -> dict:
         total_issuance = int(await view.query(st.SubtensorModule.TotalIssuance))
         root_tao = int(await view.query(st.SubtensorModule.SubnetTAO, [0]))
         total_stake = int(await view.query(st.SubtensorModule.TotalStake))
+        basket_chart = await fetch_basket_chart(client)
     return {
         "totalIssuanceTao": round(total_issuance / RAO, 1),
         "rootStakeTao": round(root_tao / RAO, 1),
         "totalStakeTao": round(total_stake / RAO, 1),
+        "basketChart": basket_chart,
+    }
+
+
+async def _basket_prices(client, block: int) -> dict[str, tuple[int, float]]:
+    """hotkey -> (nav rao, raw beta price) for every live fund at ``block``."""
+    snap = await client.at(block)
+    rows = await snap.runtime(api.BetaBasketRuntimeApi.get_all_validator_baskets, [])
+    out: dict[str, tuple[int, float]] = {}
+    for row in rows or []:
+        shares = int(row.get("shares") or 0)
+        nav = int(row.get("nav_tao") or 0)
+        if shares and nav:
+            out[str(row["hotkey"])] = (nav, nav / shares)
+    return out
+
+
+async def fetch_basket_chart(client) -> dict:
+    """Index-spliced display-price history for the largest validator baskets.
+
+    Rides the frozen basket-index sample grid (half-daily blocks) so the
+    article's chart shows exactly the numbers btcli shows: each fund's raw
+    beta price divided by its frozen launch baseline, beside the index line.
+    """
+    now = await client.at()
+    latest = await _basket_prices(client, now.block)
+    top = sorted(latest.items(), key=lambda item: -item[1][0])[:BASKET_TOP_N]
+    hotkeys = [hotkey for hotkey, _ in top]
+    names = await chain_identity_names(client, hotkeys)
+
+    blocks = [block for block, _ in INDEX]
+    series: dict[str, list] = {hotkey: [] for hotkey in hotkeys}
+    for block in blocks:
+        prices = await _basket_prices(client, block)
+        for hotkey in hotkeys:
+            entry = prices.get(hotkey)
+            if entry is None:
+                series[hotkey].append(None)
+            else:
+                _, raw = entry
+                baseline = fund_pricing(hotkey, raw).baseline
+                series[hotkey].append(round(raw / baseline, 4))
+
+    return {
+        "epochBlock": EPOCH_BLOCK,
+        "blocks": blocks,
+        "index": [round(level, 4) for _, level in INDEX],
+        "funds": [
+            {
+                "hotkey": hotkey,
+                "name": names.get(hotkey),
+                "navTao": round(nav / RAO, 1),
+                "series": series[hotkey],
+            }
+            for hotkey, (nav, _) in top
+        ],
     }
 
 
 def build_snapshot(tmc_rows: list[dict], chain: dict) -> dict:
     non_root = [r for r in tmc_rows if int(r["netuid"]) != 0]
-    live = [
-        r
-        for r in non_root
-        if (r.get("latest_snapshot") or {}).get("subnet_emission_enabled")
-    ]
-    block = max(
-        int((r.get("latest_snapshot") or {}).get("block_number") or 0) for r in tmc_rows
-    )
+    live = [r for r in non_root if (r.get("latest_snapshot") or {}).get("subnet_emission_enabled")]
+    block = max(int((r.get("latest_snapshot") or {}).get("block_number") or 0) for r in tmc_rows)
 
     # SubnetTAO across every non-root subnet — the TAO the chain (and stakers)
     # put into pools via TAO→alpha buys. It sits as protocol liquidity until the
@@ -181,9 +239,7 @@ def build_snapshot(tmc_rows: list[dict], chain: dict) -> dict:
         pool_tao = tmc_num(snap.get("subnet_tao")) / RAO
         alpha_mcap_tao += tmc_num((snap.get("dtao") or {}).get("marketCap"))
         miners_tao_per_day += tmc_num(snap.get("miners_tao_per_day"))
-        tao_per_day_into_pools += (
-            tmc_num(snap.get("subnet_tao_in_emission")) / RAO * BLOCKS_PER_DAY
-        )
+        tao_per_day_into_pools += tmc_num(snap.get("subnet_tao_in_emission")) / RAO * BLOCKS_PER_DAY
 
         # Per-subnet root dividend run-rate: pending root alpha divs accrue over the
         # current tempo, so pending / blocks_elapsed * blocks_per_day * price estimates

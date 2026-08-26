@@ -24,6 +24,7 @@ pub mod migrate_delete_subnet_21;
 pub mod migrate_delete_subnet_3;
 pub mod migrate_disable_commit_reveal;
 pub mod migrate_dynamic_tempo;
+pub mod migrate_enable_root_weight_setting;
 pub mod migrate_fix_bad_hk_swap;
 pub mod migrate_fix_childkeys;
 pub mod migrate_fix_is_network_member;
@@ -85,6 +86,7 @@ pub mod migrate_to_v2_fixed_total_stake;
 pub mod migrate_total_alpha_staked;
 pub mod migrate_total_voting_power;
 pub mod migrate_transfer_ownership_to_foundation;
+pub mod migrate_tune_root_registration;
 pub mod migrate_upgrade_revealed_commitments;
 
 pub(crate) fn migrate_storage<T: Config>(

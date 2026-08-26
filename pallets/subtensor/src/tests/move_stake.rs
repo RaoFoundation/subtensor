@@ -401,6 +401,115 @@ fn test_do_move_partial_stake() {
         });
 }
 
+#[test]
+fn test_do_move_max_caps_to_live_origin() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let coldkey = U256::from(1);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(3);
+        let stake_amount = DefaultMinStake::<Test>::get() * 10.into();
+
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &origin_hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &destination_hotkey);
+        add_balance_to_coldkey_account(&coldkey, stake_amount);
+        SubtensorModule::stake_into_subnet(
+            &origin_hotkey,
+            &coldkey,
+            netuid.into(),
+            stake_amount,
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &coldkey,
+            netuid,
+        );
+
+        assert_ok!(SubtensorModule::do_move_stake(
+            RuntimeOrigin::signed(coldkey),
+            origin_hotkey,
+            destination_hotkey,
+            netuid,
+            netuid,
+            AlphaBalance::MAX,
+        ));
+
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &coldkey,
+                netuid
+            ),
+            AlphaBalance::ZERO
+        );
+        assert_abs_diff_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &destination_hotkey,
+                &coldkey,
+                netuid
+            ),
+            alpha,
+            epsilon = alpha / 1000.into()
+        );
+    });
+}
+
+#[test]
+fn test_do_move_oversize_non_max_still_fails() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let coldkey = U256::from(1);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(3);
+        let stake_amount = DefaultMinStake::<Test>::get() * 10.into();
+
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &origin_hotkey);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &destination_hotkey);
+        add_balance_to_coldkey_account(&coldkey, stake_amount);
+        SubtensorModule::stake_into_subnet(
+            &origin_hotkey,
+            &coldkey,
+            netuid.into(),
+            stake_amount,
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        let alpha = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &coldkey,
+            netuid,
+        );
+
+        assert_noop!(
+            SubtensorModule::do_move_stake(
+                RuntimeOrigin::signed(coldkey),
+                origin_hotkey,
+                destination_hotkey,
+                netuid,
+                netuid,
+                alpha.saturating_add(1.into()),
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &origin_hotkey,
+                &coldkey,
+                netuid
+            ),
+            alpha
+        );
+    });
+}
+
 // 10. test_do_move_multiple_times
 // Description: Test moving stake multiple times between the same hotkeys
 // SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::move_stake::test_do_move_multiple_times --exact --show-output

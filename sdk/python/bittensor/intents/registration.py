@@ -202,19 +202,24 @@ class RootRegister(Intent):
     root burn price (recycled out of issuance, demand-priced — each
     registration bumps it and it decays back toward the floor). No prior
     stake is required, but root slots are limited: joining a full root
-    network evicts the member with the least stake, so a seat is only held
-    by keeping stake behind the hotkey. Root registrations are also capped
-    per block (``max_registrations_per_block``) and per interval (three
-    times ``target_registrations_per_interval``); hitting either cap fails
-    until the window passes. Use ``burned_register`` for ordinary subnets.
+    network evicts the lowest-staked non-immune member
+    (``ImmunityPeriod``). If every seat is still immune, registration
+    fails with ``NoNeuronIdAvailable``. A seat is only held by keeping
+    stake behind the hotkey after that window. Root registrations are
+    also capped per block (``max_registrations_per_block``) and per
+    interval (three times ``target_registrations_per_interval``); hitting
+    either cap fails until the window passes. After a successful
+    registration the hotkey is auto-childkeyed to every existing subnet
+    owner (full proportion) unless the validator opted out of auto parent
+    delegation. Use ``burned_register`` for ordinary subnets.
     """
 
     op = "root_register"
     signer = "coldkey"
     wraps = (("SubtensorModule", "root_register"),)
-    # Docs: the friendly path is the ordinary subnet register command, which
-    # routes netuid 0 here.
-    cli_example = "btcli subnets register --netuid 0"
+    # Docs: the friendly path is the dedicated root register command
+    # (`btcli subnets register --netuid 0` routes here too).
+    cli_example = "btcli root register"
 
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -236,6 +241,7 @@ class RootRegister(Intent):
             self.summary(),
             f"burn {burn} (recycled into issuance)",
             "lock none",
+            "auto-childkey to every subnet owner unless opted out",
         ]
 
     def touches_netuids(self) -> list[int]:
@@ -330,6 +336,7 @@ class _RootClaimIntent(Intent):
             required_free=quote.reserved,
             available_free=quote.free,
             estimated_fee=quote.reserved if reserve.exact else None,
+            facts=quote.facts(),
         )
 
     async def preflight(

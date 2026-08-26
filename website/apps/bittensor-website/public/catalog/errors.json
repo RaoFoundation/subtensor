@@ -167,7 +167,7 @@
     },
     "ActivityCutoffTooLow": {
       "code": "invalid_argument",
-      "description": "An admin tried to set the subnet's activity cutoff below the chain-wide minimum. Compare the requested value against the `MinActivityCutoff` storage item and current `activity_cutoff` in `btcli sudo get --netuid <n>`.",
+      "description": "An admin tried to set the subnet's activity cutoff below the chain-wide minimum. Compare the requested value against the `MinActivityCutoff` storage item and current `activity_cutoff` in `btcli hparams get --netuid <n>`.",
       "docs_url": "/docs/errors/chain/ActivityCutoffTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/ActivityCutoffTooLow/content.md",
       "pallets": [
@@ -482,7 +482,7 @@
     },
     "BasketHasNoWeights": {
       "code": "invalid_argument",
-      "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli weights set-root` (or `set_root_weights`) first.",
+      "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli root weights set` (or `set_root_weights`) first.",
       "docs_url": "/docs/errors/chain/BasketHasNoWeights",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketHasNoWeights/content.md",
       "pallets": [
@@ -582,8 +582,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 156,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L156",
+          "line": 163,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L163",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1077,8 +1077,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 180,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L180",
+          "line": 187,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L187",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1095,15 +1095,15 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 178,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L178",
+          "line": 185,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L185",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
     },
     "CommitRevealDisabled": {
       "code": "disabled",
-      "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli sudo get --netuid <n>`); use plain `set_weights` instead when it is disabled.",
+      "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli hparams get --netuid <n>`); use plain `set_weights` instead when it is disabled.",
       "docs_url": "/docs/errors/chain/CommitRevealDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/CommitRevealDisabled/content.md",
       "pallets": [
@@ -1139,7 +1139,7 @@
     },
     "CommittingWeightsTooFast": {
       "code": "rate_limited",
-      "description": "The neuron committed weights again before the per-UID rate limit elapsed since its last commit on that subnet. Compare blocks since the last commit against the `weights_rate_limit` hyperparameter (`btcli sudo get --netuid <n>`) and wait.",
+      "description": "The neuron committed weights again before the per-UID rate limit elapsed since its last commit on that subnet. Compare blocks since the last commit against the `weights_rate_limit` hyperparameter (`btcli hparams get --netuid <n>`) and wait.",
       "docs_url": "/docs/errors/chain/CommittingWeightsTooFast",
       "markdown_url": "/llms.mdx/docs/errors/chain/CommittingWeightsTooFast/content.md",
       "pallets": [
@@ -1410,8 +1410,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 176,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L176",
+          "line": 183,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L183",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1767,7 +1767,7 @@
     },
     "FirstEmissionBlockNumberAlreadySet": {
       "code": "already_exists",
-      "description": "`btcli sudo start` was issued for a subnet whose emissions have already been started. Check with `btcli sudo check-start`; if the subnet is already emitting, no action is needed.",
+      "description": "`btcli hparams start` was issued for a subnet whose emissions have already been started. Check with `btcli hparams check-start`; if the subnet is already emitting, no action is needed.",
       "docs_url": "/docs/errors/chain/FirstEmissionBlockNumberAlreadySet",
       "markdown_url": "/llms.mdx/docs/errors/chain/FirstEmissionBlockNumberAlreadySet/content.md",
       "pallets": [
@@ -1822,8 +1822,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 182,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L182",
+          "line": 189,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L189",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1992,7 +1992,7 @@
     },
     "IncorrectWeightVersionKey": {
       "code": "invalid_argument",
-      "description": "The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli sudo get --netuid <n>`) and update the validator software or the key.",
+      "description": "The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli hparams get --netuid <n>`) and update the validator software or the key.",
       "docs_url": "/docs/errors/chain/IncorrectWeightVersionKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/IncorrectWeightVersionKey/content.md",
       "pallets": [
@@ -2650,8 +2650,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 170,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L170",
+          "line": 177,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L177",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2919,7 +2919,7 @@
     },
     "LiquidAlphaDisabled": {
       "code": "disabled",
-      "description": "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli sudo get --netuid <n>`) and have the subnet owner enable liquid alpha first.",
+      "description": "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli hparams get --netuid <n>`) and have the subnet owner enable liquid alpha first.",
       "docs_url": "/docs/errors/chain/LiquidAlphaDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/LiquidAlphaDisabled/content.md",
       "pallets": [
@@ -2946,7 +2946,7 @@
     },
     "LockHotkeyMismatch": {
       "code": "invalid_argument",
-      "description": "A conviction lock on this subnet is bound to a different hotkey than the one in the call. One coldkey may lock to only one hotkey per subnet: topping up `lock_stake` must reuse that hotkey (`btcli lock move` to retarget), and a stake transfer that moves locked alpha must land on the receiver's existing lock hotkey (`btcli stake transfer --destination-hotkey <lock-hotkey>`). Check the lock with `btcli lock show --netuid <n>` / `btcli stake list` (locked \u00b7 free \u00b7 lock \u2192 hotkey).",
+      "description": "A conviction lock on this subnet is bound to a different hotkey than the one in the call. One coldkey may lock to only one hotkey per subnet: topping up `lock_stake` must reuse that hotkey (`btcli conviction move` to retarget), and a stake transfer that moves locked alpha must land on the receiver's existing lock hotkey (`btcli stake transfer --destination-hotkey <lock-hotkey>`). Check the lock with `btcli conviction show --netuid <n>` / `btcli stake list` (locked \u00b7 free \u00b7 lock \u2192 hotkey).",
       "docs_url": "/docs/errors/chain/LockHotkeyMismatch",
       "markdown_url": "/llms.mdx/docs/errors/chain/LockHotkeyMismatch/content.md",
       "pallets": [
@@ -2992,8 +2992,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 154,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L154",
+          "line": 161,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L161",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3010,8 +3010,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 168,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L168",
+          "line": 175,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L175",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3028,8 +3028,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 166,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L166",
+          "line": 173,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L173",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3100,15 +3100,15 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 152,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L152",
+          "line": 159,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L159",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
     },
     "MaxWeightExceeded": {
       "code": "limit_exceeded",
-      "description": "After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli sudo get --netuid <n>`) and flatten the weight vector before setting.",
+      "description": "After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli hparams get --netuid <n>`) and flatten the weight vector before setting.",
       "docs_url": "/docs/errors/chain/MaxWeightExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/MaxWeightExceeded/content.md",
       "pallets": [
@@ -3198,8 +3198,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 162,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L162",
+          "line": 169,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L169",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3216,8 +3216,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 164,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L164",
+          "line": 171,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L171",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3287,7 +3287,7 @@
     },
     "NeedWaitingMoreBlocksToStarCall": {
       "code": "too_early",
-      "description": "The subnet owner ran `btcli sudo start` before enough blocks had passed since the subnet was registered. Check readiness with `btcli sudo check-start` and retry once the window opens.",
+      "description": "The subnet owner ran `btcli hparams start` before enough blocks had passed since the subnet was registered. Check readiness with `btcli hparams check-start` and retry once the window opens.",
       "docs_url": "/docs/errors/chain/NeedWaitingMoreBlocksToStarCall",
       "markdown_url": "/llms.mdx/docs/errors/chain/NeedWaitingMoreBlocksToStarCall/content.md",
       "pallets": [
@@ -3315,8 +3315,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 158,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L158",
+          "line": 165,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L165",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3875,8 +3875,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 172,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L172",
+          "line": 179,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L179",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4117,8 +4117,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 174,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L174",
+          "line": 181,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L181",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4591,9 +4591,27 @@
         }
       ]
     },
+    "RootWeightCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "One destination in the `set_root_weights` vector takes a larger share of the basket than the `RootWeightsCap` hyperparameter allows (share = weight / sum of weights; the cap is u16-normalized, so 4096 means 1/16). Spread the vector across more destinations \u2014 at the launch cap of 1/16 a basket needs at least 16 \u2014 or lower the largest entries. Query `RootWeightsCap[0]` for the live cap. Not enforced while the chain has fewer subnets than the cap demands.",
+      "docs_url": "/docs/errors/chain/RootWeightCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 374,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L374",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "RootWeightSettingDisabled": {
       "code": "disabled",
-      "description": "`set_root_weights` is disabled network-wide: Root Reborn launched gated, so every fund runs the null strategy (dividends accumulate in place on their origin subnet) until weight setting is switched on by governance or a later upgrade. No action available \u2014 wait for the enable; dividends keep accruing meanwhile.",
+      "description": "`set_root_weights` is disabled network-wide (`RootWeightSettingEnabled` is false). Root Reborn launched gated and runtime 449 opened the gate, so on current mainnet this only appears if governance has switched weight setting back off. Funds then run the null strategy (dividends accumulate in place on their origin subnet) until it is re-enabled; dividends keep accruing meanwhile.",
       "docs_url": "/docs/errors/chain/RootWeightSettingDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightSettingDisabled/content.md",
       "pallets": [
@@ -4800,7 +4818,7 @@
     },
     "StartCallNotReady": {
       "code": "too_early",
-      "description": "`btcli sudo start` was run before `StartCallDelay` blocks elapsed since the subnet was registered. Check readiness with `btcli sudo check-start` and wait for the remainder.",
+      "description": "`btcli hparams start` was run before `StartCallDelay` blocks elapsed since the subnet was registered. Check readiness with `btcli hparams check-start` and wait for the remainder.",
       "docs_url": "/docs/errors/chain/StartCallNotReady",
       "markdown_url": "/llms.mdx/docs/errors/chain/StartCallNotReady/content.md",
       "pallets": [
@@ -4909,8 +4927,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 150,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L150",
+          "line": 157,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L157",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4953,7 +4971,7 @@
     },
     "SubtokenDisabled": {
       "code": "subtoken_disabled",
-      "description": "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli sudo start` after registration. Check readiness with `btcli sudo check-start`.",
+      "description": "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli hparams start` after registration. Check readiness with `btcli hparams check-start`.",
       "docs_url": "/docs/errors/chain/SubtokenDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/SubtokenDisabled/content.md",
       "pallets": [
@@ -5711,8 +5729,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 160,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L160",
+          "line": 167,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L167",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

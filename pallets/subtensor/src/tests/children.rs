@@ -4413,16 +4413,7 @@ fn test_root_children_enable_subnet_owner_set_weights() {
         ));
 
         // --- Verify do_set_root_validators_for_subnet creates parent-child relationships ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
-
         assert_ok!(SubtensorModule::do_set_root_validators_for_subnet(netuid));
-
-        // Activate pending children (cooldown is 0, advance 1 block)
-        step_block(1);
-        SubtensorModule::do_set_pending_children(netuid);
 
         // Each root validator should have the subnet owner hotkey as a child on netuid
         let children_1 = SubtensorModule::get_children(&root_val_hotkey_1, netuid);
@@ -4483,12 +4474,6 @@ fn test_register_network_schedules_root_validators() {
             NetUid::ROOT,
             root_stake,
         );
-
-        // --- Minimize cooldown so pending children activate quickly ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
 
         // --- Set a high stake threshold ---
         let high_threshold = 500_000_000u64;
@@ -4601,12 +4586,6 @@ fn test_register_network_schedules_root_validators_auto_parent_delegation_flag()
             root_stake,
         );
 
-        // --- Minimize cooldown so pending children activate quickly ---
-        assert_ok!(SubtensorModule::set_pending_childkey_cooldown(
-            RuntimeOrigin::root(),
-            0,
-        ));
-
         // --- Set a high stake threshold ---
         let high_threshold = 500_000_000u64;
         SubtensorModule::set_stake_threshold(high_threshold);
@@ -4683,5 +4662,231 @@ fn test_register_network_schedules_root_validators_auto_parent_delegation_flag()
             vec![u16::MAX],
             version_key
         ));
+    });
+}
+
+// Root registration auto-childkeys the new validator to every existing
+// subnet owner (the reverse of register_network, which childkeys existing
+// root validators to the new owner).
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_register_auto_childkeys_to_every_subnet_owner --exact --show-output --nocapture
+#[test]
+fn test_root_register_auto_childkeys_to_every_subnet_owner() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+
+        let owner1_cold = U256::from(1001);
+        let owner1_hot = U256::from(1002);
+        let owner2_cold = U256::from(2001);
+        let owner2_hot = U256::from(2002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+
+        let netuid1 = add_dynamic_network(&owner1_hot, &owner1_cold);
+        let netuid2 = add_dynamic_network(&owner2_hot, &owner2_cold);
+
+        register_ok_neuron(netuid1, val_hot, val_cold, 0);
+        root_register_ok(val_hot, val_cold);
+
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid1),
+            vec![(u64::MAX, owner1_hot)],
+            "new root validator should childkey to owner of subnet 1"
+        );
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid2),
+            vec![(u64::MAX, owner2_hot)],
+            "new root validator should childkey to owner of subnet 2"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner1_hot, netuid1),
+            vec![(u64::MAX, val_hot)],
+            "owner 1 should list the new root validator as parent"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner2_hot, netuid2),
+            vec![(u64::MAX, val_hot)],
+            "owner 2 should list the new root validator as parent"
+        );
+    });
+}
+
+// Root prune must drop the protocol auto-parent edges so ParentKeys
+// on owners do not grow with senate churn.
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_prune_clears_auto_parent_edges --exact --show-output --nocapture
+#[test]
+fn test_root_prune_clears_auto_parent_edges() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 1);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 0);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let old_cold = U256::from(3001);
+        let old_hot = U256::from(3002);
+        let new_cold = U256::from(4001);
+        let new_hot = U256::from(4002);
+
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, old_hot, old_cold, 0);
+        register_ok_neuron(netuid, new_hot, new_cold, 0);
+
+        root_register_ok(old_hot, old_cold);
+        assert_eq!(
+            SubtensorModule::get_children(&old_hot, netuid),
+            vec![(u64::MAX, owner_hot)]
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner_hot, netuid),
+            vec![(u64::MAX, old_hot)]
+        );
+
+        root_register_ok(new_hot, new_cold);
+        assert!(
+            !Uids::<Test>::contains_key(NetUid::ROOT, old_hot),
+            "old validator must be pruned"
+        );
+        assert_eq!(
+            SubtensorModule::get_children(&old_hot, netuid),
+            vec![],
+            "pruned validator must lose the protocol auto-parent edge"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner_hot, netuid),
+            vec![(u64::MAX, new_hot)],
+            "owner parent list must drop the pruned validator"
+        );
+    });
+}
+
+// Lock takeover / owner-hotkey change must retarget protocol edges so
+// the former owner does not keep inherited stake, and prune still
+// clears the edge after that rotation.
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_auto_parent_retargets_on_owner_hotkey_change --exact --show-output --nocapture
+#[test]
+fn test_auto_parent_retargets_on_owner_hotkey_change() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 1);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 0);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let king_cold = U256::from(2001);
+        let king_hot = U256::from(2002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+        let incoming_cold = U256::from(4001);
+        let incoming_hot = U256::from(4002);
+
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, val_hot, val_cold, 0);
+        register_ok_neuron(netuid, incoming_hot, incoming_cold, 0);
+        register_ok_neuron(netuid, king_hot, king_cold, 0);
+
+        root_register_ok(val_hot, val_cold);
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![(u64::MAX, owner_hot)]
+        );
+
+        assert_ok!(SubtensorModule::set_subnet_owner_hotkey(netuid, &king_hot));
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![(u64::MAX, king_hot)],
+            "protocol edge must follow the new owner hotkey"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&owner_hot, netuid),
+            vec![],
+            "former owner must drop the protocol parent row"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&king_hot, netuid),
+            vec![(u64::MAX, val_hot)]
+        );
+
+        root_register_ok(incoming_hot, incoming_cold);
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![],
+            "prune after owner rotation must still clear the protocol edge"
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&king_hot, netuid),
+            vec![(u64::MAX, incoming_hot)]
+        );
+    });
+}
+
+// Opt-out must work before root registration, otherwise auto-CK on
+// root_register cannot be refused.
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_register_respects_auto_parent_delegation_opt_out --exact --show-output --nocapture
+#[test]
+fn test_root_register_respects_auto_parent_delegation_opt_out() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, val_hot, val_cold, 0);
+
+        assert_ok!(SubtensorModule::set_auto_parent_delegation_enabled(
+            RuntimeOrigin::signed(val_cold),
+            val_hot,
+            false,
+        ));
+
+        root_register_ok(val_hot, val_cold);
+
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![],
+            "opted-out root validator must not be auto-childkeyed"
+        );
+    });
+}
+
+// Auto-CK on root register must not overwrite children the validator
+// already set on a subnet.
+// SKIP_WASM_BUILD=1 RUST_LOG=debug cargo test --package pallet-subtensor --lib -- tests::children::test_root_register_does_not_overwrite_existing_children --exact --show-output --nocapture
+#[test]
+fn test_root_register_does_not_overwrite_existing_children() {
+    new_test_ext(1).execute_with(|| {
+        add_network(NetUid::ROOT, 1, 0);
+
+        let owner_cold = U256::from(1001);
+        let owner_hot = U256::from(1002);
+        let val_cold = U256::from(3001);
+        let val_hot = U256::from(3002);
+        let custom_child = U256::from(4002);
+
+        let netuid = add_dynamic_network(&owner_hot, &owner_cold);
+        register_ok_neuron(netuid, val_hot, val_cold, 0);
+        register_ok_neuron(netuid, custom_child, val_cold, 0);
+
+        let custom_proportion = 1_000u64;
+        mock_set_children(
+            &val_cold,
+            &val_hot,
+            netuid,
+            &[(custom_proportion, custom_child)],
+        );
+
+        root_register_ok(val_hot, val_cold);
+
+        assert_eq!(
+            SubtensorModule::get_children(&val_hot, netuid),
+            vec![(custom_proportion, custom_child)],
+            "existing children must survive root registration"
+        );
     });
 }

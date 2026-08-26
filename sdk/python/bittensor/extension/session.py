@@ -109,7 +109,7 @@ def start_bridge_daemon(
         raise BridgeError(
             f"cannot start the extension bridge: {host}:{port} is already in use by "
             "another process — likely a bridge from a different environment "
-            f"(`lsof -nP -i :{port}` shows it; stop it with `btcli extension stop` "
+            f"(`lsof -nP -i :{port}` shows it; stop it with `btcli misc extension stop` "
             "from that environment or kill the pid), or run this bridge elsewhere "
             f"with --extension-bridge http://{host}:{port + 1} (BT_EXTENSION_BRIDGE)"
         )

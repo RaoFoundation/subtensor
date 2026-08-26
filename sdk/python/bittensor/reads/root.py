@@ -4,26 +4,41 @@ Root dividends accrue inside each validator's basket — an escrowed
 per-validator index fund of subnet alpha, built each epoch from the
 validator's root dividends per its root weights (``set_root_weights``) and
 redeemed by stakers with ``claim_root_with_hotkey`` (or coldkey-wide
-``claim_root``). Every figure these reads return is
-TAO-denominated (or the actual per-subnet alpha holdings); the fund's
-internal share accounting is never exposed. They wrap the
-``BetaBasketRuntimeApi`` runtime APIs plus the claim-threshold storage entry.
+``claim_root``). Most figures these reads return are TAO-denominated (or the
+actual per-subnet alpha holdings); the beta-denominated position reads
+(``basket_position`` / ``root_basket_portfolio``) additionally expose the
+fund's beta tokens: your beta balance is the stable product-facing number
+that only grows with accruals and shrinks with claims, while its TAO value
+moves with pool prices. They wrap the ``BetaBasketRuntimeApi`` runtime APIs
+plus the claim-threshold storage entry.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from .._generated import runtime_apis as api
+from .._generated.runtime_apis import Method
 from .._generated.storage import Item
 from ..balance import Balance
+from ..settings import RAO_PER_TAO
 from .base import read
 
 # TODO(codegen): switch to `st.SubtensorModule.RootClaimableThreshold` once the
 # storage registry is regenerated against spec >= 438.
 _ROOT_CLAIM_THRESHOLD = Item("SubtensorModule", "RootClaimableThreshold", "I96F32")
 
+# TODO(codegen): switch to `api.BetaBasketRuntimeApi.*` once the runtime-API
+# registry is regenerated against a spec that includes these v2 methods.
+_GET_BASKET_POSITION = Method("BetaBasketRuntimeApi", "get_basket_position")
+_GET_ROOT_BASKET_PORTFOLIO = Method("BetaBasketRuntimeApi", "get_root_basket_portfolio")
+
 _ROOT_NETUID = 0
+
+# Raw chain units per beta token. Chain units mint at par (1 per rao of TAO
+# value at fund inception), so one beta token had a par value of exactly τ1
+# and its price tracks fund performance from 1.0.
+_RAW_PER_BETA = RAO_PER_TAO
 
 
 def _i96f32_rao(value: Any) -> int:
@@ -37,17 +52,22 @@ def _i96f32_rao(value: Any) -> int:
 def _summary_record(view, summary: Any) -> dict:
     """Shape one decoded chain ``BasketSummary`` into the read's output record.
 
-    Everything is TAO-denominated (plus the per-subnet alpha holdings); the
-    fund's internal share accounting is never exposed.
+    Everything is TAO-denominated (plus the per-subnet alpha holdings), with
+    the fund's beta supply alongside: ``beta_price_tao`` is NAV over
+    outstanding raw units (τ per beta token, par 1.0 at inception).
     """
     nav = int(summary.get("nav_tao") or 0)
     spot_nav = int(summary.get("spot_nav_tao") or 0)
     deposited = int(summary.get("deposited_tao") or 0)
     redeemed = int(summary.get("redeemed_tao") or 0)
+    beta_raw = int(summary.get("shares") or 0)  # chain field name predates the beta branding
     weights = [(int(netuid), int(weight)) for netuid, weight in summary.get("weights") or []]
     weight_total = sum(weight for _, weight in weights)
     return {
         "hotkey": str(summary.get("hotkey")),
+        "beta_total_raw": beta_raw,
+        "beta_total": beta_raw / _RAW_PER_BETA,
+        "beta_price_tao": nav / beta_raw if beta_raw else 0.0,
         "nav_tao": view.balance(nav, _ROOT_NETUID),
         "spot_nav_tao": view.balance(spot_nav, _ROOT_NETUID),
         "deposited_tao": view.balance(deposited, _ROOT_NETUID),
@@ -114,9 +134,86 @@ async def root_basket_owed_breakdown(view, coldkey_ss58: str) -> list[dict]:
             "hotkey": str(hotkey),
             "owed_tao": view.balance(int(payout), _ROOT_NETUID),
         }
-        for hotkey, _shares, payout in rows or []
+        for hotkey, _beta, payout in rows or []
     ]
     records.sort(key=lambda entry: -entry["owed_tao"].rao)
+    return records
+
+
+def _position_record(view, position: Any) -> dict:
+    """Shape one decoded chain ``BasketPosition`` into the read's output record.
+
+    Raw chain integers are kept (``beta_raw`` / ``beta_total_raw``) next to
+    display-scaled floats: one beta token is 10^9 raw units, so a beta had a
+    par value of exactly τ1 at fund inception and ``beta_price_tao`` tracks
+    fund performance from 1.0.
+    """
+    beta_raw = int(position.get("beta") or 0)
+    beta_total_raw = int(position.get("beta_total") or 0)
+    nav = int(position.get("nav_tao") or 0)
+    return {
+        "hotkey": str(position.get("hotkey")),
+        "beta_raw": beta_raw,
+        "beta_total_raw": beta_total_raw,
+        "beta": beta_raw / _RAW_PER_BETA,
+        "fund_fraction": beta_raw / beta_total_raw if beta_total_raw else 0.0,
+        # τ per beta token == rao per raw unit; par 1.0 at inception.
+        "beta_price_tao": nav / beta_total_raw if beta_total_raw else 0.0,
+        "nav_tao": view.balance(nav, _ROOT_NETUID),
+        "value_tao": view.balance(int(position.get("value_tao") or 0), _ROOT_NETUID),
+        "spot_value_tao": view.balance(int(position.get("spot_value_tao") or 0), _ROOT_NETUID),
+    }
+
+
+@read(
+    "basket_position",
+    {"hotkey_ss58": "string", "coldkey_ss58": "string"},
+    category="Staking",
+    param_docs={
+        "hotkey_ss58": "Validator whose basket the position is in.",
+        "coldkey_ss58": "Staker whose position to read.",
+    },
+)
+async def basket_position(view, hotkey_ss58: str, coldkey_ss58: str) -> Optional[dict]:
+    """A staker's beta token position in one validator's basket.
+
+    ``beta`` is the staker's beta token balance — the product-facing number:
+    it never moves with market prices, only grows as root dividends accrue
+    and shrinks when you claim. One beta is 10^9 raw chain units and had a
+    par value of τ1 at fund inception, so ``beta_price_tao`` (fund NAV over
+    outstanding beta) tracks the fund's performance from 1.0. ``value_tao``
+    is the realizable TAO a claim would pay right now — exactly what
+    ``claim_root_with_hotkey`` would redeem; ``spot_value_tao`` marks the
+    same slice at spot prices (display only). Returns ``None`` when the
+    staker holds no beta there.
+    """
+    position = await view.runtime(
+        _GET_BASKET_POSITION, {"hotkey": hotkey_ss58, "coldkey": coldkey_ss58}
+    )
+    if position is None:
+        return None
+    return _position_record(view, position)
+
+
+@read(
+    "root_basket_portfolio",
+    {"coldkey_ss58": "string"},
+    category="Staking",
+    param_docs={"coldkey_ss58": "Coldkey whose basket portfolio to list."},
+)
+async def root_basket_portfolio(view, coldkey_ss58: str) -> list[dict]:
+    """A coldkey's basket portfolio: beta tokens held per validator, with values.
+
+    One ``basket_position`` record per validator on which the coldkey holds
+    beta, sorted by ``value_tao`` descending. ``beta`` is the stable holding
+    count (grows with accruals, shrinks with claims), and ``value_tao`` is
+    what claiming would realize right now at current pool depth. Multiply
+    ``value_tao`` by an off-chain TAO/USD price for fiat value — the chain
+    has no USD oracle.
+    """
+    rows = await view.runtime(_GET_ROOT_BASKET_PORTFOLIO, [coldkey_ss58])
+    records = [_position_record(view, position) for position in rows or []]
+    records.sort(key=lambda entry: -entry["value_tao"].rao)
     return records
 
 

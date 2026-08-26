@@ -15,7 +15,7 @@ without tracking the direction yourself.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.increase_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L540-L548) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.increase_take`](/code/pallets/subtensor/src/macros/dispatches.rs#L542-L550) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("increase_take", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.increase_take` — [`pallets/subtensor/src/macros/dispatches.rs#L542`](/code/pallets/subtensor/src/macros/dispatches.rs#L540-L548):
+`SubtensorModule.increase_take` — [`pallets/subtensor/src/macros/dispatches.rs#L544`](/code/pallets/subtensor/src/macros/dispatches.rs#L542-L550):
 
 ```rust
 #[pallet::call_index(66)]

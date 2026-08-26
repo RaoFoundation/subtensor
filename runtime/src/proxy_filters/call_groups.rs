@@ -592,6 +592,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_epochs_per_block),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weight_setting_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weights_cap),
     ]
 );
 

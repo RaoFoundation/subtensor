@@ -1,4 +1,4 @@
-"""`btcli sudo`: subnet-owner hyperparameters and governance."""
+"""`btcli hparams`: subnet-owner hyperparameters and governance."""
 
 from __future__ import annotations
 
@@ -19,14 +19,17 @@ from ...intents import (
 )
 from ...intents.children import take_to_u16
 from ...intents.hyperparameters import OWNER_HYPERPARAMETERS
-from ...settings import U16_MAX
+from ...settings import DOCS_URL, U16_MAX
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
 from ..prompt import PromptSpec, confirm_wallet, fill_missing, interactive
 from ..tx import _parse_money
 
-app = typer.Typer(no_args_is_help=True, help="Subnet-owner config and governance.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Subnet-owner config and governance.\n\nDocs: {DOCS_URL}/hyperparameters",
+)
 
 PANEL_SUBNETS = "Subnets"
 PANEL_VALIDATORS = "Validators"
@@ -108,7 +111,7 @@ def sudo_set(
 
     Only the subnet owner coldkey can sign this. The change takes effect
     immediately, and some parameters are rate-limited by the chain. Use
-    `btcli sudo get` to see current values and per-parameter help.
+    `btcli hparams get` to see current values and per-parameter help.
     """
     app_ctx: AppContext = ctx_of(ctx)
     if name is None or value is None:
@@ -120,7 +123,7 @@ def sudo_set(
     except (ValueError, OverflowError) as error:
         app_ctx.output.error(
             str(error),
-            help=f"`btcli sudo get --netuid {netuid} --name {name}` explains "
+            help=f"`btcli hparams get --netuid {netuid} --name {name}` explains "
             "the parameter and the value forms it accepts",
         )
         raise typer.Exit(2)
@@ -263,7 +266,7 @@ def start_subnet(
     """Start a registered subnet.
 
     Only the subnet owner can call this, and only after the
-    post-registration waiting period (see `btcli sudo check-start`).
+    post-registration waiting period (see `btcli hparams check-start`).
     It activates emissions for the subnet and cannot be undone.
     """
     app_ctx: AppContext = ctx_of(ctx)

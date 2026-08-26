@@ -11,6 +11,7 @@ import typer
 from ...balance import Balance
 from ...intents import SetAutoStake, SetChildkeyTake, SetChildren
 from ...reads import StakePosition
+from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import (
@@ -30,10 +31,15 @@ from ..helpers import (
     root_yield_record,
     split_dust,
 )
+from ..prompt import fill_missing, interactive
 from ..stake_exit import mount_stake_exit_commands
+from ..stake_picker import stake_source_spec
 from ..tx import intent_command
 
-app = typer.Typer(no_args_is_help=True, help="Query and manage stake.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Query and manage stake.\n\nGuide: {guide_docs_url('staking')}",
+)
 
 PANEL_MOVE = "Add & move stake"
 PANEL_POSITIONS = "Positions"
@@ -72,8 +78,20 @@ def show(
 ):
     """Show stake held by a coldkey on a hotkey within a subnet (in the subnet's own currency)."""
     app_ctx: AppContext = ctx_of(ctx)
-    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    # The coldkey resolves first so a missing --hotkey can be picked from that
+    # coldkey's live stake positions — the staked-to hotkey is usually someone
+    # else's validator, not a local hotkey file (and a multisig owner has none).
     owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
+    if hotkey_ss58 is None and interactive(app_ctx):
+        owner_label = coldkey_ss58 or f"wallet {app_ctx.wallet_name!r}"
+        values: dict = {"hotkey_ss58": None, "netuid": netuid}
+        fill_missing(
+            app_ctx,
+            [stake_source_spec("hotkey_ss58", "netuid", owner=(owner, owner_label))],
+            values,
+        )
+        hotkey_ss58 = values["hotkey_ss58"]
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     stake = app_ctx.run(lambda c: c.staking.get(owner, hotkey, netuid))
     app_ctx.output.detail(
         None,
@@ -120,10 +138,10 @@ def stake_list(
 ):
     """List stake per subnet for a coldkey (or all wallets with --all).
 
-    Each subnet shows its total with the per-hotkey breakdown beneath it.
-    When a conviction lock is active, the subnet line also shows locked vs
-    free mass and which hotkey the lock targets; positions on a different
-    hotkey are annotated. JSON carries the same lock fields on each row.
+    One table row per validator position — netuid, stake, locked, spot
+    value, validator, hotkey — sorted by value, largest first. When a
+    conviction lock is active, the subnet's locked mass shows on its
+    largest position. JSON carries the same lock fields on each row.
 
     Root positions still list principal only. Accrued basket yield is a
     separate line under the total (``auto-claim is off → btcli root claim``).
@@ -197,7 +215,7 @@ def stake_list(
         enrich_stake_records_with_root_yield(records, owed_by_ss58, staked_by_ss58)
         shown, dust = (groups, []) if show_dust else split_dust(groups)
         grand_total = Balance(sum(valuations[ss58].stake_value.rao for _, ss58 in coldkeys))
-        app_ctx.output.stake_list(
+        app_ctx.output.stake_table(
             title,
             shown,
             records,
@@ -246,7 +264,7 @@ def stake_list(
     enrich_stake_records_with_locks(records, locks_by_netuid, availability_by_netuid)
     enrich_stake_records_with_root_yield(records, owed_by_ss58, {owner: staked}, default_ss58=owner)
     shown, dust = (groups, []) if show_dust else split_dust(groups)
-    app_ctx.output.stake_list(
+    app_ctx.output.stake_table(
         title,
         shown,
         records,
@@ -304,7 +322,10 @@ def set_auto_stake(
     app_ctx.submit(SetAutoStake(netuid=netuid, hotkey_ss58=hotkey))
 
 
-child_app = typer.Typer(no_args_is_help=True, help="Child hotkey delegation.")
+child_app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Child hotkey delegation.\n\nGuide: {guide_docs_url('staking')}",
+)
 app.add_typer(child_app, name="child", rich_help_panel=PANEL_DELEGATION)
 app.add_typer(child_app, name="children", hidden=True)
 

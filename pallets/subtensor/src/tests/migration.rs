@@ -2928,6 +2928,86 @@ fn test_migrate_clear_root_basket_weights() {
 }
 
 #[test]
+fn test_migrate_enable_root_weight_setting() {
+    new_test_ext(1).execute_with(|| {
+        const MIG_NAME: &[u8] = b"enable_root_weight_setting_v1";
+
+        // Launch state: gate closed, cap at its default.
+        assert!(!crate::RootWeightSettingEnabled::<Test>::get());
+        assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+
+        let w = crate::migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<Test>();
+        assert!(!w.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
+
+        // Gate open, cap pinned to 1/16 explicitly in storage.
+        assert!(crate::RootWeightSettingEnabled::<Test>::get());
+        assert_eq!(
+            crate::RootWeightsCap::<Test>::get(NetUid::ROOT),
+            crate::DEFAULT_ROOT_WEIGHTS_CAP
+        );
+
+        // A re-run must not clobber later governance changes.
+        crate::RootWeightsCap::<Test>::insert(NetUid::ROOT, 1234u16);
+        crate::RootWeightSettingEnabled::<Test>::put(false);
+        let w2 = crate::migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<Test>();
+        assert!(w2.ref_time() <= w.ref_time());
+        assert_eq!(crate::RootWeightsCap::<Test>::get(NetUid::ROOT), 1234u16);
+        assert!(!crate::RootWeightSettingEnabled::<Test>::get());
+    });
+}
+
+#[test]
+fn test_migrate_tune_root_registration() {
+    new_test_ext(1).execute_with(|| {
+        use crate::migrations::migrate_tune_root_registration::{
+            MIGRATION_NAME, ROOT_IMMUNITY_PERIOD, ROOT_MAX_REGISTRATIONS_PER_BLOCK,
+            ROOT_MIN_BURN_RAO, ROOT_TARGET_REGISTRATIONS_PER_INTERVAL,
+        };
+
+        crate::ImmunityPeriod::<Test>::insert(NetUid::ROOT, 4096u16);
+        crate::MaxRegistrationsPerBlock::<Test>::insert(NetUid::ROOT, 64u16);
+        crate::TargetRegistrationsPerInterval::<Test>::insert(NetUid::ROOT, 64u16);
+        crate::MinBurn::<Test>::insert(NetUid::ROOT, TaoBalance::from(500_000u64));
+        crate::Burn::<Test>::insert(NetUid::ROOT, TaoBalance::from(500_000u64));
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        let w = crate::migrations::migrate_tune_root_registration::migrate_tune_root_registration::<
+            Test,
+        >();
+        assert!(!w.is_zero());
+        assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(
+            crate::ImmunityPeriod::<Test>::get(NetUid::ROOT),
+            ROOT_IMMUNITY_PERIOD
+        );
+        assert_eq!(
+            crate::MaxRegistrationsPerBlock::<Test>::get(NetUid::ROOT),
+            ROOT_MAX_REGISTRATIONS_PER_BLOCK
+        );
+        assert_eq!(
+            crate::TargetRegistrationsPerInterval::<Test>::get(NetUid::ROOT),
+            ROOT_TARGET_REGISTRATIONS_PER_INTERVAL
+        );
+        assert_eq!(
+            crate::MinBurn::<Test>::get(NetUid::ROOT),
+            ROOT_MIN_BURN_RAO.into()
+        );
+        assert_eq!(
+            crate::Burn::<Test>::get(NetUid::ROOT),
+            ROOT_MIN_BURN_RAO.into()
+        );
+
+        crate::ImmunityPeriod::<Test>::insert(NetUid::ROOT, 1u16);
+        let w2 = crate::migrations::migrate_tune_root_registration::migrate_tune_root_registration::<
+            Test,
+        >();
+        assert!(w2.ref_time() <= w.ref_time());
+        assert_eq!(crate::ImmunityPeriod::<Test>::get(NetUid::ROOT), 1u16);
+    });
+}
+
+#[test]
 fn test_migrate_remove_tao_dividends() {
     const MIGRATION_NAME: &str = "migrate_remove_tao_dividends";
     let pallet_name = "SubtensorModule";

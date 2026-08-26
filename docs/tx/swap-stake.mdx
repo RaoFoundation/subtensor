@@ -19,7 +19,7 @@ leg separately. Pass `all` to swap the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1365-L1381), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1513-L1533) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1379-L1395), [`SubtensorModule.swap_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1527-L1547) |
 
 ## Parameters
 
@@ -79,7 +79,7 @@ result = sub.execute_tool("swap_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1367`](/code/pallets/subtensor/src/macros/dispatches.rs#L1365-L1381):
+`SubtensorModule.swap_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1381`](/code/pallets/subtensor/src/macros/dispatches.rs#L1379-L1395):
 
 ```rust
 #[pallet::call_index(87)]
@@ -101,9 +101,9 @@ pub fn swap_stake(
 }
 ```
 
-Delegates to [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L302).
+Delegates to [`do_swap_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L336).
 
-`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1515`](/code/pallets/subtensor/src/macros/dispatches.rs#L1513-L1533):
+`SubtensorModule.swap_stake_limit` — [`pallets/subtensor/src/macros/dispatches.rs#L1529`](/code/pallets/subtensor/src/macros/dispatches.rs#L1527-L1547):
 
 ```rust
 #[pallet::call_index(90)]
@@ -129,6 +129,6 @@ pub fn swap_stake_limit(
 }
 ```
 
-Delegates to [`do_swap_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L367).
+Delegates to [`do_swap_stake_limit`](/code/pallets/subtensor/src/staking/move_stake.rs#L401).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

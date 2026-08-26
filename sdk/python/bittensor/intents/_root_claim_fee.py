@@ -157,6 +157,19 @@ class RootClaimFeeQuote:
             or self.holdings > _MAX_ROOT_CLAIM_WORK
         )
 
+    def facts(self) -> list[tuple[str, str]]:
+        """The fee picture as (label, value) pairs for structured renderers."""
+        kinds = "holding" if self.holdings == 1 else "holdings"
+        rows = [
+            ("holdings", f"{self.holdings} basket {kinds} (fee scales with ALPHA types)"),
+            ("reserved", f"{self.reserved} at inclusion"),
+            ("spent", f"~{self.spent}"),
+        ]
+        if self.refund.rao > 0:
+            rows.append(("refunded", f"~{self.refund}"))
+        rows.append(("accrued", str(self.accrued)))
+        return rows
+
     def effects(self) -> list[str]:
         kinds = "holding" if self.holdings == 1 else "holdings"
         fee_line = f"reserved {self.reserved} at inclusion; spent ~{self.spent}"
