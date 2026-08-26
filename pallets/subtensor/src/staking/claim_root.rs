@@ -202,8 +202,17 @@ impl<T: Config> Pallet<T> {
             DispatchError::Other("basket deposit too small")
         );
 
+        // `nav_before == 0` with outstanding shares means `basket_shares_for_value`
+        // took its dust-revival branch: this par mint starts a new fund life, so the
+        // previous life's display baseline/TWR must not describe it.
+        if nav_before == 0 && shares_outstanding > 0 {
+            Self::retire_beta_display_state(hotkey);
+        }
+
         BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_add(shares));
         BasketRate::<T>::mutate(hotkey, |rate| *rate = rate.saturating_add(increment));
+        // Canonical staker total-return series (display state, see `BasketTwr`).
+        Self::accrue_basket_twr(hotkey, stakers_value, total_root);
         BasketDepositedTao::<T>::mutate(hotkey, |total| {
             *total = total.saturating_add(value_added.into())
         });
@@ -410,9 +419,13 @@ impl<T: Config> Pallet<T> {
             },
         )?;
 
+        // A fund's very first successful mint stamps its frozen display baseline
+        // (index splice). No-op (one read) for every later deposit.
+        let stamp_work = Self::stamp_beta_baseline_if_new(&hotkey);
+
         Ok(Self::stake_into_basket_weight(
             valid.len() as u64,
-            num_holdings,
+            num_holdings.saturating_add(stamp_work),
         ))
     }
 
@@ -439,6 +452,13 @@ impl<T: Config> Pallet<T> {
         let shares: u64 =
             Self::basket_shares_for_value(value_added, nav_before, shares_outstanding);
         ensure!(shares > 0, Error::<T>::AmountTooLow);
+
+        // `nav_before == 0` with outstanding shares means `basket_shares_for_value`
+        // took its dust-revival branch: this par mint starts a new fund life, so the
+        // previous life's display baseline/TWR must not describe it.
+        if nav_before == 0 && shares_outstanding > 0 {
+            Self::retire_beta_display_state(hotkey);
+        }
 
         BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_add(shares));
         Self::grant_basket_shares(hotkey, coldkey, shares);
@@ -679,7 +699,15 @@ impl<T: Config> Pallet<T> {
             Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, total_tao);
 
             // Consume the claimed shares and advance the watermark.
-            BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_sub(owed_shares));
+            let remaining = BasketShares::<T>::mutate(hotkey, |p| {
+                *p = p.saturating_sub(owed_shares);
+                *p
+            });
+            if remaining == 0 {
+                // This fund life just ended; retire its display baseline/TWR so a
+                // future revival stamps fresh instead of inheriting a stale splice.
+                Self::retire_beta_display_state(hotkey);
+            }
             BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
                 *claimed = claimed.saturating_add(i128::from(owed_shares));
             });
@@ -966,6 +994,10 @@ impl<T: Config> Pallet<T> {
         if rate != I96F32::saturating_from_num(0) {
             BasketRate::<T>::mutate(new_hotkey, |r| *r = r.saturating_add(rate));
         }
+
+        // Display state (frozen baseline + TWR) follows the fund; the clean-root gate
+        // guarantees the destination holds none, so this is a pure move.
+        Self::transfer_beta_display_state(old_hotkey, new_hotkey);
 
         // Lifetime performance counters follow the fund.
         let deposited = BasketDepositedTao::<T>::take(old_hotkey);

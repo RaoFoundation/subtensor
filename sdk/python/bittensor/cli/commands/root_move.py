@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 
 from ...balance import Balance
-from ...basket_index import normalize_position
+from ...basket_index import normalize_positions
 from ...intents import ALL, MoveStake
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_tx_globals
@@ -142,8 +142,7 @@ def root_move(
         if dest is None:
             with app_ctx.output.activity("fetching validator baskets…"):
                 records = app_ctx.run(lambda c: c.read("root_baskets"))
-                for record in records:
-                    normalize_position(record)
+                normalize_positions(records)
                 records.sort(key=lambda record: -record["nav_tao"].rao)
             chosen_dest = pick_fund(
                 console,

@@ -308,7 +308,9 @@ impl<T: Config> Pallet<T> {
         });
 
         if outcome.is_ok() {
-            return work;
+            // A fund's very first successful mint stamps its frozen display baseline
+            // (index splice). No-op (one read) for every later deposit.
+            return work.saturating_add(Self::stamp_beta_baseline_if_new(hotkey));
         }
 
         // Soft failure: split a multi-credit batch so one bad origin cannot sink the rest.

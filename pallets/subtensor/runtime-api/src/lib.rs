@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
-    basket_info::{BasketPosition, BasketSummary},
+    basket_info::{BasketPosition, BasketSummary, BetaPosition, BetaPricing},
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
@@ -114,5 +114,29 @@ sp_api::decl_runtime_apis! {
         /// on which it has owed shares.
         #[api_version(2)]
         fn get_root_basket_portfolio(coldkey: AccountId32) -> Vec<BasketPosition<AccountId32>>;
+        /// One fund's standardized pricing snapshot (index-spliced display price,
+        /// total-return stake price, staker yield, live index levels), or `None` when
+        /// the hotkey has no outstanding shares. The single source of truth every
+        /// consumer should display.
+        #[api_version(3)]
+        fn get_beta_pricing(hotkey: AccountId32) -> Option<BetaPricing<AccountId32>>;
+        /// Pricing snapshots for every fund with outstanding shares, all marked against
+        /// one consistent live index sweep — the whole leaderboard in one call.
+        #[api_version(3)]
+        fn get_all_beta_pricing() -> Vec<BetaPricing<AccountId32>>;
+        /// The live `(bag index, stake index)` levels: the spot-NAV-weighted mean
+        /// display price (mix performance) and mean total-return stake price (what τ1
+        /// staked in the average fund became).
+        #[api_version(3)]
+        fn get_beta_index() -> (U64F64, U64F64);
+        /// One staker's display-denominated β position on one validator
+        /// (`display_beta * display_price` = spot value; `value_tao` = what a claim
+        /// pays), or `None` when the staker has no owed β there.
+        #[api_version(3)]
+        fn get_beta_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<BetaPosition<AccountId32>>;
+        /// A coldkey's full display-denominated β portfolio, one position per validator
+        /// with owed β, all marked against one consistent index sweep.
+        #[api_version(3)]
+        fn get_beta_portfolio(coldkey: AccountId32) -> Vec<BetaPosition<AccountId32>>;
     }
 }

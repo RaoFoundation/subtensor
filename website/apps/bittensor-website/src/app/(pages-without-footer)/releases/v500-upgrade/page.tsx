@@ -6,12 +6,14 @@ import snapshot from '../../../../../public/catalog/root-reborn-snapshot.json';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V449 Upgrade — Curated Beta',
+  title: 'The V500 Upgrade — Curated Beta',
   description:
-    'V449 enables set_root_weights. Validators curate their dividend baskets under a ' +
-    '1/16 concentration cap. btcli root list, allocate, claim, and weights are the ' +
-    'working surface.',
-  alternates: {canonical: '/releases/v449-upgrade'},
+    'V500 enables set_root_weights. Validators curate their dividend baskets under a ' +
+    '1/16 concentration cap, and the chain itself now computes the basket index and ' +
+    'every fund’s display price, staker yield, and positions — one canonical number ' +
+    'for btcli, explorers, and contracts. btcli root list, allocate, claim, and ' +
+    'weights are the working surface.',
+  alternates: {canonical: '/releases/v500-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -169,7 +171,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>The V449 Upgrade</h1>
+          <h1 className={styles.paper_title}>The V500 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Curated Beta · August 2026
           </p>
@@ -185,8 +187,8 @@ const page = () => {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>449</strong> turns on <code>set_root_weights</code>. From the upgrade
-            block a root validator can choose how its dividend stream (the yeild from root stake) is re-deployed across subnet
+            Spec <strong>500</strong> turns on <code>set_root_weights</code>. From the upgrade
+            block a root validator can choose how its dividend stream (the yield from root stake) is re-deployed across subnet
             alpha.
           </p>
           <p>
@@ -194,13 +196,20 @@ const page = () => {
             at least 16 destinations. <code>btcli root</code> is the working surface: list,
             allocate, claim, and weights.
           </p>
+          <p>
+            The scoreboard itself also moves on chain: the runtime now computes the basket
+            index and every fund&apos;s index-spliced display price, staker yield, and
+            positions, so btcli, explorers, and contracts all read the same canonical
+            numbers instead of each interpreting raw state. This release supersedes the
+            unshipped 449 tag; everything proposed there ships here.
+          </p>
         </section>
 
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Allocate, accrue, claim</h2>
           <p className={styles.graph_caption}>
-            As the root reborn update, root principal stays as root stake in TAO, yield accrues as beta (a share in a basket of alpha tokens).
-            These can be 'claimed' into TAO which folds the yeild back into stake.
+            As with the Root Reborn update, root principal stays as root stake in TAO, yield accrues as beta (a share in a basket of alpha tokens).
+            These can be 'claimed' into TAO which folds the yield back into stake.
           </p>
 
           <div className={styles.step}>
@@ -304,6 +313,45 @@ btcli root register`}
         </section>
 
         <section className={styles.section}>
+          <h2 className={styles.subtitle}>One price, defined by the chain</h2>
+          <p>
+            Raw fund prices (<code>NAV / β supply</code>) carry arbitrary historical
+            baselines, so they are not comparable across funds of different ages. Until now
+            the fix — splicing every fund onto a common index at its birth — lived in a
+            frozen table inside the SDK: an interpretation only btcli shared. V500 makes
+            that convention chain state.
+          </p>
+          <p>
+            Every fund gets a frozen <code>BetaBaseline</code>, stamped once at its first
+            share mint. The stamp marks both the fund&apos;s own price and the index level
+            at <em>realizable</em> quotes — what selling would actually fetch, bounded by
+            pool depth — so a baseline cannot be poisoned by briefly pumping a thin
+            pool&apos;s spot price. A migration seeds the baselines the SDK has been
+            displaying, so every number is continuous through the upgrade. Baselines live
+            exactly as long as their fund: fully claimed out means retired, and a revival
+            stamps fresh.
+          </p>
+          <p>
+            The runtime also keeps <code>BasketTwr</code>, a per-fund total-return
+            accumulator that compounds with every dividend mint. Staker return over any
+            window is a pure ratio of two samples — the canonical answer to &quot;if I
+            staked τ1 here, what did I earn?&quot;
+          </p>
+          <p>
+            Five new <code>betaBasket</code> runtime APIs serve the whole surface:{' '}
+            <code>get_all_beta_pricing</code> (the leaderboard in one call, every fund
+            marked against one index sweep), <code>get_beta_pricing</code>,{' '}
+            <code>get_beta_index</code> (the live bag and stake index levels), and{' '}
+            <code>get_beta_position</code> / <code>get_beta_portfolio</code> (a
+            staker&apos;s holdings in display units, where{' '}
+            <code>display_beta × display_price</code> is the position&apos;s value). On
+            v500 nodes, <code>btcli root list</code> is a pass-through of these numbers;
+            its local math remains only as a fallback for older nodes and pre-upgrade
+            history.
+          </p>
+        </section>
+
+        <section className={styles.section}>
           <h2 className={styles.subtitle}>What changed on chain</h2>
           <p>
             The migration sets <code>RootWeightSettingEnabled</code> to true and writes{' '}
@@ -316,9 +364,16 @@ btcli root register`}
             demands, the check is skipped.
           </p>
           <p>
+            The upgrade also adds the standardized pricing layer above:{' '}
+            <code>BetaBaseline</code> and <code>BasketTwr</code> storage, baseline stamping
+            at first mint, a migration seeding the SDK&apos;s historical baselines, and the
+            five <code>betaBasket</code> pricing APIs (runtime API v3).
+          </p>
+          <p>
             SDK 11.3.0 ships with the runtime. That is the version that has{' '}
             <code>btcli root list</code>, <code>allocate</code>, <code>claim</code>, and{' '}
-            <code>weights</code>, plus the index-spliced β rate. Upgrade:
+            <code>weights</code>, plus the index-spliced β rate — read straight from the
+            chain&apos;s pricing APIs on upgraded nodes. Upgrade:
           </p>
           <pre className={styles.code_block}>{`pip install -U bittensor`}</pre>
           <p>

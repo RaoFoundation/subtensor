@@ -20,7 +20,7 @@ from rich.console import Console
 
 from ..._generated import storage
 from ...balance import Balance
-from ...basket_index import age_days, index_level, normalize_position
+from ...basket_index import age_days, index_level, normalize_positions
 from ...intents import ALL, ClaimRootWithHotkey, RootRegister, StakeIntoBasket
 from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
@@ -68,7 +68,8 @@ def _fund_display_context(app_ctx: AppContext, hotkeys: list[str]) -> tuple[dict
         return {}, {}
     wanted = set(hotkeys)
     summaries = app_ctx.run(lambda c: c.read("root_baskets"))
-    funds = {s["hotkey"]: normalize_position(s) for s in summaries if s["hotkey"] in wanted}
+    normalize_positions(summaries)
+    funds = {s["hotkey"]: s for s in summaries if s["hotkey"] in wanted}
     local = local_address_names(app_ctx.wallet_path)
     unnamed = [hk for hk in hotkeys if hk not in local]
     identities = app_ctx.run(lambda c: chain_identity_names(c, unnamed)) if unnamed else {}
@@ -82,6 +83,8 @@ def _enrich_position_records(records: list[dict], funds: dict, names: dict) -> l
         record["name"] = names.get(record["hotkey"])
         record["price_tao"] = fund["display_price_tao"] if fund else None
         record["vs_index"] = fund["vs_index"] if fund else None
+        record["stake_value"] = fund["stake_value"] if fund else None
+        record["stake_vs_index"] = fund["stake_vs_index"] if fund else None
         record["index_provisional"] = fund["index_provisional"] if fund else None
     return records
 
@@ -97,9 +100,9 @@ def _render_positions(
 
     Each row shows the validator's name, staked τ (principal on netuid 0),
     accrued τ (fund yield, realizable quote), the total value, and the fund's
-    index-spliced beta rate with its performance vs the basket index. JSON
-    records use ``staked_tao``, ``accrued_tao``, ``total_tao``, ``price_tao``,
-    and ``vs_index``.
+    staker β price with its performance vs the β index. JSON records use
+    ``staked_tao``, ``accrued_tao``, ``total_tao``, ``stake_value``,
+    ``stake_vs_index``, plus the bag's ``price_tao`` / ``vs_index``.
     """
     # Resolve wallets before starting the spinner: resolve_address may prompt
     # interactively, and a prompt under a live spinner cannot take input.
@@ -150,6 +153,7 @@ def _render_positions(
         app_ctx.output.account_text(pos.hotkey, names.get(pos.hotkey), kind="hotkey")
         for pos in shown
     ]
+    index = next((fund.get("basket_index") for fund in funds.values()), index_level())
     app_ctx.output.entity_list(
         title,
         "validator",
@@ -157,7 +161,7 @@ def _render_positions(
         position_columns(all_wallets),
         position_rows(shown, all_wallets, funds=funds),
         shown_records,
-        footer=f"[dim]total {total}  ·  basket index {index_level():.4f}[/dim]",
+        footer=f"[dim]total {total}  ·  basket index {index:.4f} (spot)[/dim]",
         legend=[
             (
                 "staked (τ)",
@@ -175,14 +179,15 @@ def _render_positions(
             ),
             ("total (τ)", "staked + accrued: the full position value."),
             (
-                "rate (τ/β)",
-                "TAO per beta, index-spliced: starts at the index level of the "
-                "fund's launch, so higher = better lifetime performance.",
+                "β (τ)",
+                "the fund's staker β price: what τ1 of root stake is worth "
+                "(principal + accrued yield), spliced onto the β index at the "
+                "fund's first sighting — ratios are staker returns.",
             ),
             (
                 "vs index",
-                "the fund's cumulative out/under-performance vs the average "
-                "basket; 0% = market-average.",
+                "the β price vs the β index (the average fund's total return); "
+                "0% = market-average earnings.",
             ),
         ],
     )
@@ -208,14 +213,17 @@ def _render_leaderboard(app_ctx: AppContext, show_dust: bool) -> None:
 
     with app_ctx.output.activity("loading validators…") as update:
         records, stakes, current_block = app_ctx.run(_fetch)
-        level = index_level()
+        level = normalize_positions(records)
         for record, stake in zip(records, stakes):
             record["stake_tao"] = Balance.from_rao(int(stake or 0))
-            normalize_position(record)
             age = age_days(record["index_first_block"], current_block)
             record["age_days"] = age
             spot = record["spot_nav_tao"].tao
             record["redemption_slippage"] = 1 - record["nav_tao"].tao / spot if spot > 0 else None
+            fund_yield = record.get("staker_yield")
+            record["yield_per_year"] = (
+                fund_yield / age * 365 if fund_yield is not None and age else None
+            )
         records.sort(key=lambda entry: -entry["nav_tao"].rao)
 
         shown = records if show_dust else [r for r in records if r["nav_tao"].tao >= DUST_VALUE_TAO]
@@ -240,12 +248,27 @@ def _render_leaderboard(app_ctx: AppContext, show_dust: bool) -> None:
         app_ctx.output.account_text(record["hotkey"], record.get("name"), kind="hotkey")
         for record in shown
     ]
-    columns = ["stake (τ)", "rate (τ/β)", "vs index", "nav (τ)", "slippage", "age (days)"]
+    columns = [
+        "stake (τ)",
+        "β (τ)",
+        "yield",
+        "yield /yr",
+        "vs index",
+        "nav (τ)",
+        "slippage",
+        "age (days)",
+    ]
     rows = [
         [
             f"{record['stake_tao'].tao:,.4f}",
-            f"{record['display_price_tao']:.4f}" + ("*" if record["index_provisional"] else ""),
-            f"{record['vs_index']:+.2%}",
+            (
+                f"{record['stake_value']:.4f}" + ("*" if record["index_provisional"] else "")
+                if record["stake_value"] is not None
+                else "—"
+            ),
+            f"{record['staker_yield']:.2%}" if record["staker_yield"] is not None else "—",
+            f"{record['yield_per_year']:.1%}" if record["yield_per_year"] is not None else "—",
+            f"{record['stake_vs_index']:+.2%}" if record["stake_vs_index"] is not None else "—",
             f"{record['nav_tao'].tao:,.4f}",
             f"{record['redemption_slippage']:.2%}"
             if record["redemption_slippage"] is not None
@@ -254,7 +277,10 @@ def _render_leaderboard(app_ctx: AppContext, show_dust: bool) -> None:
         ]
         for record in shown
     ]
-    summary = f"basket index {level:.4f}  ·  above index = beating the average basket"
+    stake_index = next((r["stake_index"] for r in shown if r.get("stake_index")), None)
+    summary = (
+        f"β index {stake_index:.4f}" if stake_index else "β index —"
+    ) + f"  ·  basket index {level:.4f} (spot)  ·  above index = out-earning the average fund"
     if hidden:
         summary += f"  ·  {hidden} dust funds hidden (--dust to show)"
     summary += "  ·  your positions: btcli root list --mine"
@@ -272,14 +298,30 @@ def _render_leaderboard(app_ctx: AppContext, show_dust: bool) -> None:
                 "total TAO staked to this validator on root (netuid 0).",
             ),
             (
-                "rate (τ/β)",
-                "TAO per beta. Index-spliced: every fund starts at the index level "
-                "of its launch, so higher = better lifetime performance at any age.",
+                "β (τ)",
+                "the staker β price: what τ1 of root stake is worth (principal "
+                "+ accrued yield at today's spot rate), spliced onto the β "
+                "index at the fund's first sighting. Ratios are your return: "
+                "stake at 1.0, ride to 1.1 ≈ you made 10%. Distinct from the "
+                "fund's mint rate in τ/β quoted when allocating.",
+            ),
+            (
+                "yield",
+                "what τ1 staked here earned since the fund's first sighting on "
+                "the index grid: β entitlement minted per τ of root stake over "
+                "that period, valued at today's spot rate. This is the "
+                "root-staker dividend pipe — allocating (buying β) does not "
+                "earn it.",
+            ),
+            (
+                "yield /yr",
+                "that yield annualized over the same period, for comparing "
+                "funds of different ages.",
             ),
             (
                 "vs index",
-                "cumulative out/under-performance vs the average basket "
-                "(the index); 0% = market-average.",
+                "the β price vs the β index (the average fund's total return): "
+                "above 0% = staking here out-earned the market.",
             ),
             (
                 "nav (τ)",
@@ -336,11 +378,13 @@ def root_list(
 ):
     """The fund leaderboard, one fund in detail, or your own positions.
 
-    Without arguments: every validator basket measured against the basket
-    index, sorted by NAV. Rates are index-spliced: each fund's rate starts
-    at the index level of its launch, so a mediocre fund sits on the index
-    whether it is three days or three years old; `vs index` is the fund's
-    out/under-performance against the average basket.
+    Without arguments: every validator basket, sorted by NAV. `staked τ1`
+    is the total-return stake price — what τ1 of root stake is worth there,
+    principal plus accrued yield — spliced onto the stake index at the
+    fund's first sighting so any age compares directly. `vs index` is that
+    price against the average fund's total return. The bag's own
+    index-spliced β price stays in the detail view, the allocate picker,
+    and JSON output (`display_price_tao` / `vs_index`).
 
     With a validator (hotkey ss58, root UID, or name): that fund's weights,
     holdings, and performance — plus your position on it, if any.
@@ -620,8 +664,7 @@ def root_allocate(
     console = Console()
     with app_ctx.output.activity("fetching validator baskets…"):
         records = app_ctx.run(lambda c: c.read("root_baskets"))
-        for record in records:
-            normalize_position(record)
+        normalize_positions(records)
         records.sort(key=lambda record: -record["nav_tao"].rao)
 
     chosen = pick_fund(console, app_ctx, records, flag=address_cli_name("hotkey_ss58"))

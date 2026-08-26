@@ -443,6 +443,41 @@ pub mod pallet {
         pub earned: AlphaBalance,
     }
 
+    /// A beta-basket fund's frozen display baseline, stamped once at the fund's first
+    /// share mint (its "first sighting") and never rewritten.
+    ///
+    /// Raw beta prices (`spot NAV / shares`) carry arbitrary historical baselines, so
+    /// levels are not comparable across funds of different ages. The baseline splices
+    /// every fund onto two common index lines at birth — the way a new share class of a
+    /// fund launches at the master fund's current NAV rather than at $1:
+    ///
+    /// * display (bag) price = `raw_price / price_divisor` — starts at the basket
+    ///   index level of the stamp block (both sides marked at realizable quotes, so
+    ///   a stamp cannot be poisoned by a spot-price push);
+    /// * total-return stake price = `(1 + (BasketRate - rate0) * raw_price) * tr_splice`
+    ///   — the wealth of τ1 staked at the stamp block, growing only with dividends
+    ///   actually minted to stakers since then.
+    ///
+    /// See `staking/beta_pricing.rs` for the index and pricing math built on this.
+    #[crate::freeze_struct("82220292e3e1e85b")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaBaselineOf {
+        /// Divisor splicing the raw beta price onto the basket index: the fund's raw
+        /// price at the stamp block over the index level at that block.
+        pub price_divisor: U64F64,
+        /// The fund's `BasketRate` at the stamp block. Display yield only counts rate
+        /// accrued past this, so pre-period (e.g. migration-seeded legacy) history is
+        /// excluded from every fund's yield the same way.
+        pub rate0: I96F32,
+        /// The staker total-return index level at the stamp block: the launch price of
+        /// τ1 staked on this fund, in total-return index units.
+        pub tr_splice: U64F64,
+        /// Block at which this baseline was stamped.
+        pub first_block: u64,
+    }
+
     // ============================
     // ==== Staking + Accounts ====
     // ============================
@@ -523,6 +558,11 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultZeroI96F32<T: Config>() -> I96F32 {
         I96F32::saturating_from_num(0)
+    }
+    /// Default one for U64F64 accumulators (multiplicative identity).
+    #[pallet::type_value]
+    pub fn DefaultOneU64F64<T: Config>() -> U64F64 {
+        U64F64::saturating_from_num(1)
     }
     /// Default value for Alpha currency.
     #[pallet::type_value]
@@ -2929,6 +2969,39 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketRate<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, I96F32, ValueQuery, DefaultZeroI96F32<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's frozen display baseline (see
+    /// [`BetaBaselineOf`]).
+    ///
+    /// Stamped once at the fund's first share mint (or seeded from the frozen SDK table by
+    /// `migrate_stamp_beta_baselines` for funds that predate on-chain stamping) and never
+    /// rewritten, so the spliced display/stake prices stay continuous for the fund's whole
+    /// life. Scoped to one fund *life*: follows the fund on hotkey swap, and is retired
+    /// when the last share is claimed or a dust revival starts a new life (see
+    /// `retire_beta_display_state`), so an entry exists only while the fund has
+    /// outstanding shares. Also absent for funds born before this storage existed that
+    /// have not minted since; such funds price provisionally at the live index level
+    /// until their next mint stamps them.
+    #[pallet::storage]
+    pub type BetaBaseline<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BetaBaselineOf, OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's staker total-return accumulator.
+    ///
+    /// The canonical root-staker yield series. Starts at 1.0 and multiplies by
+    /// `1 + stakers_value / total_root_stake` on every dividend share mint — the value that
+    /// deposit actually added per rao of claimant root stake, locked in at the deposit's own
+    /// (realizable) pricing. Flows never move it; only dividends do. The staker return of
+    /// τ1 staked over any window, under the claim-and-restake-continuously convention, is
+    /// `Twr(t1) / Twr(t0) - 1`, so any two archive samples agree for every consumer. The
+    /// hold-without-claiming alternative, `(BasketRate(t1) - BasketRate(t0)) * beta_price(t1)`,
+    /// is derivable from primitives that are also on-chain. Accumulates from the upgrade that
+    /// introduced it; earlier history lives in the SDK's frozen index series. Like
+    /// [`BetaBaseline`], scoped to one fund life: moves on hotkey swap and is retired when
+    /// the fund drains or a dust revival starts a new life.
+    #[pallet::storage]
+    pub type BasketTwr<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, U64F64, ValueQuery, DefaultOneU64F64<T>>;
 
     /// --- DMAP ( validator_hotkey, staker_coldkey ) --> fund shares already claimed (watermark).
     ///

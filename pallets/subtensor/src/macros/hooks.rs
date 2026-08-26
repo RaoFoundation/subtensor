@@ -222,7 +222,12 @@ mod hooks {
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())
                 // Schedule stale StakingHotkeys relationship cleanup. It runs after storage GC
                 // and uses only otherwise-unused on_idle weight; normal operations stay enabled.
-                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>());
+                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>())
+                // Seed frozen per-fund display baselines (index splice) from the SDK table
+                // for funds that predate on-chain stamping. Gated on live BasketShares, so
+                // it only stamps on chains where the beta-basket seed already completed;
+                // unseeded funds are stamped live at their next share mint.
+                .saturating_add(migrations::migrate_stamp_beta_baselines::migrate_stamp_beta_baselines::<T>());
             weight
         }
 

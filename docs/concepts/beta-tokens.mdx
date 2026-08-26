@@ -54,12 +54,16 @@ The **basket index** is the average of all live funds, weighted by size
 do not move it. Only whether the holdings themselves went up or down
 does. `btcli root list` uses this line as “the market.”
 
-**Normalization** splices each fund onto that line the day it first
-appears, the way a new share class of a mutual fund launches at today’s
-NAV instead of at $1:
+**Normalization** splices each fund onto that line the day it is born,
+the way a new share class of a mutual fund launches at today’s NAV
+instead of at $1:
 
-- A **baseline** is stamped: `raw price at first sighting / index that
-  day`.
+- A **baseline** is stamped at the fund’s first share mint:
+  `raw price that block / index level that block`. Since v500 the chain
+  stamps and stores this itself, and both sides of that division use
+  **realizable** quotes — what selling would actually fetch, bounded by
+  pool depth — so nobody can poison a baseline by briefly pumping a thin
+  pool’s spot price.
 - **Display price** is `raw price / baseline`. A new fund starts on the
   index, not at 1.0.
 - **Display β** is `your β × baseline`, so `display β × display price`
@@ -70,9 +74,29 @@ one. On the line means “did what the average basket did,” whether the
 fund is three days or three years old. Above the line means it beat the
 market.
 
-This is display only. The chain still prices and redeems at raw
-`value / β`. A fund too new for the shipped table gets a temporary
-baseline pinned to today’s index until the table is rebuilt.
+This is display only — the chain still prices and redeems at raw
+`value / β` — but the convention itself is now **defined by the chain**,
+not by each wallet: the runtime computes the index, every fund’s display
+price, and each staker’s display β, and serves them over the
+`betaBasket` RPCs. btcli, explorers, and contracts all show the same
+number because they all read the same one.
+
+Two lifecycle details. A brand-new fund prices *provisionally* — pinned
+to today’s index — only until its first share mint stamps the real
+baseline. And a baseline lives exactly as long as its fund: if every
+share is claimed out, the baseline retires with it, and a later revival
+starts a fresh life with a fresh stamp instead of inheriting a stale
+one.
+
+## Yield, on the same line
+
+The bag index answers “how did the *holdings* do.” Root stakers earn a
+second stream — dividends minted as new β — and that gets its own line:
+the **stake index**, the wealth of τ1 of root stake earning the average
+fund’s dividends. Each fund’s **staker yield** (what τ1 staked there
+earned since its birth) and **stake price** (that yield spliced onto the
+stake index) come from the same chain RPCs, so “which fund paid its
+stakers best” is as canonical as the price itself.
 
 ## How you get beta, and how you get TAO back
 
