@@ -478,38 +478,60 @@ pub mod pallet {
         pub first_block: u64,
     }
 
-    /// A published beta-index snapshot: the NAV-weighted `(bag, stake)` index levels over
-    /// every stamped fund, marked at realizable quotes. Baseline stamps splice onto the
-    /// latest snapshot instead of sweeping inline, which is what keeps stamp work bounded
-    /// in signed dispatch and block processing (see `advance_beta_index_sweep`).
-    #[crate::freeze_struct("50476bfcd15ffba5")]
+    /// A published beta-index snapshot: the chained `(bag, stake)` index levels, marked at
+    /// realizable quotes. Each completed sweep pass multiplies the previous levels by the
+    /// prior-NAV-weighted mean of per-fund price relatives, so capital flows never move
+    /// the index — only fund returns do. Baseline stamps and the pricing runtime APIs
+    /// splice onto / read the latest snapshot instead of sweeping inline, which is what
+    /// keeps their work bounded (see `advance_beta_index_sweep`).
+    #[crate::freeze_struct("dab9adbdbe9f4ef4")]
     #[derive(
         Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
     )]
     pub struct BetaIndexSnapshotOf {
-        /// NAV-weighted mean display price across stamped funds (realizable mark).
+        /// Chained NAV-weighted display-price index level (realizable mark).
         pub bag_level: U64F64,
-        /// NAV-weighted mean total-return stake price across stamped funds.
+        /// Chained NAV-weighted total-return stake index level.
         pub stake_level: U64F64,
         /// Block at which the sweep that produced these levels completed.
         pub block: u64,
     }
 
-    /// In-progress state of the paged beta-index sweep: partial NAV-weighted sums plus the
-    /// raw storage key to resume iteration from. One bounded page advances per block; when
-    /// the pass completes the sums publish as a [`BetaIndexSnapshotOf`].
-    #[crate::freeze_struct("a344782f21a8d170")]
+    /// One fund's sample from the last completed index-sweep pass: the start-of-period
+    /// state the next pass chains against. The fund's next price relative is
+    /// `display_now / display`, weighted by `nav` (start-of-period size), so deposits and
+    /// redemptions between passes change the *weight* but never fabricate a return.
+    /// Scoped to one fund life, like `BetaBaseline`: moved on hotkey swap and removed on
+    /// retirement, so a revived fund never chains across lives.
+    #[crate::freeze_struct("9adef5cfda198dd3")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaIndexFundSampleOf {
+        /// Realizable NAV (rao) at the sample; the fund's weight in the next relative.
+        pub nav: u64,
+        /// Display price at the sample (denominator of the next bag relative).
+        pub display: U64F64,
+        /// Total-return stake price at the sample (denominator of the next stake relative).
+        pub stake: U64F64,
+    }
+
+    /// In-progress state of the paged beta-index sweep: partial sums of the chained-index
+    /// relatives plus the raw storage key to resume iteration from. One bounded page
+    /// advances per block; when the pass completes, the previous snapshot levels are
+    /// multiplied by the aggregate relatives and published as a [`BetaIndexSnapshotOf`].
+    #[crate::freeze_struct("9b6150dad57406fa")]
     #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
     pub struct BetaIndexSweepOf {
         /// Raw storage key of the last `BetaBaseline` entry processed; empty means the
         /// pass starts from the top of the map.
         pub cursor: Vec<u8>,
-        /// Σ nav (rao) across qualifying funds processed so far.
+        /// Σ previous-pass nav (rao) across funds with samples at both ends of the period.
         pub weight_sum: u128,
-        /// Σ nav × display price so far.
-        pub bag_sum: U64F64,
-        /// Σ nav × stake price so far.
-        pub stake_sum: U64F64,
+        /// Σ previous nav × (display now / display previous) so far.
+        pub rel_bag_sum: U64F64,
+        /// Σ previous nav × (stake now / stake previous) so far.
+        pub rel_stake_sum: U64F64,
     }
 
     // ============================
@@ -3052,6 +3074,17 @@ pub mod pallet {
     /// page per block and clears this on completion.
     #[pallet::storage]
     pub type BetaIndexSweep<T: Config> = StorageValue<_, BetaIndexSweepOf, OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's last completed index-sweep sample
+    /// (see [`BetaIndexFundSampleOf`]).
+    ///
+    /// Written by the sweep as it visits each fund (the current pass's sample replaces the
+    /// previous pass's in the same visit) and consumed as the start-of-period state of the
+    /// next pass's price relative. Removed when the fund becomes unpriceable, retires, or
+    /// starts a new life, so no relative ever chains across a gap in the fund's history.
+    #[pallet::storage]
+    pub type BetaIndexFundSample<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BetaIndexFundSampleOf, OptionQuery>;
 
     /// --- DMAP ( validator_hotkey, staker_coldkey ) --> fund shares already claimed (watermark).
     ///

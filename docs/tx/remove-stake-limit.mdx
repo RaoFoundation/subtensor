@@ -20,7 +20,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1482-L1500), [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L612-L621), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2004-L2023), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.remove_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1482-L1500), [`SubtensorModule.remove_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L612-L621), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -84,7 +84,7 @@ result = sub.execute_tool("remove_stake_limit", {...}, wallet)
 | --- | --- |
 | `SubtensorModule.remove_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1484`](/code/pallets/subtensor/src/macros/dispatches.rs#L1482-L1500) |
 | `SubtensorModule.remove_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L614`](/code/pallets/subtensor/src/macros/dispatches.rs#L612-L621) |
-| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2008`](/code/pallets/subtensor/src/macros/dispatches.rs#L2004-L2023) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2012`](/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027) |
 | `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

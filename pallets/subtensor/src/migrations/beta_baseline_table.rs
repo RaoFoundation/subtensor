@@ -7,6 +7,16 @@
 //!
 //! Index epoch block: 8767561. Data frozen at block 8925961.
 
+/// The chained basket index level at the freeze block (U64F64 bits): the seed
+/// migration publishes this as the initial `BetaIndexSnapshot` bag level, so the
+/// on-chain chained index continues the SDK's frozen historical series without a
+/// discontinuity.
+pub const BETA_INDEX_LEVEL_BITS: u128 = 20653746984817369088;
+
+/// The chained staker total-return index level at the freeze block (U64F64
+/// bits): the initial `BetaIndexSnapshot` stake level.
+pub const BETA_TR_INDEX_LEVEL_BITS: u128 = 18512792792371023872;
+
 /// One row per fund: `(hotkey public key, price_divisor as U64F64 bits,
 /// rate0 as I96F32 bits, tr_splice as U64F64 bits, first_block)`, matching
 /// the fields of `pallet_subtensor::BetaBaselineOf`.

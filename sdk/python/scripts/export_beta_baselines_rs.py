@@ -25,6 +25,7 @@ from bittensor.basket_index_data import (
     BASELINES,
     EPOCH_BLOCK,
     GENERATED_BLOCK,
+    INDEX,
     TR_INDEX,
 )
 from bittensor.sp_core import ss58_decode
@@ -91,6 +92,8 @@ def main() -> None:
         )
 
     body = "\n".join(entries)
+    index_level = INDEX[-1][1] if INDEX else 1.0
+    tr_level = TR_INDEX[-1][1] if TR_INDEX else 1.0
     OUT_PATH.write_text(
         "//! Frozen per-fund display baselines for `migrate_stamp_beta_baselines`.\n"
         "//!\n"
@@ -100,6 +103,16 @@ def main() -> None:
         "//! freeze; funds missing here are stamped live at their next share mint.\n"
         "//!\n"
         f"//! Index epoch block: {EPOCH_BLOCK}. Data frozen at block {GENERATED_BLOCK}.\n"
+        "\n"
+        "/// The chained basket index level at the freeze block (U64F64 bits): the seed\n"
+        "/// migration publishes this as the initial `BetaIndexSnapshot` bag level, so the\n"
+        "/// on-chain chained index continues the SDK's frozen historical series without a\n"
+        "/// discontinuity.\n"
+        f"pub const BETA_INDEX_LEVEL_BITS: u128 = {_u64f64_bits(index_level)};\n"
+        "\n"
+        "/// The chained staker total-return index level at the freeze block (U64F64\n"
+        "/// bits): the initial `BetaIndexSnapshot` stake level.\n"
+        f"pub const BETA_TR_INDEX_LEVEL_BITS: u128 = {_u64f64_bits(tr_level)};\n"
         "\n"
         "/// One row per fund: `(hotkey public key, price_divisor as U64F64 bits,\n"
         "/// rate0 as I96F32 bits, tr_splice as U64F64 bits, first_block)`, matching\n"

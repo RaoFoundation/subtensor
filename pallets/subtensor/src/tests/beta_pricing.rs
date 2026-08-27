@@ -9,15 +9,17 @@ use sp_core::U256;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::NetUid;
 
-use crate::migrations::beta_baseline_table::BETA_BASELINES;
+use crate::migrations::beta_baseline_table::{
+    BETA_BASELINES, BETA_INDEX_LEVEL_BITS, BETA_TR_INDEX_LEVEL_BITS,
+};
 use crate::migrations::migrate_stamp_beta_baselines::migrate_stamp_beta_baselines;
 use crate::staking::beta_pricing::{
     BETA_INDEX_REFRESH_INTERVAL_BLOCKS, BETA_INDEX_SWEEP_ROWS_PER_BLOCK, MIN_INDEX_NAV_RAO,
 };
 use crate::tests::mock::*;
 use crate::{
-    BasketRate, BasketShares, BasketTwr, BetaBaseline, BetaBaselineOf, BetaIndexSnapshot,
-    BetaIndexSweep, Event, HasMigrationRun,
+    BasketRate, BasketShares, BasketTwr, BetaBaseline, BetaBaselineOf, BetaIndexFundSample,
+    BetaIndexFundSampleOf, BetaIndexSnapshot, BetaIndexSweep, Event, HasMigrationRun,
 };
 
 fn one() -> U64F64 {
@@ -47,6 +49,43 @@ fn seed_fund_holdings(hotkey: &U256, shares: u64, root_nav: u64) {
         root_nav.into(),
     );
     BasketShares::<Test>::insert(hotkey, shares);
+}
+
+/// Grow a fund's root holding by `root_nav` rao without minting shares: a pure price
+/// move (performance), never a flow.
+fn grow_fund_nav(hotkey: &U256, root_nav: u64) {
+    let escrow = SubtensorModule::get_beta_escrow_account_id();
+    mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+        hotkey,
+        &escrow,
+        NetUid::ROOT,
+        root_nav.into(),
+    );
+}
+
+/// Deposit into a fund at NAV: holdings and shares grow by the same factor, so the raw
+/// price is unchanged — a pure flow, never performance.
+fn deposit_at_nav(hotkey: &U256, root_nav: u64, shares: u64) {
+    grow_fund_nav(hotkey, root_nav);
+    BasketShares::<Test>::mutate(hotkey, |s| *s = s.saturating_add(shares));
+}
+
+/// Run sweep pages at `block` until the in-progress pass completes. The caller must
+/// space calls at least [`BETA_INDEX_REFRESH_INTERVAL_BLOCKS`] apart (or have no
+/// snapshot yet), otherwise no pass starts.
+fn complete_sweep_pass(block: u64) {
+    System::set_block_number(block);
+    loop {
+        SubtensorModule::advance_beta_index_sweep();
+        if BetaIndexSweep::<Test>::get().is_none() {
+            break;
+        }
+    }
+}
+
+/// Block at which the `n`-th completed pass (1-based) is run in these tests.
+fn pass_block(n: u64) -> u64 {
+    1 + n.saturating_sub(1) * BETA_INDEX_REFRESH_INTERVAL_BLOCKS
 }
 
 // =============================================================================
@@ -90,49 +129,145 @@ fn test_index_sweep_respects_refresh_interval() {
 }
 
 #[test]
-fn test_index_sweep_weighted_levels() {
+fn test_index_sweep_first_pass_records_samples_without_moving_levels() {
     new_test_ext(1).execute_with(|| {
-        // Fund A: NAV 4e8 over 4e8 shares -> raw 1.0; divisor 1 -> display 1.0.
+        // Two funds at different display prices (1.0 and 2.0). A cross-sectional mean
+        // would publish 1.75; the chained index has no previous samples to chain
+        // against, so the first pass only records start-of-period state.
         let fund_a = U256::from(9001);
         seed_fund_holdings(&fund_a, 400_000_000, 400_000_000);
         BetaBaseline::<Test>::insert(fund_a, baseline(one(), one()));
-
-        // Fund B: NAV 12e8 over 6e8 shares -> raw 2.0; divisor 1 -> display 2.0.
         let fund_b = U256::from(9002);
         seed_fund_holdings(&fund_b, 600_000_000, 1_200_000_000);
         BetaBaseline::<Test>::insert(fund_b, baseline(one(), one()));
 
-        SubtensorModule::advance_beta_index_sweep();
+        complete_sweep_pass(pass_block(1));
 
-        // NAV-weighted bag level: (4e8 * 1 + 12e8 * 2) / 16e8 = 1.75. Stake level:
-        // zero yield on both funds, so the weighted mean of their tr_splice = 1.0.
+        let snapshot = BetaIndexSnapshot::<Test>::get().expect("snapshot published");
+        assert_eq!(snapshot.bag_level, one());
+        assert_eq!(snapshot.stake_level, one());
+        assert_eq!(
+            BetaIndexFundSample::<Test>::get(fund_b),
+            Some(BetaIndexFundSampleOf {
+                nav: 1_200_000_000,
+                display: U64F64::saturating_from_num(2),
+                stake: one(),
+            })
+        );
+    });
+}
+
+#[test]
+fn test_index_sweep_chains_price_relatives() {
+    new_test_ext(1).execute_with(|| {
+        // Fund A: raw 1.0 over NAV 4e8; fund B: raw 2.0 over NAV 12e8.
+        let fund_a = U256::from(9001);
+        seed_fund_holdings(&fund_a, 400_000_000, 400_000_000);
+        BetaBaseline::<Test>::insert(fund_a, baseline(one(), one()));
+        let fund_b = U256::from(9002);
+        seed_fund_holdings(&fund_b, 600_000_000, 1_200_000_000);
+        BetaBaseline::<Test>::insert(fund_b, baseline(one(), one()));
+        complete_sweep_pass(pass_block(1));
+
+        // B's price doubles (pure performance: NAV grows, shares don't). A unchanged.
+        // Aggregate relative, weighted by start-of-period NAV:
+        // (4e8 × 1.0 + 12e8 × 2.0) / 16e8 = 1.75.
+        grow_fund_nav(&fund_b, 1_200_000_000);
+        complete_sweep_pass(pass_block(2));
         let snapshot = BetaIndexSnapshot::<Test>::get().expect("snapshot published");
         assert_eq!(snapshot.bag_level, U64F64::saturating_from_num(1.75));
         assert_eq!(snapshot.stake_level, one());
+
+        // Next period both funds are flat: the level must not drift. B's weight is now
+        // its new NAV (24e8), but both relatives are 1.0.
+        complete_sweep_pass(pass_block(3));
+        let snapshot = BetaIndexSnapshot::<Test>::get().expect("snapshot republished");
+        assert_eq!(snapshot.bag_level, U64F64::saturating_from_num(1.75));
+    });
+}
+
+/// The auditor's mandatory invariant: capital flows between unchanged-price funds must
+/// not move the index. A deposit mints shares at NAV (size changes, price doesn't); the
+/// old cross-sectional mean jumped 11% on this exact scenario.
+#[test]
+fn test_index_sweep_is_flow_neutral() {
+    new_test_ext(1).execute_with(|| {
+        // The auditor's example: A at NAV 1e9 price 1.0, B at NAV 1e9 price 2.0.
+        let fund_a = U256::from(9001);
+        seed_fund_holdings(&fund_a, 1_000_000_000, 1_000_000_000);
+        BetaBaseline::<Test>::insert(fund_a, baseline(one(), one()));
+        let fund_b = U256::from(9002);
+        seed_fund_holdings(&fund_b, 500_000_000, 1_000_000_000);
+        BetaBaseline::<Test>::insert(fund_b, baseline(one(), one()));
+        complete_sweep_pass(pass_block(1));
+        let before = BetaIndexSnapshot::<Test>::get().expect("baseline pass");
+
+        // Deposit doubles B's size at NAV; no price moved anywhere.
+        deposit_at_nav(&fund_b, 1_000_000_000, 500_000_000);
+        complete_sweep_pass(pass_block(2));
+        let after = BetaIndexSnapshot::<Test>::get().expect("post-flow pass");
+        assert_eq!(after.bag_level, before.bag_level);
+        assert_eq!(after.stake_level, before.stake_level);
+
+        // And the deposit's weight change must not leak into later periods either.
+        complete_sweep_pass(pass_block(3));
+        let later = BetaIndexSnapshot::<Test>::get().expect("steady-state pass");
+        assert_eq!(later.bag_level, before.bag_level);
     });
 }
 
 #[test]
 fn test_index_sweep_skips_dust_and_zero_share_funds() {
     new_test_ext(1).execute_with(|| {
-        // Qualifying fund: display 2.0.
+        // Qualifying fund: raw 2.0 over NAV 4e8.
         let live = U256::from(9010);
         seed_fund_holdings(&live, 200_000_000, 400_000_000);
         BetaBaseline::<Test>::insert(live, baseline(one(), one()));
 
-        // Dust fund (below the index NAV floor): would drag the level to 1.0 if counted.
+        // Dust fund (below the index NAV floor at both ends): its relative must not
+        // count, or it would drag the aggregate below the live fund's.
         let dust = U256::from(9011);
-        seed_fund_holdings(&dust, MIN_INDEX_NAV_RAO / 2, MIN_INDEX_NAV_RAO / 2);
+        seed_fund_holdings(&dust, MIN_INDEX_NAV_RAO / 4, MIN_INDEX_NAV_RAO / 4);
         BetaBaseline::<Test>::insert(dust, baseline(one(), one()));
 
-        // Baseline entry with no outstanding shares: must be ignored.
+        // Baseline entry with no outstanding shares: must be ignored entirely.
         let drained = U256::from(9012);
         BetaBaseline::<Test>::insert(drained, baseline(one(), one()));
 
-        SubtensorModule::advance_beta_index_sweep();
+        complete_sweep_pass(pass_block(1));
+
+        // Live fund's price goes 2.0 -> 4.0 (relative 2.0); dust fund's price goes
+        // 1.0 -> 2.0 too but stays under the floor (nav MIN/2 < MIN).
+        grow_fund_nav(&live, 400_000_000);
+        grow_fund_nav(&dust, MIN_INDEX_NAV_RAO / 4);
+        complete_sweep_pass(pass_block(2));
 
         let snapshot = BetaIndexSnapshot::<Test>::get().expect("snapshot published");
         assert_eq!(snapshot.bag_level, U64F64::saturating_from_num(2));
+    });
+}
+
+#[test]
+fn test_index_sweep_never_chains_across_unpriceable_gap() {
+    new_test_ext(1).execute_with(|| {
+        let fund = U256::from(9020);
+        seed_fund_holdings(&fund, 400_000_000, 400_000_000);
+        BetaBaseline::<Test>::insert(fund, baseline(one(), one()));
+        complete_sweep_pass(pass_block(1));
+        assert!(BetaIndexFundSample::<Test>::get(fund).is_some());
+
+        // The fund drains: unpriceable, so its stale sample is removed.
+        BasketShares::<Test>::insert(fund, 0u64);
+        complete_sweep_pass(pass_block(2));
+        assert!(BetaIndexFundSample::<Test>::get(fund).is_none());
+
+        // It revives at a different price. With no previous sample there is no
+        // relative to chain — the level must not move on the revival pass.
+        BasketShares::<Test>::insert(fund, 100_000_000u64);
+        complete_sweep_pass(pass_block(3));
+        let snapshot = BetaIndexSnapshot::<Test>::get().expect("snapshot published");
+        assert_eq!(snapshot.bag_level, one());
+        assert!(BetaIndexFundSample::<Test>::get(fund).is_some());
     });
 }
 
@@ -208,11 +343,18 @@ fn test_stamp_waits_for_snapshot_then_stamps_once() {
 #[test]
 fn test_stamp_divisor_splices_to_index_level() {
     new_test_ext(1).execute_with(|| {
-        // Reference fund holds the index at 2.0 (raw 2.0, divisor 1).
+        // Drive the chained index to 2.0: the reference fund's price doubles between
+        // the first pass (records the sample) and the second (chains the relative).
         let reference = U256::from(9200);
-        seed_fund_holdings(&reference, 200_000_000, 400_000_000);
+        seed_fund_holdings(&reference, 200_000_000, 200_000_000);
         BetaBaseline::<Test>::insert(reference, baseline(one(), one()));
-        SubtensorModule::advance_beta_index_sweep();
+        complete_sweep_pass(pass_block(1));
+        grow_fund_nav(&reference, 200_000_000);
+        complete_sweep_pass(pass_block(2));
+        assert_eq!(
+            BetaIndexSnapshot::<Test>::get().unwrap().bag_level,
+            U64F64::saturating_from_num(2)
+        );
 
         // Newborn at raw 1.0 splices onto the level: divisor = raw / bag = 0.5, so its
         // display price starts exactly on the index line.
@@ -251,13 +393,20 @@ fn test_retire_and_transfer_display_state() {
         let old = U256::from(9400);
         let new = U256::from(9401);
         let divisor = U64F64::saturating_from_num(0.25);
+        let sample = BetaIndexFundSampleOf {
+            nav: 500_000_000,
+            display: U64F64::saturating_from_num(1.5),
+            stake: one(),
+        };
         BetaBaseline::<Test>::insert(old, baseline(divisor, one()));
         BasketTwr::<Test>::insert(old, U64F64::saturating_from_num(1.5));
+        BetaIndexFundSample::<Test>::insert(old, sample);
 
-        // Hotkey swap: a pure move of both entries.
+        // Hotkey swap: a pure move of all three entries.
         SubtensorModule::transfer_beta_display_state(&old, &new);
         assert!(BetaBaseline::<Test>::get(old).is_none());
         assert!(!BasketTwr::<Test>::contains_key(old));
+        assert!(BetaIndexFundSample::<Test>::get(old).is_none());
         assert_eq!(
             BetaBaseline::<Test>::get(new).unwrap().price_divisor,
             divisor
@@ -266,11 +415,14 @@ fn test_retire_and_transfer_display_state() {
             BasketTwr::<Test>::get(new),
             U64F64::saturating_from_num(1.5)
         );
+        assert_eq!(BetaIndexFundSample::<Test>::get(new), Some(sample));
 
-        // End of the fund life (last claim or dust revival): both entries retire.
+        // End of the fund life (last claim or dust revival): every entry retires, so
+        // a revived fund can neither keep its divisor nor chain across lives.
         SubtensorModule::retire_beta_display_state(&new);
         assert!(BetaBaseline::<Test>::get(new).is_none());
         assert!(!BasketTwr::<Test>::contains_key(new));
+        assert!(BetaIndexFundSample::<Test>::get(new).is_none());
         // The accumulator reads at its 1.0 default for the next life.
         assert_eq!(BasketTwr::<Test>::get(new), one());
     });
@@ -343,6 +495,30 @@ fn test_migrate_stamp_beta_baselines_seeds_live_funds_only() {
         assert!(HasMigrationRun::<Test>::get(
             b"migrate_stamp_beta_baselines".to_vec()
         ));
+
+        // A seeding run publishes the initial index snapshot at the frozen SDK levels,
+        // so the on-chain chained index continues the series the baselines were
+        // stamped against.
+        let snapshot = BetaIndexSnapshot::<Test>::get().expect("initial snapshot seeded");
+        assert_eq!(snapshot.bag_level, U64F64::from_bits(BETA_INDEX_LEVEL_BITS));
+        assert_eq!(
+            snapshot.stake_level,
+            U64F64::from_bits(BETA_TR_INDEX_LEVEL_BITS)
+        );
+    });
+}
+
+#[test]
+fn test_migrate_stamp_beta_baselines_skips_snapshot_when_nothing_seeds() {
+    new_test_ext(1).execute_with(|| {
+        // No live table fund on this chain (fresh chain / testnet): no baseline is
+        // seeded and the index must start at 1.0 via the sweep, not at mainnet's
+        // frozen level.
+        migrate_stamp_beta_baselines::<Test>();
+        assert!(HasMigrationRun::<Test>::get(
+            b"migrate_stamp_beta_baselines".to_vec()
+        ));
+        assert!(BetaIndexSnapshot::<Test>::get().is_none());
     });
 }
 

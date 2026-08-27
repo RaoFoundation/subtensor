@@ -115,18 +115,20 @@ sp_api::decl_runtime_apis! {
         #[api_version(2)]
         fn get_root_basket_portfolio(coldkey: AccountId32) -> Vec<BasketPosition<AccountId32>>;
         /// One fund's standardized pricing snapshot (index-spliced display price,
-        /// total-return stake price, staker yield, live index levels), or `None` when
-        /// the hotkey has no outstanding shares. The single source of truth every
-        /// consumer should display.
+        /// total-return stake price, staker yield, published index levels), or `None`
+        /// when the hotkey has no outstanding shares. The single source of truth every
+        /// consumer should display. Reads the published index snapshot in O(1) and
+        /// scans only this fund's holdings.
         #[api_version(3)]
         fn get_beta_pricing(hotkey: AccountId32) -> Option<BetaPricing<AccountId32>>;
         /// Pricing snapshots for every fund with outstanding shares, all marked against
-        /// one consistent live index sweep — the whole leaderboard in one call.
+        /// the same published index snapshot — the whole leaderboard in one call.
         #[api_version(3)]
         fn get_all_beta_pricing() -> Vec<BetaPricing<AccountId32>>;
-        /// The live `(bag index, stake index)` levels: the spot-NAV-weighted mean
-        /// display price (mix performance) and mean total-return stake price (what τ1
-        /// staked in the average fund became).
+        /// The published `(bag index, stake index)` levels: the chained NAV-weighted
+        /// display-price index (mix performance, flow-neutral) and the chained
+        /// total-return stake index (what τ1 staked in the average fund became),
+        /// maintained by the background sweep at realizable marks.
         #[api_version(3)]
         fn get_beta_index() -> (U64F64, U64F64);
         /// One staker's display-denominated β position on one validator
@@ -135,7 +137,7 @@ sp_api::decl_runtime_apis! {
         #[api_version(3)]
         fn get_beta_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<BetaPosition<AccountId32>>;
         /// A coldkey's full display-denominated β portfolio, one position per validator
-        /// with owed β, all marked against one consistent index sweep.
+        /// with owed β, all marked against the same published index snapshot.
         #[api_version(3)]
         fn get_beta_portfolio(coldkey: AccountId32) -> Vec<BetaPosition<AccountId32>>;
     }

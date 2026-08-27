@@ -4,15 +4,19 @@
 //!
 //! Raw beta prices (`NAV / shares`) carry arbitrary historical baselines: a fund
 //! seeded when pools were cheap shows a high price forever, and a fund launched
-//! yesterday starts at 1.0 regardless of skill. Two common index lines fix that:
+//! yesterday starts at 1.0 regardless of skill. Two chained index lines fix that,
+//! continuing the SDK's frozen historical series with the same formula:
 //!
-//! * The **bag index** is the NAV-weighted mean of every fund's display price
-//!   (`raw / price_divisor`). It moves with aggregate fund performance (mix skill),
-//!   not with flows.
-//! * The **stake index** is the same weighted mean of every fund's total-return stake
-//!   price: the wealth of τ1 of root stake earning the average fund's dividends. Bag
-//!   prices only enter through the value of accrued β, so this moves with dividend
-//!   flow, not with mix.
+//! * The **bag index** chains display-price relatives: each completed sweep pass
+//!   multiplies the previous level by `Σ prev_nav × (display / prev_display) /
+//!   Σ prev_nav` over funds sampled at both ends of the period. Relatives weighted by
+//!   *start-of-period* NAV make the level flow-neutral by construction: a deposit
+//!   changes a fund's size (next period's weight) but no price, so the level moves
+//!   with aggregate fund performance (mix skill) only.
+//! * The **stake index** chains the same aggregate over total-return stake-price
+//!   relatives: the wealth of τ1 of root stake earning the average fund's dividends.
+//!   Bag prices only enter through the value of accrued β, so this moves with
+//!   dividend flow, not with mix.
 //!
 //! Each fund's [`BetaBaselineOf`] is stamped once at its first share mint (see
 //! [`Pallet::stamp_beta_baseline_if_new`]) so both spliced prices start at the index
@@ -20,37 +24,45 @@
 //! of τ1 invested in the average fund at the index epoch, switched into this fund at
 //! its birth. Above the index line = beating the market.
 //!
-//! ## Two marks: spot for live display, realizable for permanent stamps
+//! ## Two marks: spot for per-fund display, realizable for everything permanent
 //!
-//! Live levels and prices mark at **spot** (zero-size mark), matching the SDK's
-//! display layer: realizable NAV — a full-fund dump — punishes large books for pool
-//! impact a normal buyer never pays. Spot is cheap to manipulate on a thin pool, but
-//! a manipulated *live* number heals the moment the pool does.
+//! Per-fund prices in the live views mark at **spot** (zero-size mark), matching the
+//! SDK's display layer: realizable NAV — a full-fund dump — punishes large books for
+//! pool impact a normal buyer never pays. Spot is cheap to manipulate on a thin
+//! pool, but a manipulated *live* number heals the moment the pool does.
 //!
-//! A **baseline stamp is permanent**, so it must not trust spot: an attacker could
-//! pump a thin holding, drag the live index, and poison every baseline stamped in
-//! that window forever. Stamps therefore mark everything — the newborn's own raw
-//! price and the index levels it splices onto — at **realizable** quotes
-//! ([`Pallet::realizable_tao_for_alpha`]), which are bounded by pool TAO reserves
-//! and cannot be inflated without depositing real value. Every divisor shares this
-//! convention, so funds stay comparable; a newborn starts on the live line up to its
-//! book's spot-vs-realizable gap (small for liquid books). Money-moving paths keep
-//! using realizable NAV exclusively (`basket_views.rs`); nothing in this module
-//! sizes a mint or a redemption.
+//! Anything that becomes **permanent** must not trust spot: an attacker could pump
+//! a thin holding, drag the index, and poison every number derived from it forever.
+//! Both permanent artifacts — the chained index relatives folded into each snapshot
+//! and the baseline stamped at a fund's birth — therefore mark everything at
+//! **realizable** quotes ([`Pallet::realizable_tao_for_alpha`]), which are bounded
+//! by pool TAO reserves and cannot be inflated without depositing real value. Every
+//! divisor shares this convention, so funds stay comparable; a newborn starts on the
+//! index line up to its book's spot-vs-realizable gap (small for liquid books).
+//! Money-moving paths keep using realizable NAV exclusively (`basket_views.rs`);
+//! nothing in this module sizes a mint or a redemption.
 //!
-//! ## Bounded work: stamps read a snapshot, a paged sweep maintains it
+//! ## Bounded work: one paged sweep maintains the chained levels, everyone reads them
 //!
 //! Valuing every stamped fund is O(funds × holdings) — unbounded, since retired
 //! funds keep entries while shares are outstanding. That sweep therefore never runs
-//! inline in a state-changing path. Instead, block processing advances a **paged
-//! background sweep** ([`Pallet::advance_beta_index_sweep`]): at most
-//! [`BETA_INDEX_SWEEP_ROWS_PER_BLOCK`] rows per block, partial sums carried in
-//! [`BetaIndexSweep`], and the finished pass published as [`BetaIndexSnapshot`]. A
-//! stamp splices onto the latest snapshot — one read plus the fund's own holdings
-//! scan, both inside every caller's declared weight envelope. Snapshot staleness is
-//! bounded by the refresh interval plus one pass and is benign: the level drifts
-//! slowly and stays realizable-marked. The live (RPC-only) getters still sweep at
-//! spot; they never run in consensus paths.
+//! inline anywhere. Block processing advances a **paged background sweep**
+//! ([`Pallet::advance_beta_index_sweep`]): at most
+//! [`BETA_INDEX_SWEEP_ROWS_PER_BLOCK`] rows per block, partial relative sums carried
+//! in [`BetaIndexSweep`], per-fund start-of-period state in [`BetaIndexFundSample`],
+//! and the finished pass published as [`BetaIndexSnapshot`]. A stamp splices onto
+//! the latest snapshot — one read plus the fund's own holdings scan — and the
+//! pricing runtime APIs read the same snapshot, then scan only the funds they
+//! actually price, so a single-fund RPC query costs one fund, not the world.
+//! Snapshot staleness is bounded by the refresh interval plus one pass and is
+//! benign: the level drifts slowly and stays realizable-marked.
+//!
+//! Chaining makes the index **path-dependent**: every period's aggregate relative
+//! is baked into the level forever, where the old cross-sectional mean would have
+//! self-healed. Manipulation resistance is therefore load-bearing at every pass,
+//! not just at stamps: relatives mark at **realizable** quotes (bounded by pool TAO
+//! reserves — see below) and only count funds above the dust floor at *both* ends
+//! of the period, mirroring the SDK's historical builder.
 //!
 //! ## Fund lives
 //!
@@ -103,16 +115,6 @@ pub const BETA_INDEX_REFRESH_INTERVAL_BLOCKS: u64 = 600;
 /// Per-netuid effective spot price cache for one pricing sweep (τ per alpha; 1.0 for
 /// root and non-dynamic mechanisms).
 type SpotPriceCache = BTreeMap<NetUid, U64F64>;
-
-/// How a sweep marks fund holdings. `Spot` is the live display convention: a zero-size
-/// mark, cheap, and self-healing if manipulated. `Realizable` is the
-/// manipulation-resistant mark (bounded by pool TAO reserves), required wherever a
-/// level gets frozen permanently (baseline stamps).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum IndexMark {
-    Spot,
-    Realizable,
-}
 
 /// One fund's resolved display marks, all derived from a single read of its baseline
 /// so the divisor convention and the splice formulas cannot fork between the index
@@ -235,27 +237,20 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// One fund's index-sweep sample at the given mark: rows scanned plus, when the
-    /// fund qualifies (outstanding shares, NAV over the dust floor, priceable), its
-    /// `(nav, display, stake)` marks. Shared by the live spot sweep and the paged
-    /// realizable sweep so the qualification rules cannot fork.
+    /// One fund's index-sweep sample at realizable quotes: rows scanned plus, when the
+    /// fund is priceable (outstanding shares, nonzero NAV and display price), its
+    /// [`BetaIndexFundSampleOf`]. No dust filtering here — the sweep stores every
+    /// priceable sample and applies the dust floor to *both* ends when it chains a
+    /// relative, mirroring the SDK's historical builder.
     fn index_fund_sample(
         hotkey: &T::AccountId,
         baseline: &BetaBaselineOf,
-        mark: IndexMark,
-        cache: &mut SpotPriceCache,
-    ) -> (u64, Option<(u64, U64F64, U64F64)>) {
+    ) -> (u64, Option<BetaIndexFundSampleOf>) {
         let shares = BasketShares::<T>::get(hotkey);
         if shares == 0 {
             return (0, None);
         }
-        let (nav, rows) = match mark {
-            IndexMark::Spot => Self::basket_spot_nav_rao(hotkey, cache),
-            IndexMark::Realizable => Self::basket_realizable_nav_rao(hotkey),
-        };
-        if nav < MIN_INDEX_NAV_RAO {
-            return (rows, None);
-        }
+        let (nav, rows) = Self::basket_realizable_nav_rao(hotkey);
         let raw = U64F64::saturating_from_num(nav)
             .checked_div(U64F64::saturating_from_num(shares))
             .unwrap_or_default();
@@ -263,58 +258,88 @@ impl<T: Config> Pallet<T> {
             return (rows, None);
         }
         let marks = Self::fund_marks_from(baseline, raw, BasketRate::<T>::get(hotkey));
-        if marks.display == 0 {
+        if marks.display == 0 || marks.stake == 0 {
             return (rows, None);
         }
-        (rows, Some((nav, marks.display, marks.stake)))
+        (
+            rows,
+            Some(BetaIndexFundSampleOf {
+                nav,
+                display: marks.display,
+                stake: marks.stake,
+            }),
+        )
     }
 
-    /// One full index sweep at the given mark: `(bag_level, stake_level, rows_scanned)`.
-    /// NAV-weighted means over every stamped fund with outstanding shares above the
-    /// dust floor. Both levels default to 1.0 while no fund qualifies. Unbounded —
-    /// RPC-only; consensus paths use [`Self::advance_beta_index_sweep`]'s snapshot.
-    fn beta_index_levels_with(
-        mark: IndexMark,
-        cache: &mut SpotPriceCache,
-    ) -> (U64F64, U64F64, u64) {
+    /// Fold one fund's period relative into the pass sums: previous-pass NAV weights
+    /// `now / previous` for both marks. Only funds above the dust floor at *both* ends
+    /// count — too-shallow books price too noisily to move a permanent level.
+    fn chain_fund_relative(
+        state: &mut BetaIndexSweepOf,
+        previous: &BetaIndexFundSampleOf,
+        current: &BetaIndexFundSampleOf,
+    ) {
+        if previous.nav < MIN_INDEX_NAV_RAO || current.nav < MIN_INDEX_NAV_RAO {
+            return;
+        }
+        let (Some(bag_relative), Some(stake_relative)) = (
+            current.display.checked_div(previous.display),
+            current.stake.checked_div(previous.stake),
+        ) else {
+            return;
+        };
+        let weight = U64F64::saturating_from_num(previous.nav);
+        state.weight_sum = state.weight_sum.saturating_add(u128::from(previous.nav));
+        state.rel_bag_sum = state
+            .rel_bag_sum
+            .saturating_add(weight.saturating_mul(bag_relative));
+        state.rel_stake_sum = state
+            .rel_stake_sum
+            .saturating_add(weight.saturating_mul(stake_relative));
+    }
+
+    /// Publish a completed pass: previous levels × the pass's aggregate relatives.
+    /// With no chainable fund (first pass after the upgrade, or an empty index) the
+    /// levels carry forward unchanged — 1.0 on a chain that never published. A zero
+    /// result (pathological rounding) also carries forward, since a zero level would
+    /// pin the chain at zero forever.
+    fn publish_beta_index_snapshot(state: &BetaIndexSweepOf, now: u64) {
         let one = U64F64::saturating_from_num(1);
-        let mut weight_sum: u128 = 0;
-        let mut bag_sum = U64F64::saturating_from_num(0);
-        let mut stake_sum = U64F64::saturating_from_num(0);
-        let mut work: u64 = 0;
-        for (hotkey, baseline) in BetaBaseline::<T>::iter() {
-            work = work.saturating_add(1);
-            let (rows, sample) = Self::index_fund_sample(&hotkey, &baseline, mark, cache);
-            work = work.saturating_add(rows);
-            let Some((nav, display, stake)) = sample else {
-                continue;
-            };
-            let nav_weight = U64F64::saturating_from_num(nav);
-            weight_sum = weight_sum.saturating_add(u128::from(nav));
-            bag_sum = bag_sum.saturating_add(nav_weight.saturating_mul(display));
-            stake_sum = stake_sum.saturating_add(nav_weight.saturating_mul(stake));
+        let (previous_bag, previous_stake) = BetaIndexSnapshot::<T>::get()
+            .map(|snapshot| (snapshot.bag_level, snapshot.stake_level))
+            .unwrap_or((one, one));
+        let mut bag_level = previous_bag;
+        let mut stake_level = previous_stake;
+        if state.weight_sum > 0 {
+            let denom = U64F64::saturating_from_num(state.weight_sum);
+            let bag =
+                previous_bag.saturating_mul(state.rel_bag_sum.checked_div(denom).unwrap_or(one));
+            let stake = previous_stake
+                .saturating_mul(state.rel_stake_sum.checked_div(denom).unwrap_or(one));
+            if bag > 0 {
+                bag_level = bag;
+            }
+            if stake > 0 {
+                stake_level = stake;
+            }
         }
-        if weight_sum == 0 {
-            return (one, one, work);
-        }
-        let denom = U64F64::saturating_from_num(weight_sum);
-        (
-            bag_sum.checked_div(denom).unwrap_or(one),
-            stake_sum.checked_div(denom).unwrap_or(one),
-            work,
-        )
+        BetaIndexSnapshot::<T>::put(BetaIndexSnapshotOf {
+            bag_level,
+            stake_level,
+            block: now,
+        });
     }
 
     /// [`Self::advance_beta_index_sweep`] wrapped for the `on_initialize` hook: the
     /// page's rows are priced like `stake_into_basket_weight`'s per-holding term (one
-    /// read set plus a realizable quote each), plus the sweep-state reads and write, so
-    /// the block declares the work it performs.
+    /// read set plus a realizable quote each) plus the per-fund sample read/write, and
+    /// the sweep-state reads and writes, so the block declares the work it performs.
     pub(crate) fn advance_beta_index_sweep_weight() -> Weight {
         let rows = Self::advance_beta_index_sweep();
         Weight::from_parts(10_000_000, 1000)
-            .saturating_add(T::DbWeight::get().reads(4_u64))
+            .saturating_add(T::DbWeight::get().reads_writes(5_u64, 1_u64))
             .saturating_mul(rows)
-            .saturating_add(T::DbWeight::get().reads_writes(2_u64, 1_u64))
+            .saturating_add(T::DbWeight::get().reads_writes(3_u64, 1_u64))
     }
 
     /// Advance the background beta-index sweep by one strictly bounded page; runs every
@@ -322,15 +347,19 @@ impl<T: Config> Pallet<T> {
     ///
     /// No pass in progress: start one only when the published [`BetaIndexSnapshot`] is
     /// absent or at least [`BETA_INDEX_REFRESH_INTERVAL_BLOCKS`] old. Mid-pass: resume
-    /// from the stored cursor, fold each fund's realizable sample into the partial sums,
-    /// and stop after [`BETA_INDEX_SWEEP_ROWS_PER_BLOCK`] rows (overshooting only to
+    /// from the stored cursor. Each visited fund is sampled at realizable quotes; the
+    /// sample chains a period relative against the fund's previous-pass
+    /// [`BetaIndexFundSample`] (folded into the partial sums, dust-floored at both
+    /// ends) and then replaces it as the start-of-period state for the next pass. An
+    /// unpriceable fund's stale sample is removed so nothing chains across a gap. The
+    /// page stops after [`BETA_INDEX_SWEEP_ROWS_PER_BLOCK`] rows (overshooting only to
     /// finish the fund in hand, so the bound is `page + one fund's holdings`). A
-    /// completed pass publishes the NAV-weighted levels (1.0 defaults while no fund
-    /// qualifies) and clears the sweep state.
+    /// completed pass multiplies the previous levels by the aggregate relatives and
+    /// publishes (see [`Self::publish_beta_index_snapshot`]).
     ///
-    /// Funds stamped or retired mid-pass may be counted once off; the snapshot is a
-    /// splice target, not money-path state, so that approximation is benign. Returns the
-    /// rows of work performed.
+    /// Funds stamped or retired mid-pass may miss one period's relative; the snapshot
+    /// is a splice target, not money-path state, so that approximation is benign.
+    /// Returns the rows of work performed.
     pub(crate) fn advance_beta_index_sweep() -> u64 {
         let now = Self::get_current_block_as_u64();
         let mut state = match BetaIndexSweep::<T>::get() {
@@ -345,8 +374,8 @@ impl<T: Config> Pallet<T> {
                 BetaIndexSweepOf {
                     cursor: Vec::new(),
                     weight_sum: 0,
-                    bag_sum: U64F64::saturating_from_num(0),
-                    stake_sum: U64F64::saturating_from_num(0),
+                    rel_bag_sum: U64F64::saturating_from_num(0),
+                    rel_stake_sum: U64F64::saturating_from_num(0),
                 }
             }
         };
@@ -355,41 +384,24 @@ impl<T: Config> Pallet<T> {
         } else {
             BetaBaseline::<T>::iter_from(state.cursor.clone())
         };
-        let mut cache = SpotPriceCache::new();
         let mut work: u64 = 0;
         loop {
             let Some((hotkey, baseline)) = iter.next() else {
-                let one = U64F64::saturating_from_num(1);
-                let (bag_level, stake_level) = if state.weight_sum == 0 {
-                    (one, one)
-                } else {
-                    let denom = U64F64::saturating_from_num(state.weight_sum);
-                    (
-                        state.bag_sum.checked_div(denom).unwrap_or(one),
-                        state.stake_sum.checked_div(denom).unwrap_or(one),
-                    )
-                };
-                BetaIndexSnapshot::<T>::put(BetaIndexSnapshotOf {
-                    bag_level,
-                    stake_level,
-                    block: now,
-                });
+                Self::publish_beta_index_snapshot(&state, now);
                 BetaIndexSweep::<T>::kill();
                 return work;
             };
             work = work.saturating_add(1);
-            let (rows, sample) =
-                Self::index_fund_sample(&hotkey, &baseline, IndexMark::Realizable, &mut cache);
+            let (rows, sample) = Self::index_fund_sample(&hotkey, &baseline);
             work = work.saturating_add(rows);
-            if let Some((nav, display, stake)) = sample {
-                let nav_weight = U64F64::saturating_from_num(nav);
-                state.weight_sum = state.weight_sum.saturating_add(u128::from(nav));
-                state.bag_sum = state
-                    .bag_sum
-                    .saturating_add(nav_weight.saturating_mul(display));
-                state.stake_sum = state
-                    .stake_sum
-                    .saturating_add(nav_weight.saturating_mul(stake));
+            match sample {
+                Some(current) => {
+                    if let Some(previous) = BetaIndexFundSample::<T>::get(&hotkey) {
+                        Self::chain_fund_relative(&mut state, &previous, &current);
+                    }
+                    BetaIndexFundSample::<T>::insert(&hotkey, current);
+                }
+                None => BetaIndexFundSample::<T>::remove(&hotkey),
             }
             if work >= BETA_INDEX_SWEEP_ROWS_PER_BLOCK {
                 state.cursor = BetaBaseline::<T>::hashed_key_for(&hotkey);
@@ -399,17 +411,14 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// The live (spot-marked) index sweep: `(bag_level, stake_level, rows_scanned)`.
-    fn beta_index_levels_scanned(cache: &mut SpotPriceCache) -> (U64F64, U64F64, u64) {
-        Self::beta_index_levels_with(IndexMark::Spot, cache)
-    }
-
-    /// The live `(bag index, stake index)` levels. See the module docs for what each
-    /// level means.
+    /// The published `(bag index, stake index)` levels — the chained series maintained
+    /// by the background sweep; 1.0 while no pass has completed. One storage read. See
+    /// the module docs for what each level means.
     pub fn get_beta_index_levels() -> (U64F64, U64F64) {
-        let mut cache = SpotPriceCache::new();
-        let (bag, stake, _) = Self::beta_index_levels_scanned(&mut cache);
-        (bag, stake)
+        let one = U64F64::saturating_from_num(1);
+        BetaIndexSnapshot::<T>::get()
+            .map(|snapshot| (snapshot.bag_level, snapshot.stake_level))
+            .unwrap_or((one, one))
     }
 
     /// Price one fund against already-computed index levels. An unstamped fund prices
@@ -445,24 +454,26 @@ impl<T: Config> Pallet<T> {
     }
 
     /// One fund's standardized pricing snapshot, or `None` when the hotkey has no
-    /// outstanding shares.
+    /// outstanding shares. Index levels come from the published [`BetaIndexSnapshot`]
+    /// (one read), so the query scans only the requested fund's holdings.
     pub fn get_beta_pricing(hotkey: &T::AccountId) -> Option<BetaPricing<T::AccountId>> {
         let shares = BasketShares::<T>::get(hotkey);
         if shares == 0 {
             return None;
         }
         let mut cache = SpotPriceCache::new();
-        let (bag, stake, _) = Self::beta_index_levels_scanned(&mut cache);
+        let (bag, stake) = Self::get_beta_index_levels();
         Some(Self::beta_pricing_against(
             hotkey, shares, bag, stake, &mut cache,
         ))
     }
 
     /// Pricing snapshots for every fund with outstanding shares, all marked against
-    /// the same live index sweep — the whole leaderboard in one consistent call.
+    /// the same published index snapshot — the whole leaderboard in one consistent
+    /// call, one pass over the funds.
     pub fn get_all_beta_pricing() -> Vec<BetaPricing<T::AccountId>> {
         let mut cache = SpotPriceCache::new();
-        let (bag, stake, _) = Self::beta_index_levels_scanned(&mut cache);
+        let (bag, stake) = Self::get_beta_index_levels();
         BasketShares::<T>::iter()
             .filter(|(_, shares)| *shares != 0)
             .map(|(hotkey, shares)| {
@@ -517,15 +528,15 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
     ) -> Option<BetaPosition<T::AccountId>> {
         let mut cache = SpotPriceCache::new();
-        let (bag, stake, _) = Self::beta_index_levels_scanned(&mut cache);
+        let (bag, stake) = Self::get_beta_index_levels();
         Self::beta_position_against(hotkey, coldkey, bag, stake, &mut cache)
     }
 
     /// A coldkey's full display-denominated β portfolio: one position per validator on
-    /// which it has owed β, all against one consistent index sweep.
+    /// which it has owed β, all against the same published index snapshot.
     pub fn get_beta_portfolio(coldkey: &T::AccountId) -> Vec<BetaPosition<T::AccountId>> {
         let mut cache = SpotPriceCache::new();
-        let (bag, stake, _) = Self::beta_index_levels_scanned(&mut cache);
+        let (bag, stake) = Self::get_beta_index_levels();
         StakingHotkeys::<T>::get(coldkey)
             .into_iter()
             .filter_map(|hotkey| {
@@ -562,10 +573,13 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn retire_beta_display_state(hotkey: &T::AccountId) {
         BetaBaseline::<T>::remove(hotkey);
         BasketTwr::<T>::remove(hotkey);
+        // The index sample is start-of-period state for the *next* relative; a new
+        // life must never chain against the old one's prices.
+        BetaIndexFundSample::<T>::remove(hotkey);
     }
 
-    /// Move a fund's display state (frozen baseline + TWR accumulator) to its new
-    /// hotkey on a hotkey swap. A pure move, never a merge: the clean-root gate in
+    /// Move a fund's display state (frozen baseline, TWR accumulator, and index
+    /// sample) to its new hotkey on a hotkey swap. A pure move, never a merge: the clean-root gate in
     /// `do_swap_hotkey` requires the destination to hold zero `BasketShares`, and
     /// display state exists only while a fund has shares (stamped at a mint, retired
     /// on drain or dust revival), so the destination cannot hold either entry.
@@ -578,6 +592,9 @@ impl<T: Config> Pallet<T> {
         }
         if BasketTwr::<T>::contains_key(old_hotkey) {
             BasketTwr::<T>::insert(new_hotkey, BasketTwr::<T>::take(old_hotkey));
+        }
+        if let Some(sample) = BetaIndexFundSample::<T>::take(old_hotkey) {
+            BetaIndexFundSample::<T>::insert(new_hotkey, sample);
         }
     }
 
