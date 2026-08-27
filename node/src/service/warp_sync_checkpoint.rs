@@ -30,6 +30,7 @@ pub(super) fn trusted_checkpoint(
     };
 
     let header = decode_finalized_header(checkpoint)?;
+    validate_transition_header(&header)?;
     let (set_id, authorities) = decode_authority_set(checkpoint)?;
     validate_authorities(&authorities)?;
 
@@ -184,6 +185,15 @@ fn validate_authorities(authorities: &AuthorityList) -> Result<(), ServiceError>
     Ok(())
 }
 
+fn validate_transition_header(header: &Header) -> Result<(), ServiceError> {
+    if sc_consensus_grandpa::find_scheduled_change::<Block>(header).is_none() {
+        return Err(ServiceError::Other(
+            "trusted GRANDPA checkpoint header must contain a scheduled authority change".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn internal_rpc_error(error: ServiceError) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(-32603, error.to_string(), None::<()>)
 }
@@ -232,6 +242,19 @@ mod tests {
             panic!("valid checkpoint header should decode");
         };
         assert_eq!(decoded_header, header);
+    }
+
+    #[test]
+    fn rejects_checkpoint_header_without_scheduled_change() {
+        let header = Header::new(
+            42,
+            H256::repeat_byte(1),
+            H256::repeat_byte(2),
+            H256::repeat_byte(3),
+            Default::default(),
+        );
+
+        assert!(validate_transition_header(&header).is_err());
     }
 
     #[test]
