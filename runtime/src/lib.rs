@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 500,
+    spec_version: 450,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -2427,8 +2427,8 @@ impl_runtime_apis! {
         fn get_beta_pricing(hotkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BetaPricing<AccountId32>> {
             SubtensorModule::get_beta_pricing(&hotkey)
         }
-        fn get_all_beta_pricing() -> Vec<pallet_subtensor::rpc_info::basket_info::BetaPricing<AccountId32>> {
-            SubtensorModule::get_all_beta_pricing()
+        fn get_all_beta_pricing(start_after: Option<AccountId32>, limit: u32) -> pallet_subtensor::rpc_info::basket_info::BetaPricingPage<AccountId32> {
+            SubtensorModule::get_all_beta_pricing(start_after, limit)
         }
         fn get_beta_index() -> (U64F64, U64F64) {
             SubtensorModule::get_beta_index_levels()

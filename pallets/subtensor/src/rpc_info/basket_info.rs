@@ -73,7 +73,7 @@ pub struct BasketPosition<AccountId: TypeInfo + Encode + Decode> {
 /// All prices are **spot** marks (zero-size, comparable across fund sizes) as `U64F64`
 /// ratios; see `staking/beta_pricing.rs` for the math. Redemption sizing still uses
 /// realizable NAV — none of these fields price a claim.
-#[freeze_struct("c61ec6cf57dbb4d3")]
+#[freeze_struct("74bde6b9db28b51c")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct BetaPricing<AccountId: TypeInfo + Encode + Decode> {
     pub hotkey: AccountId,
@@ -83,12 +83,18 @@ pub struct BetaPricing<AccountId: TypeInfo + Encode + Decode> {
     /// comparable across funds of any age. On the bag-index line = market average.
     pub display_price: U64F64,
     /// Total-return stake price: what τ1 staked here at the fund's first sighting is
-    /// worth now (principal plus accrued β at today's spot rate), in stake-index units.
+    /// worth now under the claim-and-restake convention, in stake-index units. This is
+    /// `tr_splice * staker_twr` — the canonical staker series spliced onto the stake
+    /// index — so `stake_price(t1) / stake_price(t0) - 1` and the `staker_twr` ratio
+    /// give the same window return.
     pub stake_price: U64F64,
-    /// Period staker yield since first sighting: `(BasketRate - rate0) * spot_price`.
+    /// Pending-entitlement mark, not a return series: `(BasketRate - rate0) *
+    /// spot_price`, the value today of all β minted per τ1 of root stake since the
+    /// fund's baseline. Re-values with pool prices even when no dividend lands; show
+    /// it as "what accrued here is worth now", never as yield.
     pub staker_yield: U64F64,
-    /// The fund's staker total-return accumulator (see `BasketTwr` storage): the
-    /// canonical period-yield series. Staker return over any window is
+    /// The fund's staker total-return accumulator (see `BasketTwr` storage): the one
+    /// canonical staker-return series. Staker return over any window is
     /// `twr(t1) / twr(t0) - 1`; sample historically via archive state.
     pub staker_twr: U64F64,
     /// The live bag index level this snapshot was marked against.
@@ -108,6 +114,22 @@ pub struct BetaPricing<AccountId: TypeInfo + Encode + Decode> {
     /// public pair: `display_shares * display_price = spot NAV`, exactly as
     /// `shares * spot_price` does in raw units.
     pub display_shares: U64F64,
+}
+
+/// One page of the fund-pricing leaderboard, with an explicit resume cursor so no
+/// single call ever scans the whole fund map (see
+/// `Pallet::get_all_beta_pricing`). `next = None` means the enumeration is complete;
+/// otherwise pass it back as `start_after` for the following page. Pages are sized by
+/// the caller's `limit`, clamped to a hard per-call cap.
+#[freeze_struct("e76d410f6d42ab4")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BetaPricingPage<AccountId: TypeInfo + Encode + Decode> {
+    /// Pricing snapshots for the funds in this page, all marked against the same
+    /// published index snapshot.
+    pub pricing: Vec<BetaPricing<AccountId>>,
+    /// Cursor for the next page (`start_after` of the following call); `None` when
+    /// every fund has been enumerated.
+    pub next: Option<AccountId>,
 }
 
 /// One staker's β position in one fund, denominated in the same display units as

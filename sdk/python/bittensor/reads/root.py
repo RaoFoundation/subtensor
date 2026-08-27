@@ -98,14 +98,26 @@ async def _attach_chain_pricing(view, records: list[dict]) -> None:
     the chain's canonical numbers. Silently a no-op on older nodes (and at
     pre-upgrade historical blocks), where the SDK's local index math remains
     the display source.
+
+    The chain enumerates funds in bounded pages (each call prices at most a
+    hard cap of funds and returns a resume cursor), so the full board is a
+    short loop rather than one unbounded scan on the node.
     """
     if not records:
         return
+    rows: list[dict] = []
+    cursor = None
     try:
-        rows = await view.runtime(_GET_ALL_BETA_PRICING, [])
+        while True:
+            # limit 0 = the chain's full page cap; `next` is the resume cursor.
+            page = await view.runtime(_GET_ALL_BETA_PRICING, [cursor, 0])
+            rows.extend(page.get("pricing") or [])
+            cursor = page.get("next")
+            if cursor is None:
+                break
     except Exception:  # pre-v3 node: method absent from metadata
         return
-    pricing = {str(row.get("hotkey")): _chain_pricing_record(row) for row in rows or []}
+    pricing = {str(row.get("hotkey")): _chain_pricing_record(row) for row in rows}
     for record in records:
         chain = pricing.get(record["hotkey"])
         if chain is not None:
@@ -318,9 +330,9 @@ async def validator_basket_summary(view, hotkey_ss58: str) -> dict:
     validator's root weight vector, the per-subnet alpha holdings each
     valued at spot and at realizable depth, and `basket_rate` — the
     cumulative β raw units minted per rao of root stake (a lifetime
-    accumulator that includes migration-seeded history; subtract a
-    period-start rate before valuing a period's yield). All figures are
-    TAO (or alpha for the holdings themselves).
+    accumulator that includes migration-seeded history). For staker returns
+    use `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate
+    deltas. All figures are TAO (or alpha for the holdings themselves).
     """
     view = await view.at()
     summary = await view.runtime(
@@ -348,9 +360,10 @@ async def root_baskets(view) -> list[dict]:
 
     The network-wide leaderboard: one `validator_basket_summary` record per
     validator with an active fund, sorted by NAV descending, each including
-    its `basket_rate` (the cumulative staker-yield accumulator: β raw units
+    its `basket_rate` (the cumulative entitlement accumulator: β raw units
     minted per rao of root stake, migration-seeded history included).
-    Compare `lifetime_return` across validators to rank basket performance.
+    Compare `lifetime_return` across validators to rank basket performance;
+    for staker returns use `chain_pricing` (`staker_twr` / `stake_price`).
     """
     view = await view.at()
     rows = await view.runtime(api.BetaBasketRuntimeApi.get_all_validator_baskets, [])

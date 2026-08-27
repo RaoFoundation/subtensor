@@ -169,20 +169,25 @@ fn test_index_sweep_chains_price_relatives() {
         BetaBaseline::<Test>::insert(fund_b, baseline(one(), one()));
         complete_sweep_pass(pass_block(1));
 
-        // B's price doubles (pure performance: NAV grows, shares don't). A unchanged.
-        // Aggregate relative, weighted by start-of-period NAV:
+        // B's price doubles (pure performance: NAV grows, shares don't) and B's TWR
+        // doubles (a dividend worth its claimants' whole stake). A unchanged. Both
+        // aggregates weight by start-of-period NAV:
         // (4e8 × 1.0 + 12e8 × 2.0) / 16e8 = 1.75.
         grow_fund_nav(&fund_b, 1_200_000_000);
+        SubtensorModule::accrue_basket_twr(&fund_b, 1_000, 1_000);
         complete_sweep_pass(pass_block(2));
         let snapshot = BetaIndexSnapshot::<Test>::get().expect("snapshot published");
         assert_eq!(snapshot.bag_level, U64F64::saturating_from_num(1.75));
-        assert_eq!(snapshot.stake_level, one());
+        // The stake index chains TWR relatives (stake price = tr_splice × TWR): B's
+        // relative is 2.0 from the accumulator alone, price moves don't enter.
+        assert_eq!(snapshot.stake_level, U64F64::saturating_from_num(1.75));
 
-        // Next period both funds are flat: the level must not drift. B's weight is now
-        // its new NAV (24e8), but both relatives are 1.0.
+        // Next period both funds are flat: the levels must not drift. B's weight is
+        // now its new NAV (24e8), but both relatives are 1.0.
         complete_sweep_pass(pass_block(3));
         let snapshot = BetaIndexSnapshot::<Test>::get().expect("snapshot republished");
         assert_eq!(snapshot.bag_level, U64F64::saturating_from_num(1.75));
+        assert_eq!(snapshot.stake_level, U64F64::saturating_from_num(1.75));
     });
 }
 
@@ -301,6 +306,45 @@ fn test_index_sweep_paginates_and_resumes_across_blocks() {
 }
 
 // =============================================================================
+// Paginated pricing enumeration
+// =============================================================================
+
+#[test]
+fn test_get_all_beta_pricing_paginates_with_cursor() {
+    new_test_ext(1).execute_with(|| {
+        // Three live funds plus one drained fund life (zero-share row): the dead row
+        // is walked over but never priced.
+        let funds: Vec<U256> = (0..3).map(|i| U256::from(9600 + i)).collect();
+        for fund in &funds {
+            seed_fund_holdings(fund, 200_000_000, 200_000_000);
+        }
+        BasketShares::<Test>::insert(U256::from(9650), 0u64);
+
+        // Page of 2, then resume from the cursor: every live fund exactly once.
+        let first = SubtensorModule::get_all_beta_pricing(None, 2);
+        assert_eq!(first.pricing.len(), 2);
+        let cursor = first.next.expect("more rows remain after a capped page");
+        let second = SubtensorModule::get_all_beta_pricing(Some(cursor), 2);
+        assert!(second.next.is_none());
+        let mut seen: Vec<U256> = first
+            .pricing
+            .iter()
+            .chain(second.pricing.iter())
+            .map(|p| p.hotkey)
+            .collect();
+        seen.sort();
+        let mut want = funds.clone();
+        want.sort();
+        assert_eq!(seen, want);
+
+        // limit 0 = one full page (everything fits under the cap here).
+        let all = SubtensorModule::get_all_beta_pricing(None, 0);
+        assert_eq!(all.pricing.len(), 3);
+        assert!(all.next.is_none());
+    });
+}
+
+// =============================================================================
 // Baseline stamping and fund-life display state
 // =============================================================================
 
@@ -357,14 +401,18 @@ fn test_stamp_divisor_splices_to_index_level() {
         );
 
         // Newborn at raw 1.0 splices onto the level: divisor = raw / bag = 0.5, so its
-        // display price starts exactly on the index line.
+        // display price starts exactly on the index line. Its TWR already compounded
+        // to 2.0 before the (deferred) stamp, so the splice normalizes by it:
+        // tr_splice = stake_level / twr = 1.0 / 2.0, and the fund's stake price
+        // (tr_splice × TWR) starts exactly at the stake-index level.
         let newborn = U256::from(9201);
         seed_fund_holdings(&newborn, 300_000_000, 300_000_000);
+        BasketTwr::<Test>::insert(newborn, U64F64::saturating_from_num(2));
         SubtensorModule::stamp_beta_baseline_if_new(&newborn);
 
         let stamped = BetaBaseline::<Test>::get(newborn).expect("stamped");
         assert_eq!(stamped.price_divisor, U64F64::saturating_from_num(0.5));
-        assert_eq!(stamped.tr_splice, one());
+        assert_eq!(stamped.tr_splice, U64F64::saturating_from_num(0.5));
     });
 }
 
@@ -474,8 +522,16 @@ fn test_migrate_stamp_beta_baselines_seeds_live_funds_only() {
         let drained = U256::decode(&mut &pubkey_drained[..]).expect("32-byte key decodes");
         let stamped = U256::decode(&mut &pubkey_stamped[..]).expect("32-byte key decodes");
 
-        // Live fund: gets the frozen table row verbatim.
-        BasketShares::<Test>::insert(live, 1_000_000u64);
+        // Live fund: gets the frozen table row, with its pre-upgrade staker
+        // entitlement folded into the splice. Root holdings realize 1:1, so its raw
+        // price is 1e6 / 1e6 = 1.0; a rate delta of 0.5 over `rate0` folds the
+        // table's splice by 1 + 0.5 × 1.0 = 1.5, making the stake series
+        // (tr_splice × TWR, with TWR starting at 1.0 here) continuous at the upgrade.
+        seed_fund_holdings(&live, 1_000_000, 1_000_000);
+        BasketRate::<Test>::insert(
+            live,
+            I96F32::from_bits(*rate0_bits).saturating_add(I96F32::from_num(0.5)),
+        );
         // Drained fund (no shares): skipped.
         // Already-stamped fund: its existing baseline must never be overwritten.
         BasketShares::<Test>::insert(stamped, 1_000_000u64);
@@ -487,7 +543,10 @@ fn test_migrate_stamp_beta_baselines_seeds_live_funds_only() {
         let seeded = BetaBaseline::<Test>::get(live).expect("live fund seeded");
         assert_eq!(seeded.price_divisor, U64F64::from_bits(*divisor_bits));
         assert_eq!(seeded.rate0, I96F32::from_bits(*rate0_bits));
-        assert_eq!(seeded.tr_splice, U64F64::from_bits(*tr_splice_bits));
+        assert_eq!(
+            seeded.tr_splice,
+            U64F64::from_bits(*tr_splice_bits).saturating_mul(U64F64::saturating_from_num(1.5))
+        );
         assert_eq!(seeded.first_block, *first_block);
 
         assert!(BetaBaseline::<Test>::get(drained).is_none());

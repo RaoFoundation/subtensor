@@ -15,8 +15,9 @@
 //!   with aggregate fund performance (mix skill) only.
 //! * The **stake index** chains the same aggregate over total-return stake-price
 //!   relatives: the wealth of τ1 of root stake earning the average fund's dividends.
-//!   Bag prices only enter through the value of accrued β, so this moves with
-//!   dividend flow, not with mix.
+//!   A fund's stake price is `tr_splice × BasketTwr` — the claim-and-restake
+//!   accumulator spliced onto the index — so the level compounds dividend flow at
+//!   deposit-time pricing and never re-marks past dividends at today's prices.
 //!
 //! Each fund's [`BetaBaselineOf`] is stamped once at its first share mint (see
 //! [`Pallet::stamp_beta_baseline_if_new`]) so both spliced prices start at the index
@@ -73,7 +74,7 @@
 //! `BetaBaseline` / `BasketTwr` entries exist only while the fund has outstanding
 //! shares.
 //!
-//! ## Canonical period yield
+//! ## One canonical series per audience
 //!
 //! Both pipes reduce to "sample one cumulative series at two blocks":
 //!
@@ -81,17 +82,22 @@
 //!   `display_price(t1) / display_price(t0) - 1`. The raw price is flow-invariant
 //!   (deposits mint at NAV, redemptions exit at NAV), so only bag performance moves it.
 //! * **Root stakers** (τ on netuid 0): return is `BasketTwr(t1) / BasketTwr(t0) - 1`
-//!   under the claim-and-restake convention — each dividend compounds the accumulator
-//!   by the value it added per rao of claimant stake, locked at deposit-time pricing.
-//!   The hold-without-claiming alternative is
-//!   `(BasketRate(t1) - BasketRate(t0)) * spot_price(t1)` (entitlement accrued over the
-//!   window, marked at the end).
+//!   — each dividend compounds the accumulator by the value it added per rao of
+//!   claimant stake, locked at deposit-time pricing (the claim-and-restake
+//!   convention). `stake_price = tr_splice × BasketTwr` is the *same* series spliced
+//!   onto the stake index, so `stake_price(t1) / stake_price(t0) - 1` gives the
+//!   identical answer; there is no second staker-return model.
+//!
+//! The rate-delta figure `(BasketRate - rate0) × spot_price` (`staker_yield`) is a
+//! **pending-entitlement mark**, not a return series: it re-values every β minted
+//! since the stamp at today's price, so it moves with pools even when no dividend
+//! lands. Show it as "what the accrued entitlement is worth now", never as yield.
 //!
 //! Historical samples come from archive state (or these runtime APIs evaluated at a
 //! historical block hash), so every consumer reproduces identical numbers.
 
 use super::*;
-use crate::rpc_info::basket_info::{BetaPosition, BetaPricing};
+use crate::rpc_info::basket_info::{BetaPosition, BetaPricing, BetaPricingPage};
 use sp_std::collections::btree_map::BTreeMap;
 use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_swap_interface::SwapHandler;
@@ -112,6 +118,17 @@ pub const BETA_INDEX_SWEEP_ROWS_PER_BLOCK: u64 = 256;
 /// plus one pass duration.
 pub const BETA_INDEX_REFRESH_INTERVAL_BLOCKS: u64 = 600;
 
+/// Hard cap on funds priced by one `get_all_beta_pricing` page (the caller's `limit`
+/// is clamped to this) and on positions returned by `get_beta_portfolio`. Pricing a
+/// fund quotes each of its holdings, so this is the expensive unit of RPC work.
+pub const BETA_PRICING_PAGE_FUNDS: u32 = 256;
+
+/// Hard cap on `BasketShares` rows scanned by one `get_all_beta_pricing` page. Drained
+/// fund lives leave zero-share rows behind, which are filtered out but still cost a
+/// read each; this bounds that walk so a page's total work stays bounded even on a map
+/// full of dead rows.
+pub const BETA_PRICING_PAGE_ROWS: u32 = 1024;
+
 /// Per-netuid effective spot price cache for one pricing sweep (τ per alpha; 1.0 for
 /// root and non-dynamic mechanisms).
 type SpotPriceCache = BTreeMap<NetUid, U64F64>;
@@ -125,12 +142,15 @@ struct FundMarks {
     divisor: U64F64,
     /// `raw / divisor` — the bag mark, comparable across fund ages.
     display: U64F64,
-    /// `max(BasketRate - rate0, 0) * raw` — what τ1 of root stake earned here since
-    /// the stamp, marked at today's raw price (`BasketRate` is denominated in raw β
-    /// units per rao, so the delta pairs with the raw price).
+    /// `max(BasketRate - rate0, 0) * raw` — the pending-entitlement mark: the β
+    /// minted per rao of root stake since the stamp, valued at today's raw price
+    /// (`BasketRate` is denominated in raw β units per rao, so the delta pairs with
+    /// the raw price). Re-marks with the price; display only, never part of the
+    /// stake series.
     staker_yield: U64F64,
-    /// `(1 + yield) * tr_splice` — the wealth of τ1 staked at the stamp block, in
-    /// stake-index units.
+    /// `tr_splice * BasketTwr` — the wealth of τ1 staked at the stamp block under
+    /// the claim-and-restake convention, in stake-index units. The TWR locks each
+    /// dividend's value when it lands, so past dividends never re-mark.
     stake: U64F64,
     /// Block of the baseline stamp; 0 while provisional.
     first_block: u64,
@@ -172,8 +192,10 @@ impl<T: Config> Pallet<T> {
 
     /// A fund's realizable NAV in rao and the number of holding rows scanned. Same
     /// valuation as [`Self::get_validator_basket_nav_tao`] (the money-path mark),
-    /// with row accounting for callers that price work.
-    fn basket_realizable_nav_rao(hotkey: &T::AccountId) -> (u64, u64) {
+    /// with row accounting for callers that price work. `pub(crate)` for the
+    /// baseline seed migration, which marks pre-upgrade entitlement at the same
+    /// realizable quotes.
+    pub(crate) fn basket_realizable_nav_rao(hotkey: &T::AccountId) -> (u64, u64) {
         let mut nav: u64 = 0;
         let mut rows: u64 = 0;
         for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
@@ -183,9 +205,28 @@ impl<T: Config> Pallet<T> {
         (nav, rows)
     }
 
+    /// The pending-entitlement mark: the β minted per rao of root stake since
+    /// `rate0`, valued at the current raw price. Re-marks with today's price by
+    /// construction — display state, never part of the canonical return series
+    /// ([`BasketTwr`]). Shared by live pricing and the baseline seed migration so
+    /// the convention cannot fork.
+    pub(crate) fn basket_pending_yield(rate: I96F32, rate0: I96F32, raw: U64F64) -> U64F64 {
+        let delta = rate.saturating_sub(rate0);
+        if delta.is_negative() {
+            U64F64::saturating_from_num(0)
+        } else {
+            U64F64::saturating_from_num(delta).saturating_mul(raw)
+        }
+    }
+
     /// A fund's marks against its frozen baseline. Zero-divisor baselines (defensive:
     /// the stamp path clamps to at least one ULP) resolve to divisor 1.
-    fn fund_marks_from(baseline: &BetaBaselineOf, raw: U64F64, rate: I96F32) -> FundMarks {
+    fn fund_marks_from(
+        baseline: &BetaBaselineOf,
+        raw: U64F64,
+        rate: I96F32,
+        twr: U64F64,
+    ) -> FundMarks {
         let one = U64F64::saturating_from_num(1);
         let divisor = if baseline.price_divisor == 0 {
             one
@@ -193,15 +234,8 @@ impl<T: Config> Pallet<T> {
             baseline.price_divisor
         };
         let display = raw.checked_div(divisor).unwrap_or(raw);
-        let delta = rate.saturating_sub(baseline.rate0);
-        let staker_yield = if delta.is_negative() {
-            U64F64::saturating_from_num(0)
-        } else {
-            U64F64::saturating_from_num(delta).saturating_mul(raw)
-        };
-        let stake = one
-            .saturating_add(staker_yield)
-            .saturating_mul(baseline.tr_splice);
+        let staker_yield = Self::basket_pending_yield(rate, baseline.rate0, raw);
+        let stake = baseline.tr_splice.saturating_mul(twr);
         FundMarks {
             divisor,
             display,
@@ -222,7 +256,12 @@ impl<T: Config> Pallet<T> {
         stake_level: U64F64,
     ) -> FundMarks {
         if let Some(baseline) = BetaBaseline::<T>::get(hotkey) {
-            return Self::fund_marks_from(&baseline, raw, BasketRate::<T>::get(hotkey));
+            return Self::fund_marks_from(
+                &baseline,
+                raw,
+                BasketRate::<T>::get(hotkey),
+                BasketTwr::<T>::get(hotkey),
+            );
         }
         let one = U64F64::saturating_from_num(1);
         let implied = raw.checked_div(bag_level).unwrap_or(one);
@@ -257,7 +296,12 @@ impl<T: Config> Pallet<T> {
         if raw == 0 {
             return (rows, None);
         }
-        let marks = Self::fund_marks_from(baseline, raw, BasketRate::<T>::get(hotkey));
+        let marks = Self::fund_marks_from(
+            baseline,
+            raw,
+            BasketRate::<T>::get(hotkey),
+            BasketTwr::<T>::get(hotkey),
+        );
         if marks.display == 0 || marks.stake == 0 {
             return (rows, None);
         }
@@ -468,18 +512,54 @@ impl<T: Config> Pallet<T> {
         ))
     }
 
-    /// Pricing snapshots for every fund with outstanding shares, all marked against
-    /// the same published index snapshot — the whole leaderboard in one consistent
-    /// call, one pass over the funds.
-    pub fn get_all_beta_pricing() -> Vec<BetaPricing<T::AccountId>> {
+    /// One page of pricing snapshots for funds with outstanding shares, all marked
+    /// against the same published index snapshot.
+    ///
+    /// Strictly bounded per call: at most `min(limit, BETA_PRICING_PAGE_FUNDS)` funds
+    /// are priced (`limit == 0` means the full page cap) and at most
+    /// [`BETA_PRICING_PAGE_ROWS`] `BasketShares` rows are visited. The page carries an
+    /// explicit `next` cursor (`None` once the map is exhausted); callers resume by
+    /// passing it back as `start_after`, so the full leaderboard is a short loop of
+    /// bounded calls instead of one unbounded scan.
+    pub fn get_all_beta_pricing(
+        start_after: Option<T::AccountId>,
+        limit: u32,
+    ) -> BetaPricingPage<T::AccountId> {
         let mut cache = SpotPriceCache::new();
         let (bag, stake) = Self::get_beta_index_levels();
-        BasketShares::<T>::iter()
-            .filter(|(_, shares)| *shares != 0)
-            .map(|(hotkey, shares)| {
-                Self::beta_pricing_against(&hotkey, shares, bag, stake, &mut cache)
-            })
-            .collect()
+        let funds_cap = if limit == 0 {
+            BETA_PRICING_PAGE_FUNDS as usize
+        } else {
+            limit.min(BETA_PRICING_PAGE_FUNDS) as usize
+        };
+        let mut iter = match &start_after {
+            Some(key) => BasketShares::<T>::iter_from(BasketShares::<T>::hashed_key_for(key)),
+            None => BasketShares::<T>::iter(),
+        };
+        let mut pricing = Vec::new();
+        let mut scanned: u32 = 0;
+        let cursor = loop {
+            let Some((hotkey, shares)) = iter.next() else {
+                // Map exhausted: the enumeration is complete.
+                return BetaPricingPage {
+                    pricing,
+                    next: None,
+                };
+            };
+            scanned = scanned.saturating_add(1);
+            if shares != 0 {
+                pricing.push(Self::beta_pricing_against(
+                    &hotkey, shares, bag, stake, &mut cache,
+                ));
+            }
+            if pricing.len() >= funds_cap || scanned >= BETA_PRICING_PAGE_ROWS {
+                break hotkey;
+            }
+        };
+        // Stopped on a cap: report a resume cursor unless the stop row happened to be
+        // the last one (one cheap peek; the peeked row is re-visited next page).
+        let next = iter.next().is_some().then_some(cursor);
+        BetaPricingPage { pricing, next }
     }
 
     /// One staker's position on one fund, against precomputed index levels. `None`
@@ -532,13 +612,18 @@ impl<T: Config> Pallet<T> {
         Self::beta_position_against(hotkey, coldkey, bag, stake, &mut cache)
     }
 
-    /// A coldkey's full display-denominated β portfolio: one position per validator on
+    /// A coldkey's display-denominated β portfolio: one position per validator on
     /// which it has owed β, all against the same published index snapshot.
+    ///
+    /// Explicitly capped at [`BETA_PRICING_PAGE_FUNDS`] staking relationships visited,
+    /// so one call's work is bounded by the cap times one fund's holdings scan even
+    /// for a coldkey with a pathologically long `StakingHotkeys` list.
     pub fn get_beta_portfolio(coldkey: &T::AccountId) -> Vec<BetaPosition<T::AccountId>> {
         let mut cache = SpotPriceCache::new();
         let (bag, stake) = Self::get_beta_index_levels();
         StakingHotkeys::<T>::get(coldkey)
             .into_iter()
+            .take(BETA_PRICING_PAGE_FUNDS as usize)
             .filter_map(|hotkey| {
                 Self::beta_position_against(&hotkey, coldkey, bag, stake, &mut cache)
             })
@@ -550,6 +635,8 @@ impl<T: Config> Pallet<T> {
     /// `total_root` rao of claimant stake: the deposit grew every staked rao by
     /// `stakers_value / total_root`, locked in at the deposit's own pricing. Staker
     /// yield over any window is then a pure ratio of two samples of this series.
+    /// This is the *only* staker-return series: `stake_price` is this accumulator
+    /// spliced onto the stake index, and the index chains its relatives.
     ///
     /// Display state only — never read by money paths. Called inside the deposit
     /// transaction so a rolled-back mint never compounds the series.
@@ -620,7 +707,7 @@ impl<T: Config> Pallet<T> {
     /// splice regardless of timing.
     ///
     /// Called after a successful share mint in both deposit flows, so the fund's
-    /// holdings, shares, and `BasketRate` are final for the block.
+    /// holdings, shares, `BasketRate`, and `BasketTwr` are final for the block.
     pub(crate) fn stamp_beta_baseline_if_new(hotkey: &T::AccountId) -> u64 {
         if BetaBaseline::<T>::contains_key(hotkey) {
             return 0;
@@ -650,12 +737,25 @@ impl<T: Config> Pallet<T> {
             // stay defined (the fund then displays saturated-high rather than at zero).
             price_divisor = U64F64::from_bits(1);
         }
+        // The stake series is `tr_splice × BasketTwr`. Dividends minted before a
+        // (possibly deferred) stamp have already compounded the TWR, so normalize
+        // the splice by the TWR at the stamp: the fund's stake price starts exactly
+        // at the index level, mirroring how `rate0` excludes pre-stamp entitlement.
+        let mut tr_splice = snapshot
+            .stake_level
+            .checked_div(BasketTwr::<T>::get(hotkey))
+            .unwrap_or(snapshot.stake_level);
+        if tr_splice == 0 {
+            // Same one-ULP clamp as the divisor: a zero splice would pin the fund's
+            // stake price at zero for its whole life.
+            tr_splice = U64F64::from_bits(1);
+        }
         BetaBaseline::<T>::insert(
             hotkey,
             BetaBaselineOf {
                 price_divisor,
                 rate0: BasketRate::<T>::get(hotkey),
-                tr_splice: snapshot.stake_level,
+                tr_splice,
                 first_block: Self::get_current_block_as_u64(),
             },
         );

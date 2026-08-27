@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
-    basket_info::{BasketPosition, BasketSummary, BetaPosition, BetaPricing},
+    basket_info::{BasketPosition, BasketSummary, BetaPosition, BetaPricing, BetaPricingPage},
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
@@ -121,10 +121,13 @@ sp_api::decl_runtime_apis! {
         /// scans only this fund's holdings.
         #[api_version(3)]
         fn get_beta_pricing(hotkey: AccountId32) -> Option<BetaPricing<AccountId32>>;
-        /// Pricing snapshots for every fund with outstanding shares, all marked against
-        /// the same published index snapshot — the whole leaderboard in one call.
+        /// One bounded page of pricing snapshots for funds with outstanding shares, all
+        /// marked against the same published index snapshot. `limit` is clamped to a
+        /// hard per-call cap (0 = full page); the returned `next` cursor resumes the
+        /// enumeration (`None` when complete), so the full leaderboard is a short loop
+        /// of bounded calls instead of one unbounded scan.
         #[api_version(3)]
-        fn get_all_beta_pricing() -> Vec<BetaPricing<AccountId32>>;
+        fn get_all_beta_pricing(start_after: Option<AccountId32>, limit: u32) -> BetaPricingPage<AccountId32>;
         /// The published `(bag index, stake index)` levels: the chained NAV-weighted
         /// display-price index (mix performance, flow-neutral) and the chained
         /// total-return stake index (what τ1 staked in the average fund became),

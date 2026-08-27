@@ -2932,7 +2932,10 @@ fn test_migrate_enable_root_weight_setting() {
     new_test_ext(1).execute_with(|| {
         const MIG_NAME: &[u8] = b"enable_root_weight_setting_v1";
 
-        // Launch state: gate closed, cap at its default.
+        // Launch state: gate closed, cap at its default, and — as on mainnet — the
+        // netuid-0 rate limit frozen at u64::MAX, under which set_root_weights can
+        // never pass its rate-limit check once LastUpdateForUid is stamped.
+        crate::WeightsSetRateLimit::<Test>::insert(NetUid::ROOT, u64::MAX);
         assert!(!crate::RootWeightSettingEnabled::<Test>::get());
         assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
 
@@ -2940,20 +2943,30 @@ fn test_migrate_enable_root_weight_setting() {
         assert!(!w.is_zero());
         assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
 
-        // Gate open, cap pinned to 1/16 explicitly in storage.
+        // Gate open, cap pinned to 1/16 explicitly in storage, and the frozen rate
+        // limit replaced with a usable one.
         assert!(crate::RootWeightSettingEnabled::<Test>::get());
         assert_eq!(
             crate::RootWeightsCap::<Test>::get(NetUid::ROOT),
             crate::DEFAULT_ROOT_WEIGHTS_CAP
         );
+        assert_eq!(
+            crate::WeightsSetRateLimit::<Test>::get(NetUid::ROOT),
+            crate::migrations::migrate_enable_root_weight_setting::ROOT_WEIGHTS_SET_RATE_LIMIT
+        );
 
         // A re-run must not clobber later governance changes.
         crate::RootWeightsCap::<Test>::insert(NetUid::ROOT, 1234u16);
         crate::RootWeightSettingEnabled::<Test>::put(false);
+        crate::WeightsSetRateLimit::<Test>::insert(NetUid::ROOT, 555u64);
         let w2 = crate::migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<Test>();
         assert!(w2.ref_time() <= w.ref_time());
         assert_eq!(crate::RootWeightsCap::<Test>::get(NetUid::ROOT), 1234u16);
         assert!(!crate::RootWeightSettingEnabled::<Test>::get());
+        assert_eq!(
+            crate::WeightsSetRateLimit::<Test>::get(NetUid::ROOT),
+            555u64
+        );
     });
 }
 

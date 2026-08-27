@@ -16,6 +16,17 @@ pub const MIGRATION_NAME: &[u8] = b"migrate_stamp_beta_baselines";
 /// historical splice the SDK has been displaying: their display divisor, first-sighting
 /// `BasketRate`, total-return splice level, and first-sighting block.
 ///
+/// The seeded `tr_splice` is not the table value verbatim: the live stake series
+/// (`stake_price = tr_splice × BasketTwr`) only compounds dividends from this upgrade
+/// onward — the TWR storage starts at its 1.0 default here — while the table's splice
+/// was sampled at the fund's *first sighting*. The staker history between the two
+/// exists on-chain only as the fund's rate delta, so the migration folds it in:
+/// `tr_splice = table_splice × (1 + (BasketRate - rate0) × raw price)`, with the raw
+/// price marked at the migration block's realizable quotes (the same mark every other
+/// permanent artifact uses — see `staking/beta_pricing.rs`, "Two marks"). The fund's
+/// stake price is therefore continuous at the upgrade block and compounds via the TWR
+/// from then on (see [`seeded_baseline`]).
+///
 /// Only funds that are live on this chain (outstanding `BasketShares`) and not already
 /// stamped are seeded; everything else in the table is skipped. Funds live on-chain but
 /// missing from the table (born after the table freeze) are stamped by
@@ -57,15 +68,18 @@ pub fn migrate_stamp_beta_baselines<T: Config>() -> Weight {
             continue;
         }
 
-        BetaBaseline::<T>::insert(
+        let (baseline, rows) = seeded_baseline::<T>(
             &hotkey,
-            BetaBaselineOf {
-                price_divisor: U64F64::from_bits(*divisor_bits),
-                rate0: I96F32::from_bits(*rate0_bits),
-                tr_splice: U64F64::from_bits(*tr_splice_bits),
-                first_block: *first_block,
-            },
+            *divisor_bits,
+            *rate0_bits,
+            *tr_splice_bits,
+            *first_block,
         );
+        // The rate read plus the NAV scan's holding rows (each a storage read and a
+        // realizable pool quote).
+        total_weight = total_weight
+            .saturating_add(T::DbWeight::get().reads(rows.saturating_mul(2).saturating_add(2)));
+        BetaBaseline::<T>::insert(&hotkey, baseline);
         total_weight = total_weight.saturating_add(T::DbWeight::get().writes(1));
         stamped = stamped.saturating_add(1);
     }
@@ -90,9 +104,47 @@ pub fn migrate_stamp_beta_baselines<T: Config>() -> Weight {
     total_weight
 }
 
+/// The exact [`BetaBaselineOf`] this migration seeds for one live table row, plus the
+/// holding rows scanned to compute it (for weight accounting). Everything but
+/// `tr_splice` is the frozen table row verbatim; the splice folds in the fund's
+/// pre-upgrade staker entitlement — `1 + (BasketRate - rate0) × raw price` at the
+/// migration block's realizable quotes — so the stake series is continuous at the
+/// upgrade (see the module docs). A fund with no priceable holdings (zero NAV) folds
+/// by exactly 1: with nothing to value the entitlement against, the table splice is
+/// kept unchanged.
+fn seeded_baseline<T: Config>(
+    hotkey: &T::AccountId,
+    divisor_bits: u128,
+    rate0_bits: i128,
+    tr_splice_bits: u128,
+    first_block: u64,
+) -> (BetaBaselineOf, u64) {
+    let rate0 = I96F32::from_bits(rate0_bits);
+    let shares = BasketShares::<T>::get(hotkey);
+    let (nav, rows) = Pallet::<T>::basket_realizable_nav_rao(hotkey);
+    let raw = U64F64::saturating_from_num(nav)
+        .checked_div(U64F64::saturating_from_num(shares))
+        .unwrap_or_default();
+    let pre_upgrade_yield =
+        Pallet::<T>::basket_pending_yield(BasketRate::<T>::get(hotkey), rate0, raw);
+    let tr_splice = U64F64::from_bits(tr_splice_bits)
+        .saturating_mul(U64F64::saturating_from_num(1).saturating_add(pre_upgrade_yield));
+    (
+        BetaBaselineOf {
+            price_divisor: U64F64::from_bits(divisor_bits),
+            rate0,
+            tr_splice,
+            first_block,
+        },
+        rows,
+    )
+}
+
 /// The table rows this migration must seed on the current chain: decodable hotkeys that
 /// are live (outstanding `BasketShares`) and not already stamped, paired with the exact
-/// [`BetaBaselineOf`] the table freezes for them. Empty once the migration has run.
+/// [`BetaBaselineOf`] the migration derives for them (the frozen row with the
+/// pre-upgrade entitlement folded into `tr_splice` — see [`seeded_baseline`]). Empty
+/// once the migration has run.
 #[cfg(feature = "try-runtime")]
 fn expected_seeds<T: Config>() -> Vec<(T::AccountId, BetaBaselineOf)> {
     if HasMigrationRun::<T>::get(MIGRATION_NAME.to_vec()) {
@@ -107,15 +159,14 @@ fn expected_seeds<T: Config>() -> Vec<(T::AccountId, BetaBaselineOf)> {
                 {
                     return None;
                 }
-                Some((
-                    hotkey,
-                    BetaBaselineOf {
-                        price_divisor: U64F64::from_bits(*divisor_bits),
-                        rate0: I96F32::from_bits(*rate0_bits),
-                        tr_splice: U64F64::from_bits(*tr_splice_bits),
-                        first_block: *first_block,
-                    },
-                ))
+                let (baseline, _) = seeded_baseline::<T>(
+                    &hotkey,
+                    *divisor_bits,
+                    *rate0_bits,
+                    *tr_splice_bits,
+                    *first_block,
+                );
+                Some((hotkey, baseline))
             },
         )
         .collect()
@@ -126,7 +177,9 @@ fn expected_seeds<T: Config>() -> Vec<(T::AccountId, BetaBaselineOf)> {
 /// the try-runtime CI jobs verify the seed against real mainnet/testnet/devnet state.
 ///
 /// Validated invariants: every live, unstamped fund in the frozen table gets exactly the
-/// table's baseline; every baseline that existed before the upgrade is untouched; when
+/// baseline [`seeded_baseline`] derives from the table (the frozen row with the
+/// pre-upgrade entitlement folded into `tr_splice`); every baseline that existed before
+/// the upgrade is untouched; when
 /// the seed stamps anything on a chain with no published index snapshot, the initial
 /// snapshot equals the table's frozen index levels (the SDK-series splice); the
 /// `HasMigrationRun` flag ends set; and (via try-runtime's double-execution check plus

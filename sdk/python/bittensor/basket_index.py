@@ -146,14 +146,17 @@ def fund_pricing(hotkey: str, raw_price: float) -> DisplayPricing:
 
 
 def staker_yield(record: dict) -> Optional[float]:
-    """Period staker yield: what τ1 of root stake earned on this fund since
-    its first sighting on the index grid, marked at today's spot rate.
+    """Pending-entitlement mark: what the β minted to stakers on this fund
+    since its first sighting is worth now, per τ1 staked.
 
     ``(basket_rate − rate at first sighting) × spot τ/β``: the β entitlement
-    minted per τ staked over the tracked period, valued now. Subtracting the
-    frozen baseline rate matters for migrated funds, whose ``BasketRate``
-    was seeded with legacy pre-period history that no current-period staker
-    earned. ``None`` when the record carries no ``basket_rate``.
+    minted per τ staked over the tracked period, valued at today's price.
+    This is a *mark*, not a return series — it re-values with pool prices
+    even when no dividend lands; the canonical staker-return series is the
+    chain's ``staker_twr``. Subtracting the frozen baseline rate matters for
+    migrated funds, whose ``BasketRate`` was seeded with legacy pre-period
+    history that no current-period staker earned. ``None`` when the record
+    carries no ``basket_rate``.
     """
     rate = record.get("basket_rate")
     if rate is None:
@@ -166,12 +169,15 @@ def staker_yield(record: dict) -> Optional[float]:
 def stake_value(record: dict) -> Optional[float]:
     """The fund's total-return stake price: the wealth of τ1 staked here.
 
-    ``(1 + staker_yield) × TR-index level at first sighting`` — the same
-    splice convention as the display beta price, but on the total-return
-    index, so the price *is* the yield story: it starts at the market's
-    total-return level and grows exactly with what stakers actually earn
-    (principal stays TAO; accrued β is marked at today's spot rate).
-    ``None`` when the record carries no ``basket_rate``.
+    Local *approximation* for pre-v3 nodes and pre-upgrade history:
+    ``(1 + staker_yield) × TR-index level at first sighting``. On v3+ nodes
+    the chain's ``stake_price`` is the canonical series — the ``BasketTwr``
+    accumulator (each dividend locked at deposit-time pricing) spliced onto
+    the stake index — and records carrying ``chain_pricing`` pass it through
+    instead of calling this. The accumulator does not exist at historical
+    blocks, so this fallback estimates it from the primitives that do:
+    the rate delta marked at today's spot rate. ``None`` when the record
+    carries no ``basket_rate``.
     """
     rate = record.get("basket_rate")
     if rate is None:
@@ -254,13 +260,16 @@ def normalize_position(record: dict) -> dict:
       (``None`` while provisional).
     - ``index_provisional``: True when the fund has no frozen baseline yet.
     - ``basket_index``: the index level used for ``vs_index``.
-    - ``staker_yield``: τ of β entitlement minted per τ of root stake since
-      the fund's first sighting (see :func:`staker_yield`), or ``None`` when
-      the record carries no ``basket_rate``. This is the root-staker
-      dividend pipe; allocating (buying β) does not earn it.
+    - ``staker_yield``: the pending-entitlement mark — what the β minted per
+      τ of root stake since the fund's first sighting is worth today (see
+      :func:`staker_yield`), or ``None`` when the record carries no
+      ``basket_rate``. Root-staker dividend pipe only (allocating — buying β
+      — does not earn it), and a mark, not a return series.
     - ``stake_value`` / ``stake_vs_index`` / ``stake_index``: the fund's
       total-return stake price (see :func:`stake_value`), its out/under-
-      performance vs the total-return index, and the level used.
+      performance vs the total-return index, and the level used. For window
+      returns use ``staker_twr`` ratios — ``stake_value`` is the same series
+      on v3+ nodes.
 
     A record carrying a ``chain_pricing`` snapshot (v3+ node) passes the
     chain's canonical numbers straight through instead of computing locally.

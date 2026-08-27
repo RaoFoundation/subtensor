@@ -454,12 +454,13 @@ pub mod pallet {
     /// * display (bag) price = `raw_price / price_divisor` — starts at the basket
     ///   index level of the stamp block (both sides marked at realizable quotes, so
     ///   a stamp cannot be poisoned by a spot-price push);
-    /// * total-return stake price = `(1 + (BasketRate - rate0) * raw_price) * tr_splice`
-    ///   — the wealth of τ1 staked at the stamp block, growing only with dividends
-    ///   actually minted to stakers since then.
+    /// * total-return stake price = `tr_splice * BasketTwr` — the wealth of τ1 staked
+    ///   at the stamp block under the claim-and-restake convention, compounding only
+    ///   with dividends actually minted to stakers since then, each locked at its
+    ///   deposit-time pricing.
     ///
     /// See `staking/beta_pricing.rs` for the index and pricing math built on this.
-    #[crate::freeze_struct("82220292e3e1e85b")]
+    #[crate::freeze_struct("e48f71fa685b45cf")]
     #[derive(
         Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
     )]
@@ -467,12 +468,17 @@ pub mod pallet {
         /// Divisor splicing the raw beta price onto the basket index: the fund's raw
         /// price at the stamp block over the index level at that block.
         pub price_divisor: U64F64,
-        /// The fund's `BasketRate` at the stamp block. Display yield only counts rate
-        /// accrued past this, so pre-period (e.g. migration-seeded legacy) history is
-        /// excluded from every fund's yield the same way.
+        /// The fund's `BasketRate` at the stamp block. The pending-entitlement mark
+        /// (`staker_yield`) only counts rate accrued past this, so pre-period (e.g.
+        /// migration-seeded legacy) history is excluded from every fund's figure the
+        /// same way.
         pub rate0: I96F32,
-        /// The staker total-return index level at the stamp block: the launch price of
-        /// τ1 staked on this fund, in total-return index units.
+        /// Splice factor for the staker total-return series: `tr_splice * BasketTwr`
+        /// is the fund's stake price. Stamped as the stake-index level at the stamp
+        /// block divided by the fund's TWR at that block (dividends can predate a
+        /// deferred stamp), so the stake price starts exactly on the index line. The
+        /// seed migration additionally folds the fund's pre-upgrade entitlement into
+        /// this factor (see `migrate_stamp_beta_baselines`).
         pub tr_splice: U64F64,
         /// Block at which this baseline was stamped.
         pub first_block: u64,
@@ -3029,17 +3035,20 @@ pub mod pallet {
 
     /// --- MAP ( validator_hotkey ) --> the fund's staker total-return accumulator.
     ///
-    /// The canonical root-staker yield series. Starts at 1.0 and multiplies by
+    /// The one canonical root-staker return series. Starts at 1.0 and multiplies by
     /// `1 + stakers_value / total_root_stake` on every dividend share mint — the value that
     /// deposit actually added per rao of claimant root stake, locked in at the deposit's own
     /// (realizable) pricing. Flows never move it; only dividends do. The staker return of
-    /// τ1 staked over any window, under the claim-and-restake-continuously convention, is
-    /// `Twr(t1) / Twr(t0) - 1`, so any two archive samples agree for every consumer. The
-    /// hold-without-claiming alternative, `(BasketRate(t1) - BasketRate(t0)) * beta_price(t1)`,
-    /// is derivable from primitives that are also on-chain. Accumulates from the upgrade that
-    /// introduced it; earlier history lives in the SDK's frozen index series. Like
-    /// [`BetaBaseline`], scoped to one fund life: moves on hotkey swap and is retired when
-    /// the fund drains or a dust revival starts a new life.
+    /// τ1 staked over any window (claim-and-restake convention) is `Twr(t1) / Twr(t0) - 1`,
+    /// so any two archive samples agree for every consumer. Everything staker-facing
+    /// derives from it: `stake_price` is this accumulator spliced onto the stake index
+    /// (`tr_splice × Twr`), and the index chains its relatives. The rate-delta figure
+    /// `(BasketRate - rate0) * price` is *not* an alternative return series — it is the
+    /// pending-entitlement mark (`staker_yield`), which re-values all accrued β at today's
+    /// price. Accumulates from the upgrade that introduced it; earlier history lives in the
+    /// seeded `tr_splice` (see `migrate_stamp_beta_baselines`). Like [`BetaBaseline`],
+    /// scoped to one fund life: moves on hotkey swap and is retired when the fund drains or
+    /// a dust revival starts a new life.
     #[pallet::storage]
     pub type BasketTwr<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, U64F64, ValueQuery, DefaultOneU64F64<T>>;
