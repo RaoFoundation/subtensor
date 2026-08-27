@@ -62,9 +62,8 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn flush_basket_deposits_for_hotkey(
         hotkey: &T::AccountId,
     ) -> (u64, Option<Vec<u8>>) {
-        // While the seed migration owns the basket maps every deposit waits (epochs route
-        // credits through `DeferredRootAlphaDividends` during the seed, so the queue should
-        // be empty; stay defensive regardless).
+        // While the seed migration owns the basket maps every deposit waits. Epoch credits may
+        // accumulate in the pending queue, which starts draining after the cursor clears.
         if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
             return (0, None);
         }
@@ -242,9 +241,9 @@ impl<T: Config> Pallet<T> {
             return 0;
         }
 
-        // Seed migration still converting legacy claim state. Coinbase records its calculated
-        // per-hotkey credit in DeferredRootAlphaDividends; recycle an unexpected direct call
-        // defensively rather than writing BasketRate/Shares that a later pass would overwrite.
+        // Seed migration still converting legacy claim state. Coinbase only queues its
+        // calculated per-hotkey credits; recycle an unexpected direct deposit defensively rather
+        // than writing BasketRate/Shares that a later pass would overwrite.
         if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
             Self::recycle_basket_deposit_batch(batch);
             return 0;

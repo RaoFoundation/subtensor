@@ -55,13 +55,11 @@ impl RootClaimOutcome {
 
 impl<T: Config> Pallet<T> {
     /// Reject basket / root-stake mutations and subnet dissolution while the
-    /// `migrate_seed_beta_basket_v2` cursor is present or an epoch-allocated root dividend is
-    /// still waiting to enter its basket. Deposits, claims, swaps, root stake
+    /// `migrate_seed_beta_basket_v2` cursor is present. Deposits, claims, swaps, root stake
     /// add/remove/transfer, and dissolution hard-error here.
     pub(crate) fn ensure_beta_basket_seed_idle() -> Result<(), Error<T>> {
         ensure!(
-            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>()
-                && DeferredRootAlphaDividends::<T>::iter().next().is_none(),
+            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
             Error::<T>::BetaBasketSeedInProgress
         );
         Ok(())

@@ -844,28 +844,6 @@ impl<T: Config> Pallet<T> {
         // for release/earned; only validator take is capturable.
         let _ = RootAlphaDividendsPerSubnet::<T>::clear_prefix(netuid, u32::MAX, None);
 
-        // Once the seed no longer owns BasketRate/Shares, release credits using the hotkeys to
-        // which their original epochs assigned them. Root stake and basket mutations stay gated
-        // until this ledger is empty, so the claimant base is unchanged while credits wait.
-        // Credits move into the pending-deposit queue rather than depositing inline, so the
-        // post-migration backlog drains one hotkey per block instead of spiking this
-        // epoch's block.
-        if !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
-            for (hotkey, root_claimable_alpha) in
-                DeferredRootAlphaDividends::<T>::drain_prefix(netuid)
-            {
-                if root_claimable_alpha.is_zero() {
-                    continue;
-                }
-                Self::enqueue_basket_deposit(&hotkey, netuid, root_claimable_alpha);
-                RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
-                    *divs = divs.saturating_add(root_claimable_alpha);
-                });
-            }
-        }
-
-        let seed_in_progress =
-            crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>();
         for (hotkey, root_alpha) in root_alpha_dividends {
             let owner: T::AccountId = Owner::<T>::get(&hotkey);
             let total: AlphaBalance = tou64!(root_alpha).into();
@@ -887,25 +865,15 @@ impl<T: Config> Pallet<T> {
 
             let root_claimable_alpha: AlphaBalance = tou64!(root_claimable).into();
             if !root_claimable_alpha.is_zero() {
-                if seed_in_progress {
-                    // Preserve this epoch's recipient while the migration owns the live basket
-                    // maps. Repeated epochs accumulate only for the same hotkey.
-                    DeferredRootAlphaDividends::<T>::mutate(netuid, &hotkey, |deferred| {
-                        *deferred = deferred.saturating_add(root_claimable_alpha);
-                    });
-                } else {
-                    // Queue the validator's root dividend for its beta basket. The deposit
-                    // itself (share mint priced against the fund's full NAV — one AMM quote
-                    // per holding) is deliberately not done here: epochs enqueue, and the
-                    // per-block flush deposits each hotkey's credits from all subnets as
-                    // one batch, so epoch blocks no longer pay
-                    // validators x holdings quotes.
-                    Self::enqueue_basket_deposit(&hotkey, netuid, root_claimable_alpha);
-                }
+                // Queue the validator's root dividend for its beta basket. The deposit
+                // itself (share mint priced against the fund's full NAV — one AMM quote
+                // per holding) is deliberately not done here: epochs enqueue, and the
+                // per-block flush deposits each hotkey's credits from all subnets as
+                // one batch, so epoch blocks no longer pay
+                // validators x holdings quotes.
+                Self::enqueue_basket_deposit(&hotkey, netuid, root_claimable_alpha);
 
-                RootAlphaDividendsPerSubnet::<T>::mutate(netuid, &hotkey, |divs| {
-                    *divs = divs.saturating_add(root_claimable_alpha);
-                });
+                RootAlphaDividendsPerSubnet::<T>::insert(netuid, &hotkey, root_claimable_alpha);
             }
         }
     }
