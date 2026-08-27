@@ -6,14 +6,14 @@ import snapshot from '../../../../../public/catalog/root-reborn-snapshot.json';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V500 Upgrade — Curated Beta',
+  title: 'The V450 Upgrade — Curated Beta',
   description:
-    'V500 enables set_root_weights. Validators curate their dividend baskets under a ' +
+    'V450 enables set_root_weights. Validators curate their dividend baskets under a ' +
     '1/16 concentration cap, and the chain itself now computes the basket index and ' +
     'every fund’s display price, staker yield, and positions — one canonical number ' +
     'for btcli, explorers, and contracts. btcli root list, allocate, claim, and ' +
     'weights are the working surface.',
-  alternates: {canonical: '/releases/v500-upgrade'},
+  alternates: {canonical: '/releases/v450-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -274,7 +274,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>The V500 Upgrade</h1>
+          <h1 className={styles.paper_title}>The V450 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Curated Beta · August 2026
           </p>
@@ -299,7 +299,7 @@ const page = () => {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>500</strong> turns on <code>set_root_weights</code>. From the upgrade
+            Spec <strong>450</strong> turns on <code>set_root_weights</code>. From the upgrade
             block a root validator can choose how its dividend stream (the yield from root stake) is re-deployed across subnet
             alpha.
           </p>
@@ -430,7 +430,7 @@ btcli root register`}
             Raw fund prices (<code>NAV / β supply</code>) carry arbitrary historical
             baselines, so they are not comparable across funds of different ages. Until now
             the fix — splicing every fund onto a common index at its birth — lived in a
-            frozen table inside the SDK: an interpretation only btcli shared. V500 makes
+            frozen table inside the SDK: an interpretation only btcli shared. V450 makes
             that convention chain state.
           </p>
           <p>
@@ -457,7 +457,7 @@ btcli root register`}
             <code>get_beta_position</code> / <code>get_beta_portfolio</code> (a
             staker&apos;s holdings in display units, where{' '}
             <code>display_beta × display_price</code> is the position&apos;s value). On
-            v500 nodes, <code>btcli root list</code> is a pass-through of these numbers;
+            v450 nodes, <code>btcli root list</code> is a pass-through of these numbers;
             its local math remains only as a fallback for older nodes and pre-upgrade
             history.
           </p>

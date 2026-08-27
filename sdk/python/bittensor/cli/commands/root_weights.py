@@ -246,8 +246,8 @@ def _validate_destinations(app_ctx: AppContext, netuids: list[int]) -> None:
     async def _fetch(client):
         networks = await client.query_map(storage.SubtensorModule.NetworksAdded)
         try:
-            # Not in the generated storage catalog yet (spec 500 addition), so
-            # queried by name; pre-500 chains have no such item — fall back to
+            # Not in the generated storage catalog yet, so query it by name;
+            # chains without the item fall back to
             # the launch default (weight setting is gated off there anyway).
             cap_raw = await client.query(("SubtensorModule", "RootWeightsCap"), [0])
         except Exception:
