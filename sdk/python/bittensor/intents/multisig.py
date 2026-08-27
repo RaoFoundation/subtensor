@@ -374,6 +374,7 @@ class MultisigIntentAdapter(Intent):
             estimated_fee=semantic.estimated_fee,
             facts=[*semantic.facts, *dispatch.facts],
             facts_title=semantic.facts_title,
+            spend_profile=semantic.spend_profile,
         )
 
     def spend(self):

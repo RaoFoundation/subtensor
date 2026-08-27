@@ -26,7 +26,11 @@ from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, INTENT_SAMPLES
 
 @pytest.fixture()
 def substrate() -> FakeSubstrate:
-    return FakeSubstrate()
+    substrate = FakeSubstrate()
+    substrate.seed_default(
+        "System", "Account", {"data": {"free": 10**18, "reserved": 0, "frozen": 0}}
+    )
+    return substrate
 
 
 @pytest.fixture()

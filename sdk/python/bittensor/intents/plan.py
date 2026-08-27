@@ -49,6 +49,12 @@ class Policy:
         return ["raw call submission is disabled by policy (set allow_raw_calls=True)"]
 
     def check(self, intent: Intent, fee: Optional[Balance]) -> list[str]:
+        """Check policy against the intent's static spend declaration."""
+        semantic = intent.semantic_intent()
+        return self.check_resolved(semantic, fee, semantic.spend())
+
+    def check_resolved(self, intent: Intent, fee: Optional[Balance], spend: Spend) -> list[str]:
+        """Check policy using a chain-resolved spend from the planner."""
         intent = intent.semantic_intent()
         violations: list[str] = []
         if self.max_fee_tao is not None:
@@ -62,7 +68,6 @@ class Policy:
             elif fee > self.max_fee_tao:
                 violations.append(f"fee {fee} exceeds max_fee_tao {self.max_fee_tao}")
         if self.max_spend_tao is not None:
-            spend = intent.spend()
             if spend is UNBOUNDED:
                 violations.append(
                     f"{intent.op} spends an amount that cannot be bounded before "

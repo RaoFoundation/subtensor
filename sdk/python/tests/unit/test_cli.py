@@ -59,6 +59,9 @@ def fake(tmp_path, monkeypatch, wallet_dir) -> FakeSubstrate:
     monkeypatch.setenv("BT_WALLET", _WALLET_NAME)
 
     substrate = FakeSubstrate()
+    substrate.seed_default(
+        "System", "Account", {"data": {"free": 10**18, "reserved": 0, "frozen": 0}}
+    )
 
     def make_client(network, **kwargs):
         return Client(network, substrate=substrate)
@@ -382,6 +385,19 @@ class TestRoot:
 
 
 class TestTransactions:
+    def test_root_register_dry_run_rejects_an_unfunded_wallet(self, fake: FakeSubstrate):
+        fake.seed_default("System", "Account", {"data": {"free": 0, "reserved": 0, "frozen": 0}})
+
+        result = invoke("--json", "--dry-run", "root", "register")
+
+        assert result.exit_code == 1, result.output
+        plan = json.loads(result.output)
+        assert plan["op"] == "root_register"
+        assert plan["spend_tao"] == 1.0
+        assert plan["ok"] is False
+        assert any("free TAO" in reason for reason in plan["violations"])
+        assert fake.submissions == []
+
     def test_dry_run_renders_plan_without_submitting(self, fake: FakeSubstrate):
         result = invoke(
             "--json",
