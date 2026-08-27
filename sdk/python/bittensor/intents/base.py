@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
 
 from ..balance import Balance
 from ..result import BittensorError
+from ._affordability import SpendProfile
 from ._money import Spend
 
 if TYPE_CHECKING:
@@ -132,6 +133,10 @@ class IntentPreflight:
     # Stage heading for ``facts`` in the review card: "Fees" for cost
     # breakdowns, "Quote" for simulated swap outcomes (what you receive).
     facts_title: str = "Fees"
+    # Chain-resolved TAO spend and keep-alive sequencing. Static intents get
+    # this from ``Intent.spend``; dynamic-price intents resolve it here so the
+    # plan's effects, policy, and affordability all share one state read.
+    spend_profile: SpendProfile = field(default_factory=SpendProfile)
 
 
 @dataclass
@@ -223,6 +228,9 @@ class Intent(ABC):
             effects=list(await self.effects(substrate, dispatch_origin)),
             warnings=list(await self.warnings(substrate, dispatch_origin)),
             blocks=list(await self.blocks(substrate, dispatch_origin)),
+            spend_profile=SpendProfile.from_spend(
+                self.spend(), preserve=self.preserves_dispatch_origin()
+            ),
         )
 
     async def wrap_call(self, substrate: "Substrate", wallet: "Any", call: Any):
@@ -307,6 +315,10 @@ class Intent(ABC):
         value leaves.
         """
         return None
+
+    def preserves_dispatch_origin(self) -> bool:
+        """Whether TAO spend must leave the dispatch-origin account alive."""
+        return False
 
     def touches_netuids(self) -> list[int]:
         """Every netuid this intent acts on, for policy allowlists.

@@ -125,6 +125,9 @@ class StakeBurn(Intent):
     def spend(self) -> Spend:
         return self.amount_tao
 
+    def preserves_dispatch_origin(self) -> bool:
+        return True
+
 
 @register
 @dataclass

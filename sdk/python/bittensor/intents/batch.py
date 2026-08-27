@@ -9,15 +9,29 @@ the command for free like any other intent.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
 from .._generated import calls
 from ..balance import Balance
+from ._affordability import SpendProfile
 from ._money import UNBOUNDED, Spend
 from .base import BuiltCall, Intent, IntentPreflight
 from .registry import build as build_intent
 from .registry import register
+
+
+def _sum_spends(spends: Iterable[Spend]) -> Spend:
+    total = Balance.from_rao(0)
+    bounded = False
+    for spend in spends:
+        if spend is UNBOUNDED:
+            return UNBOUNDED
+        if spend is not None:
+            total += spend
+            bounded = True
+    return total if bounded else None
 
 
 @register
@@ -122,6 +136,7 @@ class Batch(Intent):
         required_free: Balance | None = None
         available_free: Balance | None = None
         estimated_fee: Balance | None = None
+        spend_profiles: list[SpendProfile] = []
         for index, child in enumerate(self._children):
             child_preflight = await child.preflight(
                 substrate, dispatch_origin, fee_payer, call=call
@@ -129,6 +144,7 @@ class Batch(Intent):
             effects.extend(f"[{index}] {item}" for item in child_preflight.effects)
             warnings.extend(f"[{index}] {item}" for item in child_preflight.warnings)
             blocks.extend(f"[{index}] {item}" for item in child_preflight.blocks)
+            spend_profiles.append(child_preflight.spend_profile)
             if child_preflight.required_free is not None and (
                 required_free is None or child_preflight.required_free.rao > required_free.rao
             ):
@@ -144,21 +160,13 @@ class Batch(Intent):
             required_free=required_free,
             available_free=available_free,
             estimated_fee=estimated_fee,
+            spend_profile=SpendProfile.combine(spend_profiles),
         )
 
     def spend(self) -> Spend:
         """Aggregate TAO spend across children; any unbounded child makes the
         whole batch unbounded."""
-        total = Balance.from_rao(0)
-        bounded = False
-        for child in self._children:
-            child_spend = child.spend()
-            if child_spend is UNBOUNDED:
-                return UNBOUNDED
-            if child_spend is not None:
-                total = total + child_spend
-                bounded = True
-        return total if bounded else None
+        return _sum_spends(child.spend() for child in self._children)
 
     def touches_netuids(self) -> list[int]:
         return sorted({netuid for child in self._children for netuid in child.touches_netuids()})

@@ -9,6 +9,7 @@ from typing import Any, Optional
 from .._generated import calls
 from .._generated import storage as st
 from ..balance import Balance
+from ._affordability import SpendProfile
 from ._money import UNBOUNDED, Spend
 from ._root_claim_fee import (
     quote_root_claim_fee,
@@ -243,6 +244,26 @@ class RootRegister(Intent):
             "lock none",
             "auto-childkey to every subnet owner unless opted out",
         ]
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        del dispatch_origin, fee_payer, call
+        burn, _lock = await neuron_registration_split(substrate, 0)
+        return IntentPreflight(
+            effects=[
+                self.summary(),
+                f"burn {burn} (recycled into issuance)",
+                "lock none",
+                "auto-childkey to every subnet owner unless opted out",
+            ],
+            warnings=[],
+            blocks=[],
+            spend_profile=SpendProfile.from_spend(burn, preserve=True),
+        )
+
+    def spend(self) -> Spend:
+        return UNBOUNDED
 
     def touches_netuids(self) -> list[int]:
         return [0]

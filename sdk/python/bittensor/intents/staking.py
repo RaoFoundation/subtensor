@@ -648,6 +648,9 @@ class AddStake(Intent):
             return UNBOUNDED
         return self.amount_tao
 
+    def preserves_dispatch_origin(self) -> bool:
+        return True
+
 
 @register
 @dataclass
@@ -998,6 +1001,9 @@ class AddStakeLimit(Intent):
         if self.amount_tao == ALL:
             return UNBOUNDED
         return self.amount_tao
+
+    def preserves_dispatch_origin(self) -> bool:
+        return True
 
 
 @register
@@ -1698,3 +1704,6 @@ class StakeIntoBasket(Intent):
         if self.amount_tao == ALL:
             return UNBOUNDED
         return self.amount_tao
+
+    def preserves_dispatch_origin(self) -> bool:
+        return True

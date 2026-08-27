@@ -77,6 +77,9 @@ class Transfer(Intent):
             return UNBOUNDED
         return self.amount_tao
 
+    def preserves_dispatch_origin(self) -> bool:
+        return self.keep_alive
+
 
 @register
 @dataclass

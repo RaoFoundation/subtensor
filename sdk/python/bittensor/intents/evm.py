@@ -73,6 +73,9 @@ class FundEvmKey(Intent):
             return UNBOUNDED
         return self.amount_tao
 
+    def preserves_dispatch_origin(self) -> bool:
+        return True
+
 
 @register
 @dataclass

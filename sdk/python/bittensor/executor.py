@@ -27,6 +27,7 @@ from .balance import Balance
 from .fee_filters import COLDKEY_FEE_WARNING, charges_coldkey_fee
 from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
+from .intents._affordability import SpendProfile, affordability_blocks, planned_fee_payer
 from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
 from .result import (
@@ -237,13 +238,13 @@ def _intent_accounts(
     wallet: WalletLike,
     proxy_for: Optional[str] = None,
 ) -> tuple[str, str]:
-    """Return ``(dispatch_origin, fee_payer)`` for a fully wrapped intent."""
-    fee_payer = public_view(wallet, intent.signer).ss58_address
+    """Return ``(dispatch_origin, signer_address)`` for a wrapped intent."""
+    signer_address = public_view(wallet, intent.signer).ss58_address
     if proxy_for is not None:
-        return proxy_for, fee_payer
+        return proxy_for, signer_address
     origin_view = _intent_origin_view(substrate, intent, wallet, proxy_for)
     dispatch_origin = public_view(origin_view, intent.semantic_intent().signer).ss58_address
-    return dispatch_origin, fee_payer
+    return dispatch_origin, signer_address
 
 
 def _with_nested_dispatch_failure(result: ExtrinsicResult) -> ExtrinsicResult:
@@ -693,18 +694,27 @@ class Executor:
                 proxy_for=proxy_for,
                 proxy_type=proxy_type,
             )
-        dispatch_origin, fee_payer = _intent_accounts(
+        dispatch_origin, signer_address = _intent_accounts(
             self.substrate,
             intent,
             wallet,
             proxy_for,
         )
-        return await intent.preflight(
+        fee_payer, fee_payer_block = await planned_fee_payer(
+            self.substrate,
+            proxy_for=proxy_for,
+            signer_address=signer_address,
+            proxy_is_outer=intent.semantic_intent() is intent,
+        )
+        preview = await intent.preflight(
             self.substrate,
             dispatch_origin,
             fee_payer,
             call=call,
         )
+        if fee_payer_block is not None:
+            preview.blocks.append(fee_payer_block)
+        return preview
 
     async def plan(
         self,
@@ -733,11 +743,19 @@ class Executor:
             proxy_type=proxy_type,
         )
         pub = self._public_keypair(wallet, intent.signer)
-        _origin, signer_address = _intent_accounts(self.substrate, intent, wallet, proxy_for)
-        preflight = await self._preflight(
-            intent,
-            wallet,
+        dispatch_origin, signer_address = _intent_accounts(
+            self.substrate, intent, wallet, proxy_for
+        )
+        fee_payer, fee_payer_block = await planned_fee_payer(
+            self.substrate,
             proxy_for=proxy_for,
+            signer_address=signer_address,
+            proxy_is_outer=intent.semantic_intent() is intent,
+        )
+        preflight = await intent.preflight(
+            self.substrate,
+            dispatch_origin,
+            fee_payer,
             call=call,
         )
         warnings: list[str] = list(preflight.warnings)
@@ -753,8 +771,28 @@ class Executor:
         effects = list(preflight.effects)
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
-        violations = self._violations(intent, fee, policy)
+        semantic_intent = intent.semantic_intent()
+        spend_profile = preflight.spend_profile
+        if spend_profile.total is None:
+            spend_profile = SpendProfile.from_spend(
+                semantic_intent.spend(),
+                preserve=semantic_intent.preserves_dispatch_origin(),
+            )
+        spend = spend_profile.total
+        active_policy = self._active_policy(policy)
+        violations = active_policy.check_resolved(intent, fee, spend) if active_policy else []
         violations.extend(preflight.blocks)
+        if fee_payer_block is not None and isinstance(spend, Balance):
+            violations.append(fee_payer_block)
+        violations.extend(
+            await affordability_blocks(
+                self.substrate,
+                profile=spend_profile,
+                fee=fee,
+                dispatch_origin=dispatch_origin,
+                fee_payer=fee_payer,
+            )
+        )
 
         return Plan(
             op=intent.op,
@@ -767,7 +805,7 @@ class Executor:
             violations=violations,
             call=call,
             extras=extras,
-            spend=intent.semantic_intent().spend(),
+            spend=spend,
             args={k: v for k, v in intent.to_dict().items() if k != "op"},
         )
 
@@ -930,13 +968,16 @@ class Executor:
         call, extras = await _compose_intent_call(
             self.substrate, intent, wallet, proxy_for=proxy_for, proxy_type=proxy_type
         )
-        dispatch_origin, fee_payer = _intent_accounts(self.substrate, intent, wallet, proxy_for)
-        preflight = await self._preflight(
-            intent,
-            wallet,
-            proxy_for=proxy_for,
+        dispatch_origin, signer_address = _intent_accounts(
+            self.substrate, intent, wallet, proxy_for
+        )
+        preflight = await intent.preflight(
+            self.substrate,
+            dispatch_origin,
+            signer_address,
             call=call,
         )
+        fee_payer = signer_address
         fee = preflight.estimated_fee
         active = self._active_policy(policy)
         if active is not None and active.max_fee_tao is not None and fee is None:
