@@ -85,7 +85,9 @@ fn complete_sweep_pass(block: u64) {
 
 /// Block at which the `n`-th completed pass (1-based) is run in these tests.
 fn pass_block(n: u64) -> u64 {
-    1 + n.saturating_sub(1) * BETA_INDEX_REFRESH_INTERVAL_BLOCKS
+    n.saturating_sub(1)
+        .saturating_mul(BETA_INDEX_REFRESH_INTERVAL_BLOCKS)
+        .saturating_add(1)
 }
 
 // =============================================================================
