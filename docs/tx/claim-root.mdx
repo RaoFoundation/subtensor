@@ -22,7 +22,7 @@ refuses when free TAO cannot cover the reserve.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1965-L1990) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1967-L1992) |
 
 ## Parameters
 
@@ -69,7 +69,7 @@ result = sub.execute_tool("claim_root", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1972`](/code/pallets/subtensor/src/macros/dispatches.rs#L1965-L1990):
+`SubtensorModule.claim_root` — [`pallets/subtensor/src/macros/dispatches.rs#L1974`](/code/pallets/subtensor/src/macros/dispatches.rs#L1967-L1992):
 
 ```rust
 #[pallet::call_index(121)]
@@ -100,6 +100,6 @@ pub fn claim_root(
 }
 ```
 
-Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L769), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L806), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L835).
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L837), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L874), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L903).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

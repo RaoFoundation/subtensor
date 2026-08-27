@@ -22,6 +22,8 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         // round-robin. Runs right after coinbase (and before the price EMA update) so a
         // flush lands where the epoch-inline deposits used to happen.
         Self::flush_pending_basket_deposits_block();
+        // --- 4c. The background beta-index sweep advances one bounded page per block from
+        // `on_initialize` (not here), so its work is charged into the hook's weight.
         // --- 5. Update moving prices AFTER using them for emissions.
         Self::update_moving_prices();
         // --- 6. Update roop prop AFTER using them for emissions.

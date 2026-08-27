@@ -138,7 +138,7 @@ principal and accrued entitlement throughout.
 Root Reborn launched with `set_root_weights` gated off network-wide, so
 every fund began on the null strategy — dividends accumulating in place —
 and the network got a clean, uniform baseline before curation opened.
-Runtime 449 opened the gate and pinned the concentration cap
+Runtime v450 opened the gate and pinned the concentration cap
 (`RootWeightsCap`): no destination may take more than 1/16 of the vector,
 so a curated basket spreads across at least 16 destinations. The
 `RootWeightSettingDisabled` error now only appears if governance switches
@@ -298,6 +298,19 @@ and as `betaBasket_*` RPC methods for integrators:
 | [`root-basket-total-nav`](/docs/query/root-basket-total-nav) | Network-wide basket NAV |
 | [`validator-root-weights`](/docs/query/validator-root-weights) | A validator's distribution vector |
 | [`root-claim-threshold`](/docs/query/root-claim-threshold) | The minimum per-validator claim payout |
+
+Since v450 the runtime also computes the **standardized pricing layer**
+itself — the basket index, each fund's index-spliced display price, its
+staker yield and total-return stake price, and display-denominated
+positions (see [Beta tokens](/docs/concepts/beta-tokens) for what these
+mean). Integrators read them from five `betaBasket` runtime APIs:
+`get_all_beta_pricing` (the whole leaderboard marked against one index
+sweep), `get_beta_pricing`, `get_beta_index` (the live bag and stake
+index levels), and `get_beta_position` / `get_beta_portfolio` (a
+staker's positions in display units, where
+`display_beta × display_price` is the position's value). On upgraded
+nodes `btcli root list` passes these numbers straight through, so every
+consumer of the chain shows the same price, yield, and index.
 
 ## History of `set_root_weights`
 

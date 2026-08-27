@@ -794,5 +794,14 @@ mod events {
         /// A subnet's liquid-alpha consensus mode was updated.
         /// Appended to preserve existing SCALE event indices.
         LiquidAlphaConsensusModeSet(NetUid, ConsensusMode),
+
+        /// A fund's frozen display baseline was stamped at its first share mint: its
+        /// index-spliced display and total-return stake prices start at the current
+        /// index levels from this block on (see `BetaBaseline` storage). Appended to
+        /// preserve existing SCALE event indices.
+        BetaBaselineStamped {
+            /// Validator hotkey whose fund was stamped.
+            hotkey: T::AccountId,
+        },
     }
 }

@@ -1950,9 +1950,11 @@ mod dispatches {
         /// Claims the root emissions for a coldkey across every validator it root-stakes to.
         ///
         /// Redemption is fund-level: for each validator, the staker's accrued entitlement is
-        /// redeemed as their pro-rata fraction of that basket (sold to TAO and staked on root).
-        /// The `subnets` argument is retained for call-data compatibility with pre-basket
-        /// clients; it is ignored — baskets have no per-subnet claim selection.
+        /// paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on
+        /// root. The corresponding alpha fraction is sold; any concavity surplus over the
+        /// NAV-priced entitlement remains in the basket as root TAO for the other holders. The
+        /// `subnets` argument is retained for call-data compatibility with pre-basket clients;
+        /// it is ignored — baskets have no per-subnet claim selection.
         ///
         /// Prefer [`Pallet::claim_root_with_hotkey`] to claim a single validator.
         ///
@@ -1992,8 +1994,10 @@ mod dispatches {
         /// Claims the root emissions for a coldkey on one validator hotkey.
         ///
         /// Redemption is fund-level for that validator: the staker's accrued entitlement is
-        /// redeemed as their pro-rata fraction of each basket holding (sold to TAO and staked
-        /// on root). Other validators' accrued yield is left untouched.
+        /// paid as their pro-rata fraction of the basket's full-liquidation NAV and staked on
+        /// root. The corresponding alpha fraction is sold; any concavity surplus over the
+        /// NAV-priced entitlement remains in the basket as root TAO for the other holders.
+        /// Other validators' accrued yield is left untouched.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.

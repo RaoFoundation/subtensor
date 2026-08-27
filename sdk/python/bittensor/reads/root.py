@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .._generated import runtime_apis as api
+from .._generated import storage as st
 from .._generated.runtime_apis import Method
 from .._generated.storage import Item
 from ..balance import Balance
@@ -33,6 +34,11 @@ _ROOT_CLAIM_THRESHOLD = Item("SubtensorModule", "RootClaimableThreshold", "I96F3
 _GET_BASKET_POSITION = Method("BetaBasketRuntimeApi", "get_basket_position")
 _GET_ROOT_BASKET_PORTFOLIO = Method("BetaBasketRuntimeApi", "get_root_basket_portfolio")
 
+# TODO(codegen): switch to `api.BetaBasketRuntimeApi.*` once the runtime-API
+# registry is regenerated against a spec that includes these v3 methods.
+_GET_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_beta_pricing")
+_GET_ALL_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_all_beta_pricing")
+
 _ROOT_NETUID = 0
 
 # Raw chain units per beta token. Chain units mint at par (1 per rao of TAO
@@ -47,6 +53,75 @@ def _i96f32_rao(value: Any) -> int:
     if isinstance(value, dict):
         return int(value.get("bits") or 0) >> 32
     return int(value or 0) >> 32
+
+
+def _i96f32_float(value: Any) -> float:
+    """Decode an I96F32 fixed-point chain value to a float, fraction kept.
+
+    Used for ``BasketRate``, whose values are small ratios (β raw units
+    minted per rao of root stake) that whole-rao truncation would zero out.
+    """
+    bits = int(value.get("bits") or 0) if isinstance(value, dict) else int(value or 0)
+    return bits / 2**32
+
+
+def _u64f64_float(value: Any) -> float:
+    """Decode a U64F64 fixed-point chain value (``{'bits': ...}`` or raw int)
+    to a float."""
+    bits = int(value.get("bits") or 0) if isinstance(value, dict) else int(value or 0)
+    return bits / 2**64
+
+
+def _chain_pricing_record(row: Any) -> dict:
+    """Shape one decoded chain ``BetaPricing`` row into the plain-float fields
+    :func:`bittensor.basket_index.normalize_positions` passes through."""
+    return {
+        "hotkey": str(row.get("hotkey")),
+        "spot_price": _u64f64_float(row.get("spot_price")),
+        "display_price": _u64f64_float(row.get("display_price")),
+        "stake_price": _u64f64_float(row.get("stake_price")),
+        "staker_yield": _u64f64_float(row.get("staker_yield")),
+        "staker_twr": _u64f64_float(row.get("staker_twr")),
+        "bag_index": _u64f64_float(row.get("bag_index")),
+        "stake_index": _u64f64_float(row.get("stake_index")),
+        "first_block": int(row.get("first_block") or 0),
+        "provisional": bool(row.get("provisional")),
+        "display_shares": _u64f64_float(row.get("display_shares")),
+    }
+
+
+async def _attach_chain_pricing(view, records: list[dict]) -> None:
+    """Attach the runtime's standardized pricing to board records.
+
+    On nodes exposing ``BetaBasketRuntimeApi`` v3+, each record gains a
+    ``chain_pricing`` dict and the display layer becomes a pass-through of
+    the chain's canonical numbers. Silently a no-op on older nodes (and at
+    pre-upgrade historical blocks), where the SDK's local index math remains
+    the display source.
+
+    The chain enumerates funds in bounded pages (each call prices at most a
+    hard cap of funds and returns a resume cursor), so the full board is a
+    short loop rather than one unbounded scan on the node.
+    """
+    if not records:
+        return
+    rows: list[dict] = []
+    cursor = None
+    try:
+        while True:
+            # limit 0 = the chain's full page cap; `next` is the resume cursor.
+            page = await view.runtime(_GET_ALL_BETA_PRICING, [cursor, 0])
+            rows.extend(page.get("pricing") or [])
+            cursor = page.get("next")
+            if cursor is None:
+                break
+    except Exception:  # pre-v3 node: method absent from metadata
+        return
+    pricing = {str(row.get("hotkey")): _chain_pricing_record(row) for row in rows}
+    for record in records:
+        chain = pricing.get(record["hotkey"])
+        if chain is not None:
+            record["chain_pricing"] = chain
 
 
 def _summary_record(view, summary: Any) -> dict:
@@ -252,14 +327,27 @@ async def validator_basket_summary(view, hotkey_ss58: str) -> dict:
 
     Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
     and the lifetime return multiple `(nav + redeemed) / deposited`, the
-    validator's root weight vector, and the per-subnet alpha holdings each
-    valued at spot and at realizable depth. All figures are TAO (or alpha
-    for the holdings themselves).
+    validator's root weight vector, the per-subnet alpha holdings each
+    valued at spot and at realizable depth, and `basket_rate` — the
+    cumulative β raw units minted per rao of root stake (a lifetime
+    accumulator that includes migration-seeded history). For staker returns
+    use `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate
+    deltas. All figures are TAO (or alpha for the holdings themselves).
     """
+    view = await view.at()
     summary = await view.runtime(
         api.BetaBasketRuntimeApi.get_validator_basket_summary, [hotkey_ss58]
     )
-    return _summary_record(view, summary or {})
+    record = _summary_record(view, summary or {})
+    rate = await view.query(st.SubtensorModule.BasketRate, [hotkey_ss58])
+    record["basket_rate"] = _i96f32_float(rate)
+    try:
+        row = await view.runtime(_GET_BETA_PRICING, [hotkey_ss58])
+    except Exception:  # pre-v3 node: method absent from metadata
+        row = None
+    if row:
+        record["chain_pricing"] = _chain_pricing_record(row)
+    return record
 
 
 @read(
@@ -271,11 +359,23 @@ async def root_baskets(view) -> list[dict]:
     """Basket summaries for every validator with an active basket.
 
     The network-wide leaderboard: one `validator_basket_summary` record per
-    validator with an active fund, sorted by NAV descending. Compare
-    `lifetime_return` across validators to rank basket performance.
+    validator with an active fund, sorted by NAV descending, each including
+    its `basket_rate` (the cumulative entitlement accumulator: β raw units
+    minted per rao of root stake, migration-seeded history included).
+    Compare `lifetime_return` across validators to rank basket performance;
+    for staker returns use `chain_pricing` (`staker_twr` / `stake_price`).
     """
+    view = await view.at()
     rows = await view.runtime(api.BetaBasketRuntimeApi.get_all_validator_baskets, [])
     records = [_summary_record(view, summary) for summary in rows or []]
+    if records:
+        rates = await view.query_batch(
+            st.SubtensorModule.BasketRate,
+            [[record["hotkey"]] for record in records],
+        )
+        for record, rate in zip(records, rates):
+            record["basket_rate"] = _i96f32_float(rate)
+    await _attach_chain_pricing(view, records)
     records.sort(key=lambda entry: -entry["nav_tao"].rao)
     return records
 

@@ -27,10 +27,11 @@ const releases: Release[] = [
     date: 'August 2026',
     title: 'Curated Beta',
     summary:
-      'V449 enables set_root_weights. Validators curate their dividend baskets under a ' +
-      '1/16 concentration cap. btcli root list, allocate, claim, and weights are the ' +
-      'working surface.',
-    href: '/releases/v449-upgrade',
+      'V450 enables set_root_weights. Validators curate their dividend baskets under a ' +
+      '1/16 concentration cap, and the chain now computes the basket index, display ' +
+      'prices, and staker yield itself — one canonical scoreboard for every consumer. ' +
+      'btcli root list, allocate, claim, and weights are the working surface.',
+    href: '/releases/v450-upgrade',
   },
   {
     tag: 'v448',

@@ -1346,9 +1346,9 @@ class AppContext:
 
         # Native keyfiles unlock synchronously on their first signature. Unlock
         # encrypted coldkeys eagerly instead: a wrong password can be retried
-        # on the spot (instead of aborting and losing every prompt answer),
-        # and the password prompt stays visible — the lazy SDK signer would
-        # prompt underneath register_subnet's live spinner and appear to hang.
+        # on the spot (instead of aborting and losing every prompt answer).
+        # The live spinner pauses for prompts; unlocking here still keeps the
+        # password on a clean line before submit starts.
         local_signer = None
         if (
             intent.signer == "coldkey"
@@ -1894,9 +1894,9 @@ class AppContext:
         Every call animates a default braille spinner so slow commands never
         look hung. Commands that narrate phases wrap their ``run`` calls in
         ``output.activity`` themselves; this default one then yields to the
-        outer spinner (``activity`` is re-entrant). Interactive prompts must
-        happen before ``run``, never inside ``work`` — a prompt under a live
-        spinner cannot take input.
+        outer spinner (``activity`` is re-entrant). Interactive prompts
+        pause the spinner (see ``pause_live_display``), but still belong
+        before ``run``: a prompt inside ``work`` blocks the event loop.
         """
 
         async def _main() -> T:
