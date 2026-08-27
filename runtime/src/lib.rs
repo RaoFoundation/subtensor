@@ -1526,6 +1526,12 @@ type Migrations = (
     pallet_subtensor::migrations::migrate_init_total_issuance::initialise_total_issuance::Migration<
         Runtime,
     >,
+    // Seed frozen per-fund display baselines (index splice) from the SDK table for funds
+    // that predate on-chain stamping. Lives here rather than in the pallet hook so
+    // try-runtime validates its pre/post-upgrade invariants against real network state.
+    pallet_subtensor::migrations::migrate_stamp_beta_baselines::stamp_beta_baselines::Migration<
+        Runtime,
+    >,
 );
 
 // Unchecked extrinsic type as expected by this runtime.

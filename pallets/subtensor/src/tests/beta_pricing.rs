@@ -346,6 +346,34 @@ fn test_migrate_stamp_beta_baselines_seeds_live_funds_only() {
     });
 }
 
+#[cfg(feature = "try-runtime")]
+#[test]
+fn test_migrate_stamp_beta_baselines_try_runtime_hooks() {
+    use crate::migrations::migrate_stamp_beta_baselines::stamp_beta_baselines::Migration;
+    use frame_support::traits::OnRuntimeUpgrade;
+
+    new_test_ext(1).execute_with(|| {
+        // One live fund the migration must seed, one fund whose pre-existing baseline
+        // must survive the upgrade verbatim.
+        let (pubkey_live, ..) = &BETA_BASELINES[0];
+        let (pubkey_stamped, ..) = &BETA_BASELINES[1];
+        let live = U256::decode(&mut &pubkey_live[..]).expect("32-byte key decodes");
+        let stamped = U256::decode(&mut &pubkey_stamped[..]).expect("32-byte key decodes");
+        BasketShares::<Test>::insert(live, 1_000_000u64);
+        BasketShares::<Test>::insert(stamped, 1_000_000u64);
+        BetaBaseline::<Test>::insert(stamped, baseline(U64F64::saturating_from_num(7), one()));
+
+        let state = Migration::<Test>::pre_upgrade().expect("pre_upgrade");
+        Migration::<Test>::on_runtime_upgrade();
+        Migration::<Test>::post_upgrade(state).expect("post_upgrade validates the seed");
+
+        // Second execution (try-runtime double-run): still a no-op that validates.
+        let state = Migration::<Test>::pre_upgrade().expect("pre_upgrade after run");
+        Migration::<Test>::on_runtime_upgrade();
+        Migration::<Test>::post_upgrade(state).expect("post_upgrade after idempotent re-run");
+    });
+}
+
 #[test]
 fn test_migrate_stamp_beta_baselines_is_idempotent() {
     new_test_ext(1).execute_with(|| {
