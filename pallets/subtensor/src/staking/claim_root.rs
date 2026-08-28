@@ -401,8 +401,7 @@ impl<T: Config> Pallet<T> {
         );
         // Deposit queued dividend credits first so the share mint below prices against
         // the fund's full, current NAV.
-        let (_, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(&hotkey);
-        ensure!(flush_completed, Error::<T>::BasketDepositPending);
+        Self::flush_basket_deposits_for_hotkey(&hotkey);
         ensure!(tao >= DefaultMinStake::<T>::get(), Error::<T>::AmountTooLow);
         ensure!(
             Self::can_remove_balance_from_coldkey_account(&coldkey, tao.into()),
@@ -580,11 +579,10 @@ impl<T: Config> Pallet<T> {
 
         // Deposit any queued dividend credits first so the claim redeems against the
         // fund's full, current state. The flush work is scan-priced into the outcome.
-        let (flush_work, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
         outcome.rows = outcome
             .rows
             .saturating_add(u32::try_from(flush_work).unwrap_or(u32::MAX));
-        ensure!(flush_completed, Error::<T>::BasketDepositPending);
 
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {

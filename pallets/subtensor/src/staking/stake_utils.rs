@@ -828,8 +828,7 @@ impl<T: Config> Pallet<T> {
             if enforce_root_hold {
                 Self::ensure_root_stake_unlocked(coldkey, hotkey)?;
             }
-            let (_, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
-            ensure!(flush_completed, Error::<T>::BasketDepositPending);
+            Self::flush_basket_deposits_for_hotkey(hotkey);
         }
 
         // Refuse to strip conviction-locked or collateral-bonded alpha even when
@@ -945,8 +944,7 @@ impl<T: Config> Pallet<T> {
         // pending dividend credits before the new stake lands, so it can't capture
         // flushable dividends earned before it arrived.
         if netuid.is_root() {
-            let (_, _, flush_completed) = Self::flush_basket_deposits_for_hotkey(hotkey);
-            ensure!(flush_completed, Error::<T>::BasketDepositPending);
+            Self::flush_basket_deposits_for_hotkey(hotkey);
         }
 
         // Transfer TAO from coldkey to the subnet account.
@@ -1072,16 +1070,9 @@ impl<T: Config> Pallet<T> {
         // Root stake moves claimant base on both hotkeys: settle queued basket deposits
         // on each side first (see `stake_into_subnet` / `unstake_from_subnet`).
         if netuid.is_root() {
-            let (_, _, origin_flush_completed) =
-                Self::flush_basket_deposits_for_hotkey(origin_hotkey);
-            ensure!(origin_flush_completed, Error::<T>::BasketDepositPending);
+            Self::flush_basket_deposits_for_hotkey(origin_hotkey);
             if destination_hotkey != origin_hotkey {
-                let (_, _, destination_flush_completed) =
-                    Self::flush_basket_deposits_for_hotkey(destination_hotkey);
-                ensure!(
-                    destination_flush_completed,
-                    Error::<T>::BasketDepositPending
-                );
+                Self::flush_basket_deposits_for_hotkey(destination_hotkey);
             }
         }
 
