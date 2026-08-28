@@ -433,6 +433,14 @@ call_filter_group!(
     [RuntimeCall::SubtensorModule(SubtensorCall::start_call),]
 );
 
+// Root basket curation. Kept separate so `RootWeights` grants only this call.
+call_filter_group!(
+    RootWeightsCalls,
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::set_root_weights
+    ),]
+);
+
 // Residual pallet-subtensor calls that no proxy needs to grant on their own:
 // weights, serving, delegate-take, alpha lock/burn/preferences, network
 // registration, childkey admin, account association, tempo control, voting
@@ -441,7 +449,6 @@ call_filter_group!(
     SubtensorCommonCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),
@@ -693,6 +700,7 @@ type SubtensorSplitCalls = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    RootWeightsCalls,
     SubtensorCommonCalls,
 );
 

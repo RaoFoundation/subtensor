@@ -15,7 +15,7 @@ use crate::RuntimeCall;
 //
 // Each proxy type's permission set is an *additive* union of whole call groups
 // from `call_groups`. A call a proxy does not list is denied. `Any` allows
-// everything; the deprecated proxies allow nothing.
+// everything; the deprecated governance proxies allow nothing.
 //
 // `Contains` for a tuple is logical OR (any member matches), so these aliases
 // read as "allow if the call is in any of these groups".
@@ -65,6 +65,7 @@ type NonTransferAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    RootWeightsCalls,
     SubtensorCommonCalls,
 );
 
@@ -80,6 +81,7 @@ type NonFungibleAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    RootWeightsCalls,
     SubtensorCommonCalls,
 );
 
@@ -99,6 +101,7 @@ type NonCriticalAllowed = (
     RootClaimCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
+    RootWeightsCalls,
     SubtensorCommonCalls,
 );
 
@@ -117,11 +120,9 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::SwapHotkey => HotkeySwapCalls::contains(call),
         ProxyType::SubnetLeaseBeneficiary => SubnetLeaseAllowed::contains(call),
         ProxyType::RootClaim => RootClaimCalls::contains(call),
+        ProxyType::RootWeights => RootWeightsCalls::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
-        ProxyType::Triumvirate
-        | ProxyType::Senate
-        | ProxyType::Governance
-        | ProxyType::RootWeights => false,
+        ProxyType::Triumvirate | ProxyType::Senate | ProxyType::Governance => false,
     }
 }
 
@@ -183,11 +184,11 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::SwapHotkey => FilterMode::Allow(HotkeySwapCalls::call_infos()),
         ProxyType::SubnetLeaseBeneficiary => FilterMode::Allow(SubnetLeaseAllowed::call_infos()),
         ProxyType::RootClaim => FilterMode::Allow(RootClaimCalls::call_infos()),
+        ProxyType::RootWeights => FilterMode::Allow(RootWeightsCalls::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
-        ProxyType::Triumvirate
-        | ProxyType::Senate
-        | ProxyType::Governance
-        | ProxyType::RootWeights => FilterMode::Allow(Vec::new()),
+        ProxyType::Triumvirate | ProxyType::Senate | ProxyType::Governance => {
+            FilterMode::Allow(Vec::new())
+        }
     }
 }
 
@@ -287,11 +288,11 @@ mod tests {
     #[test]
     fn any_allows_everything_and_deprecated_allow_nothing() {
         assert_eq!(allowed_calls(ProxyType::Any), all_runtime_calls());
+        assert!(!ProxyType::RootWeights.is_deprecated());
         for deprecated in [
             ProxyType::Triumvirate,
             ProxyType::Senate,
             ProxyType::Governance,
-            ProxyType::RootWeights,
         ] {
             assert!(allowed_calls(deprecated).is_empty());
         }
@@ -513,6 +514,10 @@ mod tests {
                 "SubtensorModule::claim_root",
                 "SubtensorModule::claim_root_with_hotkey",
             ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::RootWeights),
+            expected(&["SubtensorModule::set_root_weights"])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),
