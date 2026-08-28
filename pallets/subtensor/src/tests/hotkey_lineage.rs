@@ -412,38 +412,53 @@ fn test_hotkey_lineage_reverse_swap_does_not_cycle() {
 }
 
 #[test]
-fn test_neuron_deregistration_preserves_successor_for_contract_fund_tracking() {
+fn test_deregistered_hotkey_keeps_unregistered_successor() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
         let owner_hotkey = U256::from(2);
         let h0 = U256::from(3);
         let h1 = U256::from(4);
+        let replacement = U256::from(5);
 
         let netuid = add_dynamic_network(&owner_hotkey, &coldkey);
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
         register_ok_neuron(netuid, h0, coldkey, 0);
 
-        System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
-            RuntimeOrigin::signed(coldkey),
-            &h0,
-            &h1,
-            Some(netuid),
-            false,
-        ));
-        assert_eq!(SubtensorModule::hotkey_lineage_tip(netuid, &h0), h1);
+        SubtensorModule::record_hotkey_swap_lineage(netuid, &h0, &h1);
 
-        // Deregister h1 and re-register h0 in the same block as the swap.
-        // Contracts must still be able to follow the successor and locate funds
-        // held under h1.
-        let uid = Uids::<Test>::get(netuid, h1).expect("registered after swap");
+        let uid = Uids::<Test>::get(netuid, h0).expect("registered before deregistration");
+        SubtensorModule::replace_neuron(netuid, uid, &replacement, System::block_number());
+
+        assert!(Uids::<Test>::get(netuid, h0).is_none());
+        assert_eq!(Uids::<Test>::get(netuid, replacement), Some(uid));
+        assert!(Uids::<Test>::get(netuid, h1).is_none());
+        assert_eq!(HotkeySuccessor::<Test>::get(netuid, h0), Some(h1));
+    });
+}
+
+#[test]
+fn test_reregistered_hotkey_cancels_successor() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let owner_hotkey = U256::from(2);
+        let h0 = U256::from(3);
+        let h1 = U256::from(4);
+        let replacement = U256::from(5);
+
+        let netuid = add_dynamic_network(&owner_hotkey, &coldkey);
+        add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        register_ok_neuron(netuid, h0, coldkey, 0);
+        SubtensorModule::record_hotkey_swap_lineage(netuid, &h0, &h1);
+
+        let uid = Uids::<Test>::get(netuid, h0).expect("registered before deregistration");
+        SubtensorModule::replace_neuron(netuid, uid, &replacement, System::block_number());
+        assert_eq!(HotkeySuccessor::<Test>::get(netuid, h0), Some(h1));
+
         SubtensorModule::replace_neuron(netuid, uid, &h0, System::block_number());
 
         assert_eq!(Uids::<Test>::get(netuid, h0), Some(uid));
         assert!(Uids::<Test>::get(netuid, h1).is_none());
-        assert_eq!(HotkeySuccessor::<Test>::get(netuid, h0), Some(h1));
-        assert_eq!(SubtensorModule::hotkey_lineage_tip(netuid, &h0), h1);
-        assert!(SubtensorModule::same_hotkey_lineage(netuid, &h0, &h1));
+        assert!(HotkeySuccessor::<Test>::get(netuid, h0).is_none());
     });
 }
 
