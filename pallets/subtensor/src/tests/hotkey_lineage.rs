@@ -412,15 +412,16 @@ fn test_hotkey_lineage_reverse_swap_does_not_cycle() {
 }
 
 #[test]
-fn test_reregister_clears_stale_successor_for_tip() {
+fn test_neuron_deregistration_preserves_successor_for_contract_fund_tracking() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
-        let h0 = U256::from(2);
-        let h1 = U256::from(3);
-        let h2 = U256::from(4);
+        let owner_hotkey = U256::from(2);
+        let h0 = U256::from(3);
+        let h1 = U256::from(4);
 
-        let netuid = add_dynamic_network(&h0, &coldkey);
+        let netuid = add_dynamic_network(&owner_hotkey, &coldkey);
         add_balance_to_coldkey_account(&coldkey, 1_000_000_000_000_u64.into());
+        register_ok_neuron(netuid, h0, coldkey, 0);
 
         System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
         assert_ok!(SubtensorModule::do_swap_hotkey(
@@ -432,24 +433,17 @@ fn test_reregister_clears_stale_successor_for_tip() {
         ));
         assert_eq!(SubtensorModule::hotkey_lineage_tip(netuid, &h0), h1);
 
-        // h0 becomes live again; tip must not keep following the old rename.
-        register_ok_neuron(netuid, h0, coldkey, 0);
-        assert!(HotkeySuccessor::<Test>::get(netuid, h0).is_none());
-        assert_eq!(SubtensorModule::hotkey_lineage_tip(netuid, &h0), h0);
-        // Root-based identity still links the prior tip.
-        assert!(SubtensorModule::same_hotkey_lineage(netuid, &h0, &h1));
+        // Deregister h1 and re-register h0 in the same block as the swap.
+        // Contracts must still be able to follow the successor and locate funds
+        // held under h1.
+        let uid = Uids::<Test>::get(netuid, h1).expect("registered after swap");
+        SubtensorModule::replace_neuron(netuid, uid, &h0, System::block_number());
 
-        System::set_block_number(System::block_number() + HotkeySwapOnSubnetInterval::get() + 1);
-        assert_ok!(SubtensorModule::do_swap_hotkey(
-            RuntimeOrigin::signed(coldkey),
-            &h0,
-            &h2,
-            Some(netuid),
-            false,
-        ));
-        assert_eq!(HotkeySuccessor::<Test>::get(netuid, h0), Some(h2));
-        assert_eq!(SubtensorModule::hotkey_root(netuid, &h2), h0);
-        assert!(SubtensorModule::same_hotkey_lineage(netuid, &h1, &h2));
+        assert_eq!(Uids::<Test>::get(netuid, h0), Some(uid));
+        assert!(Uids::<Test>::get(netuid, h1).is_none());
+        assert_eq!(HotkeySuccessor::<Test>::get(netuid, h0), Some(h1));
+        assert_eq!(SubtensorModule::hotkey_lineage_tip(netuid, &h0), h1);
+        assert!(SubtensorModule::same_hotkey_lineage(netuid, &h0, &h1));
     });
 }
 

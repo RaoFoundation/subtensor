@@ -11,8 +11,8 @@
 //!
 //! Prefer [`Self::hotkey_root`] / [`Self::same_hotkey_lineage`] for ban/score.
 //! [`Self::hotkey_lineage_tip`] is best-effort: successor edges are cleared when
-//! a hotkey becomes live again and when it is written as a swap destination,
-//! but consumers should still treat tip walks as advisory.
+//! a hotkey is written as a swap destination, but consumers should still treat
+//! tip walks as advisory.
 
 use frame_support::weights::Weight;
 
@@ -59,13 +59,6 @@ impl<T: Config> Pallet<T> {
         HotkeySuccessor::<T>::remove(netuid, new_hotkey);
         HotkeySuccessor::<T>::insert(netuid, old_hotkey, new_hotkey.clone());
         HotkeyRoot::<T>::insert(netuid, new_hotkey, root);
-    }
-
-    /// Drop a stale outgoing successor when `hotkey` becomes live on `netuid`
-    /// again (registration / UID replace). Keeps tip walks from following a
-    /// previous rename of the same SS58.
-    pub fn clear_stale_hotkey_successor(netuid: NetUid, hotkey: &T::AccountId) {
-        HotkeySuccessor::<T>::remove(netuid, hotkey);
     }
 
     /// Canonical (first) hotkey in this subnet's swap lineage for `hotkey`.
