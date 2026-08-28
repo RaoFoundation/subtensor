@@ -19,6 +19,9 @@ mod hooks {
             let hotkey_swap_clean_up_weight = Self::clean_up_hotkey_swap_records(block_number);
 
             let block_step_result = Self::block_step();
+            // Advance the paged beta-index sweep right after the block step (deposit
+            // queue drained), charging its bounded page into the hook weight.
+            let beta_index_sweep_weight = Self::advance_beta_index_sweep_weight();
             match block_step_result {
                 Ok(owner_transition_weight) => {
                     // --- If the block step was successful, return the weight.
@@ -26,12 +29,14 @@ mod hooks {
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
                         .saturating_add(owner_transition_weight)
+                        .saturating_add(beta_index_sweep_weight)
                 }
                 Err(e) => {
                     // --- If the block step was unsuccessful, return the weight anyway.
                     log::error!("Error while stepping block: {:?}", e);
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
+                        .saturating_add(beta_index_sweep_weight)
                 }
             }
         }
@@ -189,6 +194,8 @@ mod hooks {
                 .saturating_add(migrations::migrate_coldkey_collateral_hotkeys::migrate_coldkey_collateral_hotkeys::<T>())
                 // Backfill the O(1) aggregate used by the voting-power precompile.
                 .saturating_add(migrations::migrate_total_voting_power::migrate_total_voting_power::<T>())
+                // Backfill the per-subnet aggregate of all hotkey alpha stake.
+                .saturating_add(migrations::migrate_total_alpha_staked::migrate_total_alpha_staked::<T>())
                 // Kick off the unified beta-basket seed (cursor only — conversion is on_idle
                 // so ORU stays idempotent for try-runtime). Fresh key so chains that ran the
                 // superseded per-slot v1 seed still convert.
@@ -199,13 +206,34 @@ mod hooks {
                 .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>())
                 // Floor root basket curation at MIN_ROOT_BASKET_WEIGHTS destinations.
                 .saturating_add(migrations::migrate_set_root_min_allowed_weights::migrate_set_root_min_allowed_weights::<T>())
+                // Open root basket curation: enable set_root_weights and pin the
+                // concentration cap at 1/16 (>= 16 destinations per basket).
+                .saturating_add(migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<T>())
+                // Root admission: 1 reg/block, 2/interval, 7200-block immunity,
+                // 1 TAO burn floor. Prune in `do_root_register` skips immune UIDs.
+                .saturating_add(migrations::migrate_tune_root_registration::migrate_tune_root_registration::<T>())
                 // Kill the stale quantile-derived emission gate bar so the
                 // rank-32 bar (DefaultEmissionBarRank) applies from the first
                 // recompute after the upgrade instead of the next cadence boundary.
                 .saturating_add(migrations::migrate_reset_emission_gate_bar::migrate_reset_emission_gate_bar::<T>())
+                // Repair stabilized SubnetAlphaOut undercounts caused by duplicated RAO-launch
+                // local dividends and legacy root dividends omitted from the root counter.
+                .saturating_add(migrations::migrate_fix_rao_alpha_out_accounting::migrate_fix_rao_alpha_out_accounting::<T>())
+                // Remove prior-generation alpha-asset counter offsets from recycled mainnet
+                // netuids without discarding burns accumulated by their current generations.
+                .saturating_add(migrations::migrate_rebase_recycled_alpha_asset_counters::migrate_rebase_recycled_alpha_asset_counters::<T>())
+                // Add pre-tracking burns to the generation-scoped AlphaBurned counters. This
+                // follows both AlphaOut repair and recycled-generation counter rebasing.
+                .saturating_add(migrations::migrate_backfill_historical_alpha_burned::migrate_backfill_historical_alpha_burned::<T>())
                 // Schedule the large storage-GC sweep. Actual work is bounded by the remaining
                 // on_idle weight over subsequent blocks.
-                .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>());
+                .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())
+                // Schedule stale StakingHotkeys relationship cleanup. It runs after storage GC
+                // and uses only otherwise-unused on_idle weight; normal operations stay enabled.
+                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>());
+            // The beta-baseline seed (`migrate_stamp_beta_baselines`) runs from the
+            // runtime `Migrations` tuple instead of this hook, so try-runtime validates
+            // its pre/post-upgrade invariants against real network state.
             weight
         }
 
@@ -248,11 +276,40 @@ mod hooks {
             // Storage GC is independent from beta-basket conversion, but both are large. Let the
             // state-sensitive seed finish first and then consume only otherwise-unused block
             // weight, so normal extrinsics and dissolution work retain priority.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_total_alpha_staked::continue_total_alpha_staked::<T>(
+                        limit.saturating_sub(weight),
+                    ),
+                );
+            }
+
             if !seed_in_progress && weight.all_lt(limit) {
                 weight.saturating_accrue(
                     migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<T>(
                         limit.saturating_sub(weight),
                     ),
+                );
+            }
+
+            // StakingHotkeys cleanup depends on storage GC having removed zero legacy Alpha rows.
+            // It is otherwise independent and does not block or gate any runtime operation.
+            let storage_bloat_cursor_read = T::DbWeight::get().reads(1);
+            let storage_bloat_in_progress = if !seed_in_progress
+                && weight
+                    .saturating_add(storage_bloat_cursor_read)
+                    .all_lt(limit)
+            {
+                weight.saturating_accrue(storage_bloat_cursor_read);
+                migrations::migrate_storage_bloat_v2::StorageBloatCleanupMigration::<T>::exists()
+            } else {
+                true
+            };
+            if !seed_in_progress && !storage_bloat_in_progress && weight.all_lt(limit) {
+                weight.saturating_accrue(
+                    migrations::migrate_cleanup_staking_hotkeys::continue_staking_hotkeys_cleanup::<
+                        T,
+                    >(limit.saturating_sub(weight)),
                 );
             }
 

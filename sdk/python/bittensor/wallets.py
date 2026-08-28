@@ -11,6 +11,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from ._transport.codec import is_valid_ss58_address
 from .keyfiles import Keypair, WrongPasswordError, resolve_key_password
@@ -220,20 +221,27 @@ def create(
     overwrite: bool = False,
     coldkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
     hotkey_crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    on_mnemonic: Callable[[str, str], None] | None = None,
 ) -> Wallet:
-    """Create a new coldkey and hotkey for ``name``/``hotkey``."""
+    """Create a new coldkey and hotkey for ``name``/``hotkey``.
+
+    ``on_mnemonic`` receives ``("coldkey" | "hotkey", mnemonic)`` for each new
+    key and replaces the default plain-stdout echo of the mnemonics.
+    """
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
     wallet.create_new_coldkey(
         n_words=n_words,
         use_password=use_password,
         overwrite=overwrite,
         crypto_type=coldkey_crypto_type,
+        on_mnemonic=(lambda m: on_mnemonic("coldkey", m)) if on_mnemonic else None,
     )
     wallet.create_new_hotkey(
         n_words=n_words,
         use_password=False,
         overwrite=overwrite,
         crypto_type=hotkey_crypto_type,
+        on_mnemonic=(lambda m: on_mnemonic("hotkey", m)) if on_mnemonic else None,
     )
     return wallet
 
@@ -300,6 +308,7 @@ def new_coldkey(
     use_password: bool = True,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    on_mnemonic: Callable[[str], None] | None = None,
 ) -> Wallet:
     """Create a new coldkey only (does not create a hotkey)."""
     wallet = Wallet(name=name, path=path)
@@ -308,6 +317,7 @@ def new_coldkey(
         use_password=use_password,
         overwrite=overwrite,
         crypto_type=crypto_type,
+        on_mnemonic=on_mnemonic,
     )
     return wallet
 
@@ -320,6 +330,7 @@ def new_hotkey(
     n_words: int = 12,
     overwrite: bool = False,
     crypto_type: int = DEFAULT_CRYPTO_TYPE,
+    on_mnemonic: Callable[[str], None] | None = None,
 ) -> Wallet:
     """Create a new hotkey in an existing wallet."""
     wallet = Wallet(name=name, hotkey=hotkey, path=path)
@@ -328,6 +339,7 @@ def new_hotkey(
         use_password=False,
         overwrite=overwrite,
         crypto_type=crypto_type,
+        on_mnemonic=on_mnemonic,
     )
     return wallet
 

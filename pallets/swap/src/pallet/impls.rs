@@ -11,7 +11,7 @@ use sp_runtime::traits::AccountIdConversion;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, SubnetInfo, TaoBalance, Token, TokenReserve};
 use subtensor_swap_interface::{
-    DefaultPriceLimit, Order as OrderT, SwapEngine, SwapHandler, SwapResult,
+    DefaultPriceLimit, Order as OrderT, SwapEngine, SwapFailureKind, SwapHandler, SwapResult,
 };
 
 use super::pallet::*;
@@ -558,6 +558,23 @@ impl<T: Config> SwapHandler for Pallet<T> {
 
             // Static subnet, alpha == tao
             _ => u64::from(tao_amount).into(),
+        }
+    }
+
+    fn max_swap_input<O: OrderT>(netuid: NetUid) -> O::PaidIn
+    where
+        Self: SwapEngine<O>,
+    {
+        O::ReserveIn::reserve(netuid).saturating_mul(MAX_SWAP_INPUT_RESERVE_MULTIPLIER.into())
+    }
+
+    fn classify_failure(error: &DispatchError) -> SwapFailureKind {
+        if *error == Error::<T>::SwapInputTooLarge.into() {
+            SwapFailureKind::InputTooLarge
+        } else if *error == Error::<T>::ReservesTooLow.into() {
+            SwapFailureKind::TerminalLiquidity
+        } else {
+            SwapFailureKind::Other
         }
     }
 }

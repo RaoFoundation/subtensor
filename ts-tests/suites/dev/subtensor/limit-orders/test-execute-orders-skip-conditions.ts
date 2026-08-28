@@ -10,6 +10,7 @@ import {
     devSudoSetLockReductionInterval,
 } from "../../../../utils/dev-helpers.js";
 import {
+    asV1,
     buildSignedOrder,
     EXPIRED,
     FAR_FUTURE,
@@ -146,7 +147,7 @@ describeSuite({
                 // The signature now covers different bytes — validation must reject it.
                 const tampered = {
                     ...signed,
-                    order: { V1: { ...signed.order.V1, amount: tao(999) } },
+                    order: { V1: { ...asV1(signed.order), amount: tao(999) } },
                 };
 
                 await context.createBlock([

@@ -223,6 +223,56 @@ where
         }
     }
 
+    fn dispatch_move_stake_limit_v1<Env>(
+        env: &mut Env,
+        origin: RawOrigin<T::AccountId>,
+    ) -> Result<RetVal, DispatchError>
+    where
+        Env: SubtensorExtensionEnv<T>,
+        <<T as SysConfig>::Lookup as StaticLookup>::Source: From<<T as SysConfig>::AccountId>,
+    {
+        let (
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            limit_price,
+            allow_partial,
+        ): (
+            T::AccountId,
+            T::AccountId,
+            NetUid,
+            NetUid,
+            AlphaBalance,
+            TaoBalance,
+            bool,
+        ) = env
+            .read_as()
+            .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
+
+        env.charge_weight(
+            <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::move_stake_limit(
+            ),
+        )?;
+
+        let call_result = pallet_subtensor::Pallet::<T>::move_stake_limit(
+            origin.into(),
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            limit_price,
+            allow_partial,
+        );
+
+        match call_result {
+            Ok(_) => Ok(RetVal::Converging(Output::Success as u32)),
+            Err(e) => Ok(RetVal::Converging(Output::from(e) as u32)),
+        }
+    }
+
     fn dispatch_transfer_stake_v1<Env>(
         env: &mut Env,
         origin: RawOrigin<T::AccountId>,
@@ -691,6 +741,14 @@ where
             FunctionId::CallerMoveStakeV1 => {
                 let origin = convert_origin(env.origin());
                 Self::dispatch_move_stake_v1(env, origin)
+            }
+            FunctionId::MoveStakeLimitV1 => {
+                let origin = RawOrigin::Signed(env.caller());
+                Self::dispatch_move_stake_limit_v1(env, origin)
+            }
+            FunctionId::CallerMoveStakeLimitV1 => {
+                let origin = convert_origin(env.origin());
+                Self::dispatch_move_stake_limit_v1(env, origin)
             }
             FunctionId::TransferStakeV1 => {
                 let origin = RawOrigin::Signed(env.caller());

@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import contextlib
 import json as _json
+import os
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from rich.cells import cell_len
 from rich.console import Console
+from rich.constrain import Constrain
 from rich.markup import escape
 from rich.padding import Padding
 from rich.prompt import Confirm
@@ -24,6 +28,7 @@ from rich.theme import Theme
 from rich.tree import Tree
 
 from .. import config as cfg
+from .._live import guard_rich_input, pause_live_display, reset_live_pause, set_live_pause
 from ..balance import Balance
 from ..error_map import DISPATCH_ERRORS, NAME_TO_CODE
 from ..intents import Plan
@@ -56,20 +61,34 @@ STYLE_INCIDENTAL = "dim"
 STYLE_COMMAND = "bold"  # inline `commands`: emphasis without hue
 STYLE_URL = "underline"
 STYLE_TITLE = "dim"  # section titles recede; the data carries the weight
+# Stage headings on the review card ("Claim" / "Fees" / "Signer" /
+# "Transaction" / "Result"): the one place bold appears in data output,
+# so the eye can jump between stages. Keys stay dim and values plain
+# beneath them.
+STYLE_SECTION = "bold"
 STYLE_ERROR = f"bold {PASTEL_RED}"
 STYLE_WARNING = f"bold {PASTEL_YELLOW}"
 STYLE_HINT = "dim"  # note:/help:/see: lines recede; the error carries the weight
 STYLE_SUCCESS = PASTEL_GREEN
 STYLE_MESSAGE = ""  # error message text prints plain (color lives in the label)
+STYLE_SECRET = PASTEL_YELLOW  # once-only secrets (mnemonics): quietly tinted, never bold
 
 # Success is marked with a glyph as well as color, so the state survives
 # NO_COLOR, monochrome terminals, and colorblind users.
 GLYPH_OK = "✓"
 GLYPH_FAIL = "✗"
+GLYPH_STEP = "→"  # a progress step that is happening right now
+GLYPH_FACT = "·"  # an incidental progress fact
+
+# The dim divider that separates the review stages from the final
+# confirmation block. One width everywhere, so the cut always looks the same.
+RULE_WIDTH = 44
 
 # print_json highlights through the console theme's json.* styles; rich's
 # defaults are loud (bold blue keys, green strings, red/green booleans).
 # Restyle them like a kv block: dim keys and punctuation, plain values.
+# Confirm/Prompt suffixes ("[y/n]", "(n)") get the same treatment: rich's
+# defaults are bold magenta/cyan, which has no place in this palette.
 _THEME = Theme(
     {
         "json.key": STYLE_KEY,
@@ -79,6 +98,8 @@ _THEME = Theme(
         "json.bool_true": "",
         "json.bool_false": "",
         "json.null": "dim",
+        "prompt.choices": "dim",
+        "prompt.default": "dim",
     }
 )
 
@@ -98,6 +119,16 @@ _NETUID_REF_RE = re.compile(r"\b(?:netuid|subnet)\s+(?P<id>\d+)(?:\s+\((?P<name>
 # parenthetical and not itself parenthesized ("alpha (netuid 4)"), so rewriting
 # is idempotent and never nests parens.
 _NETUID_BARE_RE = re.compile(r"\b(netuid|subnet)\s+(\d+)\b(?!\s*[()])")
+
+
+def _bidi_isolate(symbol: str) -> str:
+    """Wrap a token symbol in bidi isolates when it contains a right-to-left
+    character (Hebrew/Arabic subnet symbols like ת or ش), so terminals with
+    bidi support cannot reorder the digits and columns that follow it on the
+    line. The isolate marks are zero-width and invisible everywhere else."""
+    if any(unicodedata.bidirectional(ch) in ("R", "AL") for ch in symbol):
+        return f"\u2068{symbol}\u2069"
+    return symbol
 
 
 def _diagnostic(text: str) -> str:
@@ -134,6 +165,55 @@ def _prose(text: str) -> Text:
         pos = match.end()
     out.append(text[pos:])
     return _linkify_urls(out)
+
+
+# `--hotkey` / `--amount` are 8 characters; prompt `hint` rows share that column.
+PROMPT_KEY_WIDTH = 8
+
+
+def kv_line(key: str, width: int, content: Text, *, key_style: str = STYLE_KEY) -> Text:
+    """One tabbed key/value line: 2-space indent, right-aligned key, value column."""
+    line = Text("  ", overflow="ignore", no_wrap=True)
+    line.append(key.rjust(width), style=key_style)
+    line.append("  ")
+    line.append_text(content)
+    return line
+
+
+# Interactive prompt-area layout, shared by every prompt and picker so the
+# input area is one strict grid: the "--flag  help" header and the input
+# prompt indent two spaces; selectable choices and the secondary hints and
+# feedback under them indent four. Always spaces, never tabs.
+HINT_INDENT = 2
+CHOICE_INDENT = 4
+
+# Hints wrap at this width even on a wider terminal. Terminal size detection
+# can over-report (stale exported COLUMNS/LINES, multiplexer panes), and a
+# line wrapped past the real edge hard-wraps mid-word back to column 0 — a
+# fixed cap keeps the prompt area deterministic everywhere.
+PROMPT_WRAP_WIDTH = 100
+
+
+def prompt_hint(content: "str | Text", *, indent: int = CHOICE_INDENT) -> Constrain:
+    """A dim prompt-area hint whose wrapped lines keep their indent.
+
+    ``Padding`` does the indenting (instead of literal leading spaces), so a
+    hint longer than the wrap width continues within its column — it never
+    falls back to column 0. ``expand=False`` keeps lines at their content
+    width (no right-fill to the detected terminal width), and ``Constrain``
+    caps wrapping at :data:`PROMPT_WRAP_WIDTH`.
+    """
+    body = content if isinstance(content, Text) else Text(content, style=STYLE_HINT)
+    return Constrain(Padding(body, (0, 0, 0, indent), expand=False), PROMPT_WRAP_WIDTH)
+
+
+def prompt_header(flag: str, help_text: str) -> Constrain:
+    """The argument header above a prompt: dim flag and help, hanging indent."""
+    header = Text()
+    header.append(flag, style=STYLE_HINT)
+    header.append("  ")
+    header.append(help_text, style=STYLE_HINT)
+    return prompt_hint(header, indent=HINT_INDENT)
 
 
 _ADDRESS_KEYS = {"address", "ss58", "multisig", "signer", "coldkeypub", "hotkeypub"}
@@ -201,6 +281,20 @@ class Output:
         # and quoted strings on its own; every color here should be deliberate.
         self._out = Console(highlight=False, theme=_THEME)
         self._err = Console(stderr=True, highlight=False, theme=_THEME)
+        # Whether the terminal honors OSC-8 hyperlinks (invisible clickable
+        # text). Apple's Terminal.app ignores them entirely, so on it a link
+        # must be printed as visible URL text to be clickable (Terminal.app
+        # linkifies plain URLs: Cmd+double-click opens them).
+        self.hyperlinks = os.environ.get("TERM_PROGRAM") != "Apple_Terminal"
+        # Depth of nested activity() contexts. Only the outermost one owns the
+        # live spinner; inner ones (e.g. AppContext.run's default spinner under
+        # a command's phase spinner) become no-ops instead of fighting over the
+        # terminal line.
+        self._activity_depth = 0
+        # While answering an interactive prompt, diagnostics indent by this
+        # many spaces so a bad answer's error stays inside the prompt's visual
+        # block instead of breaking out to column 0 (see prompt_block()).
+        self._prompt_indent = 0
         # Local names for ss58 addresses seen this invocation (wallet names,
         # address-book contacts). Used to render "name (ss58)" in human output;
         # JSON output always carries the raw addresses.
@@ -279,7 +373,22 @@ class Output:
             name_style = "dim italic"
             out.append(f" ({name})", style=f"{name_style} link {url}" if url else name_style)
         if symbol:
-            out.append(f" {self.unit(netuid)}", style="dim")
+            out.append(f" {_bidi_isolate(self.unit(netuid))}", style="dim")
+        return out
+
+    def account_text(self, ss58: str, name: Optional[str] = None, *, kind: str = "hotkey") -> Text:
+        """Canonical account rendering: truncated ss58 hyperlinked to its
+        explorer page with the name in dim italic — the account analog of
+        ``subnet_text`` (``5GTWwu3N… (Arbos)``). ``name`` falls back to the
+        locally remembered address name."""
+        url = self.account_url(ss58, kind)
+        label = ss58 if len(ss58) <= 12 else f"{ss58[:8]}…"
+        out = Text()
+        out.append(label, style=f"link {url}" if url else "")
+        name = name or self.address_names.get(ss58)
+        if name:
+            name_style = "dim italic"
+            out.append(f" ({name})", style=f"{name_style} link {url}" if url else name_style)
         return out
 
     def _linked_text(self, value: str, style: str, kind: Optional[str] = None) -> Text:
@@ -336,13 +445,161 @@ class Output:
         reference hyperlinked — the one rendering for summaries and prompts."""
         return self._linked_text(self.with_subnets(self.with_names(text)), style)
 
-    def confirm(self, prompt: str) -> bool:
+    def confirm(self, prompt: str, *, indent: int = 2) -> bool:
         """Ask a y/n question, rendering the prompt as linked prose so subnet
-        and account references stay hyperlinked inside the prompt itself."""
-        return Confirm.ask(self.linked_prose(prompt), console=self._out, default=False)
+        and account references stay hyperlinked inside the prompt itself.
+        Indented two spaces to line up with prompt rounds and card rows;
+        ``indent=4`` nests it under a confirm block's question."""
+        question = Text(" " * indent)
+        question.append_text(self.linked_prose(prompt))
+        with pause_live_display():
+            return Confirm.ask(question, console=self._out, default=False)
+
+    def card_text(self, value: str, *, dim: bool = False, style: str = "") -> Text:
+        """A review-row value: linked prose with embedded addresses subordinated.
+
+        An ss58 that is the row's *entire* value stays plain — the address is
+        the thing under review. An address riding beside other content (a
+        local name, a threshold) is metadata and dims, so names and amounts
+        carry the visual weight.
+        """
+        text = self.linked_prose(value, "dim" if dim else style)
+        if not dim:
+            plain = text.plain
+            for match in _SS58_RE.finditer(plain):
+                if match.start() > 0 or match.end() < len(plain):
+                    text.stylize("dim", match.start(), match.end())
+        return text
+
+    def transaction_card(self, sections: list[tuple[str, list[tuple]]]) -> None:
+        """The pre-sign review: titled stages of aligned key/value rows.
+
+        Canonical across every transaction. Each section is ``(title, rows)``;
+        a row is ``(key, value)`` or ``(key, value, "dim")`` for secondary
+        facts (notes, technical detail). The key column is aligned across all
+        sections so the whole review reads as one grid. Values go through
+        ``card_text``, so addresses pick up local names and hyperlinks while
+        staying visually subordinate to them. Suppressed in json/quiet mode
+        (those sessions submit with ``--yes``).
+        """
+        if self.json_mode or self.quiet:
+            return
+        sections = [(title, rows) for title, rows in sections if rows]
+        if not sections:
+            return
+        width = max(len(str(row[0])) for _, rows in sections for row in rows)
+        # A breath between whatever narration came before and the review grid.
+        self._out.print()
+        for index, (title, rows) in enumerate(sections):
+            if index:
+                self._out.print()
+            self._out.print(Text(title, style=STYLE_SECTION))
+            for row in rows:
+                key, value = str(row[0]), str(row[1])
+                dim = len(row) > 2 and row[2] == "dim"
+                line = Text("  ", overflow="ignore", no_wrap=True)
+                line.append(key.ljust(width), style=STYLE_KEY)
+                line.append("  ")
+                line.append_text(self.card_text(value, dim=dim))
+                self._out.print(line, soft_wrap=True)
+
+    def rule(self) -> None:
+        """The dim divider that cuts the review off from the confirmation."""
+        if self.json_mode or self.quiet:
+            return
+        self._out.print(Text("─" * RULE_WIDTH, style="dim"))
+
+    def confirm_block(self, question: str, facts: Optional[list[tuple[str, str]]] = None) -> None:
+        """The final approval block, visually distinct from the review above:
+        a rule, one plain-language question, and the routing facts under it
+        (via which multisig, signing as whom). The y/n prompt itself follows
+        via ``confirm``. Suppressed in json/quiet mode.
+        """
+        if self.json_mode or self.quiet:
+            return
+        self._out.print()
+        self.rule()
+        self._out.print()
+        question_line = Text("  ", overflow="ignore", no_wrap=True)
+        question_line.append_text(self.card_text(question))
+        self._out.print(question_line, soft_wrap=True)
+        if facts:
+            self._out.print()
+            width = max(len(key) for key, _ in facts)
+            for key, value in facts:
+                line = Text("    ", overflow="ignore", no_wrap=True)
+                line.append(key.ljust(width), style=STYLE_KEY)
+                line.append("  ")
+                line.append_text(self.card_text(str(value)))
+                self._out.print(line, soft_wrap=True)
+        self._out.print()
+
+    def step(self, label: str, value: str = "", *, state: str = "done") -> None:
+        """One structured progress line: a state glyph, a dim label, the value.
+
+        ``state`` is ``done`` (green ✓), ``active`` (→, happening now), or
+        ``info`` (dim ·, incidental fact). Progress goes to stderr with
+        ``message`` semantics (suppressed by --quiet and --json), replacing
+        free-form log lines so execution reads as a checklist.
+        """
+        if self.quiet or self.json_mode:
+            return
+        glyph, glyph_style = {
+            "done": (GLYPH_OK, STYLE_SUCCESS),
+            "active": (GLYPH_STEP, ""),
+            "info": (GLYPH_FACT, "dim"),
+        }[state]
+        line = Text("  ", overflow="ignore", no_wrap=True)
+        line.append(glyph, style=glyph_style)
+        line.append(" ")
+        line.append(label.ljust(16), style=STYLE_KEY)
+        if value:
+            line.append("  ")
+            line.append_text(self.linked_prose(str(value), "dim" if state == "info" else ""))
+        self._err.print(line, soft_wrap=True)
 
     def _json(self, payload: Any) -> None:
         self._out.print_json(_json.dumps(payload, default=str))
+
+    def mnemonic(self, role: str, mnemonic: str) -> None:
+        """A freshly generated mnemonic — the only moment it is ever shown.
+
+        The phrase gets the quiet warning tint so it stands out from the
+        surrounding chatter without shouting, and carries the storage note.
+        Prints even under --quiet (losing this line means losing the key);
+        skipped in json mode, where the command carries the mnemonic in its
+        JSON payload instead.
+        """
+        if self.json_mode:
+            return
+        self._print_title(f"generating new {role}")
+        self._kv_line("mnemonic", len("mnemonic"), Text(mnemonic, style=STYLE_SECRET))
+        self._sub_diag(
+            "note",
+            f"write this mnemonic down and store it somewhere safe — "
+            f"it is the only way to recover the {role}",
+            console=self._out,
+        )
+        # Trailing blank so the block breathes before whatever follows it
+        # (the password prompt, the next mnemonic, or the summary).
+        self._out.print()
+
+    def mnemonic_clear_hint(self) -> None:
+        """How to scrub a just-printed mnemonic from the terminal.
+
+        Printed once at the end of mnemonic-bearing output: the phrase sits in
+        scrollback until wiped, and scrollback outlives the session in most
+        terminal emulators. Skipped in json mode alongside the mnemonic block.
+        """
+        if self.json_mode:
+            return
+        self._out.print()
+        self._sub_diag(
+            "help",
+            "once stored, wipe the mnemonic from this terminal: "
+            "run `clear && printf '\\e[3J'` (or press ⌘K in macOS terminals)",
+            console=self._out,
+        )
 
     def message(self, text: str) -> None:
         """Informational chatter. Suppressed by --quiet and in --json mode.
@@ -360,29 +617,61 @@ class Output:
         The yielded updater accepts ``(text, announce=False)``. Interactive
         terminals animate in place; redirected human output only prints
         meaningful announced phase changes. JSON and quiet modes stay silent.
+
+        Re-entrant: when an activity is already running (a command's phase
+        spinner around ``AppContext.run``, which starts its own default one),
+        the nested context is a no-op so the outer text stays visible.
+
+        Interactive prompts pause this spinner automatically. A live status
+        line and a password echo share stderr; without the pause, each typed
+        ``*`` is stranded on its own row.
         """
-        if self.quiet or self.json_mode:
+        if self.quiet or self.json_mode or self._activity_depth:
             yield lambda _text, announce=False: None
             return
-        if self._err.is_terminal:
-            with self._err.status(
-                self.linked_prose(initial, STYLE_HINT),
-                spinner="dots",
-                spinner_style=STYLE_HINT,
-            ) as status:
-                yield lambda text, announce=False: status.update(
-                    self.linked_prose(text, STYLE_HINT)
-                )
-            return
+        self._activity_depth += 1
+        try:
+            if self._err.is_terminal:
+                with self._err.status(
+                    self.linked_prose(initial, STYLE_HINT),
+                    spinner="dots",
+                    spinner_style=STYLE_HINT,
+                ) as status:
+                    suspended = 0
 
-        announced: set[str] = set()
+                    @contextlib.contextmanager
+                    def _suspend():
+                        nonlocal suspended
+                        suspended += 1
+                        if suspended == 1:
+                            status.stop()
+                        try:
+                            yield
+                        finally:
+                            suspended -= 1
+                            if suspended == 0:
+                                status.start()
 
-        def update(text: str, announce: bool = False) -> None:
-            if announce and text not in announced:
-                announced.add(text)
-                self.message(text)
+                    token = set_live_pause(_suspend)
+                    try:
+                        with guard_rich_input():
+                            yield lambda text, announce=False: status.update(
+                                self.linked_prose(text, STYLE_HINT)
+                            )
+                    finally:
+                        reset_live_pause(token)
+                return
 
-        yield update
+            announced: set[str] = set()
+
+            def update(text: str, announce: bool = False) -> None:
+                if announce and text not in announced:
+                    announced.add(text)
+                    self.message(text)
+
+            yield update
+        finally:
+            self._activity_depth -= 1
 
     def value(self, payload: Any) -> None:
         """Emit an arbitrary already-JSON-friendly value (used by generic query).
@@ -422,7 +711,7 @@ class Output:
         message = _prose(_diagnostic(self.with_subnets(text)))
         message.style = STYLE_MESSAGE
         line.append_text(message)
-        self._err.print(line)
+        self._err.print(self._prompt_indented(line))
         if note:
             self._sub_diag("note", note)
         if help:
@@ -441,16 +730,36 @@ class Output:
         line.append(" ")
         line.append_text(_prose(_diagnostic(text)))
         line.style = STYLE_HINT
-        (console or self._err).print(line)
+        (console or self._err).print(self._prompt_indented(line))
 
-    def _kv_line(self, key: str, width: int, content: Text) -> None:
+    def _prompt_indented(self, line: Text) -> "Text | Constrain":
+        """Apply the active prompt-block indent (with hanging wrap) to a line."""
+        if not self._prompt_indent:
+            return line
+        return Constrain(
+            Padding(line, (0, 0, 0, self._prompt_indent), expand=False), PROMPT_WRAP_WIDTH
+        )
+
+    @contextlib.contextmanager
+    def prompt_block(self, indent: int = HINT_INDENT):
+        """Keep diagnostics inside an interactive prompt's visual block.
+
+        While active, ``error:`` / ``note:`` / ``help:`` lines printed by
+        answer validation (including resolvers reached from a prompt) indent
+        by ``indent`` spaces instead of starting at column 0, so a retry loop
+        reads as one block: prompt, error, prompt again.
+        """
+        previous = self._prompt_indent
+        self._prompt_indent = indent
+        try:
+            yield
+        finally:
+            self._prompt_indent = previous
+
+    def _kv_line(self, key: str, width: int, content: Text, *, key_style: str = STYLE_KEY) -> None:
         """One aligned key/value line, never wrapped (hashes and addresses are
         copy targets; a mid-value wrap breaks copy-paste and the alignment)."""
-        line = Text("  ", overflow="ignore", no_wrap=True)
-        line.append(key.rjust(width), style=STYLE_KEY)
-        line.append("  ")
-        line.append_text(content)
-        self._out.print(line, soft_wrap=True)
+        self._out.print(kv_line(key, width, content, key_style=key_style), soft_wrap=True)
 
     def _print_title(self, title: str) -> None:
         """Section title with netuid references named and hyperlinked."""
@@ -461,11 +770,14 @@ class Output:
         title: Optional[str],
         fields: dict[str, Any],
         json_fields: Optional[dict[str, Any]] = None,
+        *,
+        docs: Optional[list[str]] = None,
     ) -> None:
         """A single record as key/value pairs (human) or an object (json).
 
         ``json_fields`` supplies the JSON shape when the human view is a trimmed
-        or reformatted rendering of a richer record.
+        or reformatted rendering of a richer record. ``docs`` prints human-only
+        ``see:`` pointers to the docs pages behind the record.
         """
         if self.json_mode:
             self._json(json_fields if json_fields is not None else fields)
@@ -476,6 +788,49 @@ class Output:
             self._out.print("  [dim]none[/dim]")
             return
         self._print_fields(fields)
+        if docs:
+            self._out.print()
+            for url in docs:
+                self._sub_diag("see", url, console=self._out)
+
+    def kv_sections(
+        self,
+        title: Optional[str],
+        sections: list[tuple[Optional[str], list[tuple[str, str, Optional[str]]]]],
+        json_fields: dict[str, Any],
+        hint: Optional[str] = None,
+    ) -> None:
+        """Aligned key/value sections (raw value, optional dim reading).
+
+        Same human convention as the metagraph header and hyperparameters:
+        the chain value is primary, a local name or age rides beside it.
+        ``json_fields`` is the machine shape.
+        """
+        if self.json_mode:
+            self._json(json_fields)
+            return
+        if title:
+            self._print_title(title)
+        for header, rows in sections:
+            if not rows:
+                continue
+            self._out.print()
+            if header:
+                self._out.print(Text(header, style=STYLE_KEY))
+            key_width = max(len(key) for key, _, _ in rows)
+            for key, value, note in rows:
+                line = Text("  ", overflow="ignore", no_wrap=True)
+                line.append(key.rjust(key_width), style=STYLE_KEY)
+                line.append("  ")
+                line.append_text(
+                    self._linked_text(value, _value_style(key, value), _address_kind_for_key(key))
+                )
+                if note:
+                    line.append(f"  {note}", style=STYLE_HINT)
+                self._out.print(line, soft_wrap=True)
+        if hint:
+            self._out.print()
+            self._sub_diag("help", hint, console=self._out)
 
     def _print_fields(self, fields: dict[str, Any], indent: int = 2) -> None:
         """Aligned key/value block: dim keys, values colored by semantic role.
@@ -616,11 +971,14 @@ class Output:
         columns: list[str],
         rows: list[list[Any]],
         records: Optional[list[dict]] = None,
+        *,
+        legend: Optional[list[tuple[str, str]]] = None,
     ) -> None:
         """A collection as a table (human) or a list of objects (json).
 
         ``records`` supplies the JSON shape; when omitted it is derived by zipping
-        ``columns`` with each row.
+        ``columns`` with each row. ``legend`` is a human-only list of
+        ``(term, meaning)`` pairs explaining the columns.
         """
         if self.json_mode:
             self._json(
@@ -646,6 +1004,42 @@ class Output:
                 )
             )
         self._out.print(table)
+        self._print_legend(legend)
+
+    def _row_name_url(self, columns: list[str], row: list[str], index: int) -> Optional[str]:
+        """Explorer URL for a name cell, taken from the same row's address.
+
+        A ``wallet`` / ``coldkey`` / ``hotkey`` style cell often holds a local
+        name with no address of its own; when another cell in the row is an
+        ss58 of the kind the name column implies, the name links to that
+        account's explorer page (same destination as the address cell).
+        """
+        key = columns[index].lower()
+        if key not in _NAME_KEYS and not key.endswith("_name"):
+            return None
+        value = row[index].strip()
+        if not value or value == "—" or _looks_like_ss58(value):
+            return None
+        kind = _address_kind_for_key(columns[index])
+        matches: list[tuple[str, str]] = []
+        for j, cell in enumerate(row):
+            if j == index:
+                continue
+            address = cell.strip()
+            if not _looks_like_ss58(address):
+                continue
+            cell_kind = _address_kind_for_key(columns[j])
+            if cell_kind is None or (kind is not None and cell_kind != kind):
+                continue
+            matches.append((address, cell_kind))
+        if not matches:
+            return None
+        # A kindless name column (plain "name") only links when the row has
+        # exactly one address to point at; ambiguity stays unlinked.
+        if kind is None and len({address for address, _ in matches}) != 1:
+            return None
+        address, cell_kind = matches[0]
+        return self.account_url(address, cell_kind)
 
     def columns(
         self,
@@ -689,11 +1083,21 @@ class Output:
             line = Text("  ", overflow="ignore", no_wrap=True)
             for i, cell in enumerate(row):
                 padded = cell.rjust(widths[i]) if i in right_align else cell.ljust(widths[i])
-                line.append_text(
-                    self._linked_text(
-                        padded, _value_style(columns[i], cell), _address_kind_for_key(columns[i])
+                style = _value_style(columns[i], cell)
+                name_url = self._row_name_url(columns, row, i)
+                if name_url:
+                    # Link the visible name only, not the alignment padding.
+                    link_style = f"{style} link {name_url}" if style else f"link {name_url}"
+                    if i in right_align:
+                        line.append(padded[: len(padded) - len(cell)], style=style)
+                        line.append(cell, style=link_style)
+                    else:
+                        line.append(cell, style=link_style)
+                        line.append(padded[len(cell) :], style=style)
+                else:
+                    line.append_text(
+                        self._linked_text(padded, style, _address_kind_for_key(columns[i]))
                     )
-                )
                 line.append("  ")
             self._out.print(line, soft_wrap=True)
         if footer:
@@ -824,46 +1228,142 @@ class Output:
         records: list[dict],
         *,
         footer: Optional[str] = None,
+        legend: Optional[list[tuple[str, str]]] = None,
     ) -> None:
-        """Subnet listing: the canonical netuid rendering (name + token symbol,
-        hyperlinked) beside right-aligned numeric columns — same JSON contract
-        as ``table``. ``footer`` is a human-only summary line."""
+        """Subnet listing: the netuid + name (hyperlinked) beside right-aligned
+        numeric columns — same JSON contract as ``table``.
+
+        The netuid and name are hyperlinked (OSC-8) to the subnet's explorer
+        page — the same clickable-identity convention as validator names in
+        other views. On terminals that ignore OSC-8 (Apple's Terminal.app) the
+        URL is printed at the end of the row instead, since visible text is the
+        only thing such terminals can linkify. The token symbol trails each row
+        rather than joining the netuid cell: symbols include wide (ㄷ), RTL
+        (Hebrew), and font-fallback glyphs whose rendered width terminals
+        disagree on, so nothing that must stay column-aligned may come after
+        one. ``footer`` is a human-only summary line; ``legend`` is a
+        human-only list of ``(term, meaning)`` pairs explaining the columns."""
+        columns = ["price (τ)", "emission (τ/day)", "flow (τ/day)", "burn"]
+        keys = ["price", "emission", "flow", "burn"]
+        symbols = [self.unit(int(row["netuid"])) for row in rows]
+        symbol_width = max((cell_len(symbol) for symbol in symbols), default=0)
+        tails = []
+        for row, symbol in zip(rows, symbols):
+            tail = Text(symbol, style="dim")
+            url = self.subnet_url(int(row["netuid"]))
+            if url and not self.hyperlinks:
+                tail.append(" " * (symbol_width - cell_len(symbol) + 2))
+                tail.append(url, style=f"dim link {url}")
+            tails.append(tail)
+        self.entity_list(
+            title,
+            "netuid",
+            [self.subnet_text(row["netuid"], symbol=False) for row in rows],
+            columns,
+            [[str(row[key]) for key in keys] for row in rows],
+            records,
+            footer=footer,
+            legend=legend,
+            tails=tails,
+        )
+
+    def entity_list(
+        self,
+        title: str,
+        entity_header: str,
+        entities: list[Text],
+        columns: list[str],
+        rows: list[list[str]],
+        records: list[dict],
+        *,
+        footer: Optional[str] = None,
+        legend: Optional[list[tuple[str, str]]] = None,
+        tails: Optional[list[Text]] = None,
+    ) -> None:
+        """The universal listing style: a pre-rendered entity cell (e.g.
+        ``subnet_text`` / ``account_text``, hyperlinked) beside right-aligned
+        value columns, borderless — same JSON contract as ``table``.
+        ``footer`` is a human-only summary line; ``legend`` is a human-only
+        list of ``(term, meaning)`` pairs explaining the columns. ``tails``
+        are per-row cells appended after the last column — the place for
+        trailing metadata (and for glyphs of unpredictable terminal width,
+        which would break the alignment of anything printed after them)."""
         if self.json_mode:
             self._json(records)
             return
-        self._out.print(f"[{STYLE_TITLE}]{escape(title)}[/{STYLE_TITLE}]")
+        if title:
+            self._out.print(f"[{STYLE_TITLE}]{escape(title)}[/{STYLE_TITLE}]")
         if not rows:
             self._out.print("  [dim]none[/dim]")
             return
-        columns = ["price (τ)", "tempo", "burn", "neurons"]
-        keys = ["price", "tempo", "burn", "neurons"]
-        subnet_cells = [self.subnet_text(row["netuid"]) for row in rows]
-        subnet_width = max([len("netuid")] + [cell.cell_len for cell in subnet_cells])
+        entity_width = max([len(entity_header)] + [cell.cell_len for cell in entities])
         widths = [
-            max(len(columns[i]), max(len(str(row[keys[i]])) for row in rows))
-            for i in range(len(columns))
+            max(len(columns[i]), max(len(row[i]) for row in rows)) for i in range(len(columns))
         ]
         self._out.print()
         header = Text("  ", overflow="ignore", no_wrap=True)
-        header.append("netuid".ljust(subnet_width), style=STYLE_KEY)
+        header.append(entity_header.ljust(entity_width), style=STYLE_KEY)
         header.append("  ")
         for i, name in enumerate(columns):
             header.append(name.rjust(widths[i]), style=STYLE_KEY)
             header.append("  ")
         self._out.print(header, soft_wrap=True)
-        for row, cell in zip(rows, subnet_cells):
+        for index, (row, cell) in enumerate(zip(rows, entities)):
             line = Text("  ", overflow="ignore", no_wrap=True)
             line.append_text(cell)
-            line.append(" " * (subnet_width - cell.cell_len))
+            line.append(" " * (entity_width - cell.cell_len))
             line.append("  ")
-            for i, key in enumerate(keys):
-                value = str(row[key])
+            for i, value in enumerate(row):
                 line.append(value.rjust(widths[i]), style="dim" if value == "—" else "")
                 line.append("  ")
+            if tails:
+                line.append_text(tails[index])
             self._out.print(line, soft_wrap=True)
         if footer:
             self._out.print()
             self._out.print(footer)
+        self._print_legend(legend)
+
+    def _print_legend(self, legend: Optional[list[tuple[str, str]]]) -> None:
+        """Aligned ``term  meaning`` lines under a table (human output only).
+
+        Rendered as a grid so long meanings wrap with a hanging indent under
+        their own column instead of falling back to column 0. Terms print
+        plain against dim meanings — the same key/value contrast used
+        everywhere else — so the eye can scan the terms.
+        """
+        if not legend:
+            return
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column(no_wrap=True)
+        grid.add_column(style=STYLE_HINT)
+        for term, meaning in legend:
+            grid.add_row(term, meaning)
+        self._out.print()
+        self._out.print(Padding(grid, (0, 0, 0, 2)))
+
+    def _print_root_yield(self, root_yield: Optional[dict[str, Any]]) -> None:
+        """Footer for unclaimed basket yield. Hidden when the coldkey has
+        neither root principal nor accrued entitlement."""
+        if not root_yield:
+            return
+        accrued = root_yield.get("accrued_basket_yield")
+        staked = root_yield.get("root_staked")
+        if accrued is None or staked is None:
+            return
+        if getattr(accrued, "rao", 0) <= 0 and getattr(staked, "rao", 0) <= 0:
+            return
+        ratio = root_yield.get("personal_yield")
+        line = Text()
+        line.append("accrued basket yield", style="dim")
+        line.append(f"  {accrued}")
+        if ratio is not None:
+            line.append(f"  ({ratio:.2%} of root stake)", style="dim")
+        self._out.print(line)
+        hint = Text()
+        hint.append("auto-claim is off → ", style="dim")
+        hint.append("btcli root claim", style=STYLE_COMMAND)
+        self._out.print(hint)
 
     def stake_list(
         self,
@@ -871,11 +1371,16 @@ class Output:
         groups: list[dict[str, Any]],
         records: list[dict],
         total: Any,
+        *,
+        root_yield: Optional[dict[str, Any]] = None,
     ) -> None:
         """Grouped stake view: one block per netuid with the subnet total on
         top and the per-hotkey breakdown dimmed beneath it.
 
         ``records`` supplies the JSON shape (flat per-position records).
+        ``root_yield`` is the coldkey-wide accrued basket quote; printed
+        after the total so netuid 0 does not look like old root (principal
+        only, no rewards).
         """
         if self.json_mode:
             self._json(records)
@@ -887,6 +1392,7 @@ class Output:
         self._out.print(f"[{STYLE_TITLE}]{escape(head)}[/{STYLE_TITLE}]")
         if not groups:
             self._out.print("  [dim]none[/dim]")
+            self._print_root_yield(root_yield)
             return
         width = max(
             [len(str(g["stake"])) for g in groups]
@@ -943,6 +1449,146 @@ class Output:
         self._out.print(root)
         self._out.print()
         self._out.print(f"[dim]total[/dim] {total}  [dim](spot, excl. slippage/fees)[/dim]")
+        self._print_root_yield(root_yield)
+
+    def stake_table(
+        self,
+        title: str,
+        groups: list[dict[str, Any]],
+        records: list[dict],
+        total: Any,
+        *,
+        root_yield: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Flat stake view (root-list style): one row per validator position —
+        netuid (with subnet name), stake, locked, spot value, validator name,
+        hotkey — sorted by value, largest first, so small delegate crumbs sink
+        to the bottom.
+
+        Locked mass is a subnet-level figure (see
+        ``annotate_stake_groups_with_locks``): it prints once per subnet, on
+        that subnet's largest position. The locked column and the wallet
+        column (``--all``) only appear when a group carries them.
+
+        Same contract as ``stake_list``: ``records`` supplies the JSON shape
+        (flat per-position records); ``root_yield`` prints after the total.
+        """
+        if self.json_mode:
+            self._json(records)
+            return
+        self._print_title(title)
+        if not groups:
+            self._out.print("  [dim]none[/dim]")
+            self._print_root_yield(root_yield)
+            return
+
+        def _validator_cell(position: dict[str, Any]) -> Text:
+            hotkey = position.get("hotkey")
+            if position.get("named"):
+                style = STYLE_NAME
+            elif position.get("identity"):
+                # On-chain identity name: informative but unverified, so it
+                # never gets the local-name accent (same as the tree view).
+                style = "dim italic"
+            else:
+                # No name anywhere; the hotkey column already carries the
+                # address, so a placeholder beats repeating it.
+                return Text("—", style="dim")
+            url = self.account_url(hotkey, "hotkey") if hotkey else None
+            return Text(str(position["label"]), style=f"{style} link {url}" if url else style)
+
+        def _hotkey_cell(position: dict[str, Any]) -> Text:
+            hotkey = position.get("hotkey")
+            if not hotkey:
+                return Text("—", style="dim")
+            label = hotkey if len(hotkey) <= 12 else f"{hotkey[:8]}…"
+            url = self.account_url(hotkey, "hotkey")
+            return Text(label, style=f"dim link {url}" if url else "dim")
+
+        def _bare_amount(text: str, unit: str) -> Text:
+            """Amount without its currency symbol: the netuid column already
+            shows the unit, and trailing RTL symbols (ת, ش) would trigger
+            terminal bidi reordering that wrecks the column alignment."""
+            return Text(text.removeprefix(unit).removesuffix(unit))
+
+        rows = [
+            # Positions come from ``netuid_groups`` sorted largest-first, so
+            # index 0 is the subnet's top position — the locked figure rides
+            # on it.
+            (group, position, group.get("locked") if index == 0 else None)
+            for group in groups
+            for index, position in enumerate(group.get("positions", []))
+        ]
+        rows.sort(key=lambda item: -item[1]["value_tao"])
+        has_wallet = any(group.get("wallet") for group in groups)
+        has_locked = any(group.get("locked") for group in groups)
+
+        # (header, cells, right-justified). Widths use cell_len, not len:
+        # stake strings and subnet names carry token symbols that can be
+        # double-width (e.g. ミ, ㄷ).
+        columns: list[tuple[str, list[Text], bool]] = []
+        if has_wallet:
+            columns.append(
+                (
+                    "wallet",
+                    [Text(str(g.get("wallet") or ""), style=STYLE_NAME) for g, _, _ in rows],
+                    False,
+                )
+            )
+        columns.append(("netuid", [self.subnet_text(g["netuid"]) for g, _, _ in rows], False))
+        columns.append(
+            (
+                "stake (α)",
+                [_bare_amount(str(p["stake"]), self.unit(g["netuid"])) for g, p, _ in rows],
+                True,
+            )
+        )
+        if has_locked:
+            columns.append(
+                (
+                    "locked (α)",
+                    [
+                        _bare_amount(str(locked), self.unit(g["netuid"])) if locked else Text("")
+                        for g, _, locked in rows
+                    ],
+                    True,
+                )
+            )
+        columns.append(
+            ("value (τ)", [_bare_amount(str(p["value"]), self.unit(0)) for _, p, _ in rows], True)
+        )
+        columns.append(("validator", [_validator_cell(p) for _, p, _ in rows], False))
+        columns.append(("hotkey", [_hotkey_cell(p) for _, p, _ in rows], False))
+        widths = [
+            max([len(header)] + [cell.cell_len for cell in cells]) for header, cells, _ in columns
+        ]
+
+        self._out.print()
+        header = Text("  ", overflow="ignore", no_wrap=True)
+        for (name, _, right), width in zip(columns, widths):
+            header.append(name.rjust(width) if right else name.ljust(width), style=STYLE_KEY)
+            header.append("  ")
+        header.rstrip()
+        self._out.print(header, soft_wrap=True)
+
+        for index in range(len(rows)):
+            line = Text("  ", overflow="ignore", no_wrap=True)
+            for (_, cells, right), width in zip(columns, widths):
+                cell = cells[index]
+                pad = " " * (width - cell.cell_len)
+                if right:
+                    line.append(pad)
+                    line.append_text(cell)
+                else:
+                    line.append_text(cell)
+                    line.append(pad)
+                line.append("  ")
+            line.rstrip()
+            self._out.print(line, soft_wrap=True)
+
+        self._out.print()
+        self._out.print(f"[dim]total[/dim] {total}  [dim](spot, excl. slippage/fees)[/dim]")
+        self._print_root_yield(root_yield)
 
     def metagraph(
         self,
@@ -1301,6 +1947,9 @@ class Output:
                 note = entry.get("note")
                 if note:
                     branch.add(Text(note, style="dim italic"))
+                signer = entry.get("signer")
+                if signer:
+                    branch.add(Text(f"signer · {signer}", style="dim"))
             self._out.print(addr_root)
             summary += f"  ·  {len(addresses)} addresses"
         if proxies:
@@ -1367,6 +2016,13 @@ class Output:
             note_line.append(" · ", style="dim")
             note_line.append(note, style="dim italic" if note != "—" else "dim")
             branch.add(note_line)
+            signer = entry.get("signer")
+            if signer:
+                signer_line = Text()
+                signer_line.append("signer", style="dim")
+                signer_line.append(" · ", style="dim")
+                signer_line.append(str(signer), style="dim")
+                branch.add(signer_line)
 
         self._out.print(root)
         count = len(entries)
@@ -1399,43 +2055,46 @@ class Output:
         summary.append(" ")
         summary.append_text(self.linked_prose(plan.summary))
         self._out.print(summary)
+
+        rows: list[tuple[str, Text, str]] = []
         signer_label = self.address_names.get(plan.signer_address or "", plan.signer)
-        line = Text("  ")
-        line.append("signer", style=STYLE_KEY)
-        line.append("  ")
-        line.append(str(signer_label))
+        signer = Text(str(signer_label))
         if plan.signer_address:
-            line.append(" (")
-            line.append_text(self._linked_text(plan.signer_address, STYLE_ADDRESS))
-            line.append(")")
-        self._out.print(line)
+            signer.append(" (")
+            signer.append_text(self._linked_text(plan.signer_address, STYLE_ADDRESS))
+            signer.append(")")
+        rows.append(("signer", signer, STYLE_KEY))
         if plan.fee is not None:
-            self._out.print(f"  [dim]est. fee[/dim]  {plan.fee}")
+            rows.append(("est. fee", Text(str(plan.fee)), STYLE_KEY))
         for effect in plan.effects:
-            line = Text("  ")
-            line.append("effect", style="dim")
-            line.append("  ")
-            line.append_text(self.linked_prose(effect))
-            self._out.print(line)
+            rows.append(("effect", self.linked_prose(effect), STYLE_KEY))
         for warning in plan.warnings:
-            self._out.print(
-                f"  [{STYLE_WARNING}]warning:[/{STYLE_WARNING}] "
-                f"{escape(self.with_subnets(self.with_names(warning)))}"
+            rows.append(
+                (
+                    "warning",
+                    Text(self.with_subnets(self.with_names(warning))),
+                    STYLE_WARNING,
+                )
             )
         for violation in plan.violations:
-            self._out.print(
-                f"  [{STYLE_ERROR}]policy:[/{STYLE_ERROR}] {escape(self.with_subnets(violation))}"
-            )
-        if not plan.ok:
-            self._out.print(f"  [{STYLE_ERROR}]blocked by policy[/{STYLE_ERROR}]")
+            rows.append(("policy", Text(self.with_subnets(violation)), STYLE_ERROR))
+
+        footer: list[tuple[str, Text, str]] = []
         if command and plan.ok:
-            line = Text("  ")
-            line.append("run for real  ", style=STYLE_HINT)
-            line.append(command, style=STYLE_COMMAND)
-            self._out.print(line, soft_wrap=True)
+            footer.append(("run for real", Text(command, style=STYLE_COMMAND), STYLE_HINT))
         # The docs page carries parameters, verify reads, and the on-chain
         # implementation with source links.
-        self._sub_diag("see", tx_docs_url(plan.op), console=self._out)
+        footer.append(("see", self._linked_text(tx_docs_url(plan.op), STYLE_URL), STYLE_HINT))
+
+        width = max(len(key) for key, _, _ in (*rows, *footer))
+        for key, content, key_style in rows:
+            self._kv_line(key, width, content, key_style=key_style)
+        if not plan.ok:
+            self._out.print(f"  [{STYLE_ERROR}]blocked by policy[/{STYLE_ERROR}]")
+        if footer:
+            self._out.print()
+            for key, content, key_style in footer:
+                self._kv_line(key, width, content, key_style=key_style)
 
     def multisig_followup(self, followup: dict[str, Any], *, suppress_decode: bool = False) -> None:
         """Render co-signer instructions after a multisig approval.
@@ -1531,7 +2190,11 @@ class Output:
             self._out.print(":")
             self._print_copyable(str(entry.get("command", "")))
         self._out.print()
-        tail = _prose("add `--macos-password` or `--keychain-password` if the co-signer uses them")
+        tail = _prose(
+            "add `--macos-password` or `--keychain-password` if the co-signer uses them; "
+            "for a Vault/Ledger/extension member, add `--signer vault` "
+            "(or ledger/extension) — `--signatory` already names the account"
+        )
         tail.style = "dim"
         self._out.print(tail)
 
@@ -1575,6 +2238,30 @@ class Output:
         for note, hint in seen:
             self._print_decode_diag({"decode_note": note, "decode_hint": hint})
 
+    def result_fields(self, fields: dict[str, Any]) -> None:
+        """The post-submit "Result" stage: same design language as the review card.
+
+        Left-aligned dim keys (underscores read as spaces), values through
+        ``card_text`` so addresses pick up names and links. Long technical
+        payloads (block hash, call data) dim — they stay copyable but should
+        not outshine the fee and the extrinsic id.
+        """
+        rows = [(key.replace("_", " "), value) for key, value in fields.items()]
+        width = max(len(label) for label, _ in rows)
+        self._out.print()
+        self._out.print(Text("Result", style=STYLE_SECTION))
+        for label, value in rows:
+            if isinstance(value, (dict, list)):
+                text = _json.dumps(value, default=str)
+            else:
+                text = str(value)
+            dim = label == "block" or (text.startswith("0x") and len(text) > 66)
+            line = Text("  ", overflow="ignore", no_wrap=True)
+            line.append(label.ljust(width), style=STYLE_KEY)
+            line.append("  ")
+            line.append_text(self.card_text(text, dim=dim))
+            self._out.print(line, soft_wrap=True)
+
     def result(self, result: ExtrinsicResult, success_message: str) -> bool:
         """Render the outcome of a submitted extrinsic. Returns ``result.success``.
 
@@ -1589,7 +2276,7 @@ class Output:
         if result.success:
             line = Text()
             line.append(f"{GLYPH_OK} ", style=STYLE_SUCCESS)
-            line.append_text(self.linked_prose(success_message, STYLE_SUCCESS))
+            line.append_text(self.card_text(success_message, style=STYLE_SUCCESS))
             self._out.print(line)
             fields: dict[str, Any] = {}
             if result.fee is not None:
@@ -1604,7 +2291,7 @@ class Output:
                 (key, value) for key, value in result.data.items() if key != "multisig_followup"
             )
             if fields:
-                self._print_fields(fields)
+                self.result_fields(fields)
             if followup:
                 self.multisig_followup(followup)
         else:
@@ -1647,7 +2334,7 @@ class Output:
             fields["registration tx"] = result.extrinsic_id
         if result.explorer_url:
             fields["explorer"] = result.explorer_url
-        self._print_fields(fields)
+        self.result_fields(fields)
         return True
 
     def chain_error(

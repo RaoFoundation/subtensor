@@ -17,7 +17,7 @@ export const DEFAULT_INITIAL_BURN_TAO = 0.1;
 export const MATURITY_RATE_BLOCKS = 934_866;
 export const UNLOCK_RATE_BLOCKS = 934_866;
 export const ONE_YEAR_BLOCKS = 2_629_800;
-export const CONVICTION_OWNERSHIP_THRESHOLD = 0.1;
+export const CONVICTION_OWNERSHIP_THRESHOLD = 0.18;
 export const EMA_HALVING_BLOCKS = 201_600;
 export const SUBNET_MOVING_ALPHA = 0.000003;
 export const DEFAULT_EMISSION_BAR_RANK = 32;
@@ -284,8 +284,13 @@ export function rollForwardLock(
   return {lockedMass: newLockedMass, conviction: newConviction};
 }
 
-export function convictionOwnershipThreshold(alphaOut: number): number {
-  return alphaOut * CONVICTION_OWNERSHIP_THRESHOLD;
+export function convictionOwnershipThreshold(
+  alphaOut: number,
+  protocolAlpha = 0,
+  alphaBurned = 0,
+): number {
+  const eligibleAlpha = Math.max(0, alphaOut - protocolAlpha - alphaBurned);
+  return eligibleAlpha * CONVICTION_OWNERSHIP_THRESHOLD;
 }
 
 export function formatAlpha(value: number, digits = 0): string {

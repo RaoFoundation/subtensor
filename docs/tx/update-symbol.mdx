@@ -15,7 +15,7 @@ stake, and emissions are untouched.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.update_symbol`](/code/pallets/subtensor/src/macros/dispatches.rs#L1744-L1761) |
+| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.update_symbol`](/code/pallets/subtensor/src/macros/dispatches.rs#L1789-L1806) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("update_symbol", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.update_symbol` — [`pallets/subtensor/src/macros/dispatches.rs#L1746`](/code/pallets/subtensor/src/macros/dispatches.rs#L1744-L1761):
+`SubtensorModule.update_symbol` — [`pallets/subtensor/src/macros/dispatches.rs#L1791`](/code/pallets/subtensor/src/macros/dispatches.rs#L1789-L1806):
 
 ```rust
 #[pallet::call_index(112)]
@@ -90,6 +90,6 @@ pub fn update_symbol(
 }
 ```
 
-Delegates to [`ensure_subnet_owner_or_root`](/code/pallets/subtensor/src/utils/misc.rs#L12), [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L39), [`ensure_symbol_exists`](/code/pallets/subtensor/src/subnets/symbols.rs#L960).
+Delegates to [`ensure_subnet_owner_or_root`](/code/pallets/subtensor/src/utils/misc.rs#L12), [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L40), [`ensure_symbol_exists`](/code/pallets/subtensor/src/subnets/symbols.rs#L960).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

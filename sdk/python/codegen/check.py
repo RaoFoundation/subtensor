@@ -94,18 +94,14 @@ RAW_ONLY: dict[str, set[str]] = {
         "batch_reveal_weights",
         # PoW registration — out of scope by design
         "register",
-        # Direct basket deposit — agent surface still uses claim_root / stake
-        # intents; reachable via raw compose until a dedicated intent lands
-        "stake_into_basket",
         # coldkey swap: announce/execute/clear/dispute are wrapped by intents; these
         # remain raw — deprecated (schedule) or root-only (reset, arbitrary swap)
         "reset_coldkey_swap",
         "schedule_swap_coldkey",
         "swap_coldkey",
         "swap_hotkey_v2",
-        # locks / liquidity-adjacent (lock_stake, move_lock, set_perpetual_lock
-        # are wrapped by lock intents)
-        "set_reject_locked_alpha",
+        # locks / liquidity-adjacent (lock_stake, move_lock, set_perpetual_lock,
+        # set_reject_locked_alpha are wrapped by lock intents)
         # alpha burn/recycle + buyback variants (add_stake_burn is wrapped)
         "burn_alpha",
         "recycle_alpha",
@@ -165,6 +161,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "execute_orders",
         "execute_batched_orders",
         "set_pallet_status",
+        "prune_linked_output",
     },
     "MevShield": {
         # submit_encrypted is exposed via client.submit_shielded (a submission mode,
@@ -237,6 +234,7 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_emission_gate_exponent",
         "sudo_set_evm_chain_id",
         "sudo_set_kappa",
+        "sudo_set_liquid_alpha_consensus_mode",
         "sudo_set_lock_reduction_interval",
         "sudo_set_max_allowed_validators",
         "sudo_set_max_epochs_per_block",
@@ -260,6 +258,8 @@ RAW_ONLY: dict[str, set[str]] = {
         "sudo_set_recycle_or_burn",
         # Root Reborn launch gate for set_root_weights — root-only governance toggle
         "sudo_set_root_weight_setting_enabled",
+        # root basket concentration cap — root-only, no semantic wrapper
+        "sudo_set_root_weights_cap",
         "sudo_set_sn_owner_hotkey",
         "sudo_set_stake_threshold",
         "sudo_set_start_call_delay",

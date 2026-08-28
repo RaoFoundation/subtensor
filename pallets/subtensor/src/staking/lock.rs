@@ -3,6 +3,7 @@ use crate::subnets::leasing::LeaseId;
 use crate::weights::WeightInfo;
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::weights::{Weight, WeightMeter};
+use pallet_alpha_assets::AlphaAssetsInterface;
 use safe_math::FixedExt;
 use scale_info::TypeInfo;
 use sp_std::collections::btree_map::BTreeMap;
@@ -1195,6 +1196,13 @@ impl<T: Config> Pallet<T> {
 
     /// Finds the hotkey with the highest conviction on a given subnet.
     pub fn subnet_king(netuid: NetUid) -> Option<T::AccountId> {
+        Self::subnet_king_with_conviction(netuid).map(|(hotkey, _)| hotkey)
+    }
+
+    /// The conviction leader on a subnet together with its rolled aggregate
+    /// conviction. Selection and takeover admission share this one computation
+    /// so the gate can never disagree with the winner it examined.
+    pub(crate) fn subnet_king_with_conviction(netuid: NetUid) -> Option<(T::AccountId, U64F64)> {
         let now = Self::get_current_block_as_u64();
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
@@ -1234,7 +1242,6 @@ impl<T: Config> Pallet<T> {
         scores
             .into_iter()
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal))
-            .map(|(hotkey, _)| hotkey)
     }
 
     fn transition_hotkey_lock_owner_class(
@@ -1333,18 +1340,30 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Reassigns subnet ownership to the current lock-conviction leader when the subnet
-    /// is mature enough and enough conviction has accumulated.
+    /// is mature enough and that leader has accumulated enough conviction on its own.
     ///
     /// Ownership can change only after the subnet is at least [`ONE_YEAR`] old and the
-    /// hotkey with the highest rolled aggregate conviction itself holds at least 10% of
-    /// `SubnetAlphaOut`. If those gates pass, that hotkey becomes the subnet owner
-    /// hotkey, and its owning coldkey becomes the subnet owner coldkey. The new owner
-    /// hotkey's conviction is then progressed to its current locked mass so the new
-    /// owner starts with full owner conviction.
+    /// hotkey with the highest rolled aggregate conviction holds more than 18% of
+    /// `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned` in conviction *by itself*.
+    /// If those gates pass, that hotkey becomes the subnet owner hotkey and its owning
+    /// coldkey becomes the subnet owner coldkey. The new owner hotkey's conviction is
+    /// then progressed to its current locked mass so the new owner starts with full
+    /// owner conviction.
+    ///
+    /// The threshold deliberately measures the winning hotkey alone rather than the
+    /// subnet-wide total. Admission is decided on one hotkey's conviction and the winner
+    /// is decided on the maximum, so gating on the sum let every unrelated locker (the
+    /// incumbent owner included) supply a challenger's quorum. Gating on the winner's own
+    /// conviction closes that path. Coalitions are unaffected: backers lock to the
+    /// challenger's hotkey, so their conviction lands in that hotkey's aggregate.
     pub fn change_subnet_owner_if_needed(netuid: NetUid) -> Weight {
-        // No outstanding alpha means there is no meaningful 10% conviction threshold.
-        let subnet_alpha_out = SubnetAlphaOut::<T>::get(netuid);
-        if subnet_alpha_out.is_zero() {
+        // Protocol-owned and burned alpha cannot support a challenger, so exclude both
+        // from the ownership threshold. Saturation keeps inconsistent accounting from
+        // wrapping the threshold to a very large value.
+        let eligible_alpha = SubnetAlphaOut::<T>::get(netuid)
+            .saturating_sub(SubnetProtocolAlpha::<T>::get(netuid))
+            .saturating_sub(T::AlphaAssets::alpha_burned(netuid));
+        if eligible_alpha.is_zero() {
             return Weight::zero();
         }
 
@@ -1355,18 +1374,28 @@ impl<T: Config> Pallet<T> {
             return Weight::zero();
         }
 
-        // Pick the hotkey with the highest rolled aggregate conviction.
-        let Some(king_hotkey) = Self::subnet_king(netuid) else {
+        // Pick the hotkey with the highest rolled aggregate conviction, keeping the
+        // score that selection already computed.
+        let Some((king_hotkey, king_conviction)) = Self::subnet_king_with_conviction(netuid) else {
             return Weight::zero();
         };
 
-        // The challenger must itself hold at least 10% of subnet alpha out.
-        // Gating on subnet-wide conviction would let unrelated lockers,
-        // including the incumbent, supply the challenger's quorum.
-        let king_conviction = Self::hotkey_conviction(&king_hotkey, netuid);
-        if king_conviction.saturating_mul(U64F64::saturating_from_num(10))
-            < U64F64::saturating_from_num(u64::from(subnet_alpha_out))
-        {
+        // Require that hotkey's own rolled aggregate conviction to be more than 18% of
+        // eligible alpha: `conviction * 100 > eligible_alpha * 18`, cross-multiplied in
+        // 256-bit integers over the raw U64F64 bits so neither side can saturate (a
+        // U64F64 product saturates near u64::MAX and would reject valid high-range
+        // takeovers as MAX <= MAX). The winner alone must clear the bar, not the
+        // subnet-wide sum. Widths: conviction bits < 2^128 so the left side is below
+        // 2^135, and the right side is below 2^64 * 18 * 2^64 < 2^133 — the saturating
+        // ops can never actually saturate at U256 width; they only satisfy the
+        // arithmetic-side-effects lint.
+        let one = sp_core::U256::from(U64F64::saturating_from_num(1u64).to_bits());
+        let lhs = sp_core::U256::from(king_conviction.to_bits())
+            .saturating_mul(sp_core::U256::from(100u64));
+        let rhs = sp_core::U256::from(u64::from(eligible_alpha))
+            .saturating_mul(sp_core::U256::from(18u64))
+            .saturating_mul(one);
+        if lhs <= rhs {
             return Weight::zero();
         }
 
@@ -1396,6 +1425,7 @@ impl<T: Config> Pallet<T> {
         // Reassign subnet owner coldkey and owner hotkey.
         SubnetOwner::<T>::insert(netuid, new_owner_coldkey.clone());
         SubnetOwnerHotkey::<T>::insert(netuid, king_hotkey.clone());
+        Self::retarget_auto_parent_on_owner_change(netuid, &old_owner_hotkey, &king_hotkey);
         Self::deposit_event(Event::SubnetOwnerChanged {
             netuid,
             old_coldkey: current_owner_coldkey,

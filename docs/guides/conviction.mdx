@@ -7,7 +7,7 @@ Conviction is **time-weighted commitment**: when you [`lock-stake`](/docs/tx/loc
 alpha on a subnet, the locked amount accrues **conviction** toward the lock's
 target hotkey. Conviction is not spendable stake — it is a score the chain uses
 to recognize long-horizon alignment, including the automatic **subnet ownership**
-transfer when enough aggregate conviction exists.
+transfer when a single hotkey accrues enough conviction of its own.
 
 This guide walks through a fictional **Subnet 7 ("Atlas")** with three
 stakers. The numbers are round teaching examples, not live chain state — always
@@ -34,18 +34,22 @@ its current value.
 | Field | Value | Meaning |
 |-------|-------|---------|
 | `SubnetAlphaOut` | 8,000,000 α | Outstanding alpha on the subnet |
-| Ownership threshold | 800,000 α | 10% of alpha out — aggregate conviction gate |
+| `SubnetProtocolAlpha` | 1,000,000 α | Protocol-owned alpha, excluded from the gate |
+| `AlphaBurned` | 1,000,000 α | Burned alpha, excluded from the gate |
+| Eligible alpha | 6,000,000 α | `SubnetAlphaOut − SubnetProtocolAlpha − AlphaBurned` |
+| Ownership threshold | 1,080,000 α | 18% of eligible alpha — one hotkey must exceed this alone |
 | Subnet age | > 1 year | Required before ownership can transfer |
 | Alice (owner) | 250,000 α locked | Perpetual lock on **owner hotkey** — conviction = mass |
-| Bob (validator) | 600,000 α locked | Perpetual lock toward his validator hotkey |
+| Bob (validator) | 1,200,000 α locked | Perpetual lock toward his validator hotkey |
 | Carol (staker) | 200,000 α locked | Decaying lock (default) toward a validator |
 
 <ConvictionSubnetScenario />
 
-Drag **elapsed time** forward: Bob's perpetual conviction climbs toward 600k α.
+Drag **elapsed time** forward: Bob's perpetual conviction climbs toward 1.2M α.
 Carol's decaying conviction **rises then falls** as her locked mass frees.
-When **total conviction** crosses 800k α and the subnet is old enough, the
-**highest-conviction hotkey** becomes the new owner.
+When **Bob's own conviction** crosses 1.08M α and the subnet is old enough, his
+hotkey becomes the new owner. Alice's and Carol's conviction never counts
+toward Bob's gate — only locks targeted at his hotkey do.
 
 ## Perpetual vs decaying
 
@@ -71,21 +75,32 @@ conviction always equals locked mass.
 
 ## Subnet ownership via conviction
 
-After each epoch, the chain runs [`change_subnet_owner_if_needed`](/code/pallets/subtensor/src/staking/lock.rs#L1160-L1377) when **all** of
+After each epoch, the chain runs [`change_subnet_owner_if_needed`](/code/pallets/subtensor/src/staking/lock.rs#L1174-L1398) when **all** of
 these hold:
 
 1. Subnet age ≥ **ONE_YEAR** (2,629,800 blocks from registration).
-2. **Total aggregate conviction** ≥ 10% of [`SubnetAlphaOut`](/code/pallets/subtensor/src/lib.rs#L1424).
-3. A hotkey with the highest rolled aggregate conviction resolves to a real
-   coldkey owner (not the default account).
+2. The hotkey with the highest rolled aggregate conviction holds **more than
+   18%** of eligible alpha on its own:
+   `SubnetAlphaOut − SubnetProtocolAlpha − AlphaBurned`. Subtraction
+   saturates at zero, and ownership does not transfer when eligible alpha is
+   zero. Only that one hotkey's conviction counts; the owner's locks and
+   other keys' locks do not add to it.
+3. That hotkey resolves to a real coldkey owner (not the default account).
 
 The winning hotkey becomes [`SubnetOwnerHotkey`](/code/pallets/subtensor/src/lib.rs#L1988); its coldkey becomes
 [`SubnetOwner`](/code/pallets/subtensor/src/lib.rs#L1983). If the leader already owns the subnet, nothing changes.
 
-This is **not** the same as the per-hotkey projection in
-[`subnet-convictions`](/docs/query/subnet-convictions) — that API estimates when
-*one* hotkey might reach 10% of alpha out; ownership requires **aggregate**
-conviction across all lockers.
+Measuring the winning hotkey alone, rather than the subnet-wide total, is
+deliberate. Admission is decided on one hotkey and the winner is the maximum,
+so gating on the sum let every unrelated locker (the incumbent owner included)
+supply a challenger's quorum. Coalitions still work: backers lock to the
+challenger's hotkey, so their conviction lands in that hotkey's aggregate.
+
+The per-hotkey projection in
+[`subnet-convictions`](/docs/query/subnet-convictions) estimates when each
+hotkey might reach 18% of eligible alpha on its own — the same bar the chain
+applies. Treat it as a heuristic: it assumes lock rates and alpha accounting
+stay constant.
 
 ## Lock a position on a real subnet
 
@@ -165,10 +180,12 @@ while their **stake** can still be moved to another validator afterward —
 lock target and stake hotkey may differ on both sides. That is not the lock
 "unlocking"; it is the floor moving with the coldkey.
 
-Recipient coldkeys reject locked α by default — they must opt in via
-`SubtensorModule.set_reject_locked_alpha(false)` before accepting a transfer
-that moves lock mass
+Recipient coldkeys reject locked α by default — they must opt in with
+`btcli conviction accept --allow` (the `set_reject_locked_alpha` call) before
+accepting a transfer that moves lock mass
 ([`AccountRejectsLockedAlpha`](/docs/errors/chain/AccountRejectsLockedAlpha)).
+`btcli conviction list` shows the current setting; `--reject` restores the
+default.
 
 ## Rules worth remembering
 

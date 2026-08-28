@@ -27,7 +27,7 @@ current cost before sending.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1026-L1030) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.register_network`](/code/pallets/subtensor/src/macros/dispatches.rs#L1037-L1041) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("register_subnet", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.register_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1028`](/code/pallets/subtensor/src/macros/dispatches.rs#L1026-L1030):
+`SubtensorModule.register_network` — [`pallets/subtensor/src/macros/dispatches.rs#L1039`](/code/pallets/subtensor/src/macros/dispatches.rs#L1037-L1041):
 
 ```rust
 #[pallet::call_index(59)]
@@ -84,6 +84,6 @@ pub fn register_network(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchR
 }
 ```
 
-Delegates to [`do_register_network`](/code/pallets/subtensor/src/subnets/subnet.rs#L142).
+Delegates to [`do_register_network`](/code/pallets/subtensor/src/subnets/subnet.rs#L147).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

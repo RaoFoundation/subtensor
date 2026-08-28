@@ -64,6 +64,7 @@ pub trait WeightInfo {
 	fn remove_stake() -> Weight;
 	fn remove_stake_limit() -> Weight;
 	fn swap_stake_limit() -> Weight;
+	fn move_stake_limit() -> Weight;
 	fn transfer_stake() -> Weight;
 	fn transfer_stake_and_hotkey() -> Weight;
 	fn add_collateral() -> Weight;
@@ -1706,6 +1707,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(483_000_000, 11078)
 			.saturating_add(T::DbWeight::get().reads(50_u64))
 			.saturating_add(T::DbWeight::get().writes(22_u64))
+	}
+	fn move_stake_limit() -> Weight {
+		// Same swap path as `swap_stake_limit`, plus the distinct destination
+		// hotkey's owner proof/read.
+		Self::swap_stake_limit()
+			.saturating_add(Weight::from_parts(0, 2493))
+			.saturating_add(T::DbWeight::get().reads(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -5534,6 +5542,11 @@ impl WeightInfo for () {
 		Weight::from_parts(483_000_000, 11078)
 			.saturating_add(RocksDbWeight::get().reads(50_u64))
 			.saturating_add(RocksDbWeight::get().writes(22_u64))
+	}
+	fn move_stake_limit() -> Weight {
+		Self::swap_stake_limit()
+			.saturating_add(Weight::from_parts(0, 2493))
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
 	}
 	/// Storage: `SubtensorModule::NetworksAdded` (r:1 w:0)
 	/// Proof: `SubtensorModule::NetworksAdded` (`max_values`: None, `max_size`: None, mode: `Measured`)

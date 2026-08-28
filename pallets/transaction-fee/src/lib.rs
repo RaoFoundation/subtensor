@@ -301,6 +301,12 @@ impl<F, OU> SubtensorTxFeeHandler<F, OU> {
                 origin_netuid,
                 ..
             }) => alpha_vec.push((origin_hotkey.clone(), *origin_netuid)),
+            Some(SubtensorCall::move_stake_limit {
+                origin_hotkey,
+                destination_hotkey: _,
+                origin_netuid,
+                ..
+            }) => alpha_vec.push((origin_hotkey.clone(), *origin_netuid)),
             Some(SubtensorCall::transfer_stake {
                 destination_coldkey: _,
                 hotkey,

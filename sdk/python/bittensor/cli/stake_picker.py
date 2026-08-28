@@ -19,12 +19,22 @@ import typer
 from rich.console import Console
 from rich.text import Text
 
+from .. import config as cfg
 from .. import wallets
 from ..balance import Balance
 from ..reads import StakePosition, StakeValuation
 from .context import AppContext, address_cli_name
 from .helpers import chain_identity_names, local_address_names
-from .output import STYLE_COMMAND, STYLE_HINT, STYLE_KEY, STYLE_NAME, Output
+from .output import (
+    CHOICE_INDENT,
+    STYLE_COMMAND,
+    STYLE_HINT,
+    STYLE_KEY,
+    STYLE_NAME,
+    Output,
+    prompt_header,
+    prompt_hint,
+)
 from .prompt import PromptSpec, ask
 
 # Positions whose spot value is below this are dust: hidden from the pickers
@@ -68,33 +78,33 @@ def _pick_target(
     local = [hk for hk in local if hk.ss58]
     flag = address_cli_name(hotkey_field)
 
-    hint = Text("  ")
-    hint.append(flag, style=STYLE_COMMAND)
-    hint.append("  ")
-    hint.append(
-        "Validator hotkey the stake goes to — it does not have to be a local key.",
-        style=STYLE_HINT,
+    console.print(
+        prompt_header(
+            flag, "Validator hotkey the stake goes to — it does not have to be a local key."
+        )
     )
-    console.print(hint)
     if local:
         labels = [f"{app_ctx.wallet_name}/{hk.name}" for hk in local]
         label_width = max(len(label) for label in labels)
         number_width = len(str(len(local)))
         for index, (hk, label) in enumerate(zip(local, labels), start=1):
-            line = Text("    ", overflow="ignore", no_wrap=True)
+            line = Text(" " * CHOICE_INDENT, overflow="ignore", no_wrap=True)
             line.append(str(index).rjust(number_width), style=STYLE_COMMAND)
             line.append("  ")
             line.append(label.ljust(label_width), style=STYLE_NAME)
             line.append(f"  {hk.ss58}", style="dim")
             console.print(line, soft_wrap=True)
         console.print(
-            "  [dim]a number above, or any hotkey: ss58 address, address-book name, "
-            "or WALLET/HOTKEY[/dim]"
+            prompt_hint(
+                "a number above, or any hotkey: ss58 address, address-book name, or WALLET/HOTKEY"
+            )
         )
     else:
         console.print(
-            f"  [dim]wallet {app_ctx.wallet_name!r} has no local hotkeys — paste the "
-            "validator's ss58 address or an address-book name[/dim]"
+            prompt_hint(
+                f"wallet {app_ctx.wallet_name!r} has no local hotkeys — paste the "
+                "validator's ss58 address or an address-book name"
+            )
         )
 
     prompt = Text("  ")
@@ -108,7 +118,7 @@ def _pick_target(
             app_ctx.output.message("aborted.")
             raise typer.Exit(130)
         if not raw:
-            console.print("  a value is required", style=STYLE_HINT)
+            console.print(prompt_hint("a value is required"))
             continue
         if raw.isdigit() and local:
             index = int(raw)
@@ -117,14 +127,141 @@ def _pick_target(
                 app_ctx.output.name_address(chosen.ss58, f"{app_ctx.wallet_name}/{chosen.name}")
                 kwargs[hotkey_field] = chosen.ss58
                 return [flag, chosen.ss58]
-            console.print(f"  enter a number between 1 and {len(local)}", style=STYLE_HINT)
+            console.print(prompt_hint(f"enter a number between 1 and {len(local)}"))
             continue
-        try:
-            address = app_ctx.resolve_address(hotkey_field, raw)
-        except typer.Exit:
-            continue  # the resolver already printed its own error
+        with app_ctx.output.prompt_block():
+            try:
+                address = app_ctx.resolve_address(hotkey_field, raw)
+            except typer.Exit:
+                continue  # the resolver already printed its own error (indented)
         kwargs[hotkey_field] = address
         return [flag, address]
+
+
+def required_address_spec(field: str) -> Optional[PromptSpec]:
+    """Richer prompt for a required address that is not the signing wallet.
+
+    Own-key params (``hotkey_ss58`` / ``coldkey_ss58``) fall back to the
+    configured wallet and are left alone. Destination-style hotkeys get the
+    local-hotkey picker; destination-style coldkeys get the address-book
+    picker. Returns None when ``field`` is not an address.
+    """
+    if field in ("hotkey_ss58", "coldkey_ss58"):
+        return None
+    if not (field.endswith("_ss58") or field in ("ss58", "address", "dest")):
+        return None
+    if "hotkey" in field:
+        return stake_target_spec(field)
+    return dest_account_spec(field)
+
+
+def dest_account_spec(field: str = "dest_ss58") -> PromptSpec:
+    """A PromptSpec whose custom flow picks a destination account.
+
+    Lists address-book contacts and other local wallets, then accepts a list
+    number, a name, or a pasted ss58. This is a coldkey / account picker —
+    not a hotkey picker.
+    """
+    return PromptSpec(
+        field=field,
+        flag=address_cli_name(field),
+        help=None,
+        parse=lambda _app_ctx, raw: raw,
+        custom=lambda console, app_ctx, kwargs: _pick_dest_account(console, app_ctx, kwargs, field),
+    )
+
+
+@dataclass
+class _DestChoice:
+    name: str
+    ss58: str
+    kind: str
+
+
+def _pick_dest_account(
+    console: Console, app_ctx: AppContext, kwargs: dict, field: str
+) -> list[str]:
+    """List known accounts and ask which coldkey receives the TAO."""
+    flag = address_cli_name(field)
+    choices = _dest_choices(app_ctx)
+    console.print(prompt_header(flag, "Destination account — a coldkey, not a hotkey."))
+    if choices:
+        name_width = max(len(choice.name) for choice in choices)
+        number_width = len(str(len(choices)))
+        for index, choice in enumerate(choices, start=1):
+            line = Text(" " * CHOICE_INDENT, overflow="ignore", no_wrap=True)
+            line.append(str(index).rjust(number_width), style=STYLE_COMMAND)
+            line.append("  ")
+            line.append(choice.name.ljust(name_width), style=STYLE_NAME)
+            line.append(f"  {choice.ss58}", style="dim")
+            if choice.kind != "address-book":
+                line.append(f"  {choice.kind}", style="dim italic")
+            console.print(line, soft_wrap=True)
+        console.print(
+            prompt_hint(
+                "a number above, or any account: ss58 address, address-book name, "
+                "or local wallet name"
+            )
+        )
+    else:
+        console.print(
+            prompt_hint(
+                "no address-book contacts or other local wallets — paste the destination ss58"
+            )
+        )
+
+    prompt = Text("  ")
+    prompt.append(flag.lstrip("-"), style=STYLE_COMMAND)
+    prompt.append(": ", style=STYLE_COMMAND)
+    while True:
+        try:
+            raw = console.input(prompt).strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print()
+            app_ctx.output.message("aborted.")
+            raise typer.Exit(130)
+        if not raw:
+            console.print(prompt_hint("a value is required"))
+            continue
+        if raw.isdigit() and choices:
+            index = int(raw)
+            if 1 <= index <= len(choices):
+                chosen = choices[index - 1]
+                app_ctx.output.name_address(chosen.ss58, chosen.name)
+                kwargs[field] = chosen.ss58
+                return [flag, chosen.ss58]
+            console.print(prompt_hint(f"enter a number between 1 and {len(choices)}"))
+            continue
+        with app_ctx.output.prompt_block():
+            try:
+                address = app_ctx.resolve_address(field, raw)
+            except typer.Exit:
+                continue
+        kwargs[field] = address
+        return [flag, address]
+
+
+def _dest_choices(app_ctx: AppContext) -> list[_DestChoice]:
+    """Address-book contacts, then other local wallets, then saved multisigs."""
+    seen: set[str] = set()
+    choices: list[_DestChoice] = []
+
+    def _add(name: str, ss58: Optional[str], kind: str) -> None:
+        if not ss58 or ss58 in seen:
+            return
+        seen.add(ss58)
+        choices.append(_DestChoice(name=name, ss58=ss58, kind=kind))
+
+    for entry in cfg.load_addresses():
+        name = entry.get("name")
+        address = entry.get("address")
+        if isinstance(name, str) and isinstance(address, str):
+            _add(name, address, "address-book")
+    for coldkey in wallets.list_wallets_detailed(app_ctx.wallet_path):
+        if coldkey.name == app_ctx.wallet_name:
+            continue
+        _add(coldkey.name, coldkey.ss58, "wallet")
+    return choices
 
 
 def with_free_balance(spec: PromptSpec) -> PromptSpec:
@@ -138,9 +275,9 @@ def with_free_balance(spec: PromptSpec) -> PromptSpec:
 
     def _flow(console: Console, app_ctx: AppContext, kwargs: dict) -> list[str]:
         owner, owner_label = _stake_owner(app_ctx, kwargs)
-        with console.status("[dim]reading balance…[/dim]"):
+        with app_ctx.output.activity("reading balance…"):
             balance = app_ctx.run(lambda c: c.read("balance", coldkey_ss58=owner))
-        console.print(f"  [dim]free balance of {owner_label}: {balance}[/dim]")
+        console.print(prompt_hint(f"free balance of {owner_label}: {balance}"))
         value, raw = ask(console, app_ctx, replace(spec, custom=None))
         kwargs[spec.field] = value
         return [spec.flag, raw]
@@ -148,15 +285,25 @@ def with_free_balance(spec: PromptSpec) -> PromptSpec:
     return replace(spec, custom=_flow)
 
 
-def stake_source_spec(hotkey_field: str, netuid_field: Optional[str]) -> PromptSpec:
-    """A PromptSpec whose custom flow picks the source hotkey from live stake."""
+def stake_source_spec(
+    hotkey_field: str,
+    netuid_field: Optional[str],
+    owner: Optional[tuple[str, str]] = None,
+) -> PromptSpec:
+    """A PromptSpec whose custom flow picks the source hotkey from live stake.
+
+    ``owner`` overrides whose stake is on offer, as ``(ss58, label)`` — read
+    commands pass their already-resolved target coldkey (which may be a
+    multisig with no local wallet dir). The default is the signing wallet's
+    coldkey (or the ``--proxy-for`` account).
+    """
     return PromptSpec(
         field=hotkey_field,
         flag=address_cli_name(hotkey_field),
         help=None,
         parse=lambda _app_ctx, raw: raw,  # unused: the custom flow does everything
         custom=lambda console, app_ctx, kwargs: _pick(
-            console, app_ctx, kwargs, hotkey_field, netuid_field
+            console, app_ctx, kwargs, hotkey_field, netuid_field, owner=owner
         ),
     )
 
@@ -178,6 +325,7 @@ def _pick(
     kwargs: dict,
     hotkey_field: str,
     netuid_field: Optional[str],
+    owner: Optional[tuple[str, str]] = None,
 ) -> list[str]:
     """List the owner's stake, ask which position, and fill the answer into kwargs.
 
@@ -185,7 +333,7 @@ def _pick(
     that actually hold stake), so the position list covers just that subnet.
     Returns the argv tokens for the skip-the-prompts hint.
     """
-    owner, owner_label = _stake_owner(app_ctx, kwargs)
+    owner, owner_label = owner if owner is not None else _stake_owner(app_ctx, kwargs)
     netuid = kwargs.get(netuid_field) if netuid_field else None
 
     async def _fetch(client):
@@ -196,7 +344,7 @@ def _pick(
         identities = await chain_identity_names(client, unnamed) if unnamed else {}
         return valuation, positions, names, identities
 
-    with console.status("[dim]loading stake positions…[/dim]"):
+    with app_ctx.output.activity("loading stake positions…"):
         valuation, positions, names, identities = app_ctx.run(_fetch)
 
     entered: list[str] = []
@@ -251,18 +399,22 @@ def _pick(
                 names.get(lock["hotkey"]) or identities.get(lock["hotkey"]) or lock["hotkey"]
             )
             console.print(
-                f"  [dim]netuid {netuid}: {availability['locked']} locked · "
-                f"{availability['available']} free · lock → {lock_label}[/dim]"
+                prompt_hint(
+                    f"netuid {netuid}: {availability['locked']} locked · "
+                    f"{availability['available']} free · lock → {lock_label}"
+                )
             )
     if hidden:
         plural = "s" if hidden > 1 else ""
         console.print(
-            f"  [dim]+ {hidden} dust position{plural} hidden (under τ0.001)"
-            " — answer with a hotkey to use one[/dim]"
+            prompt_hint(
+                f"+ {hidden} dust position{plural} hidden (under τ0.001)"
+                " — answer with a hotkey to use one"
+            )
         )
     if len(rows) == 1:
         row = rows[0]
-        console.print("  [dim]only staked position — selected[/dim]")
+        console.print(prompt_hint("only staked position — selected"))
     else:
         row = _ask_row(console, app_ctx, flag, visible, hotkey_field, matchable=rows)
 
@@ -276,11 +428,17 @@ def _pick(
 
 def _stake_owner(app_ctx: AppContext, kwargs: dict) -> tuple[str, str]:
     """The coldkey whose stake is on offer: the proxied account with --proxy-for,
-    otherwise the signing wallet's coldkey."""
-    proxied = kwargs.get("proxy_for")
-    if proxied:
+    otherwise the signing wallet's coldkey (the derived multisig account when
+    ``-w`` names a saved multisig)."""
+    proxied = kwargs.get("proxy_for") or app_ctx.proxy_for
+    if proxied and proxied != "self":
         owner = app_ctx.resolve_address("proxy_for", proxied)
         return owner, str(proxied)
+    # Same precedence as the write path: `-w <multisig>` means the multisig
+    # account, even if a wallet dir shares the name.
+    derived = app_ctx._saved_multisig_address(app_ctx.wallet_name)
+    if derived:
+        return derived, f"multisig {app_ctx.wallet_name!r}"
     try:
         owner = app_ctx.wallet().coldkeypub.ss58_address
     except Exception as error:
@@ -313,18 +471,14 @@ def _ask_netuid(
     visible = [n for n in netuids if value_rao[n] >= _DUST_RAO] or netuids
     hidden = len(netuids) - len(visible)
 
-    hint = Text("  ")
-    hint.append(flag, style=STYLE_COMMAND)
-    hint.append("  ")
-    hint.append("Subnet the stake comes from — answer with a netuid below.", style=STYLE_HINT)
-    console.print(hint)
+    console.print(prompt_header(flag, "Subnet the stake comes from — answer with a netuid below."))
 
     labels = {n: output.with_subnets(f"netuid {n}") for n in visible}
     label_width = max(len(label) for label in labels.values())
     counts = {n: f"{count[n]} position" + ("s" if count[n] > 1 else "") for n in visible}
     count_width = max(len(text) for text in counts.values())
     for n in visible:
-        line = Text("    ", overflow="ignore", no_wrap=True)
+        line = Text(" " * CHOICE_INDENT, overflow="ignore", no_wrap=True)
         line.append_text(output.linked_prose(labels[n].ljust(label_width), STYLE_KEY))
         line.append("  ")
         line.append(counts[n].ljust(count_width), style=STYLE_HINT)
@@ -333,12 +487,14 @@ def _ask_netuid(
     if hidden:
         plural = "s" if hidden > 1 else ""
         console.print(
-            f"  [dim]+ {hidden} subnet{plural} holding only dust hidden (under τ0.001)"
-            " — answering with a hidden netuid still works[/dim]"
+            prompt_hint(
+                f"+ {hidden} subnet{plural} holding only dust hidden (under τ0.001)"
+                " — answering with a hidden netuid still works"
+            )
         )
 
     if len(netuids) == 1:
-        console.print("  [dim]only staked subnet — selected[/dim]")
+        console.print(prompt_hint("only staked subnet — selected"))
         return netuids[0]
 
     prompt = Text("  ")
@@ -357,14 +513,11 @@ def _ask_netuid(
         try:
             picked = int(raw)
         except ValueError:
-            console.print("  answer with one of the netuids above", style=STYLE_HINT)
+            console.print(prompt_hint("answer with one of the netuids above"))
             continue
         if picked in value_rao:
             return picked
-        console.print(
-            f"  no stake on netuid {picked} — pick one of the subnets above",
-            style=STYLE_HINT,
-        )
+        console.print(prompt_hint(f"no stake on netuid {picked} — pick one of the subnets above"))
 
 
 def _rows(
@@ -445,11 +598,7 @@ def _print_rows(
     names: dict[str, str],
     identities: dict[str, str],
 ) -> None:
-    hint = Text("  ")
-    hint.append(flag, style=STYLE_COMMAND)
-    hint.append("  ")
-    hint.append("Where the stake comes from — pick a position below.", style=STYLE_HINT)
-    console.print(hint)
+    console.print(prompt_header(flag, "Where the stake comes from — pick a position below."))
 
     def label(hotkey: str) -> tuple[str, str]:
         if hotkey in names:
@@ -465,7 +614,7 @@ def _print_rows(
     stake_width = max(len(r.stake) for r in rows)
     for index, row in enumerate(rows, start=1):
         text, style = label(row.hotkey)
-        line = Text("  ", overflow="ignore", no_wrap=True)
+        line = Text(" " * CHOICE_INDENT, overflow="ignore", no_wrap=True)
         line.append(str(index).rjust(number_width), style=STYLE_COMMAND)
         line.append("  ")
         line.append(text.ljust(label_width), style=style)
@@ -513,14 +662,15 @@ def _ask_row(
             index = int(raw)
             if 1 <= index <= len(rows):
                 return rows[index - 1]
-            console.print(f"  enter a number between 1 and {len(rows)}", style=STYLE_HINT)
+            console.print(prompt_hint(f"enter a number between 1 and {len(rows)}"))
             continue
-        try:
-            address = app_ctx.resolve_address(hotkey_field, raw)
-        except typer.Exit:
-            continue  # the resolver already printed its own error
+        with app_ctx.output.prompt_block():
+            try:
+                address = app_ctx.resolve_address(hotkey_field, raw)
+            except typer.Exit:
+                continue  # the resolver already printed its own error (indented)
         matches = [row for row in matchable if row.hotkey == address]
         if matches:
             return matches[0]  # rows are sorted by value; take the largest
-        console.print("  [dim]note: no stake found on that hotkey — using it anyway[/dim]")
+        console.print(prompt_hint("note: no stake found on that hotkey — using it anyway"))
         return _Row(address, None, "", "", Balance(0), False)

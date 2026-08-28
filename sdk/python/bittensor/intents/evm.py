@@ -12,7 +12,9 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from .._generated import calls
+from .._generated import storage as st
 from ..evm.addresses import h160_to_ss58, normalize_h160, ss58_to_h160_truncated
+from ..result import BittensorError
 from ._money import ALL, UNBOUNDED, Money, Spend, tao_amount
 from .base import Intent
 from .registry import register
@@ -85,23 +87,33 @@ class EvmWithdraw(Intent):
     claim it with ``btcli evm claim-deposit`` (or ``btcli tx evm-withdraw``).
     This is not ``btcli evm send-to-ss58``, which spends from a stored EVM key
     via the balance-transfer precompile. Fails if the mirror holds less than
-    the amount.
+    the amount. Pass ``all`` to claim the entire deposit.
     """
 
     op = "evm_withdraw"
     signer = "coldkey"
     wraps = (("EVM", "withdraw"),)
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_tao",)
 
-    amount_tao: Money = field(metadata={"help": "How much TAO to pull from the mirror."})
+    amount_tao: Money = field(
+        metadata={"help": "How much TAO to pull from the mirror, or ``all``."}
+    )
 
     def __post_init__(self):
-        self.amount_tao = tao_amount(self.amount_tao)
+        self.amount_tao = tao_amount(self.amount_tao, allow_all=True)
 
     async def build(self, substrate, wallet: Any):
         truncated = ss58_to_h160_truncated(self.coldkey_address(wallet))
-        return await substrate.compose(
-            calls.EVM.withdraw(address=truncated, value=self.amount_tao.rao)
-        )
+        if self.amount_tao == ALL:
+            mirror = h160_to_ss58(truncated)
+            account = await substrate.query(*st.System.Account, [mirror])
+            rao = int(((account or {}).get("data") or {}).get("free") or 0)
+            if rao <= 0:
+                raise BittensorError("nothing to claim: the EVM deposit address is empty")
+        else:
+            rao = self.amount_tao.rao
+        return await substrate.compose(calls.EVM.withdraw(address=truncated, value=rao))
 
     def summary(self) -> str:
-        return f"claim {self.amount_tao} from the coldkey's EVM mirror"
+        amount = "ALL TAO" if self.amount_tao == ALL else str(self.amount_tao)
+        return f"claim {amount} from the coldkey's EVM mirror"

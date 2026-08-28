@@ -68,9 +68,11 @@ Subtensor provides a custom chain extension that allows smart contracts to inter
 | 34 | `get_subnet_registration_state` | Query whether a subnet exists and which registration generation currently owns the netuid | `(NetUid)` | `SubnetRegistrationState { netuid, exists, registered_subnet_counter }` |
 | 35 | `get_coldkey_lock` | Query the current rolled-forward lock state for a coldkey on a subnet | `(AccountId, NetUid)` | `Option<ColdkeyLock { locked_mass: AlphaBalance, conviction_bits: u128, last_update: u64 }>` |
 | 36 | `get_stake_availability` | Query total, locked, and currently available alpha for a coldkey on a subnet | `(AccountId, NetUid)` | `StakeAvailability { netuid: NetUid, total: AlphaBalance, locked: AlphaBalance, available: AlphaBalance }` |
+| 37 | `move_stake_limit` | Move stake between hotkeys and subnets with a relative price limit | `(AccountId, AccountId, NetUid, NetUid, AlphaBalance, TaoBalance, bool)` | Error code |
+| 38 | `caller_move_stake_limit` | Caller-origin variant of `move_stake_limit` (ID 37) | `(AccountId, AccountId, NetUid, NetUid, AlphaBalance, TaoBalance, bool)` | Error code |
 
 <Callout type="note">
-Functions **1–14** dispatch with the **contract's own address** as the signed origin. Their caller-origin mirrors (functions **20–33**) dispatch with the **original transaction signer's** origin instead; parameters and return values are identical to the corresponding base function.
+Functions **1–14** and **37** dispatch with the **contract's own address** as the signed origin. Their caller-origin mirrors (functions **20–33** and **38**) dispatch with the **original transaction signer's** origin instead; parameters and return values are identical to the corresponding base function.
 </Callout>
 
 <Callout type="note">

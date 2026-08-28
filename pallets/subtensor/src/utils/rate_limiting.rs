@@ -214,6 +214,7 @@ pub enum Hyperparameter {
     TriggerEpoch = 31,
     CollateralLockShare = 32,
     CollateralDrainRatio = 33,
+    LiquidAlphaConsensusMode = 34,
 }
 
 impl<T: Config> Pallet<T> {

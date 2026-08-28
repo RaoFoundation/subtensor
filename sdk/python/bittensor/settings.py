@@ -139,6 +139,12 @@ def query_docs_url(name: str) -> str:
     return f"{DOCS_URL}/query/{name.replace('_', '-')}"
 
 
+def guide_docs_url(slug: str) -> str:
+    """Docs guide page (e.g. staking, conviction, mining/collateral).
+    Command groups link their topic guide from --help."""
+    return f"{DOCS_URL}/guides/{slug}"
+
+
 # Public block-explorer pages for an extrinsic, keyed by network label. ``{id}``
 # is the on-chain extrinsic identifier "block_number-index" (index zero-padded
 # to 4 digits), the format both taostats and taomarketcap use. taomarketcap is

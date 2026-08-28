@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 445
+Spec version: 449
 """
 from typing import Any, NamedTuple
 
@@ -24,6 +24,7 @@ BTreeSet = Any
 BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
+ConsensusMode = Any
 Determinism = Any
 EquivocationProof = Any
 FixedI128 = Any
@@ -340,6 +341,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'move_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
 
     @staticmethod
+    def move_stake_limit(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance', limit_price: 'TaoBalance', allow_partial: 'bool') -> Call:
+        'Moves stake from one hotkey to another and, when the subnets differ, protects the swap with a relative price limit.  `limit_price` is the minimum acceptable destination-alpha per origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the call is fill-or-kill; otherwise it moves only the amount executable before the limit is crossed.'
+        return Call('SubtensorModule', 'move_stake_limit', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount, 'limit_price': limit_price, 'allow_partial': allow_partial})
+
+    @staticmethod
     def recycle_alpha(hotkey: 'AccountId32', amount: 'AlphaBalance', netuid: 'NetUid') -> Call:
         'Recycles alpha from a cold/hot key pair, reducing AlphaOut on a subnet  # Arguments * `origin`: The origin of the call (must be signed by the coldkey) * `hotkey`: The hotkey account * `amount`: The amount of alpha to recycle * `netuid`: The subnet ID  # Events Emits a `TokensRecycled` event on success.'
         return Call('SubtensorModule', 'recycle_alpha', {'hotkey': hotkey, 'amount': amount, 'netuid': netuid})
@@ -486,7 +492,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_root_weights(dests: 'Any', weights: 'Any') -> Call:
-        "--- Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the validator's root dividends to deploy into each subnet's alpha basket. Requires at least [`crate::MIN_ROOT_BASKET_WEIGHTS`] positive destinations (softened when fewer networks exist).  # Args: * `origin`: the root validator hotkey. * `dests` (Vec<u16>): destination subnet netuids. * `weights` (Vec<u16>): per-subnet weights (normalized on use)."
+        "--- Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the validator's root dividends to deploy into each subnet's alpha basket. Requires at least [`crate::MIN_ROOT_BASKET_WEIGHTS`] positive destinations (softened when fewer networks exist), and no destination may take a larger share of the vector than [`crate::RootWeightsCap`] (skipped while fewer destinations exist than the cap demands).  # Args: * `origin`: the root validator hotkey. * `dests` (Vec<u16>): destination subnet netuids. * `weights` (Vec<u16>): per-subnet weights (normalized on use)."
         return Call('SubtensorModule', 'set_root_weights', {'dests': dests, 'weights': weights})
 
     @staticmethod
@@ -878,7 +884,7 @@ class AdminUtils:
 
     @staticmethod
     def schedule_grandpa_change(next_authorities: 'Any', in_blocks: 'u32', forced: 'Any') -> Call:
-        'A public interface for `pallet_grandpa::Pallet::schedule_grandpa_change`.  Schedule a change in the authorities.  The change will be applied at the end of execution of the block `in_blocks` after the current block. This value may be 0, in which case the change is applied at the end of the current block.  If the `forced` parameter is defined, this indicates that the current set has been synchronously determined to be offline and that after `in_blocks` the given change should be applied. The given block number indicates the median last finalized block number and it should be used as the canon block when starting the new grandpa voter.  No change should be signaled while any change is pending. Returns an error if a change is already pending.'
+        'A public interface for `pallet_grandpa::Pallet::schedule_grandpa_change`.  Schedule a change in the authorities.  The change is applied at the end of the current block, so `in_blocks` must be 0. This keeps the authority set and its set ID consistent in every persisted block state.  If the `forced` parameter is defined, this indicates that the current set has been synchronously determined to be offline. The given block number indicates the median last finalized block number and it should be used as the canon block when starting the new grandpa voter.  No change should be signaled while any change is pending. Returns an error if a change is already pending.'
         return Call('AdminUtils', 'schedule_grandpa_change', {'next_authorities': next_authorities, 'in_blocks': in_blocks, 'forced': forced})
 
     @staticmethod
@@ -1030,6 +1036,11 @@ class AdminUtils:
     def sudo_set_kappa(netuid: 'NetUid', kappa: 'u16') -> Call:
         'The extrinsic sets the kappa for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the kappa.'
         return Call('AdminUtils', 'sudo_set_kappa', {'netuid': netuid, 'kappa': kappa})
+
+    @staticmethod
+    def sudo_set_liquid_alpha_consensus_mode(netuid: 'NetUid', mode: 'ConsensusMode') -> Call:
+        'Sets which consensus values liquid alpha uses for a subnet.'
+        return Call('AdminUtils', 'sudo_set_liquid_alpha_consensus_mode', {'netuid': netuid, 'mode': mode})
 
     @staticmethod
     def sudo_set_liquid_alpha_enabled(netuid: 'NetUid', enabled: 'bool') -> Call:
@@ -1195,6 +1206,11 @@ class AdminUtils:
     def sudo_set_root_weight_setting_enabled(enabled: 'bool') -> Call:
         'Enables or disables root basket weight setting (`set_root_weights`) network-wide. Root Reborn launches with this OFF so every fund runs the null (accumulate in place) strategy as the observable baseline; flip it on later to open basket curation. Gates only the setter — existing vectors, dividend deployment, and reads are unaffected. Root-only.'
         return Call('AdminUtils', 'sudo_set_root_weight_setting_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_root_weights_cap(cap: 'u16') -> Call:
+        'Sets the root basket concentration cap ([`pallet_subtensor::RootWeightsCap`]): the largest u16-normalized share (`u16::MAX` = 100%) any single destination may take of a `set_root_weights` vector. A cap of `u16::MAX / 16 + 1` forces funds to spread across at least 16 destinations. The check softens to an equal split when fewer destinations exist on chain. Root-only.'
+        return Call('AdminUtils', 'sudo_set_root_weights_cap', {'cap': cap})
 
     @staticmethod
     def sudo_set_serving_rate_limit(netuid: 'NetUid', serving_rate_limit: 'u64') -> Call:
@@ -1633,8 +1649,11 @@ class LimitOrders:
         return Call('LimitOrders', 'execute_orders', {'orders': orders, 'should_fail': should_fail})
 
     @staticmethod
+    def prune_linked_output(order_id: 'H256') -> Call:
+        'Remove a provider record. The signer may prune at any time; anyone may prune after `expires_at`. Moves no funds.'
+        return Call('LimitOrders', 'prune_linked_output', {'order_id': order_id})
+
+    @staticmethod
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
-
-

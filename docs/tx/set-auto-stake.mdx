@@ -17,7 +17,7 @@ back with the `auto_stake` read.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_coldkey_auto_stake_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1809-L1851) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.set_coldkey_auto_stake_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L1854-L1896) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("set_auto_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.set_coldkey_auto_stake_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1811`](/code/pallets/subtensor/src/macros/dispatches.rs#L1809-L1851):
+`SubtensorModule.set_coldkey_auto_stake_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L1856`](/code/pallets/subtensor/src/macros/dispatches.rs#L1854-L1896):
 
 ```rust
 #[pallet::call_index(114)]
@@ -115,6 +115,6 @@ pub fn set_coldkey_auto_stake_hotkey(
 }
 ```
 
-Delegates to [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L39).
+Delegates to [`if_subnet_exist`](/code/pallets/subtensor/src/subnets/subnet.rs#L40).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

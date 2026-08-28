@@ -663,6 +663,8 @@ fn make_buy_entry(
         fee_recipient,
         effective_swap_limit: u64::MAX, // no slippage constraint
         partial_fill: None,
+        has_linked_order: false,
+        provider: None,
     }
 }
 

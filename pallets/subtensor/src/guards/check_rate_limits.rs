@@ -28,6 +28,7 @@ impl<T: Config> CheckRateLimits<T> {
                 | Call::commit_crv3_mechanism_weights { .. }
                 | Call::set_weights { .. }
                 | Call::set_mechanism_weights { .. }
+                | Call::set_root_weights { .. }
                 | Call::register_network { .. }
         )
     }
@@ -99,6 +100,15 @@ impl<T: Config> CheckRateLimits<T> {
                     Error::<T>::SettingWeightsTooFast,
                 )
             }
+            // `set_root_weights` ignores commit-reveal and always rate-limits at
+            // dispatch, so mirror that here unconditionally. The call is `Pays::No`;
+            // without this pool check a rate-limited call is a free failing extrinsic.
+            Call::set_root_weights { .. } => Self::check_weights_rate_limit(
+                who,
+                NetUid::ROOT,
+                NetUidStorageIndex::ROOT,
+                Error::<T>::SettingWeightsTooFast,
+            ),
             Call::register_network { .. }
                 if !TransactionType::RegisterNetwork.passes_rate_limit::<T>(who) =>
             {
@@ -261,6 +271,10 @@ mod tests {
                 dests: vec![0],
                 weights: vec![1],
                 version_key: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights {
+                dests: vec![0],
+                weights: vec![1],
             }),
             register_network_call(U256::from(1)),
         ];

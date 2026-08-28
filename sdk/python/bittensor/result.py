@@ -199,8 +199,8 @@ EXPLANATIONS: dict[ErrorCode, str] = {
         "\n"
         "a newly registered subnet starts inactive: staking, unstaking, and other alpha "
         "operations are rejected until the subnet owner activates it with "
-        "`btcli sudo start`. there is nothing to fix on your side; wait for the "
-        "subnet to become active (`btcli sudo check-start`)."
+        "`btcli hparams start`. there is nothing to fix on your side; wait for the "
+        "subnet to become active (`btcli hparams check-start`)."
     ),
     ErrorCode.DISABLED: (
         "the call or feature is blocked by a chain/subnet switch or pending state: "
@@ -214,7 +214,7 @@ EXPLANATIONS: dict[ErrorCode, str] = {
     ),
     ErrorCode.TOO_EARLY: (
         "the call arrived before its window opened: a reveal before the reveal "
-        "period, a coldkey swap before its delay elapsed, `btcli sudo start` before "
+        "period, a coldkey swap before its delay elapsed, `btcli hparams start` before "
         "enough blocks passed, or a finalization before the period ended.\n"
         "\n"
         "unlike rate_limited this is not about calling too often — the flow has a "
@@ -380,7 +380,7 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     "LockHotkeyMismatch": (
         "reuse the existing lock hotkey, or for transfers of locked alpha land "
         "on the receiver's lock hotkey via `btcli stake transfer "
-        "--destination-hotkey <lock-hotkey>`; inspect with `btcli lock show` / "
+        "--destination-hotkey <lock-hotkey>`; inspect with `btcli conviction show` / "
         "`btcli stake list`"
     ),
     "NeuronNoValidatorPermit": (
@@ -409,20 +409,20 @@ _NAME_HELP_OVERRIDES: dict[str, str] = {
     ),
     "CommitRevealEnabled": (
         "this subnet requires commit-reveal weights; use the commit/reveal path "
-        "(btcli weights auto-selects it) instead of plain set_weights — check with "
-        "`btcli sudo get --netuid N`"
+        "(btcli misc weights auto-selects it) instead of plain set_weights — check with "
+        "`btcli hparams get --netuid N`"
     ),
     "CommitRevealDisabled": (
         "commit-reveal is off on this subnet; use plain set_weights — check with "
-        "`btcli sudo get --netuid N`"
+        "`btcli hparams get --netuid N`"
     ),
     "SubNetRegistrationDisabled": (
         "registration is closed on this subnet; check `network_registration_allowed` "
-        "with `btcli sudo get --netuid N` or ask the owner"
+        "with `btcli hparams get --netuid N` or ask the owner"
     ),
     "SubtokenDisabled": (
-        "the subnet is not started yet; wait for the owner to run `btcli sudo start` "
-        "(`btcli sudo check-start`)"
+        "the subnet is not started yet; wait for the owner to run `btcli hparams start` "
+        "(`btcli hparams check-start`)"
     ),
     "RegistrationNotPermittedOnRootSubnet": (
         "do not register on netuid 0 with the normal register path; use the root "

@@ -105,8 +105,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 121,
-          "url": "/code/pallets/commitments/src/lib.rs#L121",
+          "line": 132,
+          "url": "/code/pallets/commitments/src/lib.rs#L132",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -167,7 +167,7 @@
     },
     "ActivityCutoffTooLow": {
       "code": "invalid_argument",
-      "description": "An admin tried to set the subnet's activity cutoff below the chain-wide minimum. Compare the requested value against the `MinActivityCutoff` storage item and current `activity_cutoff` in `btcli sudo get --netuid <n>`.",
+      "description": "An admin tried to set the subnet's activity cutoff below the chain-wide minimum. Compare the requested value against the `MinActivityCutoff` storage item and current `activity_cutoff` in `btcli hparams get --netuid <n>`.",
       "docs_url": "/docs/errors/chain/ActivityCutoffTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/ActivityCutoffTooLow/content.md",
       "pallets": [
@@ -411,8 +411,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 373,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L373",
+          "line": 441,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L441",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -482,7 +482,7 @@
     },
     "BasketHasNoWeights": {
       "code": "invalid_argument",
-      "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli weights set-root` (or `set_root_weights`) first.",
+      "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli root weights set` (or `set_root_weights`) first.",
       "docs_url": "/docs/errors/chain/BasketHasNoWeights",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketHasNoWeights/content.md",
       "pallets": [
@@ -582,8 +582,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 156,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L156",
+          "line": 163,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L163",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -807,8 +807,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 367,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L367",
+          "line": 435,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L435",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1077,8 +1077,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 180,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L180",
+          "line": 187,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L187",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1095,15 +1095,15 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 178,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L178",
+          "line": 185,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L185",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
     },
     "CommitRevealDisabled": {
       "code": "disabled",
-      "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli sudo get --netuid <n>`); use plain `set_weights` instead when it is disabled.",
+      "description": "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. Check the `commit_reveal_weights_enabled` hyperparameter for the netuid (`btcli hparams get --netuid <n>`); use plain `set_weights` instead when it is disabled.",
       "docs_url": "/docs/errors/chain/CommitRevealDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/CommitRevealDisabled/content.md",
       "pallets": [
@@ -1139,7 +1139,7 @@
     },
     "CommittingWeightsTooFast": {
       "code": "rate_limited",
-      "description": "The neuron committed weights again before the per-UID rate limit elapsed since its last commit on that subnet. Compare blocks since the last commit against the `weights_rate_limit` hyperparameter (`btcli sudo get --netuid <n>`) and wait.",
+      "description": "The neuron committed weights again before the per-UID rate limit elapsed since its last commit on that subnet. Compare blocks since the last commit against the `weights_rate_limit` hyperparameter (`btcli hparams get --netuid <n>`) and wait.",
       "docs_url": "/docs/errors/chain/CommittingWeightsTooFast",
       "markdown_url": "/llms.mdx/docs/errors/chain/CommittingWeightsTooFast/content.md",
       "pallets": [
@@ -1410,8 +1410,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 176,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L176",
+          "line": 183,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L183",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1525,8 +1525,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 375,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L375",
+          "line": 443,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L443",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -1767,7 +1767,7 @@
     },
     "FirstEmissionBlockNumberAlreadySet": {
       "code": "already_exists",
-      "description": "`btcli sudo start` was issued for a subnet whose emissions have already been started. Check with `btcli sudo check-start`; if the subnet is already emitting, no action is needed.",
+      "description": "`btcli hparams start` was issued for a subnet whose emissions have already been started. Check with `btcli hparams check-start`; if the subnet is already emitting, no action is needed.",
       "docs_url": "/docs/errors/chain/FirstEmissionBlockNumberAlreadySet",
       "markdown_url": "/llms.mdx/docs/errors/chain/FirstEmissionBlockNumberAlreadySet/content.md",
       "pallets": [
@@ -1810,9 +1810,27 @@
         "EVM"
       ]
     },
+    "GrandpaChangeDelayMustBeZero": {
+      "code": "invalid_argument",
+      "description": "`schedule_grandpa_change` was given a nonzero `in_blocks` delay. GRANDPA authority changes submitted through AdminUtils must activate at the end of the current block so the authority set and its set ID remain consistent. Pass `in_blocks=0`.",
+      "docs_url": "/docs/errors/chain/GrandpaChangeDelayMustBeZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/GrandpaChangeDelayMustBeZero/content.md",
+      "pallets": [
+        "AdminUtils"
+      ],
+      "sources": [
+        {
+          "pallet": "AdminUtils",
+          "path": "pallets/admin-utils/src/lib.rs",
+          "line": 189,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L189",
+          "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
+        }
+      ]
+    },
     "HotKeyAccountNotExists": {
       "code": "not_registered",
-      "description": "The hotkey has no on-chain account, meaning it was never created through registration, so staking or delegation operations cannot reference it. Check the `Owner` storage for the hotkey or `btcli wallet overview`; register the hotkey on a subnet first.",
+      "description": "The hotkey has no on-chain account, meaning it was never created through registration, so staking or delegation operations cannot reference it. Check the `Owner` storage for the hotkey or `btcli wallet registrations`; register the hotkey on a subnet first.",
       "docs_url": "/docs/errors/chain/HotKeyAccountNotExists",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyAccountNotExists/content.md",
       "pallets": [
@@ -1848,7 +1866,7 @@
     },
     "HotKeyAlreadyRegisteredInSubNet": {
       "code": "already_exists",
-      "description": "A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet (or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the (netuid, hotkey) pair or `btcli wallet overview`; use a different hotkey or netuid.",
+      "description": "A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet (or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the (netuid, hotkey) pair or `btcli wallet registrations`; use a different hotkey or netuid.",
       "docs_url": "/docs/errors/chain/HotKeyAlreadyRegisteredInSubNet",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyAlreadyRegisteredInSubNet/content.md",
       "pallets": [
@@ -1866,7 +1884,7 @@
     },
     "HotKeyNotRegisteredInNetwork": {
       "code": "not_registered",
-      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli query uid --netuid <n>` (or `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
+      "description": "The hotkey is not registered on the relevant subnet, raised by `serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring registration on any subnet. Verify registration with `btcli wallet registrations` (or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first.",
       "docs_url": "/docs/errors/chain/HotKeyNotRegisteredInNetwork",
       "markdown_url": "/llms.mdx/docs/errors/chain/HotKeyNotRegisteredInNetwork/content.md",
       "pallets": [
@@ -1966,15 +1984,15 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 363,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L363",
+          "line": 431,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L431",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
     },
     "IncorrectWeightVersionKey": {
       "code": "invalid_argument",
-      "description": "The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli sudo get --netuid <n>`) and update the validator software or the key.",
+      "description": "The `version_key` supplied with set_weights is older than the subnet's required weights version. Compare it against the `WeightsVersionKey` hyperparameter (`btcli hparams get --netuid <n>`) and update the validator software or the key.",
       "docs_url": "/docs/errors/chain/IncorrectWeightVersionKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/IncorrectWeightVersionKey/content.md",
       "pallets": [
@@ -2579,8 +2597,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 339,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L339",
+          "line": 407,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L407",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -2632,8 +2650,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 170,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L170",
+          "line": 177,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L177",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2803,15 +2821,105 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 357,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L357",
+          "line": 425,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L425",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedAmountResolvedToZero": {
+      "code": "invalid_argument",
+      "description": "The linked fraction floored to zero against the recorded output, so there is nothing to trade. Increase `pct` or wait for a larger provider output.",
+      "docs_url": "/docs/errors/chain/LinkedAmountResolvedToZero",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedAmountResolvedToZero/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 458,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L458",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputAssetMismatch": {
+      "code": "invalid_argument",
+      "description": "The provider recorded a different asset than the linked order spends: sells record TAO for a later buy, buys record alpha on that `(netuid, hotkey)` for a later sell. Check the consumer's `order_type` and `hotkey` against the provider record's `asset`.",
+      "docs_url": "/docs/errors/chain/LinkedOutputAssetMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputAssetMismatch/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 454,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L454",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputExpired": {
+      "code": "expired",
+      "description": "The provider record's `expires_at` is in the past, so the output is no longer drawable. Compare `LinkedOutputs.expires_at` with the chain `Timestamp`; unused records can be pruned with `prune_linked_output`.",
+      "docs_url": "/docs/errors/chain/LinkedOutputExpired",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputExpired/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 456,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L456",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputNotPrunable": {
+      "code": "invalid_argument",
+      "description": "`prune_linked_output` was called by someone other than the record's signer before `expires_at`. The signer may prune at any time; anyone may prune only after expiry.",
+      "docs_url": "/docs/errors/chain/LinkedOutputNotPrunable",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputNotPrunable/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 464,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L464",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "LinkedOutputSignerMismatch": {
+      "code": "invalid_argument",
+      "description": "The linked order's signer is not the signer who recorded the named provider output. Only the same account can draw against a record; re-sign the consumer with that key.",
+      "docs_url": "/docs/errors/chain/LinkedOutputSignerMismatch",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LinkedOutputSignerMismatch/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 452,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L452",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
     },
     "LiquidAlphaDisabled": {
       "code": "disabled",
-      "description": "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli sudo get --netuid <n>`) and have the subnet owner enable liquid alpha first.",
+      "description": "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli hparams get --netuid <n>`) and have the subnet owner enable liquid alpha first.",
       "docs_url": "/docs/errors/chain/LiquidAlphaDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/LiquidAlphaDisabled/content.md",
       "pallets": [
@@ -2838,7 +2946,7 @@
     },
     "LockHotkeyMismatch": {
       "code": "invalid_argument",
-      "description": "A conviction lock on this subnet is bound to a different hotkey than the one in the call. One coldkey may lock to only one hotkey per subnet: topping up `lock_stake` must reuse that hotkey (`btcli lock move` to retarget), and a stake transfer that moves locked alpha must land on the receiver's existing lock hotkey (`btcli stake transfer --destination-hotkey <lock-hotkey>`). Check the lock with `btcli lock show --netuid <n>` / `btcli stake list` (locked \u00b7 free \u00b7 lock \u2192 hotkey).",
+      "description": "A conviction lock on this subnet is bound to a different hotkey than the one in the call. One coldkey may lock to only one hotkey per subnet: topping up `lock_stake` must reuse that hotkey (`btcli conviction move` to retarget), and a stake transfer that moves locked alpha must land on the receiver's existing lock hotkey (`btcli stake transfer --destination-hotkey <lock-hotkey>`). Check the lock with `btcli conviction show --netuid <n>` / `btcli stake list` (locked \u00b7 free \u00b7 lock \u2192 hotkey).",
       "docs_url": "/docs/errors/chain/LockHotkeyMismatch",
       "markdown_url": "/llms.mdx/docs/errors/chain/LockHotkeyMismatch/content.md",
       "pallets": [
@@ -2884,8 +2992,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 154,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L154",
+          "line": 161,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L161",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2902,8 +3010,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 168,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L168",
+          "line": 175,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L175",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2920,8 +3028,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 166,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L166",
+          "line": 173,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L173",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2992,15 +3100,15 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 152,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L152",
+          "line": 159,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L159",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
     },
     "MaxWeightExceeded": {
       "code": "limit_exceeded",
-      "description": "After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli sudo get --netuid <n>`) and flatten the weight vector before setting.",
+      "description": "After normalization, one of the submitted weights exceeds the subnet's maximum weight limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter (`btcli hparams get --netuid <n>`) and flatten the weight vector before setting.",
       "docs_url": "/docs/errors/chain/MaxWeightExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/MaxWeightExceeded/content.md",
       "pallets": [
@@ -3090,8 +3198,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 162,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L162",
+          "line": 169,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L169",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3108,8 +3216,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 164,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L164",
+          "line": 171,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L171",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3179,7 +3287,7 @@
     },
     "NeedWaitingMoreBlocksToStarCall": {
       "code": "too_early",
-      "description": "The subnet owner ran `btcli sudo start` before enough blocks had passed since the subnet was registered. Check readiness with `btcli sudo check-start` and retry once the window opens.",
+      "description": "The subnet owner ran `btcli hparams start` before enough blocks had passed since the subnet was registered. Check readiness with `btcli hparams check-start` and retry once the window opens.",
       "docs_url": "/docs/errors/chain/NeedWaitingMoreBlocksToStarCall",
       "markdown_url": "/llms.mdx/docs/errors/chain/NeedWaitingMoreBlocksToStarCall/content.md",
       "pallets": [
@@ -3207,8 +3315,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 158,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L158",
+          "line": 165,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L165",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3384,6 +3492,24 @@
         }
       ]
     },
+    "NoLinkedOutput": {
+      "code": "not_found",
+      "description": "A linked order named a provider `order_id` that has no recorded output \u2014 it was never a provider, already drawn, or pruned. Check `LinkedOutputs` for that id, or execute the provider first via `execute_orders` rather than in the same batched call.",
+      "docs_url": "/docs/errors/chain/NoLinkedOutput",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NoLinkedOutput/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 450,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L450",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
     "NoMigrationPerformed": {
       "code": "invalid_argument",
       "description": "A `migrate` call ran but no migration step executed, either because no migration is pending or the supplied `weight_limit` is too small for one step. Check the in-progress migration status and increase the weight limit argument.",
@@ -3476,7 +3602,7 @@
     },
     "NonAssociatedColdKey": {
       "code": "not_authorized",
-      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet overview`, and sign with the coldkey that registered it.",
+      "description": "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. via `btcli wallet registrations`, and sign with the coldkey that registered it.",
       "docs_url": "/docs/errors/chain/NonAssociatedColdKey",
       "markdown_url": "/llms.mdx/docs/errors/chain/NonAssociatedColdKey/content.md",
       "pallets": [
@@ -3749,8 +3875,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 172,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L172",
+          "line": 179,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L179",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3857,8 +3983,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 341,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L341",
+          "line": 409,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L409",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3875,8 +4001,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 343,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L343",
+          "line": 411,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L411",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3893,8 +4019,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 345,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L345",
+          "line": 413,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L413",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3911,8 +4037,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 355,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L355",
+          "line": 423,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L423",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -3991,8 +4117,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 174,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L174",
+          "line": 181,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L181",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4009,8 +4135,44 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 371,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L371",
+          "line": 439,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L439",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "PartialFillNotSupportedForLinkedAmount": {
+      "code": "invalid_argument",
+      "description": "A `partial_fill` was submitted against a linked (consuming) order. Linked amounts must execute in one shot; omit `partial_fill` and execute the resolved amount in full.",
+      "docs_url": "/docs/errors/chain/PartialFillNotSupportedForLinkedAmount",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PartialFillNotSupportedForLinkedAmount/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 460,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L460",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "PartialFillNotSupportedForProvider": {
+      "code": "invalid_argument",
+      "description": "A `partial_fill` was submitted against a provider (`has_linked_order`). Provider output must be recorded from a single execution; omit `partial_fill` even if `partial_fills_enabled` is set.",
+      "docs_url": "/docs/errors/chain/PartialFillNotSupportedForProvider",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PartialFillNotSupportedForProvider/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 462,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L462",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4027,8 +4189,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 361,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L361",
+          "line": 429,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L429",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4072,8 +4234,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 347,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L347",
+          "line": 415,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L415",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4207,8 +4369,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 359,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L359",
+          "line": 427,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L427",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4225,8 +4387,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 365,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L365",
+          "line": 433,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L433",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4357,6 +4519,24 @@
         }
       ]
     },
+    "RootClaimTooHeavy": {
+      "code": "limit_exceeded",
+      "description": "A root claim would walk more work than the fixed pre-dispatch weight envelope can admit. For coldkey-wide `claim_root`, hotkeys times existing networks or total basket rows can exceed `MAX_ROOT_CLAIM_WORK`; a single validator basket with too many rows can also make `claim_root_with_hotkey` fail. Split a coldkey-wide claim by validator where that fits, and investigate or consolidate an individually oversized basket.",
+      "docs_url": "/docs/errors/chain/RootClaimTooHeavy",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootClaimTooHeavy/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 368,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L368",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "RootNetUidNotAllowed": {
       "code": "invalid_argument",
       "description": "The order or batch targets the root subnet, netuid 0, which the limit orders pallet does not serve. Check the `netuid` field of the order payload or the `netuid` parameter of the batch call and target a non-root subnet.",
@@ -4369,8 +4549,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 353,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L353",
+          "line": 421,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L421",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4411,9 +4591,27 @@
         }
       ]
     },
+    "RootWeightCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "One destination in the `set_root_weights` vector takes a larger share of the basket than the `RootWeightsCap` hyperparameter allows (share = weight / sum of weights; the cap is u16-normalized, so 4096 means 1/16). Spread the vector across more destinations \u2014 at the launch cap of 1/16 a basket needs at least 16 \u2014 or lower the largest entries. Query `RootWeightsCap[0]` for the live cap. Not enforced while the chain has fewer subnets than the cap demands.",
+      "docs_url": "/docs/errors/chain/RootWeightCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 374,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L374",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "RootWeightSettingDisabled": {
       "code": "disabled",
-      "description": "`set_root_weights` is disabled network-wide: Root Reborn launched gated, so every fund runs the null strategy (dividends accumulate in place on their origin subnet) until weight setting is switched on by governance or a later upgrade. No action available \u2014 wait for the enable; dividends keep accruing meanwhile.",
+      "description": "`set_root_weights` is disabled network-wide (`RootWeightSettingEnabled` is false). Root Reborn launched gated and runtime 449 opened the gate, so on current mainnet this only appears if governance has switched weight setting back off. Funds then run the null strategy (dividends accumulate in place on their origin subnet) until it is re-enabled; dividends keep accruing meanwhile.",
       "docs_url": "/docs/errors/chain/RootWeightSettingDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/RootWeightSettingDisabled/content.md",
       "pallets": [
@@ -4549,8 +4747,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 123,
-          "url": "/code/pallets/commitments/src/lib.rs#L123",
+          "line": 134,
+          "url": "/code/pallets/commitments/src/lib.rs#L134",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -4620,7 +4818,7 @@
     },
     "StartCallNotReady": {
       "code": "too_early",
-      "description": "`btcli sudo start` was run before `StartCallDelay` blocks elapsed since the subnet was registered. Check readiness with `btcli sudo check-start` and wait for the remainder.",
+      "description": "`btcli hparams start` was run before `StartCallDelay` blocks elapsed since the subnet was registered. Check readiness with `btcli hparams check-start` and wait for the remainder.",
       "docs_url": "/docs/errors/chain/StartCallNotReady",
       "markdown_url": "/llms.mdx/docs/errors/chain/StartCallNotReady/content.md",
       "pallets": [
@@ -4729,8 +4927,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 150,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L150",
+          "line": 157,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L157",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4773,7 +4971,7 @@
     },
     "SubtokenDisabled": {
       "code": "subtoken_disabled",
-      "description": "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli sudo start` after registration. Check readiness with `btcli sudo check-start`.",
+      "description": "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it are blocked until the owner runs `btcli hparams start` after registration. Check readiness with `btcli hparams check-start`.",
       "docs_url": "/docs/errors/chain/SubtokenDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/SubtokenDisabled/content.md",
       "pallets": [
@@ -4827,8 +5025,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 351,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L351",
+          "line": 419,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L419",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -4912,6 +5110,24 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TerminatedWhileReentrant/content.md",
       "pallets": [
         "Contracts"
+      ]
+    },
+    "TimelockRevealFailedNotAllowed": {
+      "code": "invalid_argument",
+      "description": "The submitted commitment contains `TimelockRevealFailed`, a terminal audit state that only the runtime may create after an automatic reveal fails. Submit a `TimelockEncrypted` field instead.",
+      "docs_url": "/docs/errors/chain/TimelockRevealFailedNotAllowed",
+      "markdown_url": "/llms.mdx/docs/errors/chain/TimelockRevealFailedNotAllowed/content.md",
+      "pallets": [
+        "Commitments"
+      ],
+      "sources": [
+        {
+          "pallet": "Commitments",
+          "path": "pallets/commitments/src/lib.rs",
+          "line": 138,
+          "url": "/code/pallets/commitments/src/lib.rs#L138",
+          "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
+        }
       ]
     },
     "TooBig": {
@@ -5008,8 +5224,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 119,
-          "url": "/code/pallets/commitments/src/lib.rs#L119",
+          "line": 130,
+          "url": "/code/pallets/commitments/src/lib.rs#L130",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -5369,8 +5585,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 349,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L349",
+          "line": 417,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L417",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]
@@ -5423,8 +5639,8 @@
         {
           "pallet": "Commitments",
           "path": "pallets/commitments/src/lib.rs",
-          "line": 125,
-          "url": "/code/pallets/commitments/src/lib.rs#L125",
+          "line": 136,
+          "url": "/code/pallets/commitments/src/lib.rs#L136",
           "raw_url": "/code/raw/pallets/commitments/src/lib.rs"
         }
       ]
@@ -5513,8 +5729,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 160,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L160",
+          "line": 167,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L167",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5684,8 +5900,8 @@
         {
           "pallet": "LimitOrders",
           "path": "pallets/limit-orders/src/lib.rs",
-          "line": 380,
-          "url": "/code/pallets/limit-orders/src/lib.rs#L380",
+          "line": 448,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L448",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

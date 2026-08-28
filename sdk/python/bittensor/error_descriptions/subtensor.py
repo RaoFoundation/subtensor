@@ -23,7 +23,7 @@ DESCRIPTIONS: dict[str, str] = {
     "ActivityCutoffTooLow": (
         "An admin tried to set the subnet's activity cutoff below the chain-wide minimum. "
         "Compare the requested value against the `MinActivityCutoff` storage item and current "
-        "`activity_cutoff` in `btcli sudo get --netuid <n>`."
+        "`activity_cutoff` in `btcli hparams get --netuid <n>`."
     ),
     "AddStakeBurnRateLimitExceeded": (
         "The add-stake-and-burn operation was submitted again before its per-key rate-limit "
@@ -78,12 +78,19 @@ DESCRIPTIONS: dict[str, str] = {
         "Retired on current runtimes: a basket deposit into a validator with no usable root "
         "weight vector is now held as the fund's root (TAO cash) slot instead of erroring. "
         "Seeing this error means the chain is running an older runtime — have the validator "
-        "set root weights with `btcli weights set-root` (or `set_root_weights`) first."
+        "set root weights with `btcli root weights set` (or `set_root_weights`) first."
     ),
     "BeneficiaryDoesNotOwnHotkey": (
         "When ending a subnet lease, the hotkey passed for the ownership handover is not owned "
         "by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass "
         "a hotkey the beneficiary coldkey actually owns."
+    ),
+    "RootClaimTooHeavy": (
+        "A root claim would walk more work than the fixed pre-dispatch weight envelope can "
+        "admit. For coldkey-wide `claim_root`, hotkeys times existing networks or total basket "
+        "rows can exceed `MAX_ROOT_CLAIM_WORK`; a single validator basket with too many rows "
+        "can also make `claim_root_with_hotkey` fail. Split a coldkey-wide claim by validator "
+        "where that fits, and investigate or consolidate an individually oversized basket."
     ),
     "BetaBasketSeedInProgress": (
         "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "
@@ -179,7 +186,7 @@ DESCRIPTIONS: dict[str, str] = {
     "CommitRevealDisabled": (
         "A weight commit or reveal was submitted on a subnet where commit-reveal is turned off. "
         "Check the `commit_reveal_weights_enabled` hyperparameter for the netuid "
-        "(`btcli sudo get --netuid <n>`); use plain `set_weights` instead when it is disabled."
+        "(`btcli hparams get --netuid <n>`); use plain `set_weights` instead when it is disabled."
     ),
     "CommitRevealEnabled": (
         "Plain `set_weights` was called on a subnet where commit-reveal is enabled, which "
@@ -189,7 +196,7 @@ DESCRIPTIONS: dict[str, str] = {
     "CommittingWeightsTooFast": (
         "The neuron committed weights again before the per-UID rate limit elapsed since its "
         "last commit on that subnet. Compare blocks since the last commit against the "
-        "`weights_rate_limit` hyperparameter (`btcli sudo get --netuid <n>`) and wait."
+        "`weights_rate_limit` hyperparameter (`btcli hparams get --netuid <n>`) and wait."
     ),
     "DelegateTakeTooHigh": (
         "The `take` argument exceeds the maximum delegate take allowed by the chain (18% by "
@@ -267,14 +274,14 @@ DESCRIPTIONS: dict[str, str] = {
         "feature; use a funded wallet or testnet TAO instead."
     ),
     "FirstEmissionBlockNumberAlreadySet": (
-        "`btcli sudo start` was issued for a subnet whose emissions have already been started. "
-        "Check with `btcli sudo check-start`; if the subnet is already emitting, no action is "
+        "`btcli hparams start` was issued for a subnet whose emissions have already been started. "
+        "Check with `btcli hparams check-start`; if the subnet is already emitting, no action is "
         "needed."
     ),
     "HotKeyAccountNotExists": (
         "The hotkey has no on-chain account, meaning it was never created through registration, "
         "so staking or delegation operations cannot reference it. Check the `Owner` storage for "
-        "the hotkey or `btcli wallet overview`; register the hotkey on a subnet first."
+        "the hotkey or `btcli wallet registrations`; register the hotkey on a subnet first."
     ),
     "HotKeyAlreadyDelegate": (
         "`become_delegate` was called for a hotkey that is already a delegate. Check the "
@@ -284,13 +291,14 @@ DESCRIPTIONS: dict[str, str] = {
     "HotKeyAlreadyRegisteredInSubNet": (
         "A registration or hotkey swap targeted a hotkey that already holds a UID on the subnet "
         "(or, for a swap without a netuid, on any subnet). Check the `Uids` storage for the "
-        "(netuid, hotkey) pair or `btcli wallet overview`; use a different hotkey or netuid."
+        "(netuid, hotkey) pair or `btcli wallet registrations`; use a different hotkey or netuid."
     ),
     "HotKeyNotRegisteredInNetwork": (
         "The hotkey is not registered on the relevant subnet, raised by "
         "`serve_axon`/`serve_prometheus` for the serving netuid or by identity calls requiring "
-        "registration on any subnet. Verify registration with `btcli query uid --netuid <n>` "
-        "(or `btcli query netuids-for-hotkey`) and register via `btcli subnets register` first."
+        "registration on any subnet. Verify registration with `btcli wallet registrations` "
+        "(or `btcli query uid --netuid <n>` / `btcli query netuids-for-hotkey`) and register "
+        "via `btcli subnets register` first."
     ),
     "HotKeyNotRegisteredInSubNet": (
         "The hotkey holds no UID on the given netuid, so weight setting, commits, or UID "
@@ -316,7 +324,7 @@ DESCRIPTIONS: dict[str, str] = {
     "IncorrectWeightVersionKey": (
         "The `version_key` supplied with set_weights is older than the subnet's required "
         "weights version. Compare it against the `WeightsVersionKey` hyperparameter "
-        "(`btcli sudo get --netuid <n>`) and update the validator software or the key."
+        "(`btcli hparams get --netuid <n>`) and update the validator software or the key."
     ),
     "InputLengthsUnequal": (
         "A batch weights call passed vectors of different lengths, e.g. netuids vs commit "
@@ -458,16 +466,16 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "LiquidAlphaDisabled": (
         "Setting `alpha_low`/`alpha_high` was attempted while liquid alpha is disabled on the "
-        "subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli sudo get --netuid <n>`) and "
+        "subnet. Check the `LiquidAlphaOn` hyperparameter (`btcli hparams get --netuid <n>`) and "
         "have the subnet owner enable liquid alpha first."
     ),
     "LockHotkeyMismatch": (
         "A conviction lock on this subnet is bound to a different hotkey than the one in the "
         "call. One coldkey may lock to only one hotkey per subnet: topping up `lock_stake` "
-        "must reuse that hotkey (`btcli lock move` to retarget), and a stake transfer that "
+        "must reuse that hotkey (`btcli conviction move` to retarget), and a stake transfer that "
         "moves locked alpha must land on the receiver's existing lock hotkey "
         "(`btcli stake transfer --destination-hotkey <lock-hotkey>`). Check the lock with "
-        "`btcli lock show --netuid <n>` / `btcli stake list` (locked · free · lock → hotkey)."
+        "`btcli conviction show --netuid <n>` / `btcli stake list` (locked · free · lock → hotkey)."
     ),
     "LockIdOverFlow": (
         "The global network-registration lock id counter reached its u32 maximum while queueing "
@@ -478,7 +486,7 @@ DESCRIPTIONS: dict[str, str] = {
     "MaxWeightExceeded": (
         "After normalization, one of the submitted weights exceeds the subnet's maximum weight "
         "limit (self-weight is exempt). Check the `MaxWeightsLimit` hyperparameter "
-        "(`btcli sudo get --netuid <n>`) and flatten the weight vector before setting."
+        "(`btcli hparams get --netuid <n>`) and flatten the weight vector before setting."
     ),
     "MechanismDoesNotExist": (
         "The target subnet or its sub-mechanism does not exist: the netuid is unknown, the "
@@ -487,8 +495,8 @@ DESCRIPTIONS: dict[str, str] = {
         "subnet."
     ),
     "NeedWaitingMoreBlocksToStarCall": (
-        "The subnet owner ran `btcli sudo start` before enough blocks had passed since the "
-        "subnet was registered. Check readiness with `btcli sudo check-start` and retry once "
+        "The subnet owner ran `btcli hparams start` before enough blocks had passed since the "
+        "subnet was registered. Check readiness with `btcli hparams check-start` and retry once "
         "the window opens."
     ),
     "NetworkDissolveAlreadyQueued": (
@@ -540,7 +548,7 @@ DESCRIPTIONS: dict[str, str] = {
     "NonAssociatedColdKey": (
         "The signing coldkey does not own the hotkey it is trying to operate on (stake, swap, "
         "serve, children or take changes). Check the `Owner` storage entry for the hotkey, e.g. "
-        "via `btcli wallet overview`, and sign with the coldkey that registered it."
+        "via `btcli wallet registrations`, and sign with the coldkey that registered it."
     ),
     "NotEnoughAlphaOutToRecycle": (
         "A recycle or burn of alpha requested more than the subnet's outstanding alpha supply. "
@@ -635,11 +643,20 @@ DESCRIPTIONS: dict[str, str] = {
         "only happens on misconfigured or freshly bootstrapped chains. Verify netuid 0 exists "
         "in `NetworksAdded`."
     ),
+    "RootWeightCapExceeded": (
+        "One destination in the `set_root_weights` vector takes a larger share of the basket "
+        "than the `RootWeightsCap` hyperparameter allows (share = weight / sum of weights; "
+        "the cap is u16-normalized, so 4096 means 1/16). Spread the vector across more "
+        "destinations — at the launch cap of 1/16 a basket needs at least 16 — or lower the "
+        "largest entries. Query `RootWeightsCap[0]` for the live cap. Not enforced while "
+        "the chain has fewer subnets than the cap demands."
+    ),
     "RootWeightSettingDisabled": (
-        "`set_root_weights` is disabled network-wide: Root Reborn launched gated, so every "
-        "fund runs the null strategy (dividends accumulate in place on their origin subnet) "
-        "until weight setting is switched on by governance or a later upgrade. No action "
-        "available — wait for the enable; dividends keep accruing meanwhile."
+        "`set_root_weights` is disabled network-wide (`RootWeightSettingEnabled` is false). "
+        "Root Reborn launched gated and runtime 449 opened the gate, so on current mainnet "
+        "this only appears if governance has switched weight setting back off. Funds then "
+        "run the null strategy (dividends accumulate in place on their origin subnet) until "
+        "it is re-enabled; dividends keep accruing meanwhile."
     ),
     "RootStakeLocked": (
         "A root (netuid 0) exit was attempted before `RootStakeUnlockInterval` blocks "
@@ -692,8 +709,8 @@ DESCRIPTIONS: dict[str, str] = {
         "transactions out and retry in a later block."
     ),
     "StartCallNotReady": (
-        "`btcli sudo start` was run before `StartCallDelay` blocks elapsed since the subnet "
-        "was registered. Check readiness with `btcli sudo check-start` and wait for the "
+        "`btcli hparams start` was run before `StartCallDelay` blocks elapsed since the subnet "
+        "was registered. Check readiness with `btcli hparams check-start` and wait for the "
         "remainder."
     ),
     "SubNetRegistrationDisabled": (
@@ -720,8 +737,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "SubtokenDisabled": (
         "The subnet's alpha token is not yet enabled, so staking, swapping, and trading on it "
-        "are blocked until the owner runs `btcli sudo start` after registration. Check "
-        "readiness with `btcli sudo check-start`."
+        "are blocked until the owner runs `btcli hparams start` after registration. Check "
+        "readiness with `btcli hparams check-start`."
     ),
     "SymbolAlreadyInUse": (
         "The token symbol requested for the subnet is already assigned to another subnet. Scan "

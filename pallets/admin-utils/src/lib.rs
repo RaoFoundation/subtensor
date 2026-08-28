@@ -30,7 +30,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::*;
     use pallet_evm_chain_id::{self, ChainId};
     use pallet_subtensor::{
-        DefaultMaxAllowedUids,
+        ConsensusMode, DefaultMaxAllowedUids, MAX_BONDS_MOVING_AVERAGE,
         utils::rate_limiting::{Hyperparameter, TransactionType},
     };
     use sp_runtime::{BoundedVec, PerU16};
@@ -141,6 +141,13 @@ pub mod pallet {
             /// Whether validators can now set root basket weights.
             enabled: bool,
         },
+
+        /// The root basket concentration cap (`RootWeightsCap`) was set.
+        RootWeightsCapSet {
+            /// Max u16-normalized share of a basket vector one destination may take
+            /// (`u16::MAX` = 100%).
+            cap: u16,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -178,6 +185,8 @@ pub mod pallet {
         CollateralLockShareTooHigh,
         /// The collateral drain ratio must be positive and at most the settable maximum.
         CollateralDrainRatioOutOfBounds,
+        /// GRANDPA changes must take effect at the end of the current block.
+        GrandpaChangeDelayMustBeZero,
     }
     /// Enum for specifying the type of precompile operation.
     #[derive(
@@ -921,7 +930,7 @@ pub mod pallet {
             pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
             if maybe_owner.is_some() {
                 ensure!(
-                    bonds_moving_average <= 975000,
+                    bonds_moving_average <= MAX_BONDS_MOVING_AVERAGE,
                     Error::<T>::BondsMovingAverageMaxReached
                 )
             }
@@ -1340,6 +1349,29 @@ pub mod pallet {
             res
         }
 
+        /// Sets which consensus values liquid alpha uses for a subnet.
+        #[pallet::call_index(104)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_alpha_values())]
+        pub fn sudo_set_liquid_alpha_consensus_mode(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            mode: ConsensusMode,
+        ) -> DispatchResult {
+            let maybe_owner = pallet_subtensor::Pallet::<T>::ensure_sn_owner_or_root_with_limits(
+                origin,
+                netuid,
+                &[Hyperparameter::LiquidAlphaConsensusMode.into()],
+            )?;
+            pallet_subtensor::Pallet::<T>::ensure_admin_window_open(netuid)?;
+            pallet_subtensor::Pallet::<T>::set_liquid_alpha_consensus_mode(netuid, mode);
+            pallet_subtensor::Pallet::<T>::record_owner_rl(
+                maybe_owner,
+                netuid,
+                &[Hyperparameter::LiquidAlphaConsensusMode.into()],
+            );
+            Ok(())
+        }
+
         /// Sets the duration of the dissolve network schedule.
         ///
         /// This extrinsic allows the root account to set the duration for the dissolve network schedule.
@@ -1444,14 +1476,13 @@ pub mod pallet {
         ///
         /// Schedule a change in the authorities.
         ///
-        /// The change will be applied at the end of execution of the block `in_blocks` after the
-        /// current block. This value may be 0, in which case the change is applied at the end of
-        /// the current block.
+        /// The change is applied at the end of the current block, so `in_blocks` must be 0. This
+        /// keeps the authority set and its set ID consistent in every persisted block state.
         ///
         /// If the `forced` parameter is defined, this indicates that the current set has been
-        /// synchronously determined to be offline and that after `in_blocks` the given change
-        /// should be applied. The given block number indicates the median last finalized block
-        /// number and it should be used as the canon block when starting the new grandpa voter.
+        /// synchronously determined to be offline. The given block number indicates the median
+        /// last finalized block number and it should be used as the canon block when starting the
+        /// new grandpa voter.
         ///
         /// No change should be signaled while any change is pending. Returns an error if a change
         /// is already pending.
@@ -1465,6 +1496,10 @@ pub mod pallet {
             forced: Option<BlockNumberFor<T>>,
         ) -> DispatchResult {
             ensure_root(origin)?;
+            ensure!(
+                in_blocks.is_zero(),
+                Error::<T>::GrandpaChangeDelayMustBeZero
+            );
             T::Grandpa::schedule_change(next_authorities, in_blocks, forced)
         }
 
@@ -2458,6 +2493,22 @@ pub mod pallet {
             pallet_subtensor::RootWeightSettingEnabled::<T>::put(enabled);
             Self::deposit_event(Event::RootWeightSettingToggled { enabled });
             log::debug!("RootWeightSettingToggled( enabled: {enabled:?} )");
+            Ok(())
+        }
+
+        /// Sets the root basket concentration cap ([`pallet_subtensor::RootWeightsCap`]):
+        /// the largest u16-normalized share (`u16::MAX` = 100%) any single destination may
+        /// take of a `set_root_weights` vector. A cap of `u16::MAX / 16 + 1` forces funds
+        /// to spread across at least 16 destinations. The check softens to an equal split
+        /// when fewer destinations exist on chain. Root-only.
+        #[pallet::call_index(105)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
+        pub fn sudo_set_root_weights_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(cap > 0, Error::<T>::ValueNotInBounds);
+            pallet_subtensor::RootWeightsCap::<T>::insert(NetUid::ROOT, cap);
+            Self::deposit_event(Event::RootWeightsCapSet { cap });
+            log::debug!("RootWeightsCapSet( cap: {cap:?} )");
             Ok(())
         }
 

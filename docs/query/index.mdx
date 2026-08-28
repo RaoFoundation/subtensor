@@ -88,9 +88,11 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 
 | Query | Summary |
 | --- | --- |
+| [`accepts-locked-alpha`](/docs/query/accepts-locked-alpha) | Whether a coldkey accepts incoming locked alpha transfers. |
 | [`coldkey-lock`](/docs/query/coldkey-lock) | Lock state for a coldkey on a subnet, or None if no lock exists. |
 | [`hotkey-conviction`](/docs/query/hotkey-conviction) | Conviction metrics for a hotkey on a subnet. |
 | [`locks-for-coldkey`](/docs/query/locks-for-coldkey) | Every lock a coldkey holds (one per subnet), rolled forward to now. |
+| [`locks-for-hotkey`](/docs/query/locks-for-hotkey) | Every coldkey's lock targeting a hotkey on a subnet, rolled forward to now. |
 | [`most-convicted-hotkey`](/docs/query/most-convicted-hotkey) | Hotkey with the highest conviction on a subnet, if any. |
 | [`subnet-convictions`](/docs/query/subnet-convictions) | Every hotkey with locked stake on a subnet, rolled forward to now. |
 
@@ -128,8 +130,10 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | --- | --- |
 | [`auto-stake`](/docs/query/auto-stake) | The hotkey a coldkey auto-stakes its rewards to on a subnet, or None if unset. |
 | [`auto-stake-all`](/docs/query/auto-stake-all) | Every auto-stake destination configured for a coldkey. |
+| [`basket-position`](/docs/query/basket-position) | A staker's beta token position in one validator's basket. |
 | [`root-basket-owed`](/docs/query/root-basket-owed) | Total TAO a coldkey would realize by claiming its root dividends now. |
 | [`root-basket-owed-breakdown`](/docs/query/root-basket-owed-breakdown) | A coldkey's pending root dividends, itemized per validator hotkey. |
+| [`root-basket-portfolio`](/docs/query/root-basket-portfolio) | A coldkey's basket portfolio: beta tokens held per validator, with values. |
 | [`root-basket-total-nav`](/docs/query/root-basket-total-nav) | Network-wide total basket NAV across all validators, in TAO. |
 | [`root-baskets`](/docs/query/root-baskets) | Basket summaries for every validator with an active basket. |
 | [`root-claim-threshold`](/docs/query/root-claim-threshold) | The minimum TAO payout for a root dividend claim. |
@@ -140,7 +144,8 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`stake-for-coldkeys`](/docs/query/stake-for-coldkeys) | Every stake position for several coldkeys at once, in one runtime call. |
 | [`stake-value-for-coldkey`](/docs/query/stake-value-for-coldkey) | A coldkey's stake marked to TAO at spot prices (excludes slippage/fees), block-pinned. |
 | [`stake-value-for-coldkeys`](/docs/query/stake-value-for-coldkeys) | Spot-price stake valuation for several coldkeys at once, at one block. |
-| [`staking-hotkeys`](/docs/query/staking-hotkeys) | Every hotkey a coldkey has stake with, owned or nominated. |
+| [`staking-hotkeys`](/docs/query/staking-hotkeys) | Every hotkey associated with a coldkey's staking or root-basket state. |
+| [`total-alpha-staked`](/docs/query/total-alpha-staked) | Total alpha currently staked on a subnet, across all hotkeys (TAO when netuid is 0). |
 | [`validator-basket`](/docs/query/validator-basket) | A validator's basket holdings: per subnet, the alpha held and its TAO value. |
 | [`validator-basket-nav`](/docs/query/validator-basket-nav) | A validator's basket net asset value in TAO (realizable quote). |
 | [`validator-basket-summary`](/docs/query/validator-basket-summary) | Everything about one validator's basket, in a single call. |
@@ -161,6 +166,7 @@ Reads are free, unsigned, and safe to call at any time. Each CLI command is `btc
 | [`subnet-names`](/docs/query/subnet-names) | Registered name of every subnet that published an identity, keyed by netuid. |
 | [`subnet-registration-cost`](/docs/query/subnet-registration-cost) | Current cost to register a new subnet. |
 | [`subnet-start-schedule`](/docs/query/subnet-start-schedule) | When a registered subnet can call `start_call`. |
+| [`subnet-tao-flows`](/docs/query/subnet-tao-flows) | Per-subnet EMA of net TAO flow, in rao per block. |
 | [`subnets`](/docs/query/subnets) | Info for every subnet, fetched in four batched map queries rather than |
 | [`token-symbols`](/docs/query/token-symbols) | Chain-registered token symbol of every subnet, keyed by netuid. |
 

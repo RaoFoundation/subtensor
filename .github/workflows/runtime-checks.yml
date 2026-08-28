@@ -503,6 +503,7 @@ jobs:
           uv run pytest
           uv run python -m codegen.check --coverage
           uv run python -m codegen.check --names
+          uv run python scripts/export_beta_baselines_rs.py --check
 
   # Decide whether the clone regressions can fan out over the immutable
   # snapshot. Fresh-state diagnostics and a missing trusted snapshot retain

@@ -1,6 +1,6 @@
 // Node smoke test for the wasm binding, driven by the same golden fixtures
 // the Python SDK tests use. Build first:
-//   wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node
+//   wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node --no-opt
 // Then: node sdk/bittensor-core-wasm/tests/smoke.mjs
 
 import { readFileSync } from "node:fs";

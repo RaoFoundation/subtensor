@@ -1,14 +1,15 @@
-"""`btcli addresses`: local ss58 address book for named contacts."""
+"""`btcli addr`: local ss58 address book for named contacts."""
 
 from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
 from ... import config as cfg
+from ...extension import BridgeError, ensure_bridge, select_extension_account
 from ...settings import FINNEY_GENESIS_HASH
 from ...vault import VaultPageError, scan_vault_address
 from ...wallets import is_bittensor_address
@@ -21,17 +22,33 @@ app = typer.Typer(
     help="Save and reuse named ss58 addresses (for multisig signers, destinations, etc.).",
 )
 
+_CONTACT_SIGNERS = ("vault", "ledger", "extension")
 
-def _save(app_ctx: AppContext, name: str, ss58: str, note: str) -> None:
+
+def _save(
+    app_ctx: AppContext,
+    name: str,
+    ss58: str,
+    note: str,
+    *,
+    signer: Optional[str] = None,
+) -> None:
     if not is_bittensor_address(ss58):
         app_ctx.output.error(f"invalid ss58 address {ss58!r}")
         raise typer.Exit(1)
+    entry: dict[str, Any] = {"name": name, "address": ss58, "note": note}
+    if not signer:
+        previous = cfg.get_address_entry(name)
+        if previous:
+            signer = previous.get("signer")
+    if signer:
+        entry["signer"] = signer
     try:
-        entry = cfg.add_address({"name": name, "address": ss58, "note": note})
+        saved = cfg.add_address(entry)
     except ValueError as error:
         app_ctx.output.error(str(error))
         raise typer.Exit(1)
-    app_ctx.output.detail("saved address", {"entry": entry, "path": str(cfg.addresses_path())})
+    app_ctx.output.detail("saved address", {"entry": saved, "path": str(cfg.addresses_path())})
 
 
 def _parse_ss58(_app_ctx: AppContext, raw: str) -> str:
@@ -44,7 +61,9 @@ def _prompt_for_ss58(app_ctx: AppContext) -> str:
     """Ask for the ss58 interactively; error out in non-interactive sessions."""
     if not interactive(app_ctx):
         app_ctx.output.error(
-            "missing address", help="pass the ss58, or --vault to scan it from your phone"
+            "missing address",
+            help="pass the ss58, --vault to scan it from your phone, or "
+            "--extension to pick it from your browser extension",
         )
         raise typer.Exit(2)
     answers: dict = {}
@@ -62,6 +81,40 @@ def _prompt_for_ss58(app_ctx: AppContext) -> str:
         answers,
     )
     return answers["ss58"]
+
+
+def _pick_from_extension(app_ctx: AppContext) -> str:
+    """Pick an account from the browser extension bridge and return its ss58."""
+
+    async def _pick() -> str:
+        url = await ensure_bridge(
+            bridge_url=app_ctx.extension_bridge_url,
+            open_browser=not app_ctx.output.quiet and sys.stderr.isatty(),
+            browser=app_ctx._extension_browser_choice(),
+            fresh=True,
+            on_waiting=lambda http_url, _status: app_ctx.output.message(
+                f"waiting for extension authorization in browser… ({http_url})"
+            ),
+        )
+        selection = await select_extension_account(
+            url,
+            source=app_ctx.extension_source,
+            interactive=sys.stdin.isatty() and not app_ctx.output.json_mode,
+        )
+        account = selection.account
+        app_ctx.output.message(
+            f"picked extension account {account.name} ({account.address}, {account.source})"
+        )
+        return account.address
+
+    try:
+        return asyncio.run(_pick())
+    except BridgeError as error:
+        app_ctx.output.error(str(error))
+        raise typer.Exit(1)
+    except KeyboardInterrupt:
+        app_ctx.output.message("aborted.")
+        raise typer.Exit(130)
 
 
 def _scan_from_vault(app_ctx: AppContext) -> str:
@@ -94,30 +147,81 @@ def add_address(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Contact name to save."),
     ss58: Optional[str] = typer.Argument(
-        None, help="ss58 address for that name (omit with --vault)."
+        None,
+        help="ss58 address for that name (omit with --vault/--extension, or to "
+        "retag an existing contact).",
     ),
     from_vault: bool = typer.Option(
         False,
         "--vault",
         help="Scan the address from a Polkadot Vault phone via the webcam "
-        "(open the key in Vault so its QR is on screen).",
+        "(open the key in Vault so its QR is on screen). Tags the contact "
+        "as a vault signer so `--signatory NAME` infers `--signer vault`.",
+    ),
+    from_extension: bool = typer.Option(
+        False,
+        "--extension",
+        help="Pick the address from your browser extension (polkadot{.js}, "
+        "Talisman, ...) via the local bridge. Tags the contact as an "
+        "extension signer so `--signatory NAME` infers `--signer extension`.",
+    ),
+    signer: Optional[str] = typer.Option(
+        None,
+        "--signer",
+        help="How this contact signs when it is a multisig member: vault, "
+        "ledger, or extension. Implied by --vault / --extension. Lets "
+        "`--signatory NAME` pick the backend without extra flags.",
     ),
     note: str = typer.Option("", "--note", help="Optional note stored with the entry."),
 ):
-    """Save a named address: `btcli addresses add triumph-a 5FHne...`.
+    """Save a named address: `btcli addr add triumph-a 5FHne...`.
 
     With `--vault`, the address is scanned from your Polkadot Vault phone
-    instead of typed: `btcli addresses add my-vault --vault`.
+    instead of typed: `btcli addr add my-vault --vault`. With
+    `--extension`, it is picked from your browser extension via the local
+    bridge: `btcli addr add my-ext --extension`. Both also tag the
+    contact so a multisig co-sign is just `--signatory <name>` — and a bare
+    `-w <multisig>` run can plan the member's approval automatically.
+
+    To tag an existing contact without re-scanning: `btcli addr add
+    VAULT --signer vault`.
     """
     app_ctx = ctx_of(ctx)
-    if from_vault and ss58 is not None:
-        app_ctx.output.error("give either an ss58 address or --vault, not both")
+    if from_vault and from_extension:
+        app_ctx.output.error("give either --vault or --extension, not both")
+        raise typer.Exit(2)
+    if (from_vault or from_extension) and ss58 is not None:
+        app_ctx.output.error("give either an ss58 address or --vault/--extension, not both")
         raise typer.Exit(2)
     if from_vault:
+        if signer and signer.strip().lower() != "vault":
+            app_ctx.output.error("--vault implies --signer vault")
+            raise typer.Exit(2)
+        signer = "vault"
         ss58 = _scan_from_vault(app_ctx)
+    if from_extension:
+        if signer and signer.strip().lower() != "extension":
+            app_ctx.output.error("--extension implies --signer extension")
+            raise typer.Exit(2)
+        signer = "extension"
+        ss58 = _pick_from_extension(app_ctx)
+    if signer is not None:
+        signer = signer.strip().lower()
+        if signer not in _CONTACT_SIGNERS:
+            app_ctx.output.error(
+                f"unknown --signer {signer!r}",
+                help="pass vault, ledger, or extension",
+            )
+            raise typer.Exit(2)
     if ss58 is None:
-        ss58 = _prompt_for_ss58(app_ctx)
-    _save(app_ctx, name, ss58, note)
+        existing = cfg.get_address_entry(name)
+        if existing and signer:
+            ss58 = str(existing["address"])
+            if not note:
+                note = str(existing.get("note") or "")
+        else:
+            ss58 = _prompt_for_ss58(app_ctx)
+    _save(app_ctx, name, ss58, note, signer=signer)
 
 
 @app.command()
@@ -128,7 +232,7 @@ def save(
     ss58: str = typer.Argument(..., help="ss58 address for that name."),
     note: str = typer.Option("", "--note", help="Optional note stored with the entry."),
 ):
-    """Alias for `add`: `btcli addresses save triumph-a 5FHne...`."""
+    """Alias for `add`: `btcli addr save triumph-a 5FHne...`."""
     _save(ctx_of(ctx), name, ss58, note)
 
 

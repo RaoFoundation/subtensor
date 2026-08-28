@@ -16,7 +16,7 @@ as soon as the delay allows.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.start_call`](/code/pallets/subtensor/src/macros/dispatches.rs#L1562-L1567) |
+| `coldkey` | subnet owner | SubtensorModule | [`SubtensorModule.start_call`](/code/pallets/subtensor/src/macros/dispatches.rs#L1607-L1612) |
 
 ## Parameters
 
@@ -65,7 +65,7 @@ result = sub.execute_tool("start_call", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.start_call` — [`pallets/subtensor/src/macros/dispatches.rs#L1564`](/code/pallets/subtensor/src/macros/dispatches.rs#L1562-L1567):
+`SubtensorModule.start_call` — [`pallets/subtensor/src/macros/dispatches.rs#L1609`](/code/pallets/subtensor/src/macros/dispatches.rs#L1607-L1612):
 
 ```rust
 #[pallet::call_index(92)]
@@ -76,6 +76,6 @@ pub fn start_call(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
 }
 ```
 
-Delegates to [`do_start_call`](/code/pallets/subtensor/src/subnets/subnet.rs#L538).
+Delegates to [`do_start_call`](/code/pallets/subtensor/src/subnets/subnet.rs#L549).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

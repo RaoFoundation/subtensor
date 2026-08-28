@@ -11,52 +11,86 @@ import typer
 from ..._generated import storage
 from ...balance import Balance
 from ...intents import BurnedRegister, RegisterSubnet, RootRegister
-from ...settings import BLOCKTIME
+from ...settings import BLOCKTIME, guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
-from ..helpers import chain_identity_names, local_address_names
+from ..helpers import chain_identity_names, list_coldkeys, local_address_names
 from ..hyperparams_view import fetch_hyperparameters, show_hyperparameters
 from ..metagraph_view import show_metagraph
+from ..prompt import record_sdk_hint
 
-app = typer.Typer(no_args_is_help=True, help="Inspect subnets.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Inspect subnets.\n\nGuide: {guide_docs_url('subnets')}",
+)
 
 PANEL_INSPECT = "Inspect"
 PANEL_REGISTER = "Registration"
 
 _NETUID_HELP = "Numeric identifier of the subnet."
 
+# SubnetIdentitiesV3 field -> short label. ``subnet_name`` is the overview
+# ``name`` row, not repeated here.
+_IDENTITY_LINKS = (
+    ("github_repo", "github"),
+    ("subnet_url", "url"),
+    ("discord", "discord"),
+    ("subnet_contact", "contact"),
+    ("description", "description"),
+    ("logo_url", "logo"),
+    ("additional", "additional"),
+)
+
 
 @app.command("list", rich_help_panel=PANEL_INSPECT)
 @with_globals
 def list_subnets(ctx: typer.Context):
-    """List all subnets: name, spot alpha price, tempo, burn, and neuron slots."""
+    """List all subnets, highest emission first: name, spot alpha price,
+    emission, and burn. JSON records also carry tempo and neuron slots."""
     app_ctx: AppContext = ctx_of(ctx)
 
     async def _op(client):
-        infos, names, prices, max_uids = await asyncio.gather(
+        infos, names, prices, max_uids, emissions, tao_flows = await asyncio.gather(
             client.subnets.all(),
             client.read("subnet_names"),
             client.read("alpha_prices"),
             client.query_map(storage.SubtensorModule.MaxAllowedUids),
+            client.query_map(storage.SubtensorModule.SubnetTaoInEmission),
+            client.read("subnet_tao_flows"),
         )
-        return infos, names, prices, {int(k): int(v) for k, v in max_uids}
+        return (
+            infos,
+            names,
+            prices,
+            {int(k): int(v) for k, v in max_uids},
+            {int(k): int(v) for k, v in emissions},
+            tao_flows,
+        )
 
-    infos, names, prices, max_uids = app_ctx.run(_op)
+    infos, names, prices, max_uids, emissions, tao_flows = app_ctx.run(_op)
     app_ctx.output.update_subnet_names(names)
 
+    blocks_per_day = round(86400 / BLOCKTIME)
+    infos = sorted(infos, key=lambda i: (-emissions.get(i.netuid, 0), i.netuid))
     rows = []
     records = []
     for i in infos:
         price = prices.get(i.netuid)
         max_n = max_uids.get(i.netuid)
+        emission_per_day = Balance.from_rao(emissions.get(i.netuid, 0) * blocks_per_day).tao
+        flow = tao_flows.get(i.netuid)
+        flow_per_day = flow * blocks_per_day / 10**9 if flow is not None else None
         rows.append(
             {
                 "netuid": i.netuid,
-                # Root has no alpha pool; its "price" is identically 1 TAO.
+                # Root has no alpha pool; its "price" is identically 1 TAO
+                # and no TAO is injected into it.
                 "price": f"{price:.6f}" if i.netuid != 0 and price is not None else "—",
-                "tempo": i.tempo,
+                "emission": f"{emission_per_day:,.2f}" if i.netuid != 0 else "—",
+                "flow": f"{flow_per_day:+,.2f}"
+                if i.netuid != 0 and flow_per_day is not None
+                else "—",
                 "burn": i.burn,
-                "neurons": f"{i.neuron_count}/{max_n}" if max_n else i.neuron_count,
             }
         )
         records.append(
@@ -65,18 +99,40 @@ def list_subnets(ctx: typer.Context):
                 "name": names.get(i.netuid),
                 "symbol": app_ctx.output.unit(i.netuid),
                 "price_tao_per_alpha": price if i.netuid != 0 else None,
+                "emission_tao_per_day": emission_per_day if i.netuid != 0 else None,
+                "tao_flow_tao_per_day": flow_per_day if i.netuid != 0 else None,
                 "tempo": i.tempo,
                 "burn_tao": i.burn.tao,
                 "neurons": i.neuron_count,
                 "max_neurons": max_n,
+                "url": app_ctx.output.subnet_url(i.netuid),
             }
         )
     total_neurons = sum(i.neuron_count for i in infos)
-    footer = (
-        f"[dim]{len(infos)} subnets  ·  {total_neurons:,} neurons  ·  "
-        f"price is TAO per alpha (spot)[/dim]"
+    footer = f"[dim]{len(infos)} subnets  ·  {total_neurons:,} neurons  ·  sorted by emission[/dim]"
+    app_ctx.output.subnet_list(
+        "subnets",
+        rows,
+        records,
+        footer=footer,
+        legend=[
+            (
+                "netuid",
+                "clickable — opens the subnet's page on taomarketcap.com."
+                if app_ctx.output.hyperlinks
+                else "Cmd+double-click the URL to open the subnet's page.",
+            ),
+            ("price (τ)", "spot price of one alpha token in TAO (root has no alpha pool)."),
+            ("emission (τ/day)", "TAO injected into the subnet per day at the current rate."),
+            (
+                "flow (τ/day)",
+                "smoothed net TAO flow from staking: positive means TAO is "
+                "entering the subnet, negative means it is leaving.",
+            ),
+            ("burn", "TAO burned to register a neuron on the subnet right now."),
+            ("trailing", "the subnet's alpha token symbol."),
+        ],
     )
-    app_ctx.output.subnet_list("subnets", rows, records, footer=footer)
 
 
 @app.command(rich_help_panel=PANEL_INSPECT)
@@ -85,24 +141,103 @@ def show(
     ctx: typer.Context,
     netuid: int = typer.Argument(..., help=_NETUID_HELP),
 ):
-    """Show details for a single subnet."""
+    """Show one subnet: owner, registration, identity, tempo, burn, and neurons."""
     app_ctx: AppContext = ctx_of(ctx)
+    local_names = local_address_names(app_ctx.wallet_path)
+    for wallet_name, ss58 in list_coldkeys(app_ctx.wallet_path):
+        local_names.setdefault(ss58, wallet_name)
 
     async def _op(client):
-        if not await client.query(storage.SubtensorModule.NetworksAdded, [netuid]):
+        (
+            exists,
+            info,
+            identity,
+            owner,
+            owner_hotkey,
+            registered_at,
+            max_uids,
+            block,
+        ) = await asyncio.gather(
+            client.query(storage.SubtensorModule.NetworksAdded, [netuid]),
+            client.subnets.info(netuid),
+            client.read("subnet_identity", netuid=netuid),
+            client.query(storage.SubtensorModule.SubnetOwner, [netuid]),
+            client.query(storage.SubtensorModule.SubnetOwnerHotkey, [netuid]),
+            client.query(storage.SubtensorModule.NetworkRegisteredAt, [netuid]),
+            client.query(storage.SubtensorModule.MaxAllowedUids, [netuid]),
+            client.block(),
+        )
+        if not exists:
             return None
-        return await client.subnets.info(netuid)
+        return {
+            "info": info,
+            "identity": identity if isinstance(identity, dict) else None,
+            "owner": str(owner) if owner else None,
+            "owner_hotkey": str(owner_hotkey) if owner_hotkey else None,
+            "registered_at": int(registered_at or 0),
+            "max_uids": int(max_uids) if max_uids else None,
+            "block": int(block),
+        }
 
-    info = app_ctx.run(_op)
-    if info is None:
+    data = app_ctx.run(_op)
+    if data is None:
         app_ctx.output.error(f"subnet {netuid} does not exist")
         raise typer.Exit(1)
-    app_ctx.output.detail(
-        f"subnet {info.netuid}",
+
+    info = data["info"]
+    identity = data["identity"]
+    owner = data["owner"]
+    owner_hotkey = data["owner_hotkey"]
+    registered_at = data["registered_at"]
+    name = (identity or {}).get("subnet_name") or None
+    if name:
+        app_ctx.output.update_subnet_names({netuid: name})
+    if owner:
+        app_ctx.output.classify_address(owner, "coldkey")
+        if owner in local_names:
+            app_ctx.output.name_address(owner, local_names[owner])
+    if owner_hotkey:
+        app_ctx.output.classify_address(owner_hotkey, "hotkey")
+        if owner_hotkey in local_names:
+            app_ctx.output.name_address(owner_hotkey, local_names[owner_hotkey])
+
+    neurons = (
+        f"{info.neuron_count}/{data['max_uids']}" if data["max_uids"] else str(info.neuron_count)
+    )
+    overview: list[tuple[str, str, Optional[str]]] = []
+    if name:
+        overview.append(("name", name, None))
+    overview += [
+        ("owner", owner or "—", local_names.get(owner)),
+        ("owner hotkey", owner_hotkey or "—", local_names.get(owner_hotkey)),
+        ("registered", f"block {registered_at:,}", _registered_note(registered_at, data["block"])),
+        ("tempo", str(info.tempo), None),
+        ("burn", str(info.burn), None),
+        ("neurons", neurons, None),
+    ]
+    links = [
+        (label, str(identity[key]), None)
+        for key, label in _IDENTITY_LINKS
+        if identity and identity.get(key)
+    ]
+    app_ctx.output.kv_sections(
+        f"subnet {netuid}",
+        [
+            (None, overview),
+            ("identity", links),
+        ],
         {
+            "netuid": netuid,
+            "name": name,
+            "symbol": app_ctx.output.unit(netuid),
+            "owner_coldkey": owner,
+            "owner_hotkey": owner_hotkey,
+            "registered_at": registered_at,
             "tempo": info.tempo,
-            "burn": info.burn,
+            "burn_tao": info.burn.tao,
             "neurons": info.neuron_count,
+            "max_neurons": data["max_uids"],
+            "identity": identity,
         },
     )
 
@@ -122,6 +257,10 @@ def hyperparameters(
     app_ctx: AppContext = ctx_of(ctx)
     params = app_ctx.run(lambda c: fetch_hyperparameters(c, netuid))
     show_hyperparameters(app_ctx, netuid, params, name)
+
+
+# Hidden short alias, matching the hidden group aliases in main.py.
+app.command("hparams", hidden=True)(hyperparameters)
 
 
 @app.command("burn-cost", rich_help_panel=PANEL_REGISTER)
@@ -166,21 +305,38 @@ def subnet_price(
     """Show current spot alpha price for a subnet (TAO per alpha)."""
     app_ctx: AppContext = ctx_of(ctx)
     price = app_ctx.run(lambda c: c.read("alpha_price", netuid=netuid))
+    record_sdk_hint(f"sub.prices.alpha_price(netuid={netuid})")
     app_ctx.output.detail(None, price)
 
 
+def _registered_note(registered_at: int, block: int) -> Optional[str]:
+    """Age of a registration block, or None when the chain has not moved past it."""
+    if block <= registered_at:
+        return None
+    seconds = int((block - registered_at) * BLOCKTIME)
+    if seconds >= 365 * 86400:
+        return f"~{seconds / (365 * 86400):.1f}y ago"
+    if seconds >= 86400:
+        return f"~{seconds / 86400:.0f}d ago"
+    if seconds >= 3600:
+        return f"~{seconds / 3600:.0f}h ago"
+    if seconds >= 60:
+        return f"~{max(1, seconds // 60)}m ago"
+    return "just now"
+
+
 def _conviction_eta(blocks: Optional[int]) -> str:
-    """Human reading of a blocks-until-10%-threshold estimate."""
+    """Human reading of a blocks-until-18%-gate estimate for one hotkey."""
     if blocks is None:
-        return "won't reach 10%"
+        return "won't clear 18%"
     if blocks == 0:
-        return "10% reached"
+        return "above 18%"
     seconds = int(blocks * BLOCKTIME)
     if seconds >= 86400:
-        return f"10% in ~{seconds / 86400:.0f}d"
+        return f"18% in ~{seconds / 86400:.0f}d"
     if seconds >= 3600:
-        return f"10% in ~{seconds / 3600:.0f}h"
-    return f"10% in ~{max(1, seconds // 60)}m"
+        return f"18% in ~{seconds / 3600:.0f}h"
+    return f"18% in ~{max(1, seconds // 60)}m"
 
 
 @app.command("conviction", rich_help_panel=PANEL_INSPECT)
@@ -201,8 +357,9 @@ def subnet_conviction(
     """Show conviction for one hotkey, or every locked hotkey on a subnet.
 
     Without ``--hotkey``, lists each hotkey holding locked stake: its locked
-    alpha, conviction, and the estimated time until its conviction reaches 10%
-    of the subnet's outstanding alpha (the subnet-ownership threshold).
+    alpha, conviction, and the estimated time until its own conviction exceeds
+    18% of the subnet's eligible alpha — the single-hotkey gate that reassigns
+    subnet ownership.
     """
     app_ctx: AppContext = ctx_of(ctx)
     if hotkey_ss58:
@@ -242,7 +399,8 @@ def subnet_conviction(
         "threshold_alpha": threshold.amount,
         "total_locked_alpha": data["total_locked_alpha"].amount,
         "total_conviction_alpha": data["total_conviction_alpha"].amount,
-        "total_blocks_to_threshold": data["total_blocks_to_threshold"],
+        "leader_hotkey": data["leader_hotkey"],
+        "leader_blocks_to_threshold": data["leader_blocks_to_threshold"],
         "unlock_rate": data["unlock_rate"],
         "maturity_rate": data["maturity_rate"],
         "owner_hotkey": data["owner_hotkey"],
@@ -283,15 +441,21 @@ def subnet_conviction(
             "detail": f"{pct} · {_conviction_eta(entry['blocks_to_threshold'])}",
         }
 
-    total_pct = (
-        f"= {data['total_conviction_alpha'].rao / threshold.rao:.1%} of threshold · "
-        if threshold.rao
-        else ""
+    leader_hotkey = data["leader_hotkey"]
+    leader_label = (
+        hotkey_names.get(leader_hotkey) or identity_names.get(leader_hotkey, leader_hotkey)
+        if leader_hotkey
+        else None
+    )
+    leader_summary = (
+        f"leader {leader_label}: {_conviction_eta(data['leader_blocks_to_threshold'])}"
+        if leader_hotkey
+        else "no locks yet"
     )
     total = {
         "locked": str(data["total_locked_alpha"]),
         "conviction": str(data["total_conviction_alpha"]),
-        "summary": f"{total_pct}{_conviction_eta(data['total_blocks_to_threshold'])}",
+        "summary": f"context only — the gate is per-hotkey · {leader_summary}",
     }
 
     def _halflife(rate: int) -> str:
@@ -319,7 +483,8 @@ def subnet_conviction(
         (
             "takeover threshold",
             str(threshold),
-            "10% of alpha out — total conviction must reach this before ownership can change",
+            "18% of eligible alpha — one hotkey's own conviction must exceed this "
+            "before ownership can change",
         ),
         (
             "unlock rate",
@@ -341,22 +506,10 @@ def subnet_conviction(
     ]
 
     explanation = [
-        f"Anyone can lock alpha to a hotkey with `btcli lock add --netuid {netuid} "
-        "--amount <alpha>`. Locked alpha cannot be unstaked, and it earns conviction: "
-        "a score that grows toward the locked amount at the maturity rate. A default "
-        "(decaying) lock also unlocks itself at the unlock rate, so its conviction "
-        f"rises and then fades away; a perpetual lock (`btcli lock mode --netuid {netuid} "
-        "--perpetual`) keeps the full amount locked forever and its conviction keeps "
-        "climbing toward 100% of it.",
-        "Once the subnet is a year old and the total conviction of all locks reaches "
-        "the takeover threshold (10% of alpha out), the hotkey with the most conviction "
-        "becomes the subnet owner hotkey and its owning coldkey takes over the subnet. "
-        "The sitting owner's own lock always counts conviction equal to its full locked "
-        "mass, so an owner defends by keeping more alpha locked than any challenger "
-        "can mature.",
-        "The times shown are estimates from current locks: they assume the rates and "
-        "alpha out stay constant, while emissions actually keep increasing alpha out "
-        "and push the threshold up over time.",
+        f"Lock alpha to a hotkey with `btcli conviction add --netuid {netuid} --amount "
+        "<alpha>` to earn conviction — the score that gates subnet ownership. The "
+        "times shown are estimates that assume the rates and alpha accounting stay "
+        f"constant. Full mechanics: {guide_docs_url('conviction')}",
     ]
 
     app_ctx.output.conviction_list(
@@ -389,7 +542,8 @@ def register_subnet(
     coldkey for a neuron slot (UID). When the subnet's collateral lock
     share is zero the full cost is burned/recycled; when it is positive,
     that share is staked and locked as miner collateral (released only
-    through earned emission). Check the current cost with
+    through earned emission). The confirm prompt shows the current burn
+    and lock split. Check the current cost with
     `btcli subnets burn-cost`.
 
     Netuid 0 registers on the root network: the cost is fully recycled, no
@@ -412,7 +566,7 @@ def create_subnet(ctx: typer.Context):
     Creates a new subnet owned by the wallet coldkey, charging the current
     subnet registration cost in TAO (see `btcli subnets create-cost`).
     The subnet does not emit until its owner activates it with
-    `btcli sudo start`.
+    `btcli hparams start`.
     """
     app_ctx: AppContext = ctx_of(ctx)
     app_ctx.submit(RegisterSubnet())

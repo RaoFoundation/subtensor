@@ -2,11 +2,13 @@
 //! attribution.
 
 use crate::tests::claim_root::{
-    escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, root_stake_of,
+    escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, register_on_root, root_stake_of,
     set_root_weights_direct, zero_claim_threshold,
 };
 use crate::tests::mock::*;
-use crate::{BasketClaimed, DefaultMinStake, Error, StakingHotkeys, SubnetAlphaIn, SubnetTAO};
+use crate::{
+    BasketClaimed, DefaultMinStake, Error, StakingHotkeys, SubnetAlphaIn, SubnetTAO, TotalStake,
+};
 use approx::assert_abs_diff_eq;
 use frame_support::traits::Get;
 use frame_support::{assert_noop, assert_ok};
@@ -38,6 +40,7 @@ fn setup_stake_in_env() -> (U256, U256, NetUid) {
     fund_pool(netuid);
     SubtensorModule::set_tao_weight(u64::MAX);
     zero_claim_threshold();
+    register_on_root(&hotkey, 0);
     (owner_coldkey, hotkey, netuid)
 }
 
@@ -221,8 +224,197 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
     });
 }
 
-/// Input validation: nonexistent hotkey, dust amounts, insufficient balance, and a weight
-/// vector that filters to nothing are all rejected before any state changes.
+/// Regression: a direct depositor cannot capture the concavity premium from selling a
+/// proportional alpha slice. Shares are minted against full-liquidation NAV, so the claim
+/// pays that same NAV-priced fraction and retains any larger raw sale proceeds as fund cash.
+/// The remaining holder therefore keeps their pre-claim marked value.
+#[test]
+fn test_stake_into_basket_claim_retains_concavity_surplus_for_existing_holders() {
+    new_test_ext(1).execute_with(|| {
+        let (_owner, hotkey, netuid) = setup_stake_in_env();
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+
+        // Make the pool deliberately thin so the old raw-alpha-fraction redemption
+        // overpayment is large and this test is sensitive to the exploit.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(100_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(100_000_000u64));
+
+        let alice = U256::from(2001);
+        let bob = U256::from(2002);
+        let alice_deposit = 50_000_000u64;
+        let bob_deposit = 10_000_000u64;
+        add_balance_to_coldkey_account(&alice, TaoBalance::from(2 * alice_deposit));
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * bob_deposit));
+
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            alice,
+            hotkey,
+            alice_deposit.into(),
+        ));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
+            hotkey,
+            bob_deposit.into(),
+        ));
+
+        let alice_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        let bob_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
+        let bob_shares = SubtensorModule::get_basket_owed_shares(&hotkey, &bob);
+        let shares_total = fund_shares(&hotkey);
+        let holding = escrow_alpha(&hotkey, netuid);
+        let raw_take = SubtensorModule::mul_div_u64(holding, bob_shares, shares_total);
+        let uncapped_raw_sale = SubtensorModule::realizable_tao_for_alpha(netuid, raw_take);
+
+        assert!(
+            uncapped_raw_sale > bob_payout_before,
+            "test setup must expose the concavity premium: raw={uncapped_raw_sale}, nav-priced={bob_payout_before}"
+        );
+        assert_eq!(
+            SubtensorModule::get_basket_subnet_payout_tao(&hotkey, &bob, netuid),
+            bob_payout_before,
+            "subnet payout view must quote the same NAV-priced entitlement as claim"
+        );
+
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
+
+        let bob_received = root_stake_of(&hotkey, &bob);
+        assert!(
+            bob_received <= bob_payout_before,
+            "claim paid more than the depositor's NAV-priced entitlement: {bob_received} > {bob_payout_before}"
+        );
+
+        let alice_payout_after = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        assert!(
+            alice_payout_after.saturating_add(ROUNDING_EPS) >= alice_payout_before,
+            "earlier holder lost value across the deposit/claim cycle: before={alice_payout_before}, after={alice_payout_after}",
+        );
+    });
+}
+
+/// Regression for interleaved accounting after a concavity-capped claim: the retained sale
+/// surplus becomes root cash, the first claimant's newly received root stake earns only a
+/// subsequent dividend, and both the old and newly accrued shares can then drain the fund
+/// without stranding cash or changing TotalStake.
+#[test]
+fn test_retained_concavity_cash_balances_with_new_root_entitlement() {
+    new_test_ext(1).execute_with(|| {
+        let (owner, hotkey, netuid) = setup_stake_in_env();
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+
+        // A thin pool makes Bob's partial alpha sale realize a measurable concavity surplus.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(100_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(100_000_000u64));
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &owner,
+            netuid,
+            10_000_000u64.into(),
+        );
+
+        let alice = U256::from(2001);
+        let bob = U256::from(2002);
+        let alice_deposit = 50_000_000u64;
+        let bob_deposit = 10_000_000u64;
+        add_balance_to_coldkey_account(&alice, TaoBalance::from(2 * alice_deposit));
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * bob_deposit));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            alice,
+            hotkey,
+            alice_deposit.into(),
+        ));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            bob,
+            hotkey,
+            bob_deposit.into(),
+        ));
+
+        // From this point onward claims and dividend deployment only move existing stake.
+        let total_stake_before_claims = TotalStake::<Test>::get();
+        let bob_first_quote = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
+        let bob_root_before = root_stake_of(&hotkey, &bob);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
+        let bob_first_gain = root_stake_of(&hotkey, &bob).saturating_sub(bob_root_before);
+        assert!(bob_first_gain <= bob_first_quote);
+        assert_eq!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &bob),
+            0,
+            "claim payout must not retroactively recreate Bob's consumed entitlement"
+        );
+
+        let retained_root = escrow_alpha(&hotkey, NetUid::ROOT);
+        assert!(
+            retained_root > 0,
+            "partial claim must retain a measurable concavity surplus as root cash"
+        );
+        let alice_before_dividend = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+
+        // Bob's claimed root stake now legitimately earns a new dividend. The retained escrow
+        // root slot earns its own fraction unminted, so Alice's pre-existing shares are not
+        // diluted when Bob receives the newly minted entitlement.
+        SubtensorModule::distribute_emission(
+            netuid,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            5_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+        flush_baskets();
+
+        assert!(
+            SubtensorModule::get_basket_owed_shares(&hotkey, &bob) > 0,
+            "Bob's root stake must earn shares from the later dividend"
+        );
+        let alice_after_dividend = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        assert!(
+            alice_after_dividend.saturating_add(ROUNDING_EPS) >= alice_before_dividend,
+            "newly minted root entitlement diluted the retained cash belonging to Alice"
+        );
+        assert_shares_fully_owed(&hotkey, &[alice, bob], ROUNDING_EPS);
+
+        let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        let owed_value = alice_after_dividend
+            .saturating_add(SubtensorModule::get_basket_payout_tao(&hotkey, &bob));
+        assert_abs_diff_eq!(owed_value, nav, epsilon = ROUNDING_EPS);
+
+        // Alice redeems the old position, then Bob redeems his later-earned shares as the final
+        // holder. The latter must receive all remaining alpha and retained root cash.
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
+
+        assert!(
+            escrow_alpha(&hotkey, netuid) <= 10,
+            "subnet holding remained after the final claim"
+        );
+        assert!(
+            escrow_alpha(&hotkey, NetUid::ROOT) <= 10,
+            "retained root cash remained after the final claim"
+        );
+        assert!(
+            fund_shares(&hotkey) <= 10,
+            "shares remained after final claim"
+        );
+        assert_eq!(
+            TotalStake::<Test>::get(),
+            total_stake_before_claims,
+            "claim/dividend interleaving changed TotalStake"
+        );
+    });
+}
+
+/// Input validation: nonexistent hotkey, a hotkey that exists but is not on root,
+/// dust amounts, and insufficient balance are rejected before any state changes.
 #[test]
 fn test_stake_into_basket_rejections() {
     new_test_ext(1).execute_with(|| {
@@ -235,6 +427,15 @@ fn test_stake_into_basket_rejections() {
         assert_noop!(
             SubtensorModule::do_stake_into_basket(bob, U256::from(777), 10_000_000u64.into(),),
             Error::<Test>::HotKeyAccountNotExists
+        );
+
+        // Hotkey exists (another subnet owner) but is not registered on root.
+        let other_owner = U256::from(3001);
+        let other_hotkey = U256::from(3002);
+        add_dynamic_network(&other_hotkey, &other_owner);
+        assert_noop!(
+            SubtensorModule::do_stake_into_basket(bob, other_hotkey, 10_000_000u64.into(),),
+            Error::<Test>::HotKeyNotRegisteredInSubNet
         );
 
         // Below the minimum stake.

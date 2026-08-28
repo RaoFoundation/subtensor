@@ -513,14 +513,17 @@ if not result.success:
 The v11 package ships against a runtime that also changed behavior. These are
 not rename mappings — scripts that still "work" can fail or mis-account after
 the upgrade. See the release notes for
-[V431](/releases/v431-upgrade) and [V445](/releases/v445-upgrade).
+[V431](/releases/v431-upgrade), [V445](/releases/v445-upgrade), and
+[V446](/releases/v446-upgrade), plus the [V448 upgrade](/releases/v448-upgrade).
 
 ### Ownership and emissions
 
 - **Subnet ownership.** For subnets at least one year old, ownership transfers
-  to the highest-conviction hotkey when total conviction reaches 10% of
-  `SubnetAlphaOut`. Existing conviction counts toward this threshold. See
-  [Conviction](/docs/guides/conviction).
+  to the highest-conviction hotkey when that hotkey's own conviction exceeds
+  18% of eligible alpha: `SubnetAlphaOut - SubnetProtocolAlpha - AlphaBurned`,
+  with saturating subtraction. A zero eligible balance cannot trigger a
+  transfer. Only conviction locked to the winning hotkey counts toward its
+  threshold. See [Conviction](/docs/guides/conviction).
 - **Cross-subnet emissions.** Allocation continues to use each subnet's EMA
   price scaled by `1 − MinerBurned`, followed by the emission gate.
   [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L74-L84)
@@ -539,16 +542,21 @@ the upgrade. See the release notes for
   `root_dissolve_network`. Owner proxies are limited to owner-settable subnet
   configuration and identity calls (not owner-key rotation).
 - **Reject locked alpha.** Coldkeys that should accept locked-alpha transfers
-  must opt in with `set_reject_locked_alpha` (raw call / `submit_call` —
-  no first-class intent yet). Default is to reject.
+  must opt in with `btcli conviction accept --allow` (the
+  `set_reject_locked_alpha` call, also available as the
+  `SetRejectLockedAlpha` intent). Default is to reject.
 
 ### Staking and fees
 
-- **Default slippage protection.** `AddStake`, `RemoveStake`, and `SwapStake`
-  (and the matching CLI commands) apply a 5% price bound by default. Old
-  any-price scripts fail with [`SlippageTooHigh`](/code/pallets/subtensor/src/macros/errors.rs#L192) unless you pass
+- **Default slippage protection.** `AddStake`, `RemoveStake`, `SwapStake`,
+  and cross-subnet `MoveStake` / `MoveSwapStake` (and the matching CLI
+  commands) apply a 5% price bound by default. Old any-price scripts fail
+  with [`SlippageTooHigh`](/code/pallets/subtensor/src/macros/errors.rs#L192) unless you pass
   `slippage_protection=False` / `--no-slippage-protection`, or set an explicit
-  `rate_tolerance` / limit price.
+  `rate_tolerance` / limit price. Runtime v448 adds `move_stake_limit` for a
+  single protected hotkey-and-subnet move. Its relative limit is the minimum
+  acceptable destination-alpha per origin-alpha ratio. The SDK and btcli use
+  fill-or-kill; direct runtime, EVM, and WASM callers can set `allow_partial`.
 - **Strict stake moves.** `move_stake` / `transfer_stake` / `swap_stake` no
   longer silently cap the alpha amount to what remains after an alpha-paid
   fee. Submitting the full stake balance can fail with
@@ -599,9 +607,20 @@ the upgrade. See the release notes for
   `btcli sudo set --name activity_cutoff_factor|tempo`.
 - **Hyperparams read API.** Prefer `get_subnet_hyperparams_v3` (name→value);
   v1/v2 are deprecated. The SDK read already uses v3.
+- **Liquid Alpha consensus mode.** `LiquidAlphaConsensusMode` selects current,
+  previous, or automatic consensus for the bonds EMA. `Auto` is the default:
+  it selects previous consensus only when `bonds_penalty == u16::MAX`. Set it
+  with the raw owner/root call
+  `AdminUtils.sudo_set_liquid_alpha_consensus_mode`; owner calls are limited to
+  the admin window and normal per-hyperparameter rate limit.
 - **Drand submissions.** After the initial pulse, only `last_stored_round + 1`
   is accepted. Missing rounds must be backfilled sequentially or commit-reveal
   / timelock consumers stall.
+- **Terminal timelock failures.** A reveal that cannot succeed is retained in
+  `CommitmentOf` as `TimelockRevealFailed`, emits `CommitmentRevealFailed`
+  once, and is removed from the retry index. Indexers should distinguish this
+  terminal audit state from a `TimelockEncrypted` field still waiting for its
+  pulse.
 
 ### Runtime API, metadata, and catalogs
 
@@ -664,7 +683,8 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `wallet list` / `create` / `new-coldkey` / `new-hotkey` / `regen-*` | same names under `wallet` |
 | `wallet balance [--all]` | `wallet balance [--all]` or `btcli query balance --coldkey NAME --json` |
 | `wallet transfer --dest --amount` | `wallet transfer --dest --amount` or `btcli tx transfer --dest --amount-tao` |
-| `wallet overview` / `inspect` / `sign` / `verify` / `encrypt` / `decrypt` | same names |
+| `wallet overview` | `wallet overview` (stake portfolio) and `wallet registrations` (every hotkey UID, including zero stake) |
+| `wallet inspect` / `sign` / `verify` / `encrypt` / `decrypt` | same names |
 | `wallet swap-hotkey DEST` | `wallet swap-hotkey --new-hotkey ...` / `tx swap-hotkey` |
 | `wallet swap-coldkey announce/execute/...` | `wallet announce-coldkey-swap`, `wallet swap-coldkey`, `wallet swap-check`, `tx dispute-coldkey-swap`, `tx clear-coldkey-swap-announcement` |
 | `wallet set-identity` / `get-identity` / `associate-hotkey` | same names |
@@ -672,7 +692,8 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `stake add --amount` | `stake add` / `tx add-stake --amount-tao` |
 | `stake remove --amount` | `stake remove` / `tx remove-stake --amount-alpha` (accepts `all`) |
 | `stake remove --all` | `tx unstake-all` / `tx unstake-all-alpha` |
-| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; `--include-hotkeys`/`--exclude-hotkeys`/`--all-hotkeys` batching is gone — loop in your script) |
+| `stake remove --all --all-hotkeys` | `stake unstake-all --all-hotkeys` |
+| `stake list` / `move` / `transfer` / `swap` | same names (single hotkey per call; multi-hotkey selectors remain unavailable for these operations) |
 | `stake auto` / `set-auto` | same names |
 | `stake set-claim` / `process-claim` | `btcli root claim` / `btcli tx claim-root-with-hotkey --hotkey ...` (per-validator; `claim_root(subnets)` kept for old clients — see [Root Reborn](/docs/guides/root-reborn)) |
 | `stake child get/set/revoke/take` | same names (`child set` takes `--children` as JSON pairs) |
@@ -698,6 +719,18 @@ with exit code 1** instead of hanging; missing required options exit 2.
 | `deriv quote/positions/market/open/topup/close` | **removed** — chain feature not available on current runtime |
 | any other chain read | `btcli query <name>` — `btcli query --help` lists all of them |
 | any other mutation | `btcli tx <name>` — `btcli tx --help`, or `btcli call Pallet.function --args '{...}'` for raw extrinsics |
+
+Spec 448 shipped two `btcli root` names that no longer exist. Do not keep
+them as aliases: the later spellings do different work.
+
+| Spec 448 command | Current command |
+| --- | --- |
+| `root subscribe --hotkey X --amount N` (added root stake) | `stake add --netuid 0 --hotkey X --amount N` |
+| `root show --hotkey X` (one fund in detail) | `root list X` |
+| `root show` with no args (pick from your positions) | `root list --mine`, then `root list X` |
+
+Buying basket shares (β) is `root allocate`, not `subscribe`. The
+network-wide fund leaderboard is bare `root list`.
 
 Two new commands help automated migration directly: `btcli tools` dumps the
 full transaction catalog with JSON schemas, and `btcli explain <code>`

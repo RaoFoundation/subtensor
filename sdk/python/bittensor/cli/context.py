@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
+import json
 import sys
 from dataclasses import dataclass, field, replace
+from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
 from typing import Awaitable, Callable, Optional, TypeVar
 
@@ -19,10 +22,16 @@ import typer
 
 from .. import config as cfg
 from .. import wallets
-from .._generated import calls as generated_calls
 from .._generated import runtime_apis, storage
+from ..balance import Balance
 from ..client import Client
 from ..extension.client import BridgeError
+from ..intents.registration import (
+    ClaimRootWithHotkey,
+    _registration_split_suffix,
+    neuron_registration_split,
+)
+from ..intents.staking import _root_claimable_rao
 from ..ledger import LedgerError, LedgerSigner
 from ..result import (
     REMEDIATION,
@@ -36,23 +45,12 @@ from ..result import (
 )
 from ..settings import error_docs_url
 from ..signing import public_view
-from ..sp_core import ss58_decode
 from ..vault import VaultSigner
 from ..wallets import is_bittensor_address
 from . import multisig_helpers as ms_helpers
 from .output import STYLE_WARNING, Output
 
 T = TypeVar("T")
-
-
-class _FeeAddressView:
-    """Public-only keypair shape for ``estimate_fee`` (zeroed signature)."""
-
-    crypto_type = 1  # sr25519
-
-    def __init__(self, address: str):
-        self.ss58_address = address
-        self.public_key = bytes(ss58_decode(address))
 
 
 def address_cli_name(param: str) -> str:
@@ -72,9 +70,53 @@ def ss58_param_help(param: str) -> str:
         text = (
             f"ss58 address, {book}saved multisig name, or a local wallet name (uses its coldkey)."
         )
-        if param == "coldkey_ss58":
+        if param in ("dest_ss58", "dest_coldkey_ss58"):
+            text = (
+                "Destination account (a coldkey, not a hotkey): ss58 address, "
+                f"{book}saved multisig name, or a local wallet name. "
+                "Omit this flag on a terminal to pick from the address book."
+            )
+        elif param == "coldkey_ss58":
             text += " Defaults to your wallet's coldkey."
     return text
+
+
+# Short context-stage titles for the ops users see most. Everything else
+# becomes the op name with underscores as spaces ("set children").
+_REVIEW_TITLES = {
+    "claim_root": "Claim",
+    "claim_root_with_hotkey": "Claim",
+    "stake_into_basket": "Allocate",
+    "add_stake": "Stake",
+    "add_stake_limit": "Stake",
+    "remove_stake": "Unstake",
+    "remove_stake_limit": "Unstake",
+    "unstake_all": "Unstake",
+    "unstake_all_alpha": "Unstake",
+    "transfer": "Transfer",
+    "transfer_all": "Transfer",
+    "swap_stake": "Swap",
+    "move_stake": "Move",
+    "move_swap_stake": "Move",
+    "transfer_stake": "Transfer stake",
+    "root_register": "Register",
+    "burned_register": "Register",
+    "register_subnet": "Register",
+    "set_root_weights": "Weights",
+    "set_weights": "Weights",
+    "commit_weights": "Weights",
+    "reveal_weights": "Weights",
+    "stake_burn": "Burn",
+    "fund_evm_key": "Fund",
+    "associate_evm_key": "Associate",
+}
+
+
+def _review_title(op: str) -> str:
+    """Context-stage heading for an intent op."""
+    if op in _REVIEW_TITLES:
+        return _REVIEW_TITLES[op]
+    return op.replace("_", " ").capitalize()
 
 
 @dataclass(frozen=True)
@@ -99,6 +141,11 @@ class AppContext:
     # falls through to the persistent `mev_shield` config value, then to the
     # intent's own default (stake-trading intents shield, the rest don't).
     mev_shield: Optional[bool] = None
+    # Global --proxy-for / --force-proxy-type (tx-tier). None falls through to
+    # the persistent `proxy_for` config value, then to a direct signature.
+    # The sentinel ``self`` bypasses that default.
+    proxy_for: Optional[str] = None
+    force_proxy_type: Optional[str] = None
     # Whether --wallet/-w (or BT_WALLET) was passed explicitly, as opposed to
     # wallet_name being the config/built-in default. Wallet-scoped commands use
     # this to decide whether the target wallet still needs confirming.
@@ -110,6 +157,27 @@ class AppContext:
     # multisig book name lives here while ``wallet_name`` is the local member
     # coldkey that actually signs.
     multisig_wallet_name: Optional[str] = None
+    # ``--signatory``: which member wallet signs when ``-w`` names a saved
+    # multisig (replaces the interactive member picker).
+    signatory_wallet: Optional[str] = None
+    # Every --signatory value in order. More than one chains sequential
+    # approvals — one full submission per member — in a single invocation.
+    signatory_wallets: list = field(default_factory=list)
+    # True while the multi-approval driver is iterating, so the per-round
+    # ``submit`` calls take the ordinary single-signer path.
+    _multisig_rounds_active: bool = False
+    # Round 1's inner call bytes (0x-hex SCALE). Later rounds approve exactly
+    # these bytes instead of rebuilding the semantic call, because a rebuild
+    # is not always byte-stable (e.g. timelock-encrypted weight commits) and
+    # a drifted hash would open a second operation instead of approving the
+    # first.
+    _rounds_call_data: Optional[str] = None
+    # Position (0-based) and total of the current chained-approval round;
+    # None outside a chained run. Intermediate rounds render one line instead
+    # of the full receipt — the receipt and co-signer followup print once,
+    # after the final round.
+    _rounds_index: Optional[int] = None
+    _rounds_total: Optional[int] = None
     # Diagnostic log verbosity (-v count); kept so per-command --quiet/--verbose
     # overrides can reconfigure logging without losing the root-level setting.
     verbosity: int = 0
@@ -141,6 +209,14 @@ class AppContext:
         self._extension_selection = None
         self._extension_bridge_ws_url = None
 
+    def rounds_intermediate(self) -> bool:
+        """True while a chained-approval round other than the last is submitting."""
+        return (
+            self._rounds_index is not None
+            and self._rounds_total is not None
+            and self._rounds_index < self._rounds_total - 1
+        )
+
     def wallet(self):
         """Open the configured wallet handle (no key unlock; that happens on signing)."""
         return wallets.open_wallet(self.wallet_name, self.hotkey_name, self.wallet_path)
@@ -160,6 +236,89 @@ class AppContext:
         addressing don't apply."""
         return self.uses_extension_signer() or self.uses_ledger_signer() or self.uses_vault_signer()
 
+    def resolve_dispatch_proxy(self, explicit: Optional[str] = None) -> Optional[str]:
+        """Resolve the Proxy.proxy target for this submission.
+
+        Order: the ``explicit`` argument (or ``--proxy-for``), then the
+        persistent ``proxy_for`` config. The sentinel ``self`` signs directly
+        and skips the config default.
+        """
+        raw = self.proxy_for if explicit is None else explicit
+        if raw == "self":
+            return None
+        if raw is None:
+            configured = cfg.get("proxy_for")
+            if not configured:
+                return None
+            self.output.message(
+                f"[dim]dispatching via configured proxy_for {configured!r} "
+                "— pass `--proxy-for self` to sign directly[/dim]"
+            )
+            return self.resolve_address("proxy_for", str(configured))
+        return self.resolve_address("proxy_for", raw)
+
+    def resolve_mev_shield(
+        self,
+        *,
+        default: bool = False,
+        required: bool = False,
+        op: str = "this call",
+    ) -> tuple[bool, bool]:
+        """Resolve whether this submission is MEV-shielded.
+
+        Order: required intents cannot opt out; then ``--mev-shield`` /
+        ``--no-mev-shield``; then ``btcli config set mev_shield``; then
+        ``default`` (True for stake add/remove/move/transfer and other
+        pool-trading ops). Returns ``(shield, forced)``. ``forced`` is True
+        when the user or a required intent demanded shielding — those paths
+        fail instead of falling back to clear submission.
+        """
+        configured = cfg.get("mev_shield")
+        if required:
+            if self.mev_shield is False or configured is False:
+                self.output.error(
+                    f"{op} must be submitted MEV-shielded",
+                    help=(
+                        "collateral / burned-registration AMM fills cannot run "
+                        "unshielded; omit --no-mev-shield"
+                    ),
+                )
+                raise typer.Exit(2)
+            return True, True
+        if self.mev_shield is not None:
+            return bool(self.mev_shield), bool(self.mev_shield)
+        if configured is not None:
+            return bool(configured), bool(configured)
+        return bool(default), False
+
+    async def _prepare_two_stage_signer(self, signer) -> None:
+        """Tell the user a shielded submit needs two approvals (~90 seconds).
+
+        The executor sets ``two_stage`` and calls Vault ``warm_up`` as a
+        fallback. Warming Vault here too starts the camera before compose,
+        so the 8-block era does not begin while the page is still opening.
+        """
+        if self.uses_vault_signer():
+            self.output.message(
+                "MEV-shielded vault signing: two scans, ~90 seconds total — "
+                "have the phone unlocked with Vault's scanner open"
+            )
+            warm_up = getattr(signer, "warm_up", None)
+            if callable(warm_up):
+                await warm_up()
+            return
+        if self.uses_extension_signer():
+            self.output.message(
+                "MEV-shielded extension signing: two approvals, ~90 seconds total — "
+                "have the extension unlocked"
+            )
+            return
+        if self.uses_ledger_signer():
+            self.output.message(
+                "MEV-shielded Ledger signing: two approvals on the device, "
+                "~90 seconds total — keep the Polkadot app open"
+            )
+
     def ledger_signer(self):
         """Connect to the Ledger (once per invocation) and return the signer.
 
@@ -168,6 +327,14 @@ class AppContext:
         """
         if self._ledger_signer is None:
             signer = LedgerSigner(account=self.ledger_account, index=self.ledger_index)
+            expected = self.external_signer_address()
+            if expected and signer.ss58_address != expected:
+                self.output.error(
+                    f"Ledger derived {signer.ss58_address} but this approval needs {expected}",
+                    help="pass --ledger-account / --ledger-index for that member, "
+                    "or approve in a separate invocation",
+                )
+                raise typer.Exit(2)
             if not self.output.quiet and not self.output.json_mode:
                 self.output.message(
                     f"using ledger account {signer.ss58_address} "
@@ -176,31 +343,75 @@ class AppContext:
             self._ledger_signer = signer
         return self._ledger_signer
 
+    def _resolve_signer_account_ref(self, ref: str) -> Optional[str]:
+        """Resolve a signer identity to ss58: raw address, address-book name, or wallet."""
+        if is_bittensor_address(ref):
+            return str(ref)
+        booked = cfg.get_address(ref)
+        if booked:
+            return booked
+        try:
+            return wallets.open_wallet(name=ref, path=self.wallet_path).coldkeypub.ss58_address
+        except Exception:
+            return None
+
+    def external_signer_address(self) -> Optional[str]:
+        """The account the external backend signs with, without device/browser I/O.
+
+        Resolution order: ``--signer-address`` (raw ss58 or an address-book
+        name), ``--signatory`` when ``-w`` is a saved multisig (the member
+        name *is* the signing account), the persisted ``signer_address``
+        config value, then — for the vault backend — the configured wallet's
+        coldkeypub (a pubkey-only wallet is the natural companion to a
+        Vault-held key). Returns None when no external backend is active or
+        nothing resolves; extension account picking and Ledger derivation
+        happen later, at signing time.
+        """
+        if not self.uses_external_signer():
+            return None
+        # An explicit --signer-address that does not resolve must not fall
+        # through to --signatory or config: that would hide a typo.
+        if self.signer_address:
+            return self._resolve_signer_account_ref(self.signer_address)
+        if self.signatory_wallet:
+            address = self._resolve_signer_account_ref(self.signatory_wallet)
+            if address:
+                return address
+        configured = cfg.get("signer_address")
+        if configured:
+            address = self._resolve_signer_account_ref(str(configured))
+            if address:
+                return address
+        if self.uses_vault_signer():
+            try:
+                return self.wallet().coldkeypub.ss58_address
+            except Exception:
+                return None
+        return None
+
     def vault_signer(self) -> VaultSigner:
         """The Polkadot Vault (QR) signer for this invocation (built once).
 
-        The signing address is ``--signer-address`` (raw ss58 or an
-        address-book name), else the persisted ``signer_address`` config
-        value, falling back to the configured wallet's coldkeypub — a
-        pubkey-only wallet is the natural companion to a Vault-held key.
+        The signing address comes from :meth:`external_signer_address`.
         Nothing opens until the transport actually asks for a signature.
         """
         if self._vault_signer is None:
-            address = self.signer_address or cfg.get("signer_address")
-            if address and not is_bittensor_address(address):
-                address = cfg.get_address(address) or address
+            address = self.external_signer_address()
             if not address:
-                try:
-                    address = self.wallet().coldkeypub.ss58_address
-                except Exception:
+                raw = self.signer_address or self.signatory_wallet or cfg.get("signer_address")
+                if raw:
                     self.output.error(
-                        "the vault signer needs an account address",
-                        help="pass --signer-address <ss58>, or configure a wallet whose "
+                        f"{raw!r} is not a valid ss58 address or known address-book name",
+                        help="pass --signatory <member> (when -w is a multisig), "
+                        "--signer-address <ss58 or name>, or a wallet whose "
                         "coldkeypub matches the key held in Polkadot Vault",
                     )
-                    raise typer.Exit(2)
-            if not is_bittensor_address(address):
-                self.output.error(f"--signer-address {address!r} is not a valid ss58 address")
+                else:
+                    self.output.error(
+                        "the vault signer needs an account address",
+                        help="pass --signatory <member> when -w is a multisig, "
+                        "or --signer-address <ss58 or name>",
+                    )
                 raise typer.Exit(2)
             signer = VaultSigner(
                 address,
@@ -211,7 +422,7 @@ class AppContext:
                 on_status=self.output.message,
             )
             if not self.output.quiet and not self.output.json_mode:
-                self.output.message(f"using Polkadot Vault account {address}")
+                self.output.message(f"now signing with Polkadot Vault account {address}")
             self._vault_signer = signer
         return self._vault_signer
 
@@ -361,7 +572,7 @@ class AppContext:
 
         Six accepted forms:
         - a raw ss58 address: used as-is;
-        - an address-book name (``btcli addresses NAME SS58``);
+        - an address-book name (``btcli addr NAME SS58``);
         - a proxy-book name (``btcli proxy book add``);
         - a saved multisig name (``btcli multisig add``), coldkey params only:
           resolved to the derived multisig account address, so a multisig
@@ -420,8 +631,24 @@ class AppContext:
                 self.output.classify_address(address, "coldkey")
                 return address
             return None
+        except typer.Exit:
+            raise
         except Exception as error:
-            shown = f"{self.wallet_name}/{self.hotkey_name}"
+            if self.wallet_name not in wallets.list_wallets(self.wallet_path):
+                # The usual cause is a name from another wallet dir / HOME
+                # (e.g. a different btcli environment) — say that instead of
+                # leaking the keyfile path of a wallet that never existed.
+                book = " or saved multisig" if kind == "coldkey" else ""
+                self.output.error(
+                    f"no wallet{book} named {self.wallet_name!r} in this environment",
+                    help="`btcli wallet list` shows local wallets and saved multisigs",
+                )
+                raise typer.Exit(1)
+            shown = (
+                self.wallet_name
+                if param == "coldkey_ss58"
+                else f"{self.wallet_name}/{self.hotkey_name}"
+            )
             self.output.error(f"cannot resolve {address_cli_name(param)} {shown!r}: {error}")
             raise typer.Exit(1)
 
@@ -450,8 +677,12 @@ class AppContext:
             self._resolving_multisigs.discard(name)
 
     def resolve_signatory_list(self, raw: str) -> list[str]:
-        """Resolve comma-separated signatory refs (ss58, address-book name, wallet)."""
-        parts = [part.strip() for part in raw.split(",") if part.strip()]
+        """Resolve signatory refs (ss58, address-book name, wallet).
+
+        ``raw`` may be comma-separated, space-separated, or mixed
+        (``a,b``, ``a, b``, ``a b``).
+        """
+        parts = ms_helpers.split_signatory_refs(raw)
         if not parts:
             raise ValueError("need at least one signatory")
         resolved: list[str] = []
@@ -482,12 +713,198 @@ class AppContext:
         for entry in cfg.load_proxies():
             self.output.name_address(entry.get("address"), entry.get("name"))
 
+    def _card_value(self, key: str, value) -> str:
+        """Canonical display text for one intent field on the pre-sign card."""
+        if isinstance(value, str) and not value.strip():
+            # Empty is meaningful (e.g. set_identity clears omitted fields),
+            # so show a placeholder instead of a blank cell or a hidden row.
+            return "—"
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        if isinstance(value, Balance):
+            return str(value)
+        if "netuid" in key and isinstance(value, int):
+            name = self.output.subnet_names.get(value)
+            return f"{value} ({name})" if name else str(value)
+        if key.endswith("tolerance") and isinstance(value, float):
+            return f"{value:.2%}"
+        if isinstance(value, (list, dict)):
+            text = json.dumps(value, default=str)
+            return text if len(text) <= 160 else text[:159] + "…"
+        return str(value)
+
+    def review_account(self) -> Optional[str]:
+        """ss58 for a review-card wallet row: saved multisig, then local coldkey."""
+        if self.multisig_wallet_name:
+            derived = self._saved_multisig_address(self.multisig_wallet_name)
+            if derived:
+                return derived
+        name = self.wallet_name
+        if not name:
+            return None
+        derived = self._saved_multisig_address(name)
+        if derived:
+            return derived
+        try:
+            return self.wallet().coldkeypub.ss58_address
+        except Exception:
+            return name
+
+    def _signer_display(self, intent, wallet) -> str:
+        """The account that actually signs, for review rows."""
+        if self.uses_external_signer():
+            return self.external_signer_address() or f"{self.signer_backend} signer"
+        try:
+            return public_view(wallet, intent.signer).ss58_address
+        except Exception:
+            return self.review_account() or self.wallet_name
+
+    def _multisig_route(self, intent) -> Optional[tuple[str, Optional[int], int]]:
+        """(name, threshold, member count) when routing via a saved multisig."""
+        if not self.multisig_wallet_name:
+            return None
+        threshold = getattr(intent, "threshold", None)
+        members = len(getattr(intent, "other_signatories", ())) + 1
+        return self.multisig_wallet_name, threshold, members
+
+    def _confirm_facts(self, intent, *, proxy_for: Optional[str], shield: bool) -> list:
+        """Routing facts shown under the final confirmation question."""
+        facts: list[tuple[str, str]] = []
+        route = self._multisig_route(intent)
+        if route:
+            name, threshold, members = route
+            facts.append(("via", f"{name} · {threshold}-of-{members}" if threshold else name))
+        if self.uses_external_signer():
+            member = self.external_signer_address() or ""
+            backend = str(self.signer_backend)
+            facts.append(("signing as", f"{member} via {backend}" if member else backend))
+        else:
+            facts.append(("signing as", self.wallet_name))
+        if proxy_for:
+            facts.append(("proxy for", proxy_for))
+        facts.append(("mev shield", "on" if shield else "off — no protection"))
+        return facts
+
+    def _transaction_card(
+        self,
+        intent,
+        semantic,
+        wallet,
+        *,
+        proxy_for: Optional[str],
+        shield: bool,
+        extra_rows: list[tuple],
+        sections: Optional[list[tuple[str, list[tuple]]]] = None,
+        fee_facts: Optional[list[tuple[str, str]]] = None,
+        facts_title: str = "Fees",
+        estimated_fee=None,
+        shield_note: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> None:
+        """Print the canonical pre-sign review: titled stages of aligned rows.
+
+        Every mutation renders the same universal stage schema:
+        any command-provided context stage first (e.g. "Claim", "Allocate"),
+        then the preflight's structured facts ("Quote" for simulated swap
+        outcomes), then "Fees", "Signer" (who signs, and the multisig /
+        proxy / MEV-shield routing), and "Transaction" last with the
+        semantic intent's raw fields — so what is about to be signed is
+        reviewable at a glance instead of parsed out of prose. Intents with
+        their own fee model (root claim, registration) supply the whole
+        "Fees" stage via ``fee_facts``; everything else gets the universal
+        ``estimated_fee`` row priced from the composed call. Fees is always
+        present, even when the estimate is unavailable. The post-submit
+        counterpart is ``Output.result_fields`` (the "Result" stage).
+        """
+        stages: list[tuple[str, list[tuple]]] = list(sections or [])
+        if fee_facts and facts_title != "Fees":
+            stages.append((facts_title, list(fee_facts)))
+            fee_facts = []
+        if fee_facts:
+            stages.append(("Fees", list(fee_facts)))
+        elif estimated_fee is not None:
+            stages.append(("Fees", [("estimated fee", f"~{estimated_fee}")]))
+        else:
+            stages.append(("Fees", [("estimated fee", "unavailable")]))
+
+        signer_rows: list[tuple] = []
+        if self.uses_external_signer():
+            member = self.external_signer_address() or f"{self.signer_backend} signer"
+            signer_rows.append(("signer", f"{member} via {self.signer_backend}"))
+        else:
+            signer_rows.append(("signer", self._signer_display(intent, wallet)))
+        route = self._multisig_route(intent)
+        if route:
+            name, threshold, members = route
+            account = name
+            derived = self._saved_multisig_address(name)
+            if derived:
+                account = f"{name} ({derived})"
+            signer_rows.append(("multisig", account))
+            if threshold == 1:
+                signer_rows.append(("threshold", f"1 of {members} — executes immediately"))
+            elif threshold:
+                signer_rows.append(("threshold", f"{threshold} of {members}"))
+        if proxy_for:
+            signer_rows.append(("proxy for", proxy_for))
+        if shield:
+            signer_rows.append(("mev shield", "on — encrypted in the mempool until executed"))
+        else:
+            state = "off — no protection (call is visible in the mempool)"
+            if shield_note:
+                state = f"off — no protection: {shield_note}"
+            signer_rows.append(("mev shield", state))
+        stages.append(("Signer", signer_rows))
+
+        tx_rows: list[tuple] = [("operation", semantic.op)]
+        tx_rows.extend(extra_rows)
+        children = getattr(semantic, "_children", None)
+        if children:
+            # A batch's own fields are just the child specs as JSON; one row
+            # per child summary reads better than the raw list.
+            for index, child in enumerate(children, start=1):
+                tx_rows.append((f"call {index}", child.summary()))
+        else:
+            for spec in dataclass_fields(semantic):
+                value = getattr(semantic, spec.name, None)
+                if value is None:
+                    continue
+                label = spec.name.removesuffix("_ss58").replace("_", " ")
+                tx_rows.append((label, self._card_value(spec.name, value)))
+        if note:
+            tx_rows.append(("note", note, "dim"))
+        stages.append(("Transaction", tx_rows))
+        self.output.transaction_card(stages)
+
+    def show_review(
+        self,
+        stages: list[tuple[str, list[tuple]]],
+        *,
+        question: str,
+        confirm_facts: Optional[list[tuple[str, str]]] = None,
+    ) -> None:
+        """Print the universal review card and ask to sign.
+
+        Used by paths that do not go through ``submit`` (raw ``btcli call``,
+        EVM, upgrade). ``submit`` builds the same stages via ``_transaction_card``.
+        """
+        self.output.transaction_card(stages)
+        prompt = question if question.endswith("?") else f"{question}?"
+        if self.assume_yes or self.output.quiet or self.output.json_mode:
+            self.confirm(prompt)
+            return
+        self.output.confirm_block(prompt, confirm_facts)
+        self.confirm("sign and submit?", indent=4)
+
     def submit(
         self,
         intent,
         *,
         proxy_for: Optional[str] = None,
         force_proxy_type: Optional[str] = None,
+        summary: Optional[str] = None,
+        summary_note: Optional[str] = None,
+        card_sections: Optional[list[tuple[str, list[tuple]]]] = None,
     ) -> Optional[ExtrinsicResult]:
         """Run a mutation with a uniform dry-run / confirm / execute / render flow.
 
@@ -495,88 +912,100 @@ class AppContext:
         Otherwise the intent's own summary is the confirmation prompt; the intent
         is then executed, its result rendered, and the ``ExtrinsicResult``
         returned (None when the dry-run path stopped early). The prompt/summary
-        is never hand-written per command — it comes from the intent.
+        comes from the intent; a command that holds richer display context than
+        the intent's fields (e.g. the fund name and beta rate behind a root
+        allocation) may pass ``summary`` to replace that one line,
+        ``card_sections`` for the context stage (e.g. "Claim" / "Allocate"),
+        and ``summary_note`` for a dim note row in Transaction when there is
+        no context stage. All display context that describes the semantic
+        call — ``summary_note``, ``card_sections``, and the summary as the
+        confirm-block question — survives a multisig rewrite; only the
+        one-line receipt summary is replaced, since the signed extrinsic is
+        then a multisig round, not the call itself.
 
         ``proxy_for`` dispatches the call as that account via ``Proxy.proxy``,
         signed by the local wallet key (which must be its registered proxy).
-        When omitted, the persistent ``proxy_for`` config value (if set) is
-        used; the sentinel ``self`` bypasses that default and signs directly.
+        When omitted, the ``--proxy-for`` tx-global (if set) then the persistent
+        ``proxy_for`` config value is used; the sentinel ``self`` bypasses that
+        default and signs directly.
 
         Stake-trading intents (``mev_shield_default``) are submitted
         MEV-shielded via ``client.submit_shielded`` unless the user opts out
         with ``--no-mev-shield`` or ``btcli config set mev_shield false``;
-        ``--mev-shield`` (or config true) opts any mutation in.
+        ``--mev-shield`` (or config true) opts any mutation in. Shield wraps
+        the already-composed call (including proxy / saved-multisig), so
+        every signer backend uses the same wrap order.
         """
         # Inline import: prompt.py imports AppContext from this module, so a
         # top-level import here would be circular.
         from .prompt import confirm_wallet, replay_command
 
-        if proxy_for == "self":
-            proxy_for = None
-        elif proxy_for is None:
-            configured = cfg.get("proxy_for")
-            if configured:
-                proxy_for = self.resolve_address("proxy_for", str(configured))
-                self.output.message(
-                    f"[dim]dispatching via configured proxy_for {configured!r} "
-                    "— pass `--proxy-for self` to sign directly[/dim]"
-                )
+        if force_proxy_type is None:
+            force_proxy_type = self.force_proxy_type
+        if force_proxy_type is not None:
+            force_proxy_type = str(getattr(force_proxy_type, "value", force_proxy_type))
+        proxy_for = self.resolve_dispatch_proxy(proxy_for)
+        if force_proxy_type is not None and proxy_for is None:
+            self.output.error(
+                "--force-proxy-type requires --proxy-for",
+                help="pass --proxy-for <account>, or drop --force-proxy-type",
+            )
+            raise typer.Exit(2)
 
-        # ``-w <multisig>``: rewrite any coldkey intent as a multisig approval
-        # signed by a local member. Must run before confirm_wallet / wallet()
-        # because the multisig name is not a coldkey directory.
+        rounds_plan = self._plan_signatory_rounds(intent)
+        if rounds_plan is not None:
+            # Each round re-enters submit; the command's display context
+            # (summary, note, context stage) must survive into every round's
+            # review card, not just a direct single-wrap submission.
+            return self._submit_signatory_rounds(
+                intent,
+                rounds_plan,
+                proxy_for=proxy_for,
+                force_proxy_type=force_proxy_type,
+                summary=summary,
+                summary_note=summary_note,
+                card_sections=card_sections,
+            )
+
+        # ``-w <multisig>``: rewrite the intent as a multisig approval signed
+        # by a member. Must run before confirm_wallet / wallet() because the
+        # multisig name is not a coldkey directory.
+        unwrapped_intent = intent
         try:
             intent = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
         except ValueError as error:
             self.output.error(str(error))
             raise typer.Exit(2) from error
-        semantic_intent = intent.semantic_intent()
-
-        # MEV shielding: explicit flag > persistent config > the intent's own
-        # default. `forced` distinguishes "the user asked for shielding" (hard
-        # failure when it can't be honored) from "the built-in stake default"
-        # (downgraded with a notice when the chain or flow can't shield).
-        # `mev_shield_required` intents (collateral AMM buys) refuse the
-        # unshielded opt-out entirely.
-        configured_shield = cfg.get("mev_shield")
-        if semantic_intent.mev_shield_required:
-            if self.mev_shield is False or configured_shield is False:
-                self.output.error(
-                    f"{semantic_intent.op} must be submitted MEV-shielded",
-                    help=(
-                        "collateral / burned-registration AMM fills cannot run "
-                        "unshielded; omit --no-mev-shield"
-                    ),
-                )
-                raise typer.Exit(2)
-            shield = True
-            shield_forced = True
-        elif self.mev_shield is not None:
-            shield = self.mev_shield
-            shield_forced = shield
-        elif configured_shield is not None:
-            shield = bool(configured_shield)
-            shield_forced = shield
-        else:
-            shield = semantic_intent.mev_shield_default
-            shield_forced = False
-        if shield and (proxy_for is not None or self.uses_extension_signer()):
-            blocker = "a proxied call" if proxy_for is not None else "the extension signer"
-            if shield_forced or semantic_intent.mev_shield_required:
-                self.output.error(
-                    f"MEV shielding cannot wrap {blocker}",
-                    help=(
-                        "collateral intents cannot fall back to unshielded; "
-                        "sign directly without a proxy/extension"
-                        if semantic_intent.mev_shield_required
-                        else "pass --no-mev-shield to submit unshielded"
-                    ),
-                )
-                raise typer.Exit(2)
-            self.output.message(
-                f"[dim]MEV shield skipped: cannot wrap {blocker} — submitting unshielded[/dim]"
+        semantic_question = None
+        if intent is not unwrapped_intent:
+            # The signature now approves a multisig round, so the caller's
+            # one-line summary no longer names what gets signed. It still
+            # describes the semantic call, so keep it as the confirm-block
+            # question, where the routing facts spell out the multisig layer.
+            # The note (like card_sections) also describes the semantic call
+            # and survives the rewrite.
+            semantic_question = summary or unwrapped_intent.summary()
+            summary = None
+        if self.signatory_wallet and self.multisig_wallet_name is None:
+            # A typo'd or missing multisig name must not degrade into a plain
+            # single-signer transaction: the user explicitly asked for a
+            # multisig member to sign.
+            self.output.error(
+                f"--signatory given, but -w {self.wallet_name!r} is not in this "
+                "environment's multisig book (`btcli multisig list`)",
+                help="pass -w <saved-multisig-name>, or drop --signatory to sign "
+                f"directly as {self.wallet_name!r}",
             )
-            shield = False
+            raise typer.Exit(2)
+        semantic_intent = intent.semantic_intent()
+        shield, shield_forced = self.resolve_mev_shield(
+            default=semantic_intent.mev_shield_default,
+            required=semantic_intent.mev_shield_required,
+            op=semantic_intent.op,
+        )
+        # Why the shield is off when it normally would be on; rendered with
+        # the card's "mev shield  off" row instead of as floating prose.
+        shield_note: Optional[str] = None
 
         # The signing wallet is confirmed when it was only defaulted (generated
         # tx commands already did this via signer_specs and set wallet_given).
@@ -589,6 +1018,19 @@ class AppContext:
             ),
             require_coldkey=intent.signer == "coldkey",
         )
+        # The prompt may have just named a saved multisig. Wrap now so
+        # Signer / Transaction show the same routing as ``-w MULTIX``.
+        if intent is unwrapped_intent:
+            try:
+                rewritten = ms_helpers.wrap_intent_for_multisig_wallet(self, intent)
+            except ValueError as error:
+                self.output.error(str(error))
+                raise typer.Exit(2) from error
+            if rewritten is not intent:
+                intent = rewritten
+                semantic_question = summary or unwrapped_intent.summary()
+                summary = None
+                semantic_intent = intent.semantic_intent()
         wallet = self.wallet()
         self._register_local_names(wallet)
         # Outer MevShield.submit_encrypted has no netuid, so fees_in_alpha cannot
@@ -620,16 +1062,19 @@ class AppContext:
                             ),
                         )
                         raise typer.Exit(2)
-                    self.output.message(
-                        "[dim]MEV shield skipped: free TAO cannot cover the outer "
-                        "carrier fee (alpha fees only work on the unshielded call) "
-                        "— submitting unshielded[/dim]"
-                    )
                     shield = False
+                    shield_note = (
+                        "free TAO cannot cover the outer carrier fee "
+                        "(alpha fees only work on the unshielded call)"
+                    )
         options = {"proxy_for": proxy_for, "proxy_type": force_proxy_type}
         registration_quote = None
         registration_flow = None
-        summary = intent.summary()
+        neuron_reg_cost = None
+        neuron_reg_lines: list[str] = []
+        intent_summary = intent.summary()
+        base_summary = summary or intent_summary
+        summary = base_summary
         if intent.op == "register_subnet":
 
             async def _registration_preview(client):
@@ -670,6 +1115,28 @@ class AppContext:
 
             registration_quote, registration_flow = self.run(_registration_preview)
             summary += f" for {registration_quote.decimal:,.9f} TAO"
+        elif not self.dry_run and semantic_intent.op in ("burned_register", "root_register"):
+            netuid = 0 if semantic_intent.op == "root_register" else semantic_intent.netuid
+
+            async def _neuron_reg_preview(client):
+                return await neuron_registration_split(client._substrate, netuid)
+
+            burn, lock = self.run(_neuron_reg_preview)
+            summary += f" — {_registration_split_suffix(burn, lock)}"
+            recycled = semantic_intent.op == "root_register"
+            neuron_reg_cost = f"{burn} {'recycled' if recycled else 'burned'}"
+            if lock.rao:
+                neuron_reg_cost += f" + {lock} locked as collateral"
+            if lock.rao:
+                lock_line = f"lock {lock} as miner collateral"
+            elif recycled:
+                lock_line = "lock none"
+            else:
+                lock_line = "lock none (full cost is burned)"
+            neuron_reg_lines = [
+                f"burn {burn} ({'recycled into issuance' if recycled else 'destroyed'})",
+                lock_line,
+            ]
         summary += f" [as {proxy_for} via proxy]" if proxy_for else ""
         if shield:
             summary += " [MEV-shielded]"
@@ -699,6 +1166,13 @@ class AppContext:
 
         if self.dry_run:
             plan = self.run(_plan)
+            if base_summary != intent_summary:
+                plan.summary = base_summary
+                plan.effects = [
+                    base_summary if effect == intent_summary else effect for effect in plan.effects
+                ]
+            if summary_note:
+                plan.effects.append(summary_note)
             if shield:
                 plan.effects.append(
                     "submitted MEV-shielded: the call stays encrypted in the "
@@ -717,21 +1191,92 @@ class AppContext:
             return None
 
         # Surface intent warnings before the user confirms (dry-run already
-        # prints them via ``output.plan``). Keep this cheap: warnings-only, no
-        # fee estimation. Skip when an external signer still needs its account
-        # picker — those paths resolve the origin later.
+        # prints them via ``output.plan``). Root-claim also computes the fee
+        # preview and refuses when free TAO cannot cover the reserved
+        # inclusion fee. Skip when an external signer still needs its
+        # account picker — those paths resolve the origin later.
+        fee_facts: list[tuple[str, str]] = []
+        facts_title = "Fees"
+        estimated_fee = None
         if not self.uses_external_signer():
 
-            async def _warnings(client):
+            async def _preflight(client):
                 try:
-                    origin = public_view(wallet, intent.signer).ss58_address
+                    preview = await client.preflight(
+                        intent,
+                        wallet,
+                        proxy_for=proxy_for,
+                        proxy_type=force_proxy_type,
+                    )
                 except Exception:
-                    return []
-                return list(await intent.warnings(client._substrate, proxy_for or origin))
+                    return [], [], [], [], "Fees", None
+                warnings = list(preview.warnings)
+                if semantic_intent.op in ("claim_root", "claim_root_with_hotkey"):
+                    effects = list(preview.effects)
+                else:
+                    effects = []
+                return (
+                    effects,
+                    warnings,
+                    list(preview.blocks),
+                    list(preview.facts),
+                    preview.facts_title,
+                    preview.estimated_fee,
+                )
 
-            for warning in self.run(_warnings):
+            effects, warnings, blocks, fee_facts, facts_title, estimated_fee = self.run(_preflight)
+            summary_line = intent.summary()
+            # Structured facts render as the review card's "Fees" stage; the
+            # prose effect lines only print where the card cannot (quiet/json
+            # sessions, or intents with no structured preview).
+            if fee_facts and not (self.output.quiet or self.output.json_mode):
+                effects = []
+            for effect in effects:
+                if effect == summary_line:
+                    continue
+                rendered = self.output.with_subnets(self.output.with_names(effect))
+                self.output.message(f"[dim]{rendered}[/dim]")
+            for warning in warnings:
                 rendered = self.output.with_subnets(self.output.with_names(warning))
                 self.output.message(f"[{STYLE_WARNING}]warning:[/{STYLE_WARNING}] {rendered}")
+            if blocks:
+                for block in blocks:
+                    self.output.error(
+                        block,
+                        help="resolve this hard stop before submitting",
+                    )
+                raise typer.Exit(1)
+
+        def _print_registration_notes() -> None:
+            if self.assume_yes:
+                return
+            if registration_flow is not None:
+                self.output.message(f"[dim]{registration_flow}[/dim]")
+            for line in neuron_reg_lines:
+                self.output.message(f"[dim]{line}[/dim]")
+
+        # Every mutation gets a context stage: command-provided rows, or a
+        # default built from the semantic summary so transfer / stake / …
+        # use the same Claim / Allocate skeleton.
+        if card_sections is None:
+            context_rows: list[tuple] = []
+            owner = self.review_account()
+            if owner:
+                context_rows.append(("wallet", owner))
+            context_rows.append(("summary", semantic_question or semantic_intent.summary()))
+            if summary_note:
+                context_rows.append(("note", summary_note, "dim"))
+            card_sections = [(_review_title(semantic_intent.op), context_rows)]
+
+        # Registration cost is not an intent field; it lands on Transaction.
+        card_extras: list[tuple] = []
+        if registration_quote is not None:
+            card_extras.append(("cost", str(registration_quote)))
+        if neuron_reg_cost is not None:
+            # Registration burn belongs on the card itself: dim prose notes
+            # are skipped under --yes, and the card renders in every human
+            # session.
+            card_extras.append(("cost", neuron_reg_cost))
 
         if self.uses_extension_signer():
 
@@ -740,25 +1285,70 @@ class AppContext:
                 await signer.close()
 
             self.run(_prepare)
-            if registration_flow is not None and not self.assume_yes:
-                self.output.message(f"[dim]{registration_flow}[/dim]")
+            _print_registration_notes()
             # The extension popup is the approval surface: it shows this same
             # transaction and requires an explicit approve/reject there, so a
             # terminal prompt would only bounce the user between windows.
-            self.output.message(summary)
+            self._transaction_card(
+                intent,
+                semantic_intent,
+                wallet,
+                proxy_for=proxy_for,
+                shield=shield,
+                extra_rows=card_extras,
+                sections=card_sections,
+                fee_facts=fee_facts,
+                facts_title=facts_title,
+                estimated_fee=estimated_fee,
+                shield_note=shield_note,
+                note=None if card_sections else summary_note,
+            )
             self.output.message(
                 "[dim]approve or reject the request in the wallet extension popup[/dim]"
             )
         else:
-            if registration_flow is not None and not self.assume_yes:
-                self.output.message(f"[dim]{registration_flow}[/dim]")
-            self.confirm(f"{summary}?")
+            _print_registration_notes()
+            # The review card renders in every human session, including
+            # --yes (it is information, not a prompt); quiet/json suppress
+            # it inside transaction_card.
+            self._transaction_card(
+                intent,
+                semantic_intent,
+                wallet,
+                proxy_for=proxy_for,
+                shield=shield,
+                extra_rows=card_extras,
+                sections=card_sections,
+                fee_facts=fee_facts,
+                facts_title=facts_title,
+                estimated_fee=estimated_fee,
+                shield_note=shield_note,
+                note=None if card_sections else summary_note,
+            )
+            if self.assume_yes or self.output.quiet or self.output.json_mode:
+                # --yes skips the prompt; quiet/json sessions keep the
+                # one-line prompt (which errors without --yes).
+                self.confirm(f"{summary}?")
+            else:
+                # Behind a multisig rewrite the adapter summary front-loads the
+                # dispatch mechanics; the question should name the semantic
+                # action while the facts below carry the routing.
+                question = summary
+                if self._multisig_route(intent):
+                    question = self.output.with_names(
+                        semantic_question or semantic_intent.summary()
+                    )
+                self.output.confirm_block(
+                    f"{question}?",
+                    self._confirm_facts(intent, proxy_for=proxy_for, shield=shield),
+                )
+                self.confirm("sign and submit?", indent=4)
 
         # Native keyfiles unlock synchronously on their first signature. Unlock
         # encrypted coldkeys eagerly instead: a wrong password can be retried
-        # on the spot (instead of aborting and losing every prompt answer),
-        # and the password prompt stays visible — the lazy SDK signer would
-        # prompt underneath register_subnet's live spinner and appear to hang.
+        # on the spot (instead of aborting and losing every prompt answer).
+        # The live spinner pauses for prompts; unlocking here still keeps the
+        # password on a clean line before submit starts.
         local_signer = None
         if (
             intent.signer == "coldkey"
@@ -780,6 +1370,25 @@ class AppContext:
                 coldkey=signing_key,
                 coldkeypub=wallet.coldkeypub,
                 hotkey=hotkey,
+            )
+        elif (
+            intent.signer == "hotkey"
+            and not self.uses_external_signer()
+            and not (self.macos_password or self.keychain_password or self.wallet_password_file)
+            and _hotkey_encrypted(wallet)
+        ):
+            # Same hazard for encrypted hotkeys: the lazy unlock at first
+            # signature would prompt underneath the submission spinner. Unlock
+            # now, while the terminal still belongs to prompts.
+            hotkey_pair = wallet.get_hotkey()
+            try:
+                coldkeypub = wallet.coldkeypub
+            except FileNotFoundError:
+                coldkeypub = None  # hotkey-only wallet; intents needing it fail on use
+            local_signer = SimpleNamespace(
+                coldkey=None,
+                coldkeypub=coldkeypub,
+                hotkey=hotkey_pair,
             )
 
         def activity_update(_text: str, _announce: bool = False) -> None:
@@ -862,22 +1471,15 @@ class AppContext:
                         "— submitting unshielded[/dim]"
                     )
                     use_shield = False
-            if use_shield and self.uses_vault_signer():
-                # Shielded signing runs against an 8-block (~96 s) era, and
-                # a shielded submission means two QR scans (the shielded
-                # transaction, then its encrypted carrier). Warm the page and
-                # the user up first so the countdown starts when they're
-                # ready, not while they're finding their phone.
-                signer.two_stage = True
-                self.output.message(
-                    "MEV-shielded vault signing: two scans, ~90 seconds total — "
-                    "have the phone unlocked with Vault's scanner open"
-                )
-                await signer.warm_up()
+            if use_shield:
+                await self._prepare_two_stage_signer(signer)
             result = None
             try:
                 if use_shield:
-                    shield_options = {"wait_for_finalization": False}
+                    shield_options = {
+                        "wait_for_finalization": False,
+                        **options,
+                    }
                     if intent.op == "register_subnet":
                         shield_options["on_progress"] = _registration_progress
                     result = await client.submit_shielded(
@@ -897,6 +1499,11 @@ class AppContext:
                         signer,
                         **execute_options,
                     )
+                # Shielded results carry the decrypted inner extrinsic's
+                # receipt, so the co-signer followup works for both paths.
+                # Skipped mid-chain: the next approval happens in this same
+                # run, so co-signer instructions would only be noise.
+                if not self.rounds_intermediate():
                     await self._attach_multisig_followup(client, intent, result)
                 return result
             finally:
@@ -925,7 +1532,17 @@ class AppContext:
                     },
                 )
         else:
-            result = self.run(_execute)
+            with self.output.activity("submitting transaction…"):
+                result = self.run(_execute)
+        if result.success and self.rounds_intermediate():
+            # Chained run, and another approval follows immediately: a one-line
+            # acknowledgment is enough. The full receipt and the co-signer
+            # followup render once, after the final round.
+            recorded = (
+                f"recorded — extrinsic {result.extrinsic_id}" if result.extrinsic_id else "recorded"
+            )
+            self.output.step("approval", recorded, state="done")
+            return result
         rendered = (
             self.output.registration_result(result)
             if intent.op == "register_subnet"
@@ -947,6 +1564,218 @@ class AppContext:
             self.output.message(
                 f"[dim]verify: `btcli query {intent.verify.replace('_', '-')} ...`[/dim]"
             )
+        if result.success:
+            self._maybe_offer_root_claim(intent)
+        return result
+
+    def _maybe_offer_root_claim(self, intent) -> None:
+        """After unstaking root principal (`btcli stake remove` on netuid 0),
+        offer ``btcli root claim`` if yield is still owed.
+
+        ``--claim`` already redeemed the basket in the same batch. ``--yes`` and
+        non-interactive sessions print the leftover-yield hint and stop — they
+        do not auto-claim. A claim pays this validator's whole entitlement,
+        not a slice of the unstake; the chain has no proportional-claim call.
+        """
+        if getattr(intent, "claim", False):
+            return
+        if intent.op not in ("remove_stake", "remove_stake_limit", "unstake_all"):
+            return
+        if intent.op != "unstake_all" and getattr(intent, "netuid", None) != 0:
+            return
+        hotkey = getattr(intent, "hotkey_ss58", None)
+        if not hotkey:
+            return
+
+        async def _payout(client):
+            try:
+                owner = public_view(self.wallet(), "coldkey").ss58_address
+            except Exception:
+                return 0
+            rao = await _root_claimable_rao(client._substrate, owner, hotkey)
+            return 0 if rao is None else rao
+
+        rao = self.run(_payout)
+        if rao <= 0:
+            return
+        amount = Balance.from_rao(rao)
+        hint = (
+            f"{amount} remains claimable via `btcli root claim --hotkey {hotkey}` "
+            "(unstaking root principal does not claim basket yield). "
+            "A claim pays this validator's whole entitlement, not a slice of the unstake."
+        )
+        # Inline import: prompt.py imports AppContext from this module.
+        from .prompt import interactive
+
+        if not interactive(self) or self.assume_yes:
+            self.output.message(hint)
+            return
+        if self.output.confirm(
+            f"{amount} remains claimable. Claim this validator's whole basket entitlement now?"
+        ):
+            self.submit(ClaimRootWithHotkey(hotkey_ss58=hotkey))
+        else:
+            self.output.message(hint)
+
+    def _plan_signatory_rounds(self, intent):
+        """Multi-approval plan when ``--signatory`` was repeated for a saved multisig.
+
+        Returns ``None`` for the ordinary single-signer path. Errors early when
+        the refs don't form a valid approval sequence (non-members, duplicates,
+        more rounds than the threshold, or a member with no known backend).
+        """
+        if self._multisig_rounds_active:
+            return None
+        explicit = len(self.signatory_wallets) > 1
+        preset = self.wallet_name
+        if not explicit and (
+            self.signatory_wallet  # a pinned member keeps the single-approval flow
+            or self.signer_backend
+            or self.signer_address
+            or not preset
+            or cfg.get_multisig(preset) is None
+        ):
+            return None
+        if explicit and (not preset or cfg.get_multisig(preset) is None):
+            self.output.error(
+                f"--signatory was repeated, but -w {preset!r} is not in this "
+                "environment's multisig book (`btcli multisig list`)",
+                help="pass -w <saved-multisig-name>, or one --signatory per invocation",
+            )
+            raise typer.Exit(2)
+        try:
+            threshold, signatories, _refs = ms_helpers.resolve_multisig_preset(self, preset)
+            if explicit:
+                rounds = ms_helpers.plan_signatory_rounds(
+                    self,
+                    self.signatory_wallets,
+                    signatories=signatories,
+                    threshold=threshold,
+                    preset=preset,
+                )
+            else:
+                rounds = ms_helpers.plan_default_rounds(
+                    self, signatories=signatories, threshold=threshold
+                )
+                if rounds is None:
+                    return None
+                self.output.message(
+                    "[dim]no --signatory given — approvals planned from local wallets "
+                    "and address-book signer tags[/dim]"
+                )
+        except ValueError as error:
+            self.output.error(str(error))
+            raise typer.Exit(2) from error
+        return preset, threshold, signatories, rounds
+
+    def _submit_signatory_rounds(self, intent, plan, **submit_kwargs):
+        """Collect several multisig approvals in order, in one invocation.
+
+        Each round is a full ordinary submission — wrap, sign, submit, render —
+        with that member's identity and backend applied. Only the first round
+        prompts: rounds after the first approve round 1's exact call bytes, so
+        one confirmation covers them all. A failed round leaves the earlier
+        approvals pending on-chain (the round-1 followup already printed how
+        to finish). The loop stops early when an approval reaches the
+        threshold (members may have approved before this run), so a finished
+        operation is never re-opened.
+        """
+        preset, threshold, signatories, rounds = plan
+        sequence = " → ".join(f"{name} ({backend})" for name, _ss58, backend in rounds)
+        self.output.step(
+            "approvals", f"{len(rounds)} in this run for {preset}: {sequence}", state="info"
+        )
+        # MEV shielding chains fine: a shielded round returns the *decrypted*
+        # inner extrinsic's receipt (Executor._resolve_shielded_inner), so the
+        # approval is already on-chain before the next round starts.
+        self._multisig_rounds_active = True
+        snapshot = (
+            self.wallet_name,
+            self.wallet_given,
+            self.multisig_wallet_name,
+            self.signatory_wallet,
+            self.signer_backend,
+            self.signer_address,
+            self.assume_yes,
+        )
+        result = None
+        try:
+            last = len(rounds) - 1
+            for index, (name, ss58, backend) in enumerate(rounds):
+                if index:
+                    call_hash = (result.data or {}).get("multisig_call_hash") if result else None
+                    self.run(
+                        functools.partial(
+                            ms_helpers.await_pending_visible,
+                            signatories=signatories,
+                            threshold=threshold,
+                            call_hash=call_hash,
+                        )
+                    )
+                    # Same call, different member: the round-1 confirmation
+                    # covers the rest of the run.
+                    self.assume_yes = True
+                self._rounds_index = index
+                self._rounds_total = len(rounds)
+                self.wallet_name = preset
+                self.wallet_given = True
+                self.multisig_wallet_name = None
+                self.signatory_wallet = ss58
+                self.signer_backend = None if backend == "wallet" else backend
+                self.signer_address = None if backend == "wallet" else ss58
+                self._vault_signer = None
+                self._ledger_signer = None
+                self.reset_extension_session()
+                if not self.dry_run:
+                    self.output.step(
+                        f"approval {index + 1} of {threshold}",
+                        f"{name} via {backend}",
+                        state="active",
+                    )
+                try:
+                    result = self.submit(intent, **submit_kwargs)
+                except typer.Exit:
+                    # A failed round already rendered its error; the earlier
+                    # approvals of this run are still pending on-chain.
+                    if index:
+                        self.output.message(
+                            "[dim]the earlier approval(s) remain pending — "
+                            "`btcli multisig pending` shows co-signer commands "
+                            "to finish or cancel[/dim]"
+                        )
+                    raise
+                if result is None:
+                    # Dry run previews the first approval only.
+                    return None
+                if self._rounds_call_data is None:
+                    # Pin round 1's exact inner call bytes: later rounds must
+                    # approve the identical call or the hashes won't match.
+                    self._rounds_call_data = (result.data or {}).get("multisig_call_data")
+                if index < last and ms_helpers.multisig_executed(result.events):
+                    # The threshold was already met (members can approve
+                    # outside this run); another as_multi would open a fresh
+                    # operation and risk running the call twice. This round
+                    # rendered only a one-liner, so show the full receipt.
+                    self.output.message(
+                        f"[green]the call executed after {index + 1} approval(s) — "
+                        "skipping the remaining signatories[/green]"
+                    )
+                    self.output.result(result, intent.summary())
+                    break
+        finally:
+            self._multisig_rounds_active = False
+            self._rounds_call_data = None
+            self._rounds_index = None
+            self._rounds_total = None
+            (
+                self.wallet_name,
+                self.wallet_given,
+                self.multisig_wallet_name,
+                self.signatory_wallet,
+                self.signer_backend,
+                self.signer_address,
+                self.assume_yes,
+            ) = snapshot
         return result
 
     async def _shield_outer_fee_shortfall(
@@ -960,12 +1789,7 @@ class AppContext:
         """
         try:
             free = await client.balances.get(fee_payer_ss58)
-            # Exact ciphertext size is unknown until encrypt; length fee is
-            # 1 rao/byte so a padded dummy keeps the estimate conservative.
-            outer = await client.compose(
-                generated_calls.MevShield.submit_encrypted(ciphertext=bytes(8192))
-            )
-            fee = await client._substrate.estimate_fee(outer, _FeeAddressView(fee_payer_ss58))
+            fee = await client.estimate_shielded_carrier_fee(fee_payer_ss58)
         except Exception:
             # Best-effort: if we only know free is zero, that is enough to warn.
             try:
@@ -1039,15 +1863,18 @@ class AppContext:
         reviewers can act straight from `multisig pending`."""
         if not result.success or not result.data.get("multisig_call_hash"):
             return
-        if self.uses_external_signer():
-            return  # no local wallet to derive the signer address from
         try:
-            wallet = self.wallet()
-            signer_address = (
-                wallet.hotkey.ss58_address
-                if intent.signer == "hotkey"
-                else wallet.coldkeypub.ss58_address
-            )
+            if self.uses_external_signer():
+                signer_address = self.external_signer_address()
+                if not signer_address:
+                    return  # extension account was picked interactively; unknown here
+            else:
+                wallet = self.wallet()
+                signer_address = (
+                    wallet.hotkey.ss58_address
+                    if intent.signer == "hotkey"
+                    else wallet.coldkeypub.ss58_address
+                )
             followup = await ms_helpers.multisig_followup_for_intent(
                 client, self, intent=intent, result=result, signer_address=signer_address
             )
@@ -1063,6 +1890,13 @@ class AppContext:
         While connected, the netuid -> subnet-name cache is refreshed (at most
         once per TTL) concurrently with ``work``, so netuid references render
         as "4 (Targon)" everywhere — including prompts that run offline.
+
+        Every call animates a default braille spinner so slow commands never
+        look hung. Commands that narrate phases wrap their ``run`` calls in
+        ``output.activity`` themselves; this default one then yields to the
+        outer spinner (``activity`` is re-entrant). Interactive prompts
+        pause the spinner (see ``pause_live_display``), but still belong
+        before ``run``: a prompt inside ``work`` blocks the event loop.
         """
 
         async def _main() -> T:
@@ -1095,7 +1929,8 @@ class AppContext:
                 return result
 
         try:
-            return asyncio.run(_main())
+            with self.output.activity(f"querying {self.network}…"):
+                return asyncio.run(_main())
         except (BittensorError, ValueError) as error:
             # A raised ChainError carries the same diagnostics a failed
             # ExtrinsicResult would (remediation, docs page with source links)
@@ -1162,7 +1997,7 @@ class AppContext:
             self.output.message("aborted.")
             raise typer.Exit(130)
 
-    def confirm(self, prompt: str) -> None:
+    def confirm(self, prompt: str, *, indent: int = 2) -> None:
         """Gate a state-changing action. ``--yes`` skips it; a non-interactive
         session without ``--yes`` is refused rather than left hanging on a prompt."""
         if self.assume_yes:
@@ -1174,7 +2009,7 @@ class AppContext:
             )
             raise typer.Exit(1)
         try:
-            accepted = self.output.confirm(prompt)
+            accepted = self.output.confirm(prompt, indent=indent)
         except (KeyboardInterrupt, EOFError):
             self.output.message("aborted.")
             raise typer.Exit(130)
@@ -1187,6 +2022,14 @@ def _coldkey_encrypted(wallet) -> bool:
     """Whether the wallet's coldkey file exists and is password-protected."""
     try:
         return bool(wallet.coldkey_file.is_encrypted())
+    except Exception:
+        return False
+
+
+def _hotkey_encrypted(wallet) -> bool:
+    """Whether the wallet's hotkey file exists and is password-protected."""
+    try:
+        return bool(wallet.hotkey_file.is_encrypted())
     except Exception:
         return False
 

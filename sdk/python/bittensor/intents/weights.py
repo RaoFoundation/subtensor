@@ -392,13 +392,53 @@ class SetWeights(Intent):
         return f"set weights on netuid {self.netuid} for {len(self.uids)} uids"
 
 
+# Chain-side default of `RootWeightsCap` (u16-normalized: 4096/65535 ≈ 1/16),
+# applied when the storage entry has never been written explicitly.
+DEFAULT_ROOT_WEIGHTS_CAP = 4096
+
+
+async def _root_cap_check(substrate, dests: list[int], values: list[int]) -> None:
+    """Mirror the chain's `RootWeightsCap` concentration check before signing.
+
+    No destination may take a larger share of the vector than the cap allows
+    (share = value / sum; the cap is u16-normalized). The chain skips the
+    check while fewer *active* networks exist than the cap demands
+    (``NetworksAdded == true``, same set ``do_set_root_weights`` walks), so
+    this preflight keys off that count and not ``TotalNetworks``. Checked on
+    the exact u16 values that will be submitted, so preflight and dispatch
+    agree.
+    """
+    cap_raw, networks = await asyncio.gather(
+        substrate.query(*st.RootWeightsCap, [0]),
+        substrate.query_map(*st.NetworksAdded),
+    )
+    cap = int(cap_raw) if cap_raw is not None else DEFAULT_ROOT_WEIGHTS_CAP
+    if cap <= 0:
+        return
+    min_dests_for_cap = -(-U16_MAX // cap)  # ceil division
+    available = sum(1 for _netuid, added in (networks or []) if added)
+    if available < min_dests_for_cap:
+        return
+    total = sum(values)
+    worst = max(values)
+    if worst * U16_MAX > cap * total:
+        offenders = [d for d, v in zip(dests, values) if v * U16_MAX > cap * total]
+        raise ChainError(
+            f"Root weights too concentrated: netuid(s) {offenders} take more than "
+            f"the RootWeightsCap share of {cap}/{U16_MAX} (≈ {cap / U16_MAX:.4g}) of "
+            f"the vector. Spread the basket across at least {min_dests_for_cap} "
+            "destinations or lower the largest weights.",
+            code=ErrorCode.LIMIT_EXCEEDED,
+        )
+
+
 async def _root_weights_preflight(substrate, hotkey_ss58: str) -> None:
     """Check root registration and the root weights rate limit before signing.
 
-    The root path has no commit-reveal and no max-weight/min-count
-    hyperparameters, so only the two checks that would reject an otherwise
-    well-formed submission are preflighted; stake and version-key checks stay
-    chain-side.
+    The root path has no commit-reveal and no version-key hyperparameters, so
+    only the checks that would reject an otherwise well-formed submission are
+    preflighted (the concentration cap runs separately in `_root_cap_check`,
+    on the final quantized values); stake checks stay chain-side.
     """
     current_block = await substrate.block_number()
     block_hash = await substrate.block_hash(current_block)
@@ -450,13 +490,17 @@ class SetRootWeights(Intent):
     by the hotkey, which must be registered on the root network and hold the
     minimum stake to set weights; the root weights rate limit applies, and
     every destination must be netuid 0 or an existing subnet. At least 8
-    positive destinations are required (softened when fewer networks exist).
+    positive destinations are required (softened when fewer networks exist),
+    and no destination may take a larger share of the vector than the
+    ``RootWeightsCap`` hyperparameter allows — 1/16 at launch, so a basket
+    needs at least 16 destinations (``RootWeightCapExceeded`` otherwise;
+    preflighted here with the same rule the chain enforces).
     Validators with no stored root weights accumulate dividends in place —
     each subnet's dividend stays in that subnet's alpha, trade-free; setting
     this vector is what turns on the sell-and-redeploy engine.
-    Weight setting launched gated off network-wide (every call fails with
-    ``RootWeightSettingDisabled`` until governance or a later upgrade enables
-    it), so all funds start on the null accumulate strategy.
+    Root Reborn launched with weight setting gated off network-wide; runtime
+    449 opened the gate. ``RootWeightSettingDisabled`` now only appears if
+    governance switches it back off.
     Read it back with the ``validator_root_weights`` read.
     """
 
@@ -488,6 +532,7 @@ class SetRootWeights(Intent):
         dests, values = normalize(self.netuids, self.weights)
         if not dests:
             raise BittensorError("All weights are zero; nothing to set.")
+        await _root_cap_check(substrate, dests, values)
         return await substrate.compose(
             calls.SubtensorModule.set_root_weights(
                 dests=dests,

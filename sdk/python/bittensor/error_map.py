@@ -217,7 +217,9 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidRootClaimThreshold": _C.INVALID_ARGUMENT,
     "BasketHasNoWeights": _C.INVALID_ARGUMENT,
     "BetaBasketSeedInProgress": _C.TOO_EARLY,
+    "RootClaimTooHeavy": _C.LIMIT_EXCEEDED,
     "RootWeightSettingDisabled": _C.DISABLED,
+    "RootWeightCapExceeded": _C.LIMIT_EXCEEDED,
     "RootStakeLocked": _C.TOO_EARLY,
     "TooManyUIDsPerMechanism": _C.LIMIT_EXCEEDED,
     "VotingPowerTrackingNotEnabled": _C.DISABLED,
@@ -299,6 +301,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "AccountNotAllowedCommit": _C.NOT_AUTHORIZED,
     "SpaceLimitExceeded": _C.LIMIT_EXCEEDED,
     "UnexpectedUnreserveLeftover": _C.INTERNAL,
+    "TimelockRevealFailedNotAllowed": _C.INVALID_ARGUMENT,
     # ── AdminUtils ──────────────────────────────────────────────────────
     "SubnetDoesNotExist": _C.SUBNET_NOT_EXISTS,
     "MaxValidatorsLargerThanMaxUIds": _C.INVALID_ARGUMENT,
@@ -316,6 +319,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "POWRegistrationDisabled": _C.DISABLED,
     "CollateralLockShareTooHigh": _C.INVALID_ARGUMENT,
     "CollateralDrainRatioOutOfBounds": _C.INVALID_ARGUMENT,
+    "GrandpaChangeDelayMustBeZero": _C.INVALID_ARGUMENT,
     # ── SafeMode ────────────────────────────────────────────────────────
     "Entered": _C.ALREADY_EXISTS,
     "Exited": _C.ALREADY_EXISTS,
@@ -445,6 +449,14 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ArithmeticOverflow": _C.INTERNAL,
     "DuplicateOrderInBatch": _C.INVALID_ARGUMENT,
     "ZeroShareInBatch": _C.INVALID_ARGUMENT,
+    "NoLinkedOutput": _C.NOT_FOUND,
+    "LinkedOutputSignerMismatch": _C.INVALID_ARGUMENT,
+    "LinkedOutputAssetMismatch": _C.INVALID_ARGUMENT,
+    "LinkedOutputExpired": _C.EXPIRED,
+    "LinkedAmountResolvedToZero": _C.INVALID_ARGUMENT,
+    "PartialFillNotSupportedForLinkedAmount": _C.INVALID_ARGUMENT,
+    "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
+    "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

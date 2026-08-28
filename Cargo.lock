@@ -121,6 +121,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
 dependencies = [
  "cfg-if",
+ "const-random",
  "getrandom 0.3.3",
  "once_cell",
  "version_check",
@@ -4431,7 +4432,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6039,8 +6040,6 @@ version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
 dependencies = [
- "allocator-api2",
- "equivalent",
  "foldhash 0.2.0",
  "serde",
 ]
@@ -6754,7 +6753,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
 dependencies = [
  "equivalent",
- "hashbrown 0.16.0",
+ "hashbrown 0.15.5",
  "serde",
  "serde_core",
 ]
@@ -7269,24 +7268,26 @@ dependencies = [
 
 [[package]]
 name = "lencode"
-version = "0.1.6"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83dc280ed78264020f986b2539e6a44e0720f98f66c99a48a2f52e4a441e99d8"
+checksum = "333212e14789d230ad297599d2dbf3911cd80d9d70a6a8261bbc81a0f3a89bea"
 dependencies = [
+ "ahash 0.8.12",
  "endian-cast",
  "generic-array 1.3.5",
- "hashbrown 0.16.0",
+ "hashbrown 0.13.2",
  "lencode-macros",
  "newt-hype",
  "ruint",
+ "smallbox",
  "zstd-safe 7.2.4",
 ]
 
 [[package]]
 name = "lencode-macros"
-version = "0.1.6"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c57df14b9005d1e4e8e56436e922e2c046ad0be55d7cfb062a303714857508"
+checksum = "1067b997075d866aeabca5db72a2c48d94430ec93b14e336fe17ee3f46016268"
 dependencies = [
  "proc-macro-crate 3.4.0",
  "proc-macro2",
@@ -9067,7 +9068,7 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77e878c846a8abae00dd069496dbe8751b16ac1c3d6bd2a7283a938e8228f90d"
 dependencies = [
- "proc-macro-crate 3.4.0",
+ "proc-macro-crate 1.1.3",
  "proc-macro2",
  "quote",
  "syn 2.0.106",
@@ -14990,7 +14991,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -15136,8 +15137,8 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "safe-bigmath"
-version = "0.4.1"
-source = "git+https://github.com/sam0x17/safe-bigmath?rev=013c49984910e1c9a23289e8c85e7a856e263a02#013c49984910e1c9a23289e8c85e7a856e263a02"
+version = "0.4.2"
+source = "git+https://github.com/sam0x17/safe-bigmath?rev=c37eadb7bfafea2ba4d5bf23d58beb4fcd12825b#c37eadb7bfafea2ba4d5bf23d58beb4fcd12825b"
 dependencies = [
  "lencode",
  "num-bigint",
@@ -17220,6 +17221,12 @@ checksum = "dbff4acf519f630b3a3ddcfaea6c06b42174d9a44bc70c620e9ed1649d58b82a"
 dependencies = [
  "version_check",
 ]
+
+[[package]]
+name = "smallbox"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aca054fd9f8c2ebe8557a2433f307e038c0716124efd045daa0388afa5172189"
 
 [[package]]
 name = "smallvec"
@@ -19437,7 +19444,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -21131,7 +21138,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

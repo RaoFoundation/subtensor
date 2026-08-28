@@ -175,6 +175,7 @@ call_filter_group!(
         RuntimeCall::LimitOrders(LimitOrdersCall::execute_batched_orders),
         RuntimeCall::LimitOrders(LimitOrdersCall::cancel_order),
         RuntimeCall::LimitOrders(LimitOrdersCall::set_pallet_status),
+        RuntimeCall::LimitOrders(LimitOrdersCall::prune_linked_output),
     ]
 );
 
@@ -303,6 +304,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::unstake_all),
         RuntimeCall::SubtensorModule(SubtensorCall::unstake_all_alpha),
         RuntimeCall::SubtensorModule(SubtensorCall::move_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::move_stake_limit),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake_limit),
         RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket),
@@ -510,6 +512,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_reveal_weights_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_liquid_alpha_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_alpha_values),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_liquid_alpha_consensus_mode),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_commit_reveal_weights_interval),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_toggle_transfer),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_recycle_or_burn),
@@ -589,6 +592,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_epochs_per_block),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weight_setting_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weights_cap),
     ]
 );
 
