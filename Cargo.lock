@@ -8712,6 +8712,8 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-usd-psm-rpc",
+ "pallet-usd-psm-runtime-api",
  "polkadot-sdk",
  "sc-basic-authorship",
  "sc-chain-spec",
@@ -8794,6 +8796,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "hex",
+ "libsecp256k1",
  "log",
  "pallet-admin-utils",
  "pallet-alpha-assets",
@@ -8842,6 +8845,8 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-usd-psm",
+ "pallet-usd-psm-runtime-api",
  "parity-scale-codec",
  "polkadot-runtime-common",
  "precompile-utils",
@@ -11530,6 +11535,50 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-usd-psm"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "subtensor-macros",
+ "subtensor-runtime-common",
+]
+
+[[package]]
+name = "pallet-usd-psm-rpc"
+version = "0.1.0"
+dependencies = [
+ "jsonrpsee",
+ "pallet-usd-psm-runtime-api",
+ "sp-api",
+ "sp-blockchain",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
+name = "pallet-usd-psm-runtime-api"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-api",
+ "sp-core",
+ "sp-std",
+ "subtensor-macros",
+ "subtensor-runtime-common",
 ]
 
 [[package]]
@@ -18999,6 +19048,7 @@ dependencies = [
  "pallet-subtensor-proxy",
  "pallet-subtensor-swap",
  "pallet-timestamp",
+ "pallet-usd-psm",
  "parity-scale-codec",
  "precompile-utils",
  "scale-info",
@@ -19018,6 +19068,8 @@ dependencies = [
  "approx",
  "environmental",
  "frame-support",
+ "hex",
+ "hex-literal",
  "impl-trait-for-tuples",
  "num-traits",
  "parity-scale-codec",

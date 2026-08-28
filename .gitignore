@@ -91,3 +91,9 @@ sdk/python/dist/
 .github/scripts/deploy/proxy_proxy_blob.hex
 .github/scripts/deploy/pending-release.json
 .github/scripts/deploy/deployment-multisig-proposal.hex
+
+# Canonical rails local rig state and foundry build outputs
+.rails/
+contracts/evm/out/
+contracts/evm/cache/
+contracts/evm/broadcast/

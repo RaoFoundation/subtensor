@@ -28,6 +28,10 @@ runtime-common.workspace = true
 impl-trait-for-tuples.workspace = true
 approx = { workspace = true, optional = true }
 
+[dev-dependencies]
+hex.workspace = true
+hex-literal.workspace = true
+
 [lints]
 workspace = true
 

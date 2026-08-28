@@ -1,0 +1,66 @@
+[
+  {
+    "mainnetNetuid": 1,
+    "name": "Apex",
+    "symbol": "APEX",
+    "description": "Open competitions for algorithmic and agentic optimization",
+    "logo": "https://www.macrocosmos.ai/images/mc_logo_black.png",
+    "url": "https://apex.macrocosmos.ai"
+  },
+  {
+    "mainnetNetuid": 4,
+    "name": "Targon",
+    "symbol": "TARGON",
+    "description": "Incentivized Compute Marketplace powered by the Targon Virtual Machine (TVM).",
+    "logo": "https://www.manifold.inc/favicon.svg",
+    "url": "https://targon.com"
+  },
+  {
+    "mainnetNetuid": 8,
+    "name": "Vanta",
+    "symbol": "VANTA",
+    "description": "The first decentralized & trustless liquidity and execution engine for prop firms and traders",
+    "logo": "https://website-git-ken-vanta-taoshi.vercel.app/black-white.png",
+    "url": "https://www.vantanetwork.io/"
+  },
+  {
+    "mainnetNetuid": 19,
+    "name": "blockmachine",
+    "symbol": "BLOCK",
+    "description": "Harnessing Bittensor's incentive layer to forge self-optimizing infrastructure.",
+    "logo": "https://blockmachine.io/logo.svg",
+    "url": "blockmachine.io"
+  },
+  {
+    "mainnetNetuid": 51,
+    "name": "lium.io",
+    "symbol": "LIUM",
+    "description": "revolutionizing the democratization of compute",
+    "logo": "https://raw.githubusercontent.com/Datura-ai/lium-logos/refs/heads/main/Celium_Icon_FullColor.png",
+    "url": "lium.io"
+  },
+  {
+    "mainnetNetuid": 56,
+    "name": "Gradients",
+    "symbol": "GRAD",
+    "description": "Best AutoML plaftorm in the world",
+    "logo": "https://gradients-public.s3.eu-central-003.backblazeb2.com/gradientslogo.png",
+    "url": "https://www.gradients.io/"
+  },
+  {
+    "mainnetNetuid": 62,
+    "name": "Ridges",
+    "symbol": "RIDGES",
+    "description": "Software Engineering Agents",
+    "logo": "https://www.ridges.ai/logo.png",
+    "url": "https://www.ridges.ai/"
+  },
+  {
+    "mainnetNetuid": 64,
+    "name": "Chutes",
+    "symbol": "CHUTES",
+    "description": "Breakthrough Serverless Compute for AI, At Scale.",
+    "logo": "https://storage.googleapis.com/chutes-random/logo-chutes.png",
+    "url": "https://chutes.ai"
+  }
+]

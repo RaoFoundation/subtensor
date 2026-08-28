@@ -58,6 +58,9 @@ useless_conversion = "allow"     # until polkadot is patched
 
 [workspace.dependencies]
 pallet-alpha-assets = { path = "pallets/alpha-assets", default-features = false }
+pallet-usd-psm = { path = "pallets/usd-psm", default-features = false }
+pallet-usd-psm-runtime-api = { path = "pallets/usd-psm/runtime-api", default-features = false }
+pallet-usd-psm-rpc = { path = "pallets/usd-psm/rpc", default-features = false }
 node-subtensor-runtime = { path = "runtime", default-features = false }
 pallet-admin-utils = { path = "pallets/admin-utils", default-features = false }
 pallet-limit-orders = { path = "pallets/limit-orders", default-features = false }

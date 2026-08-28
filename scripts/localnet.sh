@@ -214,6 +214,10 @@ if [ $BUILD_ONLY -eq 0 ]; then
     done
   }
 
+  # Archive mode keeps historical state queryable. Frontier's eth_getLogs /
+  # eth_getTransactionReceipt read receipts from per-block state, so with the
+  # default 256-block state pruning EVM logs silently disappear after ~4 min,
+  # which breaks anything indexing history (e.g. Hyperlane agents).
   one_start=(
     "$NODE_BINARY"
     --base-path /tmp/one
@@ -226,6 +230,8 @@ if [ $BUILD_ONLY -eq 0 ]; then
     --allow-private-ipv4
     --discover-local
     --unsafe-force-node-key-generation
+    --state-pruning archive
+    --blocks-pruning archive
   )
 
   two_start=(
@@ -240,6 +246,8 @@ if [ $BUILD_ONLY -eq 0 ]; then
     --allow-private-ipv4
     --discover-local
     --unsafe-force-node-key-generation
+    --state-pruning archive
+    --blocks-pruning archive
   )
 
   # Insert //Three keys manually (no --three shorthand exists in Substrate)
@@ -268,6 +276,8 @@ if [ $BUILD_ONLY -eq 0 ]; then
     --allow-private-ipv4
     --discover-local
     --unsafe-force-node-key-generation
+    --state-pruning archive
+    --blocks-pruning archive
   )
 
   # Provide RUN_IN_DOCKER local environment variable if run script in the docker image

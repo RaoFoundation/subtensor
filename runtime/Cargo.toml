@@ -26,6 +26,8 @@ scale-info = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["alloc"] }
 pallet-aura = { workspace = true }
 pallet-alpha-assets = { workspace = true }
+pallet-usd-psm = { workspace = true }
+pallet-usd-psm-runtime-api = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-subtensor = { workspace = true }
 pallet-subtensor-swap = { workspace = true }
@@ -163,6 +165,8 @@ frame-metadata.workspace = true
 sp-tracing.workspace = true
 sp-keyring.workspace = true
 precompile-utils = { workspace = true, features = ["testing"] }
+libsecp256k1 = { workspace = true, features = ["static-context", "hmac"] }
+ethereum = { workspace = true }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -189,6 +193,8 @@ std = [
 	"frame-try-runtime/std",
 	"pallet-subtensor/std",
 	"pallet-alpha-assets/std",
+	"pallet-usd-psm/std",
+	"pallet-usd-psm-runtime-api/std",
 	"pallet-balances/std",
 	"pallet-grandpa/std",
 	"pallet-insecure-randomness-collective-flip/std",

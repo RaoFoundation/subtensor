@@ -72,6 +72,7 @@ frame_support::construct_runtime!(
         Evm: pallet_evm = 12,
         AdminUtils: pallet_admin_utils = 13,
         EVMChainId: pallet_evm_chain_id = 14,
+        UsdPsm: pallet_usd_psm = 16,
     }
 );
 
@@ -384,6 +385,20 @@ mod test_crypto {
 }
 
 impl pallet_evm_chain_id::Config for Runtime {}
+
+parameter_types! {
+    pub const UsdPsmPalletId: PalletId = PalletId(*b"sn/rails");
+}
+
+impl pallet_usd_psm::Config for Runtime {
+    type Currency = Balances;
+    // Staking and outbound dispatch are unavailable in this mock; rails
+    // pipelines are covered by the pallet's own tests.
+    type Staking = ();
+    type Outbound = ();
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type PalletId = UsdPsmPalletId;
+}
 
 impl pallet_admin_utils::Config for Runtime {
     type Aura = ();

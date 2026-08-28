@@ -36,6 +36,7 @@ subtensor-runtime-common.workspace = true
 substrate-fixed.workspace = true
 pallet-subtensor.workspace = true
 pallet-subtensor-swap.workspace = true
+pallet-usd-psm.workspace = true
 pallet-admin-utils.workspace = true
 subtensor-swap-interface.workspace = true
 pallet-crowdloan.workspace = true
@@ -73,6 +74,7 @@ std = [
 	"pallet-scheduler/std",
 	"pallet-subtensor-proxy/std",
 	"pallet-subtensor-swap/std",
+	"pallet-usd-psm/std",
 	"pallet-subtensor/std",
 	"pallet-shield/std",
 	"pallet-timestamp/std",

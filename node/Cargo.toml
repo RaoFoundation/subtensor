@@ -131,6 +131,8 @@ subtensor-custom-rpc = { workspace = true, features = ["std"] }
 subtensor-custom-rpc-runtime-api = { workspace = true, features = ["std"] }
 pallet-subtensor-swap-rpc = { workspace = true, features = ["std"] }
 pallet-subtensor-swap-runtime-api = { workspace = true, features = ["std"] }
+pallet-usd-psm-rpc = { workspace = true }
+pallet-usd-psm-runtime-api = { workspace = true, features = ["std"] }
 subtensor-macros.workspace = true
 
 # Optional global allocator (off by default). Archive nodes serving sustained RPC load show

@@ -1,0 +1,151 @@
+[
+	{
+		"type": "function",
+		"name": "assetErc20",
+		"inputs": [
+			{
+				"name": "assetId",
+				"type": "uint32",
+				"internalType": "uint32"
+			}
+		],
+		"outputs": [
+			{
+				"name": "",
+				"type": "address",
+				"internalType": "address"
+			}
+		],
+		"stateMutability": "view"
+	},
+	{
+		"type": "function",
+		"name": "gatewayExecute",
+		"inputs": [
+			{
+				"name": "amount",
+				"type": "uint64",
+				"internalType": "uint64"
+			},
+			{
+				"name": "envelope",
+				"type": "bytes",
+				"internalType": "bytes"
+			}
+		],
+		"outputs": [],
+		"stateMutability": "nonpayable"
+	},
+	{
+		"type": "function",
+		"name": "nextNonce",
+		"inputs": [],
+		"outputs": [
+			{
+				"name": "",
+				"type": "uint64",
+				"internalType": "uint64"
+			}
+		],
+		"stateMutability": "view"
+	},
+	{
+		"type": "function",
+		"name": "poolState",
+		"inputs": [],
+		"outputs": [
+			{
+				"name": "",
+				"type": "uint64",
+				"internalType": "uint64"
+			},
+			{
+				"name": "",
+				"type": "uint64",
+				"internalType": "uint64"
+			},
+			{
+				"name": "",
+				"type": "uint16",
+				"internalType": "uint16"
+			}
+		],
+		"stateMutability": "view"
+	},
+	{
+		"type": "function",
+		"name": "shareIndexE9",
+		"inputs": [
+			{
+				"name": "netuid",
+				"type": "uint16",
+				"internalType": "uint16"
+			}
+		],
+		"outputs": [
+			{
+				"name": "",
+				"type": "uint64",
+				"internalType": "uint64"
+			}
+		],
+		"stateMutability": "view"
+	},
+	{
+		"type": "function",
+		"name": "simSwapTaoForUsd",
+		"inputs": [
+			{
+				"name": "amountTao",
+				"type": "uint64",
+				"internalType": "uint64"
+			}
+		],
+		"outputs": [
+			{
+				"name": "",
+				"type": "uint64",
+				"internalType": "uint64"
+			}
+		],
+		"stateMutability": "view"
+	},
+	{
+		"type": "function",
+		"name": "simSwapUsdForTao",
+		"inputs": [
+			{
+				"name": "amountUsd",
+				"type": "uint64",
+				"internalType": "uint64"
+			}
+		],
+		"outputs": [
+			{
+				"name": "",
+				"type": "uint64",
+				"internalType": "uint64"
+			}
+		],
+		"stateMutability": "view"
+	},
+	{
+		"type": "function",
+		"name": "tusdBalanceOf",
+		"inputs": [
+			{
+				"name": "account",
+				"type": "bytes32",
+				"internalType": "bytes32"
+			}
+		],
+		"outputs": [
+			{
+				"name": "",
+				"type": "uint64",
+				"internalType": "uint64"
+			}
+		],
+		"stateMutability": "view"
+	}
+]

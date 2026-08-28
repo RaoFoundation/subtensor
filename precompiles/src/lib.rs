@@ -46,6 +46,7 @@ pub use subnet::SubnetPrecompile;
 use subtensor_runtime_common::ProxyType;
 pub use timestamp::TimestampPrecompile;
 pub use uid_lookup::UidLookupPrecompile;
+pub use usd::UsdRailsPrecompile;
 pub use voting_power::VotingPowerPrecompile;
 
 mod address_mapping;
@@ -69,6 +70,7 @@ mod storage_query;
 mod subnet;
 mod timestamp;
 mod uid_lookup;
+mod usd;
 mod voting_power;
 
 #[cfg(test)]
@@ -92,6 +94,7 @@ where
         + pallet_shield::Config
         + pallet_subtensor_proxy::Config
         + pallet_timestamp::Config
+        + pallet_usd_psm::Config
         + Send
         + Sync
         + scale_info::TypeInfo,
@@ -137,6 +140,7 @@ where
         + pallet_shield::Config
         + pallet_subtensor_proxy::Config
         + pallet_timestamp::Config
+        + pallet_usd_psm::Config
         + Send
         + Sync
         + scale_info::TypeInfo,
@@ -165,7 +169,7 @@ where
         Self(Default::default())
     }
 
-    pub fn used_addresses() -> [H160; 33] {
+    pub fn used_addresses() -> [H160; 34] {
         [
             hash(1),
             hash(2),
@@ -200,6 +204,7 @@ where
             hash(TimestampPrecompile::<R>::INDEX),
             hash(RuntimeConfigurationPrecompile::<R>::INDEX),
             hash(PrecompileRegistry::<R>::INDEX),
+            hash(UsdRailsPrecompile::<R>::INDEX),
         ]
     }
 }
@@ -219,6 +224,7 @@ where
         + pallet_shield::Config
         + pallet_subtensor_proxy::Config
         + pallet_timestamp::Config
+        + pallet_usd_psm::Config
         + Send
         + Sync
         + scale_info::TypeInfo,
@@ -340,6 +346,9 @@ where
                     PrecompileEnum::PrecompileRegistry,
                 )
             }
+            a if a == hash(UsdRailsPrecompile::<R>::INDEX) => {
+                UsdRailsPrecompile::<R>::try_execute::<R>(handle, PrecompileEnum::UsdRails)
+            }
             _ => None,
         }
     }
@@ -394,6 +403,7 @@ mod address_and_selector_tests {
         assert_eq!(TimestampPrecompile::<Runtime>::INDEX, 2065);
         assert_eq!(RuntimeConfigurationPrecompile::<Runtime>::INDEX, 2066);
         assert_eq!(PrecompileRegistry::<Runtime>::INDEX, 2067);
+        assert_eq!(UsdRailsPrecompile::<Runtime>::INDEX, 2068);
     }
 
     #[test]
@@ -417,6 +427,7 @@ mod address_and_selector_tests {
             (PrecompileEnum::Timestamp, 15),
             (PrecompileEnum::RuntimeConfiguration, 16),
             (PrecompileEnum::PrecompileRegistry, 17),
+            (PrecompileEnum::UsdRails, 18),
         ];
 
         for (variant, expected_index) in variants {
@@ -502,6 +513,21 @@ mod address_and_selector_tests {
                 "getPrecompileStatus(address,bytes4)"
             ))
         );
+        for signature in [
+            "gatewayExecute(uint64,bytes)",
+            "simSwapUsdForTao(uint64)",
+            "simSwapTaoForUsd(uint64)",
+            "tusdBalanceOf(bytes32)",
+            "poolState()",
+            "assetErc20(uint32)",
+            "shareIndexE9(uint16)",
+            "nextNonce()",
+        ] {
+            assert!(
+                usd::UsdRailsPrecompileCall::<Runtime>::supports_selector(selector_u32(signature)),
+                "missing UsdRails selector {signature}"
+            );
+        }
     }
 
     #[test]
