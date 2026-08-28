@@ -55,19 +55,14 @@ impl<T: Config> Pallet<T> {
     /// alpha only — basket holdings are untouched). Root replacement calls this after
     /// dropping membership so churn cannot leave permanent straggler rows.
     ///
-    /// Returns `(work, last_key)`: the approximate quote work done (scan-priced into claim
-    /// weights by `root_claim_for_hotkey`) and the raw storage key of the hotkey's last
-    /// queue entry, which the drain stores as its cursor so a hotkey whose credits are all
-    /// deferred dust still gets skipped past instead of pinning the queue head.
+    /// Returns `(work, last_key, completed)`: the approximate quote work done (scan-priced
+    /// into claim weights by `root_claim_for_hotkey`), the raw storage key of the hotkey's
+    /// last queue entry, and whether every credit selected for this flush was settled. The
+    /// drain stores `last_key` as its cursor so a hotkey whose credits are all deferred dust
+    /// still gets skipped past instead of pinning the queue head.
     pub(crate) fn flush_basket_deposits_for_hotkey(
         hotkey: &T::AccountId,
-    ) -> (u64, Option<Vec<u8>>) {
-        // While the seed migration owns the basket maps every deposit waits. Epoch credits may
-        // accumulate in the pending queue, which starts draining after the cursor clears.
-        if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
-            return (0, None);
-        }
-
+    ) -> (u64, Option<Vec<u8>>, bool) {
         let threshold: u64 =
             RootClaimableThreshold::<T>::get(NetUid::ROOT).saturating_to_num::<u64>();
         let on_root = Self::is_hotkey_registered_on_network(NetUid::ROOT, hotkey);
@@ -104,7 +99,7 @@ impl<T: Config> Pallet<T> {
             last_netuid.map(|netuid| PendingBasketDeposits::<T>::hashed_key_for(hotkey, netuid));
 
         if batch.is_empty() {
-            return (work, last_key);
+            return (work, last_key, true);
         }
         for (netuid, _) in batch.iter() {
             PendingBasketDeposits::<T>::remove(hotkey, netuid);
@@ -113,7 +108,10 @@ impl<T: Config> Pallet<T> {
         }
 
         work = work.saturating_add(Self::deposit_root_alpha_batch(hotkey, &batch));
-        (work, last_key)
+        let completed = batch
+            .iter()
+            .all(|(netuid, _)| !PendingBasketDeposits::<T>::contains_key(hotkey, netuid));
+        (work, last_key, completed)
     }
 
     /// The per-block queue drain: flush exactly one queued hotkey per block, round-robin
@@ -144,7 +142,7 @@ impl<T: Config> Pallet<T> {
         };
         drop(keys);
 
-        let (_work, last_key) = Self::flush_basket_deposits_for_hotkey(&hotkey);
+        let (_work, last_key, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         match last_key {
             Some(last_key) => {
                 PendingBasketFlushCursor::<T>::put(last_key);
@@ -197,10 +195,12 @@ impl<T: Config> Pallet<T> {
     /// fund's own cash yield accrues to existing share holders through N/P instead of
     /// leaking to root stakers as free shares.
     ///
-    /// The whole operation is transactional: if any swap fails (or the deposit is dust), it is
-    /// rolled back and the original alpha is re-queued for a later flush (multi-credit batches
-    /// split into per-origin retries first). Dividends are recycled only when the validator
-    /// has no root stake to apportion against.
+    /// The whole operation is transactional. Unknown swap/accounting failures (or a dust mint)
+    /// roll back and re-queue the original alpha for a later flush, with multi-credit batches
+    /// split into per-origin retries first. A terminally shallow origin credit is recycled, and
+    /// a terminally shallow destination slice is retained as root cash, so one garbage subnet
+    /// cannot pin the hotkey's queue indefinitely. Dividends are also recycled when the
+    /// validator has no root stake to apportion against.
     ///
     /// Protocol-flow accounting is symmetric with redemption: the origin sell is booked as an
     /// outflow on the origin subnet and each redistribution buy as an inflow on its dest subnet,
@@ -228,8 +228,9 @@ impl<T: Config> Pallet<T> {
     /// batch. The batch is transactional as a whole; on soft failure a multi-credit batch
     /// splits into per-origin retries so one borked origin cannot sink healthy credits, and
     /// any credit that still fails is re-queued for a later flush (it may merge with future
-    /// dividends and become depositable). Credits are recycled only when demonstrably
-    /// unapportionable (no root stake) or when the seed migration owns the basket maps.
+    /// dividends and become depositable). Credits are recycled when demonstrably
+    /// unapportionable (no root stake), terminally untradeable, or when the seed migration owns
+    /// the basket maps.
     ///
     /// Returns the approximate quote work performed (holdings valued plus origin quotes),
     /// scan-priced into claim weights by callers that flush inside an extrinsic.
@@ -402,27 +403,51 @@ impl<T: Config> Pallet<T> {
         // Minting against this pre-sale baseline (with value_added = final − pre-sale) makes
         // the deposit bear that sale impact instead of taxing existing shareholders. A
         // non-positive transformation fails the dust check in the mint and rolls back.
-        let pre_sale_nav: u64 = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+        let pre_sale_nav: u64 = Self::try_get_validator_basket_nav_tao(hotkey)?;
 
         // 1. Sell each origin credit for TAO, booked as protocol outflow (TAO left that
         // origin pool).
         let mut tao_total: u64 = 0;
+        let mut sold_any = false;
         for (origin_netuid, root_alpha) in batch {
             if root_alpha.is_zero() {
                 continue;
             }
-            let tao: TaoBalance = Self::swap_alpha_for_tao(
-                *origin_netuid,
-                *root_alpha,
-                T::SwapInterface::min_price::<TaoBalance>(),
-                true,
-            )?
-            .amount_paid_out;
+            match Self::try_realizable_tao_for_alpha(*origin_netuid, root_alpha.to_u64())? {
+                Some(_) => {}
+                None => {
+                    // This dividend cannot be sold on a terminally shallow origin. Recycling
+                    // the still-unassigned credit is preferable to pinning every later flush
+                    // for this hotkey behind the bad subnet.
+                    Self::recycle_subnet_alpha(*origin_netuid, *root_alpha);
+                    continue;
+                }
+            }
+            let tao = match Self::swap_basket_alpha_for_tao_chunks(*origin_netuid, *root_alpha) {
+                Ok(tao) => tao,
+                Err(err)
+                    if T::SwapInterface::classify_failure(&err)
+                        == subtensor_swap_interface::SwapFailureKind::TerminalLiquidity =>
+                {
+                    // The chunk helper is atomic, so a late terminal failure leaves the
+                    // entire credit untouched and safe to recycle here.
+                    Self::recycle_subnet_alpha(*origin_netuid, *root_alpha);
+                    continue;
+                }
+                Err(err) => return Err(err),
+            };
+            sold_any = true;
             Self::record_protocol_outflow(*origin_netuid, tao);
             if *origin_netuid != funding_netuid && !origin_netuid.is_root() {
                 Self::transfer_tao_from_subnet(*origin_netuid, &root_account, tao.into())?;
             }
             tao_total = tao_total.saturating_add(tao.to_u64());
+        }
+
+        // A batch made exclusively of terminal garbage has been disposed of successfully;
+        // there is no value against which to mint fund shares.
+        if !sold_any {
+            return Ok(());
         }
 
         // 2. Deploy the TAO across the basket per the weight vector. `deploy_tao_into_basket`
@@ -472,9 +497,10 @@ impl<T: Config> Pallet<T> {
         escrow_root: u64,
     ) -> DispatchResult {
         let escrow = Self::get_beta_escrow_account_id();
-        let nav_before: u64 = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+        let nav_before: u64 = Self::try_get_validator_basket_nav_tao(hotkey)?;
 
         let mut value_added: u64 = 0;
+        let mut accumulated_any = false;
         for (origin_netuid, root_alpha) in batch {
             if root_alpha.is_zero() {
                 continue;
@@ -482,7 +508,17 @@ impl<T: Config> Pallet<T> {
             let held_before: u64 =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, *origin_netuid)
                     .to_u64();
-            let origin_before: u64 = Self::realizable_tao_for_alpha(*origin_netuid, held_before);
+            let origin_before =
+                match Self::try_realizable_tao_for_alpha(*origin_netuid, held_before)? {
+                    Some(value) => value,
+                    None => {
+                        // Do not add fresh dividends to a holding which is already terminally
+                        // untradeable. The credit has not been assigned to a staker yet, so recycle
+                        // it rather than manufacturing shares with a zero mark.
+                        Self::recycle_subnet_alpha(*origin_netuid, *root_alpha);
+                        continue;
+                    }
+                };
 
             Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                 hotkey,
@@ -495,10 +531,30 @@ impl<T: Config> Pallet<T> {
             let held_after: u64 =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, *origin_netuid)
                     .to_u64();
-            value_added = value_added.saturating_add(
-                Self::realizable_tao_for_alpha(*origin_netuid, held_after)
-                    .saturating_sub(origin_before),
-            );
+            let origin_after = match Self::try_realizable_tao_for_alpha(*origin_netuid, held_after)?
+            {
+                Some(value) => value,
+                None => {
+                    // Adding the credit crossed into terminal territory. Undo only the amount
+                    // actually assigned to the holding, recycle the whole unassigned credit,
+                    // and leave the pre-existing position untouched.
+                    let assigned = held_after.saturating_sub(held_before);
+                    Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+                        hotkey,
+                        &escrow,
+                        *origin_netuid,
+                        assigned.into(),
+                    );
+                    Self::recycle_subnet_alpha(*origin_netuid, *root_alpha);
+                    continue;
+                }
+            };
+            accumulated_any = true;
+            value_added = value_added.saturating_add(origin_after.saturating_sub(origin_before));
+        }
+
+        if !accumulated_any {
+            return Ok(());
         }
 
         Self::mint_basket_dividend_shares(hotkey, nav_before, value_added, total_root, escrow_root)

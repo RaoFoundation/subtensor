@@ -3,10 +3,12 @@
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
-    Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
+    BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
+    DefaultMinRootClaimAmount, Error, Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded,
+    NumStakingColdkeys, PendingBasketDeposits, RootAlphaDividendsPerSubnet, RootClaimableThreshold,
     StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetMovingPrice,
-    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -16,7 +18,7 @@ use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::collections::btree_set::BTreeSet;
-use substrate_fixed::types::{I96F32, U64F64};
+use substrate_fixed::types::{I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance, Token};
 
 // =============================================================================
@@ -440,6 +442,109 @@ fn test_root_basket_accumulates_in_place_without_weights() {
         assert!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey) > 0,
             "staker must accrue fund shares"
+        );
+    });
+}
+
+#[test]
+fn test_subnet_owner_root_validator_dividend_is_basketed_and_claimable() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1101);
+        let owner_hotkey = U256::from(1102);
+        let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+        zero_claim_threshold();
+
+        // Model the reported identity collision explicitly: this single hotkey owns the
+        // subnet, is a neuron on that subnet, and is also a root validator. Owner immunity
+        // applies to its miner incentive, but must not apply to its Root Reborn dividend.
+        register_on_root(&owner_hotkey, 0);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), owner_hotkey);
+        assert!(Uids::<Test>::contains_key(netuid, owner_hotkey));
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, owner_hotkey));
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &owner_hotkey,
+            &owner_coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        // Use zero validator take so the complete Root Reborn dividend belongs to the
+        // root staker and the basket-side accounting can be asserted exactly.
+        crate::Delegates::<Test>::insert(owner_hotkey, sp_runtime::PerU16::from_parts(0));
+
+        let miner_incentive = 100_000u64;
+        let root_reborn_dividend = 1_000_000u64;
+        let issued =
+            SubtensorModule::mint_alpha(netuid, (miner_incentive + root_reborn_dividend).into());
+        SubtensorModule::resolve_to_alpha_out(issued);
+
+        let burned_before = pallet_alpha_assets::AlphaBurned::<Test>::get(netuid);
+        let recycled_before = pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid);
+
+        let mut incentives = alloc::collections::BTreeMap::new();
+        incentives.insert(owner_hotkey, miner_incentive.into());
+        let mut root_dividends = alloc::collections::BTreeMap::new();
+        root_dividends.insert(owner_hotkey, U96F32::from_num(root_reborn_dividend));
+
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            incentives,
+            alloc::collections::BTreeMap::new(),
+            root_dividends,
+        );
+
+        // This is the distinction the bug report misses: the owner-directed miner incentive
+        // is burned by the owner-immunity rule, while the Root Reborn dividend is preserved
+        // verbatim in the pending basket queue.
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            burned_before.saturating_add(miner_incentive.into())
+        );
+        assert_eq!(
+            pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid),
+            recycled_before
+        );
+        assert_eq!(
+            RootAlphaDividendsPerSubnet::<Test>::get(netuid, owner_hotkey),
+            root_reborn_dividend.into()
+        );
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(owner_hotkey, netuid),
+            root_reborn_dividend.into()
+        );
+
+        flush_baskets();
+
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(owner_hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            escrow_alpha(&owner_hotkey, netuid),
+            root_reborn_dividend,
+            "the owner's Root Reborn dividend must enter basket custody, not burn"
+        );
+        assert!(fund_shares(&owner_hotkey) > 0);
+        assert!(
+            SubtensorModule::get_basket_owed_shares(&owner_hotkey, &owner_coldkey) > 0,
+            "the owner coldkey must receive a claimable basket entitlement"
+        );
+
+        let root_stake_before = root_stake_of(&owner_hotkey, &owner_coldkey);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(owner_coldkey),
+            owner_hotkey
+        ));
+        assert!(root_stake_of(&owner_hotkey, &owner_coldkey) > root_stake_before);
+        assert!(BasketRedeemedTao::<Test>::get(owner_hotkey) > 0.into());
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            burned_before.saturating_add(miner_incentive.into()),
+            "claiming the Root Reborn dividend must not add to burned alpha"
         );
     });
 }
@@ -3396,6 +3501,135 @@ fn test_root_basket_mixed_forfeit_claim_burns_nothing() {
         assert_eq!(escrow_alpha(&hotkey, netuid), alpha_before);
         assert_eq!(root_stake_of(&hotkey, &alice), alice_root_before);
         assert_eq!(BasketClaimed::<Test>::get(hotkey, alice), 0);
+    });
+}
+
+/// One terminally shallow subnet must not block redemption of the rest of a validator's
+/// basket. The claimant's exact pro-rata garbage slice is written off while the executable
+/// holding pays normally, leaving the same garbage-per-share ratio for the next holder.
+#[test]
+fn test_root_basket_claim_writes_off_only_claimants_terminal_garbage_slice() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let alice = U256::from(1003);
+        let bob = U256::from(1004);
+        let healthy = add_dynamic_network(&hotkey, &owner_coldkey);
+        let garbage = add_dynamic_network(&hotkey, &owner_coldkey);
+        remove_owner_registration_stake(healthy);
+        remove_owner_registration_stake(garbage);
+        fund_pool(healthy);
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        // Alpha -> TAO requires the output (TAO) reserve to meet SwapMinimumReserve.
+        // This pool is therefore terminal for sales, independent of the sale amount.
+        SubnetTAO::<Test>::insert(
+            garbage,
+            TaoBalance::from(u64::from(SwapMinimumReserve::get()) - 1),
+        );
+        SubnetAlphaIn::<Test>::insert(garbage, AlphaBalance::from(1_000_000u64));
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            100u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &bob,
+            NetUid::ROOT,
+            100u64.into(),
+        );
+        set_root_weights_direct(&hotkey, 0, &[(healthy, u16::MAX), (garbage, u16::MAX)]);
+
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            healthy,
+            1_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            garbage,
+            1_000u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 200u64);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+
+        let alice_root_before = root_stake_of(&hotkey, &alice);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
+
+        assert!(root_stake_of(&hotkey, &alice) > alice_root_before);
+        assert_eq!(fund_shares(&hotkey), 100);
+        assert_eq!(escrow_alpha(&hotkey, garbage), 500);
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), 100);
+    });
+}
+
+/// A full holding larger than the swap engine's one-call 1000x input-reserve guard is still
+/// executable in reserve-bounded chunks. Its valuation and the money-moving claim must use
+/// the same chunk sequence, rather than treating `SwapInputTooLarge` as a zero-valued slot.
+#[test]
+fn test_root_basket_claim_chunks_oversized_executable_holding() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+        remove_owner_registration_stake(netuid);
+        // A liquid high-price pool keeps ample TAO output reserve even after selling more
+        // than 1000x its alpha input reserve. This isolates the engine's per-call input guard
+        // from a genuinely terminal reserve condition.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000u64));
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(1_000_000_000_000_000u64));
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1u64.into(),
+        );
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+
+        let alpha_reserve = SubnetAlphaIn::<Test>::get(netuid).to_u64();
+        let oversized = alpha_reserve.saturating_mul(1_100);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            oversized.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 1u64);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+
+        assert!(
+            SubtensorModule::try_realizable_tao_for_alpha(netuid, oversized)
+                .expect("oversized quote must not fail")
+                .expect("deep pool is not terminal")
+                > 0
+        );
+        let root_before = root_stake_of(&hotkey, &coldkey);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
+
+        assert!(root_stake_of(&hotkey, &coldkey) > root_before);
+        assert_eq!(escrow_alpha(&hotkey, netuid), 0);
+        assert_eq!(fund_shares(&hotkey), 0);
     });
 }
 

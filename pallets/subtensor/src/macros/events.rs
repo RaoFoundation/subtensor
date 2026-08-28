@@ -803,5 +803,18 @@ mod events {
             /// Validator hotkey whose fund was stamped.
             hotkey: T::AccountId,
         },
+
+        /// A terminally untradeable basket alpha slice was explicitly written off. This is
+        /// distinct from a swap/transfer failure: only a pool too shallow to execute any sale
+        /// is eligible, and removing the exact slice preserves every holder's fund proportion.
+        /// Appended to preserve existing SCALE event indices.
+        BasketAlphaWrittenOff {
+            /// Validator hotkey whose basket held the alpha.
+            hotkey: T::AccountId,
+            /// Subnet whose pool was terminally too shallow.
+            netuid: NetUid,
+            /// Alpha removed from basket custody and recorded as burned.
+            alpha: AlphaBalance,
+        },
     }
 }
