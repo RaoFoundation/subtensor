@@ -2,7 +2,6 @@ use super::*;
 use crate::coinbase::tao::CreditOf;
 use alloc::collections::{BTreeMap, BTreeSet};
 use frame_support::traits::Imbalance;
-use frame_support::weights::Weight;
 use safe_math::*;
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
@@ -22,7 +21,7 @@ macro_rules! tou64 {
 }
 
 impl<T: Config> Pallet<T> {
-    pub fn run_coinbase(block_emission_credit: CreditOf<T>) -> Weight {
+    pub fn run_coinbase(block_emission_credit: CreditOf<T>) {
         // --- 0. Get current block.
         let current_block: u64 = Self::get_current_block_as_u64();
         let block_emission = U96F32::saturating_from_num(block_emission_credit.peek());
@@ -62,13 +61,10 @@ impl<T: Config> Pallet<T> {
         );
 
         // --- 5. Drain pending emissions.
-        let (emissions_to_distribute, owner_transition_weight) =
-            Self::drain_pending_with_weight(&subnets, current_block);
+        let emissions_to_distribute = Self::drain_pending(&subnets, current_block);
 
         // --- 6. Distribute the emissions to the subnets.
         Self::distribute_emissions_to_subnets(&emissions_to_distribute);
-
-        owner_transition_weight
     }
 
     pub fn inject_and_maybe_swap(
@@ -384,22 +380,11 @@ impl<T: Config> Pallet<T> {
         subnets: &[NetUid],
         current_block: u64,
     ) -> BTreeMap<NetUid, (AlphaBalance, AlphaBalance, AlphaBalance, AlphaBalance)> {
-        Self::drain_pending_with_weight(subnets, current_block).0
-    }
-
-    fn drain_pending_with_weight(
-        subnets: &[NetUid],
-        current_block: u64,
-    ) -> (
-        BTreeMap<NetUid, (AlphaBalance, AlphaBalance, AlphaBalance, AlphaBalance)>,
-        Weight,
-    ) {
         // Map of netuid to (pending_server_alpha, pending_validator_alpha, pending_root_alpha, pending_owner_cut).
         let mut emissions_to_distribute: BTreeMap<
             NetUid,
             (AlphaBalance, AlphaBalance, AlphaBalance, AlphaBalance),
         > = BTreeMap::new();
-        let mut owner_transition_weight = Weight::zero();
         // Per-block cap on number of epochs that may run; the rest are deferred 1 block forward
         // by setting `PendingEpochAt`.
         let max_epochs_per_block = Self::get_max_epochs_per_block() as u32;
@@ -467,8 +452,7 @@ impl<T: Config> Pallet<T> {
                 epochs_run_this_block = epochs_run_this_block.saturating_add(1);
 
                 // Change subnet owner based on conviction.
-                owner_transition_weight
-                    .saturating_accrue(Self::change_subnet_owner_if_needed(netuid));
+                Self::change_subnet_owner_if_needed(netuid);
             } else {
                 // Schedule advances below; execution skipped. Pending emissions accumulate
                 // and will be drained by the next successful epoch.
@@ -483,7 +467,7 @@ impl<T: Config> Pallet<T> {
             PendingEpochAt::<T>::insert(netuid, 0);
             SubnetEpochIndex::<T>::mutate(netuid, |idx| *idx = idx.saturating_add(1));
         }
-        (emissions_to_distribute, owner_transition_weight)
+        emissions_to_distribute
     }
 
     pub fn distribute_emissions_to_subnets(

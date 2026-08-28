@@ -1,11 +1,10 @@
 use super::*;
-use frame_support::weights::Weight;
 use substrate_fixed::types::U96F32;
 use subtensor_runtime_common::NetUid;
 
 impl<T: Config + pallet_drand::Config> Pallet<T> {
     /// Executes the necessary operations for each block.
-    pub fn block_step() -> Result<Weight, &'static str> {
+    pub fn block_step() -> Result<(), &'static str> {
         let block_number: u64 = Self::get_current_block_as_u64();
 
         // --- 1. Update registration burn prices.
@@ -18,7 +17,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         // --- 3. Reveal matured weights.
         Self::reveal_crv3_commits();
         // --- 4. Run emission through network.
-        let owner_transition_weight = Self::run_coinbase(block_emission);
+        Self::run_coinbase(block_emission);
         // --- 4b. Flush queued root-dividend basket deposits: one hotkey per block,
         // round-robin. Runs right after coinbase (and before the price EMA update) so a
         // flush lands where the epoch-inline deposits used to happen.
@@ -40,7 +39,7 @@ impl<T: Config + pallet_drand::Config> Pallet<T> {
         }
 
         // Return ok.
-        Ok(owner_transition_weight)
+        Ok(())
     }
 
     fn try_set_pending_children(block_number: u64) {

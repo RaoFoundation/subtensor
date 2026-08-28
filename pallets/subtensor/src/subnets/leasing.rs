@@ -207,8 +207,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::CannotUseSystemAccount
         );
         let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(lease.netuid);
-        let transitioned_members =
-            Self::transition_subnet_owner_lock_aggregates(lease.netuid, &old_owner_hotkey, &hotkey);
+        Self::transition_subnet_owner_lock_aggregates(lease.netuid, &old_owner_hotkey, &hotkey);
         SubnetOwner::<T>::insert(lease.netuid, lease.beneficiary.clone());
         Self::set_subnet_owner_hotkey(lease.netuid, &hotkey)?;
 
@@ -233,14 +232,14 @@ impl<T: Config> Pallet<T> {
 
         // Lease shares exclude the beneficiary, while the benchmark's `k` includes them.
         let contributors_count = clear_result.unique.saturating_add(1);
-        let actual_weight = <T as Config>::WeightInfo::terminate_lease(contributors_count)
-            .saturating_add(<T as Config>::WeightInfo::transition_subnet_owner_locks(
-                transitioned_members,
+        if contributors_count < T::MaxContributors::get() {
+            Ok(Some(<T as Config>::WeightInfo::terminate_lease(
+                contributors_count,
             ))
-            .saturating_add(Self::lease_owner_transition_member_count_weight(
-                transitioned_members,
-            ));
-        Ok(Some(actual_weight).into())
+            .into())
+        } else {
+            Ok(().into())
+        }
     }
 
     /// Hook used when the subnet owner's cut is distributed to split the amount into dividends

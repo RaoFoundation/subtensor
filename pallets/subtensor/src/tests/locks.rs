@@ -3411,30 +3411,12 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
         assert_eq!(SubnetOwner::<Test>::get(netuid), old_owner_coldkey);
         assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), old_owner_hotkey);
 
-        let owner_transition_weight =
-            SubtensorModule::run_coinbase(SubtensorModule::mint_tao(0.into()));
+        SubtensorModule::run_coinbase(SubtensorModule::mint_tao(0.into()));
 
         assert_eq!(SubnetOwner::<Test>::get(netuid), new_owner_coldkey);
         assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), king_hotkey);
         assert_eq!(LastEpochBlock::<Test>::get(netuid), now);
-        assert_eq!(
-            owner_transition_weight,
-            <<Test as crate::Config>::WeightInfo as crate::weights::WeightInfo>::transition_subnet_owner_locks(1),
-        );
     });
-}
-
-#[test]
-fn test_owner_transition_count_lookup_weight_scales_with_members() {
-    let member_count = 7;
-    assert_eq!(
-        SubtensorModule::owner_transition_member_count_weight(member_count),
-        <Test as frame_system::Config>::DbWeight::get().reads(u64::from(member_count) + 3),
-    );
-    assert_eq!(
-        SubtensorModule::lease_owner_transition_member_count_weight(member_count),
-        <Test as frame_system::Config>::DbWeight::get().reads(u64::from(member_count) + 4),
-    );
 }
 
 #[test]
@@ -3637,13 +3619,12 @@ fn test_decaying_owner_is_rolled_as_owner_before_demotion() {
 
         let expected = roll_lock_state(lock, now, unlock_rate, maturity_rate, true, false);
 
-        let transitioned = SubtensorModule::transition_subnet_owner_lock_aggregates(
+        SubtensorModule::transition_subnet_owner_lock_aggregates(
             netuid,
             &old_owner_hotkey,
             &new_owner_hotkey,
         );
 
-        assert_eq!(transitioned, 1);
         assert_eq!(
             Lock::<Test>::get((coldkey, netuid, old_owner_hotkey)),
             Some(expected.clone())

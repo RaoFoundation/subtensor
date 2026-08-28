@@ -23,12 +23,11 @@ mod hooks {
             // queue drained), charging its bounded page into the hook weight.
             let beta_index_sweep_weight = Self::advance_beta_index_sweep_weight();
             match block_step_result {
-                Ok(owner_transition_weight) => {
+                Ok(_) => {
                     // --- If the block step was successful, return the weight.
                     log::debug!("Successfully ran block step.");
                     <<T as Config>::WeightInfo as crate::weights::WeightInfo>::block_step()
                         .saturating_add(hotkey_swap_clean_up_weight)
-                        .saturating_add(owner_transition_weight)
                         .saturating_add(beta_index_sweep_weight)
                 }
                 Err(e) => {
@@ -181,8 +180,6 @@ mod hooks {
                 .saturating_add(migrations::migrate_tao_in_refund_deployment_block::migrate_tao_in_refund_deployment_block::<T>())
                 // Fix lock state left behind by subnet-scoped hotkey swaps.
                 .saturating_add(migrations::migrate_fix_subnet_hotkey_lock_swaps::migrate_fix_subnet_hotkey_lock_swaps::<T>())
-                // Rebuild conviction aggregates after every migration that can rewrite lock rows.
-                .saturating_add(migrations::migrate_rebuild_conviction_aggregates::migrate_rebuild_conviction_aggregates::<T>())
                 // Populate reverse lookup index for EVM address associations.
                 .saturating_add(migrations::migrate_associated_evm_address_index::migrate_associated_evm_address_index::<T>())
                 // Fold deprecated SubnetTaoProvided / SubnetAlphaInProvided residuals into the

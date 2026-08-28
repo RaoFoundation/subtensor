@@ -1762,18 +1762,7 @@ mod dispatches {
         ///
         /// * `hotkey`: The hotkey of the beneficiary to mark as subnet owner hotkey.
         #[pallet::call_index(111)]
-        #[pallet::weight({
-            let member_count =
-                Pallet::<T>::lease_owner_transition_member_count(*lease_id, hotkey);
-            <T as crate::pallet::Config>::WeightInfo::terminate_lease(T::MaxContributors::get())
-                .saturating_add(
-                    <T as crate::pallet::Config>::WeightInfo::transition_subnet_owner_locks(
-                        member_count,
-                    ).saturating_add(
-                        Pallet::<T>::lease_owner_transition_member_count_weight(member_count),
-                    ),
-                )
-        })]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::terminate_lease(T::MaxContributors::get()))]
         pub fn terminate_lease(
             origin: OriginFor<T>,
             lease_id: LeaseId,

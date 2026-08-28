@@ -1974,54 +1974,6 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn transition_subnet_owner_locks(l: Linear<1, 128>) {
-        let netuid = NetUid::from(1);
-        let old_owner_hotkey = account::<T::AccountId>("old_owner", 0, 0);
-        let new_owner_hotkey = account::<T::AccountId>("new_owner", 0, 0);
-        let benchmark_block: BlockNumberFor<T> = 100u32.into();
-
-        Subtensor::<T>::init_new_network(netuid, 1);
-        SubnetOwnerHotkey::<T>::insert(netuid, &old_owner_hotkey);
-        UnlockRate::<T>::put(1);
-        MaturityRate::<T>::put(1);
-        frame_system::Pallet::<T>::set_block_number(benchmark_block);
-
-        for i in 0..l {
-            let coldkey = account::<T::AccountId>("locker", i, 0);
-            let hotkey = if i % 2 == 0 {
-                &old_owner_hotkey
-            } else {
-                &new_owner_hotkey
-            };
-            Subtensor::<T>::insert_lock_state(
-                &coldkey,
-                netuid,
-                hotkey,
-                LockState {
-                    locked_mass: 1_000u64.into(),
-                    conviction: U64F64::from_num(1_000),
-                    last_update: 0,
-                },
-            );
-        }
-
-        #[block]
-        {
-            let transitioned = Subtensor::<T>::transition_subnet_owner_lock_aggregates(
-                netuid,
-                &old_owner_hotkey,
-                &new_owner_hotkey,
-            );
-            assert_eq!(transitioned, l);
-        }
-
-        assert_eq!(
-            Subtensor::<T>::owner_transition_member_count(netuid, &new_owner_hotkey),
-            0
-        );
-    }
-
-    #[benchmark]
     fn update_symbol() {
         let coldkey: T::AccountId = whitelisted_caller();
         let netuid = NetUid::from(1);

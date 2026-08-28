@@ -1,8 +1,6 @@
 use super::*;
-use crate::subnets::leasing::LeaseId;
-use crate::weights::WeightInfo;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use frame_support::weights::{Weight, WeightMeter};
+use frame_support::weights::WeightMeter;
 use pallet_alpha_assets::AlphaAssetsInterface;
 use safe_math::FixedExt;
 use scale_info::TypeInfo;
@@ -611,51 +609,6 @@ impl<T: Config> Pallet<T> {
         let _ = LockingColdkeys::<T>::take((netuid, hotkey, coldkey));
     }
 
-    /// Number of indexed individual locks touched by an ownership transition.
-    ///
-    /// REVIEW NOTE: This scan is intentionally unbounded. Ownership transitions are
-    /// exceptionally rare (expected only a few times per year), and the mainnet scan
-    /// performed for the conviction migration found at most 44 lock rows on one subnet.
-    /// Reviewers should not request a maintained counter or staged transition solely
-    /// because this iterator is unbounded; the deliberate tradeoff is to charge the
-    /// complete member-scaled work instead of adding permanent storage bookkeeping.
-    pub fn owner_transition_member_count(netuid: NetUid, new_owner_hotkey: &T::AccountId) -> u32 {
-        let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
-        let old_owner_members = LockingColdkeys::<T>::iter_prefix((netuid, &old_owner_hotkey))
-            .fold(0u32, |count, _| count.saturating_add(1));
-
-        if &old_owner_hotkey == new_owner_hotkey {
-            return old_owner_members;
-        }
-
-        LockingColdkeys::<T>::iter_prefix((netuid, new_owner_hotkey))
-            .fold(old_owner_members, |count, _| count.saturating_add(1))
-    }
-
-    /// Database cost of looking up an ownership transition's member count before dispatch.
-    pub fn owner_transition_member_count_weight(member_count: u32) -> Weight {
-        // One SubnetOwnerHotkey read, one read per indexed member, and one terminal
-        // read for each of the two LockingColdkeys prefix iterators. This slightly
-        // overcharges the no-op same-hotkey case, which only runs one iterator.
-        T::DbWeight::get().reads(u64::from(member_count).saturating_add(3))
-    }
-
-    /// Number of indexed individual locks touched when terminating a lease.
-    pub fn lease_owner_transition_member_count(
-        lease_id: LeaseId,
-        new_owner_hotkey: &T::AccountId,
-    ) -> u32 {
-        SubnetLeases::<T>::get(lease_id)
-            .map(|lease| Self::owner_transition_member_count(lease.netuid, new_owner_hotkey))
-            .unwrap_or(0)
-    }
-
-    /// Database cost of looking up a lease ownership transition's member count before dispatch.
-    pub fn lease_owner_transition_member_count_weight(member_count: u32) -> Weight {
-        // SubnetLeases plus the ordinary ownership-transition count lookup.
-        T::DbWeight::get().reads(u64::from(member_count).saturating_add(4))
-    }
-
     pub fn account_rejects_locked_alpha(coldkey: &T::AccountId) -> bool {
         AccountFlags::<T>::get(coldkey) & crate::ACCOUNT_FLAGS_ACCEPT_LOCKED_ALPHA != 1
     }
@@ -1252,14 +1205,10 @@ impl<T: Config> Pallet<T> {
         now: u64,
         unlock_rate: u64,
         maturity_rate: u64,
-    ) -> u32 {
-        // Intentionally unbounded: ownership changes are rare, and the full
-        // member-scaled work is charged. See owner_transition_member_count for
-        // the operational rationale and observed mainnet size.
+    ) {
         let coldkeys: Vec<T::AccountId> = LockingColdkeys::<T>::iter_prefix((netuid, hotkey))
             .map(|(coldkey, ())| coldkey)
             .collect();
-        let mut transitioned = 0u32;
 
         for coldkey in coldkeys {
             if !Lock::<T>::contains_key((&coldkey, netuid, hotkey)) {
@@ -1291,11 +1240,7 @@ impl<T: Config> Pallet<T> {
             destination.roll_forward(now, unlock_rate, maturity_rate);
             destination.merge(&contribution);
             Self::save_conviction_model(&coldkey, netuid, hotkey, destination);
-
-            transitioned = transitioned.saturating_add(1);
         }
-
-        transitioned
     }
 
     /// Reclassify canonical individual locks and their aggregate buckets when a
@@ -1309,15 +1254,15 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         old_owner_hotkey: &T::AccountId,
         new_owner_hotkey: &T::AccountId,
-    ) -> u32 {
+    ) {
         let now = Self::get_current_block_as_u64();
         let unlock_rate = UnlockRate::<T>::get();
         let maturity_rate = MaturityRate::<T>::get();
         if old_owner_hotkey == new_owner_hotkey {
-            return 0;
+            return;
         }
 
-        let demoted = Self::transition_hotkey_lock_owner_class(
+        Self::transition_hotkey_lock_owner_class(
             netuid,
             old_owner_hotkey,
             true,
@@ -1326,7 +1271,7 @@ impl<T: Config> Pallet<T> {
             unlock_rate,
             maturity_rate,
         );
-        let promoted = Self::transition_hotkey_lock_owner_class(
+        Self::transition_hotkey_lock_owner_class(
             netuid,
             new_owner_hotkey,
             false,
@@ -1335,8 +1280,6 @@ impl<T: Config> Pallet<T> {
             unlock_rate,
             maturity_rate,
         );
-
-        demoted.saturating_add(promoted)
     }
 
     /// Reassigns subnet ownership to the current lock-conviction leader when the subnet
@@ -1356,7 +1299,7 @@ impl<T: Config> Pallet<T> {
     /// incumbent owner included) supply a challenger's quorum. Gating on the winner's own
     /// conviction closes that path. Coalitions are unaffected: backers lock to the
     /// challenger's hotkey, so their conviction lands in that hotkey's aggregate.
-    pub fn change_subnet_owner_if_needed(netuid: NetUid) -> Weight {
+    pub fn change_subnet_owner_if_needed(netuid: NetUid) {
         // Protocol-owned and burned alpha cannot support a challenger, so exclude both
         // from the ownership threshold. Saturation keeps inconsistent accounting from
         // wrapping the threshold to a very large value.
@@ -1364,20 +1307,20 @@ impl<T: Config> Pallet<T> {
             .saturating_sub(SubnetProtocolAlpha::<T>::get(netuid))
             .saturating_sub(T::AlphaAssets::alpha_burned(netuid));
         if eligible_alpha.is_zero() {
-            return Weight::zero();
+            return;
         }
 
         // Ownership can only be reassigned after the subnet has aged for one year.
         let now = Self::get_current_block_as_u64();
         let registered_at = NetworkRegisteredAt::<T>::get(netuid);
         if now < registered_at.saturating_add(ONE_YEAR) {
-            return Weight::zero();
+            return;
         }
 
         // Pick the hotkey with the highest rolled aggregate conviction, keeping the
         // score that selection already computed.
         let Some((king_hotkey, king_conviction)) = Self::subnet_king_with_conviction(netuid) else {
-            return Weight::zero();
+            return;
         };
 
         // Require that hotkey's own rolled aggregate conviction to be more than 18% of
@@ -1396,19 +1339,19 @@ impl<T: Config> Pallet<T> {
             .saturating_mul(sp_core::U256::from(18u64))
             .saturating_mul(one);
         if lhs <= rhs {
-            return Weight::zero();
+            return;
         }
 
         // The king hotkey must resolve to a real coldkey owner.
         let new_owner_coldkey = Self::get_owning_coldkey_for_hotkey(&king_hotkey);
         if new_owner_coldkey == DefaultAccount::<T>::get() {
-            return Weight::zero();
+            return;
         }
 
         // If the winning hotkey already belongs to the current owner, nothing changes.
         let current_owner_coldkey = SubnetOwner::<T>::get(netuid);
         if new_owner_coldkey == current_owner_coldkey {
-            return Weight::zero();
+            return;
         }
         let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
 
@@ -1416,11 +1359,10 @@ impl<T: Config> Pallet<T> {
         if Self::get_uid_for_net_and_hotkey(netuid, &king_hotkey).is_err()
             && Self::register_neuron(netuid, &king_hotkey).is_err()
         {
-            return Weight::zero();
+            return;
         }
 
-        let transitioned_members =
-            Self::transition_subnet_owner_lock_aggregates(netuid, &old_owner_hotkey, &king_hotkey);
+        Self::transition_subnet_owner_lock_aggregates(netuid, &old_owner_hotkey, &king_hotkey);
 
         // Reassign subnet owner coldkey and owner hotkey.
         SubnetOwner::<T>::insert(netuid, new_owner_coldkey.clone());
@@ -1431,8 +1373,6 @@ impl<T: Config> Pallet<T> {
             old_coldkey: current_owner_coldkey,
             new_coldkey: new_owner_coldkey,
         });
-
-        <T as Config>::WeightInfo::transition_subnet_owner_locks(transitioned_members)
     }
 
     /// Ensure the coldkey does not have an active lock on any subnets.

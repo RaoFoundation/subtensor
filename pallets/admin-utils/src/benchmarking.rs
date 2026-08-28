@@ -636,21 +636,14 @@ mod benchmarks {
     #[benchmark]
     fn sudo_set_sn_owner_hotkey() {
         let netuid = NetUid::from(1);
-        let old_hotkey: T::AccountId = account("OldOwner", 0, 1);
         let hotkey: T::AccountId = account("Alice", 0, 1);
 
         pallet_subtensor::Pallet::<T>::init_new_network(
             netuid, 1u16, // tempo
         );
-        pallet_subtensor::SubnetOwnerHotkey::<T>::insert(netuid, &old_hotkey);
 
         #[extrinsic_call]
-        _(RawOrigin::Root, netuid, hotkey.clone());
-
-        assert_eq!(
-            pallet_subtensor::SubnetOwnerHotkey::<T>::get(netuid),
-            hotkey
-        );
+        _(RawOrigin::Root, netuid, hotkey);
     }
 
     #[benchmark]
