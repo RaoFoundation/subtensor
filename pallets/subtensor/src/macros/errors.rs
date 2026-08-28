@@ -372,5 +372,8 @@ mod errors {
         /// destinations. Not enforced while the chain has fewer destinations than the cap
         /// demands.
         RootWeightCapExceeded,
+        /// A queued root-dividend deposit could not be settled. Operations which change
+        /// the hotkey's root claimant base must retry after the deposit becomes executable.
+        BasketDepositPending,
     }
 }

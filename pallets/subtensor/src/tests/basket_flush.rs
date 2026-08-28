@@ -14,13 +14,13 @@ use crate::tests::claim_root::{
 use crate::tests::mock::*;
 use crate::{
     BasketShares, IsNetworkMember, Keys, PendingBasketDeposits, PendingBasketFlushCursor,
-    RootClaimableThreshold, SubnetAlphaOut, Uids,
+    RootClaimableThreshold, SubnetAlphaIn, SubnetAlphaOut, SubnetTAO, Uids,
 };
 use frame_support::assert_ok;
 use sp_core::U256;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::I96F32;
-use subtensor_runtime_common::{NetUid, Token};
+use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 
 /// Storage iteration order of distinct hotkeys currently in the pending-deposit map.
 fn pending_hotkey_order() -> Vec<U256> {
@@ -355,8 +355,9 @@ fn test_flush_happy_path_ops_bounded_for_curated_batch() {
         queue_credit(&hotkey, origin_b, credit_alpha);
 
         reset_basket_op_counters();
-        let (work, _) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
 
+        assert!(completed);
         assert!(fund_shares(&hotkey) > 0);
         assert!(escrow_alpha(&hotkey, dest) > 0);
         assert!(!PendingBasketDeposits::<Test>::contains_key(
@@ -436,8 +437,9 @@ fn test_flush_failure_path_requeues_and_splits() {
             .collect();
 
         reset_basket_op_counters();
-        let (work, _) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        let (work, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
 
+        assert!(!completed);
         assert_eq!(BasketShares::<Test>::get(hotkey), 0);
         for netuid in origins {
             assert_eq!(
@@ -466,6 +468,37 @@ fn test_flush_failure_path_requeues_and_splits() {
         );
         // Pre-deposit removes + re-queue writes after each singleton failure.
         assert_eq!(basket_write_ops(), credits.saturating_mul(2));
+    });
+}
+
+/// A dividend credit from a terminally shallow pool is recycled and removed instead of being
+/// re-queued forever. Because it never entered the fund, no shares or basket holding are minted.
+#[test]
+fn test_flush_terminal_origin_recycles_credit_without_pinning_queue() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let coldkey = U256::from(2001);
+        let hotkey = U256::from(3001);
+        let netuid = setup_root_validator(hotkey, coldkey, 1);
+        let alpha_out_before = SubnetAlphaOut::<Test>::get(netuid);
+
+        // Alpha -> TAO cannot execute once its TAO output reserve is below the engine floor.
+        SubnetTAO::<Test>::insert(
+            netuid,
+            TaoBalance::from(u64::from(SwapMinimumReserve::get()) - 1),
+        );
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000u64));
+        queue_credit(&hotkey, netuid, 1_000u64);
+
+        let (_, _, completed) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+
+        assert!(completed);
+        assert!(!PendingBasketDeposits::<Test>::contains_key(hotkey, netuid));
+        assert_eq!(escrow_alpha(&hotkey, netuid), 0);
+        assert_eq!(BasketShares::<Test>::get(hotkey), 0);
+        assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out_before);
     });
 }
 
