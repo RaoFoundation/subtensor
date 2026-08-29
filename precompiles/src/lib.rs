@@ -247,7 +247,16 @@ where
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
-        match handle.code_address() {
+        let code_address = handle.code_address();
+        if !accepts_foreign_frame(code_address) && code_address != handle.context().address {
+            return Some(Err(PrecompileFailure::Error {
+                exit_status: ExitError::Other(
+                    "Cannot be called with DELEGATECALL or CALLCODE".into(),
+                ),
+            }));
+        }
+
+        match code_address {
             // Ethereum precompiles :
             a if a == hash(1) => Some(ECRecover::execute(handle)),
             a if a == hash(2) => Some(Sha256::execute(handle)),
@@ -356,6 +365,15 @@ fn hash(a: u64) -> H160 {
     H160::from_low_u64_be(a)
 }
 
+/// Stateless cryptographic precompiles may run in another contract's frame.
+/// All other precompiles require a direct call (`code_address == context.address`).
+fn accepts_foreign_frame(address: H160) -> bool {
+    const PURE_MATH: &[u64] = &[1, 2, 3, 4, 5, 7, 8, 9, 1024, 1025];
+    PURE_MATH.iter().any(|&index| address == hash(index))
+        || address == hash(Ed25519Verify::<[u8; 32]>::INDEX)
+        || address == hash(Sr25519Verify::<[u8; 32]>::INDEX)
+}
+
 /*
  *
  * This is used to parse a slice from bytes with PrecompileFailure as Error
@@ -381,9 +399,58 @@ fn parse_slice(data: &[u8], from: usize, to: usize) -> Result<&[u8], PrecompileF
 #[cfg(test)]
 mod address_and_selector_tests {
     use super::*;
-    use crate::mock::{Runtime, selector_u32};
+    use crate::mock::{Runtime, execute_precompile, new_test_ext, selector_u32};
     use alloc::collections::BTreeSet;
     use codec::Encode;
+    use fp_evm::Context;
+    use precompile_utils::testing::MockHandle;
+
+    #[test]
+    fn precompile_set_rejects_mismatched_frame() {
+        new_test_ext().execute_with(|| {
+            let code_address = hash(6);
+            let caller = H160::from_low_u64_be(0xBEEF);
+            let frame_address = H160::from_low_u64_be(0xDEAD);
+            let mut handle = MockHandle::new(
+                code_address,
+                Context {
+                    address: frame_address,
+                    caller,
+                    apparent_value: U256::zero(),
+                },
+            );
+
+            assert_eq!(
+                Precompiles::<Runtime>::new().execute(&mut handle),
+                Some(Err(PrecompileFailure::Error {
+                    exit_status: ExitError::Other(
+                        "Cannot be called with DELEGATECALL or CALLCODE".into(),
+                    ),
+                }))
+            );
+        });
+    }
+
+    #[test]
+    fn precompile_set_accepts_matching_frame() {
+        new_test_ext().execute_with(|| {
+            let result = execute_precompile(
+                &Precompiles::<Runtime>::new(),
+                hash(6),
+                H160::from_low_u64_be(0xBEEF),
+                alloc::vec::Vec::new(),
+                U256::zero(),
+            );
+            assert_ne!(
+                result,
+                Some(Err(PrecompileFailure::Error {
+                    exit_status: ExitError::Other(
+                        "Cannot be called with DELEGATECALL or CALLCODE".into(),
+                    ),
+                }))
+            );
+        });
+    }
 
     #[test]
     fn precompile_addresses_are_unique_and_new_addresses_are_locked() {
