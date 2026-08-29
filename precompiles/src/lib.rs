@@ -165,13 +165,9 @@ where
         Self(Default::default())
     }
 
-    /// Precompiles that sign pallet calls as `context.caller` and can move
-    /// native balance or stake. Direct CALL only.
+    /// Dispatch (`0x06`) signs pallet calls as `context.caller`. Direct CALL only.
     fn requires_direct_call(address: H160) -> bool {
         address == hash(6)
-            || address == hash(BalanceTransferPrecompile::<R>::INDEX)
-            || address == hash(StakingPrecompile::<R>::INDEX)
-            || address == hash(StakingPrecompileV2::<R>::INDEX)
     }
 
     pub fn used_addresses() -> [H160; 33] {
