@@ -248,6 +248,9 @@ where
 {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
         let code_address = handle.code_address();
+        if !Self::used_addresses().contains(&code_address) {
+            return None;
+        }
         if !accepts_foreign_frame(code_address) && code_address != handle.context().address {
             return Some(Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other(
@@ -449,6 +452,24 @@ mod address_and_selector_tests {
                     ),
                 }))
             );
+        });
+    }
+
+    #[test]
+    fn precompile_set_returns_none_for_unknown_address() {
+        new_test_ext().execute_with(|| {
+            let unknown = H160::from_low_u64_be(0x1111);
+            let frame_address = H160::from_low_u64_be(0xDEAD);
+            let mut handle = MockHandle::new(
+                unknown,
+                Context {
+                    address: frame_address,
+                    caller: H160::from_low_u64_be(0xBEEF),
+                    apparent_value: U256::zero(),
+                },
+            );
+
+            assert_eq!(Precompiles::<Runtime>::new().execute(&mut handle), None);
         });
     }
 
