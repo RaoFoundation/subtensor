@@ -165,6 +165,15 @@ where
         Self(Default::default())
     }
 
+    /// Precompiles that sign pallet calls as `context.caller` and can move
+    /// native balance or stake. Direct CALL only.
+    fn requires_direct_call(address: H160) -> bool {
+        address == hash(6)
+            || address == hash(BalanceTransferPrecompile::<R>::INDEX)
+            || address == hash(StakingPrecompile::<R>::INDEX)
+            || address == hash(StakingPrecompileV2::<R>::INDEX)
+    }
+
     pub fn used_addresses() -> [H160; 33] {
         [
             hash(1),
@@ -251,7 +260,7 @@ where
         if !Self::used_addresses().contains(&code_address) {
             return None;
         }
-        if !accepts_foreign_frame(code_address) && code_address != handle.context().address {
+        if Self::requires_direct_call(code_address) && code_address != handle.context().address {
             return Some(Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other(
                     "Cannot be called with DELEGATECALL or CALLCODE".into(),
@@ -368,15 +377,6 @@ fn hash(a: u64) -> H160 {
     H160::from_low_u64_be(a)
 }
 
-/// Stateless cryptographic precompiles may run in another contract's frame.
-/// All other precompiles require a direct call (`code_address == context.address`).
-fn accepts_foreign_frame(address: H160) -> bool {
-    const PURE_MATH: &[u64] = &[1, 2, 3, 4, 5, 7, 8, 9, 1024, 1025];
-    PURE_MATH.iter().any(|&index| address == hash(index))
-        || address == hash(Ed25519Verify::<[u8; 32]>::INDEX)
-        || address == hash(Sr25519Verify::<[u8; 32]>::INDEX)
-}
-
 /*
  *
  * This is used to parse a slice from bytes with PrecompileFailure as Error
@@ -452,6 +452,31 @@ mod address_and_selector_tests {
                     ),
                 }))
             );
+        });
+    }
+
+    #[test]
+    fn precompile_set_allows_foreign_frame_for_view_precompile() {
+        new_test_ext().execute_with(|| {
+            let code_address = hash(TimestampPrecompile::<Runtime>::INDEX);
+            let mut handle = MockHandle::new(
+                code_address,
+                Context {
+                    address: H160::from_low_u64_be(0xDEAD),
+                    caller: H160::from_low_u64_be(0xBEEF),
+                    apparent_value: U256::zero(),
+                },
+            );
+            let result = Precompiles::<Runtime>::new().execute(&mut handle);
+            assert_ne!(
+                result,
+                Some(Err(PrecompileFailure::Error {
+                    exit_status: ExitError::Other(
+                        "Cannot be called with DELEGATECALL or CALLCODE".into(),
+                    ),
+                }))
+            );
+            assert!(result.is_some());
         });
     }
 
