@@ -21,7 +21,7 @@ the pure proxy and anything it holds.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `proxy_type` | string | no | Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. |
+| `proxy_type` | string | no | Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, SetRootWeights. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. SetRootWeights permits only set_root_weights. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers. |
 | `delay` | integer | no | Announcement delay in blocks: the delegate must announce each call and wait this long before executing it, giving you time to veto. 0 executes immediately. |
 | `index` | integer | no | Disambiguator so one signer can create several pure proxies in one block; also part of the derived address. Keep 0 unless batching. |
 
