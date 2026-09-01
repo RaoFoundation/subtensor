@@ -15,6 +15,8 @@ import getpass
 import os
 import sys
 
+from ._live import pause_live_display
+
 if sys.platform == "win32":
     import msvcrt
 else:
@@ -31,16 +33,18 @@ def masked_input(prompt: str) -> str:
     """Read a secret from the terminal, echoing ``*`` per character.
 
     The prompt and echo go to stderr so redirected stdout stays clean,
-    matching how the CLI prompts elsewhere.
+    matching how the CLI prompts elsewhere. A live CLI spinner is paused
+    for the duration so each ``*`` stays on one line.
     """
-    if not sys.stdin.isatty():
-        return getpass.getpass(prompt)
-    if sys.platform == "win32":
-        return _masked_input_windows(prompt)
-    try:
-        return _masked_input_posix(prompt)
-    except (termios.error, OSError):
-        return getpass.getpass(prompt)
+    with pause_live_display():
+        if not sys.stdin.isatty():
+            return getpass.getpass(prompt)
+        if sys.platform == "win32":
+            return _masked_input_windows(prompt)
+        try:
+            return _masked_input_posix(prompt)
+        except (termios.error, OSError):
+            return getpass.getpass(prompt)
 
 
 def _erase_stars(count: int) -> None:

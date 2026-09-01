@@ -351,10 +351,10 @@ mod errors {
         /// (measured from the last root stake add/remove/claim for that coldkey/hotkey) and
         /// cannot leave root yet. Prevents epoch-boundary just-in-time dividend sniping.
         RootStakeLocked,
-        /// The `migrate_seed_beta_basket_v2` seed or its per-hotkey deferred-dividend release
-        /// has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps,
-        /// and root stake add/remove/transfer/swap are paused until it finishes so snapshotted
-        /// conversion cannot desync from live stake (`Σ owed == BasketShares`).
+        /// The `migrate_seed_beta_basket_v2` seed has not completed. Basket deposits, claims,
+        /// coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are
+        /// paused until it finishes so snapshotted conversion cannot desync from live stake
+        /// (`Σ owed == BasketShares`).
         BetaBasketSeedInProgress,
         /// `set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`]
         /// is false). Root Reborn launches gated: every fund runs the null strategy
@@ -372,5 +372,8 @@ mod errors {
         /// destinations. Not enforced while the chain has fewer destinations than the cap
         /// demands.
         RootWeightCapExceeded,
+        /// A queued root-dividend deposit could not be settled. Operations which change
+        /// the hotkey's root claimant base must retry after the deposit becomes executable.
+        BasketDepositPending,
     }
 }

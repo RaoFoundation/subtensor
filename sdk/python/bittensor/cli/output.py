@@ -28,6 +28,7 @@ from rich.theme import Theme
 from rich.tree import Tree
 
 from .. import config as cfg
+from .._live import guard_rich_input, pause_live_display, reset_live_pause, set_live_pause
 from ..balance import Balance
 from ..error_map import DISPATCH_ERRORS, NAME_TO_CODE
 from ..intents import Plan
@@ -451,7 +452,8 @@ class Output:
         ``indent=4`` nests it under a confirm block's question."""
         question = Text(" " * indent)
         question.append_text(self.linked_prose(prompt))
-        return Confirm.ask(question, console=self._out, default=False)
+        with pause_live_display():
+            return Confirm.ask(question, console=self._out, default=False)
 
     def card_text(self, value: str, *, dim: bool = False, style: str = "") -> Text:
         """A review-row value: linked prose with embedded addresses subordinated.
@@ -619,6 +621,10 @@ class Output:
         Re-entrant: when an activity is already running (a command's phase
         spinner around ``AppContext.run``, which starts its own default one),
         the nested context is a no-op so the outer text stays visible.
+
+        Interactive prompts pause this spinner automatically. A live status
+        line and a password echo share stderr; without the pause, each typed
+        ``*`` is stranded on its own row.
         """
         if self.quiet or self.json_mode or self._activity_depth:
             yield lambda _text, announce=False: None
@@ -631,9 +637,29 @@ class Output:
                     spinner="dots",
                     spinner_style=STYLE_HINT,
                 ) as status:
-                    yield lambda text, announce=False: status.update(
-                        self.linked_prose(text, STYLE_HINT)
-                    )
+                    suspended = 0
+
+                    @contextlib.contextmanager
+                    def _suspend():
+                        nonlocal suspended
+                        suspended += 1
+                        if suspended == 1:
+                            status.stop()
+                        try:
+                            yield
+                        finally:
+                            suspended -= 1
+                            if suspended == 0:
+                                status.start()
+
+                    token = set_live_pause(_suspend)
+                    try:
+                        with guard_rich_input():
+                            yield lambda text, announce=False: status.update(
+                                self.linked_prose(text, STYLE_HINT)
+                            )
+                    finally:
+                        reset_live_pause(token)
                 return
 
             announced: set[str] = set()

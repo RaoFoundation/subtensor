@@ -66,6 +66,96 @@ pub struct BasketPosition<AccountId: TypeInfo + Encode + Decode> {
     pub spot_value_tao: TaoBalance,
 }
 
+/// One fund's standardized pricing snapshot: the index-spliced prices every consumer
+/// (SDK, explorers, EVM) should display, computed on-chain from the fund's frozen
+/// [`crate::BetaBaselineOf`] so the whole ecosystem shows the same numbers.
+///
+/// All prices are **spot** marks (zero-size, comparable across fund sizes) as `U64F64`
+/// ratios; see `staking/beta_pricing.rs` for the math. Redemption sizing still uses
+/// realizable NAV — none of these fields price a claim.
+#[freeze_struct("74bde6b9db28b51c")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BetaPricing<AccountId: TypeInfo + Encode + Decode> {
+    pub hotkey: AccountId,
+    /// Raw spot beta price: spot NAV over outstanding shares (τ per β).
+    pub spot_price: U64F64,
+    /// Index-spliced bag price (`spot_price / price_divisor`): mix performance,
+    /// comparable across funds of any age. On the bag-index line = market average.
+    pub display_price: U64F64,
+    /// Total-return stake price: what τ1 staked here at the fund's first sighting is
+    /// worth now under the claim-and-restake convention, in stake-index units. This is
+    /// `tr_splice * staker_twr` — the canonical staker series spliced onto the stake
+    /// index — so `stake_price(t1) / stake_price(t0) - 1` and the `staker_twr` ratio
+    /// give the same window return.
+    pub stake_price: U64F64,
+    /// Pending-entitlement mark, not a return series: `(BasketRate - rate0) *
+    /// spot_price`, the value today of all β minted per τ1 of root stake since the
+    /// fund's baseline. Re-values with pool prices even when no dividend lands; show
+    /// it as "what accrued here is worth now", never as yield.
+    pub staker_yield: U64F64,
+    /// The fund's staker total-return accumulator (see `BasketTwr` storage): the one
+    /// canonical staker-return series. Staker return over any window is
+    /// `twr(t1) / twr(t0) - 1`; sample historically via archive state.
+    pub staker_twr: U64F64,
+    /// The live bag index level this snapshot was marked against.
+    pub bag_index: U64F64,
+    /// The live stake (total-return) index level this snapshot was marked against.
+    pub stake_index: U64F64,
+    /// Block of the fund's baseline stamp; 0 while provisional.
+    pub first_block: u64,
+    /// True when the fund has no frozen baseline yet: it prices pinned to the current
+    /// index levels until its next share mint stamps one.
+    pub provisional: bool,
+    /// Spot-marked NAV in rao (the fund's index weight).
+    pub spot_nav_tao: TaoBalance,
+    /// Outstanding fund shares in raw (storage) units.
+    pub shares: u64,
+    /// Outstanding supply in display units: `shares * price_divisor`. The consistent
+    /// public pair: `display_shares * display_price = spot NAV`, exactly as
+    /// `shares * spot_price` does in raw units.
+    pub display_shares: U64F64,
+}
+
+/// One page of the fund-pricing leaderboard, with an explicit resume cursor so no
+/// single call ever scans the whole fund map (see
+/// `Pallet::get_all_beta_pricing`). `next = None` means the enumeration is complete;
+/// otherwise pass it back as `start_after` for the following page. Pages are sized by
+/// the caller's `limit`, clamped to a hard per-call cap.
+#[freeze_struct("e76d410f6d42ab4")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BetaPricingPage<AccountId: TypeInfo + Encode + Decode> {
+    /// Pricing snapshots for the funds in this page, all marked against the same
+    /// published index snapshot.
+    pub pricing: Vec<BetaPricing<AccountId>>,
+    /// Cursor for the next page (`start_after` of the following call); `None` when
+    /// every fund has been enumerated.
+    pub next: Option<AccountId>,
+}
+
+/// One staker's β position in one fund, denominated in the same display units as
+/// [`BetaPricing`] — the numbers a wallet should show. `display_beta * display_price`
+/// is the position's spot value; `value_tao` is what a claim would actually pay
+/// (realizable, slippage-aware).
+#[freeze_struct("d936145a80362ce7")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BetaPosition<AccountId: TypeInfo + Encode + Decode> {
+    pub hotkey: AccountId,
+    /// The staker's owed β in raw (storage) units, capped at the outstanding supply.
+    pub beta: u64,
+    /// The same position in display units: `beta * price_divisor`.
+    pub display_beta: U64F64,
+    /// The fund's index-spliced display price (τ per display-β).
+    pub display_price: U64F64,
+    /// Realizable TAO a claim would pay right now: `min(beta * NAV / supply, NAV)`.
+    pub value_tao: TaoBalance,
+    /// The same pro-rata slice marked at spot (`display_beta * display_price`) —
+    /// display only, never used for redemption sizing.
+    pub spot_value_tao: TaoBalance,
+    /// True when the fund has no frozen baseline yet (provisional divisor pinned to
+    /// the current index level).
+    pub provisional: bool,
+}
+
 impl<T: Config> Pallet<T> {
     /// Spot-marked TAO value of `alpha` on `netuid`: `current_price * alpha`. Unlike
     /// [`Self::realizable_tao_for_alpha`] this ignores depth/slippage, so it can exceed what a

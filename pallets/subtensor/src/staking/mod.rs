@@ -4,6 +4,7 @@ pub mod add_stake;
 pub mod auto_parent;
 mod basket_flush;
 mod basket_views;
+pub mod beta_pricing;
 mod claim_root;
 pub mod decrease_take;
 pub mod helpers;

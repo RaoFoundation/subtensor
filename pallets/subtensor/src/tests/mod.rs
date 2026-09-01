@@ -1,6 +1,7 @@
 mod auto_stake_hotkey;
 mod basket_flush;
 mod batch_tx;
+mod beta_pricing;
 mod children;
 mod claim_root;
 mod cleanup_tests;

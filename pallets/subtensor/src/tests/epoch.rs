@@ -3945,9 +3945,16 @@ fn regression_liquid_alpha_event_indices_are_append_only() {
     .encode();
     let consensus_mode =
         Event::<Test>::LiquidAlphaConsensusModeSet(netuid, ConsensusMode::Auto).encode();
+    let basket_writeoff = Event::<Test>::BasketAlphaWrittenOff {
+        hotkey: U256::from(1),
+        netuid,
+        alpha: AlphaBalance::from(1),
+    }
+    .encode();
 
     assert_eq!(prior_tail[0], 145);
     assert_eq!(consensus_mode[0], 146);
+    assert_eq!(basket_writeoff[0], 148);
 }
 
 #[test]

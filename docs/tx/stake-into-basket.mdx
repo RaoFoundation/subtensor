@@ -20,7 +20,7 @@ small fee headroom.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2055-L2070) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2059-L2074) |
 
 ## Parameters
 
@@ -72,7 +72,7 @@ result = sub.execute_tool("stake_into_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2062`](/code/pallets/subtensor/src/macros/dispatches.rs#L2055-L2070):
+`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2066`](/code/pallets/subtensor/src/macros/dispatches.rs#L2059-L2074):
 
 ```rust
 #[pallet::call_index(147)]
@@ -93,6 +93,6 @@ pub fn stake_into_basket(
 }
 ```
 
-Delegates to [`do_stake_into_basket`](/code/pallets/subtensor/src/staking/claim_root.rs#L358).
+Delegates to [`do_stake_into_basket`](/code/pallets/subtensor/src/staking/claim_root.rs#L365).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -49,22 +49,35 @@ impl Config {
         }
     }
 
-    pub(super) fn one_time_initial_set_id(&self) -> Option<SetId> {
+    pub(super) fn one_time_initial_set_id(&self, has_trusted_checkpoint: bool) -> Option<SetId> {
         match self {
             Self::OneTimeInitialSetId(set_id) => Some(*set_id),
+            // A checkpoint requires the hard-fork mode below, so preserve the initial offset in
+            // the outer verifier instead of losing it when `ReinitializeSetId` is replaced.
+            Self::InitialSetId(set_id) if has_trusted_checkpoint => Some(*set_id),
             Self::TestnetCheckpoints(_) | Self::InitialSetId(_) => None,
         }
     }
 
-    pub(super) fn into_hard_forks(self) -> HardForks<Block> {
+    pub(super) fn into_hard_forks(
+        self,
+        trusted_checkpoint: Option<AuthoritySetHardFork<Block>>,
+    ) -> HardForks<Block> {
         match self {
-            Self::TestnetCheckpoints(checkpoints) => {
+            Self::TestnetCheckpoints(mut checkpoints) => {
+                checkpoints.extend(trusted_checkpoint);
                 HardForks::new_hard_forked_authorities(checkpoints)
             }
             // Keep the provider in reinitialized-set mode so a completed proof does not replace
             // its shared authority set. The outer provider supplies the actual one-time offset.
-            Self::OneTimeInitialSetId(_) => HardForks::new_initial_set_id(0),
-            Self::InitialSetId(set_id) => HardForks::new_initial_set_id(set_id),
+            Self::OneTimeInitialSetId(_) => trusted_checkpoint.map_or_else(
+                || HardForks::new_initial_set_id(0),
+                |checkpoint| HardForks::new_hard_forked_authorities(vec![checkpoint]),
+            ),
+            Self::InitialSetId(set_id) => trusted_checkpoint.map_or_else(
+                || HardForks::new_initial_set_id(set_id),
+                |checkpoint| HardForks::new_hard_forked_authorities(vec![checkpoint]),
+            ),
         }
     }
 }
@@ -309,5 +322,12 @@ mod tests {
         };
         assert!(matches!(second, VerificationResult::Partial(5, _, _)));
         assert_eq!(provider.inner.set_id.load(Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn a_trusted_checkpoint_preserves_generic_initial_set_offset() {
+        let config = Config::InitialSetId(3);
+        assert_eq!(config.one_time_initial_set_id(false), None);
+        assert_eq!(config.one_time_initial_set_id(true), Some(3));
     }
 }

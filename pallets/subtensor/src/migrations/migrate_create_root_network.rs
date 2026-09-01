@@ -73,8 +73,9 @@ pub fn migrate_create_root_network<T: Config>() -> Weight {
     // Set target registrations for validators as 1 per block
     TargetRegistrationsPerInterval::<T>::insert(NetUid::ROOT, 1);
 
-    // TODO: Consider if WeightsSetRateLimit should be set
-    // WeightsSetRateLimit::<T>::insert(NetUid::ROOT, 7200);
+    // WeightsSetRateLimit for root was never set here; mainnet later pinned it to
+    // u64::MAX when legacy root weights were frozen. `migrate_enable_root_weight_setting`
+    // replaces it with a usable limit when root basket curation launches.
 
     // Accrue weight for database writes
     weight.saturating_accrue(T::DbWeight::get().writes(7));

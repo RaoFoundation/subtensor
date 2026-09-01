@@ -15,6 +15,7 @@ from rich.text import Text
 
 from .._generated import storage
 from ..balance import Balance
+from ..basket_index import staker_yield
 from ..client import Client
 from ..wallets import is_bittensor_address
 from .context import AppContext, address_cli_name
@@ -314,7 +315,7 @@ def pick_fund(
     """Numbered picker over all validator baskets; returns the chosen record.
 
     ``records`` are normalized fund summaries (``root_baskets`` read passed
-    through ``normalize_position``), sorted by the caller. Shown one page at a
+    through ``normalize_positions``), sorted by the caller. Shown one page at a
     time (Enter reveals more), all the way through the near-zero-NAV tail.
     ``exclude`` drops hotkeys (e.g. the move source) from the list.
     """
@@ -448,10 +449,12 @@ def render_validator_detail(
         )
 
     lifetime = summary.get("lifetime_return")
+    fund_yield = staker_yield(summary)
     nav_line = (
         f"nav {summary['nav_tao']} (spot {summary['spot_nav_tao']})  ·  "
         f"deposited {summary['deposited_tao']}, redeemed {summary['redeemed_tao']}"
         + (f"  ·  lifetime {lifetime:.4f}x" if lifetime is not None else "")
+        + (f"  ·  staker yield {fund_yield:.2%}" if fund_yield is not None else "")
     )
     if holdings:
         app_ctx.output.entity_list(
@@ -480,6 +483,12 @@ def render_validator_detail(
                     "lifetime",
                     "money-weighted total return: (NAV + all TAO paid out) ÷ all TAO paid in.",
                 ),
+                (
+                    "staker yield",
+                    "β entitlement minted per τ of root stake since the fund's "
+                    "first sighting, valued at today's spot rate — what τ1 "
+                    "staked over the tracked period earned.",
+                ),
             ],
         )
     else:
@@ -500,9 +509,9 @@ def position_rows(
     rows = []
     for pos in positions:
         fund = funds.get(pos.hotkey)
-        if fund:
-            rate = f"{fund['display_price_tao']:.4f}" + ("*" if fund["index_provisional"] else "")
-            vs_index = f"{fund['vs_index']:+.2%}"
+        if fund and fund.get("stake_value") is not None:
+            rate = f"{fund['stake_value']:.4f}" + ("*" if fund["index_provisional"] else "")
+            vs_index = f"{fund['stake_vs_index']:+.2%}"
         else:
             rate, vs_index = "—", "—"
         rows.append(
@@ -525,7 +534,7 @@ def position_columns(all_wallets: bool) -> list[str]:
         "accrued (τ)",
         "return",
         "total (τ)",
-        "rate (τ/β)",
+        "β (τ)",
         "vs index",
     ]
     if all_wallets:

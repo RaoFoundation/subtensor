@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+from ._live import pause_live_display
 from .masked_input import masked_input
 from .sp_core import (
     KeyfileError,
@@ -131,7 +132,10 @@ class Keyfile:
             # get the documented refusal instead of an input() hang/EOFError.
             if not sys.stdin.isatty():
                 raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
-            answer = input(f"File {self.path} already exists. Overwrite? (y/N) ").strip().lower()
+            with pause_live_display():
+                answer = (
+                    input(f"File {self.path} already exists. Overwrite? (y/N) ").strip().lower()
+                )
             if answer not in {"y", "yes"}:
                 raise FileExistsError(f"refusing to overwrite existing keyfile {self.path!r}")
         self.make_dirs()

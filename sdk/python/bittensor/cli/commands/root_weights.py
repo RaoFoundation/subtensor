@@ -18,7 +18,7 @@ from rich.text import Text
 
 from ... import wallets
 from ..._generated import storage
-from ...basket_index import normalize_position
+from ...basket_index import normalize_positions
 from ...intents import SetRootWeights
 from ...intents.weights import DEFAULT_ROOT_WEIGHTS_CAP
 from ...settings import U16_MAX, guide_docs_url
@@ -246,8 +246,8 @@ def _validate_destinations(app_ctx: AppContext, netuids: list[int]) -> None:
     async def _fetch(client):
         networks = await client.query_map(storage.SubtensorModule.NetworksAdded)
         try:
-            # Not in the generated storage catalog yet (spec 449 addition), so
-            # queried by name; pre-449 chains have no such item — fall back to
+            # Not in the generated storage catalog yet, so query it by name;
+            # chains without the item fall back to
             # the launch default (weight setting is gated off there anyway).
             cap_raw = await client.query(("SubtensorModule", "RootWeightsCap"), [0])
         except Exception:
@@ -322,8 +322,7 @@ def weights_show(
     else:
         with app_ctx.output.activity("fetching root validators…"):
             records = app_ctx.run(lambda c: c.read("root_baskets"))
-            for record in records:
-                normalize_position(record)
+            normalize_positions(records)
             records.sort(key=lambda record: -record["nav_tao"].rao)
         chosen = pick_fund(
             console,
