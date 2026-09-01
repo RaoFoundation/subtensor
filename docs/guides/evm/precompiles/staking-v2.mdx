@@ -16,18 +16,29 @@ backward compatibility.
 ## Stake operations
 
 ```text
-addStake(bytes32,uint256,uint256)
-addStakeLimit(bytes32,uint256,uint256,bool,uint256)
-removeStake(bytes32,uint256,uint256)
-removeStakeLimit(bytes32,uint256,uint256,bool,uint256)
-removeStakeFull(bytes32,uint256)
-removeStakeFullLimit(bytes32,uint256,uint256)
-moveStake(bytes32,bytes32,uint256,uint256,uint256)
-transferStake(bytes32,bytes32,uint256,uint256,uint256)
-burnAlpha(bytes32,uint256,uint256)
+addStake(bytes32 hotkey, uint256 amount_rao, uint256 netuid)
+addStakeLimit(bytes32 hotkey, uint256 amount_rao, uint256 limit_price_rao_per_alpha, bool allow_partial, uint256 netuid)
+removeStake(bytes32 hotkey, uint256 amount_alpha, uint256 netuid)
+removeStakeLimit(bytes32 hotkey, uint256 amount_alpha, uint256 limit_price_rao_per_alpha, bool allow_partial, uint256 netuid)
+removeStakeFull(bytes32 hotkey, uint256 netuid)
+removeStakeFullLimit(bytes32 hotkey, uint256 netuid, uint256 limit_price_rao_per_alpha)
+moveStake(bytes32 origin_hotkey, bytes32 destination_hotkey, uint256 origin_netuid, uint256 destination_netuid, uint256 amount_alpha)
+moveStakeLimit(bytes32 origin_hotkey, bytes32 destination_hotkey, uint16 origin_netuid, uint16 destination_netuid, uint64 amount_alpha, uint64 limit_price, bool allow_partial)
+transferStake(bytes32 destination_coldkey, bytes32 hotkey, uint256 origin_netuid, uint256 destination_netuid, uint256 amount_alpha)
+burnAlpha(bytes32 hotkey, uint256 amount_alpha, uint256 netuid)
 ```
 
-These functions are `payable`.
+The legacy-width functions in this list are `payable`. `moveStakeLimit` is
+non-payable and rejects attached value; its seven arguments use the exact
+`uint16`/`uint64` ABI widths shown above.
+
+Amounts are native runtime units, not 18-decimal EVM units: `amount_rao`
+parameters are TAO denominated in rao (10^-9 TAO), and `amount_alpha`
+parameters are subnet alpha in its native 10^-9 precision. Staking in (TAO
+side) takes rao; unstaking, moving, transferring, and burning operate on
+alpha. `moveStakeLimit.limit_price` is the minimum destination-alpha per
+origin-alpha ratio, scaled by 10^9. Do not scale amount values by 10^9; see
+each function's NatSpec in `stakingV2.sol` for the authoritative unit contract.
 
 ## Stake views
 
@@ -58,6 +69,7 @@ getTakeLimits()
 getMinChildkeyTakePerSubnet(uint16)
 getHotkeyOwner(bytes32)
 getOwnedHotkeys(bytes32)
+getStakingHotkeys(bytes32,uint64,uint16)
 getAutoStakeDestination(bytes32,uint16)
 getAutoStakeDestinationColdkeys(bytes32,uint16)
 getHotkeySuccessor(bytes32,uint16)
@@ -71,6 +83,12 @@ getLastHotkeySwapOnSubnet(bytes32,uint16)
 
 Optional relationships return an explicit `exists` flag. Child and parent
 links return typed `(proportion, account)` entries.
+
+`getStakingHotkeys` reads the coldkey's existing staking-hotkey vector and
+returns up to 64 entries in stored order beginning at the supplied zero-based
+`offset`, together with the vector's current `total`. An offset greater than or
+equal to `total` returns an empty page. Each call performs one storage read;
+offset selection and result construction happen in memory.
 
 ## Accounting and collateral views
 

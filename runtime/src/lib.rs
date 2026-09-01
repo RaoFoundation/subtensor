@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 447,
+    spec_version: 452,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1330,6 +1330,8 @@ impl pallet_crowdloan::Config for Runtime {
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
     pub const LimitOrdersMaxOrdersPerBatch: u32 = 100;
+    /// Provider records stay drawable for 7 days.
+    pub const LimitOrdersLinkedOutputTtl: u64 = 7 * 24 * 60 * 60 * 1000;
 }
 
 pub struct LimitOrdersPalletHotkey;
@@ -1360,6 +1362,7 @@ impl pallet_limit_orders::Config for Runtime {
     type PalletHotkey = LimitOrdersPalletHotkey;
     type WeightInfo = pallet_limit_orders::weights::SubstrateWeight<Runtime>;
     type ChainId = ConfigurableChainId;
+    type LinkedOutputTtl = LimitOrdersLinkedOutputTtl;
 }
 
 fn contracts_schedule<T: pallet_contracts::Config>() -> pallet_contracts::Schedule<T> {
@@ -1521,6 +1524,12 @@ type Migrations = (
     // Leave this migration in the runtime, so every runtime upgrade tiny rounding errors (fractions of fractions
     // of a cent) are cleaned up. These tiny rounding errors occur due to floating point coversion.
     pallet_subtensor::migrations::migrate_init_total_issuance::initialise_total_issuance::Migration<
+        Runtime,
+    >,
+    // Seed frozen per-fund display baselines (index splice) from the SDK table for funds
+    // that predate on-chain stamping. Lives here rather than in the pallet hook so
+    // try-runtime validates its pre/post-upgrade invariants against real network state.
+    pallet_subtensor::migrations::migrate_stamp_beta_baselines::stamp_beta_baselines::Migration<
         Runtime,
     >,
 );
@@ -2380,6 +2389,7 @@ impl_runtime_apis! {
         }
     }
 
+    #[api_version(3)]
     impl subtensor_custom_rpc_runtime_api::BetaBasketRuntimeApi<Block> for Runtime {
         fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance {
             SubtensorModule::get_root_basket_owed_tao(&coldkey)
@@ -2407,6 +2417,27 @@ impl_runtime_apis! {
         }
         fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)> {
             SubtensorModule::get_root_basket_positions(&coldkey)
+        }
+        fn get_basket_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BasketPosition<AccountId32>> {
+            SubtensorModule::get_basket_position(&hotkey, &coldkey)
+        }
+        fn get_root_basket_portfolio(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BasketPosition<AccountId32>> {
+            SubtensorModule::get_root_basket_portfolio(&coldkey)
+        }
+        fn get_beta_pricing(hotkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BetaPricing<AccountId32>> {
+            SubtensorModule::get_beta_pricing(&hotkey)
+        }
+        fn get_all_beta_pricing(start_after: Option<AccountId32>, limit: u32) -> pallet_subtensor::rpc_info::basket_info::BetaPricingPage<AccountId32> {
+            SubtensorModule::get_all_beta_pricing(start_after, limit)
+        }
+        fn get_beta_index() -> (U64F64, U64F64) {
+            SubtensorModule::get_beta_index_levels()
+        }
+        fn get_beta_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BetaPosition<AccountId32>> {
+            SubtensorModule::get_beta_position(&hotkey, &coldkey)
+        }
+        fn get_beta_portfolio(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BetaPosition<AccountId32>> {
+            SubtensorModule::get_beta_portfolio(&coldkey)
         }
     }
 

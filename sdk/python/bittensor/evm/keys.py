@@ -18,7 +18,6 @@ password resolves through the same chain as coldkeys (explicit argument,
 from __future__ import annotations
 
 import contextlib
-import getpass
 import json
 import os
 import stat
@@ -29,6 +28,7 @@ from pathlib import Path
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
 
+from ..masked_input import masked_input
 from ..wallets import DEFAULT_WALLET_PATH
 from .addresses import h160_to_ss58, normalize_h160
 
@@ -124,11 +124,11 @@ def _resolve_password(password: "str | None", *, confirm: bool) -> str:
         return env
     if not sys.stdin.isatty():
         raise ValueError("no password available: pass one explicitly or set BT_WALLET_PASSWORD")
-    first = getpass.getpass("EVM key password: ")
+    first = masked_input("EVM key password: ")
     if not first:
         raise ValueError("empty password")
     if confirm:
-        second = getpass.getpass("Retype password: ")
+        second = masked_input("Retype password: ")
         if first != second:
             raise ValueError("passwords do not match")
     return first

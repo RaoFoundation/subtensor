@@ -175,6 +175,7 @@ call_filter_group!(
         RuntimeCall::LimitOrders(LimitOrdersCall::execute_batched_orders),
         RuntimeCall::LimitOrders(LimitOrdersCall::cancel_order),
         RuntimeCall::LimitOrders(LimitOrdersCall::set_pallet_status),
+        RuntimeCall::LimitOrders(LimitOrdersCall::prune_linked_output),
     ]
 );
 
@@ -303,6 +304,7 @@ call_filter_group!(
         RuntimeCall::SubtensorModule(SubtensorCall::unstake_all),
         RuntimeCall::SubtensorModule(SubtensorCall::unstake_all_alpha),
         RuntimeCall::SubtensorModule(SubtensorCall::move_stake),
+        RuntimeCall::SubtensorModule(SubtensorCall::move_stake_limit),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake),
         RuntimeCall::SubtensorModule(SubtensorCall::swap_stake_limit),
         RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket),
@@ -590,6 +592,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_epochs_per_block),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weight_setting_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weights_cap),
     ]
 );
 

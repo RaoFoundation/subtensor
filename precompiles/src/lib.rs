@@ -165,6 +165,32 @@ where
         Self(Default::default())
     }
 
+    /// Read-only and cryptographic precompiles may run in a borrowed frame.
+    /// Every other address in this set signs as `context.caller`.
+    fn accepts_foreign_frame(address: H160) -> bool {
+        address == hash(1)
+            || address == hash(2)
+            || address == hash(3)
+            || address == hash(4)
+            || address == hash(5)
+            || address == hash(7)
+            || address == hash(8)
+            || address == hash(9)
+            || address == hash(1024)
+            || address == hash(1025)
+            || address == hash(Ed25519Verify::<R::AccountId>::INDEX)
+            || address == hash(Sr25519Verify::<R::AccountId>::INDEX)
+            || address == hash(MetagraphPrecompile::<R>::INDEX)
+            || address == hash(UidLookupPrecompile::<R>::INDEX)
+            || address == hash(StorageQueryPrecompile::<R>::INDEX)
+            || address == hash(AddressMappingPrecompile::<R>::INDEX)
+            || address == hash(SchedulerPrecompile::<R>::INDEX)
+            || address == hash(DrandPrecompile::<R>::INDEX)
+            || address == hash(TimestampPrecompile::<R>::INDEX)
+            || address == hash(RuntimeConfigurationPrecompile::<R>::INDEX)
+            || address == hash(PrecompileRegistry::<R>::INDEX)
+    }
+
     pub fn used_addresses() -> [H160; 33] {
         [
             hash(1),
@@ -247,7 +273,19 @@ where
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
-        match handle.code_address() {
+        let code_address = handle.code_address();
+        if !Self::used_addresses().contains(&code_address) {
+            return None;
+        }
+        if !Self::accepts_foreign_frame(code_address) && code_address != handle.context().address {
+            return Some(Err(PrecompileFailure::Error {
+                exit_status: ExitError::Other(
+                    "Cannot be called with DELEGATECALL or CALLCODE".into(),
+                ),
+            }));
+        }
+
+        match code_address {
             // Ethereum precompiles :
             a if a == hash(1) => Some(ECRecover::execute(handle)),
             a if a == hash(2) => Some(Sha256::execute(handle)),
@@ -381,9 +419,172 @@ fn parse_slice(data: &[u8], from: usize, to: usize) -> Result<&[u8], PrecompileF
 #[cfg(test)]
 mod address_and_selector_tests {
     use super::*;
-    use crate::mock::{Runtime, selector_u32};
+    use crate::mock::{
+        AccountId, Runtime, abi_word, execute_precompile, new_test_ext, selector_u32,
+    };
     use alloc::collections::BTreeSet;
     use codec::Encode;
+    use fp_evm::{Context, ExitSucceed, PrecompileOutput};
+    use precompile_utils::solidity::encode_with_selector;
+    use precompile_utils::testing::MockHandle;
+    use sp_core::{H256, Pair, ed25519};
+
+    const FRAME_ERROR: &str = "Cannot be called with DELEGATECALL or CALLCODE";
+    const SHA256_EMPTY: [u8; 32] = [
+        0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9,
+        0x24, 0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52,
+        0xb8, 0x55,
+    ];
+
+    fn execute_with_foreign_frame(code_address: H160, input: Vec<u8>) -> Option<PrecompileResult> {
+        let mut handle = MockHandle::new(
+            code_address,
+            Context {
+                address: H160::from_low_u64_be(0xDEAD),
+                caller: H160::from_low_u64_be(0xBEEF),
+                apparent_value: U256::zero(),
+            },
+        );
+        handle.input = input;
+        Precompiles::<Runtime>::new().execute(&mut handle)
+    }
+
+    fn frame_error() -> Option<PrecompileResult> {
+        Some(Err(PrecompileFailure::Error {
+            exit_status: ExitError::Other(FRAME_ERROR.into()),
+        }))
+    }
+
+    #[test]
+    fn precompile_set_rejects_mismatched_frame() {
+        new_test_ext().execute_with(|| {
+            let code_address = hash(6);
+            let caller = H160::from_low_u64_be(0xBEEF);
+            let frame_address = H160::from_low_u64_be(0xDEAD);
+            let mut handle = MockHandle::new(
+                code_address,
+                Context {
+                    address: frame_address,
+                    caller,
+                    apparent_value: U256::zero(),
+                },
+            );
+
+            assert_eq!(
+                Precompiles::<Runtime>::new().execute(&mut handle),
+                frame_error()
+            );
+        });
+    }
+
+    #[test]
+    fn precompile_set_rejects_foreign_frame_for_signed_dispatch_precompiles() {
+        new_test_ext().execute_with(|| {
+            for address in [
+                hash(6),
+                hash(BalanceTransferPrecompile::<Runtime>::INDEX),
+                hash(StakingPrecompile::<Runtime>::INDEX),
+                hash(StakingPrecompileV2::<Runtime>::INDEX),
+                hash(SubnetPrecompile::<Runtime>::INDEX),
+                hash(NeuronPrecompile::<Runtime>::INDEX),
+                hash(AlphaPrecompile::<Runtime>::INDEX),
+                hash(CrowdloanPrecompile::<Runtime>::INDEX),
+                hash(LeasingPrecompile::<Runtime>::INDEX),
+                hash(VotingPowerPrecompile::<Runtime>::INDEX),
+                hash(ProxyPrecompile::<Runtime>::INDEX),
+                hash(BalancePrecompile::<Runtime>::INDEX),
+            ] {
+                assert_eq!(
+                    execute_with_foreign_frame(address, alloc::vec::Vec::new()),
+                    frame_error(),
+                    "signed-dispatch precompile {address:?} must reject a foreign frame"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn precompile_set_accepts_matching_frame() {
+        new_test_ext().execute_with(|| {
+            let result = execute_precompile(
+                &Precompiles::<Runtime>::new(),
+                hash(6),
+                H160::from_low_u64_be(0xBEEF),
+                alloc::vec::Vec::new(),
+                U256::zero(),
+            );
+            assert_ne!(result, frame_error());
+        });
+    }
+
+    #[test]
+    fn precompile_set_allows_foreign_frame_for_view_precompile() {
+        new_test_ext().execute_with(|| {
+            let result = execute_with_foreign_frame(
+                hash(TimestampPrecompile::<Runtime>::INDEX),
+                alloc::vec::Vec::new(),
+            );
+            assert_ne!(result, frame_error());
+            assert!(result.is_some());
+        });
+    }
+
+    #[test]
+    fn precompile_set_executes_sha256_with_foreign_frame() {
+        new_test_ext().execute_with(|| {
+            assert_eq!(
+                execute_with_foreign_frame(hash(2), alloc::vec::Vec::new()),
+                Some(Ok(PrecompileOutput {
+                    exit_status: ExitSucceed::Returned,
+                    output: SHA256_EMPTY.to_vec(),
+                }))
+            );
+        });
+    }
+
+    #[test]
+    fn precompile_set_executes_ed25519_verify_with_foreign_frame() {
+        new_test_ext().execute_with(|| {
+            let pair = ed25519::Pair::from_seed(&[1u8; 32]);
+            let message = [7u8; 32];
+            let signature = pair.sign(&message);
+            let input = encode_with_selector(
+                selector_u32("verify(bytes32,bytes32,bytes32,bytes32)"),
+                (
+                    H256::from(message),
+                    H256::from(pair.public().0),
+                    H256::from_slice(&signature.0[..32]),
+                    H256::from_slice(&signature.0[32..]),
+                ),
+            );
+
+            assert_eq!(
+                execute_with_foreign_frame(hash(Ed25519Verify::<AccountId>::INDEX), input),
+                Some(Ok(PrecompileOutput {
+                    exit_status: ExitSucceed::Returned,
+                    output: abi_word(U256::one()),
+                }))
+            );
+        });
+    }
+
+    #[test]
+    fn precompile_set_returns_none_for_unknown_address() {
+        new_test_ext().execute_with(|| {
+            let unknown = H160::from_low_u64_be(0x1111);
+            let frame_address = H160::from_low_u64_be(0xDEAD);
+            let mut handle = MockHandle::new(
+                unknown,
+                Context {
+                    address: frame_address,
+                    caller: H160::from_low_u64_be(0xBEEF),
+                    apparent_value: U256::zero(),
+                },
+            );
+
+            assert_eq!(Precompiles::<Runtime>::new().execute(&mut handle), None);
+        });
+    }
 
     #[test]
     fn precompile_addresses_are_unique_and_new_addresses_are_locked() {
@@ -588,6 +789,7 @@ mod address_and_selector_tests {
             "unstakeAllAlpha(bytes32)",
             "swapStake(bytes32,uint16,uint16,uint64)",
             "swapStakeLimit(bytes32,uint16,uint16,uint64,uint64,bool)",
+            "moveStakeLimit(bytes32,bytes32,uint16,uint16,uint64,uint64,bool)",
             "recycleAlpha(bytes32,uint64,uint16)",
             "setColdkeyAutoStakeHotkey(uint16,bytes32)",
             "claimRoot(uint16[])",
@@ -652,6 +854,7 @@ mod address_and_selector_tests {
             "getMinChildkeyTakePerSubnet(uint16)",
             "getHotkeyOwner(bytes32)",
             "getOwnedHotkeys(bytes32)",
+            "getStakingHotkeys(bytes32,uint64,uint16)",
             "getAutoStakeDestination(bytes32,uint16)",
             "getAutoStakeDestinationColdkeys(bytes32,uint16)",
             "getHotkeySuccessor(bytes32,uint16)",

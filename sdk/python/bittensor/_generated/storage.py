@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 447
+Spec version: 449
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -133,6 +133,7 @@ class SubtensorModule:
     ColdkeySwapAnnouncements = Item('SubtensorModule', 'ColdkeySwapAnnouncements', '(u32, H256)')
     ColdkeySwapDisputes = Item('SubtensorModule', 'ColdkeySwapDisputes', 'u32')
     TotalHotkeyAlpha = Item('SubtensorModule', 'TotalHotkeyAlpha', 'AlphaBalance')
+    TotalAlphaStaked = Item('SubtensorModule', 'TotalAlphaStaked', 'AlphaBalance')
     TotalHotkeyAlphaLastEpoch = Item('SubtensorModule', 'TotalHotkeyAlphaLastEpoch', 'AlphaBalance')
     TotalHotkeyShares = Item('SubtensorModule', 'TotalHotkeyShares', 'FixedU128')
     Alpha = Item('SubtensorModule', 'Alpha', 'FixedU128')
@@ -292,6 +293,7 @@ class SubtensorModule:
     LastColdkeyHotkeyStakeBlock = Item('SubtensorModule', 'LastColdkeyHotkeyStakeBlock', 'u64')
     RootStakeUnlockInterval = Item('SubtensorModule', 'RootStakeUnlockInterval', 'u64')
     RootWeightSettingEnabled = Item('SubtensorModule', 'RootWeightSettingEnabled', 'bool')
+    RootWeightsCap = Item('SubtensorModule', 'RootWeightsCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')
     RootClaimed = Item('SubtensorModule', 'RootClaimed', 'u128')
@@ -447,5 +449,5 @@ class AlphaAssets:
 class LimitOrders:
     Orders = Item('LimitOrders', 'Orders', 'OrderStatus')
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
+    LinkedOutputs = Item('LimitOrders', 'LinkedOutputs', 'LinkedOutput')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
-

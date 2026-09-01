@@ -44,6 +44,8 @@ btcli wallet regen-coldkeypub -w watch_only --ss58 5F... --public-key 0x...  # w
 btcli wallet list                        # wallets on disk, multisigs, address book
 btcli wallet show                        # public keys + crypto schemes
 btcli wallet balance my_coldkey          # free TAO + stake marked to TAO
+btcli wallet overview                    # free TAO + stake per subnet
+btcli wallet registrations               # every local hotkey and where it is registered
 ```
 
 The same flows exist in Python under `bt.wallets` (`create`, `regen_coldkey`,

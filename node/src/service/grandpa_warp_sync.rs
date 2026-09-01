@@ -49,22 +49,35 @@ impl Config {
         }
     }
 
-    pub(super) fn one_time_initial_set_id(&self) -> Option<SetId> {
+    pub(super) fn one_time_initial_set_id(&self, has_trusted_checkpoint: bool) -> Option<SetId> {
         match self {
             Self::OneTimeInitialSetId(set_id) => Some(*set_id),
+            // A checkpoint requires the hard-fork mode below, so preserve the initial offset in
+            // the outer verifier instead of losing it when `ReinitializeSetId` is replaced.
+            Self::InitialSetId(set_id) if has_trusted_checkpoint => Some(*set_id),
             Self::TestnetCheckpoints(_) | Self::InitialSetId(_) => None,
         }
     }
 
-    pub(super) fn into_hard_forks(self) -> HardForks<Block> {
+    pub(super) fn into_hard_forks(
+        self,
+        trusted_checkpoint: Option<AuthoritySetHardFork<Block>>,
+    ) -> HardForks<Block> {
         match self {
-            Self::TestnetCheckpoints(checkpoints) => {
+            Self::TestnetCheckpoints(mut checkpoints) => {
+                checkpoints.extend(trusted_checkpoint);
                 HardForks::new_hard_forked_authorities(checkpoints)
             }
             // Keep the provider in reinitialized-set mode so a completed proof does not replace
             // its shared authority set. The outer provider supplies the actual one-time offset.
-            Self::OneTimeInitialSetId(_) => HardForks::new_initial_set_id(0),
-            Self::InitialSetId(set_id) => HardForks::new_initial_set_id(set_id),
+            Self::OneTimeInitialSetId(_) => trusted_checkpoint.map_or_else(
+                || HardForks::new_initial_set_id(0),
+                |checkpoint| HardForks::new_hard_forked_authorities(vec![checkpoint]),
+            ),
+            Self::InitialSetId(set_id) => trusted_checkpoint.map_or_else(
+                || HardForks::new_initial_set_id(set_id),
+                |checkpoint| HardForks::new_hard_forked_authorities(vec![checkpoint]),
+            ),
         }
     }
 }
@@ -117,13 +130,14 @@ where
 }
 
 #[allow(clippy::expect_used)]
-fn testnet_authorities() -> AuthorityList {
+fn testnet_checkpoint_authorities() -> AuthorityList {
     [
         hex_literal::hex!("dc832c3b7bdfc721e90e5ee9e532c06b62a0def3c79dab5324460d938db6600a"),
         hex_literal::hex!("c8a00ef71912b3868b101cb70ebd029999d1c9b6a1390122a98f60d72b9a0fc4"),
         hex_literal::hex!("ee70f7b52998c2b4f3d42e509e8360cda92b0cd4ca100cd4d32be5a1ac297909"),
         hex_literal::hex!("b57a038c9139a060358f3b654df74a1cb6d15bcdb8438bcebd64ce67ec4301eb"),
         hex_literal::hex!("755f75dfc66aaa3b1e761a8845249509b8bd2fdf0d94cb74e1e12e1e0f4d3519"),
+        hex_literal::hex!("d97a64267f177505b0565a18677c9f5d4284d7f2eb96d515556e7e52217f82e9"),
     ]
     .into_iter()
     .map(|bytes| {
@@ -136,7 +150,7 @@ fn testnet_authorities() -> AuthorityList {
 }
 
 fn testnet_checkpoints() -> Vec<AuthoritySetHardFork<Block>> {
-    let authorities = testnet_authorities();
+    let authorities = testnet_checkpoint_authorities();
 
     [
         (
@@ -145,7 +159,7 @@ fn testnet_checkpoints() -> Vec<AuthoritySetHardFork<Block>> {
             hex_literal::hex!("2b001bfdec34d007ab2ac07f712e64d0cb1a6fb4b51f7d47bfb3c7d7336a689b"),
         ),
         (
-            2,
+            3,
             5_534_451,
             hex_literal::hex!("4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"),
         ),
@@ -222,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn testnet_checkpoints_are_ordered_and_share_authorities() {
+    fn testnet_checkpoints_use_historical_signing_sets() {
         let checkpoints = testnet_checkpoints();
         let [first, second] = checkpoints.as_slice() else {
             panic!("expected exactly two testnet warp checkpoints");
@@ -235,14 +249,14 @@ mod tests {
                 "2b001bfdec34d007ab2ac07f712e64d0cb1a6fb4b51f7d47bfb3c7d7336a689b"
             ))
         );
-        assert_eq!((second.set_id, second.block.1), (2, 5_534_451));
+        assert_eq!((second.set_id, second.block.1), (3, 5_534_451));
         assert_eq!(
             second.block.0,
             H256::from(hex_literal::hex!(
                 "4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4"
             ))
         );
-        assert_eq!(first.authorities.len(), 5);
+        assert_eq!(first.authorities.len(), 6);
         assert_eq!(first.authorities, second.authorities);
         let authority_ids: Vec<&[u8]> = first
             .authorities
@@ -255,12 +269,41 @@ mod tests {
             hex_literal::hex!("ee70f7b52998c2b4f3d42e509e8360cda92b0cd4ca100cd4d32be5a1ac297909"),
             hex_literal::hex!("b57a038c9139a060358f3b654df74a1cb6d15bcdb8438bcebd64ce67ec4301eb"),
             hex_literal::hex!("755f75dfc66aaa3b1e761a8845249509b8bd2fdf0d94cb74e1e12e1e0f4d3519"),
+            hex_literal::hex!("d97a64267f177505b0565a18677c9f5d4284d7f2eb96d515556e7e52217f82e9"),
         ];
         let expected_authority_ids = expected_authority_ids
             .iter()
             .map(|id| id.as_slice())
             .collect::<Vec<_>>();
         assert_eq!(authority_ids, expected_authority_ids);
+    }
+
+    #[test]
+    fn second_testnet_checkpoint_verifies_with_historical_signing_set_id() {
+        use sc_consensus_grandpa::GrandpaJustification;
+        use sp_runtime::codec::DecodeAll;
+
+        // Stored GRANDPA justification for testnet block 5,534,451. Keeping this historical
+        // boundary in the test prevents runtime state at the current tip from being mistaken for
+        // the set ID that actually signed the checkpoint.
+        let encoded = hex_literal::hex!(
+            "2c320c00000000004d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4f3725400144d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4f3725400072a8a1a2567ca0633ac6497e47c95067ea208eb125b43664129aed09ec7e5c055a4bf320d879b4c0ed644c539a10ffa9c61eb2a464d78fd04950081f0aa7501755f75dfc66aaa3b1e761a8845249509b8bd2fdf0d94cb74e1e12e1e0f4d35194d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4f37254000a97aafb8a64e0bb41f82cb83badfa6c882433b3acfe03d070f8ffc8d4164dc94611045932a1396ec3a893275b561dba13f9ff1968574d0b93d08ce56b069807b57a038c9139a060358f3b654df74a1cb6d15bcdb8438bcebd64ce67ec4301eb4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4f3725400971a2c21924c9723121767be46be8e7bac1099aadd6e19401a85e8fc5238364823fb92235535716426f13ef469c1c07808d5125cfb79f65400f1c407bb39e80bc8a00ef71912b3868b101cb70ebd029999d1c9b6a1390122a98f60d72b9a0fc44d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4f37254009469bd1c254becf32318bb5bc96c98d0dfa4fe652613e129f2edb9ed4a8904c9b5f26ef22b09ac25339680578ef9116f0b79d6a6d7701292b57b8572869a3702dc832c3b7bdfc721e90e5ee9e532c06b62a0def3c79dab5324460d938db6600a4d643da5fd7cd2b9ceb795091643e7223819e2a01f942ac049c5b928f7e30dc4f37254002e2bd65267a52080e7635e82dd5dbf891b42549598e244b7ff0e01b88a5187796133bc48bd7713b1025d625f56811a134fbbae38e85b01082b7557755c085602ee70f7b52998c2b4f3d42e509e8360cda92b0cd4ca100cd4d32be5a1ac29790900"
+        );
+        let Ok(justification) = GrandpaJustification::<Block>::decode_all(&mut encoded.as_slice())
+        else {
+            panic!("stored testnet checkpoint justification must decode");
+        };
+        let checkpoints = testnet_checkpoints();
+        let [_, checkpoint] = checkpoints.as_slice() else {
+            panic!("expected exactly two testnet warp checkpoints");
+        };
+
+        assert!(
+            justification
+                .verify(checkpoint.set_id, &checkpoint.authorities)
+                .is_ok()
+        );
+        assert!(justification.verify(2, &checkpoint.authorities).is_err());
     }
 
     #[test]
@@ -279,5 +322,12 @@ mod tests {
         };
         assert!(matches!(second, VerificationResult::Partial(5, _, _)));
         assert_eq!(provider.inner.set_id.load(Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn a_trusted_checkpoint_preserves_generic_initial_set_offset() {
+        let config = Config::InitialSetId(3);
+        assert_eq!(config.one_time_initial_set_id(false), None);
+        assert_eq!(config.one_time_initial_set_id(true), Some(3));
     }
 }

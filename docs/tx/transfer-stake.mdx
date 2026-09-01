@@ -19,7 +19,7 @@ stake — that locked portion must land on the **receiver's** existing lock
 hotkey or the call fails with `LockHotkeyMismatch`. Fix: keep
 `hotkey_ss58` as the hotkey that holds the stake and set
 `dest_hotkey_ss58` to the receiver's lock hotkey (see `btcli stake
-list` / `btcli lock show`). Pulling from the lock hotkey when the stake
+list` / `btcli conviction show`). Pulling from the lock hotkey when the stake
 still sits elsewhere fails with `NotEnoughStakeToWithdraw`. See the
 conviction guide's "Transferring locked stake" section.
 
@@ -28,11 +28,11 @@ slippage) when the netuids differ. Fails with `TransferDisallowed` when
 the subnet owner has disabled stake transfers on the origin or destination
 subnet. A spend-cap policy treats this as an unbounded spend and blocks it
 until the cap is raised. Use `move_stake` to re-delegate without changing
-owners.
+owners. Pass `all` to hand over the entire origin position.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1324-L1342), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2471-L2491) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.transfer_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1337-L1355), [`SubtensorModule.transfer_stake_and_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2524-L2544) |
 
 ## Parameters
 
@@ -42,8 +42,8 @@ owners.
 | `hotkey_ss58` | string | yes | Hotkey the stake is held on (the validator backing the position). |
 | `origin_netuid` | integer | yes | Subnet the stake currently sits on. |
 | `dest_netuid` | integer | yes | Subnet the stake ends up on. When it differs from the origin, the position is swapped through both subnet pools, which can incur slippage on each leg. |
-| `amount_alpha` | number \| `"all"` | yes | How much of the position to hand over (an explicit amount; ``all`` is not accepted). |
-| `dest_hotkey_ss58` | string | no | Hotkey the stake lands on. Defaults to the origin hotkey. Required when the transfer moves locked alpha and the receiver already locks to a different hotkey — pass their lock hotkey (see `btcli stake list` / `btcli lock show`). |
+| `amount_alpha` | number \| `"all"` | yes | How much of the position to hand over, or ``all``. |
+| `dest_hotkey_ss58` | string | no | Hotkey the stake lands on. Defaults to the origin hotkey. Required when the transfer moves locked alpha and the receiver already locks to a different hotkey — pass their lock hotkey (see `btcli stake list` / `btcli conviction show`). |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -75,7 +75,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.TransferStake(dest_coldkey_ss58="5F...", hotkey_ss58="5F...", origin_netuid=0, dest_netuid=0, amount_alpha=1.0)
+intent = bt.TransferStake(dest_coldkey_ss58="5G...destination", hotkey_ss58="5F...", origin_netuid=1, dest_netuid=2, amount_alpha=1.0)
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -94,7 +94,7 @@ result = sub.execute_tool("transfer_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1326`](/code/pallets/subtensor/src/macros/dispatches.rs#L1324-L1342):
+`SubtensorModule.transfer_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1339`](/code/pallets/subtensor/src/macros/dispatches.rs#L1337-L1355):
 
 ```rust
 #[pallet::call_index(86)]
@@ -118,9 +118,9 @@ pub fn transfer_stake(
 }
 ```
 
-Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L120).
+Delegates to [`do_transfer_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L196).
 
-`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2473`](/code/pallets/subtensor/src/macros/dispatches.rs#L2471-L2491):
+`SubtensorModule.transfer_stake_and_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2526`](/code/pallets/subtensor/src/macros/dispatches.rs#L2524-L2544):
 
 ```rust
 #[pallet::call_index(143)]
@@ -146,6 +146,6 @@ pub fn transfer_stake_and_hotkey(
 }
 ```
 
-Delegates to [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L193).
+Delegates to [`do_transfer_stake_and_hotkey`](/code/pallets/subtensor/src/staking/move_stake.rs#L269).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

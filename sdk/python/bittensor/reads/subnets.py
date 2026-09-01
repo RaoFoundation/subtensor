@@ -82,6 +82,35 @@ async def burn(view, netuid: int) -> Balance:
     return Balance.from_rao(int(value))
 
 
+def _i64f64(value: object) -> float:
+    """Decode an ``I64F64`` fixed-point value (``{'bits': raw}`` or raw int)."""
+    if isinstance(value, dict):
+        value = value.get("bits") or 0
+    return int(value or 0) / 2**64
+
+
+@read("subnet_tao_flows", {}, category="Subnets")
+async def subnet_tao_flows(view) -> dict[int, float]:
+    """Per-subnet EMA of net TAO flow, in rao per block.
+
+    TAO flow is the chain's running measure of user stake activity on a
+    subnet: every stake adds to the accumulator and every unstake subtracts,
+    so a positive value means TAO is (on average) flowing into the subnet
+    and a negative value means it is flowing out. The chain smooths the
+    per-block accumulator (``SubnetTaoFlow``) into an exponential moving
+    average (``SubnetEmaTaoFlow``); this read returns that EMA per netuid.
+    Subnets with no recorded flow are omitted.
+    """
+    rows = await view.query_map(st.SubtensorModule.SubnetEmaTaoFlow)
+    flows: dict[int, float] = {}
+    for key, value in rows:
+        netuid = int(key[0]) if isinstance(key, (tuple, list)) else int(key)
+        # Value is `(last_update_block, I64F64 ema)`.
+        if isinstance(value, (tuple, list)) and len(value) == 2:
+            flows[netuid] = _i64f64(value[1])
+    return flows
+
+
 @read(
     "commit_reveal_enabled",
     {"netuid": "integer"},

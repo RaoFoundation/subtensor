@@ -25,6 +25,26 @@ const releases: Release[] = [
   {
     tag: 'next',
     date: 'August 2026',
+    title: 'Curated Beta',
+    summary:
+      'V450 enables set_root_weights. Validators curate their dividend baskets under a ' +
+      '1/16 concentration cap, and the chain now computes the basket index, display ' +
+      'prices, and staker yield itself — one canonical scoreboard for every consumer. ' +
+      'btcli root list, allocate, claim, and weights are the working surface.',
+    href: '/releases/v450-upgrade',
+  },
+  {
+    tag: 'v448',
+    date: 'August 2026',
+    title: 'Root Claims, Safer Staking, and Linked Orders',
+    summary:
+      'V448 makes root claims predictable, protects cross-subnet stake moves, adds bulk ' +
+      'multi-hotkey exits, exposes live staking indexes, and introduces composable linked orders.',
+    href: '/releases/v448-upgrade',
+  },
+  {
+    tag: 'v447',
+    date: 'August 2026',
     title: 'Conviction Normalization',
     summary:
       'The subnet ownership gate now measures one hotkey alone against an 18% conviction ' +

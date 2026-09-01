@@ -43,6 +43,119 @@ pub struct BasketSummary<AccountId: TypeInfo + Encode + Decode> {
     pub holdings: Vec<BasketHolding>,
 }
 
+/// One staker's beta-denominated position in one validator's beta basket. `beta` is the
+/// staker's beta token balance — the product-facing number: it never moves with market
+/// prices, only grows as dividends accrue and shrinks when the staker claims. Everything
+/// else is valuation context: `beta_total` and `nav_tao` give the beta price
+/// (`nav_tao / beta_total`, par 1.0 at inception), `value_tao` is what a claim would pay
+/// right now (realizable, slippage-aware), and `spot_value_tao` is the same slice marked
+/// at spot prices (display only).
+#[freeze_struct("b42252207e6e2d4b")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BasketPosition<AccountId: TypeInfo + Encode + Decode> {
+    pub hotkey: AccountId,
+    /// The staker's owed beta tokens on this validator (capped at `beta_total`).
+    pub beta: u64,
+    /// Outstanding beta tokens `P` across all stakers of this validator.
+    pub beta_total: u64,
+    /// Fund NAV `N` in TAO at realizable (slippage-aware) quotes.
+    pub nav_tao: TaoBalance,
+    /// Realizable TAO a claim would pay now: `min(beta * N / P, N)`.
+    pub value_tao: TaoBalance,
+    /// The same pro-rata slice marked at spot prices — never used for redemption sizing.
+    pub spot_value_tao: TaoBalance,
+}
+
+/// One fund's standardized pricing snapshot: the index-spliced prices every consumer
+/// (SDK, explorers, EVM) should display, computed on-chain from the fund's frozen
+/// [`crate::BetaBaselineOf`] so the whole ecosystem shows the same numbers.
+///
+/// All prices are **spot** marks (zero-size, comparable across fund sizes) as `U64F64`
+/// ratios; see `staking/beta_pricing.rs` for the math. Redemption sizing still uses
+/// realizable NAV — none of these fields price a claim.
+#[freeze_struct("74bde6b9db28b51c")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BetaPricing<AccountId: TypeInfo + Encode + Decode> {
+    pub hotkey: AccountId,
+    /// Raw spot beta price: spot NAV over outstanding shares (τ per β).
+    pub spot_price: U64F64,
+    /// Index-spliced bag price (`spot_price / price_divisor`): mix performance,
+    /// comparable across funds of any age. On the bag-index line = market average.
+    pub display_price: U64F64,
+    /// Total-return stake price: what τ1 staked here at the fund's first sighting is
+    /// worth now under the claim-and-restake convention, in stake-index units. This is
+    /// `tr_splice * staker_twr` — the canonical staker series spliced onto the stake
+    /// index — so `stake_price(t1) / stake_price(t0) - 1` and the `staker_twr` ratio
+    /// give the same window return.
+    pub stake_price: U64F64,
+    /// Pending-entitlement mark, not a return series: `(BasketRate - rate0) *
+    /// spot_price`, the value today of all β minted per τ1 of root stake since the
+    /// fund's baseline. Re-values with pool prices even when no dividend lands; show
+    /// it as "what accrued here is worth now", never as yield.
+    pub staker_yield: U64F64,
+    /// The fund's staker total-return accumulator (see `BasketTwr` storage): the one
+    /// canonical staker-return series. Staker return over any window is
+    /// `twr(t1) / twr(t0) - 1`; sample historically via archive state.
+    pub staker_twr: U64F64,
+    /// The live bag index level this snapshot was marked against.
+    pub bag_index: U64F64,
+    /// The live stake (total-return) index level this snapshot was marked against.
+    pub stake_index: U64F64,
+    /// Block of the fund's baseline stamp; 0 while provisional.
+    pub first_block: u64,
+    /// True when the fund has no frozen baseline yet: it prices pinned to the current
+    /// index levels until its next share mint stamps one.
+    pub provisional: bool,
+    /// Spot-marked NAV in rao (the fund's index weight).
+    pub spot_nav_tao: TaoBalance,
+    /// Outstanding fund shares in raw (storage) units.
+    pub shares: u64,
+    /// Outstanding supply in display units: `shares * price_divisor`. The consistent
+    /// public pair: `display_shares * display_price = spot NAV`, exactly as
+    /// `shares * spot_price` does in raw units.
+    pub display_shares: U64F64,
+}
+
+/// One page of the fund-pricing leaderboard, with an explicit resume cursor so no
+/// single call ever scans the whole fund map (see
+/// `Pallet::get_all_beta_pricing`). `next = None` means the enumeration is complete;
+/// otherwise pass it back as `start_after` for the following page. Pages are sized by
+/// the caller's `limit`, clamped to a hard per-call cap.
+#[freeze_struct("e76d410f6d42ab4")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BetaPricingPage<AccountId: TypeInfo + Encode + Decode> {
+    /// Pricing snapshots for the funds in this page, all marked against the same
+    /// published index snapshot.
+    pub pricing: Vec<BetaPricing<AccountId>>,
+    /// Cursor for the next page (`start_after` of the following call); `None` when
+    /// every fund has been enumerated.
+    pub next: Option<AccountId>,
+}
+
+/// One staker's β position in one fund, denominated in the same display units as
+/// [`BetaPricing`] — the numbers a wallet should show. `display_beta * display_price`
+/// is the position's spot value; `value_tao` is what a claim would actually pay
+/// (realizable, slippage-aware).
+#[freeze_struct("d936145a80362ce7")]
+#[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
+pub struct BetaPosition<AccountId: TypeInfo + Encode + Decode> {
+    pub hotkey: AccountId,
+    /// The staker's owed β in raw (storage) units, capped at the outstanding supply.
+    pub beta: u64,
+    /// The same position in display units: `beta * price_divisor`.
+    pub display_beta: U64F64,
+    /// The fund's index-spliced display price (τ per display-β).
+    pub display_price: U64F64,
+    /// Realizable TAO a claim would pay right now: `min(beta * NAV / supply, NAV)`.
+    pub value_tao: TaoBalance,
+    /// The same pro-rata slice marked at spot (`display_beta * display_price`) —
+    /// display only, never used for redemption sizing.
+    pub spot_value_tao: TaoBalance,
+    /// True when the fund has no frozen baseline yet (provisional divisor pinned to
+    /// the current index level).
+    pub provisional: bool,
+}
+
 impl<T: Config> Pallet<T> {
     /// Spot-marked TAO value of `alpha` on `netuid`: `current_price * alpha`. Unlike
     /// [`Self::realizable_tao_for_alpha`] this ignores depth/slippage, so it can exceed what a
@@ -99,6 +212,48 @@ impl<T: Config> Pallet<T> {
     pub fn get_all_validator_baskets() -> Vec<BasketSummary<T::AccountId>> {
         BasketShares::<T>::iter_keys()
             .map(|hotkey| Self::get_validator_basket_summary(&hotkey))
+            .collect()
+    }
+
+    /// One staker's beta-denominated position on one validator, or `None` when the staker
+    /// has no owed beta there. Valuation reuses the same primitives as claims
+    /// (`get_validator_basket_nav_tao` / `basket_payout_from`), so `value_tao` is exactly
+    /// what `claim_root_with_hotkey` would pay right now.
+    pub fn get_basket_position(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> Option<BasketPosition<T::AccountId>> {
+        let beta_total = BasketShares::<T>::get(hotkey);
+        let beta = Self::get_basket_owed_shares(hotkey, coldkey).min(beta_total);
+        if beta == 0 {
+            return None;
+        }
+
+        let mut nav: u64 = 0;
+        let mut spot_nav: u64 = 0;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            nav = nav.saturating_add(Self::realizable_tao_for_alpha(netuid, alpha.to_u64()));
+            spot_nav = spot_nav.saturating_add(Self::spot_tao_for_alpha(netuid, alpha.to_u64()));
+        }
+
+        Some(BasketPosition {
+            hotkey: hotkey.clone(),
+            beta,
+            beta_total,
+            nav_tao: nav.into(),
+            value_tao: Self::basket_payout_from(beta, nav, beta_total).into(),
+            spot_value_tao: Self::mul_div_u64(beta, spot_nav, beta_total)
+                .min(spot_nav)
+                .into(),
+        })
+    }
+
+    /// A coldkey's full basket portfolio: one beta-denominated position per validator on
+    /// which it has owed beta.
+    pub fn get_root_basket_portfolio(coldkey: &T::AccountId) -> Vec<BasketPosition<T::AccountId>> {
+        StakingHotkeys::<T>::get(coldkey)
+            .into_iter()
+            .filter_map(|hotkey| Self::get_basket_position(&hotkey, coldkey))
             .collect()
     }
 

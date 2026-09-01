@@ -7,9 +7,12 @@ sessions get a single error listing *every* missing option); shows the option's
 input; and afterwards echoes the full non-interactive command so the flags are
 learnable and copy-pasteable into scripts.
 
-Two entry points feed this machinery:
-- the generated ``tx`` commands build their own :class:`PromptSpec` list (they
-  know about ss58 resolution, money units, and signer defaults);
+Three entry points feed this machinery:
+- the generated ``tx`` and ``query`` commands build their own :class:`PromptSpec`
+  list for every required field that would fail if omitted (addresses get a
+  picker; numbers, money, and other types get a typed prompt);
+- hand-written commands that keep a param optional and then error call
+  :func:`fill_missing` themselves;
 - every other command is covered generically by :func:`run_app`, which drives
   the Typer app itself, catches click's ``MissingParameter``, prompts for all
   of the command's missing required params, and re-runs with them injected.
@@ -40,7 +43,14 @@ except ImportError:  # older typer uses the external click package
 from .. import config as cfg
 from .. import wallets
 from .context import AppContext
-from .output import STYLE_COMMAND, STYLE_HINT
+from .output import (
+    PROMPT_KEY_WIDTH,
+    STYLE_COMMAND,
+    STYLE_HINT,
+    kv_line,
+    prompt_header,
+    prompt_hint,
+)
 
 # Parses one prompted answer into the value the command body expects; raises
 # ValueError (or typer.Exit, for address resolution) to trigger a re-prompt.
@@ -56,6 +66,11 @@ CustomFlow = Callable[[Console, AppContext, dict], list[str]]
 # confirmation inside submit), so each round only records its answers here and
 # one combined skip-the-prompts hint is printed when the command finishes.
 _entered_tokens: list[str] = []
+
+# The Python SDK expression equivalent to this invocation (e.g.
+# `sub.read("alpha_price", netuid=23)`), printed beside the skip-the-prompts
+# hint so the SDK form is as learnable as the flags.
+_sdk_hint: Optional[str] = None
 
 
 @dataclass
@@ -92,11 +107,7 @@ def _missing_error(app_ctx: AppContext, flags: list[str]) -> None:
 def ask(console: Console, app_ctx: AppContext, spec: PromptSpec) -> tuple[Any, str]:
     """Prompt for one option until an answer parses; returns (value, raw text)."""
     if spec.help:
-        hint = Text("  ")
-        hint.append(spec.flag, style=STYLE_COMMAND)
-        hint.append("  ")
-        hint.append(spec.help, style=STYLE_HINT)
-        console.print(hint)
+        console.print(prompt_header(spec.flag, spec.help))
     label = spec.flag.lstrip("-")
     if spec.placeholder:
         label += f" ({spec.placeholder})"
@@ -114,16 +125,17 @@ def ask(console: Console, app_ctx: AppContext, spec: PromptSpec) -> tuple[Any, s
             raise typer.Exit(130)
         if not raw:
             if spec.default is None:
-                console.print("  a value is required", style=STYLE_HINT)
+                console.print(prompt_hint("a value is required"))
                 continue
             raw = spec.default
-        try:
-            value = spec.parse(app_ctx, raw)
-        except typer.Exit:
-            continue  # the resolver already printed its own error
-        except ValueError as error:
-            app_ctx.output.error(str(error) or f"invalid value for `{spec.flag}`")
-            continue
+        with app_ctx.output.prompt_block():
+            try:
+                value = spec.parse(app_ctx, raw)
+            except typer.Exit:
+                continue  # the resolver already printed its own error (indented)
+            except ValueError as error:
+                app_ctx.output.error(str(error) or f"invalid value for `{spec.flag}`")
+                continue
         return value, raw
 
 
@@ -168,18 +180,35 @@ def _unknown_name_error(kind: str, raw: str, known: list[str]) -> ValueError:
     return ValueError(f"no {kind} named {raw!r} — `btcli wallet list` shows all {len(known)}")
 
 
-def _parse_wallet(app_ctx: AppContext, raw: str, *, require_coldkey: bool = True) -> str:
+def _multisig_no_local_keys_error(name: str) -> ValueError:
+    """A saved multisig was named where local key material is required."""
+    entry = cfg.get_multisig(name)
+    members = ", ".join(str(ref) for ref in (entry or {}).get("signatories", []))
+    hint = f" — use a member wallet instead ({members})" if members else ""
+    return ValueError(
+        f"{name!r} is a saved multisig: it has no key files of its own, and "
+        f"this command needs a local key{hint}"
+    )
+
+
+def _parse_wallet(
+    app_ctx: AppContext, raw: str, *, require_coldkey: bool = True, allow_multisig: bool = True
+) -> str:
     """Validate the wallet exists on disk and select it on the context.
 
     A bad name re-prompts with the wallets that *are* available. The coldkey is
     only demanded when it is the signing key (hotkey-signed intents may use a
     coldkey-less wallet dir). Saved multisig book names are also accepted —
     ``AppContext.submit`` rewrites the intent to a multisig approval signed by
-    a local member.
+    a local member. Commands that operate on local key material directly
+    (sign/decrypt/unlock/...) pass ``allow_multisig=False``: no rewrite can
+    help them, so a multisig name is rejected up front.
     """
     known = wallets.list_wallets(app_ctx.wallet_path)
     if raw not in known:
         if cfg.get_multisig(raw) is not None:
+            if not allow_multisig:
+                raise _multisig_no_local_keys_error(raw)
             app_ctx.wallet_name = raw
             app_ctx.wallet_given = True
             return raw
@@ -260,7 +289,9 @@ def _parse_target_hotkey(app_ctx: AppContext, raw: str) -> str:
     raise ValueError(f"{error} — or paste an ss58 address / address-book name")
 
 
-def _parse_target_wallet(app_ctx: AppContext, raw: str, *, require_coldkey: bool = True) -> str:
+def _parse_target_wallet(
+    app_ctx: AppContext, raw: str, *, require_coldkey: bool = True, allow_multisig: bool = True
+) -> str:
     """Parse a *target* coldkey: a local wallet name as usual, but a pasted
     ss58 address or address-book name also works (no signature needed)."""
     if wallets.is_bittensor_address(raw):
@@ -270,7 +301,9 @@ def _parse_target_wallet(app_ctx: AppContext, raw: str, *, require_coldkey: bool
         app_ctx.output.name_address(booked, raw)
         return booked
     try:
-        return _parse_wallet(app_ctx, raw, require_coldkey=require_coldkey)
+        return _parse_wallet(
+            app_ctx, raw, require_coldkey=require_coldkey, allow_multisig=allow_multisig
+        )
     except ValueError as error:
         raise ValueError(f"{error} — or paste an ss58 address / address-book name")
 
@@ -284,6 +317,7 @@ def confirm_wallet(
     hotkey_help: Optional[str] = None,
     hotkey_must_exist: bool = True,
     accept_address: bool = False,
+    allow_multisig: bool = True,
 ) -> Optional[str]:
     """Confirm the target wallet (and optionally hotkey) when only defaulted.
 
@@ -303,8 +337,24 @@ def confirm_wallet(
     *target*, not a signer) a pasted ss58 address or address-book name is also
     accepted — the key doesn't have to exist locally. The pasted address is
     returned so the caller can use it directly; local selections return None.
+
+    ``allow_multisig=False`` (commands that operate on local key material
+    directly) rejects a saved multisig name whether it arrives via the prompt
+    or was passed with ``-w``: a multisig has no key files, and no intent
+    rewrite can help a sign/decrypt/unlock-style command.
     """
     skip = app_ctx.assume_yes or app_ctx.uses_external_signer()
+    if (
+        not allow_multisig
+        and cfg.get_multisig(app_ctx.wallet_name) is not None
+        and app_ctx.wallet_name not in wallets.list_wallets(app_ctx.wallet_path)
+        and (app_ctx.wallet_given or skip or not interactive(app_ctx))
+    ):
+        # -w/BT_WALLET named a multisig and no prompt will run to catch it.
+        # (When the multisig is merely the prompt's Enter default,
+        # _parse_wallet rejects the answer and re-prompts instead.)
+        app_ctx.output.error(str(_multisig_no_local_keys_error(app_ctx.wallet_name)))
+        raise typer.Exit(2)
     specs: list[PromptSpec] = []
     if not app_ctx.wallet_given and not skip:
         # A paste is only meaningful at the last prompt of the round: with a
@@ -315,6 +365,7 @@ def confirm_wallet(
             functools.partial(
                 _parse_target_wallet if wallet_is_target else _parse_wallet,
                 require_coldkey=require_coldkey,
+                allow_multisig=allow_multisig,
             )
             if must_exist
             else _parse_wallet_name
@@ -406,6 +457,21 @@ def signer_specs(
     return specs
 
 
+def record_answers(tokens: list[str]) -> None:
+    """Remember interactively supplied argv tokens for replay / skip-the-prompts."""
+    _entered_tokens.extend(tokens)
+
+
+def record_sdk_hint(expression: str) -> None:
+    """Remember the Python SDK expression equivalent to this invocation.
+
+    Shown as a `python` line under the skip-the-prompts hint, so a prompted
+    run also teaches the SDK form of the same call.
+    """
+    global _sdk_hint
+    _sdk_hint = expression
+
+
 def replay_command() -> str:
     """The command that submits this invocation for real: the current argv plus
     any prompted answers, minus ``--dry-run`` and ``--json``, quoted for
@@ -429,16 +495,25 @@ def _flush_command_hint(exit_code: int) -> None:
     """
     if exit_code != 0 or not _entered_tokens:
         return
+    if "--dry-run" in sys.argv:
+        # The plan already printed the replay command as a tabbed `run for real`.
+        _entered_tokens.clear()
+        return
     tokens = [Path(sys.argv[0]).name, *sys.argv[1:], *_entered_tokens]
     _entered_tokens.clear()
     command = " ".join(shlex.quote(part) for part in tokens)
-    line = Text(overflow="ignore", no_wrap=True)
-    line.append("hint:".rjust(7), style=STYLE_HINT)
-    line.append(" skip the prompts next time: ", style=STYLE_HINT)
-    line.append(command, style=STYLE_COMMAND)
+    content = Text("skip the prompts next time: ", style=STYLE_HINT)
+    content.append(command, style=STYLE_COMMAND)
     console = Console(stderr=True, highlight=False)
     console.print()
-    console.print(line, soft_wrap=True)
+    console.print(kv_line("hint", PROMPT_KEY_WIDTH, content, key_style=STYLE_HINT), soft_wrap=True)
+    if _sdk_hint:
+        sdk = Text("the same call from the sdk: ", style=STYLE_HINT)
+        sdk.append(_sdk_hint, style=STYLE_COMMAND)
+        sdk.append("  (sub = bt.Subtensor())", style=STYLE_HINT)
+        console.print(
+            kv_line("python", PROMPT_KEY_WIDTH, sdk, key_style=STYLE_HINT), soft_wrap=True
+        )
 
 
 # --- Generic coverage: drive the whole app and intercept MissingParameter ----
@@ -507,7 +582,10 @@ def _signing_wallet_spec(
             if tier == "tx"
             else "Wallet this command targets."
         ),
-        parse=functools.partial(_parse_wallet, require_coldkey=False),
+        # Unlock-tier commands work on local key files directly, which a
+        # saved multisig does not have; tx-tier submissions rewrite to a
+        # member-signed multisig approval, so the name is fine there.
+        parse=functools.partial(_parse_wallet, require_coldkey=False, allow_multisig=tier == "tx"),
         default=app_ctx.wallet_name,
     )
 
@@ -535,6 +613,17 @@ def _missing_click_params(error: Any, args: list[str]) -> list[Any]:
         elif failing_is_argument and after_failing:
             missing.append(param)
     return missing
+
+
+def _upgrade_address_spec(spec: PromptSpec) -> PromptSpec:
+    """Swap a dest-style address prompt for the address-book / hotkey picker.
+
+    Circular import: stake_picker imports PromptSpec from this module.
+    """
+    from .stake_picker import required_address_spec
+
+    richer = required_address_spec(spec.field)
+    return richer if richer is not None else spec
 
 
 def run_app(app: typer.Typer) -> None:
@@ -594,10 +683,16 @@ def _run_app(app: typer.Typer) -> None:
             console = Console(stderr=True, highlight=False)
             console.print()
             for spec in specs:
-                _, raw = ask(console, app_ctx, spec)
-                entered = [raw] if spec.positional else [spec.flag, raw]
-                args += entered
-                _entered_tokens.extend(entered)
+                spec = _upgrade_address_spec(spec)
+                if spec.custom is not None:
+                    entered = spec.custom(console, app_ctx, {})
+                    args += entered
+                    _entered_tokens.extend(entered)
+                else:
+                    _, raw = ask(console, app_ctx, spec)
+                    entered = [raw] if spec.positional else [spec.flag, raw]
+                    args += entered
+                    _entered_tokens.extend(entered)
                 console.print()
             continue
         except click_exceptions.ClickException as error:

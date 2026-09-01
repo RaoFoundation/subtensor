@@ -412,11 +412,14 @@
       showCopy("Signature sent", "btcli is submitting the transaction…");
     }
 
-    function showSigning(source) {
+    function showSigning(source, stage) {
       setBridgeState("authorizing");
+      const hint = stage
+        ? `${stage}. Confirm or reject the signature request in the extension popup.`
+        : "Confirm or reject the signature request in the extension popup.";
       showCopy(
         source ? `Approve in ${source}` : "Approve in your wallet",
-        "Confirm or reject the signature request in the extension popup."
+        hint
       );
     }
 
@@ -513,10 +516,12 @@
       }
       await ensureExtensions();
       const source = assertSourceEnabled(payload.address);
-      showSigning(source);
+      showSigning(source, params.stage);
       const injector = await web3FromAddress(payload.address);
       const signature = await injector.signer.signPayload(payload);
-      showSubmitting();
+      if (!params.moreComing) {
+        showSubmitting();
+      }
       return signature;
     }
 

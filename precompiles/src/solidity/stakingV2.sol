@@ -591,6 +591,25 @@ interface IStaking {
         uint64 limitPrice,
         bool allowPartial
     ) external;
+    /**
+     * @notice Moves alpha between hotkeys and subnets subject to a relative price limit.
+     * @param originHotkey Hotkey from which alpha is removed.
+     * @param destinationHotkey Hotkey to which the resulting alpha is credited.
+     * @param originNetuid Subnet from which alpha is removed.
+     * @param destinationNetuid Subnet into which TAO is staked.
+     * @param alphaAmount Origin alpha requested to move, in raw alpha units.
+     * @param limitPrice Minimum destination-alpha per origin-alpha ratio, scaled by 1e9.
+     * @param allowPartial Whether to execute only the amount available before the limit.
+     */
+    function moveStakeLimit(
+        bytes32 originHotkey,
+        bytes32 destinationHotkey,
+        uint16 originNetuid,
+        uint16 destinationNetuid,
+        uint64 alphaAmount,
+        uint64 limitPrice,
+        bool allowPartial
+    ) external;
     function recycleAlpha(bytes32 hotkey, uint64 amount, uint16 netuid) external;
     function setColdkeyAutoStakeHotkey(uint16 netuid, bytes32 hotkey) external;
     function claimRoot(uint16[] calldata subnets) external;
@@ -666,6 +685,19 @@ interface IStaking {
     function getMinChildkeyTakePerSubnet(uint16 netuid) external view returns (uint16);
     function getHotkeyOwner(bytes32 hotkey) external view returns (bool exists, bytes32 owner);
     function getOwnedHotkeys(bytes32 coldkey) external view returns (bytes32[] memory);
+
+    /**
+     * @dev Returns at most 64 staking hotkeys beginning at `offset`.
+     * Each call reads the existing staking-hotkey vector and slices it in stored order.
+     * `total` is the vector length; an offset greater than or equal to `total` returns an empty
+     * page.
+     */
+    function getStakingHotkeys(
+        bytes32 coldkey,
+        uint64 offset,
+        uint16 limit
+    ) external view returns (bytes32[] memory hotkeys, uint64 total);
+
     function getAutoStakeDestination(
         bytes32 coldkey,
         uint16 netuid

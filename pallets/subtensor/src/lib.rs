@@ -71,13 +71,21 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Declared pre-dispatch weight envelope for `claim_root` (benchmark upper bound). Actual
-/// work may exceed this; post-dispatch refunds the measured weight.
+/// Benchmark upper bound and admission envelope for `claim_root` /
+/// `claim_root_scan` (Linear<1, N>). Weight calculation cannot walk storage,
+/// so both claim paths reserve this many units and refuse work that would
+/// exceed the envelope. Post-dispatch weight is refunded to the work
+/// actually performed.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
 /// to the number of available destinations when fewer networks exist than this floor.
 pub const MIN_ROOT_BASKET_WEIGHTS: u16 = 8;
+
+/// Default [`RootWeightsCap`]: the largest u16-normalized share of a root basket vector a
+/// single destination may take. `u16::MAX / 16 + 1` (= 4096) is the smallest cap that
+/// admits a 16-way equal split, so a fund must curate at least 16 destinations.
+pub const DEFAULT_ROOT_WEIGHTS_CAP: u16 = u16::MAX / 16 + 1;
 
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
@@ -435,6 +443,103 @@ pub mod pallet {
         pub earned: AlphaBalance,
     }
 
+    /// A beta-basket fund's frozen display baseline, stamped once at the fund's first
+    /// share mint (its "first sighting") and never rewritten.
+    ///
+    /// Raw beta prices (`spot NAV / shares`) carry arbitrary historical baselines, so
+    /// levels are not comparable across funds of different ages. The baseline splices
+    /// every fund onto two common index lines at birth — the way a new share class of a
+    /// fund launches at the master fund's current NAV rather than at $1:
+    ///
+    /// * display (bag) price = `raw_price / price_divisor` — starts at the basket
+    ///   index level of the stamp block (both sides marked at realizable quotes, so
+    ///   a stamp cannot be poisoned by a spot-price push);
+    /// * total-return stake price = `tr_splice * BasketTwr` — the wealth of τ1 staked
+    ///   at the stamp block under the claim-and-restake convention, compounding only
+    ///   with dividends actually minted to stakers since then, each locked at its
+    ///   deposit-time pricing.
+    ///
+    /// See `staking/beta_pricing.rs` for the index and pricing math built on this.
+    #[crate::freeze_struct("e48f71fa685b45cf")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaBaselineOf {
+        /// Divisor splicing the raw beta price onto the basket index: the fund's raw
+        /// price at the stamp block over the index level at that block.
+        pub price_divisor: U64F64,
+        /// The fund's `BasketRate` at the stamp block. The pending-entitlement mark
+        /// (`staker_yield`) only counts rate accrued past this, so pre-period (e.g.
+        /// migration-seeded legacy) history is excluded from every fund's figure the
+        /// same way.
+        pub rate0: I96F32,
+        /// Splice factor for the staker total-return series: `tr_splice * BasketTwr`
+        /// is the fund's stake price. Stamped as the stake-index level at the stamp
+        /// block divided by the fund's TWR at that block (dividends can predate a
+        /// deferred stamp), so the stake price starts exactly on the index line. The
+        /// seed migration additionally folds the fund's pre-upgrade entitlement into
+        /// this factor (see `migrate_stamp_beta_baselines`).
+        pub tr_splice: U64F64,
+        /// Block at which this baseline was stamped.
+        pub first_block: u64,
+    }
+
+    /// A published beta-index snapshot: the chained `(bag, stake)` index levels, marked at
+    /// realizable quotes. Each completed sweep pass multiplies the previous levels by the
+    /// prior-NAV-weighted mean of per-fund price relatives, so capital flows never move
+    /// the index — only fund returns do. Baseline stamps and the pricing runtime APIs
+    /// splice onto / read the latest snapshot instead of sweeping inline, which is what
+    /// keeps their work bounded (see `advance_beta_index_sweep`).
+    #[crate::freeze_struct("dab9adbdbe9f4ef4")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaIndexSnapshotOf {
+        /// Chained NAV-weighted display-price index level (realizable mark).
+        pub bag_level: U64F64,
+        /// Chained NAV-weighted total-return stake index level.
+        pub stake_level: U64F64,
+        /// Block at which the sweep that produced these levels completed.
+        pub block: u64,
+    }
+
+    /// One fund's sample from the last completed index-sweep pass: the start-of-period
+    /// state the next pass chains against. The fund's next price relative is
+    /// `display_now / display`, weighted by `nav` (start-of-period size), so deposits and
+    /// redemptions between passes change the *weight* but never fabricate a return.
+    /// Scoped to one fund life, like `BetaBaseline`: moved on hotkey swap and removed on
+    /// retirement, so a revived fund never chains across lives.
+    #[crate::freeze_struct("9adef5cfda198dd3")]
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, Copy, PartialEq, Eq, Debug, TypeInfo,
+    )]
+    pub struct BetaIndexFundSampleOf {
+        /// Realizable NAV (rao) at the sample; the fund's weight in the next relative.
+        pub nav: u64,
+        /// Display price at the sample (denominator of the next bag relative).
+        pub display: U64F64,
+        /// Total-return stake price at the sample (denominator of the next stake relative).
+        pub stake: U64F64,
+    }
+
+    /// In-progress state of the paged beta-index sweep: partial sums of the chained-index
+    /// relatives plus the raw storage key to resume iteration from. One bounded page
+    /// advances per block; when the pass completes, the previous snapshot levels are
+    /// multiplied by the aggregate relatives and published as a [`BetaIndexSnapshotOf`].
+    #[crate::freeze_struct("9b6150dad57406fa")]
+    #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
+    pub struct BetaIndexSweepOf {
+        /// Raw storage key of the last `BetaBaseline` entry processed; empty means the
+        /// pass starts from the top of the map.
+        pub cursor: Vec<u8>,
+        /// Σ previous-pass nav (rao) across funds with samples at both ends of the period.
+        pub weight_sum: u128,
+        /// Σ previous nav × (display now / display previous) so far.
+        pub rel_bag_sum: U64F64,
+        /// Σ previous nav × (stake now / stake previous) so far.
+        pub rel_stake_sum: U64F64,
+    }
+
     // ============================
     // ==== Staking + Accounts ====
     // ============================
@@ -515,6 +620,11 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultZeroI96F32<T: Config>() -> I96F32 {
         I96F32::saturating_from_num(0)
+    }
+    /// Default one for U64F64 accumulators (multiplicative identity).
+    #[pallet::type_value]
+    pub fn DefaultOneU64F64<T: Config>() -> U64F64 {
+        U64F64::saturating_from_num(1)
     }
     /// Default value for Alpha currency.
     #[pallet::type_value]
@@ -1448,21 +1558,6 @@ pub mod pallet {
         DefaultZeroAlpha<T>,
     >;
 
-    /// Root dividend credits whose per-hotkey allocation was calculated by an epoch while the
-    /// beta-basket seed migration owned the destination maps. Credits are released to the same
-    /// hotkey on that subnet's first epoch after the seed completes.
-    #[pallet::storage]
-    pub type DeferredRootAlphaDividends<T: Config> = StorageDoubleMap<
-        _,
-        Identity,
-        NetUid,
-        Blake2_128Concat,
-        T::AccountId,
-        AlphaBalance,
-        ValueQuery,
-        DefaultZeroAlpha<T>,
-    >;
-
     /// DMAP ( hotkey, netuid ) --> alpha | Root dividend credits waiting to enter the
     /// validator's beta basket. Epochs enqueue here instead of depositing inline (a deposit
     /// prices a share mint against the fund's full NAV — one AMM quote per holding — so
@@ -1678,6 +1773,11 @@ pub mod pallet {
         ValueQuery,
         DefaultZeroAlpha<T>,
     >;
+
+    /// MAP ( netuid ) --> alpha | Returns the total alpha staked across all hotkeys on a subnet.
+    #[pallet::storage]
+    pub type TotalAlphaStaked<T: Config> =
+        StorageMap<_, Identity, NetUid, AlphaBalance, ValueQuery, DefaultZeroAlpha<T>>;
 
     /// DMAP ( hot, netuid ) --> alpha | Returns the total amount of alpha a hotkey owned in the last epoch.
     #[pallet::storage]
@@ -2837,6 +2937,24 @@ pub mod pallet {
     #[pallet::storage]
     pub type RootWeightSettingEnabled<T> = StorageValue<_, bool, ValueQuery>;
 
+    #[pallet::type_value]
+    /// Default share cap for a single root basket destination: 1/16 of the vector
+    /// (u16-normalized; 4096/65535 admits exactly 16 equal-weight destinations).
+    pub fn DefaultRootWeightsCap<T: Config>() -> u16 {
+        crate::DEFAULT_ROOT_WEIGHTS_CAP
+    }
+
+    #[pallet::storage] // --- MAP ( netuid ) --> Max share one destination may take of a root basket.
+    /// Concentration cap on `set_root_weights` vectors, u16-normalized (`u16::MAX` = 100%
+    /// of the vector's summed weight). A cap of 1/16 forces a fund to spread across at
+    /// least 16 destinations, so basket curation cannot recreate single-subnet
+    /// concentration. Like [`RootClaimableThreshold`], only the `NetUid::ROOT` entry is
+    /// consulted; other entries are inert. Skipped at check time while fewer destinations
+    /// exist than the cap demands (young chains, tests). Set via
+    /// `AdminUtils::sudo_set_root_weights_cap`.
+    pub type RootWeightsCap<T: Config> =
+        StorageMap<_, Blake2_128Concat, NetUid, u16, ValueQuery, DefaultRootWeightsCap<T>>;
+
     #[pallet::storage] // --- MAP(netuid ) --> Root claim threshold
     /// Basket redemption is fund-level (not per-subnet), so only the `NetUid::ROOT` entry is
     /// consulted: a claim below `RootClaimableThreshold[ROOT]` TAO is skipped as dust. Other
@@ -2898,6 +3016,69 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketRate<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, I96F32, ValueQuery, DefaultZeroI96F32<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's frozen display baseline (see
+    /// [`BetaBaselineOf`]).
+    ///
+    /// Stamped once at the fund's first share mint (or seeded from the frozen SDK table by
+    /// `migrate_stamp_beta_baselines` for funds that predate on-chain stamping) and never
+    /// rewritten, so the spliced display/stake prices stay continuous for the fund's whole
+    /// life. Scoped to one fund *life*: follows the fund on hotkey swap, and is retired
+    /// when the last share is claimed or a dust revival starts a new life (see
+    /// `retire_beta_display_state`), so an entry exists only while the fund has
+    /// outstanding shares. Also absent for funds born before this storage existed that
+    /// have not minted since; such funds price provisionally at the live index level
+    /// until their next mint stamps them.
+    #[pallet::storage]
+    pub type BetaBaseline<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BetaBaselineOf, OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's staker total-return accumulator.
+    ///
+    /// The one canonical root-staker return series. Starts at 1.0 and multiplies by
+    /// `1 + stakers_value / total_root_stake` on every dividend share mint — the value that
+    /// deposit actually added per rao of claimant root stake, locked in at the deposit's own
+    /// (realizable) pricing. Flows never move it; only dividends do. The staker return of
+    /// τ1 staked over any window (claim-and-restake convention) is `Twr(t1) / Twr(t0) - 1`,
+    /// so any two archive samples agree for every consumer. Everything staker-facing
+    /// derives from it: `stake_price` is this accumulator spliced onto the stake index
+    /// (`tr_splice × Twr`), and the index chains its relatives. The rate-delta figure
+    /// `(BasketRate - rate0) * price` is *not* an alternative return series — it is the
+    /// pending-entitlement mark (`staker_yield`), which re-values all accrued β at today's
+    /// price. Accumulates from the upgrade that introduced it; earlier history lives in the
+    /// seeded `tr_splice` (see `migrate_stamp_beta_baselines`). Like [`BetaBaseline`],
+    /// scoped to one fund life: moves on hotkey swap and is retired when the fund drains or
+    /// a dust revival starts a new life.
+    #[pallet::storage]
+    pub type BasketTwr<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, U64F64, ValueQuery, DefaultOneU64F64<T>>;
+
+    /// --- ITEM --> the latest published beta-index snapshot (see [`BetaIndexSnapshotOf`]).
+    ///
+    /// Refreshed by the paged background sweep in block processing; read by baseline stamps
+    /// so no state-changing path ever sweeps every fund inline. Absent until the first
+    /// pass after genesis (or the runtime upgrade that introduced it) completes; stamps
+    /// simply wait for the next mint while it is absent.
+    #[pallet::storage]
+    pub type BetaIndexSnapshot<T: Config> = StorageValue<_, BetaIndexSnapshotOf, OptionQuery>;
+
+    /// --- ITEM --> in-progress paged beta-index sweep (see [`BetaIndexSweepOf`]).
+    ///
+    /// Present only mid-pass. `advance_beta_index_sweep` processes one strictly bounded
+    /// page per block and clears this on completion.
+    #[pallet::storage]
+    pub type BetaIndexSweep<T: Config> = StorageValue<_, BetaIndexSweepOf, OptionQuery>;
+
+    /// --- MAP ( validator_hotkey ) --> the fund's last completed index-sweep sample
+    /// (see [`BetaIndexFundSampleOf`]).
+    ///
+    /// Written by the sweep as it visits each fund (the current pass's sample replaces the
+    /// previous pass's in the same visit) and consumed as the start-of-period state of the
+    /// next pass's price relative. Removed when the fund becomes unpriceable, retires, or
+    /// starts a new life, so no relative ever chains across a gap in the fund's history.
+    #[pallet::storage]
+    pub type BetaIndexFundSample<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, BetaIndexFundSampleOf, OptionQuery>;
 
     /// --- DMAP ( validator_hotkey, staker_coldkey ) --> fund shares already claimed (watermark).
     ///
@@ -3136,7 +3317,9 @@ pub mod pallet {
 
     /// MAP ( hotkey ) --> parent_delegation_enabled
     ///
-    /// When `true`, this root validator allows auto parent delegation.
+    /// When `true`, this root validator allows auto parent delegation:
+    /// new subnets childkey existing root validators to the new owner,
+    /// and a new root validator childkeys to all current subnet owners.
     /// Defaults to `true`; validators can opt out at any time
     /// by calling `set_auto_parent_delegation_enabled(false)`.
     #[pallet::storage]

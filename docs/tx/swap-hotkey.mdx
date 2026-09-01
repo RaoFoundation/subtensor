@@ -23,7 +23,7 @@ instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L859-L872) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L870-L883) |
 
 ## Parameters
 
@@ -55,7 +55,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.SwapHotkey(new_hotkey_ss58="5F...")
+intent = bt.SwapHotkey(new_hotkey_ss58="5G...destination")
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -74,7 +74,7 @@ result = sub.execute_tool("swap_hotkey", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L865`](/code/pallets/subtensor/src/macros/dispatches.rs#L859-L872):
+`SubtensorModule.swap_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L876`](/code/pallets/subtensor/src/macros/dispatches.rs#L870-L883):
 
 ```rust
 #[pallet::call_index(70)]

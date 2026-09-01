@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 
 import pytest
 from typer.testing import CliRunner
@@ -25,7 +26,7 @@ from bittensor.cli.root_helpers import RootPosition, position_columns, position_
 from bittensor.client import Client
 from bittensor.intents import REGISTRY
 from tests.harness.fake_substrate import FakeSubstrate
-from tests.harness.samples import BOB
+from tests.harness.samples import ALICE_HOT, BOB, BOB_HOT
 
 runner = CliRunner()
 
@@ -127,6 +128,20 @@ class TestOffline:
         assert result.exit_code == 0
         for op in ("add-stake", "transfer", "set-weights", "create-crowdloan"):
             assert op in result.output
+
+    def test_stake_unstake_all_exposes_bulk_selector_only_on_workflow(self):
+        ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+        result = invoke("stake", "unstake-all", "--help")
+        assert result.exit_code == 0
+        workflow_help = ansi.sub("", result.output)
+        assert "--hotkey" in workflow_help
+        assert "--all-hotkeys" in workflow_help
+
+        primitive = invoke("tx", "unstake-all", "--help")
+        assert primitive.exit_code == 0
+        primitive_help = ansi.sub("", primitive.output)
+        assert "--hotkey" in primitive_help
+        assert "--all-hotkeys" not in primitive_help
 
     def test_query_group_help(self):
         result = invoke("query", "--help")
@@ -307,7 +322,7 @@ class TestRoot:
 
         monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
 
-        result = invoke("root", "list", "--coldkey", BOB)
+        result = invoke("root", "list", "--mine", "--coldkey", BOB)
 
         assert result.exit_code == 0, result.exception
         assert "root positions of" in result.output
@@ -343,12 +358,12 @@ class TestRoot:
         monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
         seed_root_validator_summary(fake)
 
-        result = invoke("root", "show", "--hotkey", BOB, "--coldkey", BOB)
+        result = invoke("root", "list", BOB, "--coldkey", BOB)
 
         assert result.exit_code == 0, result.exception
         assert "weights of" in result.output
         assert "fund holdings of" in result.output
-        assert "fund nav: τ1.250000000" in result.output
+        assert "nav τ1.250000000" in result.output
 
     def test_show_explicit_hotkey_json_emits_one_document(self, fake: FakeSubstrate, monkeypatch):
         async def root_positions(_client, _coldkey_ss58):
@@ -357,7 +372,7 @@ class TestRoot:
         monkeypatch.setattr(root_commands, "fetch_root_positions", root_positions)
         seed_root_validator_summary(fake)
 
-        result = invoke("--json", "root", "show", "--hotkey", BOB, "--coldkey", BOB)
+        result = invoke("--json", "root", "list", BOB, "--coldkey", BOB)
 
         assert result.exit_code == 0, result.exception
         payload = json.loads(result.output)
@@ -407,6 +422,181 @@ class TestTransactions:
         call, _signer, _ = fake.submissions[-1]
         assert (call.module, call.function) == ("Balances", "transfer_keep_alive")
         assert call.params["value"] == 1_500_000_000
+
+    def test_stake_unstake_all_single_hotkey_keeps_direct_call(self, fake: FakeSubstrate):
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            "unstake-all",
+            "--hotkey",
+            BOB,
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("SubtensorModule", "unstake_all")
+        assert call.params == {"hotkey": BOB}
+
+    @pytest.mark.parametrize(
+        ("command", "call_name", "expected_hotkeys"),
+        [
+            ("unstake-all", "unstake_all", [BOB, BOB_HOT, ALICE_HOT]),
+            ("unstake-all-alpha", "unstake_all_alpha", [BOB, ALICE_HOT]),
+        ],
+    )
+    def test_stake_unstake_all_hotkeys_batches_unique_live_positions(
+        self,
+        fake: FakeSubstrate,
+        wallet_dir: str,
+        command: str,
+        call_name: str,
+        expected_hotkeys: list[str],
+    ):
+        coldkey = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        fake.seed("System", "Account", [coldkey], {"data": {"free": 2_500_000_000}})
+
+        def positions(params):
+            assert params == [coldkey]
+            return [
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 1,
+                    "stake": 1_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 2,
+                    "stake": 2_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": BOB_HOT,
+                    "coldkey": coldkey,
+                    "netuid": 0,
+                    "stake": 4_000_000_000,
+                    "is_registered": True,
+                },
+                {
+                    "hotkey": ALICE_HOT,
+                    "coldkey": coldkey,
+                    "netuid": 4,
+                    "stake": 3_000_000_000,
+                    "is_registered": True,
+                },
+            ]
+
+        fake.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", positions)
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            command,
+            "--all-hotkeys",
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("Utility", "batch_all")
+        assert [(child.function, child.params["hotkey"]) for child in call.params["calls"]] == [
+            (call_name, hotkey) for hotkey in expected_hotkeys
+        ]
+        if command == "unstake-all":
+            dry_run = invoke(
+                "--json",
+                "--dry-run",
+                "stake",
+                command,
+                "--all-hotkeys",
+            )
+            assert dry_run.exit_code == 0, dry_run.output
+            assert any("MEV-shielded" in effect for effect in json.loads(dry_run.output)["effects"])
+
+    def test_stake_unstake_all_rejects_conflicting_hotkey_selectors(self, fake: FakeSubstrate):
+        result = invoke(
+            "--json",
+            "--yes",
+            "stake",
+            "unstake-all",
+            "--hotkey",
+            BOB,
+            "--all-hotkeys",
+        )
+
+        assert result.exit_code == 2
+        assert "choose only one" in result.output
+        assert fake.submissions == []
+
+    def test_stake_unstake_all_reports_when_no_live_positions(
+        self, fake: FakeSubstrate, wallet_dir: str
+    ):
+        coldkey = wallets.open_wallet(_WALLET_NAME, "default", wallet_dir).coldkeypub.ss58_address
+        fake.seed_runtime(
+            "StakeInfoRuntimeApi",
+            "get_stake_info_for_coldkey",
+            [
+                {
+                    "hotkey": BOB,
+                    "coldkey": coldkey,
+                    "netuid": 1,
+                    "stake": 0,
+                    "is_registered": True,
+                }
+            ],
+        )
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "stake",
+            "unstake-all",
+            "--all-hotkeys",
+        )
+
+        assert result.exit_code == 1
+        assert "has no stake" in result.output
+        assert fake.submissions == []
+
+    def test_stake_unstake_all_uses_configured_proxy_as_selection_owner(self, fake: FakeSubstrate):
+        config.set_value("proxy_for", BOB)
+
+        def positions(params):
+            assert params == [BOB]
+            return [
+                {
+                    "hotkey": BOB_HOT,
+                    "coldkey": BOB,
+                    "netuid": 1,
+                    "stake": 1_000_000_000,
+                    "is_registered": True,
+                }
+            ]
+
+        fake.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", positions)
+
+        result = invoke(
+            "--json",
+            "--yes",
+            "--no-mev-shield",
+            "stake",
+            "unstake-all",
+            "--all-hotkeys",
+        )
+
+        assert result.exit_code == 0, result.output
+        call = fake.last_call
+        assert (call.module, call.function) == ("Proxy", "proxy")
+        assert call.params["real"] == BOB
+        assert (call.params["call"].module, call.params["call"].function) == (
+            "SubtensorModule",
+            "unstake_all",
+        )
 
     def test_failed_extrinsic_exits_nonzero(self, fake: FakeSubstrate):
         from bittensor.result import ChainError, ExtrinsicResult
@@ -473,7 +663,7 @@ class TestTransactions:
         assert result.exit_code == 0, result.output
         assert "subnet 8 registered" in result.output
         assert "immediate · no deregistration needed" in result.output
-        assert "price  τ2.500000000" in result.output
+        assert re.search(r"price\s+τ2\.500000000", result.output)
 
     @pytest.mark.parametrize(
         ("subnet_limit", "prune_netuid", "expected_flow"),
@@ -520,16 +710,18 @@ class TestTransactions:
 
         prompts = []
 
-        def tracked_confirm(self, prompt):
+        def tracked_confirm(self, prompt, **kwargs):
             prompts.append(prompt)
 
         monkeypatch.setattr(cli_context.AppContext, "confirm", tracked_confirm)
         result = invoke("subnets", "create")
 
         assert result.exit_code == 0, result.output
-        assert prompts == ["register a new subnet for 7,998.452462874 TAO?"]
+        assert prompts == ["sign and submit?"]
+        assert "cost" in result.output
+        assert "τ7,998.452462874" in result.output
         assert expected_flow in result.output
-        assert "price  τ7,998.452462874" in result.output
+        assert re.search(r"price\s+τ7,998\.452462874", result.output)
 
     def test_subnet_create_unlocks_before_starting_activity(self, fake: FakeSubstrate, monkeypatch):
         from dataclasses import replace
@@ -561,7 +753,7 @@ class TestTransactions:
 
         @contextlib.contextmanager
         def tracked_activity(self, initial):
-            order.append("activity")
+            order.append(("activity", initial))
             with real_activity(self, initial) as update:
                 yield update
 
@@ -571,7 +763,12 @@ class TestTransactions:
         result = invoke("--yes", "subnets", "create")
 
         assert result.exit_code == 0, result.output
-        assert order == ["unlock", "activity"]
+        assert "unlock" in order
+        unlock_at = order.index("unlock")
+        submit_at = next(
+            i for i, step in enumerate(order) if isinstance(step, tuple) and "submitting" in step[1]
+        )
+        assert unlock_at < submit_at
 
     def test_subnet_create_waits_and_explains_deregistration(
         self, fake: FakeSubstrate, wallet_dir: str, monkeypatch

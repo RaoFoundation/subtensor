@@ -1405,6 +1405,7 @@ impl<T: Config> Pallet<T> {
         // Reassign subnet owner coldkey and owner hotkey.
         SubnetOwner::<T>::insert(netuid, new_owner_coldkey.clone());
         SubnetOwnerHotkey::<T>::insert(netuid, king_hotkey.clone());
+        Self::retarget_auto_parent_on_owner_change(netuid, &old_owner_hotkey, &king_hotkey);
         Self::deposit_event(Event::SubnetOwnerChanged {
             netuid,
             old_coldkey: current_owner_coldkey,

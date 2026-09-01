@@ -1,6 +1,6 @@
 ---
 title: Root Reborn
-description: Validator-curated baskets — why root yield stopped being force-sold, how the fund works, and the btcli commands to subscribe, curate, and claim.
+description: Validator-curated baskets — why root yield stopped being force-sold, how the fund works, and the btcli commands to allocate, curate, and claim.
 ---
 
 **Root Reborn** (runtime v441) turns the root network from a passive dividend
@@ -9,6 +9,11 @@ to TAO mechanically, every block, the moment it arrived. Now it is deployed
 into **baskets** — per-validator, escrowed index funds of subnet alpha,
 curated by each validator's root weights — and realized only when a staker
 claims.
+
+The share unit of a basket is a **beta token**: a stable count that grows
+with accruals and shrinks on claim, while its TAO value moves with the
+holdings. [Beta tokens](/docs/concepts/beta-tokens) covers the
+representation, the owed formula, and the raw-versus-display scale.
 
 This replaces the old per-subnet claimable system and retires
 `set_root_claim_type`. The `claim_root(subnets)` call keeps its SCALE
@@ -73,8 +78,10 @@ stake; a claim pays it out as TAO staked back to root.
   dividends themselves describe. Setting a weight vector is what turns on
   the sell-and-redeploy engine. Weight netuid 0 to hold a slice as TAO
   instead of subnet alpha. `set_root_weights` requires at least 8 positive
-  destinations (softened when fewer networks exist), and netuid 0 remains a
-  valid destination to keep part of a curated basket in TAO.
+  destinations (softened when fewer networks exist) and caps any single
+  destination at the `RootWeightsCap` share of the vector — 1/16 at launch,
+  so a curated basket spreads across at least 16 destinations. Netuid 0
+  remains a valid destination to keep part of a curated basket in TAO.
 
 Root validators are transparent fund managers: weight vectors are public,
 fund NAV and lifetime return are queryable, and the scoreboard is who made
@@ -85,8 +92,9 @@ their stakers the most TAO.
 Admission is **burn-based**: your coldkey pays the root burn price and the
 hotkey is registered — no prior stake required. The price is demand-set like
 subnet registration: each registration bumps it (~×1.26) and it decays back
-toward the floor (τ1) with a ~72-minute half-life, so entry costs at least
-1 TAO when the network is quiet and more under registration pressure.
+toward the current ``MinBurn`` floor with a ~72-minute half-life, so
+entry costs at least that floor when the network is quiet and more under
+registration pressure.
 
 ```bash
 btcli subnets burn-cost 0                        # current root registration price
@@ -102,17 +110,21 @@ Steps to a working fund:
 
 1. **Register** ([`root-register`](/docs/tx/root-register)). The burn is
    recycled out of issuance; registrations are rate-limited per block and per
-   root tempo.
+   root tempo. The hotkey is also auto-childkeyed to every existing subnet
+   owner (100% of stake weight on that subnet), unless you opted out with
+   `set_auto_parent_delegation_enabled(false)` first. New subnets later do
+   the same for every root validator that has not opted out.
 2. **Stake your seat.** Root seats are limited (64): when the network is
-   full, each new registration prunes the **lowest-staked** member. A seat
-   with no stake behind it earns nothing and is the first to be evicted, so
-   subscribe TAO to your own hotkey right away
-   (`btcli root subscribe --amount ... --hotkey <your hotkey>`). Stake also
-   gates weight-setting: the hotkey must clear the minimum stake to set
-   weights.
-3. **Curate** your basket weights (next section) — once weight setting is
-   enabled network-wide. Until you set a vector, dividends accumulate in
-   place — each subnet's dividend stays in that subnet's alpha, trade-free.
+   full, each new registration prunes the **lowest-staked non-immune**
+   member (``ImmunityPeriod``). A seat with no stake behind it earns
+   nothing and is the first to be evicted after that window, so
+   add root TAO to your own hotkey right away
+   (`btcli stake add --netuid 0 --amount ... --hotkey <your hotkey>`). Stake
+   also gates weight-setting: the hotkey must clear the minimum stake to
+   set weights.
+3. **Curate** your basket weights with `btcli root weights` (next section).
+   Until you set a vector, dividends accumulate in place — each subnet's
+   dividend stays in that subnet's alpha, trade-free.
 4. **Earn.** Registration marks the hotkey as a delegate with the default
    18% take; your dividends deploy into the basket each epoch and your
    stakers accrue the rest pro-rata.
@@ -123,54 +135,85 @@ principal and accrued entitlement throughout.
 
 ## For validators: curate the basket
 
-**Weight setting is gated off at launch.** Root Reborn ships with
-`set_root_weights` disabled network-wide (`RootWeightSettingDisabled`), so
-every fund runs the null strategy — dividends accumulate in place — and the
-network gets a clean, uniform baseline before curation opens. Weight setting
-will be switched on in a later upgrade; until then the commands below fail
-with `RootWeightSettingDisabled`.
+Root Reborn launched with `set_root_weights` gated off network-wide, so
+every fund began on the null strategy — dividends accumulating in place —
+and the network got a clean, uniform baseline before curation opened.
+Runtime v450 opened the gate and pinned the concentration cap
+(`RootWeightsCap`): no destination may take more than 1/16 of the vector,
+so a curated basket spreads across at least 16 destinations. The
+`RootWeightSettingDisabled` error now only appears if governance switches
+the gate back off.
 
-Once enabled: set the distribution vector with your **hotkey** (it must be
-registered on the root network and hold the minimum stake to set weights;
-the root weights rate limit applies):
+Curate with your **hotkey** (it must be registered on the root network and
+hold the minimum stake to set weights; the root weights rate limit applies).
+`btcli root weights` always submits equal weights — every chosen destination
+gets exactly 1/N, so on mainnet a set needs at least 16 netuids:
 
 ```bash
-btcli root set-weights --weights "0:0.2,4:0.3,8:0.5" -w my_wallet
-btcli root get-weights --hotkey 5F...
-btcli root show --hotkey 5F...        # fund: weights, holdings, NAV, lifetime return
+btcli root weights set --netuids 0,4,8,... -w my_wallet  # replace: equal 1/N across 16+ netuids
+btcli root weights add --netuid 23                       # join the set, renormalize to 1/(N+1)
+btcli root weights remove --netuid 8                     # drop out, renormalize
+btcli root weights show 5F...                            # a validator's non-zero weights
+btcli root list 5F...                 # full fund: weights, holdings, NAV, lifetime return
 ```
 
 ```python
-intent = bt.SetRootWeights(netuids=[0, 4, 8], weights=[0.2, 0.3, 0.5])
+intent = bt.SetRootWeights(netuids=[0, 4, 8, ...], weights=[0.2, 0.3, 0.1, ...])
 await client.execute(intent, wallet)
 ```
 
-Weights are relative — they are normalized and quantized to u16 before
-submission ([`set-root-weights`](/docs/tx/set-root-weights)). Every
-destination must be netuid 0 or an existing subnet. Read a vector back with
+Uneven vectors are available through the SDK (above) or the raw transaction
+command `btcli tx set-root-weights`; the `btcli root weights` porcelain is
+deliberately equal-weight. Weights are relative — they are normalized and
+quantized to u16 before submission
+([`set-root-weights`](/docs/tx/set-root-weights)). Every destination must be
+netuid 0 or an existing subnet, and a share above the cap fails with
+`RootWeightCapExceeded`. Read a vector back with
 [`validator-root-weights`](/docs/query/validator-root-weights); inspect the
 fund with [`validator-basket`](/docs/query/validator-basket) and
 [`validator-basket-nav`](/docs/query/validator-basket-nav).
 
 ## For stakers: accrue and claim
 
-Yield accrues automatically — subscribing TAO to a validator's fund is all it
-takes. `btcli` presents root positions in TAO: *staked* is your principal on
-netuid 0, *accrued* is your fund yield marked at the realizable quote.
+Two ways in. `btcli stake add --netuid 0` puts principal on a validator;
+dividends then accrue as β. `btcli root allocate` deploys TAO into the
+fund now and credits β immediately (you bear entry slippage). `btcli`
+presents root positions in TAO: *staked* is your principal on netuid 0,
+*accrued* is your β marked at the realizable quote.
+`btcli stake list` and `btcli wallet overview` show the accrued basket
+yield under the total; auto-claim is off, so realize it with
+`btcli root claim`. Per-validator breakdown is `btcli root list --mine`.
 
 ```bash
-btcli root list                                   # staked + accrued τ per validator
-btcli root subscribe --amount 100 --hotkey 5F...  # assets in
-btcli root claim                                  # pick wallet → validator → claim / withdraw
-btcli root claim --hotkey 5F... --amount all      # withdraw full position (accrued + staked)
-btcli root claim --hotkey 5F...                   # claim accrued into stake only
+btcli stake list                                  # positions + accrued basket yield
+btcli wallet overview                             # same yield line on the wallet view
+btcli root list                                   # fund leaderboard: NAV, rate vs index
+btcli root list 5F...                             # one fund in detail + your position
+btcli root list --mine                            # staked + accrued τ per validator
+btcli root allocate --amount 100 --hotkey 5F...  # buy β now
+btcli stake remove --netuid 0 --hotkey 5F... --amount 40   # principal only; yield stays owed
+btcli stake remove --netuid 0 --hotkey 5F... --amount all --claim  # claim all, then unstake
+btcli root claim --dry-run --hotkey 5F...         # reserved vs spent fee, vs accrued
+btcli root claim                                  # pick wallet → validator → claim
+btcli root claim --hotkey 5F...                   # claim accrued into root stake
 ```
 
-`btcli root claim` is the exit path. Omit `--amount` to realize accrued yield
-into root stake on that validator. Pass `--amount` / `all` to withdraw to free
-balance — accrued yield is claimed first when needed. Under the hood that uses
-[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) (and
-[`remove-stake`](/docs/tx/remove-stake) when withdrawing).
+Unstake (`btcli stake remove --netuid 0`) returns principal. Basket yield
+stays owed. After a root unstake, `btcli` tells you if yield is still sitting
+there and offers `btcli root claim`. When `RootStakeUnlockInterval` is zero,
+pass `--claim` on the unstake to redeem that validator's **whole** entitlement
+first, then unstake in one batch. That is not a proportional payout: unstaking
+40% still claims 100% of the basket. The chain has no "pay out 40% of the
+basket" call. When the interval is nonzero, the atomic form is unavailable
+because the claim starts a new hold window. Claim first, wait out the full
+interval, then unstake separately.
+
+`btcli root claim` realizes accrued yield into root stake on that validator —
+principal is never touched, and there is no partial claim. To withdraw τ to
+free balance afterwards, unstake normally with `btcli stake remove --netuid 0`.
+Under the hood a claim uses
+[`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) (and the unstake
+[`remove-stake`](/docs/tx/remove-stake)).
 
 ```python
 owed = await client.read(
@@ -194,6 +237,15 @@ root-stakes to.
   [`root-claim-threshold`](/docs/query/root-claim-threshold)) are skipped —
   the entitlement keeps accruing and pays out once it clears. There is no
   deadline and nothing expires.
+- **Claim fee.** The inclusion fee scales with how many ALPHA types the
+  basket holds. Both root-claim calls reserve a conservative 256-unit work
+  envelope at inclusion, independent of how many networks currently exist,
+  and refund the unused part after the claim. The amount you actually spend
+  follows the holdings scanned and redeemed (around τ0.057 on a full
+  128-holding basket).
+  `btcli root claim --dry-run` shows reserved versus spent, compares the
+  spent fee to accrued yield, warns if the claim loses money, and
+  refuses if free TAO cannot cover the reserved amount.
 - **Owed is a live quote.** [`root-basket-owed`](/docs/query/root-basket-owed)
   marks your entitlement at current pool prices, so the number moves with the
   market — a claim realizes whatever the pools pay at execution time.
@@ -215,9 +267,9 @@ root-stakes to.
   entitlement on the same validator ([details below](#migrating-from-v437)).
 - **Your validator is now a fund manager.** Where your yield goes is their
   root weight vector, and it differs per validator. Inspect it before — and
-  while — you delegate: `btcli root show --hotkey 5F...` shows weights,
+  while — you delegate: `btcli root list 5F...` shows weights,
   holdings, NAV, and lifetime return. If you disagree with the curation,
-  claim out and subscribe to a different validator; your principal moves at
+  claim out and allocate to a different validator; your principal moves at
   face value.
 - **Accrued yield is market-priced.** Until claimed, your entitlement is a
   slice of a fund holding subnet alpha: its TAO quote moves with the pools.
@@ -227,9 +279,10 @@ root-stakes to.
   accruing — there is no deadline and nothing expires.
 - **Withdrawals can have a hold window.** If the network sets
   `RootStakeUnlockInterval`, root stake is locked for that many blocks after
-  your last stake change (anti-sniping around epoch boundaries). A claim
-  with `--amount` inside the window fails with `RootStakeLocked` — wait it
-  out and retry.
+  your last stake change (anti-sniping around epoch boundaries). A claim also
+  refreshes that window, so atomic claim-then-unstake is unavailable whenever
+  the interval is nonzero. Claim without withdrawing, wait out the full hold,
+  then unstake separately.
 
 ## Queries and runtime APIs
 
@@ -245,6 +298,19 @@ and as `betaBasket_*` RPC methods for integrators:
 | [`root-basket-total-nav`](/docs/query/root-basket-total-nav) | Network-wide basket NAV |
 | [`validator-root-weights`](/docs/query/validator-root-weights) | A validator's distribution vector |
 | [`root-claim-threshold`](/docs/query/root-claim-threshold) | The minimum per-validator claim payout |
+
+Since v450 the runtime also computes the **standardized pricing layer**
+itself — the basket index, each fund's index-spliced display price, its
+staker yield and total-return stake price, and display-denominated
+positions (see [Beta tokens](/docs/concepts/beta-tokens) for what these
+mean). Integrators read them from five `betaBasket` runtime APIs:
+`get_all_beta_pricing` (the whole leaderboard marked against one index
+sweep), `get_beta_pricing`, `get_beta_index` (the live bag and stake
+index levels), and `get_beta_position` / `get_beta_portfolio` (a
+staker's positions in display units, where
+`display_beta × display_price` is the position's value). On upgraded
+nodes `btcli root list` passes these numbers straight through, so every
+consumer of the chain shows the same price, yield, and index.
 
 ## History of `set_root_weights`
 
@@ -270,7 +336,7 @@ previously accrued claimable alpha into basket holdings — nothing is lost,
 it simply becomes fund entitlement on the same validator.
 
 - `claim_root(subnets)` keeps the same SCALE signature for old clients; the
-  `subnets` set is **ignored** and the call claims every validator fund-level.
+  `subnets` set is **ignored** and the call claims every validator basket-level.
   Prefer [`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey) for a
   single validator.
 - `set_root_claim_type` (Swap / Keep / KeepSubnets) is **removed**: payouts

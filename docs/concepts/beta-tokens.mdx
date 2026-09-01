@@ -1,0 +1,128 @@
+---
+title: Beta tokens
+description: A share in one validator’s root basket. The count stays put. The TAO value moves.
+---
+
+**Beta** (`β`) is a share of one validator’s **basket**.
+
+A basket is a small fund that validator runs on the root network. The fund
+holds subnet tokens — and sometimes plain TAO. You do not own “the SN4
+tokens.” You own a slice of the whole pile.
+
+Beta is not a new coin. It is not TAO. It is not alpha. It is a count of
+shares in that one fund. For how to buy, curate, and claim, see
+[Root Reborn](/docs/guides/root-reborn).
+
+<BetaFundDiagram />
+
+## What the number means
+
+Say a fund has 100 β out, and you hold 40 β. You own 40% of everything in
+it.
+
+If the stuff in the fund is worth 120 TAO today, your slice is worth 48 TAO.
+If those subnet tokens go up tomorrow, you still have 40 β. The TAO value
+is just higher.
+
+That is the whole point of the unit:
+
+- **Your β count** stays still when prices move. It goes up when the fund
+  gives you more shares (a dividend, or a buy). It goes down when you claim.
+- **Your TAO value** is `your β × (fund value / all β)`. That number moves
+  with the market.
+
+A new fund starts at **1 TAO per β**. After that the price is just “how did
+this fund do.”
+
+## Each validator is a different fund
+
+Alice’s β and Bob’s β are not the same thing. Adding them is like adding
+shares of two companies.
+
+If you want one number you can compare, use TAO — the wallet calls it
+`beta_value`. Do not add the β counts.
+
+## The index, and why prices get normalized
+
+Raw price is `fund value / all β`. A new fund starts at 1.0. An old
+fund that lived through a bull market can show 4.0 forever — not because
+the validator is four times as good, but because it started from a
+different number. Those two prices are not comparable.
+
+The **basket index** is the average of all live funds, weighted by size
+(NAV). It starts at 1.0 on a fixed start block. Deposits and withdrawals
+do not move it. Only whether the holdings themselves went up or down
+does. `btcli root list` uses this line as “the market.”
+
+**Normalization** splices each fund onto that line the day it is born,
+the way a new share class of a mutual fund launches at today’s NAV
+instead of at $1:
+
+- A **baseline** is stamped at the fund’s first share mint:
+  `raw price that block / index level that block`. Since v450 the chain
+  stamps and stores this itself, and both sides of that division use
+  **realizable** quotes — what selling would actually fetch, bounded by
+  pool depth — so nobody can poison a baseline by briefly pumping a thin
+  pool’s spot price.
+- **Display price** is `raw price / baseline`. A new fund starts on the
+  index, not at 1.0.
+- **Display β** is `your β × baseline`, so `display β × display price`
+  is still your TAO value. Nothing about the claim changes.
+
+`vs index` is then simple: display price over the current index, minus
+one. On the line means “did what the average basket did,” whether the
+fund is three days or three years old. Above the line means it beat the
+market.
+
+This is display only — the chain still prices and redeems at raw
+`value / β` — but the convention itself is now **defined by the chain**,
+not by each wallet: the runtime computes the index, every fund’s display
+price, and each staker’s display β, and serves them over the
+`betaBasket` RPCs. btcli, explorers, and contracts all show the same
+number because they all read the same one.
+
+Two lifecycle details. A brand-new fund prices *provisionally* — pinned
+to today’s index — only until its first share mint stamps the real
+baseline. And a baseline lives exactly as long as its fund: if every
+share is claimed out, the baseline retires with it, and a later revival
+starts a fresh life with a fresh stamp instead of inheriting a stale
+one.
+
+## Yield, on the same line
+
+The bag index answers “how did the *holdings* do.” Root stakers earn a
+second stream — dividends minted as new β — and that gets its own line:
+the **stake index**, the wealth of τ1 of root stake earning the average
+fund’s dividends. Each fund’s **staker yield** (what τ1 staked there
+earned since its birth) and **stake price** (that yield spliced onto the
+stake index) come from the same chain RPCs, so “which fund paid its
+stakers best” is as canonical as the price itself.
+
+## How you get beta, and how you get TAO back
+
+Two ways in:
+
+1. **Stake TAO on root** with a validator. Each epoch, that validator’s
+   root yield goes into its basket. You get more β in proportion to your
+   root stake.
+2. **Buy in now** with [`stake-into-basket`](/docs/tx/stake-into-basket)
+   (`btcli root allocate`). You pay TAO, the fund buys holdings, and you
+   get β immediately. You pay the entry slippage.
+
+A claim
+([`claim-root-with-hotkey`](/docs/tx/claim-root-with-hotkey),
+`btcli root claim`) sells your slice of the pile and stakes the TAO onto
+your root. It does not land in your free balance. Unstake from netuid 0
+after that if you want cash.
+
+Nothing auto-claims. Unclaimed β just sits there.
+
+## A few sharp edges
+
+- The chain stores a raw share count. Wallets divide by 10⁹ so that 1 β
+  started at 1 TAO. Same trick as rao → TAO.
+- A `Balance` printed as `β` can mean **subnet 2’s token**. That is
+  unrelated. Basket beta is the share count in this page.
+- You can look up a position with
+  [`basket-position`](/docs/query/basket-position). `beta` is the count.
+  `value_tao` is what a claim would pay right now.

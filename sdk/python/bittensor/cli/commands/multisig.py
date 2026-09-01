@@ -7,23 +7,61 @@ Saved signer sets are reused by `btcli call --multisig NAME` and
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
 from ... import config as cfg
 from ... import storage, wallets
+from ...settings import guide_docs_url
 from .. import multisig_helpers as ms_helpers
 from .. import upgrade_helpers as uh
 from ..context import AppContext, ctx_of
 from ..globals import with_globals
-from ..prompt import confirm_wallet
+from ..prompt import PromptSpec, confirm_wallet, fill_missing
 from .upgrade import load_pending_upgrades, render_upgrade_records
 
 app = typer.Typer(
     no_args_is_help=True,
-    help="Save multisig signer sets and track pending multisig operations.",
+    help="Save multisig signer sets and track pending multisig operations."
+    f"\n\nGuide: {guide_docs_url('multisig')}",
 )
+
+_SIGNATORIES_HELP = (
+    "Full signer set: wallet names, address-book names, or ss58 addresses "
+    "(comma-separated, space-separated, or mixed)."
+)
+
+
+def _parse_signatory_refs(app_ctx: AppContext, raw: str) -> list[str]:
+    """Validate a prompted/typed signatory list; each ref must resolve."""
+    refs = ms_helpers.split_signatory_refs(raw)
+    if not refs:
+        raise ValueError("need at least one signatory (wallet name, address-book name, or ss58)")
+    for ref in refs:
+        address = app_ctx.resolve_address("coldkey_ss58", ref)
+        if not address:
+            raise ValueError(f"cannot resolve {ref!r}")
+    return refs
+
+
+def _prompt_signatory_refs(app_ctx: AppContext) -> list[str]:
+    """Ask for the signer set when neither --signatories nor --signatory was given."""
+    answers: dict[str, Any] = {}
+    fill_missing(
+        app_ctx,
+        [
+            PromptSpec(
+                field="signatories",
+                flag="--signatories",
+                help=_SIGNATORIES_HELP,
+                parse=_parse_signatory_refs,
+                placeholder="name1, name2  or  name1 name2",
+            )
+        ],
+        answers,
+    )
+    return answers["signatories"]
 
 
 @app.command(
@@ -48,10 +86,12 @@ def multisig_add(
     signatories: Optional[str] = typer.Option(
         None,
         "--signatories",
-        help="Full signer set: ss58, address-book names, or wallet names.",
+        help=_SIGNATORIES_HELP,
     ),
     signatory: Optional[list[str]] = typer.Option(
-        None, "--signatory", help="One signatory ref; repeat for each member."
+        None,
+        "--signatory",
+        help="One signatory ref; repeat for each member (wallet name, address-book name, or ss58).",
     ),
     note: str = typer.Option("", "--note", help="Free-form note stored with the entry."),
     overwrite: bool = typer.Option(
@@ -70,18 +110,9 @@ def multisig_add(
             app_ctx, help_text="Name to save the multisig under (-w name).", must_exist=False
         )
         name = app_ctx.wallet_name
-    refs: list[str] = []
-    if signatories:
-        refs.extend(part.strip() for part in signatories.split(",") if part.strip())
-    if signatory:
-        refs.extend(signatory)
-    refs = list(dict.fromkeys(refs))
+    refs = ms_helpers.collect_signatory_refs(signatories, signatory)
     if not refs:
-        app_ctx.output.error(
-            "no signatories provided",
-            help="pass `--signatories` or one or more `--signatory`",
-        )
-        raise typer.Exit(1)
+        refs = _prompt_signatory_refs(app_ctx)
     resolved = [app_ctx.resolve_address("coldkey_ss58", ref) for ref in refs]
     resolved = list(dict.fromkeys(resolved))
     if threshold > len(resolved):
@@ -203,12 +234,14 @@ def multisig_pending(
     signatories: Optional[str] = typer.Option(
         None,
         "--signatories",
-        help="Full signer set: ss58, address-book names, or wallet names (include yourself).",
+        help="Full signer set: wallet names, address-book names, or ss58 "
+        "(comma/space-separated; include yourself).",
     ),
     other_signatories: Optional[str] = typer.Option(
         None,
         "--other-signatories",
-        help="Other signers only (book names or ss58); your -w wallet coldkey is added.",
+        help="Other signers only: wallet names, address-book names, or ss58 "
+        "(comma/space-separated); your -w wallet coldkey is added.",
     ),
     signer: str = typer.Option(
         "coldkey", "--signer", help="Which wallet key is in the signer set: 'coldkey' or 'hotkey'."

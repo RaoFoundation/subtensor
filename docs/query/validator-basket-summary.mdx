@@ -7,9 +7,12 @@ description: "Everything about one validator's basket, in a single call."
 
 Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
 and the lifetime return multiple `(nav + redeemed) / deposited`, the
-validator's root weight vector, and the per-subnet alpha holdings each
-valued at spot and at realizable depth. All figures are TAO (or alpha
-for the holdings themselves).
+validator's root weight vector, the per-subnet alpha holdings each
+valued at spot and at realizable depth, and `basket_rate` — the
+cumulative β raw units minted per rao of root stake (a lifetime
+accumulator that includes migration-seeded history). For staker returns
+use `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate
+deltas. All figures are TAO (or alpha for the holdings themselves).
 
 **Category:** Staking
 
@@ -46,6 +49,7 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Runtime API [`BetaBasketRuntimeApi.get_validator_basket_summary`](/code/pallets/subtensor/src/rpc_info/basket_info.rs#L66-L95)
+- Storage [`SubtensorModule.BasketRate`](/code/pallets/subtensor/src/lib.rs#L3017)
+- Runtime API [`BetaBasketRuntimeApi.get_validator_basket_summary`](/code/pallets/subtensor/src/rpc_info/basket_info.rs#L179-L208)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

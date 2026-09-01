@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 447
+Spec version: 449
 """
 from typing import Any, NamedTuple
 
@@ -341,6 +341,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'move_stake', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount})
 
     @staticmethod
+    def move_stake_limit(origin_hotkey: 'AccountId32', destination_hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', alpha_amount: 'AlphaBalance', limit_price: 'TaoBalance', allow_partial: 'bool') -> Call:
+        'Moves stake from one hotkey to another and, when the subnets differ, protects the swap with a relative price limit.  `limit_price` is the minimum acceptable destination-alpha per origin-alpha ratio, scaled by 1e9. When `allow_partial` is false the call is fill-or-kill; otherwise it moves only the amount executable before the limit is crossed.'
+        return Call('SubtensorModule', 'move_stake_limit', {'origin_hotkey': origin_hotkey, 'destination_hotkey': destination_hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'alpha_amount': alpha_amount, 'limit_price': limit_price, 'allow_partial': allow_partial})
+
+    @staticmethod
     def recycle_alpha(hotkey: 'AccountId32', amount: 'AlphaBalance', netuid: 'NetUid') -> Call:
         'Recycles alpha from a cold/hot key pair, reducing AlphaOut on a subnet  # Arguments * `origin`: The origin of the call (must be signed by the coldkey) * `hotkey`: The hotkey account * `amount`: The amount of alpha to recycle * `netuid`: The subnet ID  # Events Emits a `TokensRecycled` event on success.'
         return Call('SubtensorModule', 'recycle_alpha', {'hotkey': hotkey, 'amount': amount, 'netuid': netuid})
@@ -487,7 +492,7 @@ class SubtensorModule:
 
     @staticmethod
     def set_root_weights(dests: 'Any', weights: 'Any') -> Call:
-        "--- Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the validator's root dividends to deploy into each subnet's alpha basket. Requires at least [`crate::MIN_ROOT_BASKET_WEIGHTS`] positive destinations (softened when fewer networks exist).  # Args: * `origin`: the root validator hotkey. * `dests` (Vec<u16>): destination subnet netuids. * `weights` (Vec<u16>): per-subnet weights (normalized on use)."
+        "--- Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the validator's root dividends to deploy into each subnet's alpha basket. Requires at least [`crate::MIN_ROOT_BASKET_WEIGHTS`] positive destinations (softened when fewer networks exist), and no destination may take a larger share of the vector than [`crate::RootWeightsCap`] (skipped while fewer destinations exist than the cap demands).  # Args: * `origin`: the root validator hotkey. * `dests` (Vec<u16>): destination subnet netuids. * `weights` (Vec<u16>): per-subnet weights (normalized on use)."
         return Call('SubtensorModule', 'set_root_weights', {'dests': dests, 'weights': weights})
 
     @staticmethod
@@ -1203,6 +1208,11 @@ class AdminUtils:
         return Call('AdminUtils', 'sudo_set_root_weight_setting_enabled', {'enabled': enabled})
 
     @staticmethod
+    def sudo_set_root_weights_cap(cap: 'u16') -> Call:
+        'Sets the root basket concentration cap ([`pallet_subtensor::RootWeightsCap`]): the largest u16-normalized share (`u16::MAX` = 100%) any single destination may take of a `set_root_weights` vector. A cap of `u16::MAX / 16 + 1` forces funds to spread across at least 16 destinations. The check softens to an equal split when fewer destinations exist on chain. Root-only.'
+        return Call('AdminUtils', 'sudo_set_root_weights_cap', {'cap': cap})
+
+    @staticmethod
     def sudo_set_serving_rate_limit(netuid: 'NetUid', serving_rate_limit: 'u64') -> Call:
         'The extrinsic sets the serving rate limit for a subnet. It is only callable by the root account or subnet owner. The extrinsic will call the Subtensor pallet to set the serving rate limit.'
         return Call('AdminUtils', 'sudo_set_serving_rate_limit', {'netuid': netuid, 'serving_rate_limit': serving_rate_limit})
@@ -1639,8 +1649,11 @@ class LimitOrders:
         return Call('LimitOrders', 'execute_orders', {'orders': orders, 'should_fail': should_fail})
 
     @staticmethod
+    def prune_linked_output(order_id: 'H256') -> Call:
+        'Remove a provider record. The signer may prune at any time; anyone may prune after `expires_at`. Moves no funds.'
+        return Call('LimitOrders', 'prune_linked_output', {'order_id': order_id})
+
+    @staticmethod
     def set_pallet_status(enabled: 'bool') -> Call:
         'Set a status for the limit orders pallet  Must be called by root It allows disabling or enabling the pallet true means enabling, false means disabling'
         return Call('LimitOrders', 'set_pallet_status', {'enabled': enabled})
-
-

@@ -62,6 +62,12 @@ FeeRate, SwapBalancer, BalancerTaoReservoir, BalancerAlphaReservoir, HasMigratio
 
 ## Need some type-safe wrapping
 
+### Pallet subtensor
+
+- StakingHotkeys: expose through an offset-based typed view that reads the existing vector once and
+  slices it in memory. The response is capped, while the accepted full-vector decode is recorded in
+  [Reviewed exceptions](exceptions.md).
+
 ### Pallet Swap
 
 PalSwapInitialized and its successors should be exposed as just generic "IsSwapInitialized", non-specific to palswap / balancer.

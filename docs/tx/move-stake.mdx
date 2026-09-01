@@ -8,15 +8,31 @@ description: "Move alpha between hotkeys and/or subnets."
 Re-delegates an existing position without passing through the coldkey's
 free balance: the stake leaves the origin hotkey on the origin subnet and
 lands on the destination hotkey at the destination subnet. Moving within
-one subnet just changes which validator backs the stake; moving across
+one subnet just changes which validator backs the stake. Moving across
 subnets swaps through both pools and can incur slippage on each leg.
+
+Cross-subnet moves are slippage-protected by default: they compose
+`move_stake_limit` with a fill-or-kill price ratio. Same-subnet moves
+stay a single `move_stake`. Disable `slippage_protection` to submit
+the bare cross-subnet `move_stake` at any price.
+
 Ownership stays with the signing coldkey — use `transfer_stake` to hand
 the position to another coldkey, or `swap_stake` when only the subnet
-changes.
+changes. Pass `all` to move the entire origin position.
+
+On root (netuid 0), a move takes principal only. Accrued basket yield
+stays owed on the origin until `claim_root_with_hotkey`. Pass
+`claim=True` to redeem this validator's whole entitlement first, then
+move, in one batch. That is not a proportional payout: the claim pays
+100% of the basket, not a slice of the amount you move. Pass `all`
+with `claim=True` to move the live origin position after the claim:
+the follow-up uses `u64::MAX`, which the runtime caps to whatever
+root stake exists once the claim has flushed pending basket deposits
+and restaked the payout.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1280-L1298) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L1293-L1311), [`SubtensorModule.move_stake_limit`](/code/pallets/subtensor/src/macros/dispatches.rs#L1557-L1579), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -26,7 +42,10 @@ changes.
 | `origin_netuid` | integer | yes | Subnet the stake currently sits on. |
 | `dest_hotkey_ss58` | string | yes | Hotkey the stake moves to. |
 | `dest_netuid` | integer | yes | Subnet the stake ends up on. When it differs from the origin, the position is swapped through both subnet pools, which can incur slippage on each leg. |
-| `amount_alpha` | number \| `"all"` | yes | How much of the origin position to move (an explicit amount; ``all`` is not accepted). |
+| `amount_alpha` | number \| `"all"` | yes | How much of the origin position to move, or ``all``. |
+| `slippage_protection` | boolean | no | Bound the price the swap may execute at (on by default): the call fails (`SlippageTooHigh`) instead of filling once the pool price moves more than `rate_tolerance` from the price at submission. Disable to execute at any price. |
+| `rate_tolerance` | number | no | Maximum price move slippage protection accepts, as a fraction (0.05 = 5%). Ignored when slippage protection is disabled. |
+| `claim` | boolean | no | Also redeem this validator's whole basket entitlement before moving, in one atomic batch. Root only (netuid 0). This is not a proportional payout: moving 40% still claims 100% of the basket. The chain has no proportional-claim call. Claimed yield is restaked on the origin, then the move runs — pass `all` to take principal and yield together. Unavailable while RootStakeUnlockInterval is nonzero, because the claim starts a new hold window; claim first, wait, then move in that mode. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -58,7 +77,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.MoveStake(origin_hotkey_ss58="5F...", origin_netuid=0, dest_hotkey_ss58="5F...", dest_netuid=0, amount_alpha=1.0)
+intent = bt.MoveStake(origin_hotkey_ss58="5F...origin", origin_netuid=1, dest_hotkey_ss58="5G...destination", dest_netuid=2, amount_alpha=1.0)
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -77,30 +96,11 @@ result = sub.execute_tool("move_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L1282`](/code/pallets/subtensor/src/macros/dispatches.rs#L1280-L1298):
-
-```rust
-#[pallet::call_index(85)]
-#[pallet::weight(<T as crate::pallet::Config>::WeightInfo::move_stake())]
-pub fn move_stake(
-    origin: OriginFor<T>,
-    origin_hotkey: T::AccountId,
-    destination_hotkey: T::AccountId,
-    origin_netuid: NetUid,
-    destination_netuid: NetUid,
-    alpha_amount: AlphaBalance,
-) -> DispatchResult {
-    Self::do_move_stake(
-        origin,
-        origin_hotkey,
-        destination_hotkey,
-        origin_netuid,
-        destination_netuid,
-        alpha_amount,
-    )
-}
-```
-
-Delegates to [`do_move_stake`](/code/pallets/subtensor/src/staking/move_stake.rs#L30).
+| Chain call | Source |
+| --- | --- |
+| `SubtensorModule.move_stake` | [`pallets/subtensor/src/macros/dispatches.rs#L1295`](/code/pallets/subtensor/src/macros/dispatches.rs#L1293-L1311) |
+| `SubtensorModule.move_stake_limit` | [`pallets/subtensor/src/macros/dispatches.rs#L1559`](/code/pallets/subtensor/src/macros/dispatches.rs#L1557-L1579) |
+| `SubtensorModule.claim_root_with_hotkey` | [`pallets/subtensor/src/macros/dispatches.rs#L2012`](/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027) |
+| `Utility.batch_all` | [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
