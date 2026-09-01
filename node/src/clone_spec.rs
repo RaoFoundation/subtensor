@@ -110,6 +110,11 @@ async fn async_run(cmd: &CloneStateCmd, skip_history_backfill: bool) -> CloneRes
         sync_args.push(bootnode.clone());
     }
 
+    for reserved_node in &cmd.reserved_nodes {
+        sync_args.push("--reserved-nodes".to_string());
+        sync_args.push(reserved_node.clone());
+    }
+
     log::info!("build-patched-spec: starting sync node");
 
     let mut sync_child = Command::new(&current_exe)
@@ -545,6 +550,7 @@ mod tests {
             sync_timeout_sec: 10,
             sync_lag_blocks: 8,
             bootnodes: Vec::new(),
+            reserved_nodes: Vec::new(),
             alice: false,
             bob: false,
             charlie: false,

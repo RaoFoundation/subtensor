@@ -227,7 +227,9 @@ mod hooks {
                 .saturating_add(migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<T>())
                 // Schedule stale StakingHotkeys relationship cleanup. It runs after storage GC
                 // and uses only otherwise-unused on_idle weight; normal operations stay enabled.
-                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>());
+                .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>())
+                // Rebuild the corrupted conviction lock aggregates
+                .saturating_add(migrations::migrate_rebuild_conviction_aggregates::migrate_rebuild_conviction_aggregates::<T>());
             // The beta-baseline seed (`migrate_stamp_beta_baselines`) runs from the
             // runtime `Migrations` tuple instead of this hook, so try-runtime validates
             // its pre/post-upgrade invariants against real network state.
