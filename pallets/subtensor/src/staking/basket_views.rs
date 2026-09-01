@@ -6,33 +6,86 @@
 //! deposit share pricing, redemption sizing, and what dashboards report can never diverge.
 
 use super::*;
+use frame_support::storage::{TransactionOutcome, with_transaction};
+use sp_runtime::DispatchError;
 use subtensor_runtime_common::NetUidStorageIndex;
 use subtensor_swap_interface::{Order, SwapHandler};
 
 impl<T: Config> Pallet<T> {
-    /// Realizable TAO value of `alpha` on `netuid`: the slippage-aware quote a full redemption
-    /// would fetch right now (net of fees), not the marked spot value `price * amount`. On a
-    /// thin pool a tiny buy can push spot arbitrarily high, letting a marked NAV grow without
-    /// bound (and saturate to `u64::MAX`); the realizable quote is bounded by the pool's TAO
-    /// reserve, so NAV computed from it matches what the fund could actually pay out.
+    /// Realizable TAO value of `alpha` on `netuid`: the slippage-aware quote a full basket
+    /// redemption would fetch right now, using the same fee-free protocol swap as the
+    /// money-moving claim path, not the marked spot value `price * amount`. On a thin pool a
+    /// tiny buy can push spot arbitrarily high, letting a marked NAV grow without bound (and
+    /// saturate to `u64::MAX`); the realizable quote is bounded by the pool's TAO reserve, so
+    /// NAV computed from it matches what the fund could actually pay out.
     pub fn realizable_tao_for_alpha(netuid: NetUid, alpha: u64) -> u64 {
+        Self::try_realizable_tao_for_alpha(netuid, alpha)
+            .ok()
+            .flatten()
+            .unwrap_or(0)
+    }
+
+    /// Fallible money-moving valuation. `Ok(None)` means the pool is terminally too shallow to
+    /// realize even one atomic unit and the holding may be explicitly written off. Unknown or
+    /// accounting failures remain `Err`; callers must not silently mark them to zero.
+    pub(crate) fn try_realizable_tao_for_alpha(
+        netuid: NetUid,
+        alpha: u64,
+    ) -> Result<Option<u64>, DispatchError> {
         if alpha == 0 {
-            return 0;
+            return Ok(Some(0));
         }
-        // Root holdings are TAO held 1:1; nothing to swap.
-        if netuid.is_root() {
-            return alpha;
-        }
-        // Stable-mechanism subnets redeem 1:1 (mirrors `swap_alpha_for_tao`).
-        if SubnetMechanism::<T>::get(netuid) != 1 {
-            return alpha;
+        if netuid.is_root() || SubnetMechanism::<T>::get(netuid) != 1 {
+            return Ok(Some(alpha));
         }
         #[cfg(test)]
         crate::tests::mock::inc_basket_quote_ops();
-        let order = GetTaoForAlpha::<T>::with_amount(alpha);
-        T::SwapInterface::sim_swap(netuid.into(), order)
-            .map(|res| res.amount_paid_out.to_u64())
-            .unwrap_or(0)
+
+        let maximum = T::SwapInterface::max_swap_input::<GetTaoForAlpha<T>>(netuid).to_u64();
+        let quote = if alpha <= maximum {
+            // Preserve the cheap single-swap simulation for ordinary holdings. Only an
+            // oversized position needs the sequential reserve updates of the rollback overlay.
+            let order = GetTaoForAlpha::<T>::with_amount(alpha);
+            T::SwapInterface::swap(
+                netuid.into(),
+                order,
+                T::SwapInterface::min_price::<TaoBalance>(),
+                true,
+                true,
+            )
+            .map(|result| result.amount_paid_out)
+        } else {
+            with_transaction(|| {
+                TransactionOutcome::Rollback(Self::swap_basket_alpha_for_tao_chunks(
+                    netuid,
+                    alpha.into(),
+                ))
+            })
+        };
+        match quote {
+            Ok(tao) => Ok(Some(tao.to_u64())),
+            Err(err)
+                if T::SwapInterface::classify_failure(&err)
+                    == subtensor_swap_interface::SwapFailureKind::TerminalLiquidity =>
+            {
+                Ok(None)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Fallible NAV for share pricing and claims. Terminal garbage contributes zero; every
+    /// unknown valuation error aborts the money-moving operation.
+    pub(crate) fn try_get_validator_basket_nav_tao(
+        hotkey: &T::AccountId,
+    ) -> Result<u64, DispatchError> {
+        let mut nav = 0u64;
+        for (netuid, alpha) in Self::get_basket_holdings(hotkey) {
+            if let Some(value) = Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())? {
+                nav = nav.saturating_add(value);
+            }
+        }
+        Ok(nav)
     }
 
     /// Single source of truth for redemption sizing: a staker's owed shares are worth
@@ -60,6 +113,31 @@ impl<T: Config> Pallet<T> {
         let shares_total = BasketShares::<T>::get(hotkey);
         let nav: u64 = Self::get_validator_basket_nav_tao(hotkey).to_u64();
         Self::basket_payout_from(owed_shares.min(shares_total), nav, shares_total)
+    }
+
+    /// Current TAO entitlement of a staker's unclaimed share of one subnet holding in a
+    /// validator's basket. Claims sell the corresponding pro-rata alpha amount, but pay this
+    /// full-liquidation-NAV fraction and retain any larger concavity surplus in the fund.
+    pub fn get_basket_subnet_payout_tao(
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+        netuid: NetUid,
+    ) -> u64 {
+        let shares_total = BasketShares::<T>::get(hotkey);
+        if shares_total == 0 {
+            return 0;
+        }
+
+        let owed_shares = Self::get_basket_owed_shares(hotkey, coldkey).min(shares_total);
+        if owed_shares == 0 {
+            return 0;
+        }
+
+        let escrow = Self::get_beta_escrow_account_id();
+        let holding =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, &escrow, netuid).to_u64();
+        let slot_nav = Self::realizable_tao_for_alpha(netuid, holding);
+        Self::basket_payout_from(owed_shares, slot_nav, shares_total)
     }
 
     /// Total TAO a coldkey would realize by redeeming every beta basket it holds across all of

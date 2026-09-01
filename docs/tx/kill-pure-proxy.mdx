@@ -13,7 +13,7 @@ account become permanently inaccessible, so empty it first.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.kill_pure`](/code/pallets/proxy/src/lib.rs#L382-L410) |
+| `coldkey` | signed account (pallet role may apply) | Proxy | [`Proxy.kill_pure`](/code/pallets/proxy/src/lib.rs#L399-L427) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("kill_pure_proxy", {...}, wallet)
 
 ## On-chain implementation
 
-`Proxy.kill_pure` — [`pallets/proxy/src/lib.rs#L384`](/code/pallets/proxy/src/lib.rs#L382-L410):
+`Proxy.kill_pure` — [`pallets/proxy/src/lib.rs#L401`](/code/pallets/proxy/src/lib.rs#L399-L427):
 
 ```rust
 #[pallet::call_index(5)]
@@ -100,6 +100,6 @@ pub fn kill_pure(
 }
 ```
 
-Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L907).
+Delegates to [`pure_account`](/code/pallets/proxy/src/lib.rs#L926).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

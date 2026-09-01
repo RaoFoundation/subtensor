@@ -56,7 +56,7 @@ mod benchmarks {
         let next_authorities = (1..=a)
             .map(|idx| account("Authority", idx, 0u32))
             .collect::<Vec<(sp_consensus_grandpa::AuthorityId, u64)>>();
-        let in_blocks = BlockNumberFor::<T>::from(42u32);
+        let in_blocks = BlockNumberFor::<T>::from(0u32);
 
         #[extrinsic_call]
         _(RawOrigin::Root, next_authorities, in_blocks, None);
@@ -517,6 +517,20 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn sudo_set_liquid_alpha_consensus_mode() {
+        let netuid = NetUid::from(1);
+        pallet_subtensor::Pallet::<T>::set_admin_freeze_window(0);
+        pallet_subtensor::Pallet::<T>::init_new_network(netuid, 1u16);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            netuid,
+            pallet_subtensor::ConsensusMode::Previous,
+        );
+    }
+
+    #[benchmark]
     fn sudo_set_coldkey_swap_announcement_delay() {
         #[extrinsic_call]
         _(RawOrigin::Root, 100u32.into());
@@ -944,6 +958,12 @@ mod benchmarks {
 
         #[extrinsic_call]
         _(RawOrigin::Signed(owner), netuid, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_root_weights_cap() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 4096u16);
     }
 
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);

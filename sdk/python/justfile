@@ -8,7 +8,7 @@ sync:
     uv sync --locked --all-extras --dev
 
 # All offline gates, same as CI.
-check: lint typecheck test codegen-static
+check: lint typecheck test codegen-static check-baselines
 
 lint:
     uv run ruff check .
@@ -39,6 +39,11 @@ codegen-static:
     uv run python -m codegen.check --names
     uv run python -m codegen.check --units
     uv run python -m codegen.check --namespaces
+
+# Fail if the runtime's committed beta-baseline seed table is stale vs the
+# SDK's frozen basket_index_data (the migration ships whatever is committed).
+check-baselines:
+    uv run python scripts/export_beta_baselines_rs.py --check
 
 # Regenerate bittensor/namespaces.pyi from the read registry (no node needed).
 regen-namespaces:

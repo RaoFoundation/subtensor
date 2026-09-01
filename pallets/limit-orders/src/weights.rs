@@ -40,6 +40,7 @@ pub trait WeightInfo {
 	fn set_pallet_status() -> Weight;
 	fn execute_orders(n: u32, ) -> Weight;
 	fn execute_batched_orders(n: u32, ) -> Weight;
+	fn prune_linked_output() -> Weight;
 }
 
 /// Weights for `pallet_limit_orders` using the Substrate node and recommended hardware.
@@ -52,6 +53,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Measured:  `66`
 		//  Estimated: `3522`
 		// Minimum execution time: 15_309_000 picoseconds.
+		Weight::from_parts(16_030_000, 3522)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `LimitOrders::LinkedOutputs` (r:1 w:1)
+	fn prune_linked_output() -> Weight {
 		Weight::from_parts(16_030_000, 3522)
 			.saturating_add(T::DbWeight::get().reads(1_u64))
 			.saturating_add(T::DbWeight::get().writes(1_u64))
@@ -211,6 +218,12 @@ impl WeightInfo for () {
 		//  Measured:  `66`
 		//  Estimated: `3522`
 		// Minimum execution time: 15_309_000 picoseconds.
+		Weight::from_parts(16_030_000, 3522)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `LimitOrders::LinkedOutputs` (r:1 w:1)
+	fn prune_linked_output() -> Weight {
 		Weight::from_parts(16_030_000, 3522)
 			.saturating_add(RocksDbWeight::get().reads(1_u64))
 			.saturating_add(RocksDbWeight::get().writes(1_u64))

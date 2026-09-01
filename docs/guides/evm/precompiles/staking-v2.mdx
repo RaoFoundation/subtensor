@@ -1,0 +1,197 @@
+---
+title: Staking V2
+description: Reference for the deployed StakingPrecompileV2.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `StakingPrecompileV2` |
+| Solidity interface | `IStaking` V2 |
+| Address | `0x0000000000000000000000000000000000000805` |
+| Status | Deployed |
+
+This is the current staking interface. The V1 address remains available for
+backward compatibility.
+
+## Stake operations
+
+```text
+addStake(bytes32 hotkey, uint256 amount_rao, uint256 netuid)
+addStakeLimit(bytes32 hotkey, uint256 amount_rao, uint256 limit_price_rao_per_alpha, bool allow_partial, uint256 netuid)
+removeStake(bytes32 hotkey, uint256 amount_alpha, uint256 netuid)
+removeStakeLimit(bytes32 hotkey, uint256 amount_alpha, uint256 limit_price_rao_per_alpha, bool allow_partial, uint256 netuid)
+removeStakeFull(bytes32 hotkey, uint256 netuid)
+removeStakeFullLimit(bytes32 hotkey, uint256 netuid, uint256 limit_price_rao_per_alpha)
+moveStake(bytes32 origin_hotkey, bytes32 destination_hotkey, uint256 origin_netuid, uint256 destination_netuid, uint256 amount_alpha)
+moveStakeLimit(bytes32 origin_hotkey, bytes32 destination_hotkey, uint16 origin_netuid, uint16 destination_netuid, uint64 amount_alpha, uint64 limit_price, bool allow_partial)
+transferStake(bytes32 destination_coldkey, bytes32 hotkey, uint256 origin_netuid, uint256 destination_netuid, uint256 amount_alpha)
+burnAlpha(bytes32 hotkey, uint256 amount_alpha, uint256 netuid)
+```
+
+The legacy-width functions in this list are `payable`. `moveStakeLimit` is
+non-payable and rejects attached value; its seven arguments use the exact
+`uint16`/`uint64` ABI widths shown above.
+
+Amounts are native runtime units, not 18-decimal EVM units: `amount_rao`
+parameters are TAO denominated in rao (10^-9 TAO), and `amount_alpha`
+parameters are subnet alpha in its native 10^-9 precision. Staking in (TAO
+side) takes rao; unstaking, moving, transferring, and burning operate on
+alpha. `moveStakeLimit.limit_price` is the minimum destination-alpha per
+origin-alpha ratio, scaled by 10^9. Do not scale amount values by 10^9; see
+each function's NatSpec in `stakingV2.sol` for the authoritative unit contract.
+
+## Stake views
+
+```text
+getStake(bytes32,bytes32,uint256)
+getStakeInfoForColdkeyAndNetuid(bytes32,uint256,bytes32[])
+getTotalColdkeyStake(bytes32)
+getTotalColdkeyStakeOnSubnet(bytes32,uint256)
+getTotalHotkeyStake(bytes32)
+getAlphaStakedValidators(bytes32,uint256)
+getTotalAlphaStaked(bytes32,uint256)
+getNominatorMinRequiredStake()
+getDefaultMinStake()
+```
+
+These functions are `view`.
+
+## Relationship and ownership views
+
+```text
+getDelegate(bytes32)
+getChildkeyTake(bytes32,uint16)
+getPendingChildKeys(bytes32,uint16)
+getChildKeys(bytes32,uint16)
+getParentKeys(bytes32,uint16)
+getPendingChildKeyCooldown()
+getTakeLimits()
+getMinChildkeyTakePerSubnet(uint16)
+getHotkeyOwner(bytes32)
+getOwnedHotkeys(bytes32)
+getStakingHotkeys(bytes32,uint64,uint16)
+getAutoStakeDestination(bytes32,uint16)
+getAutoStakeDestinationColdkeys(bytes32,uint16)
+getHotkeySuccessor(bytes32,uint16)
+getHotkeyRoot(bytes32,uint16)
+getColdkeySuccessor(bytes32)
+getColdkeyRoot(bytes32)
+getColdkeySwapStatus(bytes32)
+getColdkeySwapDelays()
+getLastHotkeySwapOnSubnet(bytes32,uint16)
+```
+
+Optional relationships return an explicit `exists` flag. Child and parent
+links return typed `(proportion, account)` entries.
+
+`getStakingHotkeys` reads the coldkey's existing staking-hotkey vector and
+returns up to 64 entries in stored order beginning at the supplied zero-based
+`offset`, together with the vector's current `total`. An offset greater than or
+equal to `total` returns an empty page. Each call performs one storage read;
+offset selection and result construction happen in memory.
+
+## Accounting and collateral views
+
+```text
+getStakeAccounting()
+getMinerCollateral(uint16,bytes32,bytes32)
+getColdkeyCollateral(uint16,bytes32)
+getCollateralConfig(uint16)
+```
+
+Fixed-point collateral ratios are returned as their raw `U64F64` bits.
+
+## Locks and account policy
+
+```text
+lockStake(bytes32,uint256,uint256)
+moveLock(bytes32,uint256)
+setPerpetualLock(uint256,bool)
+setRejectLockedAlpha(bool)
+getColdkeyLock(bytes32,uint256)
+getHotkeyLock(bytes32,uint256)
+getHotkeyConvictions(uint256,bytes32[])
+getLockRates()
+getRejectLockedAlpha(bytes32)
+```
+
+The `get` functions are `view`; the other functions are `payable`.
+
+## Proxies and stake allowances
+
+```text
+addProxy(bytes32)
+removeProxy(bytes32)
+approve(address,uint256,uint256)
+allowance(address,address,uint256)
+increaseAllowance(address,uint256,uint256)
+decreaseAllowance(address,uint256,uint256)
+transferStakeFrom(address,address,bytes32,uint256,uint256,uint256)
+```
+
+`allowance` is `view`. Refer to the published ABI for the mutability and return
+encoding of the allowance mutations.
+
+## Added Subtensor operations
+
+| Function | Source extrinsic |
+|---|---|
+| `decreaseTake` | `SubtensorModule.decrease_take` |
+| `increaseTake` | `SubtensorModule.increase_take` |
+| `setChildkeyTake` | `SubtensorModule.set_childkey_take` |
+| `unstakeAll` | `SubtensorModule.unstake_all` |
+| `unstakeAllAlpha` | `SubtensorModule.unstake_all_alpha` |
+| `swapStake` | `SubtensorModule.swap_stake` |
+| `swapStakeLimit` | `SubtensorModule.swap_stake_limit` |
+| `recycleAlpha` | `SubtensorModule.recycle_alpha` |
+| `setColdkeyAutoStakeHotkey` | `SubtensorModule.set_coldkey_auto_stake_hotkey` |
+| `claimRoot` | `SubtensorModule.claim_root` |
+| `claimRootWithHotkey` | `SubtensorModule.claim_root_with_hotkey` |
+| `setRootClaimThreshold` | `SubtensorModule.sudo_set_root_claim_threshold` |
+| `addStakeBurn` | `SubtensorModule.add_stake_burn` |
+| `setAutoParentDelegationEnabled` | `SubtensorModule.set_auto_parent_delegation_enabled` |
+| `transferStakeAndHotkey` | `SubtensorModule.transfer_stake_and_hotkey` |
+| `addCollateral` | `SubtensorModule.add_collateral` |
+| `setMinCollateral` | `SubtensorModule.set_min_collateral` |
+
+`recycleAlpha` is distinct from deployed `burnAlpha`: recycling reduces
+`SubnetAlphaOut` and Alpha issuance, while burning does not reduce
+`SubnetAlphaOut`.
+
+`claimRoot` redeems every validator basket for the mapped caller. Its subnet
+array is retained by the runtime for old call-data compatibility and is
+ignored. `claimRootWithHotkey` redeems only the specified validator basket.
+
+## Root claim views
+
+```text
+getUnclaimedRootTaoByHotkey(bytes32,bytes32)
+getUnclaimedRootTaoBySubnet(bytes32,uint16,bytes32[])
+```
+
+Both views return realizable TAO in 18-decimal EVM units.
+`getUnclaimedRootTaoBySubnet` accepts at most 64 distinct validator hotkeys per
+call. For coldkeys with more validators, sum the results from multiple
+caller-supplied batches. This keeps every contract read bounded without
+decoding the coldkey's potentially unbounded historical hotkey list.
+
+## Added AdminUtils operations
+
+| Function | Source extrinsic |
+|---|---|
+| `setMinChildkeyTakePerSubnet` | `AdminUtils.sudo_set_min_childkey_take_per_subnet` |
+| `setCollateralLockShare` | `AdminUtils.sudo_set_collateral_lock_share` |
+| `setCollateralDrainRatio` | `AdminUtils.sudo_set_collateral_drain_ratio` |
+
+The listed owner-or-Root calls expose only their signed subnet-owner path.
+Every operation dispatches the highest-level extrinsic as the mapped caller so
+runtime authorization remains in force.
+
+## Proposed bulk runtime API
+
+`DelegateInfoRuntimeApi.get_delegates` remains proposed. Its current result can
+grow with chain state, so no Solidity selector is assigned in this change.
+Before implementation, it needs a bounded cursor-based or indexed interface
+whose stable return type is independent of the runtime's SCALE representation.
+
+Source: [`stakingV2.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/stakingV2.sol)

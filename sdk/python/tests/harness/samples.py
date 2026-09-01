@@ -54,6 +54,13 @@ INTENT_SAMPLES: dict[str, dict] = {
         "dest_netuid": 1,
         "amount_alpha": 1.0,
     },
+    "move_swap_stake": {
+        "origin_hotkey_ss58": BOB_HOT,
+        "origin_netuid": 1,
+        "dest_hotkey_ss58": ALICE_HOT,
+        "dest_netuid": 2,
+        "amount_alpha": 1.0,
+    },
     "swap_stake": {
         "hotkey_ss58": BOB_HOT,
         "origin_netuid": 1,
@@ -132,6 +139,8 @@ INTENT_SAMPLES: dict[str, dict] = {
     "lock_stake": {"netuid": 1, "amount_alpha": 1.0},
     "move_lock": {"netuid": 1, "destination_hotkey_ss58": BOB_HOT},
     "set_perpetual_lock": {"netuid": 1, "enabled": True},
+    "set_reject_locked_alpha": {"enabled": True},
+    "stake_into_basket": {"hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
     "create_crowdloan": {
@@ -184,6 +193,7 @@ INTENT_SAMPLES: dict[str, dict] = {
 
 # Params to dispatch every registered read against the FakeSubstrate.
 READ_SAMPLES: dict[str, dict] = {
+    "accepts_locked_alpha": {"coldkey_ss58": ALICE},
     "alpha_price": {"netuid": 1},
     "alpha_prices": {},
     "associated_evm_key": {"netuid": 1, "uid": 0},
@@ -191,6 +201,7 @@ READ_SAMPLES: dict[str, dict] = {
     "auto_stake_all": {"coldkey_ss58": ALICE},
     "balance": {"coldkey_ss58": ALICE},
     "balances": {"coldkey_ss58s": [ALICE, BOB]},
+    "basket_position": {"hotkey_ss58": ALICE_HOT, "coldkey_ss58": ALICE},
     "block_info": {"block": 100},
     "block_time": {},
     "blocks_since_last_step": {"netuid": 1},
@@ -227,6 +238,7 @@ READ_SAMPLES: dict[str, dict] = {
     "lease": {"lease_id": 0},
     "leases": {},
     "locks_for_coldkey": {"coldkey_ss58": ALICE},
+    "locks_for_hotkey": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "max_weight_limit": {"netuid": 1},
     "mechanism_count": {"netuid": 1},
     "mechanism_emission_split": {"netuid": 1},
@@ -247,6 +259,7 @@ READ_SAMPLES: dict[str, dict] = {
     "reveal_period": {"netuid": 1},
     "revealed_commitment": {"netuid": 1, "hotkey_ss58": ALICE_HOT},
     "root_basket_owed": {"coldkey_ss58": ALICE},
+    "root_basket_portfolio": {"coldkey_ss58": ALICE},
     "root_basket_owed_breakdown": {"coldkey_ss58": ALICE},
     "root_basket_total_nav": {},
     "root_baskets": {},
@@ -267,10 +280,12 @@ READ_SAMPLES: dict[str, dict] = {
     "subnet_names": {},
     "subnet_registration_cost": {},
     "subnet_start_schedule": {"netuid": 1},
+    "subnet_tao_flows": {},
     "subnets": {},
     "timelocked_weight_commits": {"netuid": 1},
     "timestamp": {},
     "token_symbols": {},
+    "total_alpha_staked": {"netuid": 1},
     "tx_rate_limit": {},
     "uid": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
     "validator_basket": {"hotkey_ss58": ALICE_HOT},

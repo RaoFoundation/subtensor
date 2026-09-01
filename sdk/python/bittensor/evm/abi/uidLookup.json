@@ -39,5 +39,39 @@
         ],
         "stateMutability": "view",
         "type": "function"
-    }
+    },
+{
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "netuid",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "uid",
+        "type": "uint16"
+      }
+    ],
+    "name": "getAssociatedEvmAddress",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "address",
+        "name": "evmAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "blockAssociated",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
 ]

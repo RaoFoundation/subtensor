@@ -47,6 +47,9 @@ For what you would actually receive by exiting a position, simulate the swap
 with [`quote-unstake`](/docs/query/quote-unstake), which includes fees and
 slippage.
 
+Root-basket **beta** is not a `Balance` denomination. It is a share count in
+one validator's fund — see [beta tokens](/docs/concepts/beta-tokens).
+
 ## Slippage
 
 Staking and unstaking are swaps against a pool
@@ -118,6 +121,7 @@ schedule can re-issue them later — neuron registration costs are recycled
 this way. **Burned** tokens stay counted in total issuance and are simply
 gone forever; nothing re-emits them. The distinction matters when reasoning
 about supply: recycling slows emission's approach to the cap, burning
-permanently retires supply. Transaction fees are neither — they are paid to
-the block author, not destroyed
+permanently retires supply. Transaction fees are recycled rather than paid to
+the block author: native TAO and EVM fees reduce issuance directly, while
+eligible alpha-paid fees are sold for TAO and recycled atomically
 ([fees](/docs/concepts/transactions#fees)).

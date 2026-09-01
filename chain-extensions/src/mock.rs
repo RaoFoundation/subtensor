@@ -160,6 +160,7 @@ impl frame_support::traits::InstanceFilter<RuntimeCall> for subtensor_runtime_co
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::swap_stake_limit { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake { .. })
+                    | RuntimeCall::SubtensorModule(pallet_subtensor::Call::move_stake_limit { .. })
                     | RuntimeCall::SubtensorModule(pallet_subtensor::Call::transfer_stake { .. })
             ),
             _ => false,
@@ -477,13 +478,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
+
+    fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
 parameter_types! {

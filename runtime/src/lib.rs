@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 443,
+    spec_version: 452,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -625,12 +625,16 @@ impl ProxyInterface<AccountId> for Proxier {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         pallet_commitments::Pallet::<Runtime>::purge_netuid(netuid, weight_meter)
+    }
+
+    fn purge_neuron(netuid: NetUid, account: &AccountId) {
+        pallet_commitments::Pallet::<Runtime>::purge_neuron(netuid, account);
     }
 }
 
@@ -712,15 +716,34 @@ impl Get<u32> for MaxCommitFields {
 #[subtensor_macros::freeze_struct("c39297f5eb97ee82")]
 pub struct AllowCommitments;
 impl CanCommit<AccountId> for AllowCommitments {
+    type Error = pallet_subtensor::Error<Runtime>;
+
     #[cfg(not(feature = "runtime-benchmarks"))]
-    fn can_commit(netuid: NetUid, address: &AccountId) -> bool {
-        SubtensorModule::if_subnet_exist(netuid)
-            && SubtensorModule::is_hotkey_registered_on_network(netuid, address)
+    fn validate(netuid: NetUid, address: &AccountId) -> Result<(), Self::Error> {
+        if !SubtensorModule::if_subnet_exist(netuid) {
+            return Err(pallet_subtensor::Error::<Runtime>::SubnetNotExists);
+        }
+        if !SubtensorModule::is_hotkey_registered_on_network(netuid, address) {
+            return Err(pallet_subtensor::Error::<Runtime>::HotKeyNotRegisteredInSubNet);
+        }
+        Ok(())
     }
 
     #[cfg(feature = "runtime-benchmarks")]
-    fn can_commit(_: NetUid, _: &AccountId) -> bool {
-        true
+    fn validate(_: NetUid, _: &AccountId) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn validation_weight() -> frame_support::weights::Weight {
+        #[cfg(not(feature = "runtime-benchmarks"))]
+        {
+            <Runtime as frame_system::Config>::DbWeight::get().reads(2)
+        }
+
+        #[cfg(feature = "runtime-benchmarks")]
+        {
+            frame_support::weights::Weight::zero()
+        }
     }
 }
 
@@ -998,7 +1021,14 @@ impl pallet_admin_utils::GrandpaInterface<Runtime> for GrandpaInterfaceImpl {
         in_blocks: BlockNumber,
         forced: Option<BlockNumber>,
     ) -> sp_runtime::DispatchResult {
-        Grandpa::schedule_change(next_authorities, in_blocks, forced)
+        let next_set_id = Grandpa::current_set_id()
+            .checked_add(1)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+        Grandpa::schedule_change(next_authorities, in_blocks, forced)?;
+        // This runtime does not use pallet-session, so mirror the bookkeeping performed by
+        // pallet-grandpa's session handler after it successfully schedules an authority change.
+        pallet_grandpa::CurrentSetId::<Runtime>::put(next_set_id);
+        Ok(())
     }
 }
 
@@ -1300,6 +1330,8 @@ impl pallet_crowdloan::Config for Runtime {
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
     pub const LimitOrdersMaxOrdersPerBatch: u32 = 100;
+    /// Provider records stay drawable for 7 days.
+    pub const LimitOrdersLinkedOutputTtl: u64 = 7 * 24 * 60 * 60 * 1000;
 }
 
 pub struct LimitOrdersPalletHotkey;
@@ -1330,6 +1362,7 @@ impl pallet_limit_orders::Config for Runtime {
     type PalletHotkey = LimitOrdersPalletHotkey;
     type WeightInfo = pallet_limit_orders::weights::SubstrateWeight<Runtime>;
     type ChainId = ConfigurableChainId;
+    type LinkedOutputTtl = LimitOrdersLinkedOutputTtl;
 }
 
 fn contracts_schedule<T: pallet_contracts::Config>() -> pallet_contracts::Schedule<T> {
@@ -1491,6 +1524,12 @@ type Migrations = (
     // Leave this migration in the runtime, so every runtime upgrade tiny rounding errors (fractions of fractions
     // of a cent) are cleaned up. These tiny rounding errors occur due to floating point coversion.
     pallet_subtensor::migrations::migrate_init_total_issuance::initialise_total_issuance::Migration<
+        Runtime,
+    >,
+    // Seed frozen per-fund display baselines (index splice) from the SDK table for funds
+    // that predate on-chain stamping. Lives here rather than in the pallet hook so
+    // try-runtime validates its pre/post-upgrade invariants against real network state.
+    pallet_subtensor::migrations::migrate_stamp_beta_baselines::stamp_beta_baselines::Migration<
         Runtime,
     >,
 );
@@ -2350,6 +2389,7 @@ impl_runtime_apis! {
         }
     }
 
+    #[api_version(3)]
     impl subtensor_custom_rpc_runtime_api::BetaBasketRuntimeApi<Block> for Runtime {
         fn get_root_basket_owed(coldkey: AccountId32) -> TaoBalance {
             SubtensorModule::get_root_basket_owed_tao(&coldkey)
@@ -2377,6 +2417,27 @@ impl_runtime_apis! {
         }
         fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)> {
             SubtensorModule::get_root_basket_positions(&coldkey)
+        }
+        fn get_basket_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BasketPosition<AccountId32>> {
+            SubtensorModule::get_basket_position(&hotkey, &coldkey)
+        }
+        fn get_root_basket_portfolio(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BasketPosition<AccountId32>> {
+            SubtensorModule::get_root_basket_portfolio(&coldkey)
+        }
+        fn get_beta_pricing(hotkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BetaPricing<AccountId32>> {
+            SubtensorModule::get_beta_pricing(&hotkey)
+        }
+        fn get_all_beta_pricing(start_after: Option<AccountId32>, limit: u32) -> pallet_subtensor::rpc_info::basket_info::BetaPricingPage<AccountId32> {
+            SubtensorModule::get_all_beta_pricing(start_after, limit)
+        }
+        fn get_beta_index() -> (U64F64, U64F64) {
+            SubtensorModule::get_beta_index_levels()
+        }
+        fn get_beta_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<pallet_subtensor::rpc_info::basket_info::BetaPosition<AccountId32>> {
+            SubtensorModule::get_beta_position(&hotkey, &coldkey)
+        }
+        fn get_beta_portfolio(coldkey: AccountId32) -> Vec<pallet_subtensor::rpc_info::basket_info::BetaPosition<AccountId32>> {
+            SubtensorModule::get_beta_portfolio(&coldkey)
         }
     }
 

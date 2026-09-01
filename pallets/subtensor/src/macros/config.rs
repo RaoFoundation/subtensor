@@ -61,8 +61,8 @@ mod config {
         /// Interface to get commitments.
         type GetCommitments: GetCommitments<Self::AccountId>;
 
-        ///  Interface to clean commitments on network dissolution.
-        type CommitmentsInterface: CommitmentsInterface;
+        /// Interface to clean commitments when a network or neuron is removed.
+        type CommitmentsInterface: CommitmentsInterface<Self::AccountId>;
 
         /// Interface to mint, burn, and recycle subnet alpha.
         type AlphaAssets: AlphaAssetsInterface;

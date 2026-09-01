@@ -154,7 +154,15 @@ def cli_arg(field_name: str, fragment: dict) -> str:
 def py_placeholder(field_name: str, fragment: dict) -> str:
     if field_name == "netuid":
         return "1"
+    if field_name in {"origin_netuid", "source_netuid"}:
+        return "1"
+    if field_name in {"dest_netuid", "destination_netuid"}:
+        return "2"
     if field_name.endswith("_ss58"):
+        if field_name.startswith(("dest_", "destination_", "new_")):
+            return '"5G...destination"'
+        if field_name.startswith(("origin_", "source_")):
+            return '"5F...origin"'
         return '"5F..."'
     if "anyOf" in fragment:
         return "1.0"

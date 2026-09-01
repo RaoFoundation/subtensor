@@ -37,6 +37,12 @@ impl<T: Config> Pallet<T> {
     ) -> dispatch::DispatchResult {
         // Check that the origin is signed by the origin_hotkey.
         let coldkey = ensure_signed(origin)?;
+        let alpha_amount = Self::cap_move_all_to_live_origin(
+            &origin_hotkey,
+            &coldkey,
+            origin_netuid,
+            alpha_amount,
+        );
 
         // Validate input and move stake
         let tao_moved = Self::transition_stake_internal(
@@ -72,6 +78,76 @@ impl<T: Config> Pallet<T> {
 
         // Ok and return.
         Ok(())
+    }
+
+    /// Moves stake from one hotkey to another across subnets with a relative
+    /// price limit on the cross-subnet swap.
+    pub fn do_move_stake_limit(
+        origin: OriginFor<T>,
+        origin_hotkey: T::AccountId,
+        destination_hotkey: T::AccountId,
+        origin_netuid: NetUid,
+        destination_netuid: NetUid,
+        alpha_amount: AlphaBalance,
+        limit_price: TaoBalance,
+        allow_partial: bool,
+    ) -> dispatch::DispatchResult {
+        let coldkey = ensure_signed(origin)?;
+        let alpha_amount = Self::cap_move_all_to_live_origin(
+            &origin_hotkey,
+            &coldkey,
+            origin_netuid,
+            alpha_amount,
+        );
+
+        let tao_moved = Self::transition_stake_internal(
+            &coldkey,
+            &coldkey,
+            &origin_hotkey,
+            &destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            alpha_amount,
+            Some(limit_price),
+            Some(allow_partial),
+            false,
+        )?;
+
+        log::debug!(
+            "StakeMoved(coldkey:{coldkey:?}, origin_hotkey:{origin_hotkey:?}, origin_netuid:{origin_netuid:?}, destination_hotkey:{destination_hotkey:?}, destination_netuid:{destination_netuid:?}, amount:{tao_moved:?})"
+        );
+        Self::deposit_event(Event::StakeMoved(
+            coldkey,
+            origin_hotkey,
+            origin_netuid,
+            destination_hotkey,
+            destination_netuid,
+            tao_moved,
+        ));
+
+        Ok(())
+    }
+
+    /// `AlphaBalance::MAX` means "the live origin position".
+    ///
+    /// A client can batch `claim_root_with_hotkey` then `move_stake`. The claim
+    /// first flushes pending basket deposits and restakes a payout that did not
+    /// exist when the extrinsic was built, so a pre-execution quote cannot size
+    /// the follow-up. Other oversize amounts still fail `NotEnoughStakeToWithdraw`.
+    fn cap_move_all_to_live_origin(
+        origin_hotkey: &T::AccountId,
+        origin_coldkey: &T::AccountId,
+        origin_netuid: NetUid,
+        alpha_amount: AlphaBalance,
+    ) -> AlphaBalance {
+        if alpha_amount != AlphaBalance::MAX {
+            return alpha_amount;
+        }
+        Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+            origin_hotkey,
+            origin_coldkey,
+            origin_netuid,
+        )
     }
 
     /// Toggles the atomic alpha transfers for a specific subnet.

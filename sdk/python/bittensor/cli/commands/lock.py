@@ -1,4 +1,4 @@
-"""`btcli lock`: stake-lock and conviction commands."""
+"""`btcli conviction`: stake-lock and conviction commands."""
 
 from __future__ import annotations
 
@@ -8,13 +8,17 @@ from typing import Optional
 import typer
 
 from ...balance import Balance
-from ...intents import LockStake, MoveLock, SetPerpetualLock
+from ...intents import LockStake, MoveLock, SetPerpetualLock, SetRejectLockedAlpha
+from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
 from ..helpers import chain_identity_names, dust_note, local_address_names, split_dust
-from ..tx import _parse_money
+from ..tx import resolve_all_amount
 
-app = typer.Typer(no_args_is_help=True, help="Stake-lock and conviction.")
+app = typer.Typer(
+    no_args_is_help=True,
+    help=f"Stake-lock and conviction.\n\nGuide: {guide_docs_url('conviction')}",
+)
 
 LOCK_LIST_TITLE = "locks (per-subnet currency: TAO on netuid 0, alpha elsewhere)"
 
@@ -45,14 +49,15 @@ def list_locks(
     hotkey_names = local_address_names(app_ctx.wallet_path)
 
     async def _op(client):
-        locks, prices = await asyncio.gather(
+        locks, prices, accepts = await asyncio.gather(
             client.read("locks_for_coldkey", coldkey_ss58=owner),
             client.read("alpha_prices"),
+            client.read("accepts_locked_alpha", coldkey_ss58=owner),
         )
         unnamed = [lk["hotkey"] for lk in locks if lk["hotkey"] not in hotkey_names]
-        return locks, prices, await chain_identity_names(client, unnamed)
+        return locks, prices, accepts, await chain_identity_names(client, unnamed)
 
-    locks, prices, identity_names = app_ctx.run(_op)
+    locks, prices, accepts_locked, identity_names = app_ctx.run(_op)
     if netuid is not None:
         locks = [lk for lk in locks if lk["netuid"] == netuid]
 
@@ -104,6 +109,99 @@ def list_locks(
     app_ctx.output.stake_list(LOCK_LIST_TITLE, shown, records, Balance(total_rao))
     if dust:
         app_ctx.output.message(dust_note(dust))
+    app_ctx.output.message(
+        "incoming locked alpha: accepted (`conviction accept --reject` to opt out)"
+        if accepts_locked
+        else "incoming locked alpha: rejected (chain default; "
+        "`conviction accept --allow` to opt in)"
+    )
+
+
+@app.command("targeting")
+@with_globals
+def locks_targeting(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help="Subnet to query."),
+    hotkey_ss58: Optional[str] = typer.Option(
+        None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
+    ),
+):
+    """List every coldkey's lock targeting a hotkey on a subnet.
+
+    The reverse of ``list``: instead of the locks one coldkey created, this
+    shows which coldkeys point conviction at the hotkey — the target-side
+    view a subnet owner needs to see who is building conviction toward
+    their keys. Also reports the hotkey's total conviction.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    coldkey_names = local_address_names(app_ctx.wallet_path)
+
+    async def _op(client):
+        locks, prices, conviction = await asyncio.gather(
+            client.read("locks_for_hotkey", hotkey_ss58=hotkey, netuid=netuid),
+            client.read("alpha_prices"),
+            client.read("hotkey_conviction", hotkey_ss58=hotkey, netuid=netuid),
+        )
+        unnamed = sorted({lk["coldkey"] for lk in locks} - coldkey_names.keys())
+        identities = await asyncio.gather(
+            *[client.read("identity", coldkey_ss58=coldkey) for coldkey in unnamed]
+        )
+        identity_names = {
+            coldkey: str(identity["name"])
+            for coldkey, identity in zip(unnamed, identities)
+            if identity and identity.get("name")
+        }
+        return locks, prices, conviction, identity_names
+
+    locks, prices, conviction, identity_names = app_ctx.run(_op)
+
+    def _spot_rao(locked: Balance) -> int:
+        if netuid == 0:
+            return locked.rao
+        return int(locked.rao * prices.get(netuid, 0.0))
+
+    locks.sort(key=lambda lk: -lk["locked_alpha"].rao)
+    records = []
+    rows = []
+    total_rao = 0
+    for lock in locks:
+        locked: Balance = lock["locked_alpha"]
+        value = Balance.from_rao(_spot_rao(locked))
+        total_rao += value.rao
+        coldkey = lock["coldkey"]
+        name = coldkey_names.get(coldkey) or identity_names.get(coldkey) or "—"
+        records.append(
+            {
+                "coldkey": coldkey,
+                "name": None if name == "—" else name,
+                "locked": str(locked),
+                "locked_amount": locked.amount,
+                "value": str(value),
+                "value_tao": value.tao,
+                "is_perpetual": lock["is_perpetual"],
+            }
+        )
+        rows.append(
+            [
+                name,
+                coldkey,
+                str(locked),
+                str(value),
+                "perpetual" if lock["is_perpetual"] else "decaying",
+            ]
+        )
+    app_ctx.output.table(
+        f"locks targeting {hotkey} on netuid {netuid}",
+        ["name", "coldkey", "locked", "value", "mode"],
+        rows,
+        records,
+    )
+    conviction_alpha = (conviction or {}).get("conviction_alpha")
+    summary = f"total locked value {Balance(total_rao)}"
+    if conviction_alpha is not None:
+        summary += f" · hotkey conviction {conviction_alpha}"
+    app_ctx.output.message(summary)
 
 
 @app.command("show")
@@ -143,12 +241,15 @@ def add_lock(
     netuid: int = typer.Option(
         ..., "--netuid", help=LockStake.field_help("netuid") or "Subnet to lock stake on."
     ),
-    amount_alpha: str = typer.Option(
-        ...,
+    amount_alpha: Optional[str] = typer.Option(
+        None,
         "--amount-alpha",
         "--amount",
         help=LockStake.field_help("amount_alpha")
         or "Amount to lock, in this subnet's alpha (TAO if netuid is 0).",
+    ),
+    all_amount: bool = typer.Option(
+        False, "--all", help="Lock every unlocked alpha on the subnet (same as `--amount all`)."
     ),
     hotkey_ss58: Optional[str] = typer.Option(
         None, address_cli_name("hotkey_ss58"), help=ss58_param_help("hotkey_ss58")
@@ -157,11 +258,7 @@ def add_lock(
 ):
     """Lock alpha stake on a subnet hotkey."""
     app_ctx: AppContext = ctx_of(ctx)
-    try:
-        amount = _parse_money(amount_alpha, False)
-    except ValueError as error:
-        app_ctx.output.error(f"invalid value for `--amount-alpha`: {error}")
-        raise typer.Exit(2)
+    amount = resolve_all_amount(app_ctx, amount_alpha, all_amount, flag="--amount")
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
     if perpetual:
         app_ctx.submit(SetPerpetualLock(netuid=netuid, enabled=True))
@@ -187,6 +284,31 @@ def lock_mode(
     """Set perpetual or decaying lock mode for a subnet."""
     app_ctx: AppContext = ctx_of(ctx)
     app_ctx.submit(SetPerpetualLock(netuid=netuid, enabled=perpetual))
+
+
+@app.command("accept")
+@with_tx_globals
+def accept_locked_alpha(
+    ctx: typer.Context,
+    allow: bool = typer.Option(
+        ...,
+        "--allow/--reject",
+        help=(
+            "Whether this coldkey accepts incoming locked alpha (transfers of "
+            "conviction-locked stake and coldkey swaps that carry locks). "
+            "Coldkeys reject locked alpha by default."
+        ),
+    ),
+):
+    """Opt this coldkey in or out of receiving locked alpha transfers.
+
+    A locked-stake transfer to a coldkey that has not opted in fails with
+    ``AccountRejectsLockedAlpha``; the receiver runs this once with
+    ``--allow`` before the sender transfers. ``conviction list`` shows the
+    current setting.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    app_ctx.submit(SetRejectLockedAlpha(enabled=not allow))
 
 
 @app.command("move")

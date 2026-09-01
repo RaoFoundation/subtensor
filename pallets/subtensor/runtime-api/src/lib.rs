@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
-    basket_info::BasketSummary,
+    basket_info::{BasketPosition, BasketSummary, BetaPosition, BetaPricing, BetaPricingPage},
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
@@ -105,5 +105,43 @@ sp_api::decl_runtime_apis! {
         fn get_all_validator_baskets() -> Vec<BasketSummary<AccountId32>>;
         /// A staker's positions across all its validators: (hotkey, owed shares, payout TAO).
         fn get_root_basket_positions(coldkey: AccountId32) -> Vec<(AccountId32, u64, TaoBalance)>;
+        /// One staker's share-denominated position on one validator: owed shares, outstanding
+        /// supply, fund NAV, and the position's realizable and spot TAO values. `None` when
+        /// the staker has no owed shares there.
+        #[api_version(2)]
+        fn get_basket_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<BasketPosition<AccountId32>>;
+        /// A coldkey's full basket portfolio: one share-denominated position per validator
+        /// on which it has owed shares.
+        #[api_version(2)]
+        fn get_root_basket_portfolio(coldkey: AccountId32) -> Vec<BasketPosition<AccountId32>>;
+        /// One fund's standardized pricing snapshot (index-spliced display price,
+        /// total-return stake price, staker yield, published index levels), or `None`
+        /// when the hotkey has no outstanding shares. The single source of truth every
+        /// consumer should display. Reads the published index snapshot in O(1) and
+        /// scans only this fund's holdings.
+        #[api_version(3)]
+        fn get_beta_pricing(hotkey: AccountId32) -> Option<BetaPricing<AccountId32>>;
+        /// One bounded page of pricing snapshots for funds with outstanding shares, all
+        /// marked against the same published index snapshot. `limit` is clamped to a
+        /// hard per-call cap (0 = full page); the returned `next` cursor resumes the
+        /// enumeration (`None` when complete), so the full leaderboard is a short loop
+        /// of bounded calls instead of one unbounded scan.
+        #[api_version(3)]
+        fn get_all_beta_pricing(start_after: Option<AccountId32>, limit: u32) -> BetaPricingPage<AccountId32>;
+        /// The published `(bag index, stake index)` levels: the chained NAV-weighted
+        /// display-price index (mix performance, flow-neutral) and the chained
+        /// total-return stake index (what τ1 staked in the average fund became),
+        /// maintained by the background sweep at realizable marks.
+        #[api_version(3)]
+        fn get_beta_index() -> (U64F64, U64F64);
+        /// One staker's display-denominated β position on one validator
+        /// (`display_beta * display_price` = spot value; `value_tao` = what a claim
+        /// pays), or `None` when the staker has no owed β there.
+        #[api_version(3)]
+        fn get_beta_position(hotkey: AccountId32, coldkey: AccountId32) -> Option<BetaPosition<AccountId32>>;
+        /// A coldkey's full display-denominated β portfolio, one position per validator
+        /// with owed β, all marked against the same published index snapshot.
+        #[api_version(3)]
+        fn get_beta_portfolio(coldkey: AccountId32) -> Vec<BetaPosition<AccountId32>>;
     }
 }

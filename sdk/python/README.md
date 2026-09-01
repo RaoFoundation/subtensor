@@ -268,7 +268,7 @@ These compose with any intent:
   ```python
   await client.execute(intent, delegate_wallet, proxy_for="5F...real_coldkey")
   ```
-  On the CLI: `--proxy-for <ss58|wallet>` on any `btcli tx` command. Manage
+  On the CLI: `--proxy-for <ss58|wallet>` on every mutation command. Manage
   delegations with the `add-proxy` / `remove-proxy` intents and the `proxies` read.
 
 - **Atomic batch** — several intents in one all-or-nothing extrinsic:
@@ -285,7 +285,12 @@ These compose with any intent:
 
   ```python
   await client.submit_shielded(bt.Transfer(dest_ss58="5F...", amount_tao=1.0), wallet)
+  await client.submit_shielded(intent, delegate_wallet, proxy_for="5F...real_coldkey")
   ```
+
+  Shield wraps the composed call (proxy and saved-multisig included). Vault,
+  Ledger, and the browser extension each sign twice: the inner call, then the
+  carrier.
 
   The CLI shields stake-trading commands (`stake add/remove/move/swap/transfer`,
   `unstake-all`, and the limit variants) by default. Opt out per command with

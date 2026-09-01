@@ -175,6 +175,9 @@ impl<T: Config> Pallet<T> {
                     // Cleanup Incentive
                     Incentive::<T>::remove(netuid_index);
 
+                    // Cleanup previous epoch consensus
+                    ConsensusByMechanism::<T>::remove(netuid_index);
+
                     // Cleanup LastUpdate
                     LastUpdate::<T>::remove(netuid_index);
 

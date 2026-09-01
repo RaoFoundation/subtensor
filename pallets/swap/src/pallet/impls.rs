@@ -11,7 +11,7 @@ use sp_runtime::traits::AccountIdConversion;
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, SubnetInfo, TaoBalance, Token, TokenReserve};
 use subtensor_swap_interface::{
-    DefaultPriceLimit, Order as OrderT, SwapEngine, SwapHandler, SwapResult,
+    DefaultPriceLimit, Order as OrderT, SwapEngine, SwapFailureKind, SwapHandler, SwapResult,
 };
 
 use super::pallet::*;
@@ -116,8 +116,8 @@ impl<T: Config> Pallet<T> {
             pending_tao,
             pending_alpha,
         ) {
-            BalancerTaoReservoir::<T>::insert(netuid, TaoBalance::ZERO);
-            BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::ZERO);
+            BalancerTaoReservoir::<T>::remove(netuid);
+            BalancerAlphaReservoir::<T>::remove(netuid);
             SwapBalancer::<T>::insert(netuid, new_balancer);
             return (pending_tao, pending_alpha);
         }
@@ -130,7 +130,7 @@ impl<T: Config> Pallet<T> {
             pending_alpha,
         ) {
             BalancerTaoReservoir::<T>::insert(netuid, pending_tao);
-            BalancerAlphaReservoir::<T>::insert(netuid, AlphaBalance::ZERO);
+            BalancerAlphaReservoir::<T>::remove(netuid);
             SwapBalancer::<T>::insert(netuid, new_balancer);
             return (TaoBalance::ZERO, pending_alpha);
         }
@@ -142,14 +142,22 @@ impl<T: Config> Pallet<T> {
             pending_tao,
             AlphaBalance::ZERO,
         ) {
-            BalancerTaoReservoir::<T>::insert(netuid, TaoBalance::ZERO);
+            BalancerTaoReservoir::<T>::remove(netuid);
             BalancerAlphaReservoir::<T>::insert(netuid, pending_alpha);
             SwapBalancer::<T>::insert(netuid, new_balancer);
             return (pending_tao, AlphaBalance::ZERO);
         }
 
-        BalancerTaoReservoir::<T>::insert(netuid, pending_tao);
-        BalancerAlphaReservoir::<T>::insert(netuid, pending_alpha);
+        if pending_tao.is_zero() {
+            BalancerTaoReservoir::<T>::remove(netuid);
+        } else {
+            BalancerTaoReservoir::<T>::insert(netuid, pending_tao);
+        }
+        if pending_alpha.is_zero() {
+            BalancerAlphaReservoir::<T>::remove(netuid);
+        } else {
+            BalancerAlphaReservoir::<T>::insert(netuid, pending_alpha);
+        }
         if pending_tao > TaoBalance::ZERO || pending_alpha > AlphaBalance::ZERO {
             log::warn!(
                 "Reserves are out of range for emission: netuid = {}, tao = {}, alpha = {}, tao_delta = {}, alpha_delta = {}, tao_reservoir = {}, alpha_reservoir = {}",
@@ -550,6 +558,23 @@ impl<T: Config> SwapHandler for Pallet<T> {
 
             // Static subnet, alpha == tao
             _ => u64::from(tao_amount).into(),
+        }
+    }
+
+    fn max_swap_input<O: OrderT>(netuid: NetUid) -> O::PaidIn
+    where
+        Self: SwapEngine<O>,
+    {
+        O::ReserveIn::reserve(netuid).saturating_mul(MAX_SWAP_INPUT_RESERVE_MULTIPLIER.into())
+    }
+
+    fn classify_failure(error: &DispatchError) -> SwapFailureKind {
+        if *error == Error::<T>::SwapInputTooLarge.into() {
+            SwapFailureKind::InputTooLarge
+        } else if *error == Error::<T>::ReservesTooLow.into() {
+            SwapFailureKind::TerminalLiquidity
+        } else {
+            SwapFailureKind::Other
         }
     }
 }

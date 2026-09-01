@@ -1,0 +1,66 @@
+---
+title: Precompiles
+description: Addresses, implementations, and reference pages for Bittensor EVM precompiles.
+---
+
+Bittensor precompiles are fixed-address contracts implemented by the Subtensor
+runtime. `Deployed` means that the address is registered in the current runtime;
+it does not imply complete coverage of the underlying runtime domain.
+`Proposed` precompiles are not callable. Their documented addresses are
+reserved for those domains, while their function selectors remain provisional
+until the interfaces are implemented and released.
+
+The [extrinsic coverage audit](/docs/guides/evm/precompiles/extrinsic-coverage)
+tracks every runtime extrinsic in scope and identifies its deployed, proposed,
+or intentionally non-callable EVM treatment.
+
+## Ethereum and Frontier precompiles
+
+| Precompile | Address | Status |
+|---|---|---|
+| `ECRecover` | <EvmAddress address="0x0000000000000000000000000000000000000001" /> | Deployed |
+| `Sha256` | <EvmAddress address="0x0000000000000000000000000000000000000002" /> | Deployed |
+| `Ripemd160` | <EvmAddress address="0x0000000000000000000000000000000000000003" /> | Deployed |
+| `Identity` | <EvmAddress address="0x0000000000000000000000000000000000000004" /> | Deployed |
+| `Modexp` | <EvmAddress address="0x0000000000000000000000000000000000000005" /> | Deployed |
+| `Dispatch` | <EvmAddress address="0x0000000000000000000000000000000000000006" /> | Deployed |
+| `Bn128Mul` | <EvmAddress address="0x0000000000000000000000000000000000000007" /> | Deployed |
+| `Bn128Pairing` | <EvmAddress address="0x0000000000000000000000000000000000000008" /> | Deployed |
+| `Bn128Add` | <EvmAddress address="0x0000000000000000000000000000000000000009" /> | Deployed |
+| `Sha3FIPS256` | <EvmAddress address="0x0000000000000000000000000000000000000400" /> | Deployed |
+| `ECRecoverPublicKey` | <EvmAddress address="0x0000000000000000000000000000000000000401" /> | Deployed |
+| `Ed25519Verify` | <EvmAddress address="0x0000000000000000000000000000000000000402" /> | Deployed |
+| `Sr25519Verify` | <EvmAddress address="0x0000000000000000000000000000000000000403" /> | Deployed |
+
+## Bittensor precompiles
+
+| Precompile | Solidity interface | Details |
+|---|---|---|
+| [`BalanceTransferPrecompile`](/docs/guides/evm/precompiles/balance-transfer) | `ISubtensorBalanceTransfer` | <EvmAddress address="0x0000000000000000000000000000000000000800" /><br />Deployed |
+| [`StakingPrecompile`](/docs/guides/evm/precompiles/staking-v1) | `IStaking` V1 | <EvmAddress address="0x0000000000000000000000000000000000000801" /><br />Deployed |
+| [`MetagraphPrecompile`](/docs/guides/evm/precompiles/metagraph) | `IMetagraph` | <EvmAddress address="0x0000000000000000000000000000000000000802" /><br />Deployed |
+| [`SubnetPrecompile`](/docs/guides/evm/precompiles/subnet) | `ISubnet` | <EvmAddress address="0x0000000000000000000000000000000000000803" /><br />Deployed |
+| [`NeuronPrecompile`](/docs/guides/evm/precompiles/neuron) | `INeuron` | <EvmAddress address="0x0000000000000000000000000000000000000804" /><br />Deployed |
+| [`StakingPrecompileV2`](/docs/guides/evm/precompiles/staking-v2) | `IStaking` V2 | <EvmAddress address="0x0000000000000000000000000000000000000805" /><br />Deployed |
+| [`UidLookupPrecompile`](/docs/guides/evm/precompiles/uid-lookup) | `IUidLookup` | <EvmAddress address="0x0000000000000000000000000000000000000806" /><br />Deployed |
+| [`StorageQueryPrecompile`](/docs/guides/evm/precompiles/storage-query) | Selectorless | <EvmAddress address="0x0000000000000000000000000000000000000807" /><br />Deployed · deprecation planned |
+| [`AlphaPrecompile`](/docs/guides/evm/precompiles/alpha) | `IAlpha` | <EvmAddress address="0x0000000000000000000000000000000000000808" /><br />Deployed |
+| [`CrowdloanPrecompile`](/docs/guides/evm/precompiles/crowdloan) | `ICrowdloan` | <EvmAddress address="0x0000000000000000000000000000000000000809" /><br />Deployed |
+| [`LeasingPrecompile`](/docs/guides/evm/precompiles/leasing) | `ILeasing` | <EvmAddress address="0x000000000000000000000000000000000000080a" /><br />Deployed |
+| [`ProxyPrecompile`](/docs/guides/evm/precompiles/proxy) | `IProxy` | <EvmAddress address="0x000000000000000000000000000000000000080b" /><br />Deployed |
+| [`AddressMappingPrecompile`](/docs/guides/evm/precompiles/address-mapping) | `IAddressMapping` | <EvmAddress address="0x000000000000000000000000000000000000080c" /><br />Deployed |
+| [`VotingPowerPrecompile`](/docs/guides/evm/precompiles/voting-power) | `IVotingPower` | <EvmAddress address="0x000000000000000000000000000000000000080d" /><br />Deployed |
+| [`BalancePrecompile`](/docs/guides/evm/precompiles/account-balance) | `IBalance` | <EvmAddress address="0x000000000000000000000000000000000000080e" /><br />Deployed |
+| [`SchedulerPrecompile`](/docs/guides/evm/precompiles/scheduler) | `IScheduler` | <EvmAddress address="0x000000000000000000000000000000000000080f" /><br />Deployed |
+| [`DrandPrecompile`](/docs/guides/evm/precompiles/drand) | `IDrand` | <EvmAddress address="0x0000000000000000000000000000000000000810" /><br />Deployed |
+| [`TimestampPrecompile`](/docs/guides/evm/precompiles/timestamp) | `ITimestamp` | <EvmAddress address="0x0000000000000000000000000000000000000811" /><br />Deployed |
+| [`RuntimeConfigurationPrecompile`](/docs/guides/evm/precompiles/runtime-configuration) | `IRuntimeConfiguration` | <EvmAddress address="0x0000000000000000000000000000000000000812" /><br />Deployed |
+| [`PrecompileRegistry`](/docs/guides/evm/precompiles/registry) | `IPrecompileRegistry` | <EvmAddress address="0x0000000000000000000000000000000000000813" /><br />Deployed |
+
+Projects that need proactive event delivery should use
+[project-scoped event relays](/docs/guides/evm/precompile-design#project-scoped-event-relays)
+instead of protocol-level event-reporting precompiles.
+
+Released addresses and selectors remain reserved permanently. The compatibility
+and lifecycle rules are documented in
+[Precompile design and lifecycle](/docs/guides/evm/precompile-design).

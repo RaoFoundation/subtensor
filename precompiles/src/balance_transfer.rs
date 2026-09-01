@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_support::traits::IsSubType;
 use frame_system::RawOrigin;
-use pallet_evm::PrecompileHandle;
+use pallet_evm::{AddressMapping, PrecompileHandle};
 use precompile_utils::EvmResult;
 use sp_core::{H256, U256};
 use sp_runtime::traits::{AsSystemOriginSigner, Dispatchable, StaticLookup, UniqueSaturatedInto};
@@ -36,6 +36,7 @@ where
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
     <R as pallet_balances::Config>::Balance: TryFrom<U256>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     const INDEX: u64 = 2048;
 }
@@ -65,6 +66,7 @@ where
         + Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
     <R as pallet_balances::Config>::Balance: TryFrom<U256>,
+    <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
 {
     #[precompile::public("transfer(bytes32)")]
     #[precompile::payable]
@@ -84,4 +86,76 @@ where
 
         handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(Self::account_id()))
     }
+
+    #[precompile::public("transferKeepAlive(bytes32,uint256)")]
+    fn transfer_keep_alive(
+        handle: &mut impl PrecompileHandle,
+        address: H256,
+        amount: U256,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let call = pallet_balances::Call::<R>::transfer_keep_alive {
+            dest: R::AccountId::from(address.0).into(),
+            value: amount
+                .try_into()
+                .map_err(|_| fp_evm::PrecompileFailure::Error {
+                    exit_status: fp_evm::ExitError::Other(
+                        "balance amount does not fit runtime".into(),
+                    ),
+                })?,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+    }
+
+    #[precompile::public("transferAll(bytes32,bool)")]
+    fn transfer_all(
+        handle: &mut impl PrecompileHandle,
+        address: H256,
+        keep_alive: bool,
+    ) -> EvmResult<()> {
+        let caller = handle.caller_account_id::<R>();
+        let call = pallet_balances::Call::<R>::transfer_all {
+            dest: R::AccountId::from(address.0).into(),
+            keep_alive,
+        };
+        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(caller))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock::{
+        AccountId, Runtime, addr_from_index, fund_account, mapped_account, new_test_ext,
+        precompiles, selector_u32,
+    };
+    use precompile_utils::{solidity::encode_with_selector, testing::PrecompileTesterExt};
+
+    #[test]
+    fn transfer_keep_alive_dispatches_as_mapped_caller() {
+        new_test_ext().execute_with(|| {
+            let caller = addr_from_index(0x8100);
+            let caller_account = mapped_account(caller);
+            let destination = RUNTIME_DESTINATION;
+            fund_account(&caller_account, 1_000);
+
+            precompiles::<BalanceTransferPrecompile<Runtime>>()
+                .prepare_test(
+                    caller,
+                    addr_from_index(BalanceTransferPrecompile::<Runtime>::INDEX),
+                    encode_with_selector(
+                        selector_u32("transferKeepAlive(bytes32,uint256)"),
+                        (destination, U256::from(100u64)),
+                    ),
+                )
+                .execute_returns(());
+
+            assert_eq!(
+                pallet_balances::Pallet::<Runtime>::free_balance(AccountId::from(destination.0)),
+                100u64.into()
+            );
+        });
+    }
+
+    const RUNTIME_DESTINATION: H256 = H256([0x44; 32]);
 }

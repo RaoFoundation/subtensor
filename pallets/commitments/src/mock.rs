@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used)]
 use crate as pallet_commitments;
+use codec::Encode;
 use frame_support::{
     derive_impl,
     pallet_prelude::{Get, TypeInfo},
@@ -90,8 +91,14 @@ impl TypeInfo for TestMaxFields {
 
 pub struct TestCanCommit;
 impl pallet_commitments::CanCommit<u64> for TestCanCommit {
-    fn can_commit(_netuid: NetUid, _who: &u64) -> bool {
-        true
+    type Error = ();
+
+    fn validate(_netuid: NetUid, _who: &u64) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn validation_weight() -> Weight {
+        Weight::zero()
     }
 }
 
@@ -277,4 +284,16 @@ pub fn produce_ciphertext(
         .expect("serialize TLECiphertext");
 
     ct_bytes.try_into().expect("Ciphertext is within max size")
+}
+
+/// Wrap raw TLE bytes in the SCALE `UserData { encrypted_data, reveal_round }`
+/// envelope produced by `bt.timelock.encrypt` / `encrypt_at_round`.
+pub fn wrap_userdata_envelope(
+    encrypted: BoundedVec<u8, ConstU32<MAX_TIMELOCK_COMMITMENT_SIZE_BYTES>>,
+    reveal_round: u64,
+) -> BoundedVec<u8, ConstU32<MAX_TIMELOCK_COMMITMENT_SIZE_BYTES>> {
+    (encrypted.into_inner(), reveal_round)
+        .encode()
+        .try_into()
+        .expect("UserData envelope fits max timelock size")
 }

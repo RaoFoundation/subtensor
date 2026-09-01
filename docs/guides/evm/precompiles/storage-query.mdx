@@ -1,0 +1,65 @@
+---
+title: Storage query
+description: Reference for the deployed selectorless StorageQueryPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `StorageQueryPrecompile` |
+| Solidity interface | None |
+| Address | `0x0000000000000000000000000000000000000807` |
+| Status | Deployed · deprecation planned |
+
+This precompile has no named Solidity functions or four-byte function selector.
+The complete call data is interpreted as a raw Substrate storage key. It returns
+the stored SCALE-encoded bytes, or empty bytes when the key does not exist.
+
+Only keys whose first 16 bytes match an authorized pallet prefix are accepted:
+SubtensorModule, Swap, Balances, Proxy, Scheduler, Drand, Crowdloan, Sudo,
+Multisig, and Timestamp.
+
+Raw storage access is brittle because callers depend on runtime storage names,
+hashers, key formats, and SCALE encodings.
+
+## Planned deprecation
+
+<Callout type="warning">
+  Storage Query is still deployed and callable. Deprecation is planned, but it
+  does not begin until suitable typed replacement coverage is available.
+</Callout>
+
+The planned lifecycle is:
+
+1. Add typed views for all storage currently authorized through this
+   precompile.
+2. Soft-deprecate Storage Query. Existing calls continue to execute identically
+   while the registry and documentation direct new callers to typed functions.
+3. Allow a documented migration window for existing contracts and tooling.
+4. Hard-deprecate Storage Query so calls return a descriptive precompile error.
+5. Eventually disable the precompile through the existing Root-controlled
+   precompile switch.
+
+No migration-window length or activation block has been assigned. The general
+lifecycle rules are described in
+[Precompile design and lifecycle](/docs/guides/evm/precompile-design#phasing-out-raw-storage-reads).
+
+## Replacement destinations
+
+Typed coverage should be completed at existing domain addresses whenever a
+compatible domain already exists. A new address is proposed only when no
+existing precompile has a coherent responsibility for that state.
+
+| Authorized storage prefix | Typed replacement |
+|---|---|
+| `SubtensorModule` | Extend [Staking V2](./staking-v2), [Metagraph](./metagraph), [Subnet](./subnet), [Neuron](./neuron), [Alpha](./alpha), [Leasing](./leasing), [UID lookup](./uid-lookup), [Address mapping](./address-mapping), and [Voting power](./voting-power), according to the meaning of each value. |
+| `Swap` | Extend [Alpha](./alpha) with typed liquidity, fee, balancer, reservoir, initialization, and migration-status views. |
+| `Balances` | Extend [Account balance](./account-balance) with typed account, issuance, lock, reserve, hold, and freeze views. |
+| `Proxy` | Extend [Proxy](./proxy) with typed announcement, last-call-result, and fee-payer views. |
+| `Crowdloan` | Extend [Crowdloan](./crowdloan) with typed ID, contribution-limit, current-operation, and migration-status views. |
+| `Scheduler` | Use the typed [Scheduler](./scheduler) precompile. |
+| `Drand` | Use the typed [Drand](./drand) precompile. |
+| `Sudo` | No dedicated EVM precompile is proposed; this access must be addressed explicitly before Storage Query is deprecated. |
+| `Multisig` | No dedicated EVM precompile is proposed; this access must be addressed explicitly before Storage Query is deprecated. |
+| `Timestamp` | Use the typed [Timestamp](./timestamp) precompile; `getTimestamp()` is equivalent to the existing EVM `block.timestamp` value. |
+
+Source: [`storage_query.rs`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/storage_query.rs)

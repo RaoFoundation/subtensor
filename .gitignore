@@ -71,6 +71,7 @@ sdk/python/dist/
 
 # Local dev logs
 *.log
+.alpha-accounting-scanner/
 
 # Claude Code configuration (skills are checked in; everything else is ignored)
 # .claude/skills is a symlink to .agents/skills (single source of truth);

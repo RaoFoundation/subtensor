@@ -1,6 +1,7 @@
 mod auto_stake_hotkey;
 mod basket_flush;
 mod batch_tx;
+mod beta_pricing;
 mod children;
 mod claim_root;
 mod cleanup_tests;
@@ -41,6 +42,7 @@ mod swap_hotkey;
 mod swap_hotkey_with_subnet;
 mod tao;
 mod tempo_control;
+mod total_alpha_staked;
 mod uids;
 mod voting_power;
 mod weights;

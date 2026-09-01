@@ -16,7 +16,7 @@ existing lock on the subnet to move.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_lock`](/code/pallets/subtensor/src/macros/dispatches.rs#L2355-L2364) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.move_lock`](/code/pallets/subtensor/src/macros/dispatches.rs#L2413-L2422) |
 
 ## Parameters
 
@@ -49,7 +49,7 @@ import bittensor as bt
 from bittensor.wallet import Wallet
 
 wallet = Wallet(name="my_coldkey", hotkey="my_hotkey")
-intent = bt.MoveLock(netuid=1, destination_hotkey_ss58="5F...")
+intent = bt.MoveLock(netuid=1, destination_hotkey_ss58="5G...destination")
 
 sub = bt.Subtensor()
 plan = sub.plan(intent, wallet)   # fee, effects, policy — no submission
@@ -68,7 +68,7 @@ result = sub.execute_tool("move_lock", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.move_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2357`](/code/pallets/subtensor/src/macros/dispatches.rs#L2355-L2364):
+`SubtensorModule.move_lock` — [`pallets/subtensor/src/macros/dispatches.rs#L2415`](/code/pallets/subtensor/src/macros/dispatches.rs#L2413-L2422):
 
 ```rust
 #[pallet::call_index(137)]
@@ -83,6 +83,6 @@ pub fn move_lock(
 }
 ```
 
-Delegates to [`do_move_lock`](/code/pallets/subtensor/src/staking/lock.rs#L1749).
+Delegates to [`do_move_lock`](/code/pallets/subtensor/src/staking/lock.rs#L1781).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

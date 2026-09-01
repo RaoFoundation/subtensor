@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 442
+Spec version: 449
 """
 from dataclasses import dataclass
 
@@ -200,6 +200,8 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 156): ErrorInfo('SubtensorModule', 'RootStakeLocked', 'Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window (measured from the last root stake add/remove/claim for that coldkey/hotkey) and cannot leave root yet. Prevents epoch-boundary just-in-time dividend sniping.'),
     (7, 157): ErrorInfo('SubtensorModule', 'BetaBasketSeedInProgress', 'The `migrate_seed_beta_basket_v2` seed or its per-hotkey deferred-dividend release has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes so snapshotted conversion cannot desync from live stake (`Σ owed == BasketShares`).'),
     (7, 158): ErrorInfo('SubtensorModule', 'RootWeightSettingDisabled', '`set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`] is false). Root Reborn launches gated: every fund runs the null strategy (dividends accumulate in place) until weight setting is switched on by governance or a later upgrade.'),
+    (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'Coldkey-wide `claim_root` would process more work units than the pre-dispatch envelope ([`crate::MAX_ROOT_CLAIM_WORK`]). Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
+    (7, 160): ErrorInfo('SubtensorModule', 'RootWeightCapExceeded', 'A single destination in a `set_root_weights` vector takes a larger share of the basket than [`crate::RootWeightsCap`] allows (share = value / sum of values). With the cap at 1/16 a validator must spread its basket across at least 16 destinations. Not enforced while the chain has fewer destinations than the cap demands.'),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
@@ -244,6 +246,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (18, 1): ErrorInfo('Commitments', 'AccountNotAllowedCommit', 'Account is not allowed to make commitments to the chain'),
     (18, 2): ErrorInfo('Commitments', 'SpaceLimitExceeded', 'Space Limit Exceeded for the current interval'),
     (18, 3): ErrorInfo('Commitments', 'UnexpectedUnreserveLeftover', 'Indicates that unreserve returned a leftover, which is unexpected.'),
+    (18, 4): ErrorInfo('Commitments', 'TimelockRevealFailedNotAllowed', '`TimelockRevealFailed` fields may only be created by the runtime.'),
     (19, 0): ErrorInfo('AdminUtils', 'SubnetDoesNotExist', 'The subnet does not exist, check the netuid parameter'),
     (19, 1): ErrorInfo('AdminUtils', 'MaxValidatorsLargerThanMaxUIds', 'The maximum number of subnet validators must be less than the maximum number of allowed UIDs in the subnet.'),
     (19, 2): ErrorInfo('AdminUtils', 'MaxAllowedUIdsLessThanCurrentUIds', 'The maximum number of subnet validators must be more than the current number of UIDs already in the subnet.'),
@@ -260,6 +263,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (19, 13): ErrorInfo('AdminUtils', 'Deprecated', 'Call is deprecated'),
     (19, 14): ErrorInfo('AdminUtils', 'CollateralLockShareTooHigh', 'The collateral lock share exceeds the settable maximum (95% of the registration price).'),
     (19, 15): ErrorInfo('AdminUtils', 'CollateralDrainRatioOutOfBounds', 'The collateral drain ratio must be positive and at most the settable maximum.'),
+    (19, 16): ErrorInfo('AdminUtils', 'GrandpaChangeDelayMustBeZero', 'GRANDPA changes must take effect at the end of the current block.'),
     (20, 0): ErrorInfo('SafeMode', 'Entered', 'The safe-mode is (already or still) entered.'),
     (20, 1): ErrorInfo('SafeMode', 'Exited', 'The safe-mode is (already or still) exited.'),
     (20, 2): ErrorInfo('SafeMode', 'NotConfigured', 'This functionality of the pallet is disabled by the configuration.'),
@@ -390,4 +394,12 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 16): ErrorInfo('LimitOrders', 'ArithmeticOverflow', 'A TAO -> alpha conversion overflowed the fixed-point range.'),
     (32, 17): ErrorInfo('LimitOrders', 'DuplicateOrderInBatch', 'The same order appears more than once in a single batch.'),
     (32, 18): ErrorInfo('LimitOrders', 'ZeroShareInBatch', "An order's pro-rata share in the batch rounded down to zero. The whole batch is rejected so the order's input is never consumed without delivering any output (conservation), and the order stays retryable in a differently-composed batch."),
+    (32, 19): ErrorInfo('LimitOrders', 'NoLinkedOutput', 'Linked order named a provider with no recorded output.'),
+    (32, 20): ErrorInfo('LimitOrders', 'LinkedOutputSignerMismatch', "Linked order signer differs from the provider's signer."),
+    (32, 21): ErrorInfo('LimitOrders', 'LinkedOutputAssetMismatch', 'Provider output asset is not what the linked order spends.'),
+    (32, 22): ErrorInfo('LimitOrders', 'LinkedOutputExpired', 'Provider record has passed its `expires_at` deadline.'),
+    (32, 23): ErrorInfo('LimitOrders', 'LinkedAmountResolvedToZero', 'Linked fraction floored to zero against the recorded output.'),
+    (32, 24): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForLinkedAmount', 'Partial fill submitted against a linked (consuming) order.'),
+    (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
+    (32, 26): ErrorInfo('LimitOrders', 'LinkedOutputNotPrunable', '`prune_linked_output` called by a non-signer on an unexpired record.'),
 }

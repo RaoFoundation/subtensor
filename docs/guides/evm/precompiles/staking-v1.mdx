@@ -1,0 +1,28 @@
+---
+title: Staking V1
+description: Reference for the deployed legacy StakingPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `StakingPrecompile` |
+| Solidity interface | `IStaking` V1 |
+| Address | `0x0000000000000000000000000000000000000801` |
+| Status | Deployed |
+
+This legacy interface remains available for deployed callers. New staking
+functionality belongs on [Staking V2](./staking-v2).
+
+## Functions
+
+| Function | Mutability |
+|---|---|
+| `addStake(bytes32,uint256)` | `payable` |
+| `removeStake(bytes32,uint256,uint256)` | nonpayable |
+| `getTotalColdkeyStake(bytes32)` | `view` |
+| `getTotalHotkeyStake(bytes32)` | `view` |
+| `addProxy(bytes32)` | nonpayable |
+| `removeProxy(bytes32)` | nonpayable |
+| `getStake(bytes32,bytes32,uint256)` | `view` |
+
+Source: [`staking.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/staking.sol)

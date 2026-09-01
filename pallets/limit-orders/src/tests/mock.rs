@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use codec::Encode;
 use frame_support::{
     BoundedVec, PalletId, construct_runtime, derive_impl, parameter_types,
-    traits::{ConstU32, ConstU64, Everything},
+    traits::{ConstU16, ConstU32, ConstU64, Everything},
 };
 use frame_system as system;
 use sp_core::{H256, Pair};
@@ -51,6 +51,11 @@ impl system::Config for Test {
     type MaxConsumers = ConstU32<16>;
     type Nonce = u64;
     type Block = Block;
+    /// Pinned to Bittensor's real prefix (42) because `render_account` renders
+    /// accounts into the readable signing message under this value. Leaving it at
+    /// `TestDefaultConfig`'s default (`()` → 0) would make the readable-form tests
+    /// exercise a prefix the chain never uses.
+    type SS58Prefix = ConstU16<42>;
 }
 
 // ── MockSwap ─────────────────────────────────────────────────────────────────
@@ -537,6 +542,7 @@ impl pallet_limit_orders::Config for Test {
     type PalletHotkey = PalletHotkeyAccount;
     type WeightInfo = ();
     type ChainId = ConstU64<945>;
+    type LinkedOutputTtl = ConstU64<86_400_000>;
 }
 
 // ── Shared test helpers ───────────────────────────────────────────────────────
@@ -558,6 +564,16 @@ pub fn netuid() -> NetUid {
 }
 
 pub const FAR_FUTURE: u64 = u64::MAX;
+
+/// Build the raw payload that the order's `signer` must sign.
+///
+/// Mirrors the production logic in `is_order_valid`: the signed message is the
+/// `<Bytes>…</Bytes>` `signRaw` envelope wrapped around the 32-byte order hash
+/// (`blake2_256(SCALE_ENCODE(VersionedOrder))`, i.e. the `OrderId`).
+pub fn order_signing_payload(order: &crate::VersionedOrder<AccountId>) -> Vec<u8> {
+    let id = sp_io::hashing::blake2_256(&order.encode());
+    [b"<Bytes>".as_slice(), &id, b"</Bytes>".as_slice()].concat()
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn make_signed_order(
@@ -588,7 +604,7 @@ pub fn make_signed_order(
         chain_id: 945,
         partial_fills_enabled: false,
     });
-    let sig = keyring.pair().sign(&order.encode());
+    let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
         signature: MultiSignature::Sr25519(sig),
@@ -626,7 +642,7 @@ pub fn make_partial_fill_order(
         chain_id: 945,
         partial_fills_enabled: true,
     });
-    let sig = keyring.pair().sign(&order.encode());
+    let sig = keyring.pair().sign(&order_signing_payload(&order));
     crate::SignedOrder {
         order,
         signature: MultiSignature::Sr25519(sig),
@@ -642,6 +658,41 @@ pub fn bounded(
 
 pub fn order_id(order: &crate::VersionedOrder<AccountId>) -> H256 {
     crate::pallet::Pallet::<Test>::derive_order_id(order)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn make_signed_v2_order(
+    keyring: AccountKeyring,
+    hotkey: AccountId,
+    netuid: NetUid,
+    order_type: crate::OrderType,
+    amount: crate::OrderAmount,
+    limit_price: u64,
+    has_linked_order: bool,
+) -> crate::SignedOrder<AccountId> {
+    let signer = keyring.to_account_id();
+    let order = crate::VersionedOrder::V2(crate::OrderV2 {
+        signer,
+        hotkey,
+        netuid,
+        order_type,
+        amount,
+        limit_price,
+        expiry: FAR_FUTURE,
+        fee_rate: sp_runtime::Perbill::zero(),
+        fee_recipient: fee_recipient(),
+        relayer: None,
+        max_slippage: None,
+        chain_id: 945,
+        partial_fills_enabled: false,
+        has_linked_order,
+    });
+    let sig = keyring.pair().sign(&order_signing_payload(&order));
+    crate::SignedOrder {
+        order,
+        signature: MultiSignature::Sr25519(sig),
+        partial_fill: None,
+    }
 }
 
 // ── Test externalities ────────────────────────────────────────────────────────

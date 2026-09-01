@@ -43,6 +43,8 @@ pub enum FunctionId {
     GetSubnetRegistrationStateV1 = 34,
     GetColdkeyLockV1 = 35,
     GetStakeAvailabilityV1 = 36,
+    MoveStakeLimitV1 = 37,
+    CallerMoveStakeLimitV1 = 38,
 }
 
 #[ink::chain_extension(extension = 0x1000)]
@@ -287,6 +289,28 @@ pub trait RuntimeReadWrite {
         coldkey: <CustomEnvironment as ink::env::Environment>::AccountId,
         netuid: u16,
     ) -> StakeAvailability;
+
+    #[ink(function = 37)]
+    fn move_stake_limit(
+        origin_hotkey: <CustomEnvironment as ink::env::Environment>::AccountId,
+        destination_hotkey: <CustomEnvironment as ink::env::Environment>::AccountId,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        amount: u64,
+        limit_price: u64,
+        allow_partial: bool,
+    );
+
+    #[ink(function = 38)]
+    fn caller_move_stake_limit(
+        origin_hotkey: <CustomEnvironment as ink::env::Environment>::AccountId,
+        destination_hotkey: <CustomEnvironment as ink::env::Environment>::AccountId,
+        origin_netuid: u16,
+        destination_netuid: u16,
+        amount: u64,
+        limit_price: u64,
+        allow_partial: bool,
+    );
 }
 
 #[ink::scale_derive(Encode, Decode, TypeInfo)]
@@ -534,6 +558,31 @@ mod bittensor {
                 .extension()
                 .swap_stake_limit(
                     hotkey.into(),
+                    origin_netuid,
+                    destination_netuid,
+                    amount,
+                    limit_price,
+                    allow_partial,
+                )
+                .map_err(|_e| ReadWriteErrorCode::WriteFailed)
+        }
+
+        #[ink(message)]
+        pub fn move_stake_limit(
+            &self,
+            origin_hotkey: [u8; 32],
+            destination_hotkey: [u8; 32],
+            origin_netuid: u16,
+            destination_netuid: u16,
+            amount: u64,
+            limit_price: u64,
+            allow_partial: bool,
+        ) -> Result<(), ReadWriteErrorCode> {
+            self.env()
+                .extension()
+                .move_stake_limit(
+                    origin_hotkey.into(),
+                    destination_hotkey.into(),
                     origin_netuid,
                     destination_netuid,
                     amount,
@@ -792,6 +841,31 @@ mod bittensor {
                 .extension()
                 .caller_swap_stake_limit(
                     hotkey.into(),
+                    origin_netuid,
+                    destination_netuid,
+                    amount,
+                    limit_price,
+                    allow_partial,
+                )
+                .map_err(|_e| ReadWriteErrorCode::WriteFailed)
+        }
+
+        #[ink(message)]
+        pub fn caller_move_stake_limit(
+            &self,
+            origin_hotkey: [u8; 32],
+            destination_hotkey: [u8; 32],
+            origin_netuid: u16,
+            destination_netuid: u16,
+            amount: u64,
+            limit_price: u64,
+            allow_partial: bool,
+        ) -> Result<(), ReadWriteErrorCode> {
+            self.env()
+                .extension()
+                .caller_move_stake_limit(
+                    origin_hotkey.into(),
+                    destination_hotkey.into(),
                     origin_netuid,
                     destination_netuid,
                     amount,

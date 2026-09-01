@@ -3,10 +3,12 @@
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    BasketClaimed, BasketRate, BasketShares, BurnIncreaseMult, DefaultMinRootClaimAmount, Error,
-    Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded, NumStakingColdkeys, RootClaimableThreshold,
-    StakingColdkeys, StakingColdkeysByIndex, SubnetAlphaIn, SubnetMovingPrice, SubnetProtocolFlow,
-    SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
+    DefaultMinRootClaimAmount, Error, Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded,
+    NumStakingColdkeys, PendingBasketDeposits, RootAlphaDividendsPerSubnet, RootClaimableThreshold,
+    StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetMovingPrice,
+    SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
+    Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -16,7 +18,7 @@ use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::collections::btree_set::BTreeSet;
-use substrate_fixed::types::{I96F32, U64F64};
+use substrate_fixed::types::{I96F32, U64F64, U96F32};
 use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance, Token};
 
 // =============================================================================
@@ -229,6 +231,23 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             subnets: subnets.clone(),
         });
         let declared_weight = call.get_dispatch_info().call_weight;
+        // Coldkey-wide claim_root cannot see the signer in call data, so it
+        // reserves the conservative MAX_ROOT_CLAIM_WORK envelope.
+        assert_eq!(
+            SubtensorModule::root_claim_declared_work(),
+            crate::MAX_ROOT_CLAIM_WORK
+        );
+        let envelope = <Test as crate::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK);
+        assert!(
+            declared_weight.all_gte(envelope),
+            "declared {declared_weight:?} must cover the {envelope:?} admission envelope"
+        );
+        // Ghost NetworksAdded=false keys must not inflate the single-hotkey quote.
+        let existing = SubtensorModule::root_claim_existing_networks();
+        let ghost = NetUid::from(u16::MAX);
+        NetworksAdded::<Test>::insert(ghost, false);
+        assert_eq!(SubtensorModule::root_claim_existing_networks(), existing);
+        assert!(existing < crate::MAX_ROOT_CLAIM_WORK);
         let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
             .expect("claim succeeds")
             .actual_weight
@@ -243,6 +262,23 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         assert!(
             declared_weight.all_lte(max_extrinsic),
             "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+    });
+}
+
+#[test]
+fn test_claim_root_rejects_work_above_declared_budget() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1001);
+        let networks = SubtensorModule::root_claim_existing_networks();
+        let too_many = (crate::MAX_ROOT_CLAIM_WORK / networks.max(1)).saturating_add(1);
+        let hotkeys: Vec<U256> = (0..too_many)
+            .map(|i| U256::from(2_000u32.saturating_add(i)))
+            .collect();
+        StakingHotkeys::<Test>::insert(coldkey, hotkeys);
+        assert_noop!(
+            SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), BTreeSet::new()),
+            Error::<Test>::RootClaimTooHeavy
         );
     });
 }
@@ -406,6 +442,109 @@ fn test_root_basket_accumulates_in_place_without_weights() {
         assert!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey) > 0,
             "staker must accrue fund shares"
+        );
+    });
+}
+
+#[test]
+fn test_subnet_owner_root_validator_dividend_is_basketed_and_claimable() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1101);
+        let owner_hotkey = U256::from(1102);
+        let netuid = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+        zero_claim_threshold();
+
+        // Model the reported identity collision explicitly: this single hotkey owns the
+        // subnet, is a neuron on that subnet, and is also a root validator. Owner immunity
+        // applies to its miner incentive, but must not apply to its Root Reborn dividend.
+        register_on_root(&owner_hotkey, 0);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(netuid), owner_hotkey);
+        assert!(Uids::<Test>::contains_key(netuid, owner_hotkey));
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, owner_hotkey));
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &owner_hotkey,
+            &owner_coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+
+        // Use zero validator take so the complete Root Reborn dividend belongs to the
+        // root staker and the basket-side accounting can be asserted exactly.
+        crate::Delegates::<Test>::insert(owner_hotkey, sp_runtime::PerU16::from_parts(0));
+
+        let miner_incentive = 100_000u64;
+        let root_reborn_dividend = 1_000_000u64;
+        let issued =
+            SubtensorModule::mint_alpha(netuid, (miner_incentive + root_reborn_dividend).into());
+        SubtensorModule::resolve_to_alpha_out(issued);
+
+        let burned_before = pallet_alpha_assets::AlphaBurned::<Test>::get(netuid);
+        let recycled_before = pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid);
+
+        let mut incentives = alloc::collections::BTreeMap::new();
+        incentives.insert(owner_hotkey, miner_incentive.into());
+        let mut root_dividends = alloc::collections::BTreeMap::new();
+        root_dividends.insert(owner_hotkey, U96F32::from_num(root_reborn_dividend));
+
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            incentives,
+            alloc::collections::BTreeMap::new(),
+            root_dividends,
+        );
+
+        // This is the distinction the bug report misses: the owner-directed miner incentive
+        // is burned by the owner-immunity rule, while the Root Reborn dividend is preserved
+        // verbatim in the pending basket queue.
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            burned_before.saturating_add(miner_incentive.into())
+        );
+        assert_eq!(
+            pallet_alpha_assets::AlphaRecycled::<Test>::get(netuid),
+            recycled_before
+        );
+        assert_eq!(
+            RootAlphaDividendsPerSubnet::<Test>::get(netuid, owner_hotkey),
+            root_reborn_dividend.into()
+        );
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(owner_hotkey, netuid),
+            root_reborn_dividend.into()
+        );
+
+        flush_baskets();
+
+        assert_eq!(
+            PendingBasketDeposits::<Test>::get(owner_hotkey, netuid),
+            AlphaBalance::ZERO
+        );
+        assert_eq!(
+            escrow_alpha(&owner_hotkey, netuid),
+            root_reborn_dividend,
+            "the owner's Root Reborn dividend must enter basket custody, not burn"
+        );
+        assert!(fund_shares(&owner_hotkey) > 0);
+        assert!(
+            SubtensorModule::get_basket_owed_shares(&owner_hotkey, &owner_coldkey) > 0,
+            "the owner coldkey must receive a claimable basket entitlement"
+        );
+
+        let root_stake_before = root_stake_of(&owner_hotkey, &owner_coldkey);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(owner_coldkey),
+            owner_hotkey
+        ));
+        assert!(root_stake_of(&owner_hotkey, &owner_coldkey) > root_stake_before);
+        assert!(BasketRedeemedTao::<Test>::get(owner_hotkey) > 0.into());
+        assert_eq!(
+            pallet_alpha_assets::AlphaBurned::<Test>::get(netuid),
+            burned_before.saturating_add(miner_incentive.into()),
+            "claiming the Root Reborn dividend must not add to burned alpha"
         );
     });
 }
@@ -1677,6 +1816,111 @@ fn test_set_root_weights_accepts_root_destination() {
     });
 }
 
+/// With enough destinations on chain, no single entry may take a larger share of the
+/// vector than `RootWeightsCap` (default 1/16): concentrated vectors are rejected and
+/// an equal spread is accepted.
+#[test]
+fn test_set_root_weights_enforces_concentration_cap() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+
+        // 15 subnets + root = 16 destinations: exactly what the default 1/16 cap
+        // demands, so the check is live.
+        let mut dests: Vec<u16> = vec![u16::from(NetUid::ROOT)];
+        for i in 0..15u64 {
+            let hk = U256::from(2000u64.saturating_add(i));
+            let ck = U256::from(3000u64.saturating_add(i));
+            dests.push(u16::from(add_dynamic_network(&hk, &ck)));
+        }
+
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
+        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        enable_root_weight_setting();
+        SubtensorModule::set_weights_set_rate_limit(NetUid::ROOT, 0);
+
+        assert_eq!(SubtensorModule::get_all_subnet_netuids().len(), 16);
+        assert_eq!(
+            crate::RootWeightsCap::<Test>::get(NetUid::ROOT),
+            crate::DEFAULT_ROOT_WEIGHTS_CAP
+        );
+
+        // One destination at double everyone else's weight takes 200/1700 > 1/16.
+        let mut concentrated = vec![100u16; dests.len()];
+        if let Some(first) = concentrated.first_mut() {
+            *first = 200;
+        }
+        assert_noop!(
+            SubtensorModule::set_root_weights(
+                RuntimeOrigin::signed(hotkey),
+                dests.clone(),
+                concentrated,
+            ),
+            Error::<Test>::RootWeightCapExceeded
+        );
+
+        // An equal 16-way split sits exactly at the cap and passes.
+        assert_ok!(SubtensorModule::set_root_weights(
+            RuntimeOrigin::signed(hotkey),
+            dests.clone(),
+            vec![100u16; dests.len()],
+        ));
+
+        // Governance can relax the cap: at 100% the same concentrated vector passes.
+        crate::RootWeightsCap::<Test>::insert(NetUid::ROOT, u16::MAX);
+        let mut concentrated = vec![100u16; dests.len()];
+        if let Some(first) = concentrated.first_mut() {
+            *first = u16::MAX;
+        }
+        assert_ok!(SubtensorModule::set_root_weights(
+            RuntimeOrigin::signed(hotkey),
+            dests,
+            concentrated,
+        ));
+    });
+}
+
+/// While the chain has fewer destinations than the cap demands (here 2 < 16), the
+/// concentration check is skipped entirely — mirroring the diversity-floor softening —
+/// so young chains and tests can still set skewed vectors.
+#[test]
+fn test_set_root_weights_cap_skipped_below_required_destinations() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        SubnetworkN::<Test>::insert(NetUid::ROOT, 1);
+        Uids::<Test>::insert(NetUid::ROOT, hotkey, 0u16);
+        Keys::<Test>::insert(NetUid::ROOT, 0u16, hotkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            2_000_000u64.into(),
+        );
+        enable_root_weight_setting();
+
+        // Maximally concentrated (a dust root slot plus everything on one subnet), yet
+        // accepted: only 2 destinations exist, far below the 16 the default cap demands.
+        assert_ok!(SubtensorModule::set_root_weights(
+            RuntimeOrigin::signed(hotkey),
+            vec![u16::from(NetUid::ROOT), u16::from(netuid)],
+            vec![1, u16::MAX],
+        ));
+    });
+}
+
 // =============================================================================
 // Claims 1-4: the staker-facing guarantees, proven directly.
 // =============================================================================
@@ -1730,6 +1974,85 @@ fn test_claim1_principal_never_lost() {
             hotkey
         ));
         assert!(root_stake_of(&hotkey, &coldkey) >= principal);
+    });
+}
+
+/// A pre-execution `get_basket_payout_tao` quote is not the post-claim balance:
+/// the claim first flushes pending basket deposits. `move_stake(MAX)` must cap
+/// to the live origin after that flush, not to the stale quote.
+#[test]
+fn test_claim_then_move_max_includes_pending_basket() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let origin_hotkey = U256::from(1002);
+        let dest_hotkey = U256::from(1005);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&origin_hotkey, &owner_coldkey);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        let principal = 2_000_000u64;
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            principal.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &origin_hotkey,
+            &owner_coldkey,
+            netuid,
+            10_000_000u64.into(),
+        );
+        set_root_weights_direct(&origin_hotkey, 0, &[(netuid, u16::MAX)]);
+        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+        crate::SubtokenEnabled::<Test>::insert(NetUid::ROOT, true);
+        let _ = SubtensorModule::create_account_if_non_existent(&coldkey, &dest_hotkey);
+
+        SubtensorModule::distribute_emission(
+            netuid,
+            AlphaBalance::ZERO,
+            AlphaBalance::ZERO,
+            1_000_000u64.into(),
+            AlphaBalance::ZERO,
+        );
+
+        let quoted_payout = SubtensorModule::get_basket_payout_tao(&origin_hotkey, &coldkey);
+        assert_eq!(
+            quoted_payout, 0,
+            "pending credits must not count in the pre-flush payout quote"
+        );
+        assert!(
+            crate::PendingBasketDeposits::<Test>::iter_prefix(origin_hotkey)
+                .next()
+                .is_some(),
+            "epoch must have queued a pending basket credit"
+        );
+
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            origin_hotkey
+        ));
+        let post_claim = root_stake_of(&origin_hotkey, &coldkey);
+        assert!(
+            post_claim > principal,
+            "claim must realize the flushed pending credit"
+        );
+
+        assert_ok!(SubtensorModule::do_move_stake(
+            RuntimeOrigin::signed(coldkey),
+            origin_hotkey,
+            dest_hotkey,
+            NetUid::ROOT,
+            NetUid::ROOT,
+            AlphaBalance::MAX,
+        ));
+
+        assert_eq!(root_stake_of(&origin_hotkey, &coldkey), 0);
+        assert_eq!(root_stake_of(&dest_hotkey, &coldkey), post_claim);
     });
 }
 
@@ -3181,6 +3504,135 @@ fn test_root_basket_mixed_forfeit_claim_burns_nothing() {
     });
 }
 
+/// One terminally shallow subnet must not block redemption of the rest of a validator's
+/// basket. The claimant's exact pro-rata garbage slice is written off while the executable
+/// holding pays normally, leaving the same garbage-per-share ratio for the next holder.
+#[test]
+fn test_root_basket_claim_writes_off_only_claimants_terminal_garbage_slice() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let alice = U256::from(1003);
+        let bob = U256::from(1004);
+        let healthy = add_dynamic_network(&hotkey, &owner_coldkey);
+        let garbage = add_dynamic_network(&hotkey, &owner_coldkey);
+        remove_owner_registration_stake(healthy);
+        remove_owner_registration_stake(garbage);
+        fund_pool(healthy);
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+
+        // Alpha -> TAO requires the output (TAO) reserve to meet SwapMinimumReserve.
+        // This pool is therefore terminal for sales, independent of the sale amount.
+        SubnetTAO::<Test>::insert(
+            garbage,
+            TaoBalance::from(u64::from(SwapMinimumReserve::get()) - 1),
+        );
+        SubnetAlphaIn::<Test>::insert(garbage, AlphaBalance::from(1_000_000u64));
+
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            100u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &bob,
+            NetUid::ROOT,
+            100u64.into(),
+        );
+        set_root_weights_direct(&hotkey, 0, &[(healthy, u16::MAX), (garbage, u16::MAX)]);
+
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            healthy,
+            1_000_000u64.into(),
+        );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            garbage,
+            1_000u64.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 200u64);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+
+        let alice_root_before = root_stake_of(&hotkey, &alice);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(alice),
+            hotkey
+        ));
+
+        assert!(root_stake_of(&hotkey, &alice) > alice_root_before);
+        assert_eq!(fund_shares(&hotkey), 100);
+        assert_eq!(escrow_alpha(&hotkey, garbage), 500);
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), 100);
+    });
+}
+
+/// A full holding larger than the swap engine's one-call 1000x input-reserve guard is still
+/// executable in reserve-bounded chunks. Its valuation and the money-moving claim must use
+/// the same chunk sequence, rather than treating `SwapInputTooLarge` as a zero-valued slot.
+#[test]
+fn test_root_basket_claim_chunks_oversized_executable_holding() {
+    new_test_ext(1).execute_with(|| {
+        let owner_coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let coldkey = U256::from(1003);
+        let netuid = add_dynamic_network(&hotkey, &owner_coldkey);
+        remove_owner_registration_stake(netuid);
+        // A liquid high-price pool keeps ample TAO output reserve even after selling more
+        // than 1000x its alpha input reserve. This isolates the engine's per-call input guard
+        // from a genuinely terminal reserve condition.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000_000_000_000_000u64));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000_000_000u64));
+        let subnet_account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+        add_balance_to_coldkey_account(&subnet_account, TaoBalance::from(1_000_000_000_000_000u64));
+
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1u64.into(),
+        );
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+
+        let alpha_reserve = SubnetAlphaIn::<Test>::get(netuid).to_u64();
+        let oversized = alpha_reserve.saturating_mul(1_100);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            oversized.into(),
+        );
+        BasketShares::<Test>::insert(hotkey, 1u64);
+        BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
+
+        assert!(
+            SubtensorModule::try_realizable_tao_for_alpha(netuid, oversized)
+                .expect("oversized quote must not fail")
+                .expect("deep pool is not terminal")
+                > 0
+        );
+        let root_before = root_stake_of(&hotkey, &coldkey);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey
+        ));
+
+        assert!(root_stake_of(&hotkey, &coldkey) > root_before);
+        assert_eq!(escrow_alpha(&hotkey, netuid), 0);
+        assert_eq!(fund_shares(&hotkey), 0);
+    });
+}
+
 /// A fully-drained fund accepts new deposits cleanly: the revived fund's value belongs to the
 /// (current) stakers and is fully redeemable; the drained epoch cannot leak into the new one.
 #[test]
@@ -3315,7 +3767,7 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
 }
 
 // =============================================================================
-// The full "become a root validator fund" journey, through real extrinsics.
+// The full "become a root validator basket" journey, through real extrinsics.
 // =============================================================================
 
 /// End-to-end operator flow: burn-based root registration with **zero prior
@@ -3325,7 +3777,7 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
 /// Pins the burn accounting introduced by burn-based admission: the coldkey
 /// pays exactly `Burn(0)`, and the price bumps for the next registrant.
 #[test]
-fn test_become_root_validator_fund_journey() {
+fn test_become_root_validator_basket_journey() {
     new_test_ext(1).execute_with(|| {
         let subnet_owner_coldkey = U256::from(1001);
         let validator_coldkey = U256::from(1003);
@@ -3449,6 +3901,8 @@ fn test_root_register_zero_stake_keys_shield_staked_members() {
         SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 2);
         SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
         SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+        // This test is about stake-order prune, not the immunity window.
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 0);
 
         // A staked validator and one zero-stake key fill the two slots.
         root_register_ok(staked_hotkey, staked_coldkey);
@@ -3477,5 +3931,60 @@ fn test_root_register_zero_stake_keys_shield_staked_members() {
             );
             assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));
         }
+    });
+}
+
+/// A just-registered zero-stake key is immune: the next registration evicts an
+/// older zero-stake member instead.
+#[test]
+fn test_root_register_skips_immune_when_pruning() {
+    new_test_ext(1).execute_with(|| {
+        let staked_coldkey = U256::from(2101);
+        let staked_hotkey = U256::from(2102);
+        let old_zero_coldkey = U256::from(2103);
+        let old_zero_hotkey = U256::from(2104);
+        let new_zero_coldkey = U256::from(2105);
+        let new_zero_hotkey = U256::from(2106);
+        let incoming_coldkey = U256::from(2107);
+        let incoming_hotkey = U256::from(2108);
+
+        add_network(NetUid::ROOT, 10, 0);
+        SubtensorModule::set_max_allowed_uids(NetUid::ROOT, 3);
+        SubtensorModule::set_max_registrations_per_block(NetUid::ROOT, 10);
+        SubtensorModule::set_target_registrations_per_interval(NetUid::ROOT, 10);
+        SubtensorModule::set_immunity_period(NetUid::ROOT, 100);
+
+        root_register_ok(old_zero_hotkey, old_zero_coldkey);
+        step_block(101);
+        assert!(!SubtensorModule::get_neuron_is_immune(
+            NetUid::ROOT,
+            Uids::<Test>::get(NetUid::ROOT, old_zero_hotkey).expect("old zero uid")
+        ));
+
+        root_register_ok(staked_hotkey, staked_coldkey);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &staked_hotkey,
+            &staked_coldkey,
+            NetUid::ROOT,
+            5_000_000u64.into(),
+        );
+        root_register_ok(new_zero_hotkey, new_zero_coldkey);
+        assert_eq!(SubnetworkN::<Test>::get(NetUid::ROOT), 3);
+        assert!(SubtensorModule::get_neuron_is_immune(
+            NetUid::ROOT,
+            Uids::<Test>::get(NetUid::ROOT, new_zero_hotkey).expect("new zero uid")
+        ));
+
+        root_register_ok(incoming_hotkey, incoming_coldkey);
+        assert!(
+            !Uids::<Test>::contains_key(NetUid::ROOT, old_zero_hotkey),
+            "older zero-stake key must be pruned"
+        );
+        assert!(
+            Uids::<Test>::contains_key(NetUid::ROOT, new_zero_hotkey),
+            "just-registered zero-stake key is immune"
+        );
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, staked_hotkey));
+        assert!(Uids::<Test>::contains_key(NetUid::ROOT, incoming_hotkey));
     });
 }

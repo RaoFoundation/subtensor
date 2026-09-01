@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .keyfiles import Keyfile, Keypair
 from .sp_core import CRYPTO_SR25519
@@ -175,10 +175,15 @@ class Wallet:
         save_coldkey_to_env: bool = False,
         coldkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
+        on_mnemonic: Callable[[str], None] | None = None,
     ) -> Wallet:
         mnemonic = Keypair.generate_mnemonic(n_words)
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
-        if not suppress:
+        # on_mnemonic lets a caller (the CLI) render the mnemonic itself
+        # instead of this library printing it raw to stdout.
+        if on_mnemonic is not None:
+            on_mnemonic(mnemonic)
+        elif not suppress:
             print(f"Generating new coldkey\nMnemonic: {mnemonic}")
         if coldkey_password is not None:
             use_password = True
@@ -201,10 +206,13 @@ class Wallet:
         save_hotkey_to_env: bool = False,
         hotkey_password: str | None = None,
         crypto_type: int = CRYPTO_SR25519,
+        on_mnemonic: Callable[[str], None] | None = None,
     ) -> Wallet:
         mnemonic = Keypair.generate_mnemonic(n_words)
         keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
-        if not suppress:
+        if on_mnemonic is not None:
+            on_mnemonic(mnemonic)
+        elif not suppress:
             print(f"Generating new hotkey\nMnemonic: {mnemonic}")
         if hotkey_password is not None:
             use_password = True
@@ -222,6 +230,7 @@ class Wallet:
         self,
         mnemonic: str | None = None,
         seed: str | bytes | None = None,
+        private_key: str | None = None,
         json: tuple[str, str] | None = None,
         use_password: bool = True,
         overwrite: bool = False,
@@ -235,6 +244,10 @@ class Wallet:
             if not suppress:
                 print(f"Regenerating coldkey from mnemonic\nMnemonic: {mnemonic}")
             keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
+        elif private_key is not None:
+            if not suppress:
+                print("Regenerating coldkey from private key")
+            keypair = Keypair.create_from_private_key(private_key, crypto_type)
         elif seed is not None:
             keypair = Keypair.create_from_seed(_seed_bytes(seed), crypto_type)
         elif json is not None:
@@ -247,7 +260,7 @@ class Wallet:
                 print("Regenerating coldkey from encrypted JSON keystore")
             keypair = Keypair.create_from_encrypted_json(json_data, passphrase)
         else:
-            raise ValueError("either mnemonic, seed, or json must be provided")
+            raise ValueError("either mnemonic, seed, private_key, or json must be provided")
 
         if coldkey_password is not None:
             use_password = True
@@ -265,6 +278,7 @@ class Wallet:
         self,
         mnemonic: str | None = None,
         seed: str | bytes | None = None,
+        private_key: str | None = None,
         use_password: bool = False,
         overwrite: bool = False,
         suppress: bool = False,
@@ -277,10 +291,14 @@ class Wallet:
             if not suppress:
                 print(f"Regenerating hotkey from mnemonic\nMnemonic: {mnemonic}")
             keypair = Keypair.create_from_mnemonic(mnemonic, crypto_type)
+        elif private_key is not None:
+            if not suppress:
+                print("Regenerating hotkey from private key")
+            keypair = Keypair.create_from_private_key(private_key, crypto_type)
         elif seed is not None:
             keypair = Keypair.create_from_seed(_seed_bytes(seed), crypto_type)
         else:
-            raise ValueError("either mnemonic or seed must be provided")
+            raise ValueError("either mnemonic, seed, or private_key must be provided")
 
         if hotkey_password is not None:
             use_password = True

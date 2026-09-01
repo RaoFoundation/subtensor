@@ -2,13 +2,50 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .._generated import calls
+from .._generated import storage as st
+from ..balance import Balance
 from ._money import UNBOUNDED, Spend
-from .base import Intent
+from ._root_claim_fee import (
+    quote_root_claim_fee,
+    root_claim_admission,
+    root_claim_reserve,
+)
+from .base import Intent, IntentPreflight
 from .registry import register
+
+# CollateralLockShare is u16 where 65535 = 100%. Matches the chain's
+# `get_collateral_lock_share_float` / `get_collateral_requirement_tao`.
+_U16_MAX = 65535
+
+
+async def neuron_registration_split(substrate, netuid: int) -> tuple[Balance, Balance]:
+    """Split the current registration price into (burn, lock) TAO shares.
+
+    ``Burn`` is the full floating registration price. The subnet's
+    ``CollateralLockShare`` (p) locks ``p * price`` as miner collateral and
+    burns the rest. Root (netuid 0) has no collateral path: the full price
+    is the burn share and lock is zero.
+    """
+    if netuid == 0:
+        cost_raw = await substrate.query(*st.SubtensorModule.Burn, [netuid])
+        return Balance.from_rao(int(cost_raw or 0)), Balance.from_rao(0)
+    cost_raw, share_raw = await asyncio.gather(
+        substrate.query(*st.SubtensorModule.Burn, [netuid]),
+        substrate.query(*st.SubtensorModule.CollateralLockShare, [netuid]),
+    )
+    cost_rao = int(cost_raw or 0)
+    lock_rao = (cost_rao * int(share_raw or 0)) // _U16_MAX
+    return Balance.from_rao(cost_rao - lock_rao), Balance.from_rao(lock_rao)
+
+
+def _registration_split_suffix(burn: Balance, lock: Balance) -> str:
+    lock_part = str(lock) if lock.rao else "none"
+    return f"burn {burn} · lock {lock_part}"
 
 
 @register
@@ -55,6 +92,17 @@ class BurnedRegister(Intent):
     def summary(self) -> str:
         target = self.hotkey_ss58 or "wallet hotkey"
         return f"register {target} on netuid {self.netuid} (burned/collateral)"
+
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        burn, lock = await neuron_registration_split(substrate, self.netuid)
+        lock_line = (
+            f"lock {lock} as miner collateral" if lock.rao else "lock none (full cost is burned)"
+        )
+        return [
+            self.summary(),
+            f"burn {burn} (destroyed)",
+            lock_line,
+        ]
 
     def spend(self) -> Spend:
         # Pays the subnet's current registration cost from the coldkey. The exact
@@ -154,19 +202,24 @@ class RootRegister(Intent):
     root burn price (recycled out of issuance, demand-priced — each
     registration bumps it and it decays back toward the floor). No prior
     stake is required, but root slots are limited: joining a full root
-    network evicts the member with the least stake, so a seat is only held
-    by keeping stake behind the hotkey. Root registrations are also capped
-    per block (``max_registrations_per_block``) and per interval (three
-    times ``target_registrations_per_interval``); hitting either cap fails
-    until the window passes. Use ``burned_register`` for ordinary subnets.
+    network evicts the lowest-staked non-immune member
+    (``ImmunityPeriod``). If every seat is still immune, registration
+    fails with ``NoNeuronIdAvailable``. A seat is only held by keeping
+    stake behind the hotkey after that window. Root registrations are
+    also capped per block (``max_registrations_per_block``) and per
+    interval (three times ``target_registrations_per_interval``); hitting
+    either cap fails until the window passes. After a successful
+    registration the hotkey is auto-childkeyed to every existing subnet
+    owner (full proportion) unless the validator opted out of auto parent
+    delegation. Use ``burned_register`` for ordinary subnets.
     """
 
     op = "root_register"
     signer = "coldkey"
     wraps = (("SubtensorModule", "root_register"),)
-    # Docs: the friendly path is the ordinary subnet register command, which
-    # routes netuid 0 here.
-    cli_example = "btcli subnets register --netuid 0"
+    # Docs: the friendly path is the dedicated root register command
+    # (`btcli subnets register --netuid 0` routes here too).
+    cli_example = "btcli root register"
 
     hotkey_ss58: Optional[str] = field(
         default=None,
@@ -182,13 +235,133 @@ class RootRegister(Intent):
     def summary(self) -> str:
         return f"register {self.hotkey_ss58 or 'wallet hotkey'} on the root network"
 
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        burn, _lock = await neuron_registration_split(substrate, 0)
+        return [
+            self.summary(),
+            f"burn {burn} (recycled into issuance)",
+            "lock none",
+            "auto-childkey to every subnet owner unless opted out",
+        ]
+
     def touches_netuids(self) -> list[int]:
         return [0]
 
 
+class _RootClaimIntent(Intent):
+    """Shared, fail-closed root-claim admission and best-effort fee preview."""
+
+    def _claim_hotkeys(self) -> Optional[list[str]]:
+        raise NotImplementedError
+
+    def _claim_call(self):
+        raise NotImplementedError
+
+    async def _claim_preflight(
+        self,
+        substrate,
+        dispatch_origin: str,
+        fee_payer: str,
+        *,
+        call: Any = None,
+    ) -> IntentPreflight:
+        hotkeys = self._claim_hotkeys()
+        try:
+            admission = await root_claim_admission(
+                substrate,
+                dispatch_origin,
+                hotkeys=hotkeys,
+            )
+        except Exception as error:
+            return IntentPreflight(
+                effects=[self.summary()],
+                warnings=[],
+                blocks=[
+                    "could not verify the root claim's 256-unit admission budget; "
+                    f"refusing to risk the unreduced declared fee ({error})"
+                ],
+            )
+
+        admission_blocks = admission.blocks()
+        if admission_blocks:
+            return IntentPreflight(
+                effects=[self.summary()],
+                warnings=[],
+                blocks=admission_blocks,
+            )
+
+        async def compose():
+            return await substrate.compose(self._claim_call())
+
+        try:
+            reserve = await root_claim_reserve(
+                substrate,
+                fee_payer,
+                compose=compose,
+                call=call,
+            )
+        except Exception as error:
+            return IntentPreflight(
+                effects=[self.summary()],
+                warnings=[],
+                blocks=[
+                    "could not verify the root claim's reserved fee and free TAO; "
+                    f"refusing to risk the unreduced declared fee ({error})"
+                ],
+            )
+
+        quote = await quote_root_claim_fee(
+            substrate,
+            dispatch_origin,
+            fee_payer_address=fee_payer,
+            hotkeys=hotkeys,
+            compose=compose,
+            call=call,
+            admission=admission,
+            reserve=reserve,
+        )
+        if quote is None:
+            return IntentPreflight(
+                effects=[self.summary()],
+                warnings=[],
+                blocks=reserve.blocks(),
+                required_free=reserve.reserved,
+                available_free=reserve.free,
+                estimated_fee=reserve.reserved if reserve.exact else None,
+            )
+        return IntentPreflight(
+            effects=[self.summary(), *quote.effects()],
+            warnings=quote.warnings(),
+            blocks=quote.blocks(),
+            required_free=quote.reserved,
+            available_free=quote.free,
+            estimated_fee=quote.reserved if reserve.exact else None,
+            facts=quote.facts(),
+        )
+
+    async def preflight(
+        self, substrate, dispatch_origin: str, fee_payer: str, *, call=None
+    ) -> IntentPreflight:
+        return await self._claim_preflight(
+            substrate,
+            dispatch_origin,
+            fee_payer,
+            call=call,
+        )
+
+    async def effects(self, substrate, signer_address: str) -> list[str]:
+        return (await self._claim_preflight(substrate, signer_address, signer_address)).effects
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        return (await self._claim_preflight(substrate, signer_address, signer_address)).warnings
+
+    async def blocks(self, substrate, signer_address: str) -> list[str]:
+        return (await self._claim_preflight(substrate, signer_address, signer_address)).blocks
+
+
 @register
 @dataclass
-class ClaimRoot(Intent):
+class ClaimRoot(_RootClaimIntent):
     """Redeem accrued root dividends across every validator for the coldkey.
 
     Root dividends accrue as shares of each validator's basket — an
@@ -200,6 +373,11 @@ class ClaimRoot(Intent):
     per-subnet claim selection.
 
     Prefer :class:`ClaimRootWithHotkey` to claim a single validator.
+
+    ``plan`` (and ``btcli root claim --dry-run``) estimates the reserved
+    inclusion fee versus the fee that will actually settle, compares that
+    spent fee to accrued yield, warns when the claim loses money, and
+    refuses when free TAO cannot cover the reserve.
     """
 
     op = "claim_root"
@@ -220,10 +398,16 @@ class ClaimRoot(Intent):
     def summary(self) -> str:
         return "claim root dividends on all validators (redeem basket shares to root stake)"
 
+    def _claim_hotkeys(self) -> Optional[list[str]]:
+        return None
+
+    def _claim_call(self):
+        return calls.SubtensorModule.claim_root(subnets=self.subnets)
+
 
 @register
 @dataclass
-class ClaimRootWithHotkey(Intent):
+class ClaimRootWithHotkey(_RootClaimIntent):
     """Redeem accrued root dividends (basket shares) for one validator.
 
     Redeems the signing coldkey's owed shares on the given validator only:
@@ -238,7 +422,12 @@ class ClaimRootWithHotkey(Intent):
     per-holding claim fee shrinks over time; curated positions are left to
     compound. The transaction fee is charged by work actually done:
     holdings redeemed pay full weight, holdings merely scanned pay a small
-    per-row cost.
+    per-row cost. The chain reserves a fixed 256-unit declared-work envelope at
+    inclusion, independent of the current network count, and refunds the unused
+    part after.
+    ``plan`` and ``btcli root claim --dry-run`` show reserved versus spent,
+    warn when the spent fee exceeds accrued yield, and refuse when free
+    TAO cannot cover the reserve.
     Preview per-validator payouts with ``root_basket_owed_breakdown``.
     """
 
@@ -256,6 +445,12 @@ class ClaimRootWithHotkey(Intent):
 
     def summary(self) -> str:
         return f"claim root dividends on {self.hotkey_ss58} (redeem basket shares to root stake)"
+
+    def _claim_hotkeys(self) -> Optional[list[str]]:
+        return [self.hotkey_ss58]
+
+    def _claim_call(self):
+        return calls.SubtensorModule.claim_root_with_hotkey(hotkey=self.hotkey_ss58)
 
 
 @register

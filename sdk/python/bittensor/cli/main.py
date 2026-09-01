@@ -10,10 +10,12 @@ before submitting unless ``--yes`` is given.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import importlib.metadata
 import json
 import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -21,12 +23,13 @@ from typer.core import TyperGroup
 
 from .. import __version__, wallets
 from .._generated.errors import ERRORS
+from ..config import config_path
 from ..config import get as config_default
 from ..error_descriptions import DESCRIPTIONS
 from ..error_map import DISPATCH_ERRORS
 from ..intents import list_tools
 from ..result import EXPLANATIONS, REMEDIATION, ChainError, ErrorCode, classify_error
-from ..settings import DEFAULT_NETWORK, chain_error_docs_url, error_docs_url
+from ..settings import DEFAULT_NETWORK, DOCS_URL, chain_error_docs_url, error_docs_url
 from . import globals as g
 from . import help_theme  # noqa: F401  (restyles typer's --help at import)
 from .call import call as call_command
@@ -39,6 +42,7 @@ from .commands import (
     evm,
     extension,
     lock,
+    misc,
     multisig,
     proxy,
     root,
@@ -47,7 +51,6 @@ from .commands import (
     sudo,
     timelock,
     upgrade,
-    utils,
     wallet,
     weights,
 )
@@ -75,56 +78,58 @@ app = typer.Typer(
     cls=_GroupsFirstTyperGroup,
     no_args_is_help=True,
     add_completion=True,
-    help="btcli - a lean command line for the Bittensor chain.",
+    # Typer renders help through rich markup, so the URL carries an OSC-8
+    # hyperlink: clickable in modern terminals, plain text everywhere else.
+    help=(
+        "btcli - a lean command line for the Bittensor chain."
+        f"\n\nDocs: [underline link={DOCS_URL}]{DOCS_URL}[/underline link]"
+    ),
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 # Root --help is grouped into panels so it reads as a map, not a linear dump.
-# The unnamed (default) panel renders first and mirrors btcli's familiar top
-# level; everything else is themed. Registration order fixes the row order.
-PANEL_STAKING = "Staking & markets"
-PANEL_OPERATORS = "Validating & mining"
-PANEL_ACCOUNTS = "Accounts & signing"
-PANEL_PROXY_MULTISIG = "Proxy & multisig"
+# The unnamed (default) panel renders first and holds the primary groups;
+# everything else is themed. Registration order fixes the row order.
+PANEL_ACCOUNTS = "Accounts"
 PANEL_CHAIN = "Raw chain access & agents"
+PANEL_ADDITIONAL = "Additional"
 
-# Core commands (the btcli-familiar set), most-used first: everyday wallet and
-# staking operations, then subnet inspection, then owner/admin and housekeeping.
+# Primary commands, most-used first: everyday wallet and staking operations,
+# then subnet inspection, conviction locking, and hyperparameters.
 app.add_typer(wallet.app, name="wallet")
 app.add_typer(stake.app, name="stake")
 app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
-app.add_typer(sudo.app, name="sudo")
-app.add_typer(config.app, name="config")
-app.add_typer(utils.app, name="utils")
+app.add_typer(lock.app, name="conviction")
+app.add_typer(sudo.app, name="hparams")
 
-app.add_typer(lock.app, name="lock", rich_help_panel=PANEL_STAKING)
-app.add_typer(crowd.app, name="crowd", rich_help_panel=PANEL_STAKING)
-
-app.add_typer(weights.app, name="weights", rich_help_panel=PANEL_OPERATORS)
-app.add_typer(axon.app, name="axon", rich_help_panel=PANEL_OPERATORS)
-app.add_typer(collateral.app, name="collateral", rich_help_panel=PANEL_OPERATORS)
-app.add_typer(timelock.app, name="timelock", rich_help_panel=PANEL_OPERATORS)
-
-app.add_typer(addresses.app, name="addresses", rich_help_panel=PANEL_ACCOUNTS)
+app.add_typer(addresses.app, name="addr", rich_help_panel=PANEL_ACCOUNTS)
 app.add_typer(evm.app, name="evm", rich_help_panel=PANEL_ACCOUNTS)
-app.add_typer(extension.app, name="extension", rich_help_panel=PANEL_ACCOUNTS)
+app.add_typer(proxy.app, name="proxy", rich_help_panel=PANEL_ACCOUNTS)
+app.add_typer(multisig.app, name="multisig", rich_help_panel=PANEL_ACCOUNTS)
 
-app.add_typer(proxy.app, name="proxy", rich_help_panel=PANEL_PROXY_MULTISIG)
-app.add_typer(multisig.app, name="multisig", rich_help_panel=PANEL_PROXY_MULTISIG)
-app.add_typer(upgrade.app, name="upgrade", rich_help_panel=PANEL_PROXY_MULTISIG)
-
-# Hidden group aliases carried over from the v9 btcli (`btcli w list`, etc.).
+# Hidden group aliases carried over from the v9 btcli (`btcli w list`, etc.),
+# plus the old names of renamed groups (sudo → hparams, lock → conviction,
+# addresses → addr) and the old top-level names of groups that now live under
+# `btcli misc` (extension, timelock, axon, weights, upgrade, crowd,
+# collateral, utils) so existing invocations keep working.
 for _sub_app, _aliases in (
     (wallet.app, ("w", "wallets")),
     (stake.app, ("st",)),
     (root.app, ("rt",)),
     (subnets.app, ("s", "subnet")),
-    (sudo.app, ("su",)),
+    (sudo.app, ("su", "sudo")),
+    (lock.app, ("lock",)),
     (config.app, ("c", "conf")),
-    (weights.app, ("wt", "weight")),
-    (crowd.app, ("cr", "crowdloan")),
-    (addresses.app, ("addr",)),
+    (weights.app, ("wt", "weight", "weights")),
+    (crowd.app, ("cr", "crowdloan", "crowd")),
+    (addresses.app, ("addresses",)),
+    (extension.app, ("extension",)),
+    (timelock.app, ("timelock",)),
+    (axon.app, ("axon",)),
+    (collateral.app, ("collateral",)),
+    (upgrade.app, ("upgrade",)),
+    (misc.app, ("utils",)),
 ):
     for _alias in _aliases:
         app.add_typer(_sub_app, name=_alias, hidden=True)
@@ -133,6 +138,10 @@ for _sub_app, _aliases in (
 app.add_typer(build_query_app(), name="query", rich_help_panel=PANEL_CHAIN)
 app.add_typer(build_tx_app(), name="tx", rich_help_panel=PANEL_CHAIN)
 app.command("call", rich_help_panel=PANEL_CHAIN)(call_command)
+
+# Housekeeping, listed last so the panels above stay the focus.
+app.add_typer(config.app, name="config", rich_help_panel=PANEL_ADDITIONAL)
+app.add_typer(misc.app, name="misc", rich_help_panel=PANEL_ADDITIONAL)
 
 
 def _version(show: bool) -> None:
@@ -208,6 +217,7 @@ def main_callback(
         False,
         "--yes",
         "-y",
+        "--no-prompt",  # the v9 btcli spelling, kept as an alias
         help="Skip confirmation prompts.",
         rich_help_panel=g.PANEL_EXECUTION,
     ),
@@ -252,8 +262,10 @@ def main_callback(
         None,
         "--signer-address",
         envvar="BT_SIGNER_ADDRESS",
-        help="External signer account ss58 address (extension: last-used account is the "
-        "default; vault: falls back to the wallet's coldkeypub).",
+        help="External signer account (ss58 or address-book name). When -w is a "
+        "multisig, --signatory already names the member — this flag is not "
+        "needed. Extension: last-used account is the default. Vault: falls "
+        "back to the wallet's coldkeypub.",
         rich_help_panel=g.PANEL_EXTENSION,
     ),
     extension_source: Optional[str] = typer.Option(
@@ -488,10 +500,36 @@ def _warn_if_legacy_cli_installed() -> None:
     )
 
 
+def _warn_if_legacy_config() -> None:
+    """One-line stderr warning when a v9-era ``~/.bittensor/config.yml`` exists.
+
+    This CLI never reads it, so settings people expect (network, wallet, ...)
+    silently fall back to defaults — the most common migration confusion. The
+    warning is shown once; a marker file next to the config records that it
+    was already printed (delete the marker to see it again).
+    """
+    legacy = Path.home() / ".bittensor" / "config.yml"
+    if not legacy.is_file():
+        return
+    marker = legacy.parent / ".btcli_legacy_config_warned"
+    if marker.is_file():
+        return
+    print(
+        f"warning: {legacy} is the legacy (v9) btcli config and is ignored by this CLI; "
+        f"migrate values with `btcli config set` (stored in {config_path()}), then rename "
+        f"or delete the old file. "
+        f"Migration guide: {DOCS_URL}/migration",
+        file=sys.stderr,
+    )
+    with contextlib.suppress(OSError):
+        marker.touch()
+
+
 def main() -> None:
     from bittensor.wallets import is_bittensor_address
 
     _warn_if_legacy_cli_installed()
+    _warn_if_legacy_config()
     argv = sys.argv[1:]
     if (
         len(argv) >= 3

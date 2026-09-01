@@ -86,6 +86,7 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`lock-stake`](/docs/tx/lock-stake) | coldkey | signed account (pallet role may apply) | Lock alpha stake on a subnet, building conviction toward a hotkey. |
 | [`move-lock`](/docs/tx/move-lock) | coldkey | signed account (pallet role may apply) | Move an existing lock from one hotkey to another on a subnet. |
 | [`move-stake`](/docs/tx/move-stake) | coldkey | signed account (pallet role may apply) | Move alpha between hotkeys and/or subnets. |
+| [`move-swap-stake`](/docs/tx/move-swap-stake) | coldkey | signed account (pallet role may apply) | Move stake to a new hotkey and swap it to a new subnet in one transaction. |
 | [`register-leased-network`](/docs/tx/register-leased-network) | coldkey | signed account (pallet role may apply) | Register a new crowdloan-funded leased subnet. |
 | [`register-subnet`](/docs/tx/register-subnet) | coldkey | signed account (pallet role may apply) | Create a new subnet owned by the signing coldkey. |
 | [`remove-stake`](/docs/tx/remove-stake) | coldkey | signed account (pallet role may apply) | Unstake alpha from a hotkey back to the coldkey. |
@@ -102,12 +103,14 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`set-identity`](/docs/tx/set-identity) | coldkey | signed account (pallet role may apply) | Publish an on-chain identity (name, links, description) for the coldkey. |
 | [`set-min-collateral`](/docs/tx/set-min-collateral) | coldkey | signed account (pallet role may apply) | Set the self-maintaining collateral floor for your hotkey on a subnet. |
 | [`set-perpetual-lock`](/docs/tx/set-perpetual-lock) | coldkey | signed account (pallet role may apply) | Enable or disable perpetual lock mode for a coldkey on a subnet. |
+| [`set-reject-locked-alpha`](/docs/tx/set-reject-locked-alpha) | coldkey | signed account (pallet role may apply) | Opt the signing coldkey in or out of receiving locked alpha. |
 | [`set-root-claim-threshold`](/docs/tx/set-root-claim-threshold) | coldkey | root (chain sudo) | Set the minimum TAO payout for a root dividend claim (root only). |
 | [`set-root-weights`](/docs/tx/set-root-weights) | hotkey | signed account (pallet role may apply) | Set how your root dividends are deployed across subnets (basket weights). |
 | [`set-subnet-identity`](/docs/tx/set-subnet-identity) | coldkey | subnet owner | Publish identity metadata for a subnet (signer must be the subnet owner). |
 | [`set-take`](/docs/tx/set-take) | coldkey | signed account (pallet role may apply) | Set the delegate take to an absolute value. |
 | [`set-weights`](/docs/tx/set-weights) | hotkey | signed account (pallet role may apply) | Set validator weights, auto-selecting plaintext or commit-reveal. |
 | [`stake-burn`](/docs/tx/stake-burn) | coldkey | signed account (pallet role may apply) | Buy back / burn stake via the stake-burn extrinsic. |
+| [`stake-into-basket`](/docs/tx/stake-into-basket) | coldkey | signed account (pallet role may apply) | Buy shares in a root-registered validator's basket with free TAO. |
 | [`start-call`](/docs/tx/start-call) | coldkey | subnet owner | Activate a subnet (subtoken trading, epochs) as its owner. |
 | [`swap-coldkey-announced`](/docs/tx/swap-coldkey-announced) | coldkey | signed account (pallet role may apply) | Execute a previously announced coldkey swap (after the delay has passed). |
 | [`swap-hotkey`](/docs/tx/swap-hotkey) | coldkey | signed account (pallet role may apply) | Swap a hotkey for a new one (all subnets, or one netuid). |

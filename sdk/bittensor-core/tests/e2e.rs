@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use bittensor_core::client::{as_str, as_u128, field, value_bytes, variant_name};
+use bittensor_core::client::{as_str, as_u128, field, value_bytes};
 use bittensor_core::codec::Value;
 use bittensor_core::transaction::{Executor, IntentCall, Policy, SignerRole, Spend, Wallet};
 use bittensor_core::CoreError;
@@ -62,6 +62,20 @@ fn value_contains_u128(value: &Value, expected: u128) -> bool {
         }),
         _ => false,
     }
+}
+
+fn revealed_commitment_contains(value: &Value, expected: &[u8]) -> bool {
+    let Value::List(reveals) = value else {
+        return false;
+    };
+    reveals.iter().any(|reveal| {
+        let Value::Tuple(fields) = reveal else {
+            return false;
+        };
+        matches!(fields.as_slice(), [data, block]
+            if value_bytes(data).as_deref() == Some(expected)
+                && as_u128(block).is_some_and(|block| block > 0))
+    })
 }
 
 macro_rules! intent_plan_test {
@@ -144,18 +158,14 @@ intent_plan_test!(intent_set_subnet_identity, "set_subnet_identity");
 /// Root Reborn retires `set_root_claim_type`. Keep the named slots so the
 /// base-branch e2e matrix builder's fixed test count stays satisfied; the
 /// SDK helper remains for older runtimes / offline policy checks only.
-/// (`intent_claim_root_with_hotkey` took one former stub slot to stay at 112.)
+/// (`intent_claim_root_with_hotkey` and the timelocked commitment E2E use the
+/// former stub/redundant slots to keep the trusted manifest at 112 tests.)
 #[test]
 fn intent_set_root_claim_type() {
     assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
     assert!(IntentCall::set_root_claim_type("Swap", None).is_ok());
     assert!(IntentCall::set_root_claim_type("Keep", None).is_ok());
     assert!(IntentCall::set_root_claim_type("KeepSubnets", Some(vec![1])).is_ok());
-}
-
-#[test]
-fn test_keep_subnets_requires_subnets() {
-    assert!(IntentCall::set_root_claim_type("KeepSubnets", None).is_err());
 }
 intent_plan_test!(intent_set_take, "set_take");
 intent_plan_test!(intent_set_weights, "set_weights");
@@ -463,7 +473,7 @@ fn test_compose_nested_sudo_call() {
 }
 
 #[test]
-fn test_raw_call_escape_hatch_and_commitment() {
+fn test_regular_commitment_stays_readable() {
     let ctx = TestContext::new();
     let netuid = ctx.owned_subnet();
     let hotkey = ctx.alice.hotkey.ss58_address();
@@ -508,8 +518,13 @@ fn test_raw_call_escape_hatch_and_commitment() {
         )
         .expect("commitment read");
     assert!(!matches!(commitment, Value::Null));
-    assert!(
-        value_contains_str(&commitment, "hello") || value_contains_str(&commitment, "0x68656c6c6f")
+    let fields = field(&commitment, "info")
+        .and_then(|info| field(info, "fields"))
+        .expect("commitment fields");
+    let raw = value_list(fields).first().expect("one commitment field");
+    assert_eq!(
+        field(raw, "Raw5").and_then(value_bytes).as_deref(),
+        Some(b"hello".as_slice())
     );
     let revealed = ctx
         .client
@@ -521,6 +536,129 @@ fn test_raw_call_escape_hatch_and_commitment() {
         )
         .expect("revealed commitment read");
     assert!(matches!(revealed, Value::Null));
+}
+
+#[test]
+fn test_timelocked_commitment_reveals_plaintext() {
+    let ctx = TestContext::new();
+    let netuid = ctx.owned_subnet();
+    let hotkey = ctx.alice.hotkey.ss58_address();
+    let plaintext = b"rust-sdk-timelock-e2e";
+
+    // Wait for the localnet's drand bridge to establish its current round,
+    // then leave enough time to encrypt and submit before the target pulse.
+    let drand_deadline = Instant::now() + Duration::from_secs(30);
+    let last_stored_round = loop {
+        let value = ctx
+            .client
+            .query("Drand", "LastStoredRound", &[], None)
+            .expect("last drand round read");
+        if let Some(round) = as_u128(&value).and_then(|round| u64::try_from(round).ok()) {
+            if round > 0 {
+                break round;
+            }
+        }
+        assert!(
+            Instant::now() < drand_deadline,
+            "timed out waiting for the drand bridge to initialize"
+        );
+        thread::sleep(Duration::from_millis(100));
+    };
+    let reveal_round = last_stored_round.saturating_add(2);
+    let (encrypted, encrypted_round) =
+        bittensor_core::timelock::encrypt_at_round(plaintext, reveal_round)
+            .expect("timelock encryption");
+    assert_eq!(encrypted_round, reveal_round);
+
+    let timelocked = Value::Dict(vec![(
+        s("TimelockEncrypted"),
+        record([
+            ("encrypted", bytes(encrypted)),
+            ("reveal_round", u64v(reveal_round)),
+        ]),
+    )]);
+    let info = record([("fields", list([list([timelocked])]))]);
+    let call = IntentCall::new(
+        "raw_timelocked_commitment",
+        SignerRole::Hotkey,
+        "Commitments",
+        "set_commitment",
+        record([("netuid", u(netuid)), ("info", info)]),
+    )
+    .touches([netuid])
+    .raw();
+    let result = ctx
+        .executor()
+        .execute(&call, &ctx.alice)
+        .expect("timelocked commitment submits");
+    assert_success(&result);
+
+    let pending = ctx
+        .client
+        .query(
+            "Commitments",
+            "CommitmentOf",
+            &[u(netuid), s(hotkey.clone())],
+            None,
+        )
+        .expect("pending timelocked commitment read");
+    assert!(!matches!(pending, Value::Null));
+    assert!(value_contains_str(&pending, "TimelockEncrypted"));
+    assert!(value_contains_u128(&pending, u128::from(reveal_round)));
+    let before_reveal = ctx
+        .client
+        .query(
+            "Commitments",
+            "RevealedCommitments",
+            &[u(netuid), s(hotkey.clone())],
+            None,
+        )
+        .expect("revealed commitments read before target round");
+    assert!(matches!(before_reveal, Value::Null));
+
+    let reveal_deadline = Instant::now() + Duration::from_secs(45);
+    let revealed = loop {
+        let value = ctx
+            .client
+            .query(
+                "Commitments",
+                "RevealedCommitments",
+                &[u(netuid), s(hotkey.clone())],
+                None,
+            )
+            .expect("revealed commitments read");
+        if revealed_commitment_contains(&value, plaintext) {
+            break value;
+        }
+        if Instant::now() >= reveal_deadline {
+            let current_round = ctx
+                .client
+                .query("Drand", "LastStoredRound", &[], None)
+                .expect("last drand round diagnostic");
+            let pending = ctx
+                .client
+                .query(
+                    "Commitments",
+                    "CommitmentOf",
+                    &[u(netuid), s(hotkey.clone())],
+                    None,
+                )
+                .expect("pending commitment diagnostic");
+            panic!(
+                "timed out waiting for commitment reveal at drand round {reveal_round}; \
+                 LastStoredRound: {current_round:#?}; CommitmentOf: {pending:#?}; \
+                 RevealedCommitments: {value:#?}"
+            );
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
+    assert!(revealed_commitment_contains(&revealed, plaintext));
+
+    let pending_after_reveal = ctx
+        .client
+        .query("Commitments", "CommitmentOf", &[u(netuid), s(hotkey)], None)
+        .expect("commitment read after reveal");
+    assert!(matches!(pending_after_reveal, Value::Null));
 }
 
 #[test]

@@ -17,18 +17,19 @@ hotkey must match the existing lock's hotkey or the call fails with
 `LockHotkeyMismatch` — repeat calls only top up the lock; use
 `move_lock` to change hotkeys. Whether the lock decays over time or
 persists is controlled per coldkey per subnet with
-`set_perpetual_lock`.
+`set_perpetual_lock`. Pass `all` to lock every unlocked alpha the
+coldkey holds on the subnet (a top-up of the remaining free mass).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.lock_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L2331-L2341) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.lock_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L2389-L2399) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet the locked stake lives on. |
-| `amount_alpha` | number \| `"all"` | yes | How much of the existing stake to lock. |
+| `amount_alpha` | number \| `"all"` | yes | How much of the existing unlocked stake to lock, or ``all``. |
 | `hotkey_ss58` | string | no | Hotkey the lock's conviction is credited to. Defaults to the wallet hotkey. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
@@ -74,7 +75,7 @@ result = sub.execute_tool("lock_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.lock_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L2333`](/code/pallets/subtensor/src/macros/dispatches.rs#L2331-L2341):
+`SubtensorModule.lock_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L2391`](/code/pallets/subtensor/src/macros/dispatches.rs#L2389-L2399):
 
 ```rust
 #[pallet::call_index(136)]
@@ -90,6 +91,6 @@ pub fn lock_stake(
 }
 ```
 
-Delegates to [`do_lock_stake`](/code/pallets/subtensor/src/staking/lock.rs#L780).
+Delegates to [`do_lock_stake`](/code/pallets/subtensor/src/staking/lock.rs#L781).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

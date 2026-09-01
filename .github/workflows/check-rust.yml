@@ -332,7 +332,7 @@ jobs:
           wasm-pack --version
       - name: wasm smoke test (node)
         run: |
-          wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node
+          wasm-pack build sdk/bittensor-core-wasm --target nodejs --out-dir pkg-node --no-opt
           node sdk/bittensor-core-wasm/tests/smoke.mjs
       - name: Report wasm compiler cache
         if: always()

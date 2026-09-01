@@ -22,9 +22,10 @@ Halvings are triggered by
 **total-issuance thresholds**, not block counts: emission halves each time
 issuance crosses the midpoint of the remaining supply (10.5M, 15.75M, ...)
 ([`get_block_emission_for_issuance`](/code/pallets/subtensor/src/coinbase/block_emission.rs#L38-L81)).
-Because recycled TAO (registration burns) is subtracted from total issuance
-and can be re-emitted, recycling pushes halvings out. Transaction fees are
-not recycled — they are paid to the block author (see
+Because recycled TAO is subtracted from total issuance and can be re-emitted,
+recycling pushes halvings out. This includes registration burns and transaction
+fees: native TAO fees and EVM fees reduce issuance directly, while eligible
+alpha-paid fees are sold for TAO and recycled atomically (see
 [fees](/docs/concepts/transactions#fees)).
 
 The first halving occurred in December 2025: current emission is 0.5 TAO per
@@ -70,24 +71,49 @@ protocol-owned alpha.
 
 ## Subnet emission shares
 
-Each block's TAO emission is divided across subnets in proportion to their
-**EMA price**, weighted by a miner-burn penalty
-([`get_shares`](/code/pallets/subtensor/src/coinbase/subnet_emissions.rs#L354-L389);
-this price-based formula shipped in June 2026):
+Each block's TAO emission is divided in three steps. First, the chain turns each
+eligible subnet's **EMA price** into a share of total demand:
 
 ```
-share_i = p_i × (1 − b_i) / Σ_j p_j × (1 − b_j)
+demand_share_i = price_ema_i / Σ price_ema
 ```
 
-where `p_i` is the subnet's moving price (`SubnetMovingPrice`) and `b_i` is
-the proportion of the last tempo's miner incentive that was withheld because
-it was directed to subnet-owner hotkeys (counted whether the withheld alpha
-was recycled or burned). If the combined weight is zero across all subnets,
-the chain falls back to unweighted price shares so emission is never
-stranded. Emission-disabled subnets get zero share, redistributed
-proportionally to enabled ones — and with `tao_in` zeroed, `alpha_in`
-(`tao_in / price`) is zero too, so pool injection stops entirely while
-`alpha_out` keeps accruing for participants.
+Next, the chain scales that price share by `1 − MinerBurned` and renormalizes:
+
+```
+burn_adjusted_share_i = demand_share_i × (1 − miner_burned_i)
+                        / Σ(demand_share × (1 − miner_burned))
+```
+
+`MinerBurned` is the proportion of the last tempo's miner incentive withheld
+because it was directed to subnet-owner hotkeys. Withheld incentive counts
+whether it is recycled or burned, so changing `RecycleOrBurn` cannot bypass the
+scaling. If every adjusted weight is zero, the runtime restores the unadjusted
+price shares so emission is not stranded.
+
+Finally, the **emission gate** reduces weak burn-adjusted shares before the final
+shares are normalized. The gate has a midpoint called `theta`. By default,
+`theta` is the 32nd-highest positive adjusted share. It is normally recalculated
+every 360 blocks and stays fixed between updates. A subnet at the midpoint
+passes half of its adjusted weight. Subnets well above it pass almost all;
+subnets well below it pass much less:
+
+```
+gate_i = 1 / (1 + (theta / burn_adjusted_share_i)^h)
+final_share_i = burn_adjusted_share_i × gate_i
+                / Σ(burn_adjusted_share × gate)
+```
+
+The default exponent `h` is 3. This makes the gate gradual rather than a hard
+cutoff. A very small share can still round down to zero. If every gated value
+rounds to zero, the runtime restores the ungated price shares so emission is
+not stranded. See
+[`get_shares`](/code/pallets/subtensor/src/coinbase/subnet_emissions.rs#L354-L476).
+
+An emission-disabled subnet receives no TAO-side share; its share is
+redistributed among enabled subnets. That also stops its `tao_in` and
+`alpha_in` pool injection, while its participant-side `alpha_out` continues
+to accrue.
 
 The EMA uses an age-dependent smoothing factor:
 
@@ -98,8 +124,7 @@ ema_alpha = base_alpha × blocks_since_start / (blocks_since_start + halving_blo
 with `halving_blocks` defaulting to 201,600 (~4 weeks). New subnets start
 near zero — their moving price adapts extremely slowly, which blunts launch
 pumps, coordinated buys, and flash attacks on emission shares. The spot
-price feeding the EMA is capped at 1.0. There is no zero-emission floor: a
-subnet with a low EMA price still receives a small non-zero share.
+price feeding the EMA is capped at 1.0.
 
 <SubnetEmissionShareChart />
 
@@ -126,10 +151,10 @@ Per-block `alpha_out` is divided as it accrues
 - **41%** to miners — 50% of the remainder.
 - **41%** to validators and their stakers — the other 50%.
 
-A [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L69-L79) share of the validator half (same formula as the
+A [`root_proportion`](/code/pallets/subtensor/src/coinbase/block_step.rs#L74-L84) share of the validator half (same formula as the
 injection cap) is reserved for **root TAO stakers** and accumulated as
-claimable root dividends — but only in blocks where the sum of all subnets'
-EMA prices exceeds 1.0; otherwise that alpha is recycled.
+claimable root dividends — but only in blocks where the sum of eligible
+non-root subnets' EMA prices exceeds 1.0; otherwise that alpha is recycled.
 
 If an epoch ends with zero total miner incentive, the miner half of that
 tempo's pending alpha is paid to validators instead of being withheld.

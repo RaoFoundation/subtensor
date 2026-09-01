@@ -52,8 +52,20 @@ impl Get<u32> for TestMaxFields {
 
 pub struct TestCanCommit;
 impl pallet_commitments::CanCommit<U256> for TestCanCommit {
-    fn can_commit(_netuid: NetUid, _who: &U256) -> bool {
-        true
+    type Error = crate::Error<Test>;
+
+    fn validate(netuid: NetUid, who: &U256) -> Result<(), Self::Error> {
+        if !SubtensorModule::if_subnet_exist(netuid) {
+            return Err(crate::Error::<Test>::SubnetNotExists);
+        }
+        if !SubtensorModule::is_hotkey_registered_on_network(netuid, who) {
+            return Err(crate::Error::<Test>::HotKeyNotRegisteredInSubNet);
+        }
+        Ok(())
+    }
+
+    fn validation_weight() -> Weight {
+        <Test as frame_system::Config>::DbWeight::get().reads(2)
     }
 }
 
@@ -439,12 +451,16 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface for CommitmentsI {
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_netuid(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         CommitmentsPallet::<Test>::purge_netuid(netuid, weight_meter)
+    }
+
+    fn purge_neuron(netuid: NetUid, account: &AccountId) {
+        CommitmentsPallet::<Test>::purge_neuron(netuid, account);
     }
 }
 
@@ -1364,6 +1380,21 @@ pub fn dissolve_cleanup_status(netuid: NetUid) -> DissolveCleanupStatus {
     let mut status = DissolveCleanupStatus::new(netuid);
     status.subnet_distributed_tao = Some(0);
     status
+}
+
+/// Assert the canonical per-subnet alpha-stake accounting invariant.
+pub fn assert_total_alpha_staked_invariant(netuid: NetUid) {
+    let summed = TotalHotkeyAlpha::<Test>::iter()
+        .filter(|(_, this_netuid, _)| *this_netuid == netuid)
+        .fold(AlphaBalance::ZERO, |total, (_, _, alpha)| {
+            total.saturating_add(alpha)
+        });
+
+    assert_eq!(
+        TotalAlphaStaked::<Test>::get(netuid),
+        summed,
+        "TotalAlphaStaked must equal the sum of TotalHotkeyAlpha for netuid {netuid}"
+    );
 }
 
 /// Runs `get_total_alpha_value` then `settle_stakes` with one shared dissolve status.

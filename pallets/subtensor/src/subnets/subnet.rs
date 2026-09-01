@@ -1,5 +1,6 @@
 use super::*;
 use frame_support::PalletId;
+use pallet_alpha_assets::AlphaAssetsInterface;
 use safe_math::FixedExt;
 use sp_core::Get;
 use sp_runtime::{SaturatedConversion, traits::AccountIdConversion};
@@ -44,12 +45,16 @@ impl<T: Config> Pallet<T> {
     ///
     ///
     /// This iterates through all the networks and returns a list of netuids.
+    /// Only keys with `added == true` are returned — leftover `false` entries
+    /// (old dissolve paths that wrote the flag instead of removing the key)
+    /// must not inflate subnet counts or claim-fee quotes.
     ///
     /// # Returns
-    /// * `Vec<NetUid>`: Netuids of all subnets.
+    /// * `Vec<NetUid>`: Netuids of all existing subnets.
     ///
     pub fn get_all_subnet_netuids() -> Vec<NetUid> {
         NetworksAdded::<T>::iter()
+            .filter(|(_, added)| *added)
             .map(|(netuid, _)| netuid)
             .collect()
     }
@@ -319,6 +324,12 @@ impl<T: Config> Pallet<T> {
         if let Some(lock_id) = lock_id {
             Self::unlock_network_registration_cost(coldkey, lock_id)?;
         }
+
+        // A netuid identifies a new alpha asset generation after reuse. Clear any
+        // legacy counters defensively before creating that generation; normal
+        // dissolution cleanup performs the same reset after its last recycle.
+        T::AlphaAssets::clear_alpha_counters(netuid_to_register);
+        weight.saturating_accrue(db_weight.writes(3));
 
         let default_tempo = DefaultTempo::<T>::get();
         weight.saturating_accrue(db_weight.reads(1));

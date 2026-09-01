@@ -303,8 +303,12 @@ async function repairIssuanceMirrorIfNeeded(label) {
     return;
   }
 
-  const target = balances + diff;
+  // The mirror must equal Balances.TotalIssuance. Writing `balances + diff`
+  // overshoots by the mismatch and flips its sign on every repair pass, so a
+  // drifted snapshot never converges (observed as ±1.5 TAO oscillation).
+  const target = balances;
   assert.ok(target > 0n, `cannot repair issuance mirror: computed target ${target}`);
+  console.log(`${label}: repairing issuance mirror, diff ${diff} rao`);
   await submitAndWait(
     alice,
     api.tx.sudo.sudo(api.tx.system.setStorage([

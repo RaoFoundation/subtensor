@@ -192,6 +192,75 @@ fn get_shares_ignores_root_prop_storage_when_prices_and_burns_match() {
     });
 }
 
+/// Miner-burn scaling is applied before the emission gate. Equal EMA prices
+/// with burns 0.25 : 0.75 produce pre-gate shares 0.75 : 0.25. With the
+/// default h=3 gate and theta=0.25, the final shares are 81/95 : 14/95.
+#[test]
+fn get_shares_scales_by_miner_burn_before_gate() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(90);
+        let owner_coldkey = U256::from(91);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(0.25));
+        MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(0.75));
+
+        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        let s1 = shares.get(&n1).copied().unwrap().to_num::<f64>();
+        let s2 = shares.get(&n2).copied().unwrap().to_num::<f64>();
+
+        assert_abs_diff_eq!(
+            EmissionGateBar::<Test>::get().to_num::<f64>(),
+            0.25,
+            epsilon = 1e-9
+        );
+        assert_abs_diff_eq!(s1, 81.0 / 95.0, epsilon = 1e-6);
+        assert_abs_diff_eq!(s2, 14.0 / 95.0, epsilon = 1e-6);
+        assert_abs_diff_eq!(s1 + s2, 1.0, epsilon = 1e-9);
+    });
+}
+
+#[test]
+fn get_shares_full_miner_burn_gets_zero() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(92);
+        let owner_coldkey = U256::from(93);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(1.0));
+        MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(0.0));
+
+        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        assert_abs_diff_eq!(shares[&n1].to_num::<f64>(), 0.0, epsilon = 1e-9);
+        assert_abs_diff_eq!(shares[&n2].to_num::<f64>(), 1.0, epsilon = 1e-9);
+    });
+}
+
+#[test]
+fn get_shares_all_full_miner_burn_falls_back_to_price_shares() {
+    new_test_ext(1).execute_with(|| {
+        let owner_hotkey = U256::from(94);
+        let owner_coldkey = U256::from(95);
+        let n1 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+        let n2 = add_dynamic_network(&owner_hotkey, &owner_coldkey);
+
+        SubnetMovingPrice::<Test>::insert(n1, i96f32(1.0));
+        SubnetMovingPrice::<Test>::insert(n2, i96f32(1.0));
+        MinerBurned::<Test>::insert(n1, U96F32::saturating_from_num(1.0));
+        MinerBurned::<Test>::insert(n2, U96F32::saturating_from_num(1.0));
+
+        let shares = SubtensorModule::get_shares(&[n1, n2]);
+        assert_abs_diff_eq!(shares[&n1].to_num::<f64>(), 0.5, epsilon = 1e-9);
+        assert_abs_diff_eq!(shares[&n2].to_num::<f64>(), 0.5, epsilon = 1e-9);
+    });
+}
+
 /// Empty candidate set: no panic, empty map, bar stays unset.
 #[test]
 fn emission_gate_empty_set_no_panic() {

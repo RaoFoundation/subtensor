@@ -340,6 +340,28 @@ fn indexer_extrinsic_move_stake() {
 }
 
 #[test]
+fn indexer_extrinsic_move_stake_limit() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(3);
+        let origin_netuid = NetUid::from(1u16);
+        let destination_netuid = NetUid::from(2u16);
+
+        let _ = SubtensorModule::move_stake_limit(
+            RuntimeOrigin::signed(coldkey),
+            origin_hotkey,
+            destination_hotkey,
+            origin_netuid,
+            destination_netuid,
+            AlphaBalance::from(1_000_000_000u64),
+            TaoBalance::from(1_000_000_000u64),
+            false,
+        );
+    });
+}
+
+#[test]
 fn indexer_extrinsic_set_children() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);

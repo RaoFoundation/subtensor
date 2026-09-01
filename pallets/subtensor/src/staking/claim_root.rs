@@ -9,7 +9,7 @@ use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{NetUidStorageIndex, clear_prefix_with_meter};
-use subtensor_swap_interface::SwapHandler;
+use subtensor_swap_interface::{SwapFailureKind, SwapHandler};
 
 /// A drained fund (shares outstanding but NAV marked at zero) may revive via a par mint
 /// only when the stale shares are rounding dust: at most `value / DRAINED_FUND_DUST_DIVISOR`
@@ -55,13 +55,11 @@ impl RootClaimOutcome {
 
 impl<T: Config> Pallet<T> {
     /// Reject basket / root-stake mutations and subnet dissolution while the
-    /// `migrate_seed_beta_basket_v2` cursor is present or an epoch-allocated root dividend is
-    /// still waiting to enter its basket. Deposits, claims, swaps, root stake
+    /// `migrate_seed_beta_basket_v2` cursor is present. Deposits, claims, swaps, root stake
     /// add/remove/transfer, and dissolution hard-error here.
     pub(crate) fn ensure_beta_basket_seed_idle() -> Result<(), Error<T>> {
         ensure!(
-            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>()
-                && DeferredRootAlphaDividends::<T>::iter().next().is_none(),
+            !crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>(),
             Error::<T>::BetaBasketSeedInProgress
         );
         Ok(())
@@ -202,8 +200,17 @@ impl<T: Config> Pallet<T> {
             DispatchError::Other("basket deposit too small")
         );
 
+        // `nav_before == 0` with outstanding shares means `basket_shares_for_value`
+        // took its dust-revival branch: this par mint starts a new fund life, so the
+        // previous life's display baseline/TWR must not describe it.
+        if nav_before == 0 && shares_outstanding > 0 {
+            Self::retire_beta_display_state(hotkey);
+        }
+
         BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_add(shares));
         BasketRate::<T>::mutate(hotkey, |rate| *rate = rate.saturating_add(increment));
+        // Canonical staker total-return series (display state, see `BasketTwr`).
+        Self::accrue_basket_twr(hotkey, stakers_value, total_root);
         BasketDepositedTao::<T>::mutate(hotkey, |total| {
             *total = total.saturating_add(value_added.into())
         });
@@ -248,7 +255,7 @@ impl<T: Config> Pallet<T> {
     ) -> Result<(u64, u64), DispatchError> {
         let escrow = Self::get_beta_escrow_account_id();
         let weight_sum: u64 = valid.iter().map(|(_, w)| *w).sum();
-        let nav_before: u64 = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+        let nav_before = Self::try_get_validator_basket_nav_tao(hotkey)?;
 
         let mut spent: u64 = 0;
         let last_idx = valid.len().saturating_sub(1);
@@ -297,13 +304,33 @@ impl<T: Config> Pallet<T> {
                 Self::credit_root_reserves(tao_s.into());
             } else {
                 let drop_fees = matches!(funding, BasketFunding::Protocol { .. });
-                let bought = Self::swap_tao_for_alpha(
+                let bought = match Self::swap_basket_tao_for_alpha_chunks(
                     *dest_netuid,
                     tao_s.into(),
-                    T::SwapInterface::max_price(),
                     drop_fees,
-                )?
-                .amount_paid_out;
+                ) {
+                    Ok(bought) => bought,
+                    Err(err)
+                        if drop_fees
+                            && T::SwapInterface::classify_failure(&err)
+                                == SwapFailureKind::TerminalLiquidity =>
+                    {
+                        // A protocol dividend must not be pinned forever by a validator weight
+                        // targeting a terminally shallow pool. Keep that slice as fund cash.
+                        let root_account = Self::get_subnet_account_id(NetUid::ROOT)
+                            .ok_or(Error::<T>::RootNetworkDoesNotExist)?;
+                        Self::transfer_tao_from_subnet(*dest_netuid, &root_account, tao_s.into())?;
+                        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                            hotkey,
+                            &escrow,
+                            NetUid::ROOT,
+                            tao_s.into(),
+                        );
+                        Self::credit_root_reserves(tao_s.into());
+                        continue;
+                    }
+                    Err(err) => return Err(err),
+                };
                 if bought.is_zero() {
                     // Dust slice whose swap rounds to zero alpha: a user deposit must not
                     // silently donate its TAO to the pool (mirrors `stake_into_subnet`'s
@@ -327,11 +354,12 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        let nav_after: u64 = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+        let nav_after = Self::try_get_validator_basket_nav_tao(hotkey)?;
         Ok((nav_before, nav_after.saturating_sub(nav_before)))
     }
 
-    /// Stakes `tao` from `coldkey`'s free balance directly into a validator's basket:
+    /// Stakes `tao` from `coldkey`'s free balance directly into a root-registered
+    /// validator's basket:
     /// the TAO is deployed across subnets per the validator's root weight vector (exactly
     /// like a dividend deposit), and the resulting fund shares are credited to the staker
     /// through their signed claimed watermark — `owed = rate * root_stake - claimed`, so a
@@ -364,6 +392,13 @@ impl<T: Config> Pallet<T> {
             Self::hotkey_account_exists(&hotkey),
             Error::<T>::HotKeyAccountNotExists
         );
+        // Direct deposits open per-(caller, validator) entitlement state. Restricting
+        // the target to a live root uid caps the validator axis at MaxAllowedUids on
+        // root, the same bound as a normal root-stake position.
+        ensure!(
+            Self::is_hotkey_registered_on_network(NetUid::ROOT, &hotkey),
+            Error::<T>::HotKeyNotRegisteredInSubNet
+        );
         // Deposit queued dividend credits first so the share mint below prices against
         // the fund's full, current NAV.
         Self::flush_basket_deposits_for_hotkey(&hotkey);
@@ -378,13 +413,14 @@ impl<T: Config> Pallet<T> {
             // Uncurated fund: mirror the fund — deploy pro-rata across current holdings by
             // realizable value (worthless rows carry no weight). Empty fund: nothing to
             // mirror, hold the deposit as the fund's root (TAO cash) slot.
-            valid = Self::get_basket_holdings(&hotkey)
-                .into_iter()
-                .filter_map(|(netuid, alpha)| {
-                    let value = Self::realizable_tao_for_alpha(netuid, alpha.to_u64());
-                    (value > 0).then_some((netuid, value))
-                })
-                .collect();
+            valid = Vec::new();
+            for (netuid, alpha) in Self::get_basket_holdings(&hotkey) {
+                if let Some(value) = Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())?
+                    && value > 0
+                {
+                    valid.push((netuid, value));
+                }
+            }
             if valid.is_empty() {
                 valid = vec![(NetUid::ROOT, 1)];
             }
@@ -402,9 +438,13 @@ impl<T: Config> Pallet<T> {
             },
         )?;
 
+        // A fund's very first successful mint stamps its frozen display baseline
+        // (index splice). No-op (one read) for every later deposit.
+        let stamp_work = Self::stamp_beta_baseline_if_new(&hotkey);
+
         Ok(Self::stake_into_basket_weight(
             valid.len() as u64,
-            num_holdings,
+            num_holdings.saturating_add(stamp_work),
         ))
     }
 
@@ -431,6 +471,13 @@ impl<T: Config> Pallet<T> {
         let shares: u64 =
             Self::basket_shares_for_value(value_added, nav_before, shares_outstanding);
         ensure!(shares > 0, Error::<T>::AmountTooLow);
+
+        // `nav_before == 0` with outstanding shares means `basket_shares_for_value`
+        // took its dust-revival branch: this par mint starts a new fund life, so the
+        // previous life's display baseline/TWR must not describe it.
+        if nav_before == 0 && shares_outstanding > 0 {
+            Self::retire_beta_display_state(hotkey);
+        }
 
         BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_add(shares));
         Self::grant_basket_shares(hotkey, coldkey, shares);
@@ -505,12 +552,15 @@ impl<T: Config> Pallet<T> {
 
     /// Claims (redeems) a staker's share of a validator's basket.
     ///
-    /// Redemption is fund-level and purely proportional: the staker's owed shares define a
-    /// fraction `f = owed / P` of the fund, and exactly that fraction of *every* holding is
-    /// redeemed — subnet alpha is sold to TAO (the staker bears slippage), the root-slot portion
-    /// is reassigned as root stake directly (no swap). Because every claim preserves the fund's
-    /// composition, claims and (future) validator-directed rebalancing never interfere. All
-    /// realized TAO is staked on root for the staker.
+    /// Redemption is fund-level and NAV-proportional: the staker's owed shares define a
+    /// fraction `f = owed / P` of the fund's full-liquidation NAV. Exactly that fraction of
+    /// every holding's alpha is removed and sold, but the claimant receives at most `f` of
+    /// that holding's pre-sale realizable value. A concave AMM curve makes selling `f` of a
+    /// holding realize more than `f` of the proceeds from selling the whole holding; that
+    /// surplus is retained in the fund's root (TAO cash) slot for the remaining shareholders.
+    /// The root-slot portion is reassigned directly because it is already TAO. A holding on a
+    /// terminally shallow pool is removed as an explicit pro-rata write-off instead of aborting
+    /// healthy slots; unknown swap or accounting errors still roll back the claim.
     ///
     /// Before redeeming, the fund's orphaned dust holdings (subnets outside the
     /// validator's current weight vector) are consolidated into its root slot (see
@@ -529,7 +579,7 @@ impl<T: Config> Pallet<T> {
 
         // Deposit any queued dividend credits first so the claim redeems against the
         // fund's full, current state. The flush work is scan-priced into the outcome.
-        let (flush_work, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
+        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
         outcome.rows = outcome
             .rows
             .saturating_add(u32::try_from(flush_work).unwrap_or(u32::MAX));
@@ -556,12 +606,24 @@ impl<T: Config> Pallet<T> {
         outcome.rows = holdings.len() as u32;
 
         // Dust check against the estimated payout (owed fraction of the marked NAV).
-        // Same valuation as `get_validator_basket_nav_tao`, reusing the holdings read.
-        let nav: u64 = holdings.iter().fold(0u64, |acc, (netuid, alpha)| {
-            acc.saturating_add(Self::realizable_tao_for_alpha(*netuid, alpha.to_u64()))
-        });
+        // Keep each slot's pre-sale value as well as the total: redemption caps every
+        // slot independently at the same NAV fraction. Without that cap, selling a raw
+        // alpha fraction on a concave AMM curve overpays the first redeemer and transfers
+        // the loss to the remaining shareholders.
+        let mut valued_holdings: Vec<(NetUid, AlphaBalance, u64, bool)> = Vec::new();
+        for (netuid, alpha) in holdings {
+            match Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64())? {
+                Some(value) => valued_holdings.push((netuid, alpha, value, false)),
+                None => valued_holdings.push((netuid, alpha, 0, true)),
+            }
+        }
+        let has_terminal_garbage = valued_holdings.iter().any(|(_, _, _, garbage)| *garbage);
+        let nav: u64 = valued_holdings
+            .iter()
+            .fold(0u64, |acc, (_, _, value, _)| acc.saturating_add(*value));
         let estimated_payout: u64 = Self::basket_payout_from(owed_shares, nav, shares_total);
         if !ignore_minimum_condition
+            && !has_terminal_garbage
             && I96F32::saturating_from_num(estimated_payout)
                 < RootClaimableThreshold::<T>::get(NetUid::ROOT)
         {
@@ -570,7 +632,7 @@ impl<T: Config> Pallet<T> {
             );
             return Ok(outcome); // no-op
         }
-        if estimated_payout == 0 {
+        if estimated_payout == 0 && !has_terminal_garbage {
             return Ok(outcome);
         }
 
@@ -579,14 +641,12 @@ impl<T: Config> Pallet<T> {
         // shareholders (e.g. 99/100 of a 1-alpha position → floor 0, then the leftover
         // 1-share holder owns the whole unit). Same posture as the all-zero-take rollback
         // below — leave the watermark untouched. Worthless rows (realizable 0) are ignored.
-        for (netuid, slot_alpha) in holdings.iter() {
+        for (_, slot_alpha, slot_value, _) in valued_holdings.iter() {
             let alpha = slot_alpha.to_u64();
             if alpha == 0 {
                 continue;
             }
-            if Self::mul_div_u64(alpha, owed_shares, shares_total) == 0
-                && Self::realizable_tao_for_alpha(*netuid, alpha) > 0
-            {
+            if Self::mul_div_u64(alpha, owed_shares, shares_total) == 0 && *slot_value > 0 {
                 return Ok(outcome);
             }
         }
@@ -601,9 +661,11 @@ impl<T: Config> Pallet<T> {
             // a stake reassignment (no new TAO on root), while subnet sells realize new TAO that
             // must also be credited to the root reserves.
             let mut root_slot_tao: u64 = 0;
-            let mut swapped_tao: u64 = 0;
+            let mut claimant_swapped_tao: u64 = 0;
+            let mut retained_swapped_tao: u64 = 0;
+            let mut written_off: u32 = 0;
 
-            for (netuid, slot_alpha) in holdings.iter() {
+            for (netuid, slot_alpha, slot_value, terminal_garbage) in valued_holdings.iter() {
                 // This staker's pro-rata slice of the holding: slot_alpha * owed / P.
                 let take: u64 = Self::mul_div_u64(slot_alpha.to_u64(), owed_shares, shares_total);
                 if take == 0 {
@@ -624,9 +686,36 @@ impl<T: Config> Pallet<T> {
                     continue;
                 }
 
+                if *terminal_garbage {
+                    Self::burn_subnet_alpha(*netuid, take.into());
+                    Self::deposit_event(Event::BasketAlphaWrittenOff {
+                        hotkey: hotkey.clone(),
+                        netuid: *netuid,
+                        alpha: take.into(),
+                    });
+                    written_off = written_off.saturating_add(1);
+                    continue;
+                }
+
                 // Sell the slice to TAO.
                 let tao = match Self::sell_basket_alpha_for_root_tao(*netuid, take.into()) {
                     Ok(tao) => tao,
+                    Err(err)
+                        if T::SwapInterface::classify_failure(&err)
+                            == SwapFailureKind::TerminalLiquidity =>
+                    {
+                        // The sale helper rolls back all of its chunks on failure. The stake
+                        // decrease above remains in this outer transaction, so the exact slice
+                        // can be written off without disturbing any healthy slot.
+                        Self::burn_subnet_alpha(*netuid, take.into());
+                        Self::deposit_event(Event::BasketAlphaWrittenOff {
+                            hotkey: hotkey.clone(),
+                            netuid: *netuid,
+                            alpha: take.into(),
+                        });
+                        written_off = written_off.saturating_add(1);
+                        continue;
+                    }
                     Err(err) => return TransactionOutcome::Rollback(Err(err)),
                 };
 
@@ -635,43 +724,91 @@ impl<T: Config> Pallet<T> {
                     *total = total.saturating_add(tao);
                 });
 
-                swapped_tao = swapped_tao.saturating_add(tao.to_u64());
+                // Shares are minted and quoted against full-liquidation NAV. Selling a raw
+                // alpha fraction on a concave AMM curve realizes more than the same NAV
+                // fraction, so pay only the priced entitlement and retain the surplus as
+                // fund cash. Otherwise a permissionless deposit followed by a claim can
+                // extract the difference from earlier holders.
+                let slot_entitlement =
+                    Self::basket_payout_from(owed_shares, *slot_value, shares_total);
+                let realized_tao = tao.to_u64();
+                // A final claimant has no remaining holders to retain a surplus for. Give
+                // them every realized rao so no root cash is stranded behind zero shares.
+                let claimant_tao = if owed_shares == shares_total {
+                    realized_tao
+                } else {
+                    realized_tao.min(slot_entitlement)
+                };
+                claimant_swapped_tao = claimant_swapped_tao.saturating_add(claimant_tao);
+                retained_swapped_tao =
+                    retained_swapped_tao.saturating_add(realized_tao.saturating_sub(claimant_tao));
             }
 
-            let total_tao: u64 = root_slot_tao.saturating_add(swapped_tao);
+            let total_tao: u64 = root_slot_tao.saturating_add(claimant_swapped_tao);
 
             // Nothing was actually realized (every per-holding take floored to zero, or the
             // swaps returned zero TAO). The marked estimate above can be positive while the raw
             // alpha takes floor to zero (high-price, tiny-alpha holdings), so this must NOT
             // settle: roll back and leave the watermark untouched, otherwise the staker's owed
             // shares would be burned for a zero payout.
-            if total_tao == 0 {
+            if total_tao == 0 && written_off == 0 {
                 return TransactionOutcome::Rollback(Ok(0));
             }
 
-            // Stake the redeemed TAO on root for the staker. Only the swapped portion is new TAO
-            // on root (the root-slot portion was already counted in the root reserves).
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                hotkey,
-                coldkey,
-                NetUid::ROOT,
-                total_tao.into(),
-            );
-            if swapped_tao > 0 {
-                Self::credit_root_reserves(swapped_tao.into());
+            // The sale surplus still belongs to the fund. It already landed in the root
+            // subnet account, so represent it as escrow-owned root stake before burning the
+            // claimant's shares. Together, the remaining alpha and this cash retain the
+            // unclaimed fraction of the pre-sale liquidation NAV (modulo integer floors).
+            if retained_swapped_tao > 0 {
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    hotkey,
+                    &escrow,
+                    NetUid::ROOT,
+                    retained_swapped_tao.into(),
+                );
+            }
+
+            // Stake the redeemed TAO on root for the staker. Only sold TAO is new on root;
+            // the root-slot portion was already counted in the root reserves. Credit both
+            // the claimant payout and the surplus retained by the fund.
+            if total_tao > 0 {
+                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    hotkey,
+                    coldkey,
+                    NetUid::ROOT,
+                    total_tao.into(),
+                );
+            }
+            let total_swapped_tao = claimant_swapped_tao.saturating_add(retained_swapped_tao);
+            if total_swapped_tao > 0 {
+                Self::credit_root_reserves(total_swapped_tao.into());
             }
 
             // Claimed root stake must start (or refresh) the unlock hold, same as a
             // direct add_stake on root — otherwise JIT snipers can deposit → epoch →
             // claim → immediate remove_stake.
-            Self::touch_root_stake_age(coldkey, hotkey);
+            if total_tao > 0 {
+                Self::touch_root_stake_age(coldkey, hotkey);
+            }
 
             // The staker's root stake just grew; rebase their claimed watermark so the new stake
             // does not retroactively inflate their claimable.
-            Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(hotkey, coldkey, total_tao);
+            if total_tao > 0 {
+                Self::add_stake_adjust_root_claimed_for_hotkey_and_coldkey(
+                    hotkey, coldkey, total_tao,
+                );
+            }
 
             // Consume the claimed shares and advance the watermark.
-            BasketShares::<T>::mutate(hotkey, |p| *p = p.saturating_sub(owed_shares));
+            let remaining = BasketShares::<T>::mutate(hotkey, |p| {
+                *p = p.saturating_sub(owed_shares);
+                *p
+            });
+            if remaining == 0 {
+                // This fund life just ended; retire its display baseline/TWR so a
+                // future revival stamps fresh instead of inheriting a stale splice.
+                Self::retire_beta_display_state(hotkey);
+            }
             BasketClaimed::<T>::mutate(hotkey, coldkey, |claimed| {
                 *claimed = claimed.saturating_add(i128::from(owed_shares));
             });
@@ -734,13 +871,60 @@ impl<T: Config> Pallet<T> {
             if netuid.is_root() || curated.contains(&netuid) {
                 continue;
             }
-            if Self::realizable_tao_for_alpha(netuid, alpha.to_u64()) < threshold
-                && Self::convert_basket_holding_to_root(hotkey, &escrow, netuid)
-            {
-                swept = swept.saturating_add(1);
+            match Self::try_realizable_tao_for_alpha(netuid, alpha.to_u64()) {
+                Ok(Some(value)) if value < threshold => {
+                    if Self::convert_basket_holding_to_root(hotkey, &escrow, netuid) {
+                        swept = swept.saturating_add(1);
+                    }
+                }
+                // A terminally shallow pool cannot recover merely by retrying this sell.
+                // Convert the row through the same explicit write-off path used by claims.
+                Ok(None) => {
+                    if Self::convert_basket_holding_to_root(hotkey, &escrow, netuid) {
+                        swept = swept.saturating_add(1);
+                    }
+                }
+                Ok(Some(_)) => {}
+                Err(err) => {
+                    // Unknown failures remain retryable: do not silently value or delete the
+                    // holding as zero.
+                    log::warn!("Error valuing basket holding for dust conversion: {err:?}");
+                }
             }
         }
         swept
+    }
+
+    /// Live existing-network count (including root). Ghost `NetworksAdded=false`
+    /// leftovers are excluded so they cannot inflate the single-hotkey quote.
+    pub(crate) fn root_claim_existing_networks() -> u32 {
+        (Self::get_all_subnet_netuids().len() as u32).max(1)
+    }
+
+    /// Pre-dispatch work units for both claim paths. Weight calculation must
+    /// stay storage-independent (no `NetworksAdded` or basket walks here);
+    /// execution then refuses work that would exceed this envelope.
+    pub(crate) fn root_claim_declared_work() -> u32 {
+        crate::MAX_ROOT_CLAIM_WORK
+    }
+
+    /// True when a coldkey-wide claim's reachable work (hotkeys × existing
+    /// networks, and the actual basket rows) fits the admission envelope.
+    pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
+        let budget = Self::root_claim_declared_work();
+        let networks = Self::root_claim_existing_networks();
+        let hotkey_count = hotkeys.len() as u32;
+        if hotkey_count.saturating_mul(networks) > budget {
+            return false;
+        }
+        let mut rows: u32 = 0;
+        for hotkey in hotkeys {
+            rows = rows.saturating_add(Self::get_basket_holdings(hotkey).len() as u32);
+            if rows > budget {
+                return false;
+            }
+        }
+        true
     }
 
     /// Actual post-dispatch weight of a root claim: full benchmark units for the slots
@@ -748,9 +932,8 @@ impl<T: Config> Pallet<T> {
     /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row
     /// scan cost for holdings that were only valued. This is what lets a fund's claim fee
     /// decay as dust rows are consolidated, and makes a below-threshold no-op cost a scan
-    /// instead of a full claim. Counts are unbounded — fat baskets may exceed
-    /// [`crate::MAX_ROOT_CLAIM_WORK`]; the extrinsic pays the resulting weight rather
-    /// than hard-failing.
+    /// instead of a full claim. Work above [`crate::MAX_ROOT_CLAIM_WORK`] is
+    /// refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
     pub(crate) fn root_claim_actual_weight(
         hotkey_count: u32,
         outcome: &RootClaimOutcome,
@@ -928,6 +1111,10 @@ impl<T: Config> Pallet<T> {
             BasketRate::<T>::mutate(new_hotkey, |r| *r = r.saturating_add(rate));
         }
 
+        // Display state (frozen baseline + TWR) follows the fund; the clean-root gate
+        // guarantees the destination holds none, so this is a pure move.
+        Self::transfer_beta_display_state(old_hotkey, new_hotkey);
+
         // Lifetime performance counters follow the fund.
         let deposited = BasketDepositedTao::<T>::take(old_hotkey);
         if !deposited.is_zero() {
@@ -979,8 +1166,9 @@ impl<T: Config> Pallet<T> {
     ///
     /// Escrow alpha is sold once per fund and held as root stake under the same escrow.
     /// Fund shares, rates, and watermarks are untouched — NAV is continuous across the
-    /// conversion (minus slippage). Best-effort: a failed swap is logged and the slot is
-    /// left for generic teardown. Returns `(done, next_cursor)`.
+    /// conversion (minus slippage). A terminally shallow holding is explicitly written off;
+    /// any unknown failure is logged and leaves the slot for generic teardown. Returns
+    /// `(done, next_cursor)`.
     pub fn convert_subnet_basket_holdings_to_root(
         netuid: NetUid,
         weight_meter: &mut WeightMeter,
@@ -1024,6 +1212,16 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
+        let terminal_garbage =
+            match Self::try_realizable_tao_for_alpha(netuid, holding_alpha.to_u64()) {
+                Ok(Some(_)) => false,
+                Ok(None) => true,
+                Err(err) => {
+                    log::error!("Error valuing basket holding before conversion: {err:?}");
+                    return false;
+                }
+            };
+
         with_transaction(|| {
             Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                 hotkey,
@@ -1032,8 +1230,35 @@ impl<T: Config> Pallet<T> {
                 holding_alpha,
             );
 
+            if terminal_garbage {
+                // The position is economically unusable and no executable sale exists. Remove
+                // it explicitly instead of allowing one bad subnet to pin claim/dissolution
+                // progress forever. This is a proportional loss to the fund as a whole.
+                Self::burn_subnet_alpha(netuid, holding_alpha);
+                Self::deposit_event(Event::BasketAlphaWrittenOff {
+                    hotkey: hotkey.clone(),
+                    netuid,
+                    alpha: holding_alpha,
+                });
+                return TransactionOutcome::Commit(Ok::<(), DispatchError>(()));
+            }
+
             let tao = match Self::sell_basket_alpha_for_root_tao(netuid, holding_alpha) {
                 Ok(tao) => tao,
+                Err(err)
+                    if T::SwapInterface::classify_failure(&err)
+                        == SwapFailureKind::TerminalLiquidity =>
+                {
+                    // A late shallow-pool failure is safe to write off because the sale
+                    // helper atomically rolled back every attempted chunk.
+                    Self::burn_subnet_alpha(netuid, holding_alpha);
+                    Self::deposit_event(Event::BasketAlphaWrittenOff {
+                        hotkey: hotkey.clone(),
+                        netuid,
+                        alpha: holding_alpha,
+                    });
+                    return TransactionOutcome::Commit(Ok::<(), DispatchError>(()));
+                }
                 Err(err) => {
                     log::error!("Error converting basket holding to root: {err:?}");
                     return TransactionOutcome::Rollback(Err(err));
@@ -1067,23 +1292,128 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         alpha: AlphaBalance,
     ) -> Result<TaoBalance, DispatchError> {
-        let out = Self::swap_alpha_for_tao(
-            netuid,
-            alpha,
-            T::SwapInterface::min_price::<TaoBalance>(),
-            true,
-        )
-        .inspect_err(|err| log::error!("Error swapping basket alpha for TAO: {err:?}"))?;
+        let tao = Self::swap_basket_alpha_for_tao_chunks(netuid, alpha)
+            .inspect_err(|err| log::warn!("Unable to swap basket alpha for TAO: {err:?}"))?;
 
         let root_subnet_account_id =
             Self::get_subnet_account_id(NetUid::ROOT).ok_or(Error::<T>::RootNetworkDoesNotExist)?;
 
-        Self::transfer_tao_from_subnet(netuid, &root_subnet_account_id, out.amount_paid_out.into())
+        Self::transfer_tao_from_subnet(netuid, &root_subnet_account_id, tao.into())
             .inspect_err(|err| log::error!("Error transferring basket TAO from subnet: {err:?}"))?;
 
-        Self::record_protocol_outflow(netuid, out.amount_paid_out);
+        Self::record_protocol_outflow(netuid, tao);
 
-        Ok(out.amount_paid_out)
+        Ok(tao)
+    }
+
+    /// Execute a fee-free protocol alpha sale in reserve-bounded chunks. This is both the
+    /// money-moving implementation and the engine used under a rollback overlay for NAV quotes,
+    /// so an oversized full holding is valued exactly as it would be liquidated.
+    pub(crate) fn swap_basket_alpha_for_tao_chunks(
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        with_transaction(|| {
+            let result = (|| {
+                if alpha.is_zero() {
+                    return Ok(TaoBalance::ZERO);
+                }
+                if SubnetMechanism::<T>::get(netuid) != 1 {
+                    return Self::swap_alpha_for_tao(
+                        netuid,
+                        alpha,
+                        T::SwapInterface::min_price::<TaoBalance>(),
+                        true,
+                    )
+                    .map(|out| out.amount_paid_out);
+                }
+
+                let mut remaining = alpha.to_u64();
+                let mut total_tao = 0u64;
+                while remaining > 0 {
+                    let maximum =
+                        T::SwapInterface::max_swap_input::<GetTaoForAlpha<T>>(netuid).to_u64();
+                    // Let the engine return its concrete failure when the input reserve is zero.
+                    let chunk = if maximum == 0 {
+                        remaining
+                    } else {
+                        remaining.min(maximum)
+                    };
+                    let out = Self::swap_alpha_for_tao(
+                        netuid,
+                        chunk.into(),
+                        T::SwapInterface::min_price::<TaoBalance>(),
+                        true,
+                    )?;
+                    let consumed = out
+                        .amount_paid_in
+                        .to_u64()
+                        .saturating_add(out.fee_paid.to_u64());
+                    ensure!(consumed > 0, Error::<T>::AmountTooLow);
+                    remaining = remaining.saturating_sub(consumed);
+                    total_tao = total_tao.saturating_add(out.amount_paid_out.to_u64());
+                }
+                Ok(total_tao.into())
+            })();
+            match result {
+                Ok(tao) => TransactionOutcome::Commit(Ok(tao)),
+                Err(err) => TransactionOutcome::Rollback(Err(err)),
+            }
+        })
+    }
+
+    /// Buy basket alpha in reserve-bounded chunks for oversized protocol/user deployments.
+    pub(crate) fn swap_basket_tao_for_alpha_chunks(
+        netuid: NetUid,
+        tao: TaoBalance,
+        drop_fees: bool,
+    ) -> Result<AlphaBalance, DispatchError> {
+        with_transaction(|| {
+            let result = (|| {
+                if tao.is_zero() {
+                    return Ok(AlphaBalance::ZERO);
+                }
+                if SubnetMechanism::<T>::get(netuid) != 1 {
+                    return Self::swap_tao_for_alpha(
+                        netuid,
+                        tao,
+                        T::SwapInterface::max_price(),
+                        drop_fees,
+                    )
+                    .map(|out| out.amount_paid_out);
+                }
+
+                let mut remaining = tao.to_u64();
+                let mut total_alpha = 0u64;
+                while remaining > 0 {
+                    let maximum =
+                        T::SwapInterface::max_swap_input::<GetAlphaForTao<T>>(netuid).to_u64();
+                    let chunk = if maximum == 0 {
+                        remaining
+                    } else {
+                        remaining.min(maximum)
+                    };
+                    let out = Self::swap_tao_for_alpha(
+                        netuid,
+                        chunk.into(),
+                        T::SwapInterface::max_price(),
+                        drop_fees,
+                    )?;
+                    let consumed = out
+                        .amount_paid_in
+                        .to_u64()
+                        .saturating_add(out.fee_paid.to_u64());
+                    ensure!(consumed > 0, Error::<T>::AmountTooLow);
+                    remaining = remaining.saturating_sub(consumed);
+                    total_alpha = total_alpha.saturating_add(out.amount_paid_out.to_u64());
+                }
+                Ok(total_alpha.into())
+            })();
+            match result {
+                Ok(alpha) => TransactionOutcome::Commit(Ok(alpha)),
+                Err(err) => TransactionOutcome::Rollback(Err(err)),
+            }
+        })
     }
 
     /// Drop a dissolving subnet's entries from the LEGACY per-subnet claimable rates. The

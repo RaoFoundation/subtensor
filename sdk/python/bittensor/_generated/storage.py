@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 442
+Spec version: 449
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -133,6 +133,7 @@ class SubtensorModule:
     ColdkeySwapAnnouncements = Item('SubtensorModule', 'ColdkeySwapAnnouncements', '(u32, H256)')
     ColdkeySwapDisputes = Item('SubtensorModule', 'ColdkeySwapDisputes', 'u32')
     TotalHotkeyAlpha = Item('SubtensorModule', 'TotalHotkeyAlpha', 'AlphaBalance')
+    TotalAlphaStaked = Item('SubtensorModule', 'TotalAlphaStaked', 'AlphaBalance')
     TotalHotkeyAlphaLastEpoch = Item('SubtensorModule', 'TotalHotkeyAlphaLastEpoch', 'AlphaBalance')
     TotalHotkeyShares = Item('SubtensorModule', 'TotalHotkeyShares', 'FixedU128')
     Alpha = Item('SubtensorModule', 'Alpha', 'FixedU128')
@@ -246,12 +247,14 @@ class SubtensorModule:
     LiquidAlphaOn = Item('SubtensorModule', 'LiquidAlphaOn', 'bool')
     Yuma3On = Item('SubtensorModule', 'Yuma3On', 'bool')
     AlphaValues = Item('SubtensorModule', 'AlphaValues', '(u16, u16)')
+    LiquidAlphaConsensusMode = Item('SubtensorModule', 'LiquidAlphaConsensusMode', 'ConsensusMode')
     SubtokenEnabled = Item('SubtensorModule', 'SubtokenEnabled', 'bool')
     DissolveCleanupQueue = Item('SubtensorModule', 'DissolveCleanupQueue', 'Vec<NetUid>')
     CurrentDissolveCleanupStatus = Item('SubtensorModule', 'CurrentDissolveCleanupStatus', 'DissolveCleanupStatus')
     NetworkRegistrationQueue = Item('SubtensorModule', 'NetworkRegistrationQueue', 'Vec<NetworkRegistrationInfo>')
     NetworkRegistrationLockId = Item('SubtensorModule', 'NetworkRegistrationLockId', 'u32')
     VotingPower = Item('SubtensorModule', 'VotingPower', 'u64')
+    TotalVotingPower = Item('SubtensorModule', 'TotalVotingPower', 'u64')
     VotingPowerTrackingEnabled = Item('SubtensorModule', 'VotingPowerTrackingEnabled', 'bool')
     VotingPowerDisableAtBlock = Item('SubtensorModule', 'VotingPowerDisableAtBlock', 'u64')
     VotingPowerEmaAlpha = Item('SubtensorModule', 'VotingPowerEmaAlpha', 'u64')
@@ -262,6 +265,7 @@ class SubtensorModule:
     LoadedEmission = Item('SubtensorModule', 'LoadedEmission', 'Vec<(AccountId32, u64, u64)>')
     Active = Item('SubtensorModule', 'Active', 'Vec<bool>')
     Consensus = Item('SubtensorModule', 'Consensus', 'Vec<PerU16>')
+    ConsensusByMechanism = Item('SubtensorModule', 'ConsensusByMechanism', 'Vec<PerU16>')
     Incentive = Item('SubtensorModule', 'Incentive', 'Vec<PerU16>')
     Dividends = Item('SubtensorModule', 'Dividends', 'Vec<PerU16>')
     Emission = Item('SubtensorModule', 'Emission', 'Vec<AlphaBalance>')
@@ -289,6 +293,7 @@ class SubtensorModule:
     LastColdkeyHotkeyStakeBlock = Item('SubtensorModule', 'LastColdkeyHotkeyStakeBlock', 'u64')
     RootStakeUnlockInterval = Item('SubtensorModule', 'RootStakeUnlockInterval', 'u64')
     RootWeightSettingEnabled = Item('SubtensorModule', 'RootWeightSettingEnabled', 'bool')
+    RootWeightsCap = Item('SubtensorModule', 'RootWeightsCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')
     RootClaimed = Item('SubtensorModule', 'RootClaimed', 'u128')
@@ -444,5 +449,5 @@ class AlphaAssets:
 class LimitOrders:
     Orders = Item('LimitOrders', 'Orders', 'OrderStatus')
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
+    LinkedOutputs = Item('LimitOrders', 'LinkedOutputs', 'LinkedOutput')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
-

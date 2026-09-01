@@ -69,6 +69,28 @@ fn test_coinbase_basecase() {
     });
 }
 
+#[test]
+fn test_dividend_distribution_does_not_store_zero_last_epoch_alpha() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        let mut alpha_dividends = BTreeMap::new();
+        alpha_dividends.insert(hotkey, U96F32::from_num(0));
+
+        SubtensorModule::distribute_dividends_and_incentives(
+            netuid,
+            AlphaBalance::ZERO,
+            BTreeMap::new(),
+            alpha_dividends,
+            BTreeMap::new(),
+        );
+
+        assert!(!TotalHotkeyAlphaLastEpoch::<Test>::contains_key(
+            hotkey, netuid
+        ));
+    });
+}
+
 // Test the emission distribution for a single subnet.
 // This test verifies that:
 // - Single subnet gets cutoff by lower flow limit, so nothing is distributed
@@ -2003,6 +2025,7 @@ fn test_incentive_to_subnet_owner_is_burned() {
         assert_eq!(subnet_owner_stake_before, 0.into());
         let other_stake_before = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert_eq!(other_stake_before, 0.into());
+        let total_alpha_staked_before = TotalAlphaStaked::<Test>::get(netuid);
 
         // Distribute dividends and incentives
         SubtensorModule::distribute_dividends_and_incentives(
@@ -2019,6 +2042,13 @@ fn test_incentive_to_subnet_owner_is_burned() {
         assert_eq!(subnet_owner_stake_after, 0.into());
         let other_stake_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert!(other_stake_after > 0.into());
+        // The owner-directed incentive is burned, so only the other miner's
+        // credited stake increases the subnet aggregate.
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(netuid),
+            total_alpha_staked_before.saturating_add(other_stake_after)
+        );
+        assert_total_alpha_staked_invariant(netuid);
     });
 }
 
@@ -2058,6 +2088,7 @@ fn test_incentive_to_subnet_owners_hotkey_is_burned() {
         assert_eq!(subnet_owner_stake_before, 0.into());
         let other_stake_before = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert_eq!(other_stake_before, 0.into());
+        let total_alpha_staked_before = TotalAlphaStaked::<Test>::get(netuid);
 
         // Distribute dividends and incentives
         SubtensorModule::distribute_dividends_and_incentives(
@@ -2074,6 +2105,12 @@ fn test_incentive_to_subnet_owners_hotkey_is_burned() {
         assert_eq!(subnet_owner_stake_after, 0.into());
         let other_stake_after = SubtensorModule::get_stake_for_hotkey_on_subnet(&other_hk, netuid);
         assert_eq!(other_stake_after, 0.into());
+        // Both incentives target owner-associated hotkeys and are burned.
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(netuid),
+            total_alpha_staked_before
+        );
+        assert_total_alpha_staked_invariant(netuid);
     });
 }
 
@@ -2672,6 +2709,7 @@ fn test_distribute_emission_no_miners_all_drained() {
             u64::from(emission + init_stake.into()).into(),
             epsilon = 1.into()
         );
+        assert_total_alpha_staked_invariant(netuid);
     });
 }
 
@@ -4090,99 +4128,6 @@ fn test_coinbase_keeps_root_dividends_in_the_epoch_that_earned_them_during_seed(
 }
 
 #[test]
-fn test_coinbase_releases_deferred_root_dividend_to_original_hotkey() {
-    use crate::migrations::migrate_seed_beta_basket::{
-        kickoff_seed_beta_basket_v2, migrate_seed_beta_basket_v2, seed_beta_basket_v2_in_progress,
-    };
-    use crate::tests::claim_root::{fund_pool, set_root_weights_direct};
-
-    new_test_ext(1).execute_with(|| {
-        let owner = U256::from(20_001);
-        let earned_hotkey = U256::from(20_002);
-        let other_hotkey = U256::from(20_003);
-        let staker = U256::from(20_004);
-        let netuid = add_dynamic_network(&earned_hotkey, &owner);
-        fund_pool(netuid);
-        NetworksAdded::<Test>::insert(NetUid::ROOT, true);
-        set_root_weights_direct(&earned_hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
-        set_root_weights_direct(&other_hotkey, 1, &[(NetUid::ROOT, u16::MAX)]);
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &earned_hotkey,
-            &staker,
-            NetUid::ROOT,
-            1_000_000u64.into(),
-        );
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &other_hotkey,
-            &staker,
-            NetUid::ROOT,
-            1_000_000u64.into(),
-        );
-
-        kickoff_seed_beta_basket_v2::<Test>();
-        SubtensorModule::distribute_dividends_and_incentives(
-            netuid,
-            AlphaBalance::ZERO,
-            BTreeMap::new(),
-            BTreeMap::new(),
-            BTreeMap::from([(earned_hotkey, U96F32::from_num(1_000_000u64))]),
-        );
-
-        let deferred = DeferredRootAlphaDividends::<Test>::get(netuid, earned_hotkey);
-        assert!(deferred > AlphaBalance::ZERO);
-        assert_eq!(
-            DeferredRootAlphaDividends::<Test>::get(netuid, other_hotkey),
-            AlphaBalance::ZERO
-        );
-        assert_eq!(BasketShares::<Test>::get(earned_hotkey), 0);
-
-        migrate_seed_beta_basket_v2::<Test>();
-        assert!(!seed_beta_basket_v2_in_progress::<Test>());
-        assert_eq!(
-            SubtensorModule::ensure_beta_basket_seed_idle(),
-            Err(Error::<Test>::BetaBasketSeedInProgress),
-            "stake and dissolution must remain frozen until deferred credits are released"
-        );
-        assert_eq!(
-            SubtensorModule::root_dissolve_network(RuntimeOrigin::root(), netuid),
-            Err(Error::<Test>::BetaBasketSeedInProgress.into())
-        );
-
-        // A different hotkey earns the current epoch. The stored credit must still go to the
-        // hotkey selected by the skipped epoch instead of being reassigned to this one.
-        SubtensorModule::distribute_dividends_and_incentives(
-            netuid,
-            AlphaBalance::ZERO,
-            BTreeMap::new(),
-            BTreeMap::new(),
-            BTreeMap::from([(other_hotkey, U96F32::from_num(2_000_000u64))]),
-        );
-        // Released deferred credits and the current epoch's credit both land in the
-        // pending queue; the drain flushes one hotkey per block, so run it once per
-        // queued hotkey.
-        crate::tests::claim_root::flush_baskets();
-
-        assert!(BasketShares::<Test>::get(earned_hotkey) > 0);
-        assert!(BasketShares::<Test>::get(other_hotkey) > 0);
-        assert!(
-            RootAlphaDividendsPerSubnet::<Test>::get(netuid, other_hotkey)
-                > RootAlphaDividendsPerSubnet::<Test>::get(netuid, earned_hotkey),
-            "the current epoch's larger independent credit must remain attributed separately"
-        );
-        assert!(
-            DeferredRootAlphaDividends::<Test>::iter_prefix(netuid)
-                .next()
-                .is_none()
-        );
-        assert!(
-            DeferredRootAlphaDividends::<Test>::iter().next().is_none(),
-            "temporary deferred-dividend storage must be fully cleared after release"
-        );
-        assert_ok!(SubtensorModule::ensure_beta_basket_seed_idle());
-    });
-}
-
-#[test]
 fn test_coinbase_emit_to_subnets_with_no_root_sell() {
     new_test_ext(1).execute_with(|| {
         let zero = U96F32::saturating_from_num(0);
@@ -4796,11 +4741,15 @@ fn test_alpha_dividends_release_collateral_on_full_emission() {
         );
         ColdkeyMinerCollateral::<Test>::insert(netuid, owner_ck, locked);
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            &owner_hk,
-            &owner_ck,
-            netuid,
-            1_000_000u64.into(),
+            &owner_hk, &owner_ck, netuid, locked,
         );
+        let stake_before = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &owner_hk, &owner_ck, netuid,
+        );
+        let available_before =
+            SubtensorModule::available_to_unstake_from_hotkey(&owner_ck, &owner_hk, netuid);
+        assert_eq!(stake_before, locked);
+        assert_eq!(available_before, AlphaBalance::ZERO);
 
         let dividend: U96F32 = U96F32::from_num(1_000_000u64);
         let mut alpha_dividends: BTreeMap<U256, U96F32> = BTreeMap::new();
@@ -4815,17 +4764,37 @@ fn test_alpha_dividends_release_collateral_on_full_emission() {
         );
 
         let alpha_take = SubtensorModule::get_hotkey_take_float(&owner_hk).saturating_mul(dividend);
+        let take: AlphaBalance = alpha_take.saturating_to_num::<u64>().into();
         let nominator: AlphaBalance = dividend
             .saturating_sub(alpha_take)
             .saturating_to_num::<u64>()
             .into();
         let state =
             MinerCollateral::<Test>::get((netuid, owner_hk, owner_ck)).expect("still locked");
-        assert_eq!(state.locked, locked.saturating_sub(1_000_000u64.into()));
+        let released: AlphaBalance = 1_000_000u64.into();
+        assert_eq!(state.locked, locked.saturating_sub(released));
         assert_eq!(state.earned, 1_000_000u64.into());
         assert_eq!(
             AlphaDividendsPerSubnet::<Test>::get(netuid, owner_hk),
             nominator
+        );
+
+        let stake_after = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+            &owner_hk, &owner_ck, netuid,
+        );
+        let available_after =
+            SubtensorModule::available_to_unstake_from_hotkey(&owner_ck, &owner_hk, netuid);
+
+        // Collateral is already included in stake. Releasing it only reclassifies alpha from
+        // locked to withdrawable; decreasing stake here would destroy alpha because no sale or
+        // payout accompanies the release. Total stake therefore changes only by this dividend.
+        let credited_dividend = take.saturating_add(nominator);
+        assert_eq!(stake_after, stake_before.saturating_add(credited_dividend));
+        assert_eq!(
+            available_after,
+            available_before
+                .saturating_add(credited_dividend)
+                .saturating_add(released)
         );
     });
 }

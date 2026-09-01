@@ -1,0 +1,188 @@
+---
+title: Subnet
+description: Reference for the deployed SubnetPrecompile.
+---
+
+| Property | Value |
+|---|---|
+| Rust implementation | `SubnetPrecompile` |
+| Solidity interface | `ISubnet` |
+| Address | `0x0000000000000000000000000000000000000803` |
+| Status | Deployed |
+
+Registers subnets and exposes selected subnet configuration. State-changing
+functions are `payable`.
+
+## Registration
+
+`registerNetwork` has three overloads:
+
+```text
+registerNetwork(bytes32)
+registerNetwork(bytes32,string,string,string,string,string,string,string)
+registerNetwork(bytes32,string,string,string,string,string,string,string,string)
+```
+
+## Views
+
+```text
+getActivityCutoff(uint16)
+getActivityCutoffFactor(uint16)
+getAdjustmentAlpha(uint16)
+getAlphaSigmoidSteepness(uint16)
+getAlphaValues(uint16)
+getBondsMovingAverage(uint16)
+getBondsResetEnabled(uint16)
+getCommitRevealWeightsEnabled(uint16)
+getCommitRevealWeightsInterval(uint16)
+getDifficulty(uint16)
+getImmunityPeriod(uint16)
+getKappa(uint16)
+getLiquidAlphaEnabled(uint16)
+getMaxBurn(uint16)
+getMaxDifficulty(uint16)
+getMaxWeightLimit(uint16)
+getMinAllowedWeights(uint16)
+getMinBurn(uint16)
+getMinDifficulty(uint16)
+getNetworkPowRegistrationAllowed(uint16)
+getNetworkRegistrationAllowed(uint16)
+getNetworkRegistrationBlock(uint16)
+getRegisteredSubnetCounter(uint16)
+getOwnerCutAutoLockEnabled(uint16)
+getRho(uint16)
+getServingRateLimit(uint16)
+getWeightsSetRateLimit(uint16)
+getWeightsVersionKey(uint16)
+getYuma3Enabled(uint16)
+isSubnetDissolving(uint16)
+getSubnetDissolutionStatus(uint16)
+getSubnetMetadata(uint16)
+getSubnetCapacityConfig(uint16)
+getMechanismEmissionSplit(uint16)
+getBurnConfig(uint16)
+getGlobalNetworkLimits()
+getGlobalRateLimits()
+getGlobalProtocolConfig()
+```
+
+The grouped configuration views return stable typed fields rather than raw
+storage encodings. Fixed-point burn multipliers are returned as raw `U64F64`
+bits.
+
+`getRegisteredSubnetCounter` returns a monotonic generation number for a
+netuid. It increments on every successful registration, allowing a contract to
+distinguish a reused netuid even when it did not retain the previous
+registration block.
+
+`getSubnetDissolutionStatus` returns `(isDissolving, cleanupInProgress,
+cleanupPhase)`. Phase `0` means that detailed cleanup has not started. Active
+cleanup uses stable, append-only phase codes:
+
+| Code | Cleanup work |
+|---:|---|
+| 1 | Root claimable dividends |
+| 2 | Root claimed dividends |
+| 3 | Calculate stake value |
+| 4 | Settle stakes |
+| 5 | Clear alpha |
+| 6 | Clear hotkey totals |
+| 7 | Clear stake locks |
+| 8 | Clear decaying stake locks |
+| 9 | Finish stake cleanup |
+| 10 | Clear protocol liquidity |
+| 11 | Purge subnet commitments |
+| 12 | Clear network membership |
+| 13 | Clear network parameters |
+| 14 | Clear network maps |
+| 15 | Update root weights |
+| 16 | Clear childkey takes |
+| 17 | Clear childkeys |
+| 18 | Clear parentkeys |
+| 19 | Clear last hotkey emissions |
+| 20 | Clear last-epoch hotkey alpha |
+| 21 | Clear transaction rate-limit records |
+| 22 | Clear network locks |
+| 23 | Clear decaying network locks |
+
+The runtime does not currently store a per-subnet future dissolution block.
+The authorized dissolution calls execute dissolution immediately, while the
+generic scheduler stores calls by agenda position rather than maintaining a
+typed netuid-to-dissolution lookup. Consequently, there is no truthful,
+bounded per-subnet scheduled-block view to expose.
+
+## Configuration
+
+```text
+setActivityCutoff(uint16,uint16)
+setActivityCutoffFactor(uint16,uint32)
+setAdjustmentAlpha(uint16,uint64)
+setAlphaSigmoidSteepness(uint16,uint16)
+setAlphaValues(uint16,uint16,uint16)
+setBondsMovingAverage(uint16,uint64)
+setBondsResetEnabled(uint16,bool)
+setCommitRevealWeightsEnabled(uint16,bool)
+setCommitRevealWeightsInterval(uint16,uint64)
+setDifficulty(uint16,uint64)
+setImmunityPeriod(uint16,uint16)
+setKappa(uint16,uint16)
+setLiquidAlphaEnabled(uint16,bool)
+setMaxDifficulty(uint16,uint64)
+setMinAllowedWeights(uint16,uint16)
+setMinDifficulty(uint16,uint64)
+setNetworkPowRegistrationAllowed(uint16,bool)
+setNetworkRegistrationAllowed(uint16,bool)
+setOwnerCutAutoLockEnabled(uint16,bool)
+setRho(uint16,uint16)
+setServingRateLimit(uint16,uint64)
+setWeightsVersionKey(uint16,uint64)
+setYuma3Enabled(uint16,bool)
+toggleTransfers(uint16,bool)
+```
+
+## Legacy no-op functions
+
+These released selectors remain routed but intentionally do not change state:
+
+```text
+setWeightsSetRateLimit(uint16,uint64)
+setMinBurn(uint16,uint64)
+setMaxBurn(uint16,uint64)
+```
+
+Changing their behavior in place would break their released semantics. The
+real AdminUtils operations therefore use the V2 selectors below.
+
+## Added subnet operations
+
+| Function | Source extrinsic |
+|---|---|
+| `setSubnetIdentity` | `SubtensorModule.set_subnet_identity` |
+| `updateSubnetSymbol` | `SubtensorModule.update_symbol` |
+| `triggerEpoch` | `SubtensorModule.trigger_epoch` |
+
+## Added AdminUtils operations
+
+| Function | Source extrinsic |
+|---|---|
+| `setBondsPenalty` | `AdminUtils.sudo_set_bonds_penalty` |
+| `setMaxAllowedUids` | `AdminUtils.sudo_set_max_allowed_uids` |
+| `setMaxBurnV2` | `AdminUtils.sudo_set_max_burn` |
+| `setMechanismCount` | `AdminUtils.sudo_set_mechanism_count` |
+| `setMechanismEmissionSplit` | `AdminUtils.sudo_set_mechanism_emission_split` |
+| `setMinBurnV2` | `AdminUtils.sudo_set_min_burn` |
+| `setOwnerCutEnabled` | `AdminUtils.sudo_set_owner_cut_enabled` |
+| `setOwnerImmuneNeuronLimit` | `AdminUtils.sudo_set_owner_immune_neuron_limit` |
+| `setTempo` | `AdminUtils.sudo_set_tempo` |
+| `trimToMaxAllowedUids` | `AdminUtils.sudo_trim_to_max_allowed_uids` |
+
+Each listed AdminUtils call accepts a signed subnet owner as well as Root. The
+precompile exposes only the signed path and dispatches the highest-level
+extrinsic so owner limits, freeze windows, and other runtime checks remain in
+force. Root-only calls are classified as not EVM-callable in the
+[coverage audit](./extrinsic-coverage).
+
+These functions dispatch the listed highest-level extrinsics as the mapped
+signed caller.
+
+Source: [`subnet.sol`](https://github.com/RaoFoundation/subtensor/blob/main/precompiles/src/solidity/subnet.sol)

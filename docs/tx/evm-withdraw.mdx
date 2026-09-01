@@ -13,7 +13,7 @@ the EVM wallet to the address shown by `btcli evm deposit-address`, then
 claim it with `btcli evm claim-deposit` (or `btcli tx evm-withdraw`).
 This is not `btcli evm send-to-ss58`, which spends from a stored EVM key
 via the balance-transfer precompile. Fails if the mirror holds less than
-the amount.
+the amount. Pass `all` to claim the entire deposit.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
@@ -23,7 +23,7 @@ the amount.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `amount_tao` | number \| `"all"` | yes | How much TAO to pull from the mirror. |
+| `amount_tao` | number \| `"all"` | yes | How much TAO to pull from the mirror, or ``all``. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.

@@ -1,5 +1,6 @@
 use super::*;
 use frame_support::weights::WeightMeter;
+use pallet_alpha_assets::AlphaAssetsInterface;
 use subtensor_runtime_common::{NetUid, NetUidStorageIndex, clear_prefix_with_meter};
 use subtensor_swap_interface::SwapHandler;
 /// Enum for the dissolve cleanup phase.
@@ -65,6 +66,10 @@ pub enum DissolveCleanupPhase {
     /// possible after that. Appended (not inserted) so in-flight cleanup discriminants
     /// stay stable.
     NetworkPendingBasketDeposits,
+    /// Phase 5.14: Clear generation-scoped alpha-asset counters after every operation
+    /// that can recycle alpha has completed. Appended so existing in-flight cleanup
+    /// discriminants remain stable.
+    NetworkAlphaAssetCounters,
 }
 
 impl Default for DissolveCleanupPhase {
@@ -166,6 +171,8 @@ impl<T: Config> Pallet<T> {
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Uids::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
+            VotingPower::<T>::clear_prefix(netuid, limit, None)
+        }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             BlockAtRegistration::<T>::clear_prefix(netuid, limit, None)
         }) && clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             Axons::<T>::clear_prefix(netuid, limit, None)
@@ -211,7 +218,7 @@ impl<T: Config> Pallet<T> {
         let mechanisms: u8 = MechanismCountCurrent::<T>::get(netuid).into();
 
         for subid in 0..mechanisms {
-            let mechanism_weight = T::DbWeight::get().reads_writes(1, 2);
+            let mechanism_weight = T::DbWeight::get().reads_writes(1, 3);
             if !weight_meter.can_consume(mechanism_weight) {
                 return false;
             }
@@ -220,6 +227,7 @@ impl<T: Config> Pallet<T> {
 
             LastUpdate::<T>::remove(netuid_index);
             Incentive::<T>::remove(netuid_index);
+            ConsensusByMechanism::<T>::remove(netuid_index);
 
             let result = clear_prefix_with_meter(weight_meter, write_weight, |limit| {
                 WeightCommits::<T>::clear_prefix(netuid_index, limit, None)
@@ -281,7 +289,7 @@ impl<T: Config> Pallet<T> {
     pub fn remove_network_parameters(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool {
         // Flat write charge for the `::remove(netuid)` list below. Bump this when
         // adding or removing entries from that list so the weight stays in step.
-        let removal_weight = T::DbWeight::get().writes(82);
+        let removal_weight = T::DbWeight::get().writes(87);
         if !weight_meter.can_consume(removal_weight) {
             return false;
         }
@@ -362,6 +370,7 @@ impl<T: Config> Pallet<T> {
         LiquidAlphaOn::<T>::remove(netuid);
         Yuma3On::<T>::remove(netuid);
         AlphaValues::<T>::remove(netuid);
+        LiquidAlphaConsensusMode::<T>::remove(netuid);
         SubtokenEnabled::<T>::remove(netuid);
         OwnerCutAutoLockEnabled::<T>::remove(netuid);
         ImmuneOwnerUidsLimit::<T>::remove(netuid);
@@ -373,6 +382,11 @@ impl<T: Config> Pallet<T> {
         LastEpochBlock::<T>::remove(netuid);
         PendingEpochAt::<T>::remove(netuid);
         SubnetEpochIndex::<T>::remove(netuid);
+        TotalVotingPower::<T>::remove(netuid);
+        VotingPowerTrackingEnabled::<T>::remove(netuid);
+        VotingPowerDisableAtBlock::<T>::remove(netuid);
+        VotingPowerEmaAlpha::<T>::remove(netuid);
+        TotalAlphaStaked::<T>::remove(netuid);
 
         if SubnetIdentitiesV3::<T>::contains_key(netuid) {
             SubnetIdentitiesV3::<T>::remove(netuid);
@@ -1040,13 +1054,24 @@ impl<T: Config> Pallet<T> {
                         status.last_key.clone(),
                     );
 
-                    // if all phases are done, remove the network from the dissolved networks list and emit the event
                     if done {
-                        cleanup_completed = true;
+                        status.set_phase(DissolveCleanupPhase::NetworkAlphaAssetCounters);
+                        status.last_key = None;
                     } else {
                         status.last_key = new_key;
                     }
                     done
+                }
+                DissolveCleanupPhase::NetworkAlphaAssetCounters => {
+                    let clear_weight = T::DbWeight::get().writes(3);
+                    if !weight_meter.can_consume(clear_weight) {
+                        false
+                    } else {
+                        weight_meter.consume(clear_weight);
+                        T::AlphaAssets::clear_alpha_counters(netuid);
+                        cleanup_completed = true;
+                        true
+                    }
                 }
             };
 

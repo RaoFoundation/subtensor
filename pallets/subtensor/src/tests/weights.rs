@@ -22,9 +22,9 @@ use substrate_fixed::types::I32F32;
 use subtensor_runtime_common::NetUidStorageIndex;
 use tle::{
     curves::drand::TinyBLS381,
-    ibe::fullident::Identity,
+    ibe::fullident::{Ciphertext as IBECiphertext, Identity},
     stream_ciphers::AESGCMStreamCipherProvider,
-    tlock::{tld, tle},
+    tlock::{TLECiphertext, tld, tle},
 };
 use w3f_bls::EngineBLS;
 
@@ -4605,6 +4605,56 @@ fn test_reveal_crv3_commits_decryption_failure() {
         let weights_matrix = SubtensorModule::get_weights(netuid.into());
         let weights = weights_matrix.get(neuron_uid).cloned().unwrap_or_default();
         assert!(weights.iter().all(|&w| w == I32F32::from_num(0)));
+    });
+}
+
+#[test]
+fn test_reveal_crv3_commits_rejects_invalid_ciphertext_header() {
+    new_test_ext(1).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let hotkey = U256::from(1);
+        let reveal_round = 1000;
+
+        add_network(netuid, 5, 0);
+        register_ok_neuron(netuid, hotkey, U256::from(2), 100_000);
+        SubtensorModule::set_weights_set_rate_limit(netuid, 0);
+        SubtensorModule::set_commit_reveal_weights_enabled(netuid, true);
+
+        let public_key = hex::decode("83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a")
+            .expect("valid public key hex");
+        let u = <TinyBLS381 as EngineBLS>::PublicKeyGroup::deserialize_compressed(&public_key[..])
+            .expect("valid public key");
+        let commit = TLECiphertext::<TinyBLS381> {
+            header: IBECiphertext { u, v: vec![], w: vec![1] },
+            body: vec![],
+            cipher_suite: vec![],
+        };
+        let mut commit_bytes = Vec::new();
+        commit
+            .serialize_compressed(&mut commit_bytes)
+            .expect("serialize malformed ciphertext");
+
+        assert_ok!(SubtensorModule::do_commit_timelocked_weights(
+            RuntimeOrigin::signed(hotkey),
+            netuid,
+            commit_bytes.try_into().expect("ciphertext fits"),
+            reveal_round,
+            SubtensorModule::get_commit_reveal_weights_version(),
+        ));
+        step_epochs(1, netuid);
+
+        let signature = hex::decode("b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39")
+            .expect("valid signature hex");
+        pallet_drand::Pulses::<Test>::insert(
+            reveal_round,
+            Pulse {
+                round: reveal_round,
+                randomness: vec![0; 32].try_into().expect("randomness fits"),
+                signature: signature.try_into().expect("signature fits"),
+            },
+        );
+
+        assert_ok!(SubtensorModule::reveal_crv3_commits_for_subnet(netuid));
     });
 }
 

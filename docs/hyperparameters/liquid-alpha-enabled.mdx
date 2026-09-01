@@ -11,6 +11,36 @@ In the epoch's [`compute_bonds`](/code/pallets/subtensor/src/epoch/run_epoch.rs#
 
 When the flag is off, every pair uses the flat rate `1 − bonds_moving_avg / 1,000,000` ([`compute_disabled_liquid_alpha`](/code/pallets/subtensor/src/epoch/run_epoch.rs#L1567-L1577)).
 
+### Choosing the consensus source
+
+V446 adds `LiquidAlphaConsensusMode`, which selects the consensus vector used
+by liquid alpha:
+
+| Mode | Consensus used |
+| --- | --- |
+| `Current` | Consensus calculated in the current epoch. |
+| `Previous` | Consensus persisted by the previous epoch. If none is stored, the chain falls back to current consensus. |
+| `Auto` (default) | Previous consensus when `bonds_penalty` is `u16::MAX`; current consensus otherwise. |
+
+Subnet owners can change the mode during the subnet's admin window. The call
+has the same owner/root authorization and per-hyperparameter rate limiting as
+other owner-settable parameters, but it is currently exposed as a raw call:
+
+```bash
+btcli call AdminUtils.sudo_set_liquid_alpha_consensus_mode \
+  --args '{"netuid": 42, "mode": "Auto"}' -w my_owner_wallet
+```
+
+The root account can submit the same call with `--sudo`. Read the live mode
+through typed storage:
+
+```python
+mode = await client.query(
+    bt.storage.SubtensorModule.LiquidAlphaConsensusMode,
+    [42],
+)
+```
+
 One important dependency: `compute_bonds` only runs on the Yuma3 path. If [`yuma3_enabled`](/docs/hyperparameters/yuma3-enabled) is off, the classic bond code ignores this toggle entirely and always uses [`bonds_moving_avg`](/docs/hyperparameters/bonds-moving-avg). Setting `alpha_low`/`alpha_high` also requires this flag to be on first ([`LiquidAlphaDisabled`](/code/pallets/subtensor/src/macros/errors.rs#L134) error otherwise).
 
 <HyperparamLiquidAlpha focus="liquid_alpha_enabled" />
@@ -21,7 +51,8 @@ One important dependency: `compute_bonds` only runs on the Yuma3 path. If [`yuma
 btcli sudo get --netuid N --name liquid_alpha_enabled
 ```
 
-Boolean — pass true or false:
+Boolean — pass true or false. This toggles liquid alpha itself; the consensus
+mode above only takes effect while liquid alpha is enabled:
 
 ```
 btcli sudo set --netuid N --name liquid_alpha_enabled --value true

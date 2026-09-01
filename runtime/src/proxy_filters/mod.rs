@@ -30,11 +30,10 @@ type AdminAll = (SubnetManagementCalls, RootConfigCalls, OwnerKeyCalls);
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
-/// `Staking`: stake position management and root-claim mode selection, plus
-/// claiming the root dividends those positions accrue. Granting a staking
-/// proxy is an explicit signal of trust that the proxy manages the coldkey's
-/// stake, and `claim_root` can only restake the payout on root for that same
-/// coldkey.
+/// `Staking`: stake position management plus claiming the root dividends
+/// those positions accrue. Granting a staking proxy is an explicit signal of
+/// trust that the proxy manages the coldkey's stake, and root claims can only
+/// restake the payout on root for that same coldkey.
 type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 
 /// `Registration`: acquire a slot (POW or by burn).
@@ -450,80 +449,81 @@ mod tests {
     }
 
     #[test]
-	fn narrow_proxies_have_exact_allow_lists() {
-	    assert_eq!(
-	        allowed_calls(ProxyType::Transfer),
-	        expected(&[
-	            "Balances::transfer_keep_alive",
-	            "Balances::transfer_allow_death",
-	            "Balances::transfer_all",
-	            "SubtensorModule::transfer_stake",
-	            "SubtensorModule::transfer_stake_and_hotkey",
-	        ])
-	    );
-	    assert_eq!(
-	        allowed_calls(ProxyType::SmallTransfer),
-	        expected(&[
-	            "Balances::transfer_keep_alive",
-	            "Balances::transfer_allow_death",
-	            "SubtensorModule::transfer_stake",
-	            "SubtensorModule::transfer_stake_and_hotkey",
-	        ])
-	    );
-	    assert_eq!(
-	        allowed_calls(ProxyType::Staking),
-	        expected(&[
-	            "SubtensorModule::add_collateral",
-	            "SubtensorModule::add_stake",
-	            "SubtensorModule::add_stake_limit",
-	            "SubtensorModule::claim_root",
-	            "SubtensorModule::claim_root_with_hotkey",
-	            "SubtensorModule::remove_stake",
-	            "SubtensorModule::remove_stake_limit",
-	            "SubtensorModule::remove_stake_full_limit",
-	            "SubtensorModule::unstake_all",
-	            "SubtensorModule::unstake_all_alpha",
-	            "SubtensorModule::move_stake",
-	            "SubtensorModule::set_min_collateral",
-	            "SubtensorModule::stake_into_basket",
-	            "SubtensorModule::swap_stake",
-	            "SubtensorModule::swap_stake_limit",
-	        ])
-	    );
-	    assert_eq!(
-	        allowed_calls(ProxyType::Registration),
-	        expected(&[
-	            "SubtensorModule::register",
-	            "SubtensorModule::register_limit",
-	            "SubtensorModule::burned_register",
-	        ])
-	    );
-	    assert_eq!(
-	        allowed_calls(ProxyType::ChildKeys),
-	        expected(&[
-	            "SubtensorModule::set_children",
-	            "SubtensorModule::set_childkey_take",
-	        ])
-	    );
-	    assert_eq!(
-	        allowed_calls(ProxyType::SwapHotkey),
-	        expected(&[
-	            "SubtensorModule::swap_hotkey",
-	            "SubtensorModule::swap_hotkey_v2",
-	        ])
-	    );
-	    assert_eq!(
-	        allowed_calls(ProxyType::RootClaim),
-	        expected(&[
-	            "SubtensorModule::claim_root",
-	            "SubtensorModule::claim_root_with_hotkey",
-	        ])
-	    );
-	    assert_eq!(
-	        allowed_calls(ProxyType::SudoUncheckedSetCode),
-	        expected(&["Sudo::sudo_unchecked_weight"])
-	    );
-	}
+    fn narrow_proxies_have_exact_allow_lists() {
+        assert_eq!(
+            allowed_calls(ProxyType::Transfer),
+            expected(&[
+                "Balances::transfer_keep_alive",
+                "Balances::transfer_allow_death",
+                "Balances::transfer_all",
+                "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::SmallTransfer),
+            expected(&[
+                "Balances::transfer_keep_alive",
+                "Balances::transfer_allow_death",
+                "SubtensorModule::transfer_stake",
+                "SubtensorModule::transfer_stake_and_hotkey",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::Staking),
+            expected(&[
+                "SubtensorModule::add_collateral",
+                "SubtensorModule::add_stake",
+                "SubtensorModule::add_stake_limit",
+                "SubtensorModule::claim_root",
+                "SubtensorModule::claim_root_with_hotkey",
+                "SubtensorModule::remove_stake",
+                "SubtensorModule::remove_stake_limit",
+                "SubtensorModule::remove_stake_full_limit",
+                "SubtensorModule::unstake_all",
+                "SubtensorModule::unstake_all_alpha",
+                "SubtensorModule::move_stake",
+                "SubtensorModule::move_stake_limit",
+                "SubtensorModule::set_min_collateral",
+                "SubtensorModule::stake_into_basket",
+                "SubtensorModule::swap_stake",
+                "SubtensorModule::swap_stake_limit",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::Registration),
+            expected(&[
+                "SubtensorModule::register",
+                "SubtensorModule::register_limit",
+                "SubtensorModule::burned_register",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::ChildKeys),
+            expected(&[
+                "SubtensorModule::set_children",
+                "SubtensorModule::set_childkey_take",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::SwapHotkey),
+            expected(&[
+                "SubtensorModule::swap_hotkey",
+                "SubtensorModule::swap_hotkey_v2",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::RootClaim),
+            expected(&[
+                "SubtensorModule::claim_root",
+                "SubtensorModule::claim_root_with_hotkey",
+            ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::SudoUncheckedSetCode),
+            expected(&["Sudo::sudo_unchecked_weight"])
+        );
+    }
 
     // The newer calls that leaked through `main`'s denylists must stay denied
     // for every broad proxy.

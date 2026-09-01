@@ -1,13 +1,14 @@
 use super::{CallOf, DispatchableOriginOf, applicable_call};
 use crate::weights::WeightInfo;
 use crate::{Call, Config, Error, Pallet, TransactionType};
+use codec::Encode;
 use frame_support::{
     dispatch::{DispatchErrorWithPostInfo, DispatchExtension, DispatchInfo, PostDispatchInfo},
     pallet_prelude::*,
     traits::{IsSubType, OriginTrait},
 };
 use sp_runtime::traits::Dispatchable;
-use sp_std::marker::PhantomData;
+use sp_std::{marker::PhantomData, vec, vec::Vec};
 use subtensor_runtime_common::{NetUid, NetUidStorageIndex};
 
 /// Dispatch extension for rate-limit checks that are safe to reject before dispatch.
@@ -22,8 +23,12 @@ impl<T: Config> CheckRateLimits<T> {
             call,
             Call::commit_weights { .. }
                 | Call::commit_mechanism_weights { .. }
+                | Call::commit_timelocked_weights { .. }
+                | Call::commit_timelocked_mechanism_weights { .. }
+                | Call::commit_crv3_mechanism_weights { .. }
                 | Call::set_weights { .. }
                 | Call::set_mechanism_weights { .. }
+                | Call::set_root_weights { .. }
                 | Call::register_network { .. }
         )
     }
@@ -60,6 +65,21 @@ impl<T: Config> CheckRateLimits<T> {
                 Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
                 Error::<T>::CommittingWeightsTooFast,
             ),
+            Call::commit_timelocked_weights { netuid, .. } => Self::check_weights_rate_limit(
+                who,
+                *netuid,
+                NetUidStorageIndex::from(*netuid),
+                Error::<T>::CommittingWeightsTooFast,
+            ),
+            Call::commit_timelocked_mechanism_weights { netuid, mecid, .. }
+            | Call::commit_crv3_mechanism_weights { netuid, mecid, .. } => {
+                Self::check_weights_rate_limit(
+                    who,
+                    *netuid,
+                    Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+                    Error::<T>::CommittingWeightsTooFast,
+                )
+            }
             Call::set_weights { netuid, .. }
                 if !Pallet::<T>::get_commit_reveal_weights_enabled(*netuid) =>
             {
@@ -80,6 +100,15 @@ impl<T: Config> CheckRateLimits<T> {
                     Error::<T>::SettingWeightsTooFast,
                 )
             }
+            // `set_root_weights` ignores commit-reveal and always rate-limits at
+            // dispatch, so mirror that here unconditionally. The call is `Pays::No`;
+            // without this pool check a rate-limited call is a free failing extrinsic.
+            Call::set_root_weights { .. } => Self::check_weights_rate_limit(
+                who,
+                NetUid::ROOT,
+                NetUidStorageIndex::ROOT,
+                Error::<T>::SettingWeightsTooFast,
+            ),
             Call::register_network { .. }
                 if !TransactionType::RegisterNetwork.passes_rate_limit::<T>(who) =>
             {
@@ -87,6 +116,31 @@ impl<T: Config> CheckRateLimits<T> {
             }
             _ => Ok(()),
         }
+    }
+
+    /// One pending commit per hotkey and mechanism when commits are rate limited. Calls sharing
+    /// this tag also share the same on-chain rate limit, so the pool keeps only one candidate
+    /// instead of landing the rest as deterministic `CommittingWeightsTooFast` failures.
+    pub(crate) fn provides_tags(who: &T::AccountId, call: &Call<T>) -> Vec<Vec<u8>> {
+        let (netuid, netuid_index) = match call {
+            Call::commit_weights { netuid, .. }
+            | Call::commit_timelocked_weights { netuid, .. } => {
+                (*netuid, NetUidStorageIndex::from(*netuid))
+            }
+            Call::commit_mechanism_weights { netuid, mecid, .. }
+            | Call::commit_timelocked_mechanism_weights { netuid, mecid, .. }
+            | Call::commit_crv3_mechanism_weights { netuid, mecid, .. } => (
+                *netuid,
+                Pallet::<T>::get_mechanism_storage_index(*netuid, *mecid),
+            ),
+            _ => return Vec::new(),
+        };
+
+        if Pallet::<T>::get_weights_set_rate_limit(netuid) == 0 {
+            return Vec::new();
+        }
+
+        vec![(b"weight-commit", who, netuid_index).encode()]
     }
 }
 
@@ -191,6 +245,25 @@ mod tests {
                 mecid: MechId::MAIN,
                 commit_hash: sp_core::H256::zero(),
             }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_weights {
+                netuid,
+                commit: Default::default(),
+                reveal_round: 1,
+                commit_reveal_version: 4,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_timelocked_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                commit: Default::default(),
+                reveal_round: 1,
+                commit_reveal_version: 4,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::commit_crv3_mechanism_weights {
+                netuid,
+                mecid: MechId::MAIN,
+                commit: Default::default(),
+                reveal_round: 1,
+            }),
             set_weights_call(netuid, 0),
             RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights {
                 netuid,
@@ -198,6 +271,10 @@ mod tests {
                 dests: vec![0],
                 weights: vec![1],
                 version_key: 0,
+            }),
+            RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights {
+                dests: vec![0],
+                weights: vec![1],
             }),
             register_network_call(U256::from(1)),
         ];

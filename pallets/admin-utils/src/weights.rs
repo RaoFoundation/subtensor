@@ -123,6 +123,7 @@ pub trait WeightInfo {
 	fn sudo_set_owner_cut_auto_lock_enabled() -> Weight;
 	fn sudo_set_collateral_lock_share() -> Weight;
 	fn sudo_set_collateral_drain_ratio() -> Weight;
+	fn sudo_set_root_weights_cap() -> Weight;
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.
@@ -143,17 +144,19 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `Grandpa::PendingChange` (r:1 w:1)
 	/// Proof: `Grandpa::PendingChange` (`max_values`: Some(1), `max_size`: Some(1294), added: 1789, mode: `MaxEncodedLen`)
+	/// Storage: `Grandpa::CurrentSetId` (r:1 w:1)
+	/// Proof: `Grandpa::CurrentSetId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// The range of component `a` is `[0, 32]`.
 	fn schedule_grandpa_change(a: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `174`
-		//  Estimated: `2779`
+		//  Estimated: `3282`
 		// Minimum execution time: 7_444_000 picoseconds.
-		Weight::from_parts(8_055_222, 2779)
+		Weight::from_parts(8_055_222, 3282)
 			// Standard Error: 917
 			.saturating_add(Weight::from_parts(18_955, 0).saturating_mul(a.into()))
-			.saturating_add(T::DbWeight::get().reads(1_u64))
-			.saturating_add(T::DbWeight::get().writes(1_u64))
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
 	/// Storage: `SubtensorModule::MaxDelegateTake` (r:0 w:1)
 	/// Proof: `SubtensorModule::MaxDelegateTake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -1463,6 +1466,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(2_u64))
 	}
+	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_root_weights_cap() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks,
+		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SubtensorModule::Tempo` (r:1 w:0)
@@ -1528,17 +1539,19 @@ impl WeightInfo for () {
 	}
 	/// Storage: `Grandpa::PendingChange` (r:1 w:1)
 	/// Proof: `Grandpa::PendingChange` (`max_values`: Some(1), `max_size`: Some(1294), added: 1789, mode: `MaxEncodedLen`)
+	/// Storage: `Grandpa::CurrentSetId` (r:1 w:1)
+	/// Proof: `Grandpa::CurrentSetId` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
 	/// The range of component `a` is `[0, 32]`.
 	fn schedule_grandpa_change(a: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `174`
-		//  Estimated: `2779`
+		//  Estimated: `3282`
 		// Minimum execution time: 7_444_000 picoseconds.
-		Weight::from_parts(8_055_222, 2779)
+		Weight::from_parts(8_055_222, 3282)
 			// Standard Error: 917
 			.saturating_add(Weight::from_parts(18_955, 0).saturating_mul(a.into()))
-			.saturating_add(RocksDbWeight::get().reads(1_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(2_u64))
 	}
 	/// Storage: `SubtensorModule::MaxDelegateTake` (r:0 w:1)
 	/// Proof: `SubtensorModule::MaxDelegateTake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2847,6 +2860,14 @@ impl WeightInfo for () {
 		Weight::from_parts(42_884_000, 4467)
 			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(2_u64))
+	}
+	/// Storage: `SubtensorModule::RootWeightsCap` (r:0 w:1)
+	/// Proof: `SubtensorModule::RootWeightsCap` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn sudo_set_root_weights_cap() -> Weight {
+		// Measured on the reference Benchmarking runner (validate-benchmarks,
+		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `SubtensorModule::SubnetOwner` (r:1 w:0)
 	/// Proof: `SubtensorModule::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)

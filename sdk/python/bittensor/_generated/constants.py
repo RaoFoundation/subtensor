@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 442
+Spec version: 449
 
 Pallet constant descriptors: unpack into substrate.constant.
 """
@@ -185,4 +185,4 @@ class LimitOrders:
     MaxOrdersPerBatch = Item('LimitOrders', 'MaxOrdersPerBatch')
     PalletId = Item('LimitOrders', 'PalletId')
     PalletHotkey = Item('LimitOrders', 'PalletHotkey')
-
+    LinkedOutputTtl = Item('LimitOrders', 'LinkedOutputTtl')
