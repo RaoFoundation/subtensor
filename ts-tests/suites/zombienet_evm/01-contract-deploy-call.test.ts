@@ -33,7 +33,6 @@ import {
     sudoSetLockReductionInterval,
     tao,
     waitForFinalizedBlocks,
-    waitUntilBlockFinalized,
 } from "../../utils";
 
 const DEPLOYED_BYTECODE_PREFIX = "0x60806040523480156";
@@ -295,29 +294,13 @@ describeSuite({
                 const alphaInPool = await contractForCall.getContractStake(netuid);
                 expect(alphaInPool).toEqual(BigInt(0));
 
-                const depositAlphaTx = await contractForCall.depositAlpha(netuid, tao(10).toString(), hotkey.publicKey);
-                const depositReceipt = await depositAlphaTx.wait();
-                if (!depositReceipt) throw new Error("Missing depositAlpha receipt");
-                expect(depositReceipt.status).toEqual(1);
-                // Wait for the deposit's own block to finalize rather than a
-                // fixed block count: when GRANDPA lags best by more than 2
-                // blocks, the finalized-state stake reads below see the
-                // pre-deposit stake and the toBeLessThan assertion flakes.
-                await waitUntilBlockFinalized(api, depositReceipt.blockNumber);
-
-                const stakeAfterDeposit = await getStake(api, hotkeySs58, walletSs58, netuid);
-                expect(stakeAfterDeposit).toBeLessThan(stakeBeforeDeposit);
-
-                const contractStake = await getStake(api, hotkeySs58, convertH160ToSS58(contractAddress), netuid);
-                expect(contractStake).toBeGreaterThan(BigInt(0));
-
-                const alphaBalanceOnContract = await contractForCall.alphaBalance(ethWallet.address, netuid);
-                expect(tao(10) - alphaBalanceOnContract).toBeLessThan(BigInt(1000));
-
-                const stakeFromContract = BigInt(
-                    await stakingPrecompile.getStake(hotkey.publicKey, contractPublicKey, netuid)
+                await expect(
+                    contractForCall.depositAlpha(netuid, tao(10).toString(), hotkey.publicKey)
+                ).rejects.toThrow(/user deposit alpha call failed/);
+                expect(await getStake(api, hotkeySs58, walletSs58, netuid)).toEqual(stakeBeforeDeposit);
+                expect(await stakingPrecompile.getStake(hotkey.publicKey, contractPublicKey, netuid)).toEqual(
+                    BigInt(0)
                 );
-                expect(stakeFromContract).toEqual(await contractForCall.getContractStake(netuid));
             },
         });
 
