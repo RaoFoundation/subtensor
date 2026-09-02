@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 449
+Spec version: 453
 """
 from dataclasses import dataclass
 
@@ -198,10 +198,11 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 154): ErrorInfo('SubtensorModule', 'ColdkeyCollateralPositionsFull', 'This coldkey already has the maximum number of distinct hotkeys with miner collateral on the subnet ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).'),
     (7, 155): ErrorInfo('SubtensorModule', 'BasketHasNoWeights', "Retired (kept for SCALE index stability): direct basket deposits into an uncurated fund are now held as the fund's root (TAO cash) slot instead of erroring."),
     (7, 156): ErrorInfo('SubtensorModule', 'RootStakeLocked', 'Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window (measured from the last root stake add/remove/claim for that coldkey/hotkey) and cannot leave root yet. Prevents epoch-boundary just-in-time dividend sniping.'),
-    (7, 157): ErrorInfo('SubtensorModule', 'BetaBasketSeedInProgress', 'The `migrate_seed_beta_basket_v2` seed or its per-hotkey deferred-dividend release has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes so snapshotted conversion cannot desync from live stake (`Σ owed == BasketShares`).'),
+    (7, 157): ErrorInfo('SubtensorModule', 'BetaBasketSeedInProgress', 'The `migrate_seed_beta_basket_v2` seed has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes so snapshotted conversion cannot desync from live stake (`Σ owed == BasketShares`).'),
     (7, 158): ErrorInfo('SubtensorModule', 'RootWeightSettingDisabled', '`set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`] is false). Root Reborn launches gated: every fund runs the null strategy (dividends accumulate in place) until weight setting is switched on by governance or a later upgrade.'),
     (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'Coldkey-wide `claim_root` would process more work units than the pre-dispatch envelope ([`crate::MAX_ROOT_CLAIM_WORK`]). Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
     (7, 160): ErrorInfo('SubtensorModule', 'RootWeightCapExceeded', 'A single destination in a `set_root_weights` vector takes a larger share of the basket than [`crate::RootWeightsCap`] allows (share = value / sum of values). With the cap at 1/16 a validator must spread its basket across at least 16 destinations. Not enforced while the chain has fewer destinations than the cap demands.'),
+    (7, 161): ErrorInfo('SubtensorModule', 'BasketDepositPending', "A queued root-dividend deposit could not be settled. Operations which change the hotkey's root claimant base must retry after the deposit becomes executable."),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
@@ -402,4 +403,18 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 24): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForLinkedAmount', 'Partial fill submitted against a linked (consuming) order.'),
     (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
     (32, 26): ErrorInfo('LimitOrders', 'LinkedOutputNotPrunable', '`prune_linked_output` called by a non-signer on an unexpired record.'),
+    (33, 0): ErrorInfo('Derivatives', 'SideDisabled', 'Opening this side is switched off.'),
+    (33, 1): ErrorInfo('Derivatives', 'SubnetNotDynamic', 'The subnet does not exist, is not AMM-priced, or has its subtoken disabled.'),
+    (33, 2): ErrorInfo('Derivatives', 'PositionExists', 'The caller already has a position of this side on this subnet.'),
+    (33, 3): ErrorInfo('Derivatives', 'NoPosition', 'No such position.'),
+    (33, 4): ErrorInfo('Derivatives', 'DepositTooLow', 'The cushion is worth less than `min_deposit_tao`.'),
+    (33, 5): ErrorInfo('Derivatives', 'ExposureTooLarge', 'Leverage times deposit would take the whole reserve.'),
+    (33, 6): ErrorInfo('Derivatives', 'ZeroExposure', 'Leverage times deposit rounds to nothing.'),
+    (33, 7): ErrorInfo('Derivatives', 'PoolCapExceeded', 'Open positions of this side would exceed `max_pool_share` of the lent reserve.'),
+    (33, 8): ErrorInfo('Derivatives', 'NotExpired', 'Only the owner may close before `expires_at`.'),
+    (33, 9): ErrorInfo('Derivatives', 'ExpiryQueueFull', 'Too many positions already expire in the next blocks.'),
+    (33, 10): ErrorInfo('Derivatives', 'SwapReturnedZero', 'The pool swap returned nothing for a non-zero input.'),
+    (33, 11): ErrorInfo('Derivatives', 'InvalidParams', '`leverage_percent`, `max_pool_share`, or `lifetime_blocks` is zero.'),
+    (33, 12): ErrorInfo('Derivatives', 'TopUpMismatch', 'A roll top-up must be in the token the cushion comes back in, and for alpha on the same hotkey.'),
+    (33, 13): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
 }

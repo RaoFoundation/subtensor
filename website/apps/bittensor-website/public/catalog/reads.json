@@ -766,7 +766,18 @@
     "category": "Prices & swaps",
     "docs_url": "/docs/query/derivative-position",
     "markdown_url": "/llms.mdx/docs/query/derivative-position/content.md",
-    "python": "sub.prices.derivative_position(...)"
+    "python": "sub.prices.derivative_position(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Derivatives",
+        "name": "Positions",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 82,
+        "url": "/code/pallets/derivatives/src/lib.rs#L82",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "derivative_positions",
@@ -781,7 +792,18 @@
     "category": "Prices & swaps",
     "docs_url": "/docs/query/derivative-positions",
     "markdown_url": "/llms.mdx/docs/query/derivative-positions/content.md",
-    "python": "sub.prices.derivative_positions(...)"
+    "python": "sub.prices.derivative_positions(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Derivatives",
+        "name": "Positions",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 82,
+        "url": "/code/pallets/derivatives/src/lib.rs#L82",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "derivatives_params",
@@ -792,7 +814,18 @@
     "category": "Prices & swaps",
     "docs_url": "/docs/query/derivatives-params",
     "markdown_url": "/llms.mdx/docs/query/derivatives-params/content.md",
-    "python": "sub.prices.derivatives_params(...)"
+    "python": "sub.prices.derivatives_params(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Derivatives",
+        "name": "Params",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 77,
+        "url": "/code/pallets/derivatives/src/lib.rs#L77",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
   },
   {
     "name": "difficulty",

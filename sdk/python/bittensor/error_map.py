@@ -160,6 +160,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidIdentity": _C.INVALID_ARGUMENT,
     "MechanismDoesNotExist": _C.SUBNET_NOT_EXISTS,  # also Swap
     "StakeUnavailable": _C.INSUFFICIENT_BALANCE,
+    "BasketDepositPending": _C.TOO_EARLY,
     "SubnetNotExists": _C.SUBNET_NOT_EXISTS,
     "TooManyUnrevealedCommits": _C.LIMIT_EXCEEDED,
     "ExpiredWeightCommit": _C.EXPIRED,
@@ -354,7 +355,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidRoundNumber": _C.INVALID_ARGUMENT,
     "PulseVerificationError": _C.INVALID_ARGUMENT,
     # ── Crowdloan ───────────────────────────────────────────────────────
-    "DepositTooLow": _C.INVALID_ARGUMENT,
+    "DepositTooLow": _C.INVALID_ARGUMENT,  # also Derivatives
     "CapTooLow": _C.INVALID_ARGUMENT,
     "MinimumContributionTooLow": _C.INVALID_ARGUMENT,
     "CannotEndInPast": _C.INVALID_ARGUMENT,
@@ -436,7 +437,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "OrderCancelled": _C.EXPIRED,
     "OrderExpired": _C.EXPIRED,
     "PriceConditionNotMet": _C.TOO_EARLY,
-    "SwapReturnedZero": _C.INSUFFICIENT_LIQUIDITY,
+    "SwapReturnedZero": _C.INSUFFICIENT_LIQUIDITY,  # also Derivatives
     "RootNetUidNotAllowed": _C.INVALID_ARGUMENT,
     "OrderNetUidMismatch": _C.INVALID_ARGUMENT,
     "LimitOrdersDisabled": _C.DISABLED,
@@ -457,6 +458,19 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PartialFillNotSupportedForLinkedAmount": _C.INVALID_ARGUMENT,
     "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
     "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
+    # ── Derivatives ─────────────────────────────────────────────────────
+    "SideDisabled": _C.DISABLED,
+    "SubnetNotDynamic": _C.SUBTOKEN_DISABLED,
+    "PositionExists": _C.ALREADY_EXISTS,
+    "NoPosition": _C.NOT_FOUND,
+    "ExposureTooLarge": _C.LIMIT_EXCEEDED,
+    "ZeroExposure": _C.INVALID_ARGUMENT,
+    "PoolCapExceeded": _C.LIMIT_EXCEEDED,
+    "NotExpired": _C.TOO_EARLY,
+    "ExpiryQueueFull": _C.LIMIT_EXCEEDED,
+    "InvalidParams": _C.INVALID_ARGUMENT,
+    "TopUpMismatch": _C.UNIT_MISMATCH,
+    "PalletHotkeyUnset": _C.TOO_EARLY,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

@@ -4,14 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-# TODO(codegen): switch to `st.Derivatives.*` once the storage registry is
-# regenerated against a node that carries the Derivatives pallet.
-from .._generated.storage import Item
+from .._generated import storage as st
 from ..balance import Balance
 from .base import read
-
-_POSITIONS = Item("Derivatives", "Positions", "Position")
-_PARAMS = Item("Derivatives", "Params", "DerivativesParams")
 
 # Mirrors `BLOCKS_PER_DAY` in the pallet: the borrow fee is quoted per day and
 # never charged for less than one day.
@@ -129,7 +124,7 @@ async def derivatives_params(view) -> dict:
     share of the pool it lifted, a long pays `long_rate_per_day` times its TAO
     exposure.
     """
-    return _params_record(await view.query(_PARAMS))
+    return _params_record(await view.query(st.Derivatives.Params))
 
 
 @read(
@@ -151,7 +146,7 @@ async def derivative_position(view, coldkey_ss58: str, netuid: int, side: str) -
     was fixed at open; `accrued_fee_tao` is what would be charged if closed now.
     """
     view = await view.at()
-    raw = await view.query(_POSITIONS, [coldkey_ss58, (netuid, side)])
+    raw = await view.query(st.Derivatives.Positions, [coldkey_ss58, (netuid, side)])
     return _position_record(view, coldkey_ss58, netuid, side, raw, view.block)
 
 
@@ -164,7 +159,7 @@ async def derivative_position(view, coldkey_ss58: str, netuid: int, side: str) -
 async def derivative_positions(view, coldkey_ss58: str) -> list[dict]:
     """Every open long and short a coldkey holds, across all subnets."""
     view = await view.at()
-    rows = await view.query_map(_POSITIONS, [coldkey_ss58])
+    rows = await view.query_map(st.Derivatives.Positions, [coldkey_ss58])
     records = []
     for key, raw in rows:
         # Remainder after the coldkey prefix: the (netuid, side) tuple.

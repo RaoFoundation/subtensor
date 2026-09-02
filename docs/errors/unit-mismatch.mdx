@@ -17,6 +17,10 @@ Match the Balance netuid to the operation's currency
 
 ## Chain errors
 
-No chain error classifies to this code — it is raised client-side by the SDK before or after the call reaches the chain.
+The exact chain error names (from the extrinsic receipt) that classify to `unit_mismatch`; the description says what triggered the failure and where to check. Each name has its own page:
+
+| Chain error | Description |
+| --- | --- |
+| [`TopUpMismatch`](/docs/errors/chain/TopUpMismatch) | A roll top-up must be in the token the settled cushion comes back in, and for alpha on the same hotkey. Check the position's cushion asset and hotkey and match them. |
 
 The same explanation is available in the terminal: `btcli explain unit_mismatch` (or `btcli explain <ChainErrorName>` for one exact chain error).

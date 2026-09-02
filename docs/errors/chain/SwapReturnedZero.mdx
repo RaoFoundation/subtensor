@@ -7,9 +7,9 @@ description: "The pool cannot absorb this trade; reduce the amount or split it i
 
 The netted pool swap in `execute_batched_orders` produced zero output for a non-zero input, meaning the pool lacks liquidity or the derived price limit clamped the swap entirely. Check the subnet pool's reserves and the batch's tightest slippage-derived price limit.
 
-Declared by the `LimitOrders` pallet; it classifies to the semantic code [`insufficient_liquidity`](/docs/errors/insufficient-liquidity).
+Declared by the `LimitOrders`, `Derivatives` pallets; it classifies to the semantic code [`insufficient_liquidity`](/docs/errors/insufficient-liquidity).
 
-Declared at [`pallets/limit-orders/src/lib.rs#L419`](/code/pallets/limit-orders/src/lib.rs#L419).
+Declared at [`pallets/limit-orders/src/lib.rs#L419`](/code/pallets/limit-orders/src/lib.rs#L419), [`pallets/derivatives/src/lib.rs#L194`](/code/pallets/derivatives/src/lib.rs#L194).
 
 ## Remediation
 

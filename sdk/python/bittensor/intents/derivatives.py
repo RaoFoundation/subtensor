@@ -15,9 +15,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar, Optional
 
-# TODO(codegen): switch to `calls.Derivatives.*` once the call registry is
-# regenerated against a node that carries the Derivatives pallet.
-from .._generated.calls import Call
+from .._generated import calls
 from ..balance import Balance
 from ._money import Money, Spend, alpha_amount, tao_amount
 from .base import Intent
@@ -97,10 +95,8 @@ class _OpenPosition(Intent):
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
-            Call(
-                "Derivatives",
-                "open",
-                {"netuid": self.netuid, "side": self.side, "deposit": self._deposit(wallet)},
+            calls.Derivatives.open(
+                netuid=self.netuid, side=self.side, deposit=self._deposit(wallet)
             )
         )
 
@@ -189,11 +185,7 @@ class ClosePosition(Intent):
     async def build(self, substrate, wallet: Any):
         owner = self.owner_ss58 or self.coldkey_address(wallet)
         return await substrate.compose(
-            Call(
-                "Derivatives",
-                "close",
-                {"owner": owner, "netuid": self.netuid, "side": self.side},
-            )
+            calls.Derivatives.close(owner=owner, netuid=self.netuid, side=self.side)
         )
 
     def summary(self) -> str:
@@ -269,11 +261,7 @@ class RollPosition(Intent):
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
-            Call(
-                "Derivatives",
-                "roll",
-                {"netuid": self.netuid, "side": self.side, "top_up": self._top_up(wallet)},
-            )
+            calls.Derivatives.roll(netuid=self.netuid, side=self.side, top_up=self._top_up(wallet))
         )
 
     def summary(self) -> str:
