@@ -980,10 +980,11 @@ where
 
                 let caller = env.caller();
                 let call_result =
-                    pallet_subtensor::Pallet::<T>::do_root_claim(caller, vec![hotkey]);
+                    pallet_subtensor::Pallet::<T>::do_root_claim(caller.clone(), vec![hotkey]);
 
                 match call_result {
                     Ok(outcome) => {
+                        pallet_subtensor::Pallet::<T>::maybe_add_coldkey_index(&caller);
                         env.write_output(&outcome.tao.encode())
                             .map_err(|_| DispatchError::Other("Failed to write output"))?;
                         Ok(RetVal::Converging(Output::Success as u32))
