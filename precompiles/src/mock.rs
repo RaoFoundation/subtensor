@@ -25,7 +25,7 @@ use sp_runtime::{
     traits::{BlakeTwo256, ConstU32, IdentityLookup},
 };
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AuthorshipInfo, NetUid, ProxyType, TaoBalance};
+use subtensor_runtime_common::{AuthorshipInfo, NetUid, ProxyType, SubnetDissolveHook, TaoBalance};
 
 use crate::PrecompileExt;
 
@@ -432,14 +432,15 @@ impl AuthorshipInfo<AccountId> for MockAuthorshipProvider {
 }
 
 pub struct CommitmentsI;
-impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
-    fn purge_netuid(
+impl SubnetDissolveHook for CommitmentsI {
+    fn on_subnet_dissolve(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
-
+}
+impl pallet_subtensor::CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 
@@ -507,6 +508,7 @@ impl pallet_subtensor::Config for Runtime {
     type Yuma3On = InitialYuma3On;
     type Preimages = Preimage;
     type AlphaAssets = AlphaAssets;
+    type Derivatives = ();
     type InitialColdkeySwapAnnouncementDelay = InitialColdkeySwapAnnouncementDelay;
     type InitialColdkeySwapReannouncementDelay = InitialColdkeySwapReannouncementDelay;
     type InitialDissolveNetworkScheduleDuration = InitialDissolveNetworkScheduleDuration;

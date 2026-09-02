@@ -385,6 +385,29 @@ class Prices(_ReadNamespace):
     async def alpha_prices(self, *, block: Optional[int] = None) -> dict[int, float]:
         """Spot alpha price for every subnet, as TAO per alpha keyed by netuid."""
 
+    async def derivative_position(self, coldkey_ss58: str, netuid: int, side: str, *, block: Optional[int] = None) -> Optional[dict]:
+        """One open position for a coldkey on a subnet and side, or None.
+
+        `proceeds`, `debt`, and `escrow` are the position's `legs`, each already in
+        its own token: a short holds TAO proceeds and TAO escrow and owes alpha; a
+        long holds alpha proceeds and alpha escrow and owes TAO. `fee_per_day_tao`
+        was fixed at open; `accrued_fee_tao` is what would be charged if closed now.
+        """
+
+    async def derivative_positions(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
+        """Every open long and short a coldkey holds, across all subnets."""
+
+    async def derivatives_params(self, *, block: Optional[int] = None) -> dict:
+        """The derivatives pallet's root-set parameters.
+
+        `leverage_percent` sizes the borrowed slice from the cushion, `max_pool_share`
+        caps how much of a pool's reserve may be lent per side, and `lifetime_blocks`
+        is how long a position may stay open. Fees are fixed at open and charged at
+        close with a one-day minimum: a short pays `short_fee_per_day_tao` times the
+        share of the pool it lifted, a long pays `long_rate_per_day` times its TAO
+        exposure.
+        """
+
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:
         """Simulate staking `amount_tao` TAO into a subnet: alpha out, fee, and slippage.
 
@@ -468,8 +491,11 @@ class Staking(_ReadNamespace):
         """Basket summaries for every validator with an active basket.
 
         The network-wide leaderboard: one `validator_basket_summary` record per
-        validator with an active fund, sorted by NAV descending. Compare
-        `lifetime_return` across validators to rank basket performance.
+        validator with an active fund, sorted by NAV descending, each including
+        its `basket_rate` (the cumulative entitlement accumulator: β raw units
+        minted per rao of root stake, migration-seeded history included).
+        Compare `lifetime_return` across validators to rank basket performance;
+        for staker returns use `chain_pricing` (`staker_twr` / `stake_price`).
         """
 
     async def root_claim_threshold(self, *, block: Optional[int] = None) -> Balance:
@@ -555,9 +581,12 @@ class Staking(_ReadNamespace):
 
         Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
         and the lifetime return multiple `(nav + redeemed) / deposited`, the
-        validator's root weight vector, and the per-subnet alpha holdings each
-        valued at spot and at realizable depth. All figures are TAO (or alpha
-        for the holdings themselves).
+        validator's root weight vector, the per-subnet alpha holdings each
+        valued at spot and at realizable depth, and `basket_rate` — the
+        cumulative β raw units minted per rao of root stake (a lifetime
+        accumulator that includes migration-seeded history). For staker returns
+        use `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate
+        deltas. All figures are TAO (or alpha for the holdings themselves).
         """
 
     async def validator_root_weights(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:

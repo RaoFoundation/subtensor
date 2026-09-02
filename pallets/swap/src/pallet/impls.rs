@@ -561,6 +561,45 @@ impl<T: Config> SwapHandler for Pallet<T> {
         }
     }
 
+    fn tao_needed_for_alpha(netuid: NetUid, alpha_amount: AlphaBalance) -> TaoBalance {
+        match T::SubnetInfo::mechanism(netuid) {
+            1 => {
+                let tao_reserve = T::TaoReserve::reserve(netuid);
+                let alpha_reserve = T::AlphaReserve::reserve(netuid);
+                let balancer = SwapBalancer::<T>::get(netuid);
+                balancer
+                    .get_quote_needed_for_base(
+                        tao_reserve.to_u64(),
+                        alpha_reserve.to_u64(),
+                        alpha_amount.to_u64(),
+                    )
+                    .into()
+            }
+            _ => alpha_amount.to_u64().into(),
+        }
+    }
+
+    fn alpha_needed_for_tao(netuid: NetUid, tao_amount: TaoBalance) -> AlphaBalance {
+        match T::SubnetInfo::mechanism(netuid) {
+            1 => {
+                let tao_reserve = T::TaoReserve::reserve(netuid);
+                if tao_amount >= tao_reserve {
+                    return AlphaBalance::MAX;
+                }
+                let alpha_reserve = T::AlphaReserve::reserve(netuid);
+                let balancer = SwapBalancer::<T>::get(netuid);
+                balancer
+                    .get_base_needed_for_quote(
+                        tao_reserve.to_u64(),
+                        alpha_reserve.to_u64(),
+                        tao_amount.to_u64(),
+                    )
+                    .into()
+            }
+            _ => tao_amount.to_u64().into(),
+        }
+    }
+
     fn max_swap_input<O: OrderT>(netuid: NetUid) -> O::PaidIn
     where
         Self: SwapEngine<O>,

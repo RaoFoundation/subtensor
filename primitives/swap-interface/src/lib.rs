@@ -5,6 +5,7 @@ use core::ops::Neg;
 use frame_support::pallet_prelude::*;
 use frame_support::weights::WeightMeter;
 pub use order::*;
+pub use sp_arithmetic::Perquintill;
 use substrate_fixed::types::U64F64;
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
@@ -63,6 +64,14 @@ pub trait SwapHandler {
     fn clear_protocol_liquidity(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
     fn init_swap(netuid: NetUid, maybe_price: Option<U64F64>);
     fn get_alpha_amount_for_tao(netuid: NetUid, tao_amount: TaoBalance) -> AlphaBalance;
+
+    /// Exact (slippage-aware, fee-free) TAO input needed to buy `alpha_amount` from the pool.
+    /// Returns `TaoBalance::MAX` when the pool cannot supply that much alpha.
+    fn tao_needed_for_alpha(netuid: NetUid, alpha_amount: AlphaBalance) -> TaoBalance;
+
+    /// Exact (slippage-aware, fee-free) alpha input needed to obtain `tao_amount` from the pool.
+    /// Returns `AlphaBalance::MAX` when the pool cannot supply that much TAO.
+    fn alpha_needed_for_tao(netuid: NetUid, tao_amount: TaoBalance) -> AlphaBalance;
 
     /// Maximum conservative gross input accepted by one swap for this order. Protocol basket
     /// swaps drop fees, so the input-reserve multiple is exact for their use. Larger operations
@@ -209,6 +218,111 @@ pub trait OrderSwapInterface<AccountId> {
     /// The default is a no-op; override in runtime implementations.
     #[cfg(feature = "runtime-benchmarks")]
     fn set_up_acc_for_benchmark(_hotkey: &AccountId, _coldkey: &AccountId) {}
+}
+
+/// Pool primitives needed by `pallet-derivatives` to borrow a slice of a subnet's liquidity
+/// and hand it back later.
+///
+/// Every method here touches pool reserves and stake accounting directly and **must not**
+/// record user TAO flow (`SubnetTaoFlow`): a derivative position is a loan from the pool, not
+/// a stake or unstake by the user. All internal swaps run with fees dropped. Implemented by
+/// `pallet_subtensor::Pallet<T>`; consumers also rely on [`OrderSwapInterface`] for plain TAO
+/// and stake transfers.
+pub trait DerivativesPoolInterface<AccountId> {
+    /// `true` when `netuid` exists, is a dynamic (AMM-priced) subnet and its subtoken is
+    /// enabled. Positions may only be opened on such subnets.
+    fn is_dynamic(netuid: NetUid) -> bool;
+
+    /// Current price-active reserves `(SubnetTAO, SubnetAlphaIn)`.
+    fn reserves(netuid: NetUid) -> (TaoBalance, AlphaBalance);
+
+    /// Remove the fraction `phi` of both reserves from the pool without moving price. The TAO
+    /// lands on `to_coldkey`'s free balance, the alpha becomes stake at
+    /// `(to_hotkey, to_coldkey)`. Returns the exact `(tao, alpha)` removed (rounded down).
+    fn lift_liquidity(
+        netuid: NetUid,
+        phi: Perquintill,
+        to_coldkey: &AccountId,
+        to_hotkey: &AccountId,
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError>;
+
+    /// Put `tao` (from `from_coldkey`'s free balance) and `alpha` (from stake at
+    /// `(from_hotkey, from_coldkey)`) back into the pool. The pair may be unbalanced; the pool
+    /// reweights so that price does not move. Also works while the subnet is dissolving, so
+    /// borrowed liquidity can be handed back before stakes are converted.
+    fn return_liquidity(
+        netuid: NetUid,
+        tao: TaoBalance,
+        alpha: AlphaBalance,
+        from_coldkey: &AccountId,
+        from_hotkey: &AccountId,
+    ) -> DispatchResult;
+
+    /// Sell `alpha` staked at `(hotkey, coldkey)` into the pool, fee-free, without recording
+    /// TAO flow. Resulting TAO is credited to `coldkey`.
+    fn sell_alpha_internal(
+        coldkey: &AccountId,
+        hotkey: &AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError>;
+
+    /// Buy alpha with `tao` from `coldkey`'s free balance, fee-free, without recording TAO
+    /// flow. Resulting alpha becomes stake at `(hotkey, coldkey)`.
+    fn buy_alpha_internal(
+        coldkey: &AccountId,
+        hotkey: &AccountId,
+        netuid: NetUid,
+        tao: TaoBalance,
+    ) -> Result<AlphaBalance, DispatchError>;
+
+    /// Buy at least `want` alpha for `(hotkey, coldkey)`, spending at most `budget` of
+    /// `coldkey`'s free TAO. Same accounting as [`Self::buy_alpha_internal`]. Returns
+    /// `(tao_spent, alpha_bought)`; `alpha_bought` is below `want` only when the whole budget
+    /// was spent, so the caller can treat any remaining gap as a true shortfall.
+    fn buy_alpha_for(
+        coldkey: &AccountId,
+        hotkey: &AccountId,
+        netuid: NetUid,
+        want: AlphaBalance,
+        budget: TaoBalance,
+    ) -> Result<(TaoBalance, AlphaBalance), DispatchError>;
+
+    /// Sell at most `budget` alpha staked at `(hotkey, coldkey)` to raise at least `want` TAO
+    /// for `coldkey`. Same accounting as [`Self::sell_alpha_internal`]. Returns
+    /// `(alpha_sold, tao_raised)`; `tao_raised` is below `want` only when the whole budget was
+    /// sold.
+    fn sell_alpha_for(
+        coldkey: &AccountId,
+        hotkey: &AccountId,
+        netuid: NetUid,
+        want: TaoBalance,
+        budget: AlphaBalance,
+    ) -> Result<(AlphaBalance, TaoBalance), DispatchError>;
+
+    /// Move `amount` staked alpha between two `(coldkey, hotkey)` pairs with no validation
+    /// beyond the sender's balance and the destination hotkey still existing. Also works while
+    /// the subnet is dissolving. Used to hand a cushion back to its owner; user-facing deposits
+    /// go through [`OrderSwapInterface::transfer_staked_alpha`] with validation on.
+    fn transfer_stake_internal(
+        from_coldkey: &AccountId,
+        from_hotkey: &AccountId,
+        to_coldkey: &AccountId,
+        to_hotkey: &AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult;
+
+    /// Make `netuid` a live dynamic subnet with a funded, price-initialised pool that
+    /// [`Self::is_dynamic`] accepts. `OrderSwapInterface::set_up_netuid_for_benchmark` only
+    /// seeds reserves, which is not enough to open a position against.
+    #[cfg(feature = "runtime-benchmarks")]
+    fn set_up_pool_for_benchmark(_netuid: NetUid) {}
+
+    /// Drop `hotkey`'s owner record, as a hotkey swap does, so stake can no longer be moved onto
+    /// it. Lets the derivatives `close` benchmark exercise the sell-instead-of-return path.
+    #[cfg(feature = "runtime-benchmarks")]
+    fn forget_hotkey_for_benchmark(_hotkey: &AccountId) {}
 }
 
 pub trait DefaultPriceLimit<PaidIn, PaidOut>

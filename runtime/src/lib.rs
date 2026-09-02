@@ -625,14 +625,15 @@ impl ProxyInterface<AccountId> for Proxier {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface<AccountId> for CommitmentsI {
-    fn purge_netuid(
+impl SubnetDissolveHook for CommitmentsI {
+    fn on_subnet_dissolve(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         pallet_commitments::Pallet::<Runtime>::purge_netuid(netuid, weight_meter)
     }
-
+}
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_neuron(netuid: NetUid, account: &AccountId) {
         pallet_commitments::Pallet::<Runtime>::purge_neuron(netuid, account);
     }
@@ -966,6 +967,7 @@ impl pallet_subtensor::Config for Runtime {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = SubtensorMaxEpochsPerBlock;
     type WeightInfo = pallet_subtensor::weights::SubstrateWeight<Runtime>;
+    type Derivatives = Derivatives;
 }
 
 parameter_types! {
@@ -1365,6 +1367,27 @@ impl pallet_limit_orders::Config for Runtime {
     type LinkedOutputTtl = LimitOrdersLinkedOutputTtl;
 }
 
+// Derivatives
+parameter_types! {
+    pub const DerivativesPalletId: PalletId = PalletId(*b"bt/deriv");
+    pub const DerivativesMaxExpiriesPerBlock: u32 = 32;
+}
+
+pub struct DerivativesPalletHotkey;
+impl Get<AccountId> for DerivativesPalletHotkey {
+    fn get() -> AccountId {
+        PalletId(*b"bt/dvhky").into_account_truncating()
+    }
+}
+
+impl pallet_derivatives::Config for Runtime {
+    type Pool = SubtensorModule;
+    type PalletId = DerivativesPalletId;
+    type PalletHotkey = DerivativesPalletHotkey;
+    type MaxExpiriesPerBlock = DerivativesMaxExpiriesPerBlock;
+    type WeightInfo = pallet_derivatives::weights::SubstrateWeight<Runtime>;
+}
+
 fn contracts_schedule<T: pallet_contracts::Config>() -> pallet_contracts::Schedule<T> {
     pallet_contracts::Schedule {
         limits: pallet_contracts::Limits {
@@ -1498,6 +1521,7 @@ construct_runtime!(
         MevShield: pallet_shield = 30,
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
+        Derivatives: pallet_derivatives = 33,
     }
 );
 
@@ -1589,6 +1613,7 @@ mod benches {
         [pallet_subtensor_proxy, Proxy]
         [pallet_subtensor_utility, Utility]
         [pallet_limit_orders, LimitOrders]
+        [pallet_derivatives, Derivatives]
     );
 }
 

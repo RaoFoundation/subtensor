@@ -13,6 +13,7 @@ use pallet_base_fee::Call as BaseFeeCall;
 use pallet_commitments::Call as CommitmentsCall;
 use pallet_contracts::Call as ContractsCall;
 use pallet_crowdloan::Call as CrowdloanCall;
+use pallet_derivatives::Call as DerivativesCall;
 use pallet_drand::Call as DrandCall;
 use pallet_ethereum::Call as EthereumCall;
 use pallet_evm::Call as EvmCall;
@@ -176,6 +177,20 @@ call_filter_group!(
         RuntimeCall::LimitOrders(LimitOrdersCall::cancel_order),
         RuntimeCall::LimitOrders(LimitOrdersCall::set_pallet_status),
         RuntimeCall::LimitOrders(LimitOrdersCall::prune_linked_output),
+    ]
+);
+
+// Not part of `InfraCommonCalls`: `open` moves the signer's free TAO or staked
+// alpha into the pallet and `close` moves it back, so only proxies that may
+// move value get them. `sudo_set_params` is root-only and inert for a signed
+// proxy; it rides along to keep the pallet's calls in one group.
+call_filter_group!(
+    DerivativesCalls,
+    [
+        RuntimeCall::Derivatives(DerivativesCall::open),
+        RuntimeCall::Derivatives(DerivativesCall::close),
+        RuntimeCall::Derivatives(DerivativesCall::roll),
+        RuntimeCall::Derivatives(DerivativesCall::sudo_set_params),
     ]
 );
 
@@ -669,6 +684,7 @@ pub(super) type AllCalls = (
     WholesalePalletCalls,
     SubtensorSplitCalls,
     AdminUtilsSplitCalls,
+    DerivativesCalls,
 );
 
 // Pallets every granting proxy grants in full.

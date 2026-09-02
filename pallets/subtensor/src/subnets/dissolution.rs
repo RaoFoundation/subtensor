@@ -1,7 +1,9 @@
 use super::*;
 use frame_support::weights::WeightMeter;
 use pallet_alpha_assets::AlphaAssetsInterface;
-use subtensor_runtime_common::{NetUid, NetUidStorageIndex, clear_prefix_with_meter};
+use subtensor_runtime_common::{
+    NetUid, NetUidStorageIndex, SubnetDissolveHook, clear_prefix_with_meter,
+};
 use subtensor_swap_interface::SwapHandler;
 /// Enum for the dissolve cleanup phase.
 #[derive(Encode, Decode, TypeInfo, Clone, PartialEq, Eq, Debug, DecodeWithMemTracking)]
@@ -70,11 +72,16 @@ pub enum DissolveCleanupPhase {
     /// that can recycle alpha has completed. Appended so existing in-flight cleanup
     /// discriminants remain stable.
     NetworkAlphaAssetCounters,
+    /// Phase -1: Settle every open derivative position on this subnet while the pool and the
+    /// stake maps are still live, so borrowed liquidity returns to the pool and cushions return
+    /// to their owners before stakes are converted. Appended so in-flight cleanup
+    /// discriminants stay stable; new dissolves start here via [`Default`].
+    DerivativesSettle,
 }
 
 impl Default for DissolveCleanupPhase {
     fn default() -> Self {
-        Self::SubnetBasketHoldingsToRoot
+        Self::DerivativesSettle
     }
 }
 
@@ -719,6 +726,15 @@ impl<T: Config> Pallet<T> {
             );
 
             let done = match &status.phase {
+                DissolveCleanupPhase::DerivativesSettle => {
+                    let done = T::Derivatives::on_subnet_dissolve(netuid, weight_meter);
+                    if done {
+                        status.set_phase(DissolveCleanupPhase::SubnetBasketHoldingsToRoot);
+                        status.last_key = None;
+                    }
+                    done
+                }
+
                 DissolveCleanupPhase::SubnetBasketHoldingsToRoot => {
                     let (done, new_key) = Self::convert_subnet_basket_holdings_to_root(
                         netuid,
@@ -875,7 +891,7 @@ impl<T: Config> Pallet<T> {
                 }
 
                 DissolveCleanupPhase::PurgeNetuid => {
-                    let done = T::CommitmentsInterface::purge_netuid(netuid, weight_meter);
+                    let done = T::CommitmentsInterface::on_subnet_dissolve(netuid, weight_meter);
 
                     if done {
                         status.set_phase(DissolveCleanupPhase::NetworkIsNetworkMember);

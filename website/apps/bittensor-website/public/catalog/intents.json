@@ -631,6 +631,57 @@
     ]
   },
   {
+    "name": "close_derivative",
+    "summary": "Close a derivatives position and settle it against the pool.",
+    "description": "Close a derivatives position and settle it against the pool.\n\nThe owner may close at any time. After the position's expiry anyone may\nclose it on the owner's behalf, so the pool always gets its liquidity back.\nSettlement reverses the opening trade, repays the pool plus the borrow\nfee, and pays the owner what remains of the cushion in kind. If the\nposition is underwater the pool absorbs the shortfall and the owner gets\nnothing back.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "close"
+      ]
+    ],
+    "docs_url": "/docs/tx/close-derivative",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the position is on."
+        },
+        "side": {
+          "type": "string",
+          "description": "Which position to close: `Short` or `Long`."
+        },
+        "owner_ss58": {
+          "type": "string",
+          "description": "Coldkey that owns the position. Defaults to the signer; pass another owner only to close their expired position."
+        }
+      },
+      "required": [
+        "netuid",
+        "side"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx close-derivative --netuid <int> --side <value>",
+    "python_class": "ClosePosition",
+    "markdown_url": "/llms.mdx/docs/tx/close-derivative/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "close",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 237,
+        "end_line": 253,
+        "url": "/code/pallets/derivatives/src/lib.rs#L235-L253",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "commit_weights",
     "summary": "Timelock-encrypt and commit weights, forcing the commit-reveal path.",
     "description": "Timelock-encrypt and commit weights, forcing the commit-reveal path.\n\nEncrypts the weights with drand timelock encryption and submits the\nciphertext; the weights stay hidden until the chain auto-decrypts and\napplies them at the reveal round (no separate reveal call is needed).\nHiding weights until the round closes prevents other validators from\ncopying them. Signed by the hotkey, with the same preflight, conforming,\nand rate-limit behavior as `set_weights`. Use `set_weights` instead\nunless you need to force the commit path regardless of the subnet's\ncommit-reveal setting.",
@@ -1877,6 +1928,134 @@
     "markdown_url": "/llms.mdx/docs/tx/multisig-threshold-1/content.md"
   },
   {
+    "name": "open_long",
+    "summary": "Open a long on a subnet's alpha, backed by a TAO or alpha cushion.",
+    "description": "Open a long on a subnet's alpha, backed by a TAO or alpha cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is sized from the cushion (`leverage_percent` of it against the\npool's reserve of the same asset) and capped by the pool-share limit.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "open"
+      ]
+    ],
+    "docs_url": "/docs/tx/open-long",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha the position is on."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Cushion to deposit, in TAO or in the subnet's alpha depending on `deposit_in`. Exposure is `leverage_percent` of this amount measured against the matching pool reserve."
+        },
+        "deposit_in": {
+          "type": "string",
+          "description": "Asset the cushion is paid in: `tao` from the coldkey balance, or `alpha` already staked on `hotkey_ss58` at this subnet. Alpha cushions are held by the pallet and earn no emission while the position is open."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the alpha cushion is staked on (only with `deposit_in=alpha`). Defaults to the wallet hotkey. The cushion comes back to the same hotkey."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx open-long --netuid <int> --amount <amount|all>",
+    "python_class": "OpenLong",
+    "markdown_url": "/llms.mdx/docs/tx/open-long/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "open",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 223,
+        "end_line": 231,
+        "url": "/code/pallets/derivatives/src/lib.rs#L221-L231",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "open_short",
+    "summary": "Open a short on a subnet's alpha, backed by a TAO or alpha cushion.",
+    "description": "Open a short on a subnet's alpha, backed by a TAO or alpha cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is sized from the cushion (`leverage_percent` of it against\nthe pool's reserve of the same asset) and capped by the pool-share limit.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "open"
+      ]
+    ],
+    "docs_url": "/docs/tx/open-short",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha the position is on."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Cushion to deposit, in TAO or in the subnet's alpha depending on `deposit_in`. Exposure is `leverage_percent` of this amount measured against the matching pool reserve."
+        },
+        "deposit_in": {
+          "type": "string",
+          "description": "Asset the cushion is paid in: `tao` from the coldkey balance, or `alpha` already staked on `hotkey_ss58` at this subnet. Alpha cushions are held by the pallet and earn no emission while the position is open."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the alpha cushion is staked on (only with `deposit_in=alpha`). Defaults to the wallet hotkey. The cushion comes back to the same hotkey."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx open-short --netuid <int> --amount <amount|all>",
+    "python_class": "OpenShort",
+    "markdown_url": "/llms.mdx/docs/tx/open-short/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "open",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 223,
+        "end_line": 231,
+        "url": "/code/pallets/derivatives/src/lib.rs#L221-L231",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "refund_crowdloan",
     "summary": "Refund contributors of a non-finalized crowdloan (creator only).",
     "description": "Refund contributors of a non-finalized crowdloan (creator only).\n\nReturns contributions (excluding the creator's) to their contributors.\nOnly the creator may call it. Each call refunds at most 50 contributors,\nso large loans may need several `refund_crowdloan` calls before\neveryone is paid back. Once all contributors are refunded, the creator\nruns `dissolve_crowdloan`, which returns the creator's remaining\ncontribution (including the deposit) and removes the loan.",
@@ -2435,6 +2614,74 @@
         "end_line": 305,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L294-L305",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "roll_derivative",
+    "summary": "Settle a position at today's price and reopen it in the same transaction.",
+    "description": "Settle a position at today's price and reopen it in the same transaction.\n\nThe old position is closed like `close`: the pool gets its slice and the\nborrow fee back, and the owner's cushion plus profit or loss comes back in\nkind. What comes back is then the cushion of a fresh position on the same\nside with a full lifetime and today's entry price. An optional top-up in the\nsame asset (and, for alpha, on the same hotkey) is added to the new cushion.\nFails without touching the position if what came back is below the minimum\ndeposit or the pool cap is reached; `close` instead.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "roll"
+      ]
+    ],
+    "docs_url": "/docs/tx/roll-derivative",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the position is on."
+        },
+        "side": {
+          "type": "string",
+          "description": "Which position to roll: `Short` or `Long`."
+        },
+        "top_up": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Extra cushion to add on the reopen, in the asset the current cushion is in (see `top_up_in`)."
+        },
+        "top_up_in": {
+          "type": "string",
+          "description": "Asset `top_up` is in: `tao` from the coldkey balance, or `alpha` staked on `hotkey_ss58`. Must match the asset the cushion comes back in."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the alpha cushion is staked on (only with `deposit_in=alpha`). Defaults to the wallet hotkey. The cushion comes back to the same hotkey."
+        }
+      },
+      "required": [
+        "netuid",
+        "side"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx roll-derivative --netuid <int> --side <value>",
+    "python_class": "RollPosition",
+    "markdown_url": "/llms.mdx/docs/tx/roll-derivative/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "roll",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 265,
+        "end_line": 273,
+        "url": "/code/pallets/derivatives/src/lib.rs#L263-L273",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },

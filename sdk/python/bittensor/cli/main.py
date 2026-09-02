@@ -39,6 +39,7 @@ from .commands import (
     collateral,
     config,
     crowd,
+    deriv,
     evm,
     extension,
     lock,
@@ -101,6 +102,7 @@ app.add_typer(stake.app, name="stake")
 app.add_typer(root.app, name="root")
 app.add_typer(subnets.app, name="subnets")
 app.add_typer(lock.app, name="conviction")
+app.add_typer(deriv.app, name="deriv")
 app.add_typer(sudo.app, name="hparams")
 
 app.add_typer(addresses.app, name="addr", rich_help_panel=PANEL_ACCOUNTS)

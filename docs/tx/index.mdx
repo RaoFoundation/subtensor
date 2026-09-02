@@ -39,6 +39,15 @@ Every mutation is an **intent**: preview it with `plan` / `--dry-run`, submit it
 | [`update-crowdloan-min-contribution`](/docs/tx/update-crowdloan-min-contribution) | coldkey | signed account (pallet role may apply) | Update the minimum contribution of a non-finalized crowdloan (creator only). |
 | [`withdraw-crowdloan`](/docs/tx/withdraw-crowdloan) | coldkey | signed account (pallet role may apply) | Withdraw the signer's contribution from a non-finalized crowdloan. |
 
+## Derivatives
+
+| Operation | Signer | Origin | Summary |
+| --- | --- | --- | --- |
+| [`close-derivative`](/docs/tx/close-derivative) | coldkey | signed account (pallet role may apply) | Close a derivatives position and settle it against the pool. |
+| [`open-long`](/docs/tx/open-long) | coldkey | signed account (pallet role may apply) | Open a long on a subnet's alpha, backed by a TAO or alpha cushion. |
+| [`open-short`](/docs/tx/open-short) | coldkey | signed account (pallet role may apply) | Open a short on a subnet's alpha, backed by a TAO or alpha cushion. |
+| [`roll-derivative`](/docs/tx/roll-derivative) | coldkey | signed account (pallet role may apply) | Settle a position at today's price and reopen it in the same transaction. |
+
 ## EVM
 
 | Operation | Signer | Origin | Summary |
