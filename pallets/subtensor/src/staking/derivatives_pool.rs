@@ -276,6 +276,10 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         )
     }
 
+    fn hotkey_exists(hotkey: &T::AccountId) -> bool {
+        Self::hotkey_account_exists(hotkey)
+    }
+
     fn transfer_stake_internal(
         from_coldkey: &T::AccountId,
         from_hotkey: &T::AccountId,

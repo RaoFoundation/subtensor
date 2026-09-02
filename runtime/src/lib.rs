@@ -1373,17 +1373,9 @@ parameter_types! {
     pub const DerivativesMaxExpiriesPerBlock: u32 = 32;
 }
 
-pub struct DerivativesPalletHotkey;
-impl Get<AccountId> for DerivativesPalletHotkey {
-    fn get() -> AccountId {
-        PalletId(*b"bt/dvhky").into_account_truncating()
-    }
-}
-
 impl pallet_derivatives::Config for Runtime {
     type Pool = SubtensorModule;
     type PalletId = DerivativesPalletId;
-    type PalletHotkey = DerivativesPalletHotkey;
     type MaxExpiriesPerBlock = DerivativesMaxExpiriesPerBlock;
     type WeightInfo = pallet_derivatives::weights::SubstrateWeight<Runtime>;
 }

@@ -22,7 +22,9 @@ pub mod weights;
 
 use frame_support::{BoundedVec, PalletId, pallet_prelude::*, traits::Get, weights::WeightMeter};
 use frame_system::pallet_prelude::*;
-use sp_runtime::traits::{AccountIdConversion, Saturating, UniqueSaturatedInto, Zero};
+use sp_runtime::traits::{
+    AccountIdConversion, Hash, Saturating, TrailingZeroInput, UniqueSaturatedInto, Zero,
+};
 use subtensor_runtime_common::{AlphaBalance, NetUid, SubnetDissolveHook, TaoBalance, Token};
 use subtensor_swap_interface::{DerivativesPoolInterface, OrderSwapInterface};
 
@@ -57,10 +59,6 @@ pub mod pallet {
         /// Derives the account that custodies every position's TAO and stakes its alpha.
         #[pallet::constant]
         type PalletId: Get<PalletId>;
-
-        /// Hotkey owned by the pallet account. All alpha the pallet holds is staked here.
-        #[pallet::constant]
-        type PalletHotkey: Get<Self::AccountId>;
 
         /// How many positions may be scheduled to expire in one block. Overflow spills to the
         /// next block.
@@ -122,6 +120,12 @@ pub mod pallet {
     /// First block of `Expiring` not yet swept. Zero means "not started".
     #[pallet::storage]
     pub type NextSweep<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
+
+    /// Hotkey owned by the pallet account; all alpha the pallet holds is staked here. Chosen
+    /// and registered in the upgrade block from that block's parent hash (see
+    /// [`Pallet::claim_hotkey`]), so nobody can register it ahead of the pallet.
+    #[pallet::storage]
+    pub type PalletHotkey<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -193,17 +197,19 @@ pub mod pallet {
         /// A roll top-up must be in the token the cushion comes back in, and for alpha on the
         /// same hotkey.
         TopUpMismatch,
+        /// The pallet has not claimed its hotkey yet; no position can be opened.
+        PalletHotkeyUnset,
     }
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        /// Claim `PalletHotkey` for the pallet account before any extrinsic can. Idempotent:
-        /// one read once the hotkey exists. Doing this lazily in `open` would let anyone
-        /// register the hotkey first and later `swap_hotkey` the pallet's stake away.
+        /// Claim the pallet hotkey before any extrinsic can. One read once it is set.
         fn on_runtime_upgrade() -> Weight {
-            let _ =
-                T::Pool::register_pallet_hotkey(&Self::pallet_account(), &T::PalletHotkey::get());
-            T::DbWeight::get().reads_writes(1, 3)
+            if PalletHotkey::<T>::exists() {
+                return T::DbWeight::get().reads(1);
+            }
+            Self::claim_hotkey();
+            T::DbWeight::get().reads_writes(4, 4)
         }
 
         fn on_idle(now: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
@@ -294,6 +300,46 @@ pub mod pallet {
         /// Account derived from the pallet's `PalletId`.
         pub fn pallet_account() -> T::AccountId {
             T::PalletId::get().into_account_truncating()
+        }
+
+        /// The hotkey the pallet stakes through, once claimed.
+        pub fn pallet_hotkey() -> Result<T::AccountId, DispatchError> {
+            PalletHotkey::<T>::get().ok_or_else(|| Error::<T>::PalletHotkeyUnset.into())
+        }
+
+        /// Pick a hotkey nobody could have registered in advance and register it to the pallet
+        /// account in the same block.
+        ///
+        /// Anyone may register any address as a hotkey, and registration is first come first
+        /// served, so a hotkey fixed at compile time could be claimed before the upgrade and
+        /// later `swap_hotkey`ed together with the pallet's stake. Deriving it from the parent
+        /// block hash makes it unknowable until the block that registers it; hooks run before
+        /// any extrinsic in that block. The nonce skips the (practically impossible) case of an
+        /// address that already exists.
+        pub(crate) fn claim_hotkey() {
+            let coldkey = Self::pallet_account();
+            for nonce in 0u8..=u8::MAX {
+                let Some(hotkey) = Self::hotkey_candidate(nonce) else {
+                    return;
+                };
+                if T::Pool::hotkey_exists(&hotkey) {
+                    continue;
+                }
+                if T::Pool::register_pallet_hotkey(&coldkey, &hotkey).is_ok()
+                    && T::Pool::pallet_hotkey_registered(&coldkey, &hotkey)
+                {
+                    PalletHotkey::<T>::put(hotkey);
+                }
+                return;
+            }
+        }
+
+        /// `nonce`-th hotkey candidate for this block: a hash of the pallet id and the parent
+        /// block hash.
+        pub(crate) fn hotkey_candidate(nonce: u8) -> Option<T::AccountId> {
+            let parent = frame_system::Pallet::<T>::parent_hash();
+            let seed = T::Hashing::hash_of(&(T::PalletId::get(), b"hotkey", parent, nonce));
+            T::AccountId::decode(&mut TrailingZeroInput::new(seed.as_ref())).ok()
         }
 
         /// Settle everything that expired up to `now`, as far as `meter` allows.

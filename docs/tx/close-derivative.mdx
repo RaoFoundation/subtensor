@@ -14,7 +14,7 @@ nothing back.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L235-L253) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L243-L261) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("close_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L237`](/code/pallets/derivatives/src/lib.rs#L235-L253):
+`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L245`](/code/pallets/derivatives/src/lib.rs#L243-L261):
 
 ```rust
 #[pallet::call_index(1)]
@@ -91,6 +91,6 @@ pub fn close(
 }
 ```
 
-Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L270).
+Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L281).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -82,7 +82,18 @@ impl AlphaPayout {
 }
 
 impl<T: Config> Pallet<T> {
+    /// Open a position. Its own storage layer: the cushion transfer, the lift, and the opening
+    /// swap all roll back if anything after them fails, whoever the caller is.
     pub(crate) fn do_open(
+        owner: T::AccountId,
+        netuid: NetUid,
+        side: Side,
+        deposit: Deposit<T::AccountId>,
+    ) -> DispatchResult {
+        with_storage_layer(|| Self::open_in_layer(owner, netuid, side, deposit))
+    }
+
+    fn open_in_layer(
         owner: T::AccountId,
         netuid: NetUid,
         side: Side,
@@ -101,7 +112,7 @@ impl<T: Config> Pallet<T> {
         );
 
         let pallet_account = Self::pallet_account();
-        let pallet_hotkey = T::PalletHotkey::get();
+        let pallet_hotkey = Self::pallet_hotkey()?;
 
         let (tao_reserve, alpha_reserve) = T::Pool::reserves(netuid);
         let (t, a) = (tao_reserve.to_u64(), alpha_reserve.to_u64());
@@ -279,7 +290,7 @@ impl<T: Config> Pallet<T> {
             Self::drop_indexes(owner, netuid, side, &position);
 
             let pallet_account = Self::pallet_account();
-            let pallet_hotkey = T::PalletHotkey::get();
+            let pallet_hotkey = Self::pallet_hotkey()?;
             let now = frame_system::Pallet::<T>::block_number();
             let blocks_open: u64 = now
                 .saturating_sub(position.opened_at)
@@ -388,6 +399,10 @@ impl<T: Config> Pallet<T> {
     /// Dissolution path: hand the lifted slice back in kind, hand the cushion back in kind, no
     /// swaps, no fee. Never fails; anything that cannot reach the owner stays with the pool.
     pub(crate) fn unwind(owner: &T::AccountId, netuid: NetUid, side: Side) {
+        // A position can only exist once the hotkey is claimed.
+        let Ok(pallet_hotkey) = Self::pallet_hotkey() else {
+            return;
+        };
         let Some(position) = Positions::<T>::take(owner, (netuid, side)) else {
             OpenByNetuid::<T>::remove(netuid, (owner.clone(), side));
             return;
@@ -395,7 +410,6 @@ impl<T: Config> Pallet<T> {
         Self::drop_indexes(owner, netuid, side, &position);
 
         let pallet_account = Self::pallet_account();
-        let pallet_hotkey = T::PalletHotkey::get();
         let (mut tao_to_pool, mut alpha_to_pool) = match position.legs {
             Legs::Short {
                 proceeds, escrow, ..

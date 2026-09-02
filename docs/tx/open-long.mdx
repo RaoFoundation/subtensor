@@ -13,7 +13,7 @@ pool's reserve of the same asset) and capped by the pool-share limit.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.open`](/code/pallets/derivatives/src/lib.rs#L221-L231) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.open`](/code/pallets/derivatives/src/lib.rs#L229-L239) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("open_long", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.open` — [`pallets/derivatives/src/lib.rs#L223`](/code/pallets/derivatives/src/lib.rs#L221-L231):
+`Derivatives.open` — [`pallets/derivatives/src/lib.rs#L231`](/code/pallets/derivatives/src/lib.rs#L229-L239):
 
 ```rust
 #[pallet::call_index(0)]
@@ -83,6 +83,6 @@ pub fn open(
 }
 ```
 
-Delegates to [`do_open`](/code/pallets/derivatives/src/settle.rs#L85).
+Delegates to [`do_open`](/code/pallets/derivatives/src/settle.rs#L87).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

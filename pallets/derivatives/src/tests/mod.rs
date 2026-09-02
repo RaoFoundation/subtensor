@@ -1,4 +1,8 @@
-#![allow(clippy::arithmetic_side_effects, clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::unwrap_used,
+    clippy::expect_used
+)]
 
 pub(crate) mod mock;
 
@@ -7,7 +11,7 @@ use sp_core::U256;
 use sp_runtime::{Perbill, Percent};
 use subtensor_runtime_common::{NetUid, TaoBalance};
 
-use crate::{Closer, Deposit, Error, Event, Footprint, Params, Side, position::*};
+use crate::{Closer, Deposit, Error, Event, Footprint, PalletHotkey, Params, Side, position::*};
 use mock::*;
 
 const POOL_TAO: u64 = 1_000 * TAO;
@@ -96,6 +100,58 @@ fn last_closed_event() -> (u64, u64, u64, u64) {
         .expect("PositionClosed event")
 }
 
+// ── Pallet hotkey ────────────────────────────────────────────────────────────
+
+#[test]
+fn upgrade_claims_a_fresh_hotkey_for_the_pallet_account() {
+    new_test_ext().execute_with(|| {
+        let hotkey = pallet_hotkey();
+        assert_eq!(Some(hotkey), Derivatives::hotkey_candidate(0));
+        assert!(SubtensorModule::coldkey_owns_hotkey(
+            &pallet_account(),
+            &hotkey
+        ));
+
+        // A second upgrade keeps the one already claimed.
+        <Derivatives as frame_support::traits::OnRuntimeUpgrade>::on_runtime_upgrade();
+        assert_eq!(pallet_hotkey(), hotkey);
+    });
+}
+
+#[test]
+fn claim_skips_a_hotkey_someone_registered_first() {
+    new_test_ext().execute_with(|| {
+        // A later upgrade block: different parent hash, different candidates.
+        System::set_parent_hash(sp_core::H256::repeat_byte(7));
+        PalletHotkey::<Test>::kill();
+        let taken = Derivatives::hotkey_candidate(0).unwrap();
+        let _ = SubtensorModule::create_account_if_non_existent(&alice(), &taken);
+
+        Derivatives::claim_hotkey();
+
+        let hotkey = pallet_hotkey();
+        assert_eq!(Some(hotkey), Derivatives::hotkey_candidate(1));
+        assert!(SubtensorModule::coldkey_owns_hotkey(
+            &pallet_account(),
+            &hotkey
+        ));
+        assert!(SubtensorModule::coldkey_owns_hotkey(&alice(), &taken));
+    });
+}
+
+#[test]
+fn nothing_opens_until_the_hotkey_is_claimed() {
+    new_test_ext().execute_with(|| {
+        setup();
+        PalletHotkey::<Test>::kill();
+        assert_err!(
+            open(alice(), Side::Short, Deposit::Tao(DEPOSIT.into())),
+            Error::<Test>::PalletHotkeyUnset
+        );
+        assert_eq!(balance(&alice()), 100 * TAO);
+    });
+}
+
 // ── Open ─────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -157,7 +213,7 @@ fn open_long_with_tao_lifts_and_buys() {
         // Pallet holds the deposit in TAO and escrow + proceeds as stake.
         assert_eq!(balance(&pallet_account()), DEPOSIT);
         assert_eq!(
-            stake(&pallet_account(), &DerivativesPalletHotkey::get(), netuid()),
+            stake(&pallet_account(), &pallet_hotkey(), netuid()),
             escrow + proceeds
         );
         // TAO went out and came straight back in; alpha left the pool.
@@ -190,7 +246,7 @@ fn open_with_alpha_cushion_moves_stake_to_pallet() {
         assert_eq!(debt, POOL_ALPHA / 100);
         assert_eq!(stake(&alice(), &alice_hotkey(), netuid()), 0);
         assert_eq!(
-            stake(&pallet_account(), &DerivativesPalletHotkey::get(), netuid()),
+            stake(&pallet_account(), &pallet_hotkey(), netuid()),
             40 * TAO
         );
         assert_eq!(balance(&pallet_account()), escrow + proceeds);
@@ -370,10 +426,7 @@ fn long_open_close_same_block_returns_deposit_minus_one_day_fee() {
         assert_eq!(shortfall, 0);
         assert_close(tao_back, DEPOSIT - fee, 100);
         assert_eq!(balance(&pallet_account()), 0);
-        assert_eq!(
-            stake(&pallet_account(), &DerivativesPalletHotkey::get(), netuid()),
-            0
-        );
+        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
 
         let (t1, a1) = reserves(netuid());
         assert_close(t1, t0 + fee, 100);
@@ -408,10 +461,7 @@ fn alpha_cushion_is_returned_in_kind() {
         assert!(tao_back < 1_000, "tao_back = {tao_back}");
         assert!(alpha_back < 40 * TAO && alpha_back > 39 * TAO);
         assert_eq!(stake(&alice(), &alice_hotkey(), netuid()), alpha_back);
-        assert_eq!(
-            stake(&pallet_account(), &DerivativesPalletHotkey::get(), netuid()),
-            0
-        );
+        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
     });
 }
 
@@ -530,10 +580,7 @@ fn underwater_long_with_alpha_cushion_settles_with_shortfall() {
         assert_eq!(fee_paid, 0);
         assert!(shortfall > 0);
         assert_eq!(balance(&pallet_account()), 0);
-        assert_eq!(
-            stake(&pallet_account(), &DerivativesPalletHotkey::get(), netuid()),
-            0
-        );
+        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
         assert_eq!(stake(&alice(), &alice_hotkey(), netuid()), 0);
         // The pool got its escrow alpha back and every TAO the position could raise.
         assert!(reserves(netuid()).0 < t0);
@@ -672,10 +719,7 @@ fn dissolution_unwinds_all_four_kinds_at_par() {
         assert_close(alpha_out(netuid()), out_with_stakes, 100);
         assert!(alpha_out(netuid()) >= out0);
         assert_eq!(balance(&pallet_account()), 0);
-        assert_eq!(
-            stake(&pallet_account(), &DerivativesPalletHotkey::get(), netuid()),
-            0
-        );
+        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
         assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
         assert_eq!(Footprint::<Test>::get(netuid(), Side::Long), 0);
         assert!(

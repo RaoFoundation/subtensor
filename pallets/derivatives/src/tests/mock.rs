@@ -448,13 +448,11 @@ where
 
 parameter_types! {
     pub const DerivativesPalletId: PalletId = PalletId(*b"bt/deriv");
-    pub const DerivativesPalletHotkey: AccountId = U256([0xde, 0xad, 0xbe, 0xef]);
 }
 
 impl pallet_derivatives::Config for Test {
     type Pool = SubtensorModule;
     type PalletId = DerivativesPalletId;
-    type PalletHotkey = DerivativesPalletHotkey;
     type MaxExpiriesPerBlock = ConstU32<2>;
     type WeightInfo = ();
 }
@@ -479,6 +477,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 pub fn pallet_account() -> AccountId {
     DerivativesPalletId::get().into_account_truncating()
+}
+
+/// The hotkey `on_runtime_upgrade` claimed for the pallet in `new_test_ext`.
+pub fn pallet_hotkey() -> AccountId {
+    Derivatives::pallet_hotkey().expect("claimed at upgrade")
 }
 
 /// Run the derivatives `on_idle` hook at the current block with a large weight budget.

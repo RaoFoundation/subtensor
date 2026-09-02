@@ -92,4 +92,12 @@ try-runtime = [
     "frame-support/try-runtime",
     "frame-system/try-runtime",
     "sp-runtime/try-runtime",
+    "pallet-balances/try-runtime",
+    "pallet-crowdloan/try-runtime",
+    "pallet-drand/try-runtime",
+    "pallet-evm-chain-id/try-runtime",
+    "pallet-grandpa/try-runtime",
+    "pallet-preimage/try-runtime",
+    "pallet-scheduler/try-runtime",
+    "pallet-subtensor/try-runtime",
 ]

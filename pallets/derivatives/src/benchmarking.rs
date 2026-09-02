@@ -21,9 +21,7 @@ const ROLL_WHALE_TAO: u64 = 100_000_000_000;
 fn setup<T: Config>() -> (T::AccountId, NetUid) {
     let netuid = NetUid::from(1u16);
     T::Pool::set_up_pool_for_benchmark(netuid);
-    let pallet_account = Pallet::<T>::pallet_account();
-    let pallet_hotkey = T::PalletHotkey::get();
-    let _ = T::Pool::register_pallet_hotkey(&pallet_account, &pallet_hotkey);
+    Pallet::<T>::claim_hotkey();
 
     let owner: T::AccountId = frame_benchmarking::account("owner", 0, 0);
     T::Pool::set_up_acc_for_benchmark(&owner, &owner);

@@ -313,6 +313,9 @@ pub trait DerivativesPoolInterface<AccountId> {
         amount: AlphaBalance,
     ) -> DispatchResult;
 
+    /// Whether `hotkey` is registered to any coldkey.
+    fn hotkey_exists(hotkey: &AccountId) -> bool;
+
     /// Make `netuid` a live dynamic subnet with a funded, price-initialised pool that
     /// [`Self::is_dynamic`] accepts. `OrderSwapInterface::set_up_netuid_for_benchmark` only
     /// seeds reserves, which is not enough to open a position against.
