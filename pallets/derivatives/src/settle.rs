@@ -232,9 +232,18 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Settle, then reopen the same side with what reached the owner. One transaction: if the
-    /// reopen fails, the old position is still there.
+    /// Settle, then reopen the same side with what reached the owner. One storage layer around
+    /// both: if the reopen fails, the settlement rolls back and the old position is still there.
     pub(crate) fn do_roll(
+        owner: T::AccountId,
+        netuid: NetUid,
+        side: Side,
+        top_up: Option<Deposit<T::AccountId>>,
+    ) -> DispatchResult {
+        with_storage_layer(|| Self::roll_in_layer(owner, netuid, side, top_up))
+    }
+
+    fn roll_in_layer(
         owner: T::AccountId,
         netuid: NetUid,
         side: Side,

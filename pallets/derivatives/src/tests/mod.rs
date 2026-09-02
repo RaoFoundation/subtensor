@@ -588,6 +588,69 @@ fn underwater_long_with_alpha_cushion_settles_with_shortfall() {
     });
 }
 
+// ── Roll ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn roll_settles_and_reopens_with_the_payout() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(open(alice(), Side::Short, Deposit::Tao(DEPOSIT.into())));
+        let before = position(&alice(), netuid(), Side::Short).unwrap();
+        let balance_before = balance(&alice());
+        System::set_block_number(100);
+
+        assert_ok!(Derivatives::roll(
+            RuntimeOrigin::signed(alice()),
+            netuid(),
+            Side::Short,
+            None
+        ));
+
+        let after = position(&alice(), netuid(), Side::Short).unwrap();
+        let (tao_back, ..) = last_closed_event();
+        assert_eq!(after.opened_at, 100);
+        assert_eq!(after.cushion, Deposit::Tao(tao_back.into()));
+        assert!(tao_back < DEPOSIT, "one day of fee came off the cushion");
+        assert!(after.opened_at > before.opened_at);
+        assert_eq!(balance(&alice()), balance_before, "nothing left the pallet");
+        assert_eq!(
+            Footprint::<Test>::get(netuid(), Side::Short),
+            after.legs.footprint()
+        );
+    });
+}
+
+#[test]
+fn failed_roll_leaves_the_old_position_untouched() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(open(alice(), Side::Short, Deposit::Tao(DEPOSIT.into())));
+        let before = position(&alice(), netuid(), Side::Short).unwrap();
+        let footprint = Footprint::<Test>::get(netuid(), Side::Short);
+        let balance_before = balance(&alice());
+        let pool_before = reserves(netuid());
+
+        // A TAO cushion cannot be topped up with alpha: the reopen fails after the settle ran.
+        assert_err!(
+            Derivatives::roll(
+                RuntimeOrigin::signed(alice()),
+                netuid(),
+                Side::Short,
+                Some(Deposit::Alpha {
+                    hotkey: alice_hotkey(),
+                    amount: 1u64.into(),
+                })
+            ),
+            Error::<Test>::TopUpMismatch
+        );
+
+        assert_eq!(position(&alice(), netuid(), Side::Short), Some(before));
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), footprint);
+        assert_eq!(balance(&alice()), balance_before);
+        assert_eq!(reserves(netuid()), pool_before);
+    });
+}
+
 // ── Expiry ───────────────────────────────────────────────────────────────────
 
 #[test]
