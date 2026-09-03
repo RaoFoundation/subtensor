@@ -1331,6 +1331,7 @@ mod dispatches {
         /// * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement.
         /// * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet.
         /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
+        /// * `CannotUseSystemAccount`: The destination coldkey is the protocol-owned basket escrow.
         ///
         /// # Events
         /// May emit a `StakeTransferred` event on success.
@@ -2518,6 +2519,7 @@ mod dispatches {
         /// * `AmountTooLow`: The TAO-equivalent of the transfer is below the minimum stake requirement.
         /// * `TransferDisallowed`: Transfers are disabled on the origin or destination subnet.
         /// * `StakeUnavailable`: The remaining stake would not cover the locked amount on the origin subnet.
+        /// * `CannotUseSystemAccount`: The destination coldkey is the protocol-owned basket escrow.
         ///
         /// # Events
         /// May emit a `StakeAndHotkeyTransferred` event on success.

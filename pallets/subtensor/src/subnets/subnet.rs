@@ -239,6 +239,7 @@ impl<T: Config> Pallet<T> {
             ensure!(lock_id != u32::MAX, Error::<T>::LockIdOverFlow);
 
             Self::lock_network_registration_cost(&coldkey, lock_amount.into(), lock_id)?;
+            Self::create_account_if_non_existent(&coldkey, hotkey)?;
             NetworkRegistrationLockId::<T>::set(lock_id.saturating_add(1));
 
             let median_subnet_alpha_price = Self::get_median_subnet_alpha_price();
@@ -253,6 +254,8 @@ impl<T: Config> Pallet<T> {
                 lock_id,
             };
             NetworkRegistrationQueue::<T>::mutate(|queue| queue.push(info));
+            Self::set_network_last_lock(lock_amount);
+            Self::set_network_last_lock_block(current_block);
             Self::deposit_event(Event::NetworkRegistrationQueued {
                 coldkey: coldkey.clone(),
                 hotkey: hotkey.clone(),
@@ -349,10 +352,13 @@ impl<T: Config> Pallet<T> {
         log::debug!("actual_tao_lock_amount: {actual_tao_lock_amount:?}");
 
         // --- 3. Set the lock amount for use to determine pricing.
-        Self::set_network_last_lock(actual_tao_lock_amount);
-        Self::set_network_last_lock_block(current_block);
-        weight.saturating_accrue(db_weight.reads(1));
-        weight.saturating_accrue(db_weight.writes(2));
+        // Deferred registrations update pricing when they are queued.
+        if lock_id.is_none() {
+            Self::set_network_last_lock(actual_tao_lock_amount);
+            Self::set_network_last_lock_block(current_block);
+            weight.saturating_accrue(db_weight.reads(1));
+            weight.saturating_accrue(db_weight.writes(2));
+        }
 
         // --- 4. Add the caller to the neuron set.
         let hotkey_is_new = !Self::hotkey_account_exists(hotkey);

@@ -77,6 +77,7 @@ pub enum ProxyType {
     Any,
     JustTransfer,
     JustUtility,
+    JustProxy,
 }
 impl Default for ProxyType {
     fn default() -> Self {
@@ -94,6 +95,7 @@ impl frame::traits::InstanceFilter<RuntimeCall> for ProxyType {
                 )
             }
             ProxyType::JustUtility => matches!(c, RuntimeCall::Utility { .. }),
+            ProxyType::JustProxy => matches!(c, RuntimeCall::Proxy { .. }),
         }
     }
     fn is_superset(&self, o: &Self) -> bool {
@@ -712,6 +714,98 @@ fn filtering_works() {
             BalancesEvent::<Test>::Unreserved { who: 1, amount: 5 }.into(),
             ProxyEvent::ProxyExecuted { result: Ok(()) }.into(),
         ]);
+    });
+}
+
+#[test]
+fn nested_proxy_intersects_outer_and_inner_authority() {
+    new_test_ext().execute_with(|| {
+        Balances::make_free_balance_be(&5, 100);
+        // Account 2 may use proxy calls as account 1, while account 1 has
+        // unrestricted proxy authority over account 5.
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::JustProxy,
+            0
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(5),
+            1,
+            ProxyType::Any,
+            0
+        ));
+
+        let victim_before = Balances::free_balance(5);
+        let recipient_before = Balances::free_balance(6);
+        let nested = RuntimeCall::Proxy(ProxyCall::new_call_variant_proxy(
+            5,
+            Some(ProxyType::Any),
+            Box::new(call_transfer(6, 10)),
+        ));
+
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(2),
+            1,
+            Some(ProxyType::JustProxy),
+            Box::new(nested),
+        ));
+
+        assert_eq!(Balances::free_balance(5), victim_before);
+        assert_eq!(Balances::free_balance(6), recipient_before);
+        assert!(System::events().iter().any(|event| event.event
+            == RuntimeEvent::Proxy(ProxyEvent::ProxyExecuted {
+                result: Err(SystemError::CallFiltered.into()),
+            })));
+    });
+}
+
+#[test]
+fn nested_announced_proxy_intersects_outer_and_inner_authority() {
+    new_test_ext().execute_with(|| {
+        Balances::make_free_balance_be(&5, 100);
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(1),
+            2,
+            ProxyType::JustProxy,
+            0
+        ));
+        assert_ok!(Proxy::add_proxy(
+            RuntimeOrigin::signed(5),
+            1,
+            ProxyType::Any,
+            1
+        ));
+
+        let transfer = Box::new(call_transfer(6, 10));
+        assert_ok!(Proxy::announce(
+            RuntimeOrigin::signed(1),
+            5,
+            BlakeTwo256::hash_of(&transfer)
+        ));
+        System::set_block_number(2);
+
+        let victim_before = Balances::free_balance(5);
+        let recipient_before = Balances::free_balance(6);
+        let nested = RuntimeCall::Proxy(ProxyCall::new_call_variant_proxy_announced(
+            1,
+            5,
+            Some(ProxyType::Any),
+            transfer,
+        ));
+        assert_ok!(Proxy::proxy(
+            RuntimeOrigin::signed(2),
+            1,
+            Some(ProxyType::JustProxy),
+            Box::new(nested),
+        ));
+
+        assert_eq!(Balances::free_balance(5), victim_before);
+        assert_eq!(Balances::free_balance(6), recipient_before);
+        assert!(System::events().iter().any(|event| event.event
+            == RuntimeEvent::Proxy(ProxyEvent::ProxyExecuted {
+                result: Err(SystemError::CallFiltered.into()),
+            })));
     });
 }
 

@@ -65,6 +65,14 @@ pub struct QuicknetVerifier;
 
 impl Verifier for QuicknetVerifier {
     fn verify(beacon_config: BeaconConfiguration, pulse: Pulse) -> Result<bool, String> {
+        // Quicknet derives the public randomness as SHA-256(signature). The BLS
+        // pairing authenticates the round, but it does not authenticate a
+        // separately supplied randomness field, so bind the two explicitly.
+        let expected_randomness = Sha256::digest(pulse.signature.as_slice());
+        if pulse.randomness.as_slice() != expected_randomness.as_slice() {
+            return Err("Randomness does not match the signature digest".into());
+        }
+
         // decode public key (pk)
         let pk =
             ArkScale::<G2AffineOpt>::decode(&mut beacon_config.public_key.into_inner().as_slice())
