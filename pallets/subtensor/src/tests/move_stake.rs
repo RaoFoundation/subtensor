@@ -2323,6 +2323,44 @@ fn test_transfer_stake_same_netuid_not_rate_limited() {
 }
 
 #[test]
+fn test_transfer_stake_rejects_beta_escrow_destination() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let origin_coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let stake_amount = DefaultMinStake::<Test>::get();
+
+        let _ = SubtensorModule::create_account_if_non_existent(&origin_coldkey, &hotkey);
+        add_balance_to_coldkey_account(&origin_coldkey, stake_amount);
+        SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &origin_coldkey,
+            netuid,
+            stake_amount,
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert_noop!(
+            SubtensorModule::do_transfer_stake(
+                RuntimeOrigin::signed(origin_coldkey),
+                escrow,
+                hotkey,
+                netuid,
+                netuid,
+                1.into(),
+            ),
+            Error::<Test>::CannotUseSystemAccount
+        );
+    });
+}
+
+#[test]
 fn test_transfer_stake_doesnt_limit_destination_coldkey() {
     new_test_ext(1).execute_with(|| {
         let subnet_owner_coldkey = U256::from(1001);
