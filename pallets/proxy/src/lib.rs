@@ -258,14 +258,14 @@ pub mod pallet {
             force_proxy_type: Option<T::ProxyType>,
             call: Box<<T as Config>::RuntimeCall>,
         ) -> DispatchResultWithPostInfo {
-            let who = ensure_signed(origin)?;
+            let who = ensure_signed(origin.clone())?;
             let real = T::Lookup::lookup(real)?;
             let def = Self::find_proxy(&real, &who, force_proxy_type)?;
             ensure!(def.delay.is_zero(), Error::<T>::Unannounced);
 
             let weight = T::WeightInfo::proxy(T::MaxProxies::get())
                 .saturating_add(T::DbWeight::get().reads_writes(1, 1))
-                .saturating_add(Self::do_proxy(def, real, *call));
+                .saturating_add(Self::do_proxy(def, real, *call, origin));
 
             Ok(Some(weight).into())
         }
@@ -570,7 +570,7 @@ pub mod pallet {
             force_proxy_type: Option<T::ProxyType>,
             call: Box<<T as Config>::RuntimeCall>,
         ) -> DispatchResultWithPostInfo {
-            ensure_signed(origin)?;
+            ensure_signed(origin.clone())?;
             let delegate = T::Lookup::lookup(delegate)?;
             let real = T::Lookup::lookup(real)?;
             let def = Self::find_proxy(&real, &delegate, force_proxy_type)?;
@@ -586,7 +586,7 @@ pub mod pallet {
 
             let weight = T::WeightInfo::proxy_announced(T::MaxPending::get(), T::MaxProxies::get())
                 .saturating_add(T::DbWeight::get().reads_writes(1, 1))
-                .saturating_add(Self::do_proxy(def, real, *call));
+                .saturating_add(Self::do_proxy(def, real, *call, origin));
 
             Ok(Some(weight).into())
         }
@@ -1120,11 +1120,17 @@ impl<T: Config> Pallet<T> {
         def: ProxyDefinition<T::AccountId, T::ProxyType, BlockNumberFor<T>>,
         real: T::AccountId,
         call: <T as Config>::RuntimeCall,
+        inherited_origin: T::RuntimeOrigin,
     ) -> Weight {
         use frame::traits::{InstanceFilter as _, OriginTrait as _};
-        // This is a freshly authenticated new account, the origin restrictions doesn't apply.
+        // Authenticate the next real account without discarding restrictions inherited from an
+        // outer proxy. Every nested effect must pass all filters in the proxy chain.
         let mut origin: T::RuntimeOrigin = frame_system::RawOrigin::Signed(real.clone()).into();
         origin.add_filter(move |c: &<T as frame_system::Config>::RuntimeCall| {
+            if !inherited_origin.filter_call(c) {
+                return false;
+            }
+
             let c = <T as Config>::RuntimeCall::from_ref(c);
             // We make sure the proxy call does access this pallet to change modify proxies.
             match c.is_sub_type() {

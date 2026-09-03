@@ -1393,6 +1393,14 @@ impl<T: Config> Pallet<T> {
             Self::ensure_beta_basket_seed_idle()?;
         }
 
+        // The beta escrow is protocol-owned custody for basket holdings. Allowing user stake
+        // transitions into it would create holdings without matching basket shares and can block
+        // legitimate claims, particularly for same-subnet transfers that have no minimum amount.
+        ensure!(
+            *destination_coldkey != Self::get_beta_escrow_account_id(),
+            Error::<T>::CannotUseSystemAccount
+        );
+
         // Ensure stake transition is actually happening
         if origin_coldkey == destination_coldkey && origin_hotkey == destination_hotkey {
             ensure!(origin_netuid != destination_netuid, Error::<T>::SameNetuid);

@@ -141,6 +141,42 @@ fn it_rejects_invalid_pulse_due_to_bad_signature() {
 }
 
 #[test]
+fn it_rejects_valid_signature_with_unbound_randomness() {
+    new_test_ext().execute_with(|| {
+        let alice = sp_keyring::Sr25519Keyring::Alice;
+        let block_number = 100_000_000;
+        System::set_block_number(block_number);
+
+        let info: BeaconInfoResponse = serde_json::from_str(DRAND_INFO_RESPONSE).unwrap();
+        let config_payload = BeaconConfigurationPayload {
+            block_number,
+            config: info.try_into_beacon_config().unwrap(),
+            public: alice.public(),
+        };
+        assert_ok!(Drand::set_beacon_config(
+            RuntimeOrigin::root(),
+            config_payload,
+            None
+        ));
+
+        let response: DrandResponseBody = serde_json::from_str(DRAND_PULSE).unwrap();
+        let mut pulse: Pulse = response.try_into_pulse().unwrap();
+        pulse.randomness[0] ^= 1;
+        let pulses_payload = PulsesPayload {
+            pulses: vec![pulse],
+            block_number,
+            public: alice.public(),
+        };
+
+        assert_noop!(
+            Drand::write_pulse(RuntimeOrigin::none(), pulses_payload, None),
+            Error::<Test>::PulseVerificationError
+        );
+        assert!(Pulses::<Test>::get(ROUND_NUMBER).is_none());
+    });
+}
+
+#[test]
 fn it_rejects_pulses_with_non_incremental_round_numbers() {
     new_test_ext().execute_with(|| {
         let block_number = 100_000_000;
