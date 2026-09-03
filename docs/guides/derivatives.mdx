@@ -24,8 +24,8 @@ same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
 
 | Term | Meaning |
 |------|---------|
-| **Cushion** | Your deposit. TAO by default, or alpha already staked on the subnet. It is held by the pallet while the position is open and returned in kind at close. |
-| **Exposure** | The TAO value the position moves with. At 1x leverage it equals the TAO value of your cushion at open. |
+| **Cushion** | Your deposit, in TAO from your coldkey balance. It is held by the pallet while the position is open and returned at close, minus the fee and any loss. |
+| **Exposure** | The TAO value the position moves with. At 1x leverage it equals your cushion. |
 | **Borrowed slice** | The fraction `phi` of the pool the position lifts out: `phi × TAO reserve` and `phi × alpha reserve`. |
 | **Proceeds** | What the opening trade produced. A short sells the lifted alpha, so its proceeds are TAO. A long buys alpha with the lifted TAO, so its proceeds are alpha. |
 | **Debt** | What must go back to the pool at close: the lifted alpha (short) or the lifted TAO (long). |
@@ -69,12 +69,12 @@ Three details behind the slides:
 The borrowed slice is fixed at open:
 
 $$
-\phi = \frac{L \cdot \text{cushion}}{\text{reserve of the cushion's asset}}
+\phi = \frac{L \cdot \text{cushion}}{\text{TAO reserve}}
 $$
 
 where $L$ is `leverage_percent / 100` (1.0 on mainnet). A 100 τ cushion on a
-10,000 τ pool lifts 1% of the pool: 100 τ and 2,000 α. A 2,000 α cushion does
-the same. See [`pool_fraction`](/code/pallets/derivatives/src/position.rs).
+10,000 τ pool lifts 1% of the pool: 100 τ and 2,000 α. See
+[`pool_fraction`](/code/pallets/derivatives/src/position.rs).
 
 ## What you get back
 
@@ -92,11 +92,11 @@ Three things to read off the picture:
   remaining shortfall
   ([`do_settle`](/code/pallets/derivatives/src/settle.rs)). For a
   short that is near a doubling; for a long it is alpha going to zero. The
-  10% pool cap keeps that gap small relative to the pool.
+  10% pool cap keeps that gap small relative to the pool. At 1x a long with a
+  TAO cushion can never be underwater: the cushion equals the debt.
 
-An **alpha cushion** changes the shape. The cushion itself moves with alpha,
-so a short with an alpha cushion is a **hedge** (the position gains what the
-cushion loses) and a long with an alpha cushion is roughly **2x alpha**.
+Cushions are TAO only. That keeps the payoff the plain line above, and it
+means a subnet team cannot post alpha it minted to itself as collateral.
 
 The fee is the only cost besides slippage. It is fixed per day when you open,
 from the parameters in force then, and charged at close:
@@ -132,8 +132,7 @@ buyback or sale, so expect slightly less.
 ## Open a position
 
 Replace netuid `7` with your target subnet. Both sides take the same options:
-`--amount` is the cushion, in TAO by default, or in the subnet's alpha with
-`--in alpha` (taken from your stake on `--hotkey`).
+`--amount` is the cushion, in TAO, taken from your coldkey balance.
 
 ```bash
 # Check the pallet's live parameters first
@@ -145,9 +144,6 @@ btcli deriv short --netuid 7 --amount 100 -w my_coldkey
 
 # Long subnet 7 with a 100 τ cushion
 btcli deriv long --netuid 7 --amount 100 -w my_coldkey
-
-# Short subnet 7 using 2,000 α you already have staked on a validator
-btcli deriv short --netuid 7 --amount 2000 --in alpha --hotkey <validator-ss58> -w my_coldkey
 ```
 
 The same in Python:
@@ -155,16 +151,7 @@ The same in Python:
 ```python
 await client.execute(bt.OpenShort(netuid=7, amount=100), wallet)
 await client.execute(bt.OpenLong(netuid=7, amount=100), wallet)
-await client.execute(
-    bt.OpenShort(netuid=7, amount=2000, deposit_in="alpha", hotkey_ss58="5F..."), wallet
-)
 ```
-
-An alpha cushion is moved from your hotkey to the pallet's hotkey as stake.
-It **stops earning emission** while the position is open and comes back to
-the same hotkey at close. If that hotkey no longer exists at close (you
-swapped or deregistered it), the alpha is sold and you receive TAO instead.
-Use a TAO cushion if you want to keep your stake working.
 
 The call fails if:
 
@@ -173,7 +160,7 @@ The call fails if:
 | `SideDisabled` | Root has switched that side off with `sudo_set_params`. |
 | `SubnetNotDynamic` | The subnet has no pool (root, or a static subnet). |
 | `PositionExists` | You already hold that side on that subnet. Close it first. |
-| `DepositTooLow` | The cushion is worth less than `min_deposit_tao` (0.1 τ) at open. |
+| `DepositTooLow` | The cushion is less than `min_deposit_tao` (0.1 τ). |
 | `ExposureTooLarge` | `phi` would be 100% or more of the pool. |
 | `PoolCapExceeded` | All open positions of that side already borrow `max_pool_share` (10%) of the lent reserve. Try a smaller cushion or wait for others to close. |
 
@@ -214,9 +201,6 @@ btcli deriv roll --netuid 7 --side short -w my_coldkey
 
 # Same, adding 50 τ to the new cushion
 btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey
-
-# An alpha cushion rolls as alpha; a top-up must be alpha on the same hotkey
-btcli deriv roll --netuid 7 --side long --add 500 --in alpha --hotkey <validator-ss58> -w my_coldkey
 ```
 
 ```python
@@ -227,18 +211,15 @@ What happens, in order:
 
 1. The old position is settled exactly like `close`. The pool gets its slice
    and the fee so far; your loss or profit is realized now.
-2. What reached you (cushion plus profit, minus loss and fee) becomes the
-   cushion of a new position on the same side. It gets today's entry price and
-   a full `lifetime_blocks`.
-3. The cushion comes back in its own token and is reopened in that token. TAO
-   profit on an alpha cushion stays in your wallet.
+2. What reached you (cushion plus profit, minus loss and fee), plus any
+   `--add`, becomes the cushion of a new position on the same side. It gets
+   today's entry price and a full `lifetime_blocks`.
 
 A roll is a real settlement, so the pool's risk is bounded the same way as
 with a close: no position ever lives longer than `lifetime_blocks` without
 being marked to market. If what comes back is below `min_deposit_tao`, or the
 pool cap is reached, the roll fails and the old position stays as it was;
-`close` instead. A top-up in the wrong token fails with `TopUpMismatch`.
-Only the owner may roll.
+`close` instead. Only the owner may roll.
 
 ## Expiry
 
@@ -266,7 +247,7 @@ If a subnet is dissolved while positions are open, settling them is the
 **first** cleanup phase
 ([`DerivativesSettle`](/code/pallets/subtensor/src/subnets/dissolution.rs)).
 Positions are **unwound**, not settled: the lifted slice goes back to the pool
-in kind, your cushion comes back in kind, and no fee is charged
+in kind, your TAO cushion comes back, and no fee is charged
 ([`unwind`](/code/pallets/derivatives/src/settle.rs)). Any profit or
 loss at that moment is cancelled. The pool then proceeds through the normal
 dissolution payout with its full reserves.
@@ -289,7 +270,7 @@ flags to pause a side.
 | `lifetime_blocks` | `216,000` | Maximum time a position may stay open (~30 days). |
 | `short_fee_per_day` | `5 τ` | What a short pays per day for borrowing the whole pool; a position pays this times its `phi`. Fixed at open, paid at close, one-day minimum. |
 | `long_rate_per_day` | `0.02%` | Fee per day on a long's TAO exposure. Fixed at open, paid at close, one-day minimum. |
-| `min_deposit_tao` | `0.1 τ` | Smallest cushion, valued at the open price. |
+| `min_deposit_tao` | `0.1 τ` | Smallest cushion. |
 
 ## Chain reference
 
@@ -305,7 +286,7 @@ flags to pause a side.
 
 - One position per coldkey, subnet, and side. A long and a short on the same
   subnet are allowed and independent.
-- An alpha cushion earns **no emission** while the position is open.
+- Cushions are TAO only. Alpha you hold stays staked and keeps earning.
 - You can close at any block; you cannot extend past 30 days. `roll` to stay
   in: it settles at today's price and reopens in one transaction.
 - Slippage is real on both legs. Size positions against the pool's depth,

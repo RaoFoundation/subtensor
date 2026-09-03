@@ -633,7 +633,7 @@
   {
     "name": "close_derivative",
     "summary": "Close a derivatives position and settle it against the pool.",
-    "description": "Close a derivatives position and settle it against the pool.\n\nThe owner may close at any time. After the position's expiry anyone may\nclose it on the owner's behalf, so the pool always gets its liquidity back.\nSettlement reverses the opening trade, repays the pool plus the borrow\nfee, and pays the owner what remains of the cushion in kind. If the\nposition is underwater the pool absorbs the shortfall and the owner gets\nnothing back.",
+    "description": "Close a derivatives position and settle it against the pool.\n\nThe owner may close at any time. After the position's expiry anyone may\nclose it on the owner's behalf, so the pool always gets its liquidity back.\nSettlement reverses the opening trade, repays the pool plus the borrow\nfee, and pays the owner what remains in TAO. If the position is underwater\nthe pool absorbs the shortfall and the owner gets nothing back.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -674,9 +674,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 245,
-        "end_line": 261,
-        "url": "/code/pallets/derivatives/src/lib.rs#L243-L261",
+        "line": 243,
+        "end_line": 259,
+        "url": "/code/pallets/derivatives/src/lib.rs#L241-L259",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -1929,8 +1929,8 @@
   },
   {
     "name": "open_long",
-    "summary": "Open a long on a subnet's alpha, backed by a TAO or alpha cushion.",
-    "description": "Open a long on a subnet's alpha, backed by a TAO or alpha cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is sized from the cushion (`leverage_percent` of it against the\npool's reserve of the same asset) and capped by the pool-share limit.",
+    "summary": "Open a long on a subnet's alpha, backed by a TAO cushion.",
+    "description": "Open a long on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is sized from the cushion (`leverage_percent` of it against the\npool's TAO reserve) and capped by the pool-share limit.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1959,15 +1959,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "Cushion to deposit, in TAO or in the subnet's alpha depending on `deposit_in`. Exposure is `leverage_percent` of this amount measured against the matching pool reserve."
-        },
-        "deposit_in": {
-          "type": "string",
-          "description": "Asset the cushion is paid in: `tao` from the coldkey balance, or `alpha` already staked on `hotkey_ss58` at this subnet. Alpha cushions are held by the pallet and earn no emission while the position is open."
-        },
-        "hotkey_ss58": {
-          "type": "string",
-          "description": "Hotkey the alpha cushion is staked on (only with `deposit_in=alpha`). Defaults to the wallet hotkey. The cushion comes back to the same hotkey."
+          "description": "TAO cushion to deposit from the coldkey balance. Exposure is `leverage_percent` of this amount measured against the pool's TAO reserve."
         }
       },
       "required": [
@@ -1984,17 +1976,17 @@
         "pallet": "Derivatives",
         "call": "open",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 231,
-        "end_line": 239,
-        "url": "/code/pallets/derivatives/src/lib.rs#L229-L239",
+        "line": 229,
+        "end_line": 237,
+        "url": "/code/pallets/derivatives/src/lib.rs#L227-L237",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
   {
     "name": "open_short",
-    "summary": "Open a short on a subnet's alpha, backed by a TAO or alpha cushion.",
-    "description": "Open a short on a subnet's alpha, backed by a TAO or alpha cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is sized from the cushion (`leverage_percent` of it against\nthe pool's reserve of the same asset) and capped by the pool-share limit.",
+    "summary": "Open a short on a subnet's alpha, backed by a TAO cushion.",
+    "description": "Open a short on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is sized from the cushion (`leverage_percent` of it against\nthe pool's TAO reserve) and capped by the pool-share limit.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2023,15 +2015,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "Cushion to deposit, in TAO or in the subnet's alpha depending on `deposit_in`. Exposure is `leverage_percent` of this amount measured against the matching pool reserve."
-        },
-        "deposit_in": {
-          "type": "string",
-          "description": "Asset the cushion is paid in: `tao` from the coldkey balance, or `alpha` already staked on `hotkey_ss58` at this subnet. Alpha cushions are held by the pallet and earn no emission while the position is open."
-        },
-        "hotkey_ss58": {
-          "type": "string",
-          "description": "Hotkey the alpha cushion is staked on (only with `deposit_in=alpha`). Defaults to the wallet hotkey. The cushion comes back to the same hotkey."
+          "description": "TAO cushion to deposit from the coldkey balance. Exposure is `leverage_percent` of this amount measured against the pool's TAO reserve."
         }
       },
       "required": [
@@ -2048,9 +2032,9 @@
         "pallet": "Derivatives",
         "call": "open",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 231,
-        "end_line": 239,
-        "url": "/code/pallets/derivatives/src/lib.rs#L229-L239",
+        "line": 229,
+        "end_line": 237,
+        "url": "/code/pallets/derivatives/src/lib.rs#L227-L237",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -2620,7 +2604,7 @@
   {
     "name": "roll_derivative",
     "summary": "Settle a position at today's price and reopen it in the same transaction.",
-    "description": "Settle a position at today's price and reopen it in the same transaction.\n\nThe old position is closed like `close`: the pool gets its slice and the\nborrow fee back, and the owner's cushion plus profit or loss comes back in\nkind. What comes back is then the cushion of a fresh position on the same\nside with a full lifetime and today's entry price. An optional top-up in the\nsame asset (and, for alpha, on the same hotkey) is added to the new cushion.\nFails without touching the position if what came back is below the minimum\ndeposit or the pool cap is reached; `close` instead.",
+    "description": "Settle a position at today's price and reopen it in the same transaction.\n\nThe old position is closed like `close`: the pool gets its slice and the\nborrow fee back, and the owner's cushion plus profit or loss comes back in\nTAO. That TAO, plus an optional `top_up`, is then the cushion of a fresh\nposition on the same side with a full lifetime and today's entry price.\nFails without touching the position if the new cushion is below the\nminimum deposit or the pool cap is reached; `close` instead.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2653,15 +2637,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "Extra cushion to add on the reopen, in the asset the current cushion is in (see `top_up_in`)."
-        },
-        "top_up_in": {
-          "type": "string",
-          "description": "Asset `top_up` is in: `tao` from the coldkey balance, or `alpha` staked on `hotkey_ss58`. Must match the asset the cushion comes back in."
-        },
-        "hotkey_ss58": {
-          "type": "string",
-          "description": "Hotkey the alpha cushion is staked on (only with `deposit_in=alpha`). Defaults to the wallet hotkey. The cushion comes back to the same hotkey."
+          "description": "Extra TAO to add to the new cushion from the coldkey balance."
         }
       },
       "required": [
@@ -2678,9 +2654,9 @@
         "pallet": "Derivatives",
         "call": "roll",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 273,
-        "end_line": 281,
-        "url": "/code/pallets/derivatives/src/lib.rs#L271-L281",
+        "line": 270,
+        "end_line": 278,
+        "url": "/code/pallets/derivatives/src/lib.rs#L268-L278",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

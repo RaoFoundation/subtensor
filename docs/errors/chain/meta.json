@@ -353,7 +353,6 @@
     "TooManyUIDsPerMechanism",
     "TooManyUnrevealedCommits",
     "TooSoon",
-    "TopUpMismatch",
     "TransactionMustComeFromEOA",
     "TransactorAccountShouldBeHotKey",
     "TransferDisallowed",

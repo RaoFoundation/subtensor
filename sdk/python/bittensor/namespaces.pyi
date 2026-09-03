@@ -388,7 +388,8 @@ class Prices(_ReadNamespace):
     async def derivative_position(self, coldkey_ss58: str, netuid: int, side: str, *, block: Optional[int] = None) -> Optional[dict]:
         """One open position for a coldkey on a subnet and side, or None.
 
-        `proceeds`, `debt`, and `escrow` are the position's `legs`, each already in
+        `cushion` is the TAO the owner put up. `proceeds`, `debt`, and `escrow` are
+        the position's `legs`, each already in
         its own token: a short holds TAO proceeds and TAO escrow and owes alpha; a
         long holds alpha proceeds and alpha escrow and owes TAO. `fee_per_day_tao`
         was fixed at open; `accrued_fee_tao` is what would be charged if closed now.

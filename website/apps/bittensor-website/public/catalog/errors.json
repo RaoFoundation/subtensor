@@ -4269,8 +4269,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 201,
-          "url": "/code/pallets/derivatives/src/lib.rs#L201",
+          "line": 198,
+          "url": "/code/pallets/derivatives/src/lib.rs#L198",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5586,24 +5586,6 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/TooSoon/content.md",
       "pallets": [
         "Grandpa"
-      ]
-    },
-    "TopUpMismatch": {
-      "code": "unit_mismatch",
-      "description": "A roll top-up must be in the token the settled cushion comes back in, and for alpha on the same hotkey. Check the position's cushion asset and hotkey and match them.",
-      "docs_url": "/docs/errors/chain/TopUpMismatch",
-      "markdown_url": "/llms.mdx/docs/errors/chain/TopUpMismatch/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 199,
-          "url": "/code/pallets/derivatives/src/lib.rs#L199",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
       ]
     },
     "TransactionMustComeFromEOA": {

@@ -9,7 +9,7 @@ import typer
 
 from ...balance import Balance
 from ...intents import ClosePosition, OpenLong, OpenShort, RollPosition
-from ...intents.derivatives import DepositAssetChoice, SideChoice
+from ...intents.derivatives import SideChoice
 from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -30,46 +30,17 @@ def _open_options():
     """The option set `short` and `long` share."""
     return dict(
         netuid=typer.Option(..., "--netuid", help=OpenShort.field_help("netuid")),
-        amount=typer.Option(
-            ...,
-            "--amount",
-            help=OpenShort.field_help("amount"),
-        ),
-        deposit_in=typer.Option(
-            DepositAssetChoice.tao,
-            "--in",
-            help=OpenShort.field_help("deposit_in"),
-            case_sensitive=False,
-        ),
-        hotkey_ss58=typer.Option(
-            None, address_cli_name("hotkey_ss58"), help=OpenShort.field_help("hotkey_ss58")
-        ),
+        amount=typer.Option(..., "--amount", help=OpenShort.field_help("amount")),
     )
 
 
-def _submit_open(
-    app_ctx: AppContext,
-    intent_cls: type,
-    netuid: int,
-    amount: str,
-    deposit_in: DepositAssetChoice,
-    hotkey_ss58: Optional[str],
-) -> None:
+def _submit_open(app_ctx: AppContext, intent_cls: type, netuid: int, amount: str) -> None:
     try:
         money = _parse_money(amount, False)
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount`: {error}")
         raise typer.Exit(2)
-    # Only an alpha cushion lives on a hotkey; a TAO cushion must not prompt for one.
-    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58) if deposit_in == "alpha" else None
-    app_ctx.submit(
-        intent_cls(
-            netuid=netuid,
-            amount=money,
-            deposit_in=deposit_in.value,
-            hotkey_ss58=hotkey,
-        )
-    )
+    app_ctx.submit(intent_cls(netuid=netuid, amount=money))
 
 
 _OPEN = _open_options()
@@ -81,16 +52,14 @@ def open_short(
     ctx: typer.Context,
     netuid: int = _OPEN["netuid"],
     amount: str = _OPEN["amount"],
-    deposit_in: DepositAssetChoice = _OPEN["deposit_in"],
-    hotkey_ss58: Optional[str] = _OPEN["hotkey_ss58"],
 ):
     """Open a short: borrow alpha from the pool and sell it for TAO now.
 
     Profit if alpha's price falls before you close; the cushion covers the
-    loss if it rises. `--amount` is the cushion, in TAO by default or in the
-    subnet's alpha with `--in alpha` (taken from stake on `--hotkey`).
+    loss if it rises. `--amount` is the TAO cushion, taken from the coldkey
+    balance.
     """
-    _submit_open(ctx_of(ctx), OpenShort, netuid, amount, deposit_in, hotkey_ss58)
+    _submit_open(ctx_of(ctx), OpenShort, netuid, amount)
 
 
 @app.command("long")
@@ -99,16 +68,14 @@ def open_long(
     ctx: typer.Context,
     netuid: int = _OPEN["netuid"],
     amount: str = _OPEN["amount"],
-    deposit_in: DepositAssetChoice = _OPEN["deposit_in"],
-    hotkey_ss58: Optional[str] = _OPEN["hotkey_ss58"],
 ):
     """Open a long: borrow TAO from the pool and buy alpha with it now.
 
     Profit if alpha's price rises before you close; the cushion covers the
-    loss if it falls. `--amount` is the cushion, in TAO by default or in the
-    subnet's alpha with `--in alpha` (taken from stake on `--hotkey`).
+    loss if it falls. `--amount` is the TAO cushion, taken from the coldkey
+    balance.
     """
-    _submit_open(ctx_of(ctx), OpenLong, netuid, amount, deposit_in, hotkey_ss58)
+    _submit_open(ctx_of(ctx), OpenLong, netuid, amount)
 
 
 @app.command("close")
@@ -144,22 +111,12 @@ def roll_position(
         ..., "--side", help=RollPosition.field_help("side"), case_sensitive=False
     ),
     top_up: Optional[str] = typer.Option(None, "--add", help=RollPosition.field_help("top_up")),
-    top_up_in: DepositAssetChoice = typer.Option(
-        DepositAssetChoice.tao,
-        "--in",
-        help=RollPosition.field_help("top_up_in"),
-        case_sensitive=False,
-    ),
-    hotkey_ss58: Optional[str] = typer.Option(
-        None, address_cli_name("hotkey_ss58"), help=RollPosition.field_help("hotkey_ss58")
-    ),
 ):
     """Settle a position at today's price and reopen it in one transaction.
 
     Use this to stay in a trade past its expiry. The loss or profit so far is
-    realized, the fee so far is paid, and what comes back becomes the cushion of
-    a fresh position with a full lifetime. `--add` puts more cushion in, in the
-    same asset as the current cushion (`--in alpha` with `--hotkey` for alpha).
+    realized, the fee so far is paid, and the TAO that comes back becomes the
+    cushion of a fresh position with a full lifetime. `--add` puts more TAO in.
     """
     app_ctx: AppContext = ctx_of(ctx)
     money = None
@@ -169,20 +126,7 @@ def roll_position(
         except ValueError as error:
             app_ctx.output.error(f"invalid value for `--add`: {error}")
             raise typer.Exit(2)
-    hotkey = (
-        app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
-        if money is not None and top_up_in == "alpha"
-        else None
-    )
-    app_ctx.submit(
-        RollPosition(
-            netuid=netuid,
-            side=str(side.value),
-            top_up=money,
-            top_up_in=top_up_in.value,
-            hotkey_ss58=hotkey,
-        )
-    )
+    app_ctx.submit(RollPosition(netuid=netuid, side=str(side.value), top_up=money))
 
 
 @app.command("list")
@@ -222,12 +166,11 @@ def list_positions(
         price = prices.get(pos["netuid"], 0.0)
         estimate = _estimated_close_value(pos, price)
         blocks_left = max(0, pos["expires_at"] - block)
-        cushion = pos["cushion"]
         rows.append(
             [
                 pos["netuid"],
                 pos["side"],
-                str(cushion["amount"]),
+                str(pos["cushion"]),
                 str(pos["proceeds"]),
                 str(pos["debt"]),
                 str(pos["accrued_fee_tao"]),
@@ -239,9 +182,7 @@ def list_positions(
             {
                 "netuid": pos["netuid"],
                 "side": pos["side"],
-                "cushion": str(cushion["amount"]),
-                "cushion_asset": cushion["asset"],
-                "cushion_hotkey": cushion["hotkey"],
+                "cushion": str(pos["cushion"]),
                 "proceeds": str(pos["proceeds"]),
                 "debt": str(pos["debt"]),
                 "escrow": str(pos["escrow"]),
@@ -260,7 +201,7 @@ def list_positions(
         rows,
         records,
         legend=[
-            ("cushion", "your deposit, returned in kind after settlement"),
+            ("cushion", "the TAO you put up, returned after settlement"),
             ("proceeds", "what the opening trade produced (TAO for a short, alpha for a long)"),
             ("debt", "what must be bought back or repaid to the pool at close"),
             ("fee", "borrow fee accrued so far at the rate fixed at open (one-day minimum)"),
@@ -278,7 +219,7 @@ def _estimated_close_value(pos: dict, tao_per_alpha: float) -> Balance:
         return int(balance.rao * tao_per_alpha)
 
     value = (
-        tao_of(pos["cushion"]["amount"])
+        pos["cushion"].rao
         + tao_of(pos["proceeds"])
         - tao_of(pos["debt"])
         - pos["accrued_fee_tao"].rao

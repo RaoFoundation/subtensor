@@ -300,19 +300,6 @@ pub trait DerivativesPoolInterface<AccountId> {
         budget: AlphaBalance,
     ) -> Result<(AlphaBalance, TaoBalance), DispatchError>;
 
-    /// Move `amount` staked alpha between two `(coldkey, hotkey)` pairs with no validation
-    /// beyond the sender's balance and the destination hotkey still existing. Also works while
-    /// the subnet is dissolving. Used to hand a cushion back to its owner; user-facing deposits
-    /// go through [`OrderSwapInterface::transfer_staked_alpha`] with validation on.
-    fn transfer_stake_internal(
-        from_coldkey: &AccountId,
-        from_hotkey: &AccountId,
-        to_coldkey: &AccountId,
-        to_hotkey: &AccountId,
-        netuid: NetUid,
-        amount: AlphaBalance,
-    ) -> DispatchResult;
-
     /// Whether `hotkey` is registered to any coldkey.
     fn hotkey_exists(hotkey: &AccountId) -> bool;
 
@@ -321,11 +308,6 @@ pub trait DerivativesPoolInterface<AccountId> {
     /// seeds reserves, which is not enough to open a position against.
     #[cfg(feature = "runtime-benchmarks")]
     fn set_up_pool_for_benchmark(_netuid: NetUid) {}
-
-    /// Drop `hotkey`'s owner record, as a hotkey swap does, so stake can no longer be moved onto
-    /// it. Lets the derivatives `close` benchmark exercise the sell-instead-of-return path.
-    #[cfg(feature = "runtime-benchmarks")]
-    fn forget_hotkey_for_benchmark(_hotkey: &AccountId) {}
 }
 
 pub trait DefaultPriceLimit<PaidIn, PaidOut>

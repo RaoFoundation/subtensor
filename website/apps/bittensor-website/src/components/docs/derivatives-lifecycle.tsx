@@ -560,8 +560,7 @@ export function DerivativesLifecycle() {
 
       <p className="mt-4 border-t border-line pt-3 text-[0.6875rem] leading-relaxed text-mute">
         Example pool 10,000 τ / 200,000 α at 0.05 τ/α; the slice is drawn larger than 1% so you can see it.
-        An alpha cushion follows the same path, but it is moved as stake to the pallet hotkey and earns no
-        emission while the position is open.
+        Cushions are always TAO.
       </p>
     </ExplainerPanel>
   );

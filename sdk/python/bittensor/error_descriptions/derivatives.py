@@ -47,10 +47,6 @@ DESCRIPTIONS: dict[str, str] = {
         "`lifetime_blocks`, which would brick opens or make positions closable at once. Check "
         "each field of the submitted `DerivativesParams` is non-zero."
     ),
-    "TopUpMismatch": (
-        "A roll top-up must be in the token the settled cushion comes back in, and for alpha "
-        "on the same hotkey. Check the position's cushion asset and hotkey and match them."
-    ),
     "PalletHotkeyUnset": (
         "The pallet has not claimed its custody hotkey yet, so nothing can be opened. Check "
         "`Derivatives.PalletHotkey`; it is set by `on_runtime_upgrade` in the upgrade block."

@@ -25,7 +25,6 @@ BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
 ConsensusMode = Any
-Deposit = Any
 DerivativesParams = Any
 Determinism = Any
 EquivocationProof = Any
@@ -1671,13 +1670,13 @@ class Derivatives:
         return Call('Derivatives', 'close', {'owner': owner, 'netuid': netuid, 'side': side})
 
     @staticmethod
-    def open(netuid: 'NetUid', side: 'Side', deposit: 'Deposit') -> Call:
-        "Open a `side` position on `netuid` backed by `deposit`.  Exposure is `leverage_percent` of the deposit, measured in the deposit's own token against the matching reserve. The position stays open until the owner closes it or `lifetime_blocks` pass, after which anyone may close it."
-        return Call('Derivatives', 'open', {'netuid': netuid, 'side': side, 'deposit': deposit})
+    def open(netuid: 'NetUid', side: 'Side', cushion: 'TaoBalance') -> Call:
+        "Open a `side` position on `netuid` backed by `cushion` TAO from the caller's free balance.  Exposure is `leverage_percent` of the cushion, measured against the pool's TAO reserve. The position stays open until the owner closes it or `lifetime_blocks` pass, after which anyone may close it."
+        return Call('Derivatives', 'open', {'netuid': netuid, 'side': side, 'cushion': cushion})
 
     @staticmethod
-    def roll(netuid: 'NetUid', side: 'Side', top_up: 'Any') -> Call:
-        "Settle the caller's `side` position on `netuid` at the current price and, in the same transaction, open a fresh one with what came back as the cushion. Owner only.  The new position gets today's entry price and a full `lifetime_blocks`. The cushion comes back in its own token and is reopened in that token; TAO profit on an alpha cushion stays with the owner. `top_up` adds to the new cushion and must be in the same token (same hotkey for alpha). Fails, leaving the position open, if what comes back is below `min_deposit_tao` or the pool cap is reached; `close` instead."
+    def roll(netuid: 'NetUid', side: 'Side', top_up: 'TaoBalance') -> Call:
+        "Settle the caller's `side` position on `netuid` at the current price and, in the same transaction, open a fresh one with what came back plus `top_up` as the cushion. Owner only.  The new position gets today's entry price and a full `lifetime_blocks`. Fails, leaving the position open, if the new cushion is below `min_deposit_tao` or the pool cap is reached; `close` instead."
         return Call('Derivatives', 'roll', {'netuid': netuid, 'side': side, 'top_up': top_up})
 
     @staticmethod

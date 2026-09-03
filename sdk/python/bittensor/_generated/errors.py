@@ -415,6 +415,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 9): ErrorInfo('Derivatives', 'ExpiryQueueFull', 'Too many positions already expire in the next blocks.'),
     (33, 10): ErrorInfo('Derivatives', 'SwapReturnedZero', 'The pool swap returned nothing for a non-zero input.'),
     (33, 11): ErrorInfo('Derivatives', 'InvalidParams', '`leverage_percent`, `max_pool_share`, or `lifetime_blocks` is zero.'),
-    (33, 12): ErrorInfo('Derivatives', 'TopUpMismatch', 'A roll top-up must be in the token the cushion comes back in, and for alpha on the same hotkey.'),
-    (33, 13): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
+    (33, 12): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
 }

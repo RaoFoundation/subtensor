@@ -752,7 +752,7 @@
   {
     "name": "derivative_position",
     "summary": "One open position for a coldkey on a subnet and side, or None.",
-    "description": "One open position for a coldkey on a subnet and side, or None.\n\n`proceeds`, `debt`, and `escrow` are the position's `legs`, each already in\nits own token: a short holds TAO proceeds and TAO escrow and owes alpha; a\nlong holds alpha proceeds and alpha escrow and owes TAO. `fee_per_day_tao`\nwas fixed at open; `accrued_fee_tao` is what would be charged if closed now.",
+    "description": "One open position for a coldkey on a subnet and side, or None.\n\n`cushion` is the TAO the owner put up. `proceeds`, `debt`, and `escrow` are\nthe position's `legs`, each already in\nits own token: a short holds TAO proceeds and TAO escrow and owes alpha; a\nlong holds alpha proceeds and alpha escrow and owes TAO. `fee_per_day_tao`\nwas fixed at open; `accrued_fee_tao` is what would be charged if closed now.",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer",

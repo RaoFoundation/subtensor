@@ -280,41 +280,6 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         Self::hotkey_account_exists(hotkey)
     }
 
-    fn transfer_stake_internal(
-        from_coldkey: &T::AccountId,
-        from_hotkey: &T::AccountId,
-        to_coldkey: &T::AccountId,
-        to_hotkey: &T::AccountId,
-        netuid: NetUid,
-        amount: AlphaBalance,
-    ) -> DispatchResult {
-        ensure!(
-            Self::derivatives_pool_present(netuid),
-            Error::<T>::SubnetNotExists
-        );
-        // Stake on a hotkey with no owner cannot be moved out again by anyone.
-        ensure!(
-            Self::hotkey_account_exists(to_hotkey),
-            Error::<T>::HotKeyAccountNotExists
-        );
-        if amount.is_zero() {
-            return Ok(());
-        }
-        let held =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(from_hotkey, from_coldkey, netuid);
-        ensure!(held >= amount, Error::<T>::NotEnoughStakeToWithdraw);
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
-            from_hotkey,
-            from_coldkey,
-            netuid,
-            amount,
-        );
-        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            to_hotkey, to_coldkey, netuid, amount,
-        );
-        Ok(())
-    }
-
     #[cfg(feature = "runtime-benchmarks")]
     fn set_up_pool_for_benchmark(netuid: NetUid) {
         let tao = TaoBalance::from(1_000_000_000_000_u64);
@@ -338,10 +303,5 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
             .checked_div(U64F64::from_num(alpha.to_u64()))
             .unwrap_or_default();
         T::SwapInterface::init_swap(netuid, Some(price));
-    }
-
-    #[cfg(feature = "runtime-benchmarks")]
-    fn forget_hotkey_for_benchmark(hotkey: &T::AccountId) {
-        Owner::<T>::remove(hotkey);
     }
 }

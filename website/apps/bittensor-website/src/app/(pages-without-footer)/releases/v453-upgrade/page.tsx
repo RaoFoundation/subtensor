@@ -222,8 +222,8 @@ const page = () => {
           <p>
             Spec <strong>453</strong> adds <code>pallet-derivatives</code>. Anyone can now open
             a <strong>long</strong> or a <strong>short</strong> on a subnet&apos;s alpha for up
-            to 30 days, with a deposit in TAO or in alpha already staked on that subnet. A short
-            profits when alpha falls; a long profits when alpha rises.
+            to 30 days, backed by a TAO deposit. A short profits when alpha falls; a long profits
+            when alpha rises.
           </p>
           <p>
             There are no synthetic tokens and no order book. Every position is built from the
@@ -294,8 +294,7 @@ const page = () => {
           <h2 className={styles.subtitle}>Open, watch, close</h2>
           <p className={styles.graph_caption}>
             Replace netuid 7 with your target subnet. <code>--amount</code> is the cushion, in
-            TAO by default. Add <code>--in alpha --hotkey</code> to post alpha you already have
-            staked instead.
+            TAO, taken from your coldkey balance.
           </p>
 
           <div className={styles.step}>
@@ -328,8 +327,7 @@ const page = () => {
             </p>
             <pre className={styles.step_code}>
               {`btcli deriv short --netuid 7 --amount 100 -w my_coldkey
-btcli deriv long  --netuid 7 --amount 100 -w my_coldkey
-btcli deriv short --netuid 7 --amount 2000 --in alpha --hotkey <validator-ss58> -w my_coldkey`}
+btcli deriv long  --netuid 7 --amount 100 -w my_coldkey`}
             </pre>
           </div>
 
@@ -383,9 +381,10 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
         <section className={styles.section}>
           <h2 className={styles.subtitle}>What bounds it</h2>
           <p>
-            <strong>1x leverage.</strong> Exposure equals the TAO value of your cushion at open,
-            so a 20% move in alpha moves a 100 τ position by about 20 τ. Your cushion is the most
-            you can lose. If the closing trade cannot repay what the position borrowed, the
+            <strong>1x leverage, TAO cushions.</strong> Exposure equals your cushion, so a 20%
+            move in alpha moves a 100 τ position by about 20 τ. Your cushion is the most you can
+            lose, and it is TAO only: a subnet team cannot post alpha it minted to itself as
+            collateral. If the closing trade cannot repay what the position borrowed, the
             position is underwater: you are paid nothing, whatever the pallet still holds goes to
             the pool, and the pool carries the remaining shortfall. That rule is enforced at
             settlement, not inferred from swap quotes.
@@ -418,7 +417,7 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
           <p>
             <strong>Dissolution.</strong> If a subnet is dissolved with positions open, settling
             them is the first cleanup phase. Positions are unwound, not settled: the slice goes
-            back in kind, your cushion comes back in kind, and no fee is charged.
+            back in kind, your cushion comes back, and no fee is charged.
           </p>
         </section>
 
@@ -438,9 +437,8 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
           <p>
             The subtensor pallet gains a small pool interface for the derivatives pallet:
             price-neutral <code>lift_liquidity</code> and <code>return_liquidity</code>, internal
-            buy and sell through the existing balancer swap, and quotes. An alpha cushion is
-            moved as stake to the pallet hotkey and earns no emission while the position is open.
-            Subnet dissolution gains a <code>DerivativesSettle</code> phase that runs first.
+            buy and sell through the existing balancer swap, and exact-output swaps for the
+            buyback. Subnet dissolution gains a <code>DerivativesSettle</code> phase that runs first.
           </p>
           <p>
             New runtime reads:{' '}

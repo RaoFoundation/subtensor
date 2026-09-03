@@ -22,18 +22,6 @@ def _variant(value: Any) -> str:
     return str(value)
 
 
-def _cushion(view, cushion: Any, netuid: int) -> dict:
-    if isinstance(cushion, dict) and "Alpha" in cushion:
-        inner = cushion["Alpha"]
-        return {
-            "asset": "alpha",
-            "amount": view.balance(int(inner.get("amount") or 0), netuid),
-            "hotkey": str(inner.get("hotkey")),
-        }
-    tao = cushion.get("Tao") if isinstance(cushion, dict) else 0
-    return {"asset": "tao", "amount": Balance.from_rao(int(tao or 0)), "hotkey": None}
-
-
 def _accrued_fee_rao(fee_per_day_rao: int, blocks_open: int) -> int:
     """Mirrors the pallet's `accrued_fee`: per-day fee times days open, one-day minimum."""
     return fee_per_day_rao * max(blocks_open, _BLOCKS_PER_DAY) // _BLOCKS_PER_DAY
@@ -81,7 +69,7 @@ def _position_record(
         "coldkey": coldkey,
         "netuid": netuid,
         "side": side,
-        "cushion": _cushion(view, raw.get("cushion"), netuid),
+        "cushion": Balance.from_rao(int(raw.get("cushion") or 0)),
         "proceeds": legs["proceeds"],
         "debt": legs["debt"],
         "escrow": legs["escrow"],
@@ -140,7 +128,8 @@ async def derivatives_params(view) -> dict:
 async def derivative_position(view, coldkey_ss58: str, netuid: int, side: str) -> Optional[dict]:
     """One open position for a coldkey on a subnet and side, or None.
 
-    `proceeds`, `debt`, and `escrow` are the position's `legs`, each already in
+    `cushion` is the TAO the owner put up. `proceeds`, `debt`, and `escrow` are
+    the position's `legs`, each already in
     its own token: a short holds TAO proceeds and TAO escrow and owes alpha; a
     long holds alpha proceeds and alpha escrow and owes TAO. `fee_per_day_tao`
     was fixed at open; `accrued_fee_tao` is what would be charged if closed now.

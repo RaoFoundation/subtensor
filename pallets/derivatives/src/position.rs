@@ -32,52 +32,6 @@ pub enum Side {
     Long,
 }
 
-/// What the user puts up as a cushion. It is returned in kind at close, minus anything the
-/// position needs to cover a shortfall or the borrow fee.
-#[derive(
-    Encode,
-    Decode,
-    DecodeWithMemTracking,
-    TypeInfo,
-    MaxEncodedLen,
-    Clone,
-    PartialEq,
-    Eq,
-    RuntimeDebug,
-)]
-pub enum Deposit<AccountId> {
-    /// Free TAO from the caller's coldkey.
-    Tao(TaoBalance),
-    /// Alpha staked at `hotkey` by the caller's coldkey on the position's subnet.
-    Alpha {
-        hotkey: AccountId,
-        amount: AlphaBalance,
-    },
-}
-
-impl<AccountId> Deposit<AccountId> {
-    pub fn tao_part(&self) -> TaoBalance {
-        match self {
-            Deposit::Tao(amount) => *amount,
-            Deposit::Alpha { .. } => TaoBalance::ZERO,
-        }
-    }
-
-    pub fn alpha_part(&self) -> AlphaBalance {
-        match self {
-            Deposit::Tao(_) => AlphaBalance::ZERO,
-            Deposit::Alpha { amount, .. } => *amount,
-        }
-    }
-
-    pub fn alpha_hotkey(&self) -> Option<&AccountId> {
-        match self {
-            Deposit::Tao(_) => None,
-            Deposit::Alpha { hotkey, .. } => Some(hotkey),
-        }
-    }
-}
-
 /// The lifted slice after the opening trade. The variant is the side, so every leg carries its
 /// own token and no reader has to remember which is which.
 #[derive(
@@ -163,7 +117,7 @@ impl Lent {
 }
 
 /// One open position.
-#[freeze_struct("ef1a189c0bf3da2a")]
+#[freeze_struct("41b6fc92047d1227")]
 #[derive(
     Encode,
     Decode,
@@ -175,9 +129,9 @@ impl Lent {
     Eq,
     RuntimeDebug,
 )]
-pub struct Position<AccountId, BlockNumber> {
-    /// `P`: the cushion, returned in kind.
-    pub cushion: Deposit<AccountId>,
+pub struct Position<BlockNumber> {
+    /// `P`: the TAO cushion. Returned at close minus the fee and any shortfall.
+    pub cushion: TaoBalance,
     /// The borrowed slice: proceeds held, debt owed, escrow kept. Its variant is the side.
     pub legs: Legs,
     /// `phi * T` at open: the TAO value the pool lent.
@@ -195,7 +149,7 @@ pub struct Position<AccountId, BlockNumber> {
     pub failed_sweeps: u8,
 }
 
-impl<AccountId, BlockNumber> Position<AccountId, BlockNumber> {
+impl<BlockNumber> Position<BlockNumber> {
     pub fn side(&self) -> Side {
         self.legs.side()
     }
@@ -300,18 +254,6 @@ pub fn projected_footprint(phi: Perquintill, lent_reserve: u64) -> u64 {
     lifted
         .saturating_mul(2)
         .saturating_sub(phi.mul_floor(lifted))
-}
-
-/// TAO value of `amount` alpha at the spot ratio `tao_reserve / alpha_reserve`.
-pub fn alpha_value_in_tao(amount: u64, tao_reserve: u64, alpha_reserve: u64) -> u64 {
-    if alpha_reserve == 0 {
-        return 0;
-    }
-    (amount as u128)
-        .saturating_mul(tao_reserve as u128)
-        .checked_div(alpha_reserve as u128)
-        .unwrap_or(0)
-        .min(u64::MAX as u128) as u64
 }
 
 /// Borrow fee owed after `blocks_open` blocks, never less than one day's worth.

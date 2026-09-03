@@ -563,11 +563,7 @@ pub fn balancer_weight(netuid: NetUid) -> sp_runtime::Perquintill {
     pallet_subtensor_swap::SwapBalancer::<Test>::get(netuid).get_quote_weight()
 }
 
-pub fn position(
-    owner: &AccountId,
-    netuid: NetUid,
-    side: Side,
-) -> Option<crate::Position<AccountId, u64>> {
+pub fn position(owner: &AccountId, netuid: NetUid, side: Side) -> Option<crate::Position<u64>> {
     crate::Positions::<Test>::get(owner, (netuid, side))
 }
 

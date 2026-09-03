@@ -469,7 +469,6 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "NotExpired": _C.TOO_EARLY,
     "ExpiryQueueFull": _C.LIMIT_EXCEEDED,
     "InvalidParams": _C.INVALID_ARGUMENT,
-    "TopUpMismatch": _C.UNIT_MISMATCH,
     "PalletHotkeyUnset": _C.TOO_EARLY,
 }
 

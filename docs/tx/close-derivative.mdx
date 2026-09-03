@@ -8,13 +8,12 @@ description: "Close a derivatives position and settle it against the pool."
 The owner may close at any time. After the position's expiry anyone may
 close it on the owner's behalf, so the pool always gets its liquidity back.
 Settlement reverses the opening trade, repays the pool plus the borrow
-fee, and pays the owner what remains of the cushion in kind. If the
-position is underwater the pool absorbs the shortfall and the owner gets
-nothing back.
+fee, and pays the owner what remains in TAO. If the position is underwater
+the pool absorbs the shortfall and the owner gets nothing back.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L243-L261) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L241-L259) |
 
 ## Parameters
 
@@ -67,7 +66,7 @@ result = sub.execute_tool("close_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L245`](/code/pallets/derivatives/src/lib.rs#L243-L261):
+`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L243`](/code/pallets/derivatives/src/lib.rs#L241-L259):
 
 ```rust
 #[pallet::call_index(1)]
@@ -91,6 +90,6 @@ pub fn close(
 }
 ```
 
-Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L290).
+Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L171).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

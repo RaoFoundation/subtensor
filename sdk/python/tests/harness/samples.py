@@ -144,7 +144,7 @@ INTENT_SAMPLES: dict[str, dict] = {
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
     "open_short": {"netuid": 1, "amount": 1.0},
-    "open_long": {"netuid": 1, "amount": 1.0, "deposit_in": "alpha", "hotkey_ss58": ALICE_HOT},
+    "open_long": {"netuid": 1, "amount": 1.0},
     "close_derivative": {"netuid": 1, "side": "Short"},
     "roll_derivative": {"netuid": 1, "side": "Short", "top_up": 1.0},
     "create_crowdloan": {

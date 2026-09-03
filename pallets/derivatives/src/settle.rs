@@ -14,71 +14,12 @@ const RETRY_DELAY: u32 = 300;
 /// Failed sweeps after which a position is left to permissionless `close`.
 const MAX_SETTLE_RETRIES: u8 = 3;
 
-/// TAO and alpha the pallet holds for one position and may spend while settling it.
-struct Pot {
-    tao: TaoBalance,
-    alpha: AlphaBalance,
-}
-
-impl Pot {
-    /// Take up to `want` alpha. Returns what was taken.
-    fn draw_alpha(&mut self, want: AlphaBalance) -> AlphaBalance {
-        let taken = want.min(self.alpha);
-        self.alpha = self.alpha.saturating_sub(taken);
-        taken
-    }
-
-    /// Cover `want` TAO: from the TAO held first, then by selling alpha. Any surplus from the
-    /// sale stays in the pot. Returns what was covered; less than `want` means the pot is out.
-    fn cover_tao<T: Config>(
-        &mut self,
-        want: TaoBalance,
-        netuid: NetUid,
-        coldkey: &T::AccountId,
-        hotkey: &T::AccountId,
-    ) -> Result<TaoBalance, DispatchError> {
-        let from_tao = want.min(self.tao);
-        self.tao = self.tao.saturating_sub(from_tao);
-        let gap = want.saturating_sub(from_tao);
-        if gap.is_zero() || self.alpha.is_zero() {
-            return Ok(from_tao);
-        }
-        let (sold, got) = T::Pool::sell_alpha_for(coldkey, hotkey, netuid, gap, self.alpha)?;
-        self.alpha = self.alpha.saturating_sub(sold);
-        let from_sale = got.min(gap);
-        self.tao = self.tao.saturating_add(got.saturating_sub(from_sale));
-        Ok(from_tao.saturating_add(from_sale))
-    }
-
-    /// Empty the pot. Returns `(tao, alpha)`.
-    fn drain(&mut self) -> (TaoBalance, AlphaBalance) {
-        let out = (self.tao, self.alpha);
-        self.tao = TaoBalance::ZERO;
-        self.alpha = AlphaBalance::ZERO;
-        out
-    }
-}
-
-/// What became of a cushion's alpha at close.
-enum AlphaPayout {
-    /// Staked back on the owner's hotkey.
-    InKind(AlphaBalance),
-    /// The owner's hotkey is gone; the alpha was sold and this TAO awaits the owner in the
-    /// pallet account.
-    Sold(TaoBalance),
-    /// Neither worked; the alpha is still held and goes to the pool.
-    Unpaid(AlphaBalance),
-}
-
-impl AlphaPayout {
-    /// `(alpha reaching the owner, TAO joining the pot, alpha left for the pool)`.
-    fn split(self) -> (AlphaBalance, TaoBalance, AlphaBalance) {
-        match self {
-            AlphaPayout::InKind(alpha) => (alpha, TaoBalance::ZERO, AlphaBalance::ZERO),
-            AlphaPayout::Sold(tao) => (AlphaBalance::ZERO, tao, AlphaBalance::ZERO),
-            AlphaPayout::Unpaid(alpha) => (AlphaBalance::ZERO, TaoBalance::ZERO, alpha),
-        }
-    }
+/// Take up to `want` from `pot`. Returns what was taken; less than `want` means the pot is
+/// out.
+fn take(pot: &mut TaoBalance, want: TaoBalance) -> TaoBalance {
+    let taken = want.min(*pot);
+    *pot = pot.saturating_sub(taken);
+    taken
 }
 
 impl<T: Config> Pallet<T> {
@@ -88,16 +29,16 @@ impl<T: Config> Pallet<T> {
         owner: T::AccountId,
         netuid: NetUid,
         side: Side,
-        deposit: Deposit<T::AccountId>,
+        cushion: TaoBalance,
     ) -> DispatchResult {
-        with_storage_layer(|| Self::open_in_layer(owner, netuid, side, deposit))
+        with_storage_layer(|| Self::open_in_layer(owner, netuid, side, cushion))
     }
 
     fn open_in_layer(
         owner: T::AccountId,
         netuid: NetUid,
         side: Side,
-        deposit: Deposit<T::AccountId>,
+        cushion: TaoBalance,
     ) -> DispatchResult {
         let params = Params::<T>::get();
         let enabled = match side {
@@ -118,21 +59,10 @@ impl<T: Config> Pallet<T> {
         let (t, a) = (tao_reserve.to_u64(), alpha_reserve.to_u64());
         ensure!(t > 0 && a > 0, Error::<T>::SubnetNotDynamic);
 
-        let (deposit_amount, deposit_reserve, deposit_value_tao) = match &deposit {
-            Deposit::Tao(amount) => (amount.to_u64(), t, amount.to_u64()),
-            Deposit::Alpha { amount, .. } => (
-                amount.to_u64(),
-                a,
-                alpha_value_in_tao(amount.to_u64(), t, a),
-            ),
-        };
-        ensure!(deposit_amount > 0, Error::<T>::ZeroExposure);
-        ensure!(
-            TaoBalance::from(deposit_value_tao) >= params.min_deposit_tao,
-            Error::<T>::DepositTooLow
-        );
+        ensure!(!cushion.is_zero(), Error::<T>::ZeroExposure);
+        ensure!(cushion >= params.min_deposit_tao, Error::<T>::DepositTooLow);
 
-        let phi = pool_fraction(params.leverage_percent, deposit_amount, deposit_reserve)
+        let phi = pool_fraction(params.leverage_percent, cushion.to_u64(), t)
             .ok_or(Error::<T>::ExposureTooLarge)?;
 
         let lent_reserve = match side {
@@ -146,19 +76,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::PoolCapExceeded
         );
 
-        match &deposit {
-            Deposit::Tao(amount) => T::Pool::transfer_tao(&owner, &pallet_account, *amount)?,
-            Deposit::Alpha { hotkey, amount } => T::Pool::transfer_staked_alpha(
-                &owner,
-                hotkey,
-                &pallet_account,
-                &pallet_hotkey,
-                netuid,
-                *amount,
-                true,
-                false,
-            )?,
-        }
+        T::Pool::transfer_tao(&owner, &pallet_account, cushion)?;
 
         let (lifted_tao, lifted_alpha) =
             T::Pool::lift_liquidity(netuid, phi, &pallet_account, &pallet_hotkey)?;
@@ -206,7 +124,7 @@ impl<T: Config> Pallet<T> {
             &owner,
             (netuid, side),
             Position {
-                cushion: deposit.clone(),
+                cushion,
                 legs,
                 exposure_tao: lifted_tao,
                 fee_per_day,
@@ -223,7 +141,7 @@ impl<T: Config> Pallet<T> {
             owner,
             netuid,
             side,
-            cushion: deposit,
+            cushion,
             legs,
             exposure_tao: lifted_tao,
             fee_per_day,
@@ -232,67 +150,30 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Settle, then reopen the same side with what reached the owner. One storage layer around
-    /// both: if the reopen fails, the settlement rolls back and the old position is still there.
+    /// Settle, then reopen the same side with the TAO that came back plus `top_up`. One storage
+    /// layer around both: if the reopen fails, the settlement rolls back and the old position
+    /// is still there.
     pub(crate) fn do_roll(
         owner: T::AccountId,
         netuid: NetUid,
         side: Side,
-        top_up: Option<Deposit<T::AccountId>>,
+        top_up: TaoBalance,
     ) -> DispatchResult {
-        with_storage_layer(|| Self::roll_in_layer(owner, netuid, side, top_up))
-    }
-
-    fn roll_in_layer(
-        owner: T::AccountId,
-        netuid: NetUid,
-        side: Side,
-        top_up: Option<Deposit<T::AccountId>>,
-    ) -> DispatchResult {
-        let cushion_hotkey = Positions::<T>::get(&owner, (netuid, side))
-            .ok_or(Error::<T>::NoPosition)?
-            .cushion
-            .alpha_hotkey()
-            .cloned();
-        let (tao_back, alpha_back) = Self::do_settle(&owner, netuid, side, Closer::Roll)?;
-
-        // Reopen in the token the cushion came back in. An alpha cushion that had to be sold
-        // (hotkey gone) comes back as TAO and rolls as TAO.
-        let mut deposit = match cushion_hotkey {
-            Some(hotkey) if !alpha_back.is_zero() => Deposit::Alpha {
-                hotkey,
-                amount: alpha_back,
-            },
-            _ => Deposit::Tao(tao_back),
-        };
-        if let Some(extra) = top_up {
-            deposit = match (deposit, extra) {
-                (Deposit::Tao(back), Deposit::Tao(more)) => Deposit::Tao(back.saturating_add(more)),
-                (
-                    Deposit::Alpha { hotkey, amount },
-                    Deposit::Alpha {
-                        hotkey: extra_hotkey,
-                        amount: more,
-                    },
-                ) if hotkey == extra_hotkey => Deposit::Alpha {
-                    hotkey,
-                    amount: amount.saturating_add(more),
-                },
-                _ => return Err(Error::<T>::TopUpMismatch.into()),
-            };
-        }
-        Self::do_open(owner, netuid, side, deposit)
+        with_storage_layer(|| {
+            let back = Self::do_settle(&owner, netuid, side, Closer::Roll)?;
+            Self::do_open(owner, netuid, side, back.saturating_add(top_up))
+        })
     }
 
     /// Reverse the open swap, repay the pool plus fee, pay the owner what is left. Atomic.
-    /// Returns `(tao, alpha)` that reached the owner; everything paid is also reported in
+    /// Returns the TAO that reached the owner; everything paid is also reported in
     /// `Event::PositionClosed`.
     pub(crate) fn do_settle(
         owner: &T::AccountId,
         netuid: NetUid,
         side: Side,
         closer: Closer<T::AccountId>,
-    ) -> Result<(TaoBalance, AlphaBalance), DispatchError> {
+    ) -> Result<TaoBalance, DispatchError> {
         with_storage_layer(|| {
             let position =
                 Positions::<T>::take(owner, (netuid, side)).ok_or(Error::<T>::NoPosition)?;
@@ -306,82 +187,55 @@ impl<T: Config> Pallet<T> {
                 .unique_saturated_into();
             let fee_due = accrued_fee(position.fee_per_day, blocks_open);
 
-            let mut pot = Pot {
-                tao: position.cushion.tao_part(),
-                alpha: position.cushion.alpha_part(),
-            };
+            // Everything the pallet holds for the owner, in TAO: the cushion plus whatever the
+            // closing trade leaves.
+            let mut pot = position.cushion;
 
-            let (mut tao_to_pool, mut alpha_to_pool, shortfall) = match position.legs {
+            let (mut tao_to_pool, alpha_to_pool, shortfall) = match position.legs {
                 Legs::Short {
                     proceeds,
                     debt,
                     escrow,
                 } => {
-                    pot.tao = pot.tao.saturating_add(proceeds);
-                    let (spent, bought) = T::Pool::buy_alpha_for(
-                        &pallet_account,
-                        &pallet_hotkey,
-                        netuid,
-                        debt,
-                        pot.tao,
-                    )?;
-                    pot.tao = pot.tao.saturating_sub(spent);
-                    // An alpha cushion tops up what the buyback missed; bought surplus is dust
-                    // that goes back with the debt.
-                    let alpha_back =
-                        bought.saturating_add(pot.draw_alpha(debt.saturating_sub(bought)));
-                    (
-                        escrow,
-                        alpha_back,
-                        Lent::Alpha(debt.saturating_sub(alpha_back)),
-                    )
+                    pot = pot.saturating_add(proceeds);
+                    let (spent, bought) =
+                        T::Pool::buy_alpha_for(&pallet_account, &pallet_hotkey, netuid, debt, pot)?;
+                    pot = pot.saturating_sub(spent);
+                    // Bought surplus is dust that goes back with the debt.
+                    (escrow, bought, Lent::Alpha(debt.saturating_sub(bought)))
                 }
                 Legs::Long {
                     proceeds,
                     debt,
                     escrow,
                 } => {
-                    pot.tao = pot.tao.saturating_add(T::Pool::sell_alpha_internal(
+                    pot = pot.saturating_add(T::Pool::sell_alpha_internal(
                         &pallet_account,
                         &pallet_hotkey,
                         netuid,
                         proceeds,
                     )?);
-                    let repaid =
-                        pot.cover_tao::<T>(debt, netuid, &pallet_account, &pallet_hotkey)?;
+                    let repaid = take(&mut pot, debt);
                     (repaid, escrow, Lent::Tao(debt.saturating_sub(repaid)))
                 }
             };
 
-            let fee_paid = pot.cover_tao::<T>(fee_due, netuid, &pallet_account, &pallet_hotkey)?;
+            let fee_paid = take(&mut pot, fee_due);
             tao_to_pool = tao_to_pool.saturating_add(fee_paid);
 
             // A position that could not repay its debt is underwater: the owner gets nothing and
             // everything the pallet still holds goes to the pool. This does not depend on the
-            // swap quotes being accurate — it is the rule that bounds the pool's loss.
+            // swap quotes being accurate; it is the rule that bounds the pool's loss.
             if !shortfall.is_zero() {
-                let (tao, alpha) = pot.drain();
-                tao_to_pool = tao_to_pool.saturating_add(tao);
-                alpha_to_pool = alpha_to_pool.saturating_add(alpha);
+                tao_to_pool = tao_to_pool.saturating_add(pot);
+                pot = TaoBalance::ZERO;
             }
 
             // Pay the owner before the pool so the last TAO leaving the pallet account is the
             // pool's share; an owner that cannot be paid forfeits to the pool rather than
-            // failing the settlement. Alpha goes first: a cushion that cannot go back in kind
-            // is sold, and that TAO joins the pot.
-            let (alpha_to_owner, cushion_sold, alpha_unpaid) = Self::pay_owner_alpha(
-                &pallet_account,
-                &pallet_hotkey,
-                owner,
-                position.cushion.alpha_hotkey(),
-                netuid,
-                pot.alpha,
-            )
-            .split();
-            alpha_to_pool = alpha_to_pool.saturating_add(alpha_unpaid);
-            pot.tao = pot.tao.saturating_add(cushion_sold);
-            let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, pot.tao);
-            tao_to_pool = tao_to_pool.saturating_add(pot.tao.saturating_sub(tao_to_owner));
+            // failing the settlement.
+            let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, pot);
+            tao_to_pool = tao_to_pool.saturating_add(pot.saturating_sub(tao_to_owner));
 
             T::Pool::return_liquidity(
                 netuid,
@@ -397,16 +251,15 @@ impl<T: Config> Pallet<T> {
                 side,
                 closed_by: closer,
                 tao_to_owner,
-                alpha_to_owner,
                 fee_paid,
                 shortfall,
             });
-            Ok((tao_to_owner, alpha_to_owner))
+            Ok(tao_to_owner)
         })
     }
 
-    /// Dissolution path: hand the lifted slice back in kind, hand the cushion back in kind, no
-    /// swaps, no fee. Never fails; anything that cannot reach the owner stays with the pool.
+    /// Dissolution path: hand the lifted slice back in kind, hand the cushion back, no swaps,
+    /// no fee. Never fails; anything that cannot reach the owner stays with the pool.
     pub(crate) fn unwind(owner: &T::AccountId, netuid: NetUid, side: Side) {
         // A position can only exist once the hotkey is claimed.
         let Ok(pallet_hotkey) = Self::pallet_hotkey() else {
@@ -419,7 +272,7 @@ impl<T: Config> Pallet<T> {
         Self::drop_indexes(owner, netuid, side, &position);
 
         let pallet_account = Self::pallet_account();
-        let (mut tao_to_pool, mut alpha_to_pool) = match position.legs {
+        let (mut tao_to_pool, alpha_to_pool) = match position.legs {
             Legs::Short {
                 proceeds, escrow, ..
             } => (proceeds.saturating_add(escrow), AlphaBalance::ZERO),
@@ -428,21 +281,8 @@ impl<T: Config> Pallet<T> {
             } => (TaoBalance::ZERO, proceeds.saturating_add(escrow)),
         };
 
-        let alpha_cushion = position.cushion.alpha_part();
-        let (alpha_to_owner, cushion_sold, alpha_unpaid) = Self::pay_owner_alpha(
-            &pallet_account,
-            &pallet_hotkey,
-            owner,
-            position.cushion.alpha_hotkey(),
-            netuid,
-            alpha_cushion,
-        )
-        .split();
-        alpha_to_pool = alpha_to_pool.saturating_add(alpha_unpaid);
-
-        let tao_cushion = position.cushion.tao_part().saturating_add(cushion_sold);
-        let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, tao_cushion);
-        tao_to_pool = tao_to_pool.saturating_add(tao_cushion.saturating_sub(tao_to_owner));
+        let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, position.cushion);
+        tao_to_pool = tao_to_pool.saturating_add(position.cushion.saturating_sub(tao_to_owner));
 
         if let Err(error) = T::Pool::return_liquidity(
             netuid,
@@ -462,7 +302,6 @@ impl<T: Config> Pallet<T> {
             side,
             closed_by: Closer::Dissolution,
             tao_to_owner,
-            alpha_to_owner,
             fee_paid: TaoBalance::ZERO,
             shortfall: match position.legs {
                 Legs::Short { .. } => Lent::Alpha(AlphaBalance::ZERO),
@@ -479,42 +318,6 @@ impl<T: Config> Pallet<T> {
         match with_storage_layer(|| T::Pool::transfer_tao(from, owner, amount)) {
             Ok(()) => amount,
             Err(_) => TaoBalance::ZERO,
-        }
-    }
-
-    /// Hand cushion alpha back in kind. If the owner's hotkey is gone (swapped or deregistered
-    /// since open), sell the alpha instead so it can reach the owner as TAO.
-    fn pay_owner_alpha(
-        from_coldkey: &T::AccountId,
-        from_hotkey: &T::AccountId,
-        owner: &T::AccountId,
-        owner_hotkey: Option<&T::AccountId>,
-        netuid: NetUid,
-        amount: AlphaBalance,
-    ) -> AlphaPayout {
-        if amount.is_zero() {
-            return AlphaPayout::InKind(AlphaBalance::ZERO);
-        }
-        if let Some(hotkey) = owner_hotkey
-            && with_storage_layer(|| {
-                T::Pool::transfer_stake_internal(
-                    from_coldkey,
-                    from_hotkey,
-                    owner,
-                    hotkey,
-                    netuid,
-                    amount,
-                )
-            })
-            .is_ok()
-        {
-            return AlphaPayout::InKind(amount);
-        }
-        match with_storage_layer(|| {
-            T::Pool::sell_alpha_internal(from_coldkey, from_hotkey, netuid, amount)
-        }) {
-            Ok(tao) => AlphaPayout::Sold(tao),
-            Err(_) => AlphaPayout::Unpaid(amount),
         }
     }
 
@@ -565,7 +368,7 @@ impl<T: Config> Pallet<T> {
         owner: &T::AccountId,
         netuid: NetUid,
         side: Side,
-        position: &Position<T::AccountId, BlockNumberFor<T>>,
+        position: &Position<BlockNumberFor<T>>,
     ) {
         OpenByNetuid::<T>::remove(netuid, (owner.clone(), side));
         Footprint::<T>::mutate(netuid, side, |f| {

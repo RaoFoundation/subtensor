@@ -85,7 +85,7 @@ pub mod pallet {
         T::AccountId,
         Blake2_128Concat,
         (NetUid, Side),
-        Position<T::AccountId, BlockNumberFor<T>>,
+        Position<BlockNumberFor<T>>,
         OptionQuery,
     >;
 
@@ -134,7 +134,8 @@ pub mod pallet {
             owner: T::AccountId,
             netuid: NetUid,
             side: Side,
-            cushion: Deposit<T::AccountId>,
+            /// TAO the owner put up.
+            cushion: TaoBalance,
             /// Proceeds held, debt owed, escrow kept, each in its own token.
             legs: Legs,
             exposure_tao: TaoBalance,
@@ -148,7 +149,6 @@ pub mod pallet {
             side: Side,
             closed_by: Closer<T::AccountId>,
             tao_to_owner: TaoBalance,
-            alpha_to_owner: AlphaBalance,
             fee_paid: TaoBalance,
             /// Debt the position could not repay, in the lent token.
             shortfall: Lent,
@@ -194,9 +194,6 @@ pub mod pallet {
         SwapReturnedZero,
         /// `leverage_percent`, `max_pool_share`, or `lifetime_blocks` is zero.
         InvalidParams,
-        /// A roll top-up must be in the token the cushion comes back in, and for alpha on the
-        /// same hotkey.
-        TopUpMismatch,
         /// The pallet has not claimed its hotkey yet; no position can be opened.
         PalletHotkeyUnset,
     }
@@ -221,21 +218,22 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Open a `side` position on `netuid` backed by `deposit`.
+        /// Open a `side` position on `netuid` backed by `cushion` TAO from the caller's free
+        /// balance.
         ///
-        /// Exposure is `leverage_percent` of the deposit, measured in the deposit's own token
-        /// against the matching reserve. The position stays open until the owner closes it or
-        /// `lifetime_blocks` pass, after which anyone may close it.
+        /// Exposure is `leverage_percent` of the cushion, measured against the pool's TAO
+        /// reserve. The position stays open until the owner closes it or `lifetime_blocks`
+        /// pass, after which anyone may close it.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::open())]
         pub fn open(
             origin: OriginFor<T>,
             netuid: NetUid,
             side: Side,
-            deposit: Deposit<T::AccountId>,
+            cushion: TaoBalance,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
-            Self::do_open(owner, netuid, side, deposit)
+            Self::do_open(owner, netuid, side, cushion)
         }
 
         /// Settle `owner`'s `side` position on `netuid`. The owner may close at any time; anyone
@@ -261,20 +259,19 @@ pub mod pallet {
         }
 
         /// Settle the caller's `side` position on `netuid` at the current price and, in the same
-        /// transaction, open a fresh one with what came back as the cushion. Owner only.
+        /// transaction, open a fresh one with what came back plus `top_up` as the cushion.
+        /// Owner only.
         ///
-        /// The new position gets today's entry price and a full `lifetime_blocks`. The cushion
-        /// comes back in its own token and is reopened in that token; TAO profit on an alpha
-        /// cushion stays with the owner. `top_up` adds to the new cushion and must be in the
-        /// same token (same hotkey for alpha). Fails, leaving the position open, if what comes
-        /// back is below `min_deposit_tao` or the pool cap is reached; `close` instead.
+        /// The new position gets today's entry price and a full `lifetime_blocks`. Fails,
+        /// leaving the position open, if the new cushion is below `min_deposit_tao` or the pool
+        /// cap is reached; `close` instead.
         #[pallet::call_index(3)]
         #[pallet::weight(T::WeightInfo::roll())]
         pub fn roll(
             origin: OriginFor<T>,
             netuid: NetUid,
             side: Side,
-            top_up: Option<Deposit<T::AccountId>>,
+            top_up: TaoBalance,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
             Self::do_roll(owner, netuid, side, top_up)
@@ -394,7 +391,7 @@ pub mod pallet {
 
     impl<T: Config> SubnetDissolveHook for Pallet<T> {
         /// Cancel every position on `netuid` at par: the borrowed slice goes back to the pool
-        /// in kind, the cushion goes back to its owner in kind, no fee, no profit or loss.
+        /// in kind, the cushion goes back to its owner, no fee, no profit or loss.
         /// Settling through swaps is not possible here because the subnet's TAO has already
         /// been taken out of `TotalStake` and its stake maps are about to be converted.
         fn on_subnet_dissolve(netuid: NetUid, meter: &mut WeightMeter) -> bool {
