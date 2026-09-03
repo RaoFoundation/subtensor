@@ -140,13 +140,6 @@ fn is_non_zero_lock(lock: &LockState) -> bool {
     !lock.locked_mass.is_zero() || lock.conviction > U64F64::saturating_from_num(0)
 }
 
-fn add_lock_state(mut lhs: LockState, rhs: &LockState) -> LockState {
-    lhs.locked_mass = lhs.locked_mass.saturating_add(rhs.locked_mass);
-    lhs.conviction = lhs.conviction.saturating_add(rhs.conviction);
-    lhs.last_update = lhs.last_update.max(rhs.last_update);
-    lhs
-}
-
 fn subtract_lock_state(mut lhs: LockState, rhs: &LockState) -> LockState {
     lhs.locked_mass = lhs.locked_mass.saturating_sub(rhs.locked_mass);
     lhs.conviction = lhs.conviction.saturating_sub(rhs.conviction);
@@ -212,25 +205,25 @@ fn add_to_aggregate<T: Config>(
     match (owner, perpetual) {
         (true, true) => OwnerLock::<T>::mutate(netuid, |maybe_lock| {
             *maybe_lock = Some(match maybe_lock.take() {
-                Some(lock) => add_lock_state(lock, added),
+                Some(lock) => lock.add(added),
                 None => added.clone(),
             });
         }),
         (true, false) => DecayingOwnerLock::<T>::mutate(netuid, |maybe_lock| {
             *maybe_lock = Some(match maybe_lock.take() {
-                Some(lock) => add_lock_state(lock, added),
+                Some(lock) => lock.add(added),
                 None => added.clone(),
             });
         }),
         (false, true) => HotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
             *maybe_lock = Some(match maybe_lock.take() {
-                Some(lock) => add_lock_state(lock, added),
+                Some(lock) => lock.add(added),
                 None => added.clone(),
             });
         }),
         (false, false) => DecayingHotkeyLock::<T>::mutate(netuid, hotkey, |maybe_lock| {
             *maybe_lock = Some(match maybe_lock.take() {
-                Some(lock) => add_lock_state(lock, added),
+                Some(lock) => lock.add(added),
                 None => added.clone(),
             });
         }),

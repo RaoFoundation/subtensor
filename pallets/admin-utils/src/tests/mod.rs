@@ -9,13 +9,13 @@ use frame_support::{
 use frame_system::Config;
 use pallet_subtensor::{
     Error as SubtensorError, Event, MaxRegistrationsPerBlock, SubnetOwner,
-    TargetRegistrationsPerInterval, Tempo, WeightsVersionKeyRateLimit,
+    TargetRegistrationsPerInterval, Tempo, WeightsVersionKeyRateLimit, staking::lock::LockState,
     subnets::mechanism::MAX_MECHANISM_COUNT_PER_SUBNET, utils::rate_limiting::TransactionType, *,
 };
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{Get, Pair, U256, ed25519};
 use sp_runtime::PerU16;
-use substrate_fixed::types::I96F32;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 pub mod mock;
 use mock::*;
@@ -2214,11 +2214,58 @@ fn test_set_sn_owner_hotkey_owner() {
 fn test_set_sn_owner_hotkey_root() {
     new_test_ext().execute_with(|| {
         let netuid = NetUid::from(1);
+        let old_hotkey = U256::from(2);
         let hotkey: U256 = U256::from(3);
         add_network(netuid, 10);
 
         let owner = U256::from(10);
+        let old_perpetual_coldkey = U256::from(11);
+        let old_decaying_coldkey = U256::from(12);
+        let new_perpetual_coldkey = U256::from(13);
+        let new_decaying_coldkey = U256::from(14);
         pallet_subtensor::SubnetOwner::<Test>::insert(netuid, owner);
+        pallet_subtensor::SubnetOwnerHotkey::<Test>::insert(netuid, old_hotkey);
+        let now = SubtensorModule::get_current_block_as_u64();
+        let old_owner_lock = LockState {
+            locked_mass: 1_000u64.into(),
+            conviction: U64F64::from_num(1_000),
+            last_update: now,
+        };
+        let new_owner_lock = LockState {
+            locked_mass: 2_000u64.into(),
+            conviction: U64F64::from_num(2_000),
+            last_update: now,
+        };
+        pallet_subtensor::DecayingLock::<Test>::insert(old_perpetual_coldkey, netuid, false);
+        pallet_subtensor::DecayingLock::<Test>::insert(new_perpetual_coldkey, netuid, false);
+        SubtensorModule::insert_lock_state(
+            &old_perpetual_coldkey,
+            netuid,
+            &old_hotkey,
+            old_owner_lock.clone(),
+        );
+        SubtensorModule::insert_lock_state(
+            &old_decaying_coldkey,
+            netuid,
+            &old_hotkey,
+            old_owner_lock.clone(),
+        );
+        SubtensorModule::insert_lock_state(
+            &new_perpetual_coldkey,
+            netuid,
+            &hotkey,
+            new_owner_lock.clone(),
+        );
+        SubtensorModule::insert_lock_state(
+            &new_decaying_coldkey,
+            netuid,
+            &hotkey,
+            new_owner_lock.clone(),
+        );
+        SubtensorModule::insert_owner_lock_state(netuid, old_owner_lock.clone());
+        SubtensorModule::insert_decaying_owner_lock_state(netuid, old_owner_lock);
+        SubtensorModule::insert_hotkey_lock_state(netuid, &hotkey, new_owner_lock.clone());
+        SubtensorModule::insert_decaying_hotkey_lock_state(netuid, &hotkey, new_owner_lock);
 
         // Root can set the hotkey
         assert_ok!(AdminUtils::sudo_set_sn_owner_hotkey(
@@ -2230,6 +2277,24 @@ fn test_set_sn_owner_hotkey_root() {
         // Check the value
         let actual_hotkey = pallet_subtensor::SubnetOwnerHotkey::<Test>::get(netuid);
         assert_eq!(actual_hotkey, hotkey);
+        assert_eq!(
+            pallet_subtensor::HotkeyLock::<Test>::get(netuid, old_hotkey)
+                .map(|lock| lock.locked_mass),
+            Some(1_000u64.into())
+        );
+        assert_eq!(
+            pallet_subtensor::DecayingHotkeyLock::<Test>::get(netuid, old_hotkey)
+                .map(|lock| lock.locked_mass),
+            Some(1_000u64.into())
+        );
+        assert_eq!(
+            pallet_subtensor::OwnerLock::<Test>::get(netuid).map(|lock| lock.locked_mass),
+            Some(2_000u64.into())
+        );
+        assert_eq!(
+            pallet_subtensor::DecayingOwnerLock::<Test>::get(netuid).map(|lock| lock.locked_mass),
+            Some(2_000u64.into())
+        );
     });
 }
 

@@ -637,7 +637,14 @@ impl<T: Config> Pallet<T> {
             current_block,
         );
 
-        // Insert/update the hotkey
+        ensure!(
+            Self::is_subnet_account_id(hotkey).is_none(),
+            Error::<T>::CannotUseSystemAccount
+        );
+        let old_owner_hotkey = SubnetOwnerHotkey::<T>::get(netuid);
+        Self::transition_subnet_owner_lock_aggregates(netuid, &old_owner_hotkey, hotkey);
+
+        // Insert/update the hotkey after reclassifying aggregates under their old roles.
         Self::set_subnet_owner_hotkey(netuid, hotkey)?;
 
         // Return success.

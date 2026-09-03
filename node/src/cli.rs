@@ -136,6 +136,10 @@ pub struct CloneStateCmd {
     #[arg(long, value_name = "BOOTNODE")]
     pub bootnodes: Vec<String>,
 
+    /// Optional reserved nodes for the sync step. Repeatable.
+    #[arg(long, value_name = "RESERVED_NODE")]
+    pub reserved_nodes: Vec<String>,
+
     /// Include Alice in patched validator authorities (default if no validator flags are passed;
     /// Sudo is assigned to the first selected validator in Alice->Bob->Charlie order).
     #[arg(long, default_value_t = false)]

@@ -1132,9 +1132,9 @@ fn destroy_alpha_in_out_stakes_cleans_locking_coldkeys() {
         };
 
         Lock::<Test>::insert((coldkey, netuid, hotkey), lock.clone());
-        LockingColdkeys::<Test>::insert((netuid, hotkey, coldkey), ());
+        SubtensorModule::add_locking_coldkey(&hotkey, netuid, &coldkey);
         Lock::<Test>::insert((coldkey, other_netuid, hotkey), lock);
-        LockingColdkeys::<Test>::insert((other_netuid, hotkey, coldkey), ());
+        SubtensorModule::add_locking_coldkey(&hotkey, other_netuid, &coldkey);
 
         DissolveCleanupQueue::<Test>::set(vec![netuid]);
         run_block_idle();
@@ -1143,12 +1143,20 @@ fn destroy_alpha_in_out_stakes_cleans_locking_coldkeys() {
         assert!(!LockingColdkeys::<Test>::contains_key((
             netuid, hotkey, coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, hotkey)).count(),
+            0
+        );
         assert!(Lock::<Test>::contains_key((coldkey, other_netuid, hotkey)));
         assert!(LockingColdkeys::<Test>::contains_key((
             other_netuid,
             hotkey,
             coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((other_netuid, hotkey)).count(),
+            1
+        );
     });
 }
 
@@ -2710,13 +2718,13 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
 
         // --- Lock: (coldkey, netuid, hotkey)
         Lock::<Test>::insert((cold_1, net, hot_1), lock_a.clone());
-        LockingColdkeys::<Test>::insert((net, hot_1, cold_1), ());
+        SubtensorModule::add_locking_coldkey(&hot_1, net, &cold_1);
         Lock::<Test>::insert((cold_2, net, hot_2), lock_b.clone());
-        LockingColdkeys::<Test>::insert((net, hot_2, cold_2), ());
+        SubtensorModule::add_locking_coldkey(&hot_2, net, &cold_2);
 
         // Same cold/hot on another net should survive.
         Lock::<Test>::insert((cold_1, other_net, hot_1), lock_a.clone());
-        LockingColdkeys::<Test>::insert((other_net, hot_1, cold_1), ());
+        SubtensorModule::add_locking_coldkey(&hot_1, other_net, &cold_1);
 
         // --- HotkeyLock
         HotkeyLock::<Test>::insert(net, hot_1, lock_a.clone());
@@ -2773,6 +2781,11 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
         assert!(!Lock::<Test>::contains_key((cold_2, net, hot_2)));
         assert!(!LockingColdkeys::<Test>::contains_key((net, hot_1, cold_1)));
         assert!(!LockingColdkeys::<Test>::contains_key((net, hot_2, cold_2)));
+        assert!(
+            LockingColdkeys::<Test>::iter_prefix((net,))
+                .next()
+                .is_none()
+        );
 
         assert!(!HotkeyLock::<Test>::contains_key(net, hot_1));
         assert!(!HotkeyLock::<Test>::contains_key(net, hot_2));
@@ -2796,6 +2809,10 @@ fn dissolve_clears_all_lock_maps_for_removed_network() {
         assert!(LockingColdkeys::<Test>::contains_key((
             other_net, hot_1, cold_1
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((other_net, hot_1)).count(),
+            1
+        );
         assert!(HotkeyLock::<Test>::contains_key(other_net, hot_1));
         assert!(DecayingHotkeyLock::<Test>::contains_key(other_net, hot_1));
         assert!(OwnerLock::<Test>::contains_key(other_net));

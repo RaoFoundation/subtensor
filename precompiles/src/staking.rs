@@ -574,7 +574,7 @@ where
 
         let now = pallet_subtensor::Pallet::<R>::get_current_block_as_u64();
         let owner_lock = hotkey == pallet_subtensor::SubnetOwnerHotkey::<R>::get(netuid);
-        let (lock, _) = pallet_subtensor::staking::lock::ConvictionModel::roll_forward_lock(
+        let lock = pallet_subtensor::staking::lock::roll_lock_state(
             lock,
             now,
             pallet_subtensor::UnlockRate::<R>::get(),
@@ -582,7 +582,7 @@ where
             owner_lock,
             perpetual,
         );
-        let exists = !lock.is_zero();
+        let exists = !lock.is_dust();
         let hotkey: [u8; 32] = hotkey.into();
 
         Ok((
@@ -619,7 +619,7 @@ where
                               owner_lock: bool,
                               perpetual_lock: bool| {
             if let Some(lock) = maybe_lock {
-                let (lock, _) = pallet_subtensor::staking::lock::ConvictionModel::roll_forward_lock(
+                let lock = pallet_subtensor::staking::lock::roll_lock_state(
                     lock,
                     now,
                     unlock_rate,
@@ -3026,16 +3026,15 @@ mod tests {
             frame_system::Pallet::<Runtime>::set_block_number(100);
             let raw_lock = pallet_subtensor::Lock::<Runtime>::get((&coldkey, netuid, &hotkey))
                 .expect("stale individual lock remains in storage");
-            let (rolled_lock, _) =
-                pallet_subtensor::staking::lock::ConvictionModel::roll_forward_lock(
-                    raw_lock,
-                    100,
-                    pallet_subtensor::UnlockRate::<Runtime>::get(),
-                    pallet_subtensor::MaturityRate::<Runtime>::get(),
-                    true,
-                    false,
-                );
-            assert!(rolled_lock.is_zero());
+            let rolled_lock = pallet_subtensor::staking::lock::roll_lock_state(
+                raw_lock,
+                100,
+                pallet_subtensor::UnlockRate::<Runtime>::get(),
+                pallet_subtensor::MaturityRate::<Runtime>::get(),
+                true,
+                false,
+            );
+            assert!(rolled_lock.is_dust());
 
             precompiles
                 .prepare_test(

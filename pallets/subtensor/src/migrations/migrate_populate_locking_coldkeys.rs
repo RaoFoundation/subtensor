@@ -38,7 +38,7 @@ pub fn migrate_populate_locking_coldkeys<T: Config>() -> Weight {
             Subtensor::<T>::read_conviction_model_for_hotkey(&coldkey, netuid, &hotkey, now);
         model.roll_forward(now, unlock_rate, maturity_rate);
 
-        if model.individual_lock().is_zero() {
+        if model.individual_lock().is_dust() {
             removed_count = removed_count.saturating_add(1);
         } else {
             indexed_count = indexed_count.saturating_add(1);

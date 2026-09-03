@@ -16,7 +16,7 @@ use subtensor_runtime_common::{AlphaBalance, NetUidStorageIndex, TaoBalance};
 use subtensor_swap_interface::SwapHandler;
 
 use super::mock::*;
-use crate::staking::lock::{ConvictionModel, LockState};
+use crate::staking::lock::{ConvictionModel, LockState, roll_lock_state};
 use crate::*;
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ fn roll_forward_lock(
     owner_lock: bool,
     perpetual_lock: bool,
 ) -> LockState {
-    ConvictionModel::roll_forward_lock(
+    roll_lock_state(
         lock,
         now,
         UnlockRate::<Test>::get(),
@@ -79,7 +79,6 @@ fn roll_forward_lock(
         owner_lock,
         perpetual_lock,
     )
-    .0
 }
 
 fn roll_forward_individual_lock(
@@ -1366,11 +1365,15 @@ fn test_locking_coldkeys_removed_when_lock_is_fully_reduced() {
         assert!(!LockingColdkeys::<Test>::contains_key((
             netuid, hotkey, coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, hotkey)).count(),
+            0
+        );
     });
 }
 
 #[test]
-fn test_lock_state_is_zero_uses_dust_threshold() {
+fn test_lock_state_is_dust_uses_threshold() {
     let below_threshold = LockState {
         locked_mass: AlphaBalance::from(99u64),
         conviction: U64F64::from_num(99),
@@ -1387,9 +1390,9 @@ fn test_lock_state_is_zero_uses_dust_threshold() {
         last_update: 0,
     };
 
-    assert!(below_threshold.is_zero());
-    assert!(!locked_mass_at_threshold.is_zero());
-    assert!(!conviction_at_threshold.is_zero());
+    assert!(below_threshold.is_dust());
+    assert!(!locked_mass_at_threshold.is_dust());
+    assert!(!conviction_at_threshold.is_dust());
 }
 
 // =========================================================================
@@ -1482,7 +1485,7 @@ fn test_lock_stake_topup_exceeds_total() {
 #[test]
 fn test_exp_decay_zero_dt() {
     new_test_ext(1).execute_with(|| {
-        let result = ConvictionModel::exp_decay(0, 216000);
+        let result = LockState::exp_decay(0, 216000);
         assert_eq!(result, U64F64::from_num(1));
     });
 }
@@ -1490,7 +1493,7 @@ fn test_exp_decay_zero_dt() {
 #[test]
 fn test_exp_decay_zero_tau() {
     new_test_ext(1).execute_with(|| {
-        let result = ConvictionModel::exp_decay(1000, 0);
+        let result = LockState::exp_decay(1000, 0);
         assert_eq!(result, U64F64::from_num(0));
     });
 }
@@ -1499,7 +1502,7 @@ fn test_exp_decay_zero_tau() {
 fn test_exp_decay_one_tau() {
     new_test_ext(1).execute_with(|| {
         let tau = 216000u64;
-        let result = ConvictionModel::exp_decay(tau, tau);
+        let result = LockState::exp_decay(tau, tau);
         // exp(-1) ~= 0.36787944
         let expected = U64F64::from_num(0.36787944f64);
         let diff = if result > expected {
@@ -1515,8 +1518,8 @@ fn test_exp_decay_one_tau() {
 fn test_exp_decay_clamps_large_dt_to_min_ratio() {
     new_test_ext(1).execute_with(|| {
         let tau = 216000u64;
-        let clamped_result = ConvictionModel::exp_decay(40 * tau, tau);
-        let oversized_result = ConvictionModel::exp_decay(100 * tau, tau);
+        let clamped_result = LockState::exp_decay(40 * tau, tau);
+        let oversized_result = LockState::exp_decay(100 * tau, tau);
 
         let diff = if oversized_result > clamped_result {
             oversized_result - clamped_result
@@ -1547,17 +1550,39 @@ fn test_roll_forward_individual_lock_uses_lock_owner_and_decay_mode() {
 
         let rolled =
             roll_forward_individual_lock(&coldkey, netuid, &owner_hotkey, lock.clone(), now);
-        let expected = ConvictionModel::roll_forward_lock(
+        let expected = roll_lock_state(
             lock,
             now,
             UnlockRate::<Test>::get(),
             MaturityRate::<Test>::get(),
             true,
             false,
-        )
-        .0;
+        );
 
         assert_eq!(rolled, expected);
+    });
+}
+
+#[test]
+fn test_rolled_individual_is_a_pure_view() {
+    new_test_ext(1).execute_with(|| {
+        let individual = LockState {
+            locked_mass: 10_000u64.into(),
+            conviction: U64F64::from_num(0),
+            last_update: 0,
+        };
+        let aggregate = individual.clone();
+        let model = ConvictionModel::new(false, true, individual.clone(), aggregate.clone());
+
+        let rolled = model.rolled_individual(
+            1_000,
+            UnlockRate::<Test>::get(),
+            MaturityRate::<Test>::get(),
+        );
+
+        assert!(rolled.conviction > individual.conviction);
+        assert_eq!(model.individual_lock(), &individual);
+        assert_eq!(model.aggregate_lock(), &aggregate);
     });
 }
 
@@ -1572,15 +1597,14 @@ fn test_roll_forward_hotkey_lock_uses_perpetual_general_mode() {
         let now = 1_000u64;
 
         let rolled = roll_forward_hotkey_lock(lock.clone(), now);
-        let expected = ConvictionModel::roll_forward_lock(
+        let expected = roll_lock_state(
             lock,
             now,
             UnlockRate::<Test>::get(),
             MaturityRate::<Test>::get(),
             false,
             true,
-        )
-        .0;
+        );
 
         assert_eq!(rolled, expected);
     });
@@ -1597,15 +1621,14 @@ fn test_roll_forward_decaying_hotkey_lock_uses_decaying_general_mode() {
         let now = 1_000u64;
 
         let rolled = roll_forward_decaying_hotkey_lock(lock.clone(), now);
-        let expected = ConvictionModel::roll_forward_lock(
+        let expected = roll_lock_state(
             lock,
             now,
             UnlockRate::<Test>::get(),
             MaturityRate::<Test>::get(),
             false,
             false,
-        )
-        .0;
+        );
 
         assert_eq!(rolled, expected);
     });
@@ -1645,8 +1668,8 @@ fn test_roll_forward_conviction_uses_unequal_rate_closed_form() {
         };
         let rolled = roll_forward_lock(lock, dt, false, false);
 
-        let unlock_decay = ConvictionModel::exp_decay(dt, unlock_rate);
-        let maturity_decay = ConvictionModel::exp_decay(dt, maturity_rate);
+        let unlock_decay = LockState::exp_decay(dt, unlock_rate);
+        let maturity_decay = LockState::exp_decay(dt, maturity_rate);
         let gamma = U64F64::from_num(unlock_rate)
             .saturating_mul(maturity_decay.saturating_sub(unlock_decay))
             .safe_div(U64F64::from_num(maturity_rate.saturating_sub(unlock_rate)));
@@ -2012,7 +2035,130 @@ fn test_unstake_rolls_forward_existing_lock() {
 }
 
 #[test]
-fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate() {
+fn test_cleanup_rolls_forward_sibling_lock_contributions() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey_1 = U256::from(1);
+        let coldkey_2 = U256::from(3);
+        let hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(coldkey_1, hotkey, 100_000_000_000);
+
+        add_balance_to_coldkey_account(&coldkey_2, 100_000_000_000u64.into());
+        SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &coldkey_2,
+            netuid,
+            100_000_000_000u64.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        DecayingLock::<Test>::insert(coldkey_2, netuid, false);
+
+        let lock_1: AlphaBalance = 10_000_000_000u64.into();
+        let lock_2: AlphaBalance = 20_000_000_000u64.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_1, netuid, &hotkey, lock_1,
+        ));
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &coldkey_2, netuid, &hotkey, lock_2,
+        ));
+
+        let stored_1 = Lock::<Test>::get((coldkey_1, netuid, hotkey)).unwrap();
+        let stored_2 = Lock::<Test>::get((coldkey_2, netuid, hotkey)).unwrap();
+        step_block(100);
+        let now = SubtensorModule::get_current_block_as_u64();
+        let expected_1 = roll_forward_hotkey_lock(stored_1, now);
+        let expected_2 = roll_forward_hotkey_lock(stored_2, now);
+
+        SubtensorModule::cleanup_lock_if_zero(&coldkey_1, netuid);
+
+        let aggregate = HotkeyLock::<Test>::get(netuid, hotkey).expect("aggregate should remain");
+        assert_eq!(
+            aggregate.locked_mass,
+            expected_1
+                .locked_mass
+                .saturating_add(expected_2.locked_mass)
+        );
+        assert_eq!(
+            aggregate.conviction,
+            expected_1.conviction.saturating_add(expected_2.conviction)
+        );
+        assert_eq!(aggregate.last_update, now);
+    });
+}
+
+#[test]
+fn test_lock_top_up_does_not_double_count_after_aggregate_only_roll() {
+    new_test_ext(1).execute_with(|| {
+        let large_coldkey = U256::from(1);
+        let dummy_coldkey = U256::from(3);
+        let hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(large_coldkey, hotkey, 100_000_000_000);
+
+        add_balance_to_coldkey_account(&dummy_coldkey, 100_000_000_000u64.into());
+        SubtensorModule::stake_into_subnet(
+            &hotkey,
+            &dummy_coldkey,
+            netuid,
+            100_000_000_000u64.into(),
+            <Test as Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap();
+        DecayingLock::<Test>::insert(dummy_coldkey, netuid, false);
+
+        let large_lock: AlphaBalance = 10_000_000_000u64.into();
+        let dummy_lock: AlphaBalance = 1_000_000_000u64.into();
+        let top_up: AlphaBalance = 1_000_000_000u64.into();
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &large_coldkey,
+            netuid,
+            &hotkey,
+            large_lock,
+        ));
+
+        step_block(100);
+
+        // A new member has a zero individual delta, so adding it rolls the
+        // pre-existing aggregate (including the large lock) forward.
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &dummy_coldkey,
+            netuid,
+            &hotkey,
+            dummy_lock,
+        ));
+        let aggregate_before_top_up =
+            HotkeyLock::<Test>::get(netuid, hotkey).expect("aggregate should exist");
+        assert!(aggregate_before_top_up.conviction > U64F64::from_num(0));
+
+        // The large individual row is still older than the aggregate. Its
+        // already-counted maturation must not be added to the aggregate again.
+        assert_ok!(SubtensorModule::do_lock_stake(
+            &large_coldkey,
+            netuid,
+            &hotkey,
+            top_up,
+        ));
+        let aggregate_after_top_up =
+            HotkeyLock::<Test>::get(netuid, hotkey).expect("aggregate should remain");
+
+        assert_eq!(
+            aggregate_after_top_up.locked_mass,
+            aggregate_before_top_up.locked_mass.saturating_add(top_up)
+        );
+        assert_eq!(
+            aggregate_after_top_up.conviction,
+            aggregate_before_top_up.conviction
+        );
+        assert_eq!(
+            aggregate_after_top_up.last_update,
+            SubtensorModule::get_current_block_as_u64()
+        );
+    });
+}
+
+#[test]
+fn test_unstake_roll_forward_collects_decaying_sibling_dust_from_hotkey_aggregate() {
     new_test_ext(1).execute_with(|| {
         const ONE_ALPHA: u64 = 1_000_000_000;
         const DUST_ALPHA: u64 = 100;
@@ -2082,6 +2228,19 @@ fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate()
             },
             now,
         );
+        let rolled_aggregate = roll_forward_decaying_hotkey_lock(
+            LockState {
+                locked_mass: (ONE_ALPHA + DUST_ALPHA).into(),
+                conviction: U64F64::from_num(0),
+                last_update: lock_block,
+            },
+            now,
+        );
+        let rolled_sibling_dust_mass: AlphaBalance =
+            LockState::exp_decay(now.saturating_sub(lock_block), UnlockRate::<Test>::get())
+                .saturating_mul(U64F64::from_num(DUST_ALPHA))
+                .to_num::<u64>()
+                .into();
 
         assert_ok!(SubtensorModule::do_remove_stake(
             RuntimeOrigin::signed(coldkey_1),
@@ -2097,9 +2256,7 @@ fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate()
             DecayingHotkeyLock::<Test>::get(netuid, hotkey_2)
                 .expect("decaying aggregate should remain")
                 .locked_mass,
-            rolled_large_lock
-                .locked_mass
-                .saturating_add(AlphaBalance::from(DUST_ALPHA))
+            rolled_aggregate.locked_mass
         );
 
         assert_ok!(SubtensorModule::do_remove_stake(
@@ -2112,7 +2269,9 @@ fn test_unstake_roll_forward_collects_decaying_lock_dust_from_hotkey_aggregate()
             DecayingHotkeyLock::<Test>::get(netuid, hotkey_2)
                 .expect("decaying aggregate should remain")
                 .locked_mass,
-            rolled_large_lock.locked_mass
+            rolled_aggregate
+                .locked_mass
+                .saturating_sub(rolled_sibling_dust_mass)
         );
     });
 }
@@ -2244,10 +2403,7 @@ fn test_do_transfer_stake_same_subnet_transfers_lock_to_destination_coldkey() {
             false,
             true,
         );
-        assert_eq!(
-            hotkey_lock_after.locked_mass,
-            expected_hotkey_lock.locked_mass
-        );
+        assert_eq!(hotkey_lock_after, expected_hotkey_lock);
     });
 }
 
@@ -3165,6 +3321,7 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
         System::set_block_number(now);
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
+        DecayingLock::<Test>::insert(new_owner_coldkey, netuid, false);
         SubnetProtocolAlpha::<Test>::insert(netuid, AlphaBalance::from(2_000u64));
         pallet_alpha_assets::AlphaBurned::<Test>::insert(netuid, AlphaBalance::from(1_000u64));
 
@@ -3178,6 +3335,7 @@ fn test_change_subnet_owner_if_needed_reassigns_to_subnet_king() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&king_hotkey, netuid, &new_owner_coldkey);
         HotkeyLock::<Test>::insert(
             netuid,
             king_hotkey,
@@ -3228,6 +3386,7 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
         SubtensorModule::set_tempo_unchecked(netuid, 1);
         LastEpochBlock::<Test>::insert(netuid, now.saturating_sub(1));
         PendingEpochAt::<Test>::insert(netuid, 0);
+        DecayingLock::<Test>::insert(new_owner_coldkey, netuid, false);
 
         let locked_mass = AlphaBalance::from(2_000u64);
         Lock::<Test>::insert(
@@ -3238,6 +3397,7 @@ fn test_run_coinbase_reassigns_subnet_owner_by_conviction_on_epoch() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&king_hotkey, netuid, &new_owner_coldkey);
         HotkeyLock::<Test>::insert(
             netuid,
             king_hotkey,
@@ -3283,6 +3443,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
         NetworkRegisteredAt::<Test>::insert(netuid, 1);
         SubnetAlphaOut::<Test>::insert(netuid, AlphaBalance::from(10_000u64));
         DecayingLock::<Test>::insert(perpetual_coldkey, netuid, false);
+        DecayingLock::<Test>::insert(king_coldkey, netuid, false);
 
         Lock::<Test>::insert(
             (perpetual_coldkey, netuid, old_owner_hotkey),
@@ -3292,6 +3453,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&old_owner_hotkey, netuid, &perpetual_coldkey);
         Lock::<Test>::insert(
             (decaying_coldkey, netuid, old_owner_hotkey),
             LockState {
@@ -3300,6 +3462,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&old_owner_hotkey, netuid, &decaying_coldkey);
         OwnerLock::<Test>::insert(
             netuid,
             LockState {
@@ -3326,6 +3489,7 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
                 last_update: now,
             },
         );
+        SubtensorModule::add_locking_coldkey(&king_hotkey, netuid, &king_coldkey);
         HotkeyLock::<Test>::insert(
             netuid,
             king_hotkey,
@@ -3354,6 +3518,125 @@ fn test_change_subnet_owner_rebuilds_old_owner_hotkey_by_lock_mode() {
         assert_eq!(
             OwnerLock::<Test>::get(netuid).unwrap().locked_mass,
             2_000u64.into()
+        );
+    });
+}
+
+#[test]
+fn test_owner_demotion_then_member_update_does_not_leave_ghost_conviction() {
+    new_test_ext(100).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let original_owner_hotkey = U256::from(1);
+        let promoted_hotkey = U256::from(2);
+        let next_owner_hotkey = U256::from(3);
+        let first_coldkey = U256::from(10);
+        let second_coldkey = U256::from(11);
+        let now = SubtensorModule::get_current_block_as_u64();
+        let member = LockState {
+            locked_mass: 1_000u64.into(),
+            conviction: U64F64::from_num(100),
+            last_update: now,
+        };
+
+        SubnetOwnerHotkey::<Test>::insert(netuid, original_owner_hotkey);
+        DecayingLock::<Test>::insert(first_coldkey, netuid, false);
+        DecayingLock::<Test>::insert(second_coldkey, netuid, false);
+        SubtensorModule::insert_lock_state(
+            &first_coldkey,
+            netuid,
+            &promoted_hotkey,
+            member.clone(),
+        );
+        SubtensorModule::insert_lock_state(
+            &second_coldkey,
+            netuid,
+            &promoted_hotkey,
+            member.clone(),
+        );
+        HotkeyLock::<Test>::insert(
+            netuid,
+            promoted_hotkey,
+            LockState {
+                locked_mass: 2_000u64.into(),
+                conviction: U64F64::from_num(200),
+                last_update: now,
+            },
+        );
+
+        SubtensorModule::transition_subnet_owner_lock_aggregates(
+            netuid,
+            &original_owner_hotkey,
+            &promoted_hotkey,
+        );
+        SubnetOwnerHotkey::<Test>::insert(netuid, promoted_hotkey);
+
+        SubtensorModule::transition_subnet_owner_lock_aggregates(
+            netuid,
+            &promoted_hotkey,
+            &next_owner_hotkey,
+        );
+        SubnetOwnerHotkey::<Test>::insert(netuid, next_owner_hotkey);
+
+        // Removing one member after demotion must remove its complete canonical
+        // contribution. Any aggregate-only owner boost would survive as ghost
+        // conviction in the promoted hotkey's general bucket.
+        SubtensorModule::force_reduce_lock(&first_coldkey, netuid, 1_000u64.into());
+
+        assert!(Lock::<Test>::get((first_coldkey, netuid, promoted_hotkey)).is_none());
+        let remaining = Lock::<Test>::get((second_coldkey, netuid, promoted_hotkey))
+            .expect("second member should remain");
+        assert_eq!(remaining.locked_mass, 1_000u64.into());
+        assert_eq!(remaining.conviction, U64F64::from_num(1_000));
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, promoted_hotkey),
+            Some(remaining)
+        );
+        assert!(OwnerLock::<Test>::get(netuid).is_none());
+    });
+}
+
+#[test]
+fn test_decaying_owner_is_rolled_as_owner_before_demotion() {
+    new_test_ext(1_000).execute_with(|| {
+        let netuid = NetUid::from(1);
+        let old_owner_hotkey = U256::from(1);
+        let new_owner_hotkey = U256::from(2);
+        let coldkey = U256::from(10);
+        let now = SubtensorModule::get_current_block_as_u64();
+        let unlock_rate = 200;
+        let maturity_rate = 300;
+        let lock = LockState {
+            locked_mass: 100_000u64.into(),
+            conviction: U64F64::from_num(100_000),
+            last_update: now.saturating_sub(100),
+        };
+
+        UnlockRate::<Test>::put(unlock_rate);
+        MaturityRate::<Test>::put(maturity_rate);
+        SubnetOwnerHotkey::<Test>::insert(netuid, old_owner_hotkey);
+        SubtensorModule::insert_lock_state(&coldkey, netuid, &old_owner_hotkey, lock.clone());
+        DecayingOwnerLock::<Test>::insert(netuid, lock.clone());
+
+        let expected = roll_lock_state(lock, now, unlock_rate, maturity_rate, true, false);
+
+        SubtensorModule::transition_subnet_owner_lock_aggregates(
+            netuid,
+            &old_owner_hotkey,
+            &new_owner_hotkey,
+        );
+
+        assert_eq!(
+            Lock::<Test>::get((coldkey, netuid, old_owner_hotkey)),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            DecayingHotkeyLock::<Test>::get(netuid, old_owner_hotkey),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            expected.conviction,
+            U64F64::from_num(expected.locked_mass),
+            "the outgoing row must retain full owner conviction at the transition block"
         );
     });
 }
@@ -3413,6 +3696,10 @@ fn test_swap_hotkey_locks_moves_owner_hotkey_aggregate_to_owner_lock() {
             new_owner_hotkey,
             locking_coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, new_owner_hotkey)).count(),
+            1
+        );
     });
 }
 
@@ -4329,6 +4616,10 @@ fn test_hotkey_swap_swaps_locks_and_convictions() {
         assert!(LockingColdkeys::<Test>::contains_key((
             netuid, new_hotkey, coldkey
         )));
+        assert_eq!(
+            LockingColdkeys::<Test>::iter_prefix((netuid, new_hotkey)).count(),
+            1
+        );
 
         // Hotkey lock data also updated, conviction is not reset
         let hotkey_lock = HotkeyLock::<Test>::get(netuid, new_hotkey).unwrap();
@@ -4924,6 +5215,107 @@ fn test_neuron_replacement_does_not_affect_lock() {
 // =========================================================================
 
 #[test]
+fn test_move_lock_removes_dusted_member_from_aggregate() {
+    new_test_ext(1).execute_with(|| {
+        let moving_coldkey = U256::from(1);
+        let sibling_coldkey = U256::from(4);
+        let origin_hotkey = U256::from(2);
+        let destination_hotkey = U256::from(3);
+        let netuid = setup_subnet_with_stake(moving_coldkey, origin_hotkey, 100_000_000_000);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &moving_coldkey,
+            &destination_hotkey,
+        ));
+        DecayingLock::<Test>::insert(sibling_coldkey, netuid, false);
+
+        let now = SubtensorModule::get_current_block_as_u64();
+        let dust = LockState {
+            locked_mass: 99u64.into(),
+            conviction: U64F64::from_num(99),
+            last_update: now,
+        };
+        let sibling = LockState {
+            locked_mass: 1_000u64.into(),
+            conviction: U64F64::from_num(1_000),
+            last_update: now,
+        };
+        Lock::<Test>::insert((moving_coldkey, netuid, origin_hotkey), dust.clone());
+        Lock::<Test>::insert((sibling_coldkey, netuid, origin_hotkey), sibling.clone());
+        HotkeyLock::<Test>::insert(
+            netuid,
+            origin_hotkey,
+            LockState {
+                locked_mass: dust.locked_mass.saturating_add(sibling.locked_mass),
+                conviction: dust.conviction.saturating_add(sibling.conviction),
+                last_update: now,
+            },
+        );
+
+        assert_ok!(SubtensorModule::do_move_lock(
+            &moving_coldkey,
+            &destination_hotkey,
+            netuid,
+        ));
+
+        assert!(Lock::<Test>::get((moving_coldkey, netuid, origin_hotkey)).is_none());
+        assert!(Lock::<Test>::get((moving_coldkey, netuid, destination_hotkey)).is_none());
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, origin_hotkey),
+            Some(sibling)
+        );
+        assert!(HotkeyLock::<Test>::get(netuid, destination_hotkey).is_none());
+    });
+}
+
+#[test]
+fn test_transfer_lock_removes_dusted_source_from_aggregate() {
+    new_test_ext(1).execute_with(|| {
+        let sender_coldkey = U256::from(1);
+        let receiver_coldkey = U256::from(5);
+        let sibling_coldkey = U256::from(4);
+        let hotkey = U256::from(2);
+        let netuid = setup_subnet_with_stake(sender_coldkey, hotkey, 100_000_000_000);
+        DecayingLock::<Test>::insert(sibling_coldkey, netuid, false);
+
+        let now = SubtensorModule::get_current_block_as_u64();
+        let dust = LockState {
+            locked_mass: 99u64.into(),
+            conviction: U64F64::from_num(99),
+            last_update: now,
+        };
+        let sibling = LockState {
+            locked_mass: 1_000u64.into(),
+            conviction: U64F64::from_num(1_000),
+            last_update: now,
+        };
+        Lock::<Test>::insert((sender_coldkey, netuid, hotkey), dust.clone());
+        Lock::<Test>::insert((sibling_coldkey, netuid, hotkey), sibling.clone());
+        HotkeyLock::<Test>::insert(
+            netuid,
+            hotkey,
+            LockState {
+                locked_mass: dust.locked_mass.saturating_add(sibling.locked_mass),
+                conviction: dust.conviction.saturating_add(sibling.conviction),
+                last_update: now,
+            },
+        );
+
+        let total_alpha = SubtensorModule::total_coldkey_alpha_on_subnet(&sender_coldkey, netuid);
+        assert_ok!(SubtensorModule::transfer_lock(
+            &sender_coldkey,
+            &receiver_coldkey,
+            &hotkey,
+            netuid,
+            total_alpha,
+        ));
+
+        assert!(Lock::<Test>::get((sender_coldkey, netuid, hotkey)).is_none());
+        assert!(Lock::<Test>::get((receiver_coldkey, netuid, hotkey)).is_none());
+        assert_eq!(HotkeyLock::<Test>::get(netuid, hotkey), Some(sibling));
+    });
+}
+
+#[test]
 fn test_moving_lock() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1);
@@ -4971,6 +5363,70 @@ fn test_moving_lock() {
         assert_eq!(
             hotkey_lock_destination_after.conviction,
             U64F64::from_num(1234)
+        );
+    });
+}
+
+#[test]
+fn test_moving_lock_merges_preexisting_destination_individual_and_aggregate() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey_a = U256::from(2);
+        let hotkey_b = U256::from(3);
+        let netuid = setup_subnet_with_stake(coldkey, hotkey_a, 100_000_000_000);
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &coldkey, &hotkey_b,
+        ));
+
+        let now = SubtensorModule::get_current_block_as_u64();
+        let lock_a = LockState {
+            locked_mass: 5_000u64.into(),
+            conviction: U64F64::from_num(1_000),
+            last_update: now,
+        };
+        let lock_b = LockState {
+            locked_mass: 2_000u64.into(),
+            conviction: U64F64::from_num(300),
+            last_update: now,
+        };
+        Lock::<Test>::insert((coldkey, netuid, hotkey_a), lock_a.clone());
+        HotkeyLock::<Test>::insert(netuid, hotkey_a, lock_a);
+        Lock::<Test>::insert((coldkey, netuid, hotkey_b), lock_b.clone());
+        HotkeyLock::<Test>::insert(netuid, hotkey_b, lock_b);
+
+        // Match production's storage-prefix selection instead of assuming a
+        // numeric hotkey order under the map's hashing scheme.
+        let (origin_hotkey, origin) = Lock::<Test>::iter_prefix((coldkey, netuid))
+            .next()
+            .expect("one source lock should be selected");
+        let destination_hotkey = if origin_hotkey == hotkey_a {
+            hotkey_b
+        } else {
+            hotkey_a
+        };
+        let destination = Lock::<Test>::get((coldkey, netuid, destination_hotkey))
+            .expect("destination lock should exist");
+
+        assert_ok!(SubtensorModule::do_move_lock(
+            &coldkey,
+            &destination_hotkey,
+            netuid,
+        ));
+
+        let expected = LockState {
+            locked_mass: origin.locked_mass.saturating_add(destination.locked_mass),
+            conviction: origin.conviction.saturating_add(destination.conviction),
+            last_update: now,
+        };
+        assert!(Lock::<Test>::get((coldkey, netuid, origin_hotkey)).is_none());
+        assert!(HotkeyLock::<Test>::get(netuid, origin_hotkey).is_none());
+        assert_eq!(
+            Lock::<Test>::get((coldkey, netuid, destination_hotkey)),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            HotkeyLock::<Test>::get(netuid, destination_hotkey),
+            Some(expected)
         );
     });
 }
