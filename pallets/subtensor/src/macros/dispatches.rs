@@ -1966,11 +1966,9 @@ mod dispatches {
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
         #[pallet::call_index(121)]
-        // Signer is not in the call data, so admission uses the conservative
-        // MAX_ROOT_CLAIM_WORK envelope. Execution refuses a fat coldkey that
-        // would exceed it — use claim_root_with_hotkey per validator.
+        // The immutable genesis hash selects the chain-specific declared/admission envelope.
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(Pallet::<T>::root_claim_declared_work())
+            Pallet::<T>::root_claim_declared_weight()
         )]
         pub fn claim_root(
             origin: OriginFor<T>,
@@ -2008,7 +2006,7 @@ mod dispatches {
         /// * `RootClaimed`: On successfully claiming the root emissions for this coldkey+hotkey.
         #[pallet::call_index(148)]
         #[pallet::weight(
-            <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK)
+            Pallet::<T>::root_claim_declared_weight()
         )]
         pub fn claim_root_with_hotkey(
             origin: OriginFor<T>,

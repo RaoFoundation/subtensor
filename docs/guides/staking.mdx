@@ -190,8 +190,10 @@ btcli stake remove --netuid 0 --hotkey 5F... --amount all --claim  # claim all, 
 ```
 
 The claim fee scales with how many ALPHA types are in the basket. Both
-root-claim calls reserve a conservative 256-unit work envelope at inclusion,
-independent of the current network count, and refund the unused part after.
+root-claim calls reserve a conservative 256-unit work envelope on mainnet and
+unknown chains, independent of the current network count, and refund the unused
+part after. Finney testnet uses a 1,025-unit envelope to cover its larger subnet
+topology.
 You actually spend according to the holdings scanned and redeemed (around
 τ0.057 on a full 128-holding basket). `--dry-run` and the confirm step show
 reserved versus spent, warn if that spent fee exceeds accrued yield, and

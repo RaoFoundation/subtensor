@@ -277,7 +277,7 @@ class _RootClaimIntent(Intent):
                 effects=[self.summary()],
                 warnings=[],
                 blocks=[
-                    "could not verify the root claim's 256-unit admission budget; "
+                    "could not verify the root claim's chain-specific admission budget; "
                     f"refusing to risk the unreduced declared fee ({error})"
                 ],
             )
@@ -422,9 +422,10 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     per-holding claim fee shrinks over time; curated positions are left to
     compound. The transaction fee is charged by work actually done:
     holdings redeemed pay full weight, holdings merely scanned pay a small
-    per-row cost. The chain reserves a fixed 256-unit declared-work envelope at
-    inclusion, independent of the current network count, and refunds the unused
-    part after.
+    per-row cost. The chain reserves a fixed 256-unit declared-work envelope on
+    mainnet and unknown chains, independent of the current network count, and
+    refunds the unused part after. Finney testnet uses a 1,025-unit envelope to
+    cover its larger subnet topology.
     ``plan`` and ``btcli root claim --dry-run`` show reserved versus spent,
     warn when the spent fee exceeds accrued yield, and refuse when free
     TAO cannot cover the reserve.

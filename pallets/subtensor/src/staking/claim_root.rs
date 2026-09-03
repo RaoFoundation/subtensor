@@ -4,7 +4,7 @@ use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::{Weight, WeightMeter};
 use sp_core::Get;
 use sp_runtime::DispatchError;
-use sp_runtime::traits::AccountIdConversion;
+use sp_runtime::traits::{AccountIdConversion, Zero};
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::I96F32;
@@ -636,21 +636,6 @@ impl<T: Config> Pallet<T> {
             return Ok(outcome);
         }
 
-        // A claim that pays on some holdings but floors a valuable holding to take == 0 must
-        // not settle: burning all owed shares would forfeit that holding to remaining
-        // shareholders (e.g. 99/100 of a 1-alpha position → floor 0, then the leftover
-        // 1-share holder owns the whole unit). Same posture as the all-zero-take rollback
-        // below — leave the watermark untouched. Worthless rows (realizable 0) are ignored.
-        for (_, slot_alpha, slot_value, _) in valued_holdings.iter() {
-            let alpha = slot_alpha.to_u64();
-            if alpha == 0 {
-                continue;
-            }
-            if Self::mul_div_u64(alpha, owed_shares, shares_total) == 0 && *slot_value > 0 {
-                return Ok(outcome);
-            }
-        }
-
         let escrow = Self::get_beta_escrow_account_id();
 
         // Redeemed slots are counted outside the transaction: a rolled-back redemption
@@ -666,8 +651,25 @@ impl<T: Config> Pallet<T> {
             let mut written_off: u32 = 0;
 
             for (netuid, slot_alpha, slot_value, terminal_garbage) in valued_holdings.iter() {
+                let slot_entitlement =
+                    Self::basket_payout_from(owed_shares, *slot_value, shares_total);
                 // This staker's pro-rata slice of the holding: slot_alpha * owed / P.
-                let take: u64 = Self::mul_div_u64(slot_alpha.to_u64(), owed_shares, shares_total);
+                let proportional_take =
+                    Self::mul_div_u64(slot_alpha.to_u64(), owed_shares, shares_total);
+                // A high-value alpha row can owe at least one rao even when its proportional
+                // alpha slice floors to zero. Sell one atomic alpha unit, pay no more than the
+                // marked entitlement below, and retain the sale surplus as fund root cash.
+                // Root is already denominated in rao, so take == entitlement there; terminal
+                // rows have no realizable entitlement and keep the ordinary floor.
+                let take = if proportional_take == 0
+                    && slot_entitlement > 0
+                    && !netuid.is_root()
+                    && !terminal_garbage
+                {
+                    1
+                } else {
+                    proportional_take
+                };
                 if take == 0 {
                     continue;
                 }
@@ -729,8 +731,6 @@ impl<T: Config> Pallet<T> {
                 // fraction, so pay only the priced entitlement and retain the surplus as
                 // fund cash. Otherwise a permissionless deposit followed by a claim can
                 // extract the difference from earlier holders.
-                let slot_entitlement =
-                    Self::basket_payout_from(owed_shares, *slot_value, shares_total);
                 let realized_tao = tao.to_u64();
                 // A final claimant has no remaining holders to retain a surplus for. Give
                 // them every realized rao so no root cash is stranded behind zero shares.
@@ -901,11 +901,29 @@ impl<T: Config> Pallet<T> {
         (Self::get_all_subnet_netuids().len() as u32).max(1)
     }
 
-    /// Pre-dispatch work units for both claim paths. Weight calculation must
-    /// stay storage-independent (no `NetworksAdded` or basket walks here);
-    /// execution then refuses work that would exceed this envelope.
+    /// Chain-specific admission budget for both claim paths. Finney testnet has a
+    /// 1,024-subnet limit, while mainnet and every unknown chain retain the
+    /// conservative default.
     pub(crate) fn root_claim_declared_work() -> u32 {
-        crate::MAX_ROOT_CLAIM_WORK
+        let genesis_hash = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
+        let genesis_bytes: &[u8] = genesis_hash.as_ref();
+        if genesis_bytes == crate::FINNEY_TESTNET_GENESIS_HASH {
+            crate::MAX_ROOT_CLAIM_WORK
+        } else {
+            crate::DEFAULT_ROOT_CLAIM_WORK
+        }
+    }
+
+    /// Chain-specific pre-dispatch weight for both independently bounded dimensions:
+    /// full claim work and scan-only work. Include the genesis-hash reads used by weight
+    /// selection and the dispatch admission check.
+    pub(crate) fn root_claim_declared_weight() -> Weight {
+        let limit = Self::root_claim_declared_work();
+        <T as crate::pallet::Config>::WeightInfo::claim_root(limit)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                limit,
+            ))
+            .saturating_add(T::DbWeight::get().reads(2))
     }
 
     /// True when a coldkey-wide claim's reachable work (hotkeys × existing
@@ -932,8 +950,8 @@ impl<T: Config> Pallet<T> {
     /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row
     /// scan cost for holdings that were only valued. This is what lets a fund's claim fee
     /// decay as dust rows are consolidated, and makes a below-threshold no-op cost a scan
-    /// instead of a full claim. Work above [`crate::MAX_ROOT_CLAIM_WORK`] is
-    /// refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
+    /// instead of a full claim. Work above the chain-specific admission budget
+    /// is refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
     pub(crate) fn root_claim_actual_weight(
         hotkey_count: u32,
         outcome: &RootClaimOutcome,
@@ -942,9 +960,11 @@ impl<T: Config> Pallet<T> {
             .max(outcome.realized.saturating_add(outcome.swept))
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
-        <T as crate::pallet::Config>::WeightInfo::claim_root(active).saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(scanned),
-        )
+        <T as crate::pallet::Config>::WeightInfo::claim_root(active)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                scanned,
+            ))
+            .saturating_add(T::DbWeight::get().reads(2))
     }
 
     pub fn do_root_claim(

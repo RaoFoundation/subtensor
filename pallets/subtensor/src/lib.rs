@@ -71,12 +71,17 @@ pub const MIN_ALPHA_LOW: u16 = 1_639;
 
 pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 
-/// Benchmark upper bound and admission envelope for `claim_root` /
-/// `claim_root_scan` (Linear<1, N>). Weight calculation cannot walk storage,
-/// so both claim paths reserve this many units and refuse work that would
-/// exceed the envelope. Post-dispatch weight is refunded to the work
-/// actually performed.
-pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+/// Default admission envelope for `claim_root` / `claim_root_with_hotkey`.
+pub const DEFAULT_ROOT_CLAIM_WORK: u32 = 256;
+
+/// Benchmark upper bound and largest chain-specific admission envelope for
+/// `claim_root` / `claim_root_scan` (`Linear<1, N>`).
+pub const MAX_ROOT_CLAIM_WORK: u32 = 1_025;
+
+/// Finney testnet raises its root-claim admission envelope to cover its configured
+/// maximum of 1,024 non-root subnets plus root.
+pub(crate) const FINNEY_TESTNET_GENESIS_HASH: [u8; 32] =
+    hex_literal::hex!("8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105");
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
 /// to the number of available destinations when fewer networks exist than this floor.

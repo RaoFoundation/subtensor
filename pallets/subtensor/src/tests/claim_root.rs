@@ -4,18 +4,18 @@ use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
     BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
-    DefaultMinRootClaimAmount, Error, Keys, MAX_ROOT_CLAIM_THRESHOLD, NetworksAdded,
-    NumStakingColdkeys, PendingBasketDeposits, RootAlphaDividendsPerSubnet, RootClaimableThreshold,
-    StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetMovingPrice,
-    SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids,
-    Weights,
+    DEFAULT_ROOT_CLAIM_WORK, DefaultMinRootClaimAmount, Error, FINNEY_TESTNET_GENESIS_HASH, Keys,
+    MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
+    PendingBasketDeposits, RootAlphaDividendsPerSubnet, RootClaimableThreshold, StakingColdkeys,
+    StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetMovingPrice, SubnetOwnerHotkey,
+    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
 use frame_support::pallet_prelude::Weight;
 use frame_support::traits::Get;
 use frame_support::{assert_err, assert_noop, assert_ok};
-use sp_core::U256;
+use sp_core::{H256, U256};
 use sp_runtime::DispatchError;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
@@ -231,13 +231,17 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             subnets: subnets.clone(),
         });
         let declared_weight = call.get_dispatch_info().call_weight;
-        // Coldkey-wide claim_root cannot see the signer in call data, so it
-        // reserves the conservative MAX_ROOT_CLAIM_WORK envelope.
+        // The mock genesis is not Finney testnet, so dispatch retains the
+        // conservative default admission budget.
         assert_eq!(
             SubtensorModule::root_claim_declared_work(),
-            crate::MAX_ROOT_CLAIM_WORK
+            DEFAULT_ROOT_CLAIM_WORK
         );
-        let envelope = <Test as crate::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK);
+        let envelope = <Test as crate::Config>::WeightInfo::claim_root(DEFAULT_ROOT_CLAIM_WORK)
+            .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(
+                DEFAULT_ROOT_CLAIM_WORK,
+            ))
+            .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(2));
         assert!(
             declared_weight.all_gte(envelope),
             "declared {declared_weight:?} must cover the {envelope:?} admission envelope"
@@ -247,7 +251,7 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         let ghost = NetUid::from(u16::MAX);
         NetworksAdded::<Test>::insert(ghost, false);
         assert_eq!(SubtensorModule::root_claim_existing_networks(), existing);
-        assert!(existing < crate::MAX_ROOT_CLAIM_WORK);
+        assert!(existing < DEFAULT_ROOT_CLAIM_WORK);
         let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
             .expect("claim succeeds")
             .actual_weight
@@ -271,13 +275,69 @@ fn test_claim_root_rejects_work_above_declared_budget() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1001);
         let networks = SubtensorModule::root_claim_existing_networks();
-        let too_many = (crate::MAX_ROOT_CLAIM_WORK / networks.max(1)).saturating_add(1);
+        let too_many = (DEFAULT_ROOT_CLAIM_WORK / networks.max(1)).saturating_add(1);
         let hotkeys: Vec<U256> = (0..too_many)
             .map(|i| U256::from(2_000u32.saturating_add(i)))
             .collect();
         StakingHotkeys::<Test>::insert(coldkey, hotkeys);
         assert_noop!(
             SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), BTreeSet::new()),
+            Error::<Test>::RootClaimTooHeavy
+        );
+    });
+}
+
+#[test]
+fn test_root_claim_budget_is_raised_only_on_finney_testnet() {
+    new_test_ext(1).execute_with(|| {
+        assert_eq!(
+            SubtensorModule::root_claim_declared_work(),
+            DEFAULT_ROOT_CLAIM_WORK
+        );
+
+        frame_system::BlockHash::<Test>::insert(
+            0_u64,
+            H256::from_slice(&FINNEY_TESTNET_GENESIS_HASH),
+        );
+        assert_eq!(
+            SubtensorModule::root_claim_declared_work(),
+            MAX_ROOT_CLAIM_WORK
+        );
+
+        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_low_u64_be(0xdeadbeef));
+        assert_eq!(
+            SubtensorModule::root_claim_declared_work(),
+            DEFAULT_ROOT_CLAIM_WORK
+        );
+    });
+}
+
+#[test]
+fn test_testnet_single_hotkey_admission_covers_configured_subnet_limit() {
+    new_test_ext(1).execute_with(|| {
+        frame_system::BlockHash::<Test>::insert(
+            0_u64,
+            H256::from_slice(&FINNEY_TESTNET_GENESIS_HASH),
+        );
+
+        for raw_netuid in 0..MAX_ROOT_CLAIM_WORK as u16 {
+            NetworksAdded::<Test>::insert(NetUid::from(raw_netuid), true);
+        }
+        assert_eq!(
+            SubtensorModule::root_claim_existing_networks(),
+            MAX_ROOT_CLAIM_WORK
+        );
+
+        let coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+        ));
+
+        NetworksAdded::<Test>::insert(NetUid::from(MAX_ROOT_CLAIM_WORK as u16), true);
+        assert_noop!(
+            SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey),
             Error::<Test>::RootClaimTooHeavy
         );
     });
@@ -3359,11 +3419,10 @@ fn test_root_basket_coldkey_swap_carries_owed_with_zero_stake() {
     });
 }
 
-/// A claim whose marked estimate is positive but whose per-holding alpha takes all floor to
-/// zero (high-price, tiny-alpha holding) must be a complete no-op: settling would burn the
-/// staker's owed shares for a zero payout.
+/// A positive marked entitlement must remain claimable when its proportional alpha slice
+/// floors to zero. One atomic alpha unit is sold and payment is capped at the entitlement.
 #[test]
-fn test_root_basket_zero_realized_claim_burns_nothing() {
+fn test_root_basket_rounding_zero_take_sells_minimum_unit() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -3406,31 +3465,33 @@ fn test_root_basket_zero_realized_claim_burns_nothing() {
         assert!((90..=100).contains(&owed_before), "owed = {owed_before}");
         let shares_before = fund_shares(&hotkey);
         let escrow_before = escrow_alpha(&hotkey, netuid);
+        let payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &coldkey);
         let root_before = root_stake_of(&hotkey, &coldkey);
+        assert!(payout_before > 0);
 
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey
         ));
 
-        // Complete no-op: no shares burned, no watermark advanced, nothing moved.
         assert_eq!(
             SubtensorModule::get_basket_owed_shares(&hotkey, &coldkey),
-            owed_before,
-            "owed shares must not be burned for a zero payout"
+            0
         );
-        assert_eq!(fund_shares(&hotkey), shares_before);
-        assert_eq!(escrow_alpha(&hotkey, netuid), escrow_before);
-        assert_eq!(root_stake_of(&hotkey, &coldkey), root_before);
-        assert_eq!(BasketClaimed::<Test>::get(hotkey, coldkey), 0);
+        assert_eq!(fund_shares(&hotkey), shares_before - owed_before);
+        assert_eq!(escrow_alpha(&hotkey, netuid), escrow_before - 1);
+        assert_eq!(
+            root_stake_of(&hotkey, &coldkey) - root_before,
+            payout_before,
+            "the minimum-unit sale must not overpay the marked entitlement"
+        );
     });
 }
 
-/// A mixed claim — one holding pays, another valuable holding floors to take == 0 — must not
-/// settle. Burning all owed shares would hand the unsliced holding to remaining shareholders
-/// (99/100 of a 1-alpha position → floor 0; the leftover 1-share holder then owns it whole).
+/// A tiny root-cash row whose claimant slice rounds to zero must not block another payable row.
+/// Root cash is already denominated in rao, so the indivisible remainder simply stays in escrow.
 #[test]
-fn test_root_basket_mixed_forfeit_claim_burns_nothing() {
+fn test_root_basket_rounding_zero_root_row_does_not_block_payable_rows() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -3464,14 +3525,19 @@ fn test_root_basket_mixed_forfeit_claim_burns_nothing() {
         set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         let escrow = SubtensorModule::get_beta_escrow_account_id();
-        // Paying root-slot cash + one atomic unit of expensive curated alpha.
+        // One rao of root cash rounds to zero for Alice, while the curated alpha row pays.
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
             &hotkey,
             &escrow,
             NetUid::ROOT,
-            1_000_000u64.into(),
+            1u64.into(),
         );
-        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &escrow, netuid, 1u64.into());
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            1_000u64.into(),
+        );
         BasketShares::<Test>::insert(hotkey, 100u64);
         BasketRate::<Test>::insert(hotkey, I96F32::from_num(1));
 
@@ -3479,12 +3545,15 @@ fn test_root_basket_mixed_forfeit_claim_burns_nothing() {
         assert_eq!(alice_owed, 99, "alice owed = {alice_owed}");
         assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), 1);
 
-        // Alice's alpha take floors: floor(1 * 99 / 100) = 0; root take is positive.
+        // Alice's root take floors: floor(1 * 99 / 100) = 0; subnet take is positive.
         assert_eq!(SubtensorModule::mul_div_u64(1, 99, 100), 0);
-        assert!(SubtensorModule::mul_div_u64(1_000_000, 99, 100) > 0);
+        assert!(SubtensorModule::mul_div_u64(1_000, 99, 100) > 0);
 
         let shares_before = fund_shares(&hotkey);
         let alpha_before = escrow_alpha(&hotkey, netuid);
+        let alice_payout = SubtensorModule::get_basket_payout_tao(&hotkey, &alice);
+        let alice_subnet_payout =
+            SubtensorModule::get_basket_subnet_payout_tao(&hotkey, &alice, netuid);
         let alice_root_before = root_stake_of(&hotkey, &alice);
 
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
@@ -3492,15 +3561,25 @@ fn test_root_basket_mixed_forfeit_claim_burns_nothing() {
             hotkey
         ));
 
-        // Complete no-op: Alice must not burn shares for a bag that forfeits valuable alpha.
+        assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &alice), 0);
+        assert_eq!(fund_shares(&hotkey), shares_before - alice_owed);
+        assert_eq!(escrow_alpha(&hotkey, netuid), alpha_before - 990);
+        assert!(escrow_alpha(&hotkey, NetUid::ROOT) >= 1);
         assert_eq!(
-            SubtensorModule::get_basket_owed_shares(&hotkey, &alice),
-            alice_owed
+            root_stake_of(&hotkey, &alice) - alice_root_before,
+            alice_subnet_payout
         );
-        assert_eq!(fund_shares(&hotkey), shares_before);
-        assert_eq!(escrow_alpha(&hotkey, netuid), alpha_before);
-        assert_eq!(root_stake_of(&hotkey, &alice), alice_root_before);
-        assert_eq!(BasketClaimed::<Test>::get(hotkey, alice), 0);
+        assert!(alice_subnet_payout > 0 && alice_subnet_payout <= alice_payout);
+        // Bob can later collect the root remainder together with his remaining alpha share.
+        let bob_payout = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
+        let bob_root_before = root_stake_of(&hotkey, &bob);
+        assert!(bob_payout > 0);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(bob),
+            hotkey
+        ));
+        assert_eq!(root_stake_of(&hotkey, &bob) - bob_root_before, bob_payout);
+        assert_eq!(fund_shares(&hotkey), 0);
     });
 }
 

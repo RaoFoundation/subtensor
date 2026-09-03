@@ -86,11 +86,12 @@ DESCRIPTIONS: dict[str, str] = {
         "a hotkey the beneficiary coldkey actually owns."
     ),
     "RootClaimTooHeavy": (
-        "A root claim would walk more work than the fixed pre-dispatch weight envelope can "
-        "admit. For coldkey-wide `claim_root`, hotkeys times existing networks or total basket "
-        "rows can exceed `MAX_ROOT_CLAIM_WORK`; a single validator basket with too many rows "
-        "can also make `claim_root_with_hotkey` fail. Split a coldkey-wide claim by validator "
-        "where that fits, and investigate or consolidate an individually oversized basket."
+        "A root claim would walk more work than the chain-specific admission envelope can "
+        "admit (256 units by default; 1,025 on Finney testnet). For coldkey-wide `claim_root`, "
+        "hotkeys times existing networks or total basket rows can exceed that envelope; a "
+        "single validator basket with too many rows can also make `claim_root_with_hotkey` "
+        "fail. Split a coldkey-wide claim by validator where that fits, and investigate or "
+        "consolidate an individually oversized basket."
     ),
     "BetaBasketSeedInProgress": (
         "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "

@@ -239,8 +239,10 @@ root-stakes to.
   deadline and nothing expires.
 - **Claim fee.** The inclusion fee scales with how many ALPHA types the
   basket holds. Both root-claim calls reserve a conservative 256-unit work
-  envelope at inclusion, independent of how many networks currently exist,
-  and refund the unused part after the claim. The amount you actually spend
+  envelope on mainnet and unknown chains, independent of how many networks
+  currently exist, and refund the unused part after the claim. Finney testnet
+  uses a 1,025-unit envelope to cover its larger subnet topology.
+  The amount you actually spend
   follows the holdings scanned and redeemed (around τ0.057 on a full
   128-holding basket).
   `btcli root claim --dry-run` shows reserved versus spent, compares the

@@ -1,4 +1,4 @@
-"""Reserved/spent root-claim fees follow the 256-unit runtime envelope."""
+"""Reserved/spent root-claim fees follow the runtime claim envelopes."""
 
 from __future__ import annotations
 
@@ -14,16 +14,25 @@ from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, dev_wallet
 
 
 @pytest.mark.asyncio
-async def test_reserved_fallback_is_max_root_claim_work():
+async def test_reserved_fallback_is_conservative_when_chain_is_unknown():
     async def _boom():
         raise RuntimeError("no payment_info")
 
     reserved = await fees._reserved_fee(object(), "5F3sa2TJAW", _boom)
-    assert reserved.rao == fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK
+    assert reserved.rao == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK)
 
 
-def test_spent_scales_against_256_not_network_count():
-    reserved = Balance.from_rao(fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+@pytest.mark.asyncio
+async def test_reserved_fallback_uses_mainnet_sized_default_envelope():
+    async def _boom():
+        raise RuntimeError("no payment_info")
+
+    reserved = await fees._reserved_fee(FakeSubstrate(), "5F3sa2TJAW", _boom)
+    assert reserved.rao == fees._approx_declared_fee_rao(fees._DEFAULT_ROOT_CLAIM_WORK)
+
+
+def test_spent_scales_against_chain_declaration_not_network_count():
+    reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._DEFAULT_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=32, scan_holdings=0),
@@ -33,7 +42,7 @@ def test_spent_scales_against_256_not_network_count():
 
 def test_spent_keeps_non_weight_base_fee():
     base = 12_345
-    reserved = Balance.from_rao(base + fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+    reserved = Balance.from_rao(base + fees._approx_declared_fee_rao(fees._DEFAULT_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=16, scan_holdings=0),
@@ -42,19 +51,18 @@ def test_spent_keeps_non_weight_base_fee():
 
 
 def test_scan_only_uses_scan_ref_time():
-    reserved = Balance.from_rao(fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+    reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._DEFAULT_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=0, scan_holdings=32),
     )
-    denom = fees._MAX_ROOT_CLAIM_WORK * fees._REDEEM_REF_TIME
-    scan = reserved.rao * 32 * fees._SCAN_REF_TIME // denom
-    walk = reserved.rao * 1 // fees._MAX_ROOT_CLAIM_WORK
+    scan = fees._APPROX_SCAN_FEE_RAO * 32
+    walk = fees._APPROX_REDEEM_FEE_RAO
     assert spent.rao == walk + scan
 
 
 def test_coldkey_wide_empty_baskets_floor_to_hotkey_count():
-    reserved = Balance.from_rao(fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+    reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._DEFAULT_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=100, redeem_holdings=0, scan_holdings=0),
@@ -353,6 +361,35 @@ async def test_admission_limit_is_inclusive_at_256(hotkey_count, holdings, netwo
 
     admission_blocks = [block for block in plan.violations if "256-unit admission limit" in block]
     assert (not admission_blocks) is expected_ok
+
+
+@pytest.mark.asyncio
+async def test_finney_testnet_admission_limit_covers_configured_subnet_limit(monkeypatch):
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 1_000_000},
+        holdings={ALICE_HOT: 0},
+        networks=fees._MAX_ROOT_CLAIM_WORK,
+    )
+
+    async def testnet_genesis(_block=None):
+        return fees._FINNEY_TESTNET_GENESIS_HASH
+
+    monkeypatch.setattr(substrate, "block_hash", testnet_genesis)
+    plan = await Client("local", substrate=substrate).plan(ClaimRoot(), dev_wallet())
+
+    assert not any("admission limit" in block for block in plan.violations)
+
+    substrate.seed_map(
+        "SubtensorModule",
+        "NetworksAdded",
+        [(netuid, True) for netuid in range(fees._MAX_ROOT_CLAIM_WORK + 1)],
+    )
+    plan = await Client("local", substrate=substrate).plan(ClaimRoot(), dev_wallet())
+
+    assert any("1,025-unit admission limit" in block for block in plan.violations)
 
 
 @pytest.mark.asyncio
