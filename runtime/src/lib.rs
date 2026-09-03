@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 452,
+    spec_version: 453,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1330,8 +1330,8 @@ impl pallet_crowdloan::Config for Runtime {
 parameter_types! {
     pub const LimitOrdersPalletId: PalletId = PalletId(*b"bt/limit");
     pub const LimitOrdersMaxOrdersPerBatch: u32 = 100;
-    /// Provider records stay drawable for 7 days.
-    pub const LimitOrdersLinkedOutputTtl: u64 = 7 * 24 * 60 * 60 * 1000;
+    /// Provider records stay drawable for 180 days.
+    pub const LimitOrdersLinkedOutputTtl: u64 = 180 * 24 * 60 * 60 * 1000;
 }
 
 pub struct LimitOrdersPalletHotkey;
