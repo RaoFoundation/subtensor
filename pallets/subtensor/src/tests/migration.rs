@@ -7232,7 +7232,7 @@ fn test_staking_hotkeys_cleanup_is_bounded_and_preserves_live_relationships() {
 
         // The first cleanup already ran on deployed chains. The fresh v2 marker must schedule
         // the same bounded implementation again.
-        HasMigrationRun::<Test>::insert(b"migrate_cleanup_staking_hotkeys", true);
+        HasMigrationRun::<Test>::insert(&b"migrate_cleanup_staking_hotkeys"[..], true);
         StakingHotkeys::<Test>::insert(coldkey, vec![stale, legacy, v2, basket, zero_v2]);
         StakingHotkeys::<Test>::insert(all_stale_coldkey, vec![other_stale]);
         StakingHotkeys::<Test>::insert(empty_coldkey, Vec::<U256>::new());
