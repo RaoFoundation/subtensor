@@ -22,9 +22,14 @@ fn new_test_ext() -> sp_io::TestExternalities {
 fn expected_root_claim_weight(limit: u32) -> frame_support::weights::Weight {
     use pallet_subtensor::weights::WeightInfo;
 
-    pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root(limit).saturating_add(
-        pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root_scan(limit),
-    )
+    pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root(limit)
+        .saturating_add(
+            pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root_scan(limit),
+        )
+        // FRAME folds the runtime's dispatch-extension weight into `call_weight`.
+        .saturating_add(
+            pallet_subtensor::weights::SubstrateWeight::<Runtime>::check_coldkey_swap_extension(),
+        )
 }
 
 fn assert_call_fits_normal_limit(call: RuntimeCall) {
