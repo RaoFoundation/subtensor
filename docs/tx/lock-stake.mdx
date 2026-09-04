@@ -22,7 +22,7 @@ coldkey holds on the subnet (a top-up of the remaining free mass).
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.lock_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L2390-L2400) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.lock_stake`](/code/pallets/subtensor/src/macros/dispatches.rs#L2393-L2403) |
 
 ## Parameters
 
@@ -75,7 +75,7 @@ result = sub.execute_tool("lock_stake", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.lock_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L2392`](/code/pallets/subtensor/src/macros/dispatches.rs#L2390-L2400):
+`SubtensorModule.lock_stake` — [`pallets/subtensor/src/macros/dispatches.rs#L2395`](/code/pallets/subtensor/src/macros/dispatches.rs#L2393-L2403):
 
 ```rust
 #[pallet::call_index(136)]

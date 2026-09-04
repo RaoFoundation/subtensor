@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 454
+Spec version: 455
 """
 from dataclasses import dataclass
 
@@ -200,7 +200,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 156): ErrorInfo('SubtensorModule', 'RootStakeLocked', 'Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window (measured from the last root stake add/remove/claim for that coldkey/hotkey) and cannot leave root yet. Prevents epoch-boundary just-in-time dividend sniping.'),
     (7, 157): ErrorInfo('SubtensorModule', 'BetaBasketSeedInProgress', 'The `migrate_seed_beta_basket_v2` seed has not completed. Basket deposits, claims, coldkey / root-touching hotkey swaps, and root stake add/remove/transfer/swap are paused until it finishes so snapshotted conversion cannot desync from live stake (`Σ owed == BasketShares`).'),
     (7, 158): ErrorInfo('SubtensorModule', 'RootWeightSettingDisabled', '`set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`] is false). Root Reborn launches gated: every fund runs the null strategy (dividends accumulate in place) until weight setting is switched on by governance or a later upgrade.'),
-    (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'Coldkey-wide `claim_root` would process more work units than the pre-dispatch envelope ([`crate::MAX_ROOT_CLAIM_WORK`]). Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
+    (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'A root claim would process more root hotkeys and basket rows than the fixed admission envelope. Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
     (7, 160): ErrorInfo('SubtensorModule', 'RootWeightCapExceeded', 'A single destination in a `set_root_weights` vector takes a larger share of the basket than [`crate::RootWeightsCap`] allows (share = value / sum of values). With the cap at 1/16 a validator must spread its basket across at least 16 destinations. Not enforced while the chain has fewer destinations than the cap demands.'),
     (7, 161): ErrorInfo('SubtensorModule', 'BasketDepositPending', "A queued root-dividend deposit could not be settled. Operations which change the hotkey's root claimant base must retry after the deposit becomes executable."),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),

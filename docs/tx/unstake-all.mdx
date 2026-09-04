@@ -21,7 +21,7 @@ payout: the claim pays 100% of the basket.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1246-L1250), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2009-L2028), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.unstake_all`](/code/pallets/subtensor/src/macros/dispatches.rs#L1246-L1250), [`SubtensorModule.claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2012-L2031), [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L308-L362) |
 
 ## Parameters
 
@@ -83,12 +83,12 @@ pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult
 
 Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L111).
 
-`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2013`](/code/pallets/subtensor/src/macros/dispatches.rs#L2009-L2028):
+`SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2016`](/code/pallets/subtensor/src/macros/dispatches.rs#L2012-L2031):
 
 ```rust
 #[pallet::call_index(148)]
 #[pallet::weight(
-    <T as crate::pallet::Config>::WeightInfo::claim_root(crate::MAX_ROOT_CLAIM_WORK)
+    Pallet::<T>::root_claim_declared_weight()
 )]
 pub fn claim_root_with_hotkey(
     origin: OriginFor<T>,
@@ -103,12 +103,12 @@ pub fn claim_root_with_hotkey(
     let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
     Self::maybe_add_coldkey_index(&coldkey);
 
-    let weight = Self::root_claim_actual_weight(1, &outcome);
+    let weight = Self::root_claim_actual_weight(1, 0, &outcome);
     Ok((Some(weight), Pays::Yes).into())
 }
 ```
 
-Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L913), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L950), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L979).
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L932), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L981), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L1010).
 
 `Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
 

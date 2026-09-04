@@ -6,13 +6,13 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V454 Upgrade — Longs and Shorts',
+  title: 'The V455 Upgrade — Longs and Shorts',
   description:
-    'V454 adds pallet-derivatives: 30-day longs and shorts on any subnet’s alpha, borrowed ' +
+    'V455 adds pallet-derivatives: 30-day longs and shorts on any subnet’s alpha, borrowed ' +
     'from the subnet’s own pool. No synthetic tokens, nothing minted or burned, a per-day ' +
     'borrow fee fixed at open and paid to the pool. btcli deriv short, long, list, roll, and ' +
     'close are the working surface.',
-  alternates: {canonical: '/releases/v454-upgrade'},
+  alternates: {canonical: '/releases/v455-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -202,7 +202,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>The V454 Upgrade</h1>
+          <h1 className={styles.paper_title}>The V455 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Longs and shorts · September 2026
           </p>
@@ -222,7 +222,7 @@ const page = () => {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>454</strong> adds <code>pallet-derivatives</code>. Anyone can now open
+            Spec <strong>455</strong> adds <code>pallet-derivatives</code>. Anyone can now open
             a <strong>long</strong> or a <strong>short</strong> on a subnet&apos;s alpha for up
             to 30 days, backed by a TAO deposit. A short profits when alpha falls; a long profits
             when alpha rises.
