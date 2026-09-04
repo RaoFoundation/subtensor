@@ -29,6 +29,16 @@ STAKE_VALUE_BASIS = "spot price; excludes slippage/fees of an actual unstake"
 DUST_VALUE_TAO = 0.001
 
 
+def format_balance(balance: Balance, decimals: int = 3) -> str:
+    """Format a balance for human CLI output without exposing rao precision.
+
+    ``Balance.__str__`` intentionally keeps all nine decimal places for exact
+    diagnostics and backwards compatibility. Human wallet summaries only need
+    millitao precision, while JSON output continues to carry the exact value.
+    """
+    return f"{balance.unit}{balance.decimal:,.{decimals}f}"
+
+
 def split_dust(records: list[dict]) -> tuple[list[dict], list[dict]]:
     """Split stake/delegation records into (kept, dust) by spot TAO value.
 
@@ -349,7 +359,7 @@ def human_balance_fields(row: dict) -> dict:
     basis string) is for JSON consumers."""
     fields = {
         "wallet": f"{row['wallet']} ({row['coldkey']})",
-        "free": row["free"],
+        "free": format_balance(row["free"]),
         "alpha": f"{row['stake_positions']} positions · {row['stake_subnets']} subnets",
     }
     beta_tokens = row.get("beta_tokens")
@@ -357,13 +367,14 @@ def human_balance_fields(row: dict) -> dict:
         validators = int(row.get("beta_validators") or 0)
         suffix = "validator" if validators == 1 else "validators"
         fields["beta"] = f"{beta_tokens:,.9f} β · {validators} {suffix}" if validators else "—"
-    fields["beta_value"] = f"{row['beta_value']}  (claimable root dividends)"
-    fields["alpha_value"] = f"{row['stake_value']}  (spot, excl. slippage/fees)"
+    fields["beta_value"] = f"{format_balance(row['beta_value'])}  (claimable root dividends)"
+    fields["alpha_value"] = f"{format_balance(row['stake_value'])}  (spot, excl. slippage/fees)"
     if row.get("locked_subnets"):
         fields["locked_value"] = (
-            f"{row['locked_value']}  ({row['locked_subnets']} subnets; part of alpha_value)"
+            f"{format_balance(row['locked_value'])}  "
+            f"({row['locked_subnets']} subnets; part of alpha_value)"
         )
-    fields["total_value"] = row["total_value"]
+    fields["total_value"] = format_balance(row["total_value"])
     fields["block"] = row["block"]
     return fields
 

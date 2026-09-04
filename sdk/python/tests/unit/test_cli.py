@@ -20,6 +20,7 @@ import bittensor.cli.context as cli_context
 from bittensor import RpcConnectionError, RpcPolicyError, __version__, config, wallets
 from bittensor.balance import Balance
 from bittensor.cli.call_names import resolve_builder_params
+from bittensor.cli.helpers import format_balance
 from bittensor.cli.main import app
 from bittensor.cli.output import Output
 from bittensor.cli.root_helpers import RootPosition, position_columns, position_rows
@@ -260,6 +261,9 @@ class TestQueries:
         payload = json.loads(result.output)
         assert payload["coldkey"] == BOB
         assert payload["free_tao"] == pytest.approx(2.5)
+
+    def test_wallet_balance_human_format_uses_three_decimals(self):
+        assert format_balance(Balance.from_rao(2_832_438_604_652)) == "τ2,832.439"
 
 
 class TestAddressResolution:
