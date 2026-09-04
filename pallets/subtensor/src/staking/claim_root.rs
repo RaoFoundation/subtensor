@@ -4,7 +4,7 @@ use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::{Weight, WeightMeter};
 use sp_core::Get;
 use sp_runtime::DispatchError;
-use sp_runtime::traits::AccountIdConversion;
+use sp_runtime::traits::{AccountIdConversion, Zero};
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::I96F32;
@@ -636,21 +636,6 @@ impl<T: Config> Pallet<T> {
             return Ok(outcome);
         }
 
-        // A claim that pays on some holdings but floors a valuable holding to take == 0 must
-        // not settle: burning all owed shares would forfeit that holding to remaining
-        // shareholders (e.g. 99/100 of a 1-alpha position → floor 0, then the leftover
-        // 1-share holder owns the whole unit). Same posture as the all-zero-take rollback
-        // below — leave the watermark untouched. Worthless rows (realizable 0) are ignored.
-        for (_, slot_alpha, slot_value, _) in valued_holdings.iter() {
-            let alpha = slot_alpha.to_u64();
-            if alpha == 0 {
-                continue;
-            }
-            if Self::mul_div_u64(alpha, owed_shares, shares_total) == 0 && *slot_value > 0 {
-                return Ok(outcome);
-            }
-        }
-
         let escrow = Self::get_beta_escrow_account_id();
 
         // Redeemed slots are counted outside the transaction: a rolled-back redemption
@@ -666,8 +651,25 @@ impl<T: Config> Pallet<T> {
             let mut written_off: u32 = 0;
 
             for (netuid, slot_alpha, slot_value, terminal_garbage) in valued_holdings.iter() {
+                let slot_entitlement =
+                    Self::basket_payout_from(owed_shares, *slot_value, shares_total);
                 // This staker's pro-rata slice of the holding: slot_alpha * owed / P.
-                let take: u64 = Self::mul_div_u64(slot_alpha.to_u64(), owed_shares, shares_total);
+                let proportional_take =
+                    Self::mul_div_u64(slot_alpha.to_u64(), owed_shares, shares_total);
+                // A high-value alpha row can owe at least one rao even when its proportional
+                // alpha slice floors to zero. Sell one atomic alpha unit, pay no more than the
+                // marked entitlement below, and retain the sale surplus as fund root cash.
+                // Root is already denominated in rao, so take == entitlement there; terminal
+                // rows have no realizable entitlement and keep the ordinary floor.
+                let take = if proportional_take == 0
+                    && slot_entitlement > 0
+                    && !netuid.is_root()
+                    && !terminal_garbage
+                {
+                    1
+                } else {
+                    proportional_take
+                };
                 if take == 0 {
                     continue;
                 }
@@ -729,8 +731,6 @@ impl<T: Config> Pallet<T> {
                 // fraction, so pay only the priced entitlement and retain the surplus as
                 // fund cash. Otherwise a permissionless deposit followed by a claim can
                 // extract the difference from earlier holders.
-                let slot_entitlement =
-                    Self::basket_payout_from(owed_shares, *slot_value, shares_total);
                 let realized_tao = tao.to_u64();
                 // A final claimant has no remaining holders to retain a surplus for. Give
                 // them every realized rao so no root cash is stranded behind zero shares.
@@ -895,51 +895,82 @@ impl<T: Config> Pallet<T> {
         swept
     }
 
-    /// Live existing-network count (including root). Ghost `NetworksAdded=false`
-    /// leftovers are excluded so they cannot inflate the single-hotkey quote.
-    pub(crate) fn root_claim_existing_networks() -> u32 {
-        (Self::get_all_subnet_netuids().len() as u32).max(1)
-    }
-
-    /// Pre-dispatch work units for both claim paths. Weight calculation must
-    /// stay storage-independent (no `NetworksAdded` or basket walks here);
-    /// execution then refuses work that would exceed this envelope.
+    /// Fixed admission budget for both claim paths.
     pub(crate) fn root_claim_declared_work() -> u32 {
         crate::MAX_ROOT_CLAIM_WORK
     }
 
-    /// True when a coldkey-wide claim's reachable work (hotkeys × existing
-    /// networks, and the actual basket rows) fits the admission envelope.
+    /// Pre-dispatch weight for both independently bounded dimensions: full claim work and
+    /// scan-only work.
+    pub(crate) fn root_claim_declared_weight() -> Weight {
+        let limit = Self::root_claim_declared_work();
+        <T as crate::pallet::Config>::WeightInfo::claim_root(limit).saturating_add(
+            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(limit),
+        )
+    }
+
+    /// Hotkeys relevant to a coldkey-wide root claim. Ordinary subnet-only staking hotkeys
+    /// are deliberately excluded. A negative basket watermark keeps an unstaked claimant
+    /// eligible because it encodes shares which still need to be redeemed.
+    pub(crate) fn root_claim_hotkeys(
+        coldkey: &T::AccountId,
+        staking_hotkeys: Vec<T::AccountId>,
+    ) -> Vec<T::AccountId> {
+        staking_hotkeys
+            .into_iter()
+            .filter(|hotkey| {
+                !Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, NetUid::ROOT)
+                    .is_zero()
+                    || BasketClaimed::<T>::get(hotkey, coldkey) < 0
+            })
+            .collect()
+    }
+
+    /// True when the hotkeys plus the basket storage rows the claim will scan fit the fixed
+    /// admission envelope. Count raw Alpha/AlphaV2 rows so legacy duplicates and malformed
+    /// zero rows are charged conservatively, and stop as soon as the bound is exceeded.
     pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
         let budget = Self::root_claim_declared_work();
-        let networks = Self::root_claim_existing_networks();
-        let hotkey_count = hotkeys.len() as u32;
-        if hotkey_count.saturating_mul(networks) > budget {
+        let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
+        if work > budget {
             return false;
         }
-        let mut rows: u32 = 0;
+
+        let escrow = Self::get_beta_escrow_account_id();
         for hotkey in hotkeys {
-            rows = rows.saturating_add(Self::get_basket_holdings(hotkey).len() as u32);
-            if rows > budget {
-                return false;
+            for _ in Alpha::<T>::iter_prefix((hotkey, &escrow)) {
+                work = work.saturating_add(1);
+                if work > budget {
+                    return false;
+                }
+            }
+            for _ in AlphaV2::<T>::iter_prefix((hotkey, &escrow)) {
+                work = work.saturating_add(1);
+                if work > budget {
+                    return false;
+                }
             }
         }
         true
     }
 
-    /// Actual post-dispatch weight of a root claim: full benchmark units for the slots
-    /// that did real work (redeemed or swept — a swap plus stake writes each, floored at
-    /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row
-    /// scan cost for holdings that were only valued. This is what lets a fund's claim fee
-    /// decay as dust rows are consolidated, and makes a below-threshold no-op cost a scan
-    /// instead of a full claim. Work above [`crate::MAX_ROOT_CLAIM_WORK`] is
-    /// refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
+    /// Actual post-dispatch weight of a root claim: full benchmark units for relationships
+    /// classified and slots that did real work (redeemed or swept — a swap plus stake writes
+    /// each, floored at the selected hotkey count) plus the cheap per-row scan cost for holdings
+    /// that were only valued. This is what lets a fund's claim fee decay as dust rows are
+    /// consolidated, and makes a below-threshold no-op cost a scan instead of a full claim.
+    /// Work above the fixed admission budget
+    /// is refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
     pub(crate) fn root_claim_actual_weight(
         hotkey_count: u32,
+        selection_scanned: u32,
         outcome: &RootClaimOutcome,
     ) -> Weight {
         let active = hotkey_count
             .max(outcome.realized.saturating_add(outcome.swept))
+            // Classifying a StakingHotkeys relationship reads the position's share-pool state
+            // and basket watermark. Price it conservatively as a full hotkey unit.
+            .max(selection_scanned)
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
         <T as crate::pallet::Config>::WeightInfo::claim_root(active).saturating_add(

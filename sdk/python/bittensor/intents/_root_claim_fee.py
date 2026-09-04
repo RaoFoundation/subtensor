@@ -1,9 +1,8 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-Both runtime calls reserve ``MAX_ROOT_CLAIM_WORK`` (256) weight units at
-inclusion, then refund down to the work actually done. That reserve is what
-people see leave their free balance, and it is larger than the fee that
-finally settles. That gap is the usual claim-fee surprise.
+Both runtime calls reserve a fixed declared-work envelope at inclusion, then
+refund down to the work actually done. The reserve is what people see leave
+their free balance, and it is larger than the fee that finally settles.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
 and tells the caller when a claim loses money or cannot even be included.
@@ -16,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
 from .._generated import storage as st
-from .._generated.runtime_apis import BetaBasketRuntimeApi
+from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi
 from ..balance import Balance
 from ..sp_core import ss58_decode
 
@@ -26,10 +25,16 @@ _SCAN_REF_TIME = 6
 _REDEEM_REF_TIME = 70
 
 # One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.0004475).
-# Both claim paths reserve ``MAX_ROOT_CLAIM_WORK`` of these, plus any
-# non-weight base/length fee returned by ``payment_info``.
+# Both claim paths reserve 256 redeem and scan units,
+# plus any non-weight base/length fee returned by ``payment_info``.
 _APPROX_REDEEM_FEE_RAO = 447_500
+_APPROX_SCAN_FEE_RAO = _APPROX_REDEEM_FEE_RAO * _SCAN_REF_TIME // _REDEEM_REF_TIME
 _MAX_ROOT_CLAIM_WORK = 256
+
+
+def _approx_declared_fee_rao(limit: int) -> int:
+    return (_APPROX_REDEEM_FEE_RAO + _APPROX_SCAN_FEE_RAO) * limit
+
 
 # Default ``RootClaimableThreshold`` (500_000 rao) when storage is empty.
 _DEFAULT_THRESHOLD_RAO = 500_000
@@ -51,22 +56,31 @@ def _i96f32_rao(value: Any) -> int:
     return int(value or 0) >> 32
 
 
-def _admission_blocks(hotkeys: int, networks: int, holdings: int) -> list[str]:
-    work = hotkeys * networks
-    if work <= _MAX_ROOT_CLAIM_WORK and holdings <= _MAX_ROOT_CLAIM_WORK:
+def _admission_blocks(
+    hotkeys: int,
+    holdings: int,
+    limit: int,
+    selection_scans: int,
+) -> list[str]:
+    work = hotkeys + holdings
+    if work <= limit and selection_scans <= limit:
         return []
-    reasons: list[str] = []
-    if work > _MAX_ROOT_CLAIM_WORK:
-        reasons.append(f"{hotkeys} hotkeys × {networks} networks = {work}")
-    if holdings > _MAX_ROOT_CLAIM_WORK:
-        reasons.append(f"{holdings} basket holdings")
     remediation = (
         "claim one validator at a time with claim_root_with_hotkey"
         if hotkeys > 1
         else "the claim cannot be admitted until this basket's work is reduced"
     )
+    reasons = []
+    if work > limit:
+        hotkey_label = "hotkey" if hotkeys == 1 else "hotkeys"
+        holding_label = "holding" if holdings == 1 else "holdings"
+        reasons.append(
+            f"{hotkeys} root {hotkey_label} + {holdings} basket {holding_label} = {work}"
+        )
+    if selection_scans > limit:
+        reasons.append(f"{selection_scans} staking-hotkey relationships to classify")
     return [
-        "root claim exceeds the 256-unit admission limit ("
+        f"root claim exceeds the {limit:,}-unit admission limit ("
         + "; ".join(reasons)
         + f"); {remediation}"
     ]
@@ -79,6 +93,8 @@ class RootClaimAdmission:
     hotkeys: tuple[str, ...]
     holding_counts: tuple[int, ...]
     networks: int
+    limit: int
+    selection_scans: int
 
     @property
     def holdings(self) -> int:
@@ -86,13 +102,15 @@ class RootClaimAdmission:
 
     @property
     def too_heavy(self) -> bool:
-        return (
-            len(self.hotkeys) * self.networks > _MAX_ROOT_CLAIM_WORK
-            or self.holdings > _MAX_ROOT_CLAIM_WORK
-        )
+        return len(self.hotkeys) + self.holdings > self.limit or self.selection_scans > self.limit
 
     def blocks(self) -> list[str]:
-        return _admission_blocks(len(self.hotkeys), self.networks, self.holdings)
+        return _admission_blocks(
+            len(self.hotkeys),
+            self.holdings,
+            self.limit,
+            self.selection_scans,
+        )
 
 
 @dataclass(frozen=True)
@@ -102,6 +120,7 @@ class RootClaimWork:
     hotkeys: int
     redeem_holdings: int
     scan_holdings: int
+    selection_scans: int = 0
 
 
 @dataclass(frozen=True)
@@ -133,6 +152,8 @@ class RootClaimFeeQuote:
     eligible_hotkeys: int
     below_threshold_hotkeys: int
     redeemable: Balance
+    admission_limit: int
+    selection_scans: int
 
     @property
     def refund(self) -> Balance:
@@ -153,8 +174,8 @@ class RootClaimFeeQuote:
     @property
     def too_heavy(self) -> bool:
         return (
-            self.hotkeys * self.networks > _MAX_ROOT_CLAIM_WORK
-            or self.holdings > _MAX_ROOT_CLAIM_WORK
+            self.hotkeys + self.holdings > self.admission_limit
+            or self.selection_scans > self.admission_limit
         )
 
     def facts(self) -> list[tuple[str, str]]:
@@ -219,7 +240,14 @@ class RootClaimFeeQuote:
     def blocks(self) -> list[str]:
         out: list[str] = []
         if self.too_heavy:
-            out.extend(_admission_blocks(self.hotkeys, self.networks, self.holdings))
+            out.extend(
+                _admission_blocks(
+                    self.hotkeys,
+                    self.holdings,
+                    self.admission_limit,
+                    self.selection_scans,
+                )
+            )
         if self.reserve_shortfall:
             out.append(f"free TAO ({self.free}) is below the reserved claim fee ({self.reserved})")
         return out
@@ -231,7 +259,7 @@ async def root_claim_admission(
     *,
     hotkeys: Optional[list[str]],
 ) -> RootClaimAdmission:
-    """Read only the state used by the runtime's 256-unit admission guard.
+    """Read only the state used by the runtime's fixed admission guard.
 
     Unlike the fee/yield quote, this check is not best-effort: callers use a
     failed read as a hard stop because signing an unverifiable claim can burn
@@ -239,11 +267,38 @@ async def root_claim_admission(
     """
     if hotkeys is None:
         raw_keys = await substrate.query(*st.SubtensorModule.StakingHotkeys, [claimant_address])
-        selected = tuple(str(key) for key in (raw_keys or []))
+        raw_keys = tuple(str(key) for key in (raw_keys or []))
+        stake_rows = await substrate.runtime_call(
+            *StakeInfoRuntimeApi.get_stake_info_for_coldkey,
+            [claimant_address],
+        )
+        if stake_rows is None:
+            raise RuntimeError("coldkey stake positions are unavailable")
+        root_hotkeys = {
+            str(row["hotkey"])
+            for row in stake_rows
+            if int(row["netuid"]) == 0 and int(row["stake"]) > 0
+        }
+        watermarks = await asyncio.gather(
+            *(
+                substrate.query(
+                    *st.SubtensorModule.BasketClaimed,
+                    [hotkey, claimant_address],
+                )
+                for hotkey in raw_keys
+            )
+        )
+        selected = tuple(
+            hotkey
+            for hotkey, watermark in zip(raw_keys, watermarks)
+            if hotkey in root_hotkeys or int(watermark or 0) < 0
+        )
+        selection_scans = len(raw_keys)
     else:
         if len(hotkeys) != 1:
             raise ValueError("per-validator admission expects exactly one hotkey")
         selected = tuple(hotkeys)
+        selection_scans = 0
 
     semaphore = asyncio.Semaphore(16)
 
@@ -264,6 +319,8 @@ async def root_claim_admission(
         hotkeys=selected,
         holding_counts=tuple(holding_counts),
         networks=networks,
+        limit=_MAX_ROOT_CLAIM_WORK,
+        selection_scans=selection_scans,
     )
 
 
@@ -373,7 +430,9 @@ async def _quote(
             hotkeys=max(len(selected_hotkeys), 1),
             redeem_holdings=redeem_holdings,
             scan_holdings=scan_holdings,
+            selection_scans=admission.selection_scans,
         ),
+        admission.limit,
     )
 
     return RootClaimFeeQuote(
@@ -388,6 +447,8 @@ async def _quote(
         eligible_hotkeys=sum(eligible),
         below_threshold_hotkeys=sum(below_threshold),
         redeemable=Balance.from_rao(redeemable_rao),
+        admission_limit=admission.limit,
+        selection_scans=admission.selection_scans,
     )
 
 
@@ -433,7 +494,7 @@ async def _reserved_fee_with_status(
             call = await compose()
         return await substrate.estimate_fee(call, _FeeView(signer_address)), True
     except Exception:
-        return Balance.from_rao(_APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK), False
+        return Balance.from_rao(_approx_declared_fee_rao(_MAX_ROOT_CLAIM_WORK)), False
 
 
 async def root_claim_reserve(
@@ -461,26 +522,23 @@ async def root_claim_reserve(
 def _spent_fee(
     reserved: Balance,
     work: RootClaimWork,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
     """Refund unused declared units; keep non-weight base/length fees intact.
 
-    Runtime active units are ``max(hotkey_count, realized + swept, 1)``. The
-    quote floors by the selected hotkey count so empty-basket validators still
-    cost a full unit. ``estimate_fee`` prices the 256-unit declaration plus
-    extrinsic base/length; only the weight slice scales.
+    Runtime active units are ``max(selected hotkeys, relationships classified,
+    realized + swept, 1)``. Classifying a relationship reads its root share-pool
+    state, so the quote prices it conservatively as a full hotkey unit.
+    ``estimate_fee`` prices the fixed declaration plus extrinsic base/length;
+    only the weight slice scales.
     """
     if reserved.rao <= 0:
         return reserved
-    declared_weight = _APPROX_REDEEM_FEE_RAO * _MAX_ROOT_CLAIM_WORK
+    declared_weight = _approx_declared_fee_rao(declared_work)
     weight_part = min(reserved.rao, declared_weight)
     base_part = max(0, reserved.rao - declared_weight)
-    active = max(work.redeem_holdings, work.hotkeys, 1)
-    active_weight = weight_part * active // _MAX_ROOT_CLAIM_WORK
-    scan_weight = (
-        weight_part
-        * max(work.scan_holdings, 0)
-        * _SCAN_REF_TIME
-        // (_MAX_ROOT_CLAIM_WORK * _REDEEM_REF_TIME)
-    )
+    active = max(work.redeem_holdings, work.hotkeys, work.selection_scans, 1)
+    active_weight = weight_part * active * _APPROX_REDEEM_FEE_RAO // declared_weight
+    scan_weight = weight_part * max(work.scan_holdings, 0) * _APPROX_SCAN_FEE_RAO // declared_weight
     spent_weight = active_weight + scan_weight
     return Balance.from_rao(min(reserved.rao, base_part + max(spent_weight, 0)))

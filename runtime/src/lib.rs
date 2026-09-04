@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 453,
+    spec_version: 454,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1407,6 +1407,16 @@ impl Contains<RuntimeCall> for ContractCallFilter {
     fn contains(call: &RuntimeCall) -> bool {
         match call {
             RuntimeCall::Proxy(inner) => matches!(inner, pallet_proxy::Call::proxy { .. }),
+            // Since the proxy origin-filter inheritance fix (release 453), calls
+            // dispatched *inside* Proxy::proxy must also pass this filter. A
+            // contract holding an explicit user proxy delegation could
+            // previously execute transfer_stake on the user's behalf; allow
+            // that inner call again. Security is unchanged: the transfer still
+            // requires the user to have registered the contract as a proxy,
+            // and the inherited-filter fix keeps every other call blocked.
+            RuntimeCall::SubtensorModule(inner) => {
+                matches!(inner, pallet_subtensor::Call::transfer_stake { .. })
+            }
             _ => false,
         }
     }
