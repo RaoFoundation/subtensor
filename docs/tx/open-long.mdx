@@ -8,19 +8,19 @@ description: "Open a long on a subnet's alpha, backed by a TAO cushion."
 The pool lends the position a slice of TAO, which buys alpha at once.
 Closing sells the alpha back: if the price rose the sale covers the loan
 with profit left over; if it fell the cushion covers the loss. The borrowed
-slice is sized from the cushion (`leverage_percent` of it against the
+slice is sized from the cushion (`long_leverage_percent` of it against the
 pool's TAO reserve) and capped by the pool-share limit.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.open`](/code/pallets/derivatives/src/lib.rs#L227-L237) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.open`](/code/pallets/derivatives/src/lib.rs#L239-L249) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet whose alpha the position is on. |
-| `amount` | number \| `"all"` | yes | TAO cushion to deposit from the coldkey balance. Exposure is `leverage_percent` of this amount measured against the pool's TAO reserve. |
+| `amount` | number \| `"all"` | yes | TAO cushion to deposit from the coldkey balance. Exposure is the side's leverage times this amount, measured against the pool's TAO reserve. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -65,7 +65,7 @@ result = sub.execute_tool("open_long", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.open` — [`pallets/derivatives/src/lib.rs#L229`](/code/pallets/derivatives/src/lib.rs#L227-L237):
+`Derivatives.open` — [`pallets/derivatives/src/lib.rs#L241`](/code/pallets/derivatives/src/lib.rs#L239-L249):
 
 ```rust
 #[pallet::call_index(0)]

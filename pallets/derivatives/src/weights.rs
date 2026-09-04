@@ -19,6 +19,7 @@ pub trait WeightInfo {
     fn close() -> Weight;
     fn roll() -> Weight;
     fn sudo_set_params() -> Weight;
+    fn sudo_set_subnet_override() -> Weight;
 }
 
 /// Weights for `pallet_derivatives` using the Substrate node and recommended hardware.
@@ -43,6 +44,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     fn sudo_set_params() -> Weight {
         Weight::from_parts(6_000_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
     }
+    fn sudo_set_subnet_override() -> Weight {
+        Weight::from_parts(6_000_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
+    }
 }
 
 // For backwards compatibility and tests.
@@ -61,6 +65,9 @@ impl WeightInfo for () {
         Self::close().saturating_add(Self::open())
     }
     fn sudo_set_params() -> Weight {
+        Weight::from_parts(6_000_000, 0).saturating_add(RocksDbWeight::get().writes(1_u64))
+    }
+    fn sudo_set_subnet_override() -> Weight {
         Weight::from_parts(6_000_000, 0).saturating_add(RocksDbWeight::get().writes(1_u64))
     }
 }

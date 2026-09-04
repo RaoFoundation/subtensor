@@ -182,8 +182,8 @@ call_filter_group!(
 
 // Not part of `InfraCommonCalls`: `open` moves the signer's free TAO or staked
 // alpha into the pallet and `close` moves it back, so only proxies that may
-// move value get them. `sudo_set_params` is root-only and inert for a signed
-// proxy; it rides along to keep the pallet's calls in one group.
+// move value get them. The `sudo_*` calls are root-only and inert for a signed
+// proxy; they ride along to keep the pallet's calls in one group.
 call_filter_group!(
     DerivativesCalls,
     [
@@ -191,6 +191,7 @@ call_filter_group!(
         RuntimeCall::Derivatives(DerivativesCall::close),
         RuntimeCall::Derivatives(DerivativesCall::roll),
         RuntimeCall::Derivatives(DerivativesCall::sudo_set_params),
+        RuntimeCall::Derivatives(DerivativesCall::sudo_set_subnet_override),
     ]
 );
 

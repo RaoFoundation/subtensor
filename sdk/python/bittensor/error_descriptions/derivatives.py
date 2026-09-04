@@ -4,8 +4,9 @@ from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
     "SideDisabled": (
-        "Opening a position of this side is switched off by root. Check `shorts_enabled` and "
-        "`longs_enabled` in `derivatives-params`; existing positions can always be closed."
+        "Opening a position of this side is switched off by root, globally or on this subnet. "
+        "Check `shorts_enabled` and `longs_enabled` in `deriv params --netuid N`; existing "
+        "positions can always be closed."
     ),
     "SubnetNotDynamic": (
         "The subnet does not exist, is not AMM-priced, has its subtoken disabled, or has an "
@@ -43,9 +44,9 @@ DESCRIPTIONS: dict[str, str] = {
         "few. Check `Expiring` around `now + lifetime_blocks` and retry in a later block."
     ),
     "InvalidParams": (
-        "Root submitted parameters with a zero `leverage_percent`, `max_pool_share`, or "
-        "`lifetime_blocks`, which would brick opens or make positions closable at once. Check "
-        "each field of the submitted `DerivativesParams` is non-zero."
+        "Root submitted parameters with a zero leverage, `max_pool_share`, or `lifetime_blocks`, "
+        "or a subnet override with a zero `max_pool_share`, which would brick opens or make "
+        "positions closable at once. Pause a side with its enabled switch instead."
     ),
     "PalletHotkeyUnset": (
         "The pallet has not claimed its custody hotkey yet, so nothing can be opened. Check "

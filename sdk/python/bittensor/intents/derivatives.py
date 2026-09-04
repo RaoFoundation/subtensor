@@ -44,8 +44,8 @@ class _OpenPosition(Intent):
     amount: Money = field(
         metadata={
             "help": (
-                "TAO cushion to deposit from the coldkey balance. Exposure is "
-                "`leverage_percent` of this amount measured against the pool's TAO reserve."
+                "TAO cushion to deposit from the coldkey balance. Exposure is the side's "
+                "leverage times this amount, measured against the pool's TAO reserve."
             )
         }
     )
@@ -79,8 +79,8 @@ class OpenShort(_OpenPosition):
     The pool lends the position a slice of alpha, which is sold for TAO at
     once. Closing buys the alpha back: if the price fell the buyback is cheaper
     and the difference is profit; if it rose the cushion covers the loss. The
-    borrowed slice is sized from the cushion (`leverage_percent` of it against
-    the pool's TAO reserve) and capped by the pool-share limit.
+    borrowed slice is sized from the cushion (`short_leverage_percent` of it
+    against the pool's TAO reserve) and capped by the pool-share limit.
     """
 
     op = "open_short"
@@ -95,7 +95,7 @@ class OpenLong(_OpenPosition):
     The pool lends the position a slice of TAO, which buys alpha at once.
     Closing sells the alpha back: if the price rose the sale covers the loan
     with profit left over; if it fell the cushion covers the loss. The borrowed
-    slice is sized from the cushion (`leverage_percent` of it against the
+    slice is sized from the cushion (`long_leverage_percent` of it against the
     pool's TAO reserve) and capped by the pool-share limit.
     """
 

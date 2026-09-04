@@ -674,9 +674,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 243,
-        "end_line": 259,
-        "url": "/code/pallets/derivatives/src/lib.rs#L241-L259",
+        "line": 255,
+        "end_line": 271,
+        "url": "/code/pallets/derivatives/src/lib.rs#L253-L271",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -1930,7 +1930,7 @@
   {
     "name": "open_long",
     "summary": "Open a long on a subnet's alpha, backed by a TAO cushion.",
-    "description": "Open a long on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is sized from the cushion (`leverage_percent` of it against the\npool's TAO reserve) and capped by the pool-share limit.",
+    "description": "Open a long on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is sized from the cushion (`long_leverage_percent` of it against the\npool's TAO reserve) and capped by the pool-share limit.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1959,7 +1959,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "TAO cushion to deposit from the coldkey balance. Exposure is `leverage_percent` of this amount measured against the pool's TAO reserve."
+          "description": "TAO cushion to deposit from the coldkey balance. Exposure is the side's leverage times this amount, measured against the pool's TAO reserve."
         }
       },
       "required": [
@@ -1976,9 +1976,9 @@
         "pallet": "Derivatives",
         "call": "open",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 229,
-        "end_line": 237,
-        "url": "/code/pallets/derivatives/src/lib.rs#L227-L237",
+        "line": 241,
+        "end_line": 249,
+        "url": "/code/pallets/derivatives/src/lib.rs#L239-L249",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -1986,7 +1986,7 @@
   {
     "name": "open_short",
     "summary": "Open a short on a subnet's alpha, backed by a TAO cushion.",
-    "description": "Open a short on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is sized from the cushion (`leverage_percent` of it against\nthe pool's TAO reserve) and capped by the pool-share limit.",
+    "description": "Open a short on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is sized from the cushion (`short_leverage_percent` of it\nagainst the pool's TAO reserve) and capped by the pool-share limit.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2015,7 +2015,7 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "TAO cushion to deposit from the coldkey balance. Exposure is `leverage_percent` of this amount measured against the pool's TAO reserve."
+          "description": "TAO cushion to deposit from the coldkey balance. Exposure is the side's leverage times this amount, measured against the pool's TAO reserve."
         }
       },
       "required": [
@@ -2032,9 +2032,9 @@
         "pallet": "Derivatives",
         "call": "open",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 229,
-        "end_line": 237,
-        "url": "/code/pallets/derivatives/src/lib.rs#L227-L237",
+        "line": 241,
+        "end_line": 249,
+        "url": "/code/pallets/derivatives/src/lib.rs#L239-L249",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -2654,9 +2654,9 @@
         "pallet": "Derivatives",
         "call": "roll",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 270,
-        "end_line": 278,
-        "url": "/code/pallets/derivatives/src/lib.rs#L268-L278",
+        "line": 282,
+        "end_line": 290,
+        "url": "/code/pallets/derivatives/src/lib.rs#L280-L290",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

@@ -127,6 +127,12 @@ pub mod pallet {
     #[pallet::storage]
     pub type PalletHotkey<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
 
+    /// Per-subnet pause switches and cap, replacing the global ones where set. Root-settable
+    /// with [`Pallet::sudo_set_subnet_override`]; the lever for one misbehaving pool.
+    #[pallet::storage]
+    pub type SubnetOverrides<T: Config> =
+        StorageMap<_, Identity, NetUid, SubnetOverride, OptionQuery>;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -134,8 +140,8 @@ pub mod pallet {
             owner: T::AccountId,
             netuid: NetUid,
             side: Side,
-            /// TAO the owner put up.
-            cushion: TaoBalance,
+            /// What the owner put up.
+            cushion: Cushion,
             /// Proceeds held, debt owed, escrow kept, each in its own token.
             legs: Legs,
             exposure_tao: TaoBalance,
@@ -166,11 +172,16 @@ pub mod pallet {
         ParamsSet {
             params: DerivativesParams<BlockNumberFor<T>>,
         },
+        /// `None` means the subnet is back on the global parameters.
+        SubnetOverrideSet {
+            netuid: NetUid,
+            override_: Option<SubnetOverride>,
+        },
     }
 
     #[pallet::error]
     pub enum Error<T> {
-        /// Opening this side is switched off.
+        /// Opening this side is switched off, globally or on this subnet.
         SideDisabled,
         /// The subnet does not exist, is not AMM-priced, or has its subtoken disabled.
         SubnetNotDynamic,
@@ -192,7 +203,7 @@ pub mod pallet {
         ExpiryQueueFull,
         /// The pool swap returned nothing for a non-zero input.
         SwapReturnedZero,
-        /// `leverage_percent`, `max_pool_share`, or `lifetime_blocks` is zero.
+        /// A leverage, `max_pool_share`, or `lifetime_blocks` is zero.
         InvalidParams,
         /// The pallet has not claimed its hotkey yet; no position can be opened.
         PalletHotkeyUnset,
@@ -221,7 +232,8 @@ pub mod pallet {
         /// Open a `side` position on `netuid` backed by `cushion` TAO from the caller's free
         /// balance.
         ///
-        /// Exposure is `leverage_percent` of the cushion, measured against the pool's TAO
+        /// Exposure is the side's leverage (`short_leverage_percent` or
+        /// `long_leverage_percent`) times the cushion, measured against the pool's TAO
         /// reserve. The position stays open until the owner closes it or `lifetime_blocks`
         /// pass, after which anyone may close it.
         #[pallet::call_index(0)]
@@ -277,8 +289,9 @@ pub mod pallet {
             Self::do_roll(owner, netuid, side, top_up)
         }
 
-        /// Replace every parameter at once. Root only. Rejects a zero `leverage_percent`,
-        /// `max_pool_share`, or `lifetime_blocks`.
+        /// Replace every parameter at once. Root only. Rejects a zero leverage,
+        /// `max_pool_share`, or `lifetime_blocks`. Open positions keep the fee and lifetime
+        /// they were opened with.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::sudo_set_params())]
         pub fn sudo_set_params(
@@ -289,6 +302,27 @@ pub mod pallet {
             ensure!(params.is_valid(), Error::<T>::InvalidParams);
             Params::<T>::put(params.clone());
             Self::deposit_event(Event::ParamsSet { params });
+            Ok(())
+        }
+
+        /// Pause a side or change the pool-share cap on one subnet. Root only. `None` removes
+        /// the override. Affects opens only; positions already open settle as usual.
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::WeightInfo::sudo_set_subnet_override())]
+        pub fn sudo_set_subnet_override(
+            origin: OriginFor<T>,
+            netuid: NetUid,
+            override_: Option<SubnetOverride>,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            match override_ {
+                Some(value) => {
+                    ensure!(value.is_valid(), Error::<T>::InvalidParams);
+                    SubnetOverrides::<T>::insert(netuid, value);
+                }
+                None => SubnetOverrides::<T>::remove(netuid),
+            }
+            Self::deposit_event(Event::SubnetOverrideSet { netuid, override_ });
             Ok(())
         }
     }

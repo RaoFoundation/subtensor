@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ExplainerPanel, ExplainerToggle } from './explainer-panel';
 import { ACCENT, ACCENT_WASH, INK, INK_FAINT } from './chart-theme';
-import { CUSHION, LIFT_ALPHA, LIFT_TAO, OPEN_PRICE, feePerDay, simulate, type Outcome as Numbers, type Side } from '@/lib/derivatives-math';
+import { CUSHION, LEVERAGE, OPEN_PRICE, feePerDay, lift, phi, simulate, type Outcome as Numbers, type Side } from '@/lib/derivatives-math';
 
 type Outcome = 'down' | 'up';
 
@@ -46,6 +46,9 @@ function slide(phase: Phase, side: Side, outcome: Outcome, n: Numbers): Slide {
   const short = side === 'short';
   const fell = outcome === 'down';
   const win = short === fell;
+  const { tao: LIFT_TAO, alpha: LIFT_ALPHA } = lift(side);
+  const sharePct = `${phi(side) * 100}%`;
+  const lev = `${LEVERAGE[side]}x`;
   switch (phase) {
     case 'deposit':
       return {
@@ -55,7 +58,7 @@ function slide(phase: Phase, side: Side, outcome: Outcome, n: Numbers): Slide {
     case 'lift':
       return {
         title: 'The pool lends you a slice',
-        body: `The pallet lifts 1% of both reserves — ${tao(LIFT_TAO, 0)} and ${alpha(LIFT_ALPHA)} — out of the pool. Both sides shrink by the same share, so the price stays at ${price(OPEN_PRICE)}.`,
+        body: `At ${lev} your ${tao(CUSHION, 0)} sizes a ${sharePct} slice. The pallet lifts ${sharePct} of both reserves — ${tao(LIFT_TAO, 0)} and ${alpha(LIFT_ALPHA)} — out of the pool. Both sides shrink by the same share, so the price stays at ${price(OPEN_PRICE)}.`,
       };
     case 'trade':
       return {
@@ -68,8 +71,8 @@ function slide(phase: Phase, side: Side, outcome: Outcome, n: Numbers): Slide {
       return {
         title: 'Your position is open',
         body: short
-          ? `It holds ${tao(CUSHION + n.proceeds)} (cushion + proceeds) and owes ${alpha(LIFT_ALPHA)} to the pool. A 30-day clock starts; the fee is ${tao(feePerDay('short'))} per day (5 τ × the 1% of the pool lifted).`
-          : `It holds your ${tao(CUSHION, 0)} cushion plus ${alpha(n.proceeds)}, and owes ${tao(LIFT_TAO, 0)} to the pool. A 30-day clock starts; the fee is ${tao(feePerDay('long'))} per day (0.02% of ${tao(LIFT_TAO, 0)}).`,
+          ? `It holds ${tao(CUSHION + n.proceeds)} (cushion + proceeds) and owes ${alpha(LIFT_ALPHA)} to the pool. A 30-day clock starts; the fee is ${tao(feePerDay('short'))} per day (6 τ × the ${sharePct} of the pool lifted, scaled a little for slippage).`
+          : `It holds your ${tao(CUSHION, 0)} cushion plus ${alpha(n.proceeds)}, and owes ${tao(LIFT_TAO, 0)} to the pool. A 30-day clock starts; the fee is ${tao(feePerDay('long'))} per day (0.01% of ${tao(LIFT_TAO, 0)}, scaled a little for slippage).`,
       };
     case 'move':
       return {
@@ -134,6 +137,7 @@ interface Scene {
 
 function scene(phase: Phase, side: Side, n: Numbers): Scene {
   const short = side === 'short';
+  const { tao: LIFT_TAO, alpha: LIFT_ALPHA } = lift(side);
   const holds = short ? tao(n.proceeds) : alpha(n.proceeds);
   const owes = short ? alpha(LIFT_ALPHA) : tao(LIFT_TAO, 0);
   const netBeforeFee = CUSHION + (short ? n.proceeds - n.closeLeg : n.closeLeg - LIFT_TAO);
@@ -174,7 +178,7 @@ function scene(phase: Phase, side: Side, n: Numbers): Scene {
         ...start,
         traded: 'tray',
         escrow: 'tray',
-        trayLabel: '1% LIFTED OUT',
+        trayLabel: `${phi(side) * 100}% LIFTED OUT`,
         cushion: 'position',
         position: [{ k: 'cushion', v: tao(CUSHION, 0) }, { k: 'status', v: 'opening…' }],
         positionOpen: true,
@@ -334,6 +338,7 @@ export function DerivativesLifecycle() {
   }, [playing, step]);
 
   const short = side === 'short';
+  const { tao: LIFT_TAO, alpha: LIFT_ALPHA } = lift(side);
 
   // Which bar is which asset: the traded asset sits on the left, the escrow asset on the right.
   const tradedLabel = short ? 'α' : 'τ';
@@ -559,8 +564,8 @@ export function DerivativesLifecycle() {
       </div>
 
       <p className="mt-4 border-t border-line pt-3 text-[0.6875rem] leading-relaxed text-mute">
-        Example pool 10,000 τ / 200,000 α at 0.05 τ/α; the slice is drawn larger than 1% so you can see it.
-        Cushions are always TAO.
+        Example pool 10,000 τ / 200,000 α at 0.05 τ/α; the slice is drawn larger than it is so you can see it.
+        Shorts run at 1x and lift 1%, longs at 2x and lift 2%. Cushions are always TAO.
       </p>
     </ExplainerPanel>
   );

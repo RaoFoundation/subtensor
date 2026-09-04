@@ -807,8 +807,8 @@
   },
   {
     "name": "derivatives_params",
-    "summary": "The derivatives pallet's root-set parameters.",
-    "description": "The derivatives pallet's root-set parameters.\n\n`leverage_percent` sizes the borrowed slice from the cushion, `max_pool_share`\ncaps how much of a pool's reserve may be lent per side, and `lifetime_blocks`\nis how long a position may stay open. Fees are fixed at open and charged at\nclose with a one-day minimum: a short pays `short_fee_per_day_tao` times the\nshare of the pool it lifted, a long pays `long_rate_per_day` times its TAO\nexposure.",
+    "summary": "The derivatives pallet's root-set global parameters.",
+    "description": "The derivatives pallet's root-set global parameters.\n\n`short_leverage_percent` and `long_leverage_percent` size the borrowed slice\nfrom the cushion per side, `max_pool_share` caps how much of a pool's reserve\nmay be lent per side, and `lifetime_blocks` is how long a position may stay\nopen. Fees are fixed at open and charged at close with a one-day minimum: a\nshort pays `short_fee_per_day_tao` times the share of the pool it lifted, a\nlong pays `long_rate_per_day` times its TAO exposure; both are scaled by\n`1 / (1 - share)^4` for the position's own slippage. A subnet may override\nthe switches and the cap; see `derivatives_subnet_override`.",
     "params": {},
     "param_docs": {},
     "category": "Prices & swaps",
@@ -823,6 +823,32 @@
         "path": "pallets/derivatives/src/lib.rs",
         "line": 77,
         "url": "/code/pallets/derivatives/src/lib.rs#L77",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "derivatives_subnet_override",
+    "summary": "Root-set per-subnet overrides of the derivatives parameters, or None.",
+    "description": "Root-set per-subnet overrides of the derivatives parameters, or None.\n\nNone means the subnet runs on the global `derivatives_params`. When set,\n`shorts_enabled` and `longs_enabled` replace the global switches for opens\non this subnet, and `max_pool_share` replaces the global cap when it is not\nNone. Open positions are unaffected: a paused side can still close.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet to look up."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/derivatives-subnet-override",
+    "markdown_url": "/llms.mdx/docs/query/derivatives-subnet-override/content.md",
+    "python": "sub.prices.derivatives_subnet_override(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Derivatives",
+        "name": "SubnetOverrides",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 133,
+        "url": "/code/pallets/derivatives/src/lib.rs#L133",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

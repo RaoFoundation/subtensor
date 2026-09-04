@@ -1409,8 +1409,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 182,
-          "url": "/code/pallets/derivatives/src/lib.rs#L182",
+          "line": 193,
+          "url": "/code/pallets/derivatives/src/lib.rs#L193",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -1740,8 +1740,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 192,
-          "url": "/code/pallets/derivatives/src/lib.rs#L192",
+          "line": 203,
+          "url": "/code/pallets/derivatives/src/lib.rs#L203",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -1758,8 +1758,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 184,
-          "url": "/code/pallets/derivatives/src/lib.rs#L184",
+          "line": 195,
+          "url": "/code/pallets/derivatives/src/lib.rs#L195",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -2512,7 +2512,7 @@
     },
     "InvalidParams": {
       "code": "invalid_argument",
-      "description": "Root submitted parameters with a zero `leverage_percent`, `max_pool_share`, or `lifetime_blocks`, which would brick opens or make positions closable at once. Check each field of the submitted `DerivativesParams` is non-zero.",
+      "description": "Root submitted parameters with a zero leverage, `max_pool_share`, or `lifetime_blocks`, or a subnet override with a zero `max_pool_share`, which would brick opens or make positions closable at once. Pause a side with its enabled switch instead.",
       "docs_url": "/docs/errors/chain/InvalidParams",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidParams/content.md",
       "pallets": [
@@ -2522,8 +2522,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 196,
-          "url": "/code/pallets/derivatives/src/lib.rs#L196",
+          "line": 207,
+          "url": "/code/pallets/derivatives/src/lib.rs#L207",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3647,8 +3647,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 180,
-          "url": "/code/pallets/derivatives/src/lib.rs#L180",
+          "line": 191,
+          "url": "/code/pallets/derivatives/src/lib.rs#L191",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3935,8 +3935,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 190,
-          "url": "/code/pallets/derivatives/src/lib.rs#L190",
+          "line": 201,
+          "url": "/code/pallets/derivatives/src/lib.rs#L201",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4269,8 +4269,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 198,
-          "url": "/code/pallets/derivatives/src/lib.rs#L198",
+          "line": 209,
+          "url": "/code/pallets/derivatives/src/lib.rs#L209",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4359,8 +4359,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 188,
-          "url": "/code/pallets/derivatives/src/lib.rs#L188",
+          "line": 199,
+          "url": "/code/pallets/derivatives/src/lib.rs#L199",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4377,8 +4377,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 178,
-          "url": "/code/pallets/derivatives/src/lib.rs#L178",
+          "line": 189,
+          "url": "/code/pallets/derivatives/src/lib.rs#L189",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4880,7 +4880,7 @@
     },
     "SideDisabled": {
       "code": "disabled",
-      "description": "Opening a position of this side is switched off by root. Check `shorts_enabled` and `longs_enabled` in `derivatives-params`; existing positions can always be closed.",
+      "description": "Opening a position of this side is switched off by root, globally or on this subnet. Check `shorts_enabled` and `longs_enabled` in `deriv params --netuid N`; existing positions can always be closed.",
       "docs_url": "/docs/errors/chain/SideDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/SideDisabled/content.md",
       "pallets": [
@@ -4890,8 +4890,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 174,
-          "url": "/code/pallets/derivatives/src/lib.rs#L174",
+          "line": 185,
+          "url": "/code/pallets/derivatives/src/lib.rs#L185",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5151,8 +5151,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 176,
-          "url": "/code/pallets/derivatives/src/lib.rs#L176",
+          "line": 187,
+          "url": "/code/pallets/derivatives/src/lib.rs#L187",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5239,8 +5239,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 194,
-          "url": "/code/pallets/derivatives/src/lib.rs#L194",
+          "line": 205,
+          "url": "/code/pallets/derivatives/src/lib.rs#L205",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6114,8 +6114,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 186,
-          "url": "/code/pallets/derivatives/src/lib.rs#L186",
+          "line": 197,
+          "url": "/code/pallets/derivatives/src/lib.rs#L197",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]

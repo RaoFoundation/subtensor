@@ -1671,7 +1671,7 @@ class Derivatives:
 
     @staticmethod
     def open(netuid: 'NetUid', side: 'Side', cushion: 'TaoBalance') -> Call:
-        "Open a `side` position on `netuid` backed by `cushion` TAO from the caller's free balance.  Exposure is `leverage_percent` of the cushion, measured against the pool's TAO reserve. The position stays open until the owner closes it or `lifetime_blocks` pass, after which anyone may close it."
+        "Open a `side` position on `netuid` backed by `cushion` TAO from the caller's free balance.  Exposure is the side's leverage (`short_leverage_percent` or `long_leverage_percent`) times the cushion, measured against the pool's TAO reserve. The position stays open until the owner closes it or `lifetime_blocks` pass, after which anyone may close it."
         return Call('Derivatives', 'open', {'netuid': netuid, 'side': side, 'cushion': cushion})
 
     @staticmethod
@@ -1681,5 +1681,10 @@ class Derivatives:
 
     @staticmethod
     def sudo_set_params(params: 'DerivativesParams') -> Call:
-        'Replace every parameter at once. Root only. Rejects a zero `leverage_percent`, `max_pool_share`, or `lifetime_blocks`.'
+        'Replace every parameter at once. Root only. Rejects a zero leverage, `max_pool_share`, or `lifetime_blocks`. Open positions keep the fee and lifetime they were opened with.'
         return Call('Derivatives', 'sudo_set_params', {'params': params})
+
+    @staticmethod
+    def sudo_set_subnet_override(netuid: 'NetUid', override_: 'Any') -> Call:
+        'Pause a side or change the pool-share cap on one subnet. Root only. `None` removes the override. Affects opens only; positions already open settle as usual.'
+        return Call('Derivatives', 'sudo_set_subnet_override', {'netuid': netuid, 'override_': override_})

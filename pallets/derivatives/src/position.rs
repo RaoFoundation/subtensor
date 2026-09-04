@@ -2,7 +2,7 @@
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
-use sp_runtime::{Perbill, Percent, RuntimeDebug, traits::Zero};
+use sp_runtime::{PerThing, Perbill, Percent, RuntimeDebug, traits::Zero};
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, TaoBalance, Token};
 use subtensor_swap_interface::Perquintill;
@@ -116,8 +116,36 @@ impl Lent {
     }
 }
 
+/// What the owner put up. Only TAO today. An enum so that an alpha variant can be added later
+/// without migrating stored positions: SCALE encodes the variant index first, so existing
+/// `Tao` values keep decoding.
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    RuntimeDebug,
+)]
+pub enum Cushion {
+    Tao(TaoBalance),
+}
+
+impl Cushion {
+    /// The cushion's TAO, once any alpha variant is valued. Today it is the deposit itself.
+    pub fn tao(&self) -> TaoBalance {
+        match self {
+            Cushion::Tao(amount) => *amount,
+        }
+    }
+}
+
 /// One open position.
-#[freeze_struct("41b6fc92047d1227")]
+#[freeze_struct("cd9e5fdfbc8a1e58")]
 #[derive(
     Encode,
     Decode,
@@ -130,8 +158,8 @@ impl Lent {
     RuntimeDebug,
 )]
 pub struct Position<BlockNumber> {
-    /// `P`: the TAO cushion. Returned at close minus the fee and any shortfall.
-    pub cushion: TaoBalance,
+    /// `P`: what the owner put up. Returned at close minus the fee and any shortfall.
+    pub cushion: Cushion,
     /// The borrowed slice: proceeds held, debt owed, escrow kept. Its variant is the side.
     pub legs: Legs,
     /// `phi * T` at open: the TAO value the pool lent.
@@ -156,7 +184,7 @@ impl<BlockNumber> Position<BlockNumber> {
 }
 
 /// Root-settable parameters.
-#[freeze_struct("a3a44145cb64ae7e")]
+#[freeze_struct("e263f11aa1ca8132")]
 #[derive(
     Encode,
     Decode,
@@ -171,15 +199,20 @@ impl<BlockNumber> Position<BlockNumber> {
 pub struct DerivativesParams<BlockNumber> {
     pub shorts_enabled: bool,
     pub longs_enabled: bool,
-    /// `L`: exposure as a percentage of the deposit. `100` = 1x.
-    pub leverage_percent: u16,
+    /// `L_short`: a short's exposure as a percentage of its cushion. `100` = 1x. The pool is
+    /// wiped when the price rises by `1 / L`: 2x at 1x leverage.
+    pub short_leverage_percent: u16,
+    /// `L_long`: a long's exposure as a percentage of its cushion. `200` = 2x. The pool is
+    /// wiped when the price falls by `1 / L`: a halving at 2x. At 1x a long can never lose
+    /// the pool anything, and is nothing a spot buy does not do better.
+    pub long_leverage_percent: u16,
     /// `kappa`: the largest share of the lent reserve that all open positions of one side on
-    /// one subnet may borrow together.
+    /// one subnet may borrow together. A subnet's [`SubnetOverride`] can replace it.
     pub max_pool_share: Percent,
     /// `X`: how long a position may stay open.
     pub lifetime_blocks: BlockNumber,
-    /// `c`: what a short pays per day for borrowing the whole pool, in TAO. A short that
-    /// lifts a share `phi` pays `c * phi` per day. Pump risk in a constant-product pool
+    /// `C`: what a short pays per day for borrowing the whole pool, in TAO. A short that
+    /// lifts a share `phi` pays `C * phi` per day. Pump risk in a constant-product pool
     /// scales with `1 / T`, so a fixed TAO amount per unit of pool share is the fair form.
     pub short_fee_per_day: TaoBalance,
     /// `r`: what a long pays per day, as a fraction of `exposure_tao`. Crash risk does not
@@ -190,36 +223,54 @@ pub struct DerivativesParams<BlockNumber> {
 }
 
 impl<BlockNumber: From<u32>> DerivativesParams<BlockNumber> {
-    /// Mainnet defaults: 1x, 10% of the pool, 30 days, 5 TAO/day per unit pool share on
-    /// shorts, 0.02%/day of exposure on longs, 0.1 TAO minimum cushion.
+    /// Mainnet defaults: shorts 1x, longs 2x, 10% of the pool, 30 days, 6 TAO/day per unit
+    /// pool share on shorts, 0.01%/day of exposure on longs, 0.1 TAO minimum cushion.
     ///
-    /// The fees are 1.5-2.5x the pool's measured expected loss over a year of Finney pool
-    /// prices: `E[(theta - 2)+] * T ~= 96 TAO` per 30 days on shorts, `E[(1 - 2 theta)+]
-    /// ~= 0.25%` of exposure per 30 days on longs.
+    /// Each fee is twice the pool's measured expected loss over a year of Finney pool prices:
+    /// `E[(theta - 2)+] * T ~= 86 TAO` per 30 days on shorts (2.9 TAO/day), `E[(1/2 - theta)+]
+    /// ~= 0.11%` of exposure per 30 days on longs at 2x (0.004%/day). The factor of two covers
+    /// the sampling error on ~60 pump episodes and the book closing against the pool at the cap.
     pub fn defaults() -> Self {
         Self {
             shorts_enabled: true,
             longs_enabled: true,
-            leverage_percent: 100,
+            short_leverage_percent: 100,
+            long_leverage_percent: 200,
             max_pool_share: Percent::from_percent(10),
             lifetime_blocks: BlockNumber::from(216_000u32),
-            short_fee_per_day: TaoBalance::from(5_000_000_000u64),
-            long_rate_per_day: Perbill::from_rational(2u32, 10_000u32),
+            short_fee_per_day: TaoBalance::from(6_000_000_000u64),
+            long_rate_per_day: Perbill::from_rational(1u32, 10_000u32),
             min_deposit_tao: TaoBalance::from(100_000_000),
         }
     }
 
-    /// Fee per day for a new position: `c * phi` on a short, `r * exposure` on a long.
+    pub fn leverage_percent(&self, side: Side) -> u16 {
+        match side {
+            Side::Short => self.short_leverage_percent,
+            Side::Long => self.long_leverage_percent,
+        }
+    }
+
+    pub fn side_enabled(&self, side: Side) -> bool {
+        match side {
+            Side::Short => self.shorts_enabled,
+            Side::Long => self.longs_enabled,
+        }
+    }
+
+    /// Fee per day for a new position: `C * phi` on a short, `r * exposure` on a long, both
+    /// times [`size_factor`] for the position's own slippage.
     pub fn fee_per_day(
         &self,
         side: Side,
         phi: Perquintill,
         exposure_tao: TaoBalance,
     ) -> TaoBalance {
-        match side {
-            Side::Short => TaoBalance::from(phi.mul_floor(self.short_fee_per_day.to_u64())),
-            Side::Long => TaoBalance::from(self.long_rate_per_day.mul_floor(exposure_tao.to_u64())),
-        }
+        let base = match side {
+            Side::Short => phi.mul_floor(self.short_fee_per_day.to_u64()),
+            Side::Long => self.long_rate_per_day.mul_floor(exposure_tao.to_u64()),
+        };
+        TaoBalance::from(size_factor(phi, base))
     }
 }
 
@@ -228,10 +279,67 @@ impl<BlockNumber: Zero> DerivativesParams<BlockNumber> {
     /// every `open` fail; a zero lifetime would let anyone close a position the block it opens.
     /// Use `shorts_enabled` / `longs_enabled` to pause opens instead.
     pub fn is_valid(&self) -> bool {
-        self.leverage_percent > 0
+        self.short_leverage_percent > 0
+            && self.long_leverage_percent > 0
             && !self.max_pool_share.is_zero()
             && !self.lifetime_blocks.is_zero()
     }
+}
+
+/// Root-settable per-subnet overrides. Absent means the global parameters apply. Only opens
+/// look at it: a paused side can still close, roll cannot reopen.
+#[freeze_struct("c897b7b9addbdd09")]
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    RuntimeDebug,
+)]
+pub struct SubnetOverride {
+    pub shorts_enabled: bool,
+    pub longs_enabled: bool,
+    /// Replaces the global `max_pool_share` on this subnet when set.
+    pub max_pool_share: Option<Percent>,
+}
+
+impl SubnetOverride {
+    pub fn side_enabled(&self, side: Side) -> bool {
+        match side {
+            Side::Short => self.shorts_enabled,
+            Side::Long => self.longs_enabled,
+        }
+    }
+
+    /// A zero cap would make every open fail; pause the side instead.
+    pub fn is_valid(&self) -> bool {
+        self.max_pool_share.is_none_or(|share| !share.is_zero())
+    }
+}
+
+/// `base / (1 - phi)^4`: the fee scaled for the position's own slippage at close.
+///
+/// The linear fee laws assume a small slice. A position that lifts `phi` of the pool must buy
+/// back (or sell) into a pool that is `phi` smaller, and its exact expected loss over the
+/// measured price history is `(1 - phi)^-4` times the small-slice value to within 3% for
+/// `phi` up to 25% (x1.23 at 5%, x2.4 at 20%). With this factor the fee stays fair at any
+/// pool-share cap without a separate per-position limit. Saturates as `phi` nears one.
+pub fn size_factor(phi: Perquintill, base: u64) -> u64 {
+    let one_minus = phi.left_from_one();
+    let denom = one_minus.square().square();
+    if denom.is_zero() {
+        return u64::MAX;
+    }
+    (base as u128)
+        .saturating_mul(Perquintill::ACCURACY as u128)
+        .checked_div(denom.deconstruct() as u128)
+        .unwrap_or(u64::MAX as u128)
+        .min(u64::MAX as u128) as u64
 }
 
 /// `phi = L * amount / reserve`, as a fraction of the pool. `None` when the position would
@@ -306,15 +414,56 @@ mod tests {
         let params = DerivativesParams::<u64>::defaults();
         let one_percent = Perquintill::from_percent(1);
         let exposure = TaoBalance::from(1_000_000_000_000u64); // 1000 TAO
-        // 1% of any pool: 5 TAO/day * 1% = 0.05 TAO/day, whatever the exposure.
+        // 1% of any pool: 6 TAO/day * 1% = 0.06 TAO/day, whatever the exposure, times the
+        // size factor at 1%.
         assert_eq!(
             params.fee_per_day(Side::Short, one_percent, exposure),
-            TaoBalance::from(50_000_000)
+            TaoBalance::from(size_factor(one_percent, 60_000_000))
         );
-        // Long: 0.02%/day of 1000 TAO = 0.2 TAO/day, whatever the pool share.
+        // Long: 0.01%/day of 1000 TAO = 0.1 TAO/day, whatever the pool share, times the same
+        // factor.
         assert_eq!(
             params.fee_per_day(Side::Long, one_percent, exposure),
-            TaoBalance::from(200_000_000)
+            TaoBalance::from(size_factor(one_percent, 100_000_000))
         );
+    }
+
+    #[test]
+    fn size_factor_is_inverse_fourth_power_of_the_remaining_pool() {
+        let base = 1_000_000;
+        // (1 - phi)^-4: 1.0410 at 1%, 1.0842 at 2%, 2.4414 at 20%.
+        assert_eq!(size_factor(Perquintill::from_percent(1), base), 1_041_020);
+        assert_eq!(size_factor(Perquintill::from_percent(2), base), 1_084_165);
+        assert_eq!(size_factor(Perquintill::from_percent(20), base), 2_441_406);
+        assert_eq!(size_factor(Perquintill::zero(), base), base);
+        assert_eq!(size_factor(Perquintill::one(), base), u64::MAX);
+    }
+
+    #[test]
+    fn defaults_are_valid_and_each_leverage_is_checked() {
+        let params = DerivativesParams::<u64>::defaults();
+        assert!(params.is_valid());
+        assert_eq!(params.leverage_percent(Side::Short), 100);
+        assert_eq!(params.leverage_percent(Side::Long), 200);
+        let mut no_long = params.clone();
+        no_long.long_leverage_percent = 0;
+        assert!(!no_long.is_valid());
+        let mut no_short = params;
+        no_short.short_leverage_percent = 0;
+        assert!(!no_short.is_valid());
+    }
+
+    #[test]
+    fn subnet_override_rejects_a_zero_cap() {
+        let mut override_ = SubnetOverride {
+            shorts_enabled: false,
+            longs_enabled: true,
+            max_pool_share: None,
+        };
+        assert!(override_.is_valid());
+        override_.max_pool_share = Some(Percent::from_percent(5));
+        assert!(override_.is_valid());
+        override_.max_pool_share = Some(Percent::zero());
+        assert!(!override_.is_valid());
     }
 }

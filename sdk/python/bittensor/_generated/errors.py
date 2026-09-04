@@ -403,7 +403,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 24): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForLinkedAmount', 'Partial fill submitted against a linked (consuming) order.'),
     (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
     (32, 26): ErrorInfo('LimitOrders', 'LinkedOutputNotPrunable', '`prune_linked_output` called by a non-signer on an unexpired record.'),
-    (33, 0): ErrorInfo('Derivatives', 'SideDisabled', 'Opening this side is switched off.'),
+    (33, 0): ErrorInfo('Derivatives', 'SideDisabled', 'Opening this side is switched off, globally or on this subnet.'),
     (33, 1): ErrorInfo('Derivatives', 'SubnetNotDynamic', 'The subnet does not exist, is not AMM-priced, or has its subtoken disabled.'),
     (33, 2): ErrorInfo('Derivatives', 'PositionExists', 'The caller already has a position of this side on this subnet.'),
     (33, 3): ErrorInfo('Derivatives', 'NoPosition', 'No such position.'),
@@ -414,6 +414,6 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 8): ErrorInfo('Derivatives', 'NotExpired', 'Only the owner may close before `expires_at`.'),
     (33, 9): ErrorInfo('Derivatives', 'ExpiryQueueFull', 'Too many positions already expire in the next blocks.'),
     (33, 10): ErrorInfo('Derivatives', 'SwapReturnedZero', 'The pool swap returned nothing for a non-zero input.'),
-    (33, 11): ErrorInfo('Derivatives', 'InvalidParams', '`leverage_percent`, `max_pool_share`, or `lifetime_blocks` is zero.'),
+    (33, 11): ErrorInfo('Derivatives', 'InvalidParams', 'A leverage, `max_pool_share`, or `lifetime_blocks` is zero.'),
     (33, 12): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
 }

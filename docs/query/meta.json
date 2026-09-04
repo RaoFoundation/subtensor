@@ -76,6 +76,7 @@
     "derivative-position",
     "derivative-positions",
     "derivatives-params",
+    "derivatives-subnet-override",
     "quote-stake",
     "quote-unstake",
     "---Staking---",

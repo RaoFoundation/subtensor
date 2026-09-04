@@ -54,6 +54,13 @@ def _legs(view, legs: Any, netuid: int) -> dict:
     }
 
 
+def _cushion_rao(cushion: Any) -> int:
+    """The `Cushion` enum, `Tao(amount)` today, as TAO rao."""
+    if isinstance(cushion, dict):
+        return int(cushion.get(_variant(cushion)) or 0)
+    return int(cushion or 0)
+
+
 def _position_record(
     view, coldkey: str, netuid: int, side: str, raw: Any, now: int
 ) -> Optional[dict]:
@@ -69,7 +76,7 @@ def _position_record(
         "coldkey": coldkey,
         "netuid": netuid,
         "side": side,
-        "cushion": Balance.from_rao(int(raw.get("cushion") or 0)),
+        "cushion": Balance.from_rao(_cushion_rao(raw.get("cushion"))),
         "proceeds": legs["proceeds"],
         "debt": legs["debt"],
         "escrow": legs["escrow"],
@@ -88,7 +95,8 @@ def _params_record(raw: Any) -> dict:
     return {
         "shorts_enabled": bool(raw.get("shorts_enabled", False)),
         "longs_enabled": bool(raw.get("longs_enabled", False)),
-        "leverage_percent": int(raw.get("leverage_percent") or 0),
+        "short_leverage_percent": int(raw.get("short_leverage_percent") or 0),
+        "long_leverage_percent": int(raw.get("long_leverage_percent") or 0),
         "max_pool_share": int(raw.get("max_pool_share") or 0) / _PERCENT,
         "lifetime_blocks": int(raw.get("lifetime_blocks") or 0),
         "short_fee_per_day_tao": Balance.from_rao(int(raw.get("short_fee_per_day") or 0)),
@@ -103,16 +111,46 @@ def _params_record(raw: Any) -> dict:
     category="Prices & swaps",
 )
 async def derivatives_params(view) -> dict:
-    """The derivatives pallet's root-set parameters.
+    """The derivatives pallet's root-set global parameters.
 
-    `leverage_percent` sizes the borrowed slice from the cushion, `max_pool_share`
-    caps how much of a pool's reserve may be lent per side, and `lifetime_blocks`
-    is how long a position may stay open. Fees are fixed at open and charged at
-    close with a one-day minimum: a short pays `short_fee_per_day_tao` times the
-    share of the pool it lifted, a long pays `long_rate_per_day` times its TAO
-    exposure.
+    `short_leverage_percent` and `long_leverage_percent` size the borrowed slice
+    from the cushion per side, `max_pool_share` caps how much of a pool's reserve
+    may be lent per side, and `lifetime_blocks` is how long a position may stay
+    open. Fees are fixed at open and charged at close with a one-day minimum: a
+    short pays `short_fee_per_day_tao` times the share of the pool it lifted, a
+    long pays `long_rate_per_day` times its TAO exposure; both are scaled by
+    `1 / (1 - share)^4` for the position's own slippage. A subnet may override
+    the switches and the cap; see `derivatives_subnet_override`.
     """
     return _params_record(await view.query(st.Derivatives.Params))
+
+
+def _override_record(raw: Any) -> Optional[dict]:
+    if not isinstance(raw, dict):
+        return None
+    share = raw.get("max_pool_share")
+    return {
+        "shorts_enabled": bool(raw.get("shorts_enabled", False)),
+        "longs_enabled": bool(raw.get("longs_enabled", False)),
+        "max_pool_share": None if share is None else int(share) / _PERCENT,
+    }
+
+
+@read(
+    "derivatives_subnet_override",
+    {"netuid": "integer"},
+    category="Prices & swaps",
+    param_docs={"netuid": "Subnet to look up."},
+)
+async def derivatives_subnet_override(view, netuid: int) -> Optional[dict]:
+    """Root-set per-subnet overrides of the derivatives parameters, or None.
+
+    None means the subnet runs on the global `derivatives_params`. When set,
+    `shorts_enabled` and `longs_enabled` replace the global switches for opens
+    on this subnet, and `max_pool_share` replaces the global cap when it is not
+    None. Open positions are unaffected: a paused side can still close.
+    """
+    return _override_record(await view.query(st.Derivatives.SubnetOverrides, [netuid]))
 
 
 @read(

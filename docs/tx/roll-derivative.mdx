@@ -14,7 +14,7 @@ minimum deposit or the pool cap is reached; `close` instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.roll`](/code/pallets/derivatives/src/lib.rs#L268-L278) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.roll`](/code/pallets/derivatives/src/lib.rs#L280-L290) |
 
 ## Parameters
 
@@ -67,7 +67,7 @@ result = sub.execute_tool("roll_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.roll` — [`pallets/derivatives/src/lib.rs#L270`](/code/pallets/derivatives/src/lib.rs#L268-L278):
+`Derivatives.roll` — [`pallets/derivatives/src/lib.rs#L282`](/code/pallets/derivatives/src/lib.rs#L280-L290):
 
 ```rust
 #[pallet::call_index(3)]
@@ -83,6 +83,6 @@ pub fn roll(
 }
 ```
 
-Delegates to [`do_roll`](/code/pallets/derivatives/src/settle.rs#L156).
+Delegates to [`do_roll`](/code/pallets/derivatives/src/settle.rs#L159).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

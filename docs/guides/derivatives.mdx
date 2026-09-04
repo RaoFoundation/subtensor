@@ -25,12 +25,12 @@ same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
 | Term | Meaning |
 |------|---------|
 | **Cushion** | Your deposit, in TAO from your coldkey balance. It is held by the pallet while the position is open and returned at close, minus the fee and any loss. |
-| **Exposure** | The TAO value the position moves with. At 1x leverage it equals your cushion. |
+| **Exposure** | The TAO value the position moves with: leverage times your cushion. Shorts run at 1x, so exposure equals the cushion; longs run at 2x, so it is twice the cushion. |
 | **Borrowed slice** | The fraction `phi` of the pool the position lifts out: `phi × TAO reserve` and `phi × alpha reserve`. |
 | **Proceeds** | What the opening trade produced. A short sells the lifted alpha, so its proceeds are TAO. A long buys alpha with the lifted TAO, so its proceeds are alpha. |
 | **Debt** | What must go back to the pool at close: the lifted alpha (short) or the lifted TAO (long). |
 | **Escrow** | The other half of the lifted slice. It sits untouched in the pallet and returns to the pool at close. |
-| **Borrow fee** | A per-day amount fixed at open and paid to the pool at close, one-day minimum. A short pays `5 τ × phi` per day (the share of the pool it lifted); a long pays `0.02%` of exposure per day. |
+| **Borrow fee** | A per-day amount fixed at open and paid to the pool at close, one-day minimum. A short pays `6 τ × phi` per day (the share of the pool it lifted); a long pays `0.01%` of exposure per day. Both are scaled by `1 / (1 − phi)⁴` for the position's own slippage. |
 | **Expiry** | Open block + 216,000 blocks (~30 days). After that, anyone may close the position for you. |
 
 One position per coldkey, per subnet, per side. You may hold a long and a
@@ -72,8 +72,10 @@ $$
 \phi = \frac{L \cdot \text{cushion}}{\text{TAO reserve}}
 $$
 
-where $L$ is `leverage_percent / 100` (1.0 on mainnet). A 100 τ cushion on a
-10,000 τ pool lifts 1% of the pool: 100 τ and 2,000 α. See
+where $L$ is the side's leverage: `short_leverage_percent / 100` (1.0 on
+mainnet) for a short, `long_leverage_percent / 100` (2.0) for a long. A 100 τ
+cushion on a 10,000 τ pool lifts 1% of the pool as a short (100 τ and 2,000 α)
+and 2% as a long (200 τ and 4,000 α). See
 [`pool_fraction`](/code/pallets/derivatives/src/position.rs).
 
 ## What you get back
@@ -84,16 +86,23 @@ Three things to read off the picture:
 
 - **The line crosses your cushion at the open price.** Close with no price
   move and you get your 100 τ back, minus the fee and a little slippage.
-- **1x means one-for-one.** Alpha down 20% pays a short about 20 τ on a
-  100 τ cushion. Alpha up 20% pays a long the same.
+- **Shorts move one-for-one, longs two-for-one.** Alpha down 20% pays a
+  short about 20 τ on a 100 τ cushion. Alpha up 20% pays a long about 40 τ on
+  the same cushion, and alpha down 20% costs it about 40 τ.
 - **The line stops at zero.** If the closing trade cannot repay what the
   position borrowed, the position is underwater: you are paid nothing,
   whatever the pallet still holds goes to the pool, and the pool carries the
   remaining shortfall
   ([`do_settle`](/code/pallets/derivatives/src/settle.rs)). For a
-  short that is near a doubling; for a long it is alpha going to zero. The
-  10% pool cap keeps that gap small relative to the pool. At 1x a long with a
-  TAO cushion can never be underwater: the cushion equals the debt.
+  short that is near a doubling; for a long at 2x it is near a halving. The
+  10% pool cap keeps that gap small relative to the pool.
+
+Why 2x on longs and 1x on shorts? At 1x a long's cushion equals its debt, so
+it can never be underwater and the pool never carries any of its risk. That
+sounds safe, but it also means a 1x long does nothing a spot buy does not do,
+for a fee. At 2x a long is a real instrument, and its worst case for the pool,
+a halving, is about as rare as the doubling that wipes a 1x short. The two
+sides then carry comparable risk, and both leverages are dials root can turn.
 
 Cushions are TAO only. That keeps the payoff the plain line above, and it
 means a subnet team cannot post alpha it minted to itself as collateral.
@@ -109,17 +118,24 @@ The two sides price differently because they carry different risks for the
 pool:
 
 - **Short:** `fee per day = short_fee_per_day × phi`, with `phi` the share of
-  the pool you lifted. Borrowing 1% of *any* pool costs 0.05 τ a day
-  (5 τ × 1%), so 1.5 τ over 30 days. The pool's risk on a short is a pump,
+  the pool you lifted. Borrowing 1% of *any* pool costs about 0.06 τ a day
+  (6 τ × 1%), so 1.9 τ over 30 days. The pool's risk on a short is a pump,
   and in a constant-product pool the cost of a pump scales with `1 / TAO
   reserve`; a fixed TAO amount per unit of pool share tracks that.
-- **Long:** `fee per day = long_rate_per_day × exposure`. A 100 τ exposure
-  costs 0.02 τ a day, so 0.6 τ over 30 days. The pool's risk on a long is a
-  crash, and that risk does not depend on pool size.
+- **Long:** `fee per day = long_rate_per_day × exposure`. A 200 τ exposure
+  (100 τ at 2x) costs about 0.02 τ a day, so 0.65 τ over 30 days. The pool's
+  risk on a long is a crash, and that risk does not depend on pool size.
+- **Both** are multiplied by a size factor `1 / (1 − phi)⁴`. A position that
+  lifts `phi` of the pool has to close into a pool that is `phi` thinner, and
+  its true expected cost grows faster than `phi`. The factor is 1.04 at a 1%
+  slice, 1.08 at 2%, and 2.4 at 20%. It keeps the fee fair however high the
+  pool cap is set, so no separate per-position limit is needed
+  ([`size_factor`](/code/pallets/derivatives/src/position.rs)).
 
-In the illustrative 10,000 τ pool a 100 τ short and a 100 τ long both lift
-`phi = 1%`; the short pays 1.5 τ a month, the long 0.6 τ. Changing the
-parameters later does not reprice a running position. See
+In the illustrative 10,000 τ pool a 100 τ short lifts `phi = 1%` and pays
+1.9 τ a month; a 100 τ long lifts `phi = 2%` and pays 0.65 τ. Changing the
+parameters later does not reprice a running position: the fee per day is
+stored in the position at open. See
 [`accrued_fee`](/code/pallets/derivatives/src/position.rs) and
 [`DerivativesParams::fee_per_day`](/code/pallets/derivatives/src/position.rs).
 
@@ -135,8 +151,8 @@ Replace netuid `7` with your target subnet. Both sides take the same options:
 `--amount` is the cushion, in TAO, taken from your coldkey balance.
 
 ```bash
-# Check the pallet's live parameters first
-btcli deriv params --json
+# Check the pallet's live parameters first, and whether subnet 7 is paused or re-capped
+btcli deriv params --netuid 7 --json
 
 # Short subnet 7 with a 100 τ cushion (dry-run, then execute)
 btcli deriv short --netuid 7 --amount 100 --dry-run -w my_coldkey
@@ -157,12 +173,12 @@ The call fails if:
 
 | Error | Why |
 |-------|-----|
-| `SideDisabled` | Root has switched that side off with `sudo_set_params`. |
+| `SideDisabled` | Root has switched that side off, chain-wide with `sudo_set_params` or on this subnet with `sudo_set_subnet_override`. |
 | `SubnetNotDynamic` | The subnet has no pool (root, or a static subnet). |
 | `PositionExists` | You already hold that side on that subnet. Close it first. |
 | `DepositTooLow` | The cushion is less than `min_deposit_tao` (0.1 τ). |
 | `ExposureTooLarge` | `phi` would be 100% or more of the pool. |
-| `PoolCapExceeded` | All open positions of that side already borrow `max_pool_share` (10%) of the lent reserve. Try a smaller cushion or wait for others to close. |
+| `PoolCapExceeded` | All open positions of that side already borrow `max_pool_share` (10%, or the subnet's override) of the lent reserve. Try a smaller cushion or wait for others to close. |
 
 ## Watch and close
 
@@ -257,27 +273,65 @@ dissolution payout with its full reserves.
 Root-set, read with [`derivatives-params`](/docs/query/derivatives-params).
 Mainnet defaults from
 [`DerivativesParams::defaults`](/code/pallets/derivatives/src/position.rs).
-Root sets them with `sudo_set_params`, which rejects a zero
-`leverage_percent`, `max_pool_share`, or `lifetime_blocks`; use the enable
-flags to pause a side.
+Root sets them with `sudo_set_params`, which rejects a zero leverage,
+`max_pool_share`, or `lifetime_blocks`; use the enable flags to pause a side.
+Every value is a dial: changing one applies to positions opened from then on,
+and a running position keeps the fee per day and expiry it opened with.
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `shorts_enabled` | `true` | Shorts may be opened. Existing shorts can always be closed. |
 | `longs_enabled` | `true` | Longs may be opened. |
-| `leverage_percent` | `100` | Exposure as a share of the cushion. 100 = 1x. |
+| `short_leverage_percent` | `100` | A short's exposure as a share of its cushion. 100 = 1x. |
+| `long_leverage_percent` | `200` | A long's exposure as a share of its cushion. 200 = 2x. |
 | `max_pool_share` | `10%` | Largest share of the lent reserve all open positions of one side on one subnet may borrow together. |
 | `lifetime_blocks` | `216,000` | Maximum time a position may stay open (~30 days). |
-| `short_fee_per_day` | `5 τ` | What a short pays per day for borrowing the whole pool; a position pays this times its `phi`. Fixed at open, paid at close, one-day minimum. |
-| `long_rate_per_day` | `0.02%` | Fee per day on a long's TAO exposure. Fixed at open, paid at close, one-day minimum. |
+| `short_fee_per_day` | `6 τ` | What a short pays per day for borrowing the whole pool; a position pays this times its `phi`, times the size factor. Fixed at open, paid at close, one-day minimum. |
+| `long_rate_per_day` | `0.01%` | Fee per day on a long's TAO exposure, times the size factor. Fixed at open, paid at close, one-day minimum. |
 | `min_deposit_tao` | `0.1 τ` | Smallest cushion. |
+
+### Per-subnet overrides
+
+Root can also pause a side or change the cap on one subnet without touching
+the rest, with `sudo_set_subnet_override(netuid, override)`. Read it with
+[`derivatives-subnet-override`](/docs/query/derivatives-subnet-override) or
+`btcli deriv params --netuid N`. Passing `None` removes the override and puts
+the subnet back on the global parameters.
+
+| Field | Meaning |
+|-------|---------|
+| `shorts_enabled` | Replaces the global switch for opening shorts on this subnet. |
+| `longs_enabled` | Replaces the global switch for opening longs on this subnet. |
+| `max_pool_share` | When set, replaces the global cap on this subnet. Must be non-zero. |
+
+An override affects opens only. Positions already open on a paused subnet
+settle as usual, and `roll` cannot reopen there while the side is paused.
+This is the lever to reach for when one pool misbehaves: pause the side, let
+the open positions run off or close, and lift the pause when the pool is
+healthy again.
+
+### Events
+
+Every state change emits an event, so an indexer or a watcher can follow the
+book without reading storage:
+
+| Event | When |
+|-------|------|
+| `PositionOpened` | A position opened: owner, subnet, side, cushion, legs, exposure, fee per day, expiry. |
+| `PositionClosed` | A position settled: who closed it (owner, anyone after expiry, the expiry sweep, a roll, or dissolution), TAO returned, fee paid, and any shortfall the pool carried. |
+| `SettleFailed` | The expiry sweep could not settle a position; it is retried later or left to a permissionless `close`. |
+| `ParamsSet` | Root replaced the global parameters. |
+| `SubnetOverrideSet` | Root set or removed a subnet's override. |
+
+The storage behind them is public too: `Positions`, `Footprint` (borrowed per
+side per subnet), `Expiring`, `Params`, `SubnetOverrides`, and `PalletHotkey`.
 
 ## Chain reference
 
 | Item | Where |
 |------|-------|
-| Extrinsics | `open` (with a `side` argument), `close`, and `roll`, plus root-only `sudo_set_params`. SDK intents: [`open-short`](/docs/tx/open-short), [`open-long`](/docs/tx/open-long), [`close-derivative`](/docs/tx/close-derivative), [`roll-derivative`](/docs/tx/roll-derivative) |
-| Queries | [`derivative-position`](/docs/query/derivative-position), [`derivative-positions`](/docs/query/derivative-positions), [`derivatives-params`](/docs/query/derivatives-params) |
+| Extrinsics | `open` (with a `side` argument), `close`, and `roll`, plus root-only `sudo_set_params` and `sudo_set_subnet_override`. SDK intents: [`open-short`](/docs/tx/open-short), [`open-long`](/docs/tx/open-long), [`close-derivative`](/docs/tx/close-derivative), [`roll-derivative`](/docs/tx/roll-derivative) |
+| Queries | [`derivative-position`](/docs/query/derivative-position), [`derivative-positions`](/docs/query/derivative-positions), [`derivatives-params`](/docs/query/derivatives-params), [`derivatives-subnet-override`](/docs/query/derivatives-subnet-override) |
 | Open path | [`do_open`](/code/pallets/derivatives/src/settle.rs) |
 | Pool operations | [`derivatives_pool.rs`](/code/pallets/subtensor/src/staking/derivatives_pool.rs) |
 | Position types and math | [`position.rs`](/code/pallets/derivatives/src/position.rs) |
@@ -286,12 +340,14 @@ flags to pause a side.
 
 - One position per coldkey, subnet, and side. A long and a short on the same
   subnet are allowed and independent.
-- Cushions are TAO only. Alpha you hold stays staked and keeps earning.
+- Cushions are TAO only for now. Alpha you hold stays staked and keeps
+  earning. The cushion is stored as a `Cushion` enum with one `Tao` variant,
+  so an alpha variant can be added later without migrating open positions.
 - You can close at any block; you cannot extend past 30 days. `roll` to stay
   in: it settles at today's price and reopens in one transaction.
 - Slippage is real on both legs. Size positions against the pool's depth,
   not against your balance.
-- Profit comes from the pool; loss goes to the pool. The 1x leverage and 10%
-  cap bound how much either can move the pool.
+- Profit comes from the pool; loss goes to the pool. The leverage (1x shorts,
+  2x longs) and the 10% cap bound how much either can move the pool.
 
 For the pool mechanics underneath, see [Staking pools](/docs/concepts/staking-pools).

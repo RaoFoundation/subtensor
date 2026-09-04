@@ -399,14 +399,25 @@ class Prices(_ReadNamespace):
         """Every open long and short a coldkey holds, across all subnets."""
 
     async def derivatives_params(self, *, block: Optional[int] = None) -> dict:
-        """The derivatives pallet's root-set parameters.
+        """The derivatives pallet's root-set global parameters.
 
-        `leverage_percent` sizes the borrowed slice from the cushion, `max_pool_share`
-        caps how much of a pool's reserve may be lent per side, and `lifetime_blocks`
-        is how long a position may stay open. Fees are fixed at open and charged at
-        close with a one-day minimum: a short pays `short_fee_per_day_tao` times the
-        share of the pool it lifted, a long pays `long_rate_per_day` times its TAO
-        exposure.
+        `short_leverage_percent` and `long_leverage_percent` size the borrowed slice
+        from the cushion per side, `max_pool_share` caps how much of a pool's reserve
+        may be lent per side, and `lifetime_blocks` is how long a position may stay
+        open. Fees are fixed at open and charged at close with a one-day minimum: a
+        short pays `short_fee_per_day_tao` times the share of the pool it lifted, a
+        long pays `long_rate_per_day` times its TAO exposure; both are scaled by
+        `1 / (1 - share)^4` for the position's own slippage. A subnet may override
+        the switches and the cap; see `derivatives_subnet_override`.
+        """
+
+    async def derivatives_subnet_override(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """Root-set per-subnet overrides of the derivatives parameters, or None.
+
+        None means the subnet runs on the global `derivatives_params`. When set,
+        `shorts_enabled` and `longs_enabled` replace the global switches for opens
+        on this subnet, and `max_pool_share` replaces the global cap when it is not
+        None. Open positions are unaffected: a paused side can still close.
         """
 
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:

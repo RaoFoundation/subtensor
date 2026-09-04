@@ -50,11 +50,11 @@ export function DerivativesPayoff() {
   return (
     <ExplainerPanel
       title="What you get back"
-      tag="100 τ cushion · 1x"
+      tag={side === 'short' ? '100 τ cushion · 1x' : '100 τ cushion · 2x'}
       caption={
         side === 'short'
           ? 'Put in 100 τ. If alpha falls you get more back; if alpha rises you get less. Near a doubling the cushion is gone and the line hits zero.'
-          : 'Put in 100 τ. If alpha rises you get more back; if alpha falls you get less. Near zero the cushion is gone and the line hits zero.'
+          : 'Put in 100 τ. If alpha rises you get more back, twice as fast; if alpha falls you lose twice as fast. Near a halving the cushion is gone and the line hits zero.'
       }
     >
       <div className="mb-5">
@@ -135,11 +135,11 @@ export function DerivativesPayoff() {
         )}
       </svg>
       <p className="mt-3 text-[0.6875rem] leading-relaxed text-mute">
-        At 1x a short moves one-for-one against alpha and a long moves one-for-one with it. Past the point
-        where the cushion is gone the position is underwater: settlement pays you nothing, gives the pool
-        whatever is left, and the pool carries the shortfall — which is why the pool lends at most 10% of
-        itself per side. Example pool: 10,000 τ / 200,000 α, closed after one day
-        (fee 0.05 τ on the short, 0.02 τ on the long).
+        A short runs at 1x and moves one-for-one against alpha; a long runs at 2x and moves two-for-one with
+        it. Past the point where the cushion is gone the position is underwater: settlement pays you nothing,
+        gives the pool whatever is left, and the pool carries the shortfall — which is why the pool lends at
+        most 10% of itself per side. Example pool: 10,000 τ / 200,000 α, closed after one day (fee about
+        0.06 τ on the short, 0.02 τ on the long).
       </p>
     </ExplainerPanel>
   );

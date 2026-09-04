@@ -10,6 +10,7 @@ use frame_support::{assert_err, assert_ok};
 use sp_core::U256;
 use sp_runtime::{Perbill, Percent};
 use subtensor_runtime_common::{NetUid, TaoBalance};
+use subtensor_swap_interface::Perquintill;
 
 use crate::{Closer, Error, Event, Footprint, PalletHotkey, Params, Side, position::*};
 use mock::*;
@@ -205,9 +206,10 @@ fn open_long_with_tao_lifts_and_buys() {
         let pos = position(&alice(), netuid(), Side::Long).unwrap();
         let (proceeds, debt, escrow) = legs(&pos);
         assert!(matches!(pos.legs, Legs::Long { .. }));
-        assert_eq!(debt, POOL_TAO / 100);
-        assert_eq!(escrow, POOL_ALPHA / 100);
-        assert!(proceeds > 0 && proceeds < POOL_ALPHA / 100);
+        // Longs run at 2x: a 10 TAO cushion lifts 2% of the 1000 TAO pool.
+        assert_eq!(debt, POOL_TAO / 50);
+        assert_eq!(escrow, POOL_ALPHA / 50);
+        assert!(proceeds > 0 && proceeds < POOL_ALPHA / 50);
 
         // Pallet holds the deposit in TAO and escrow + proceeds as stake.
         assert_eq!(balance(&pallet_account()), DEPOSIT);
@@ -291,21 +293,30 @@ fn fee_per_day_is_priced_by_side_and_frozen_at_open() {
         setup();
         let params = Params::<Test>::get();
         assert_ok!(open(alice(), Side::Short, DEPOSIT));
+        // The short's lift shrank the TAO reserve, so the long's phi is a little over 2%.
+        let long_phi = pool_fraction(200, DEPOSIT, reserves(netuid()).0).unwrap();
         assert_ok!(open(bob(), Side::Long, DEPOSIT));
 
-        // Both lift phi = 1% of their reserve. The short pays c * phi in TAO, whatever its
-        // exposure; the long pays r * exposure.
+        // The short lifts phi = 1% at 1x, the long about 2% at 2x. The short pays C * phi in
+        // TAO, whatever its exposure; the long pays r * exposure. Both are scaled by the size
+        // factor for their own phi.
         let short = position(&alice(), netuid(), Side::Short).unwrap();
         let long = position(&bob(), netuid(), Side::Long).unwrap();
         assert_eq!(
             u64::from(short.fee_per_day),
-            u64::from(params.short_fee_per_day) / 100
+            size_factor(
+                Perquintill::from_percent(1),
+                u64::from(params.short_fee_per_day) / 100
+            )
         );
         assert_eq!(
             u64::from(long.fee_per_day),
-            params
-                .long_rate_per_day
-                .mul_floor(u64::from(long.exposure_tao))
+            size_factor(
+                long_phi,
+                params
+                    .long_rate_per_day
+                    .mul_floor(u64::from(long.exposure_tao))
+            )
         );
 
         // Changing the parameters after the open does not reprice a running position.
@@ -466,12 +477,36 @@ fn underwater_short_settles_with_shortfall_and_pool_is_never_short() {
 }
 
 #[test]
-fn long_with_tao_cushion_at_one_x_is_never_underwater() {
+fn long_at_two_x_survives_a_moderate_drop_and_the_pool_is_whole() {
     new_test_ext().execute_with(|| {
         setup();
         assert_ok!(open(alice(), Side::Long, DEPOSIT));
-        // Price collapses: proceeds alpha sells for far less than D, but the TAO cushion equals
-        // D at 1x leverage, so the pool is still made whole and Alice keeps the dust.
+        // Price falls about 30%: the proceeds alpha sells for less than D, the cushion covers
+        // the gap, the pool gets D back and Alice keeps the rest.
+        give_stake(&bob(), &alice_hotkey(), netuid(), 800 * TAO);
+        assert_ok!(SubtensorModule::remove_stake(
+            RuntimeOrigin::signed(bob()),
+            alice_hotkey(),
+            netuid(),
+            (800 * TAO).into()
+        ));
+        assert_ok!(close(alice(), alice(), Side::Long));
+        let (tao_back, fee_paid, shortfall) = last_closed_event();
+        assert_eq!(shortfall, 0);
+        assert!(fee_paid > 0);
+        assert!(tao_back > 0 && tao_back < DEPOSIT, "tao_back = {tao_back}");
+        assert_eq!(balance(&pallet_account()), 0);
+        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
+    });
+}
+
+#[test]
+fn long_at_two_x_is_underwater_once_the_price_halves() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(open(alice(), Side::Long, DEPOSIT));
+        // At 2x the cushion is D / 2, so a collapse past a halving leaves a shortfall. Alice
+        // gets nothing, the pool takes everything the pallet still holds.
         give_stake(&bob(), &alice_hotkey(), netuid(), 20_000 * TAO);
         assert_ok!(SubtensorModule::remove_stake(
             RuntimeOrigin::signed(bob()),
@@ -480,10 +515,102 @@ fn long_with_tao_cushion_at_one_x_is_never_underwater() {
             (20_000 * TAO).into()
         ));
         assert_ok!(close(alice(), alice(), Side::Long));
-        let (tao_back, _, shortfall) = last_closed_event();
-        assert_eq!(shortfall, 0);
-        assert!(tao_back > 0 && tao_back < TAO, "tao_back = {tao_back}");
+        let (tao_back, fee_paid, shortfall) = last_closed_event();
+        assert_eq!(tao_back, 0);
+        assert_eq!(fee_paid, 0);
+        assert!(shortfall > 0);
         assert_eq!(balance(&pallet_account()), 0);
+        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
+        assert!(position(&alice(), netuid(), Side::Long).is_none());
+    });
+}
+
+// ── Per-subnet overrides ──────────────────────────────────────────────────────
+
+#[test]
+fn subnet_override_pauses_one_side_and_replaces_the_cap() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+
+        let paused = SubnetOverride {
+            shorts_enabled: false,
+            longs_enabled: true,
+            max_pool_share: Some(Percent::from_percent(1)),
+        };
+        assert_ok!(Derivatives::sudo_set_subnet_override(
+            RuntimeOrigin::root(),
+            netuid(),
+            Some(paused)
+        ));
+        System::assert_last_event(
+            Event::SubnetOverrideSet {
+                netuid: netuid(),
+                override_: Some(paused),
+            }
+            .into(),
+        );
+
+        // Shorts are paused here but not elsewhere: the global switch is still on.
+        assert!(Params::<Test>::get().shorts_enabled);
+        assert_err!(
+            open(bob(), Side::Short, DEPOSIT),
+            Error::<Test>::SideDisabled
+        );
+        // A paused side can still close, and roll cannot reopen.
+        assert_err!(
+            Derivatives::roll(
+                RuntimeOrigin::signed(alice()),
+                netuid(),
+                Side::Short,
+                0.into()
+            ),
+            Error::<Test>::SideDisabled
+        );
+        assert!(position(&alice(), netuid(), Side::Short).is_some());
+        assert_ok!(close(alice(), alice(), Side::Short));
+
+        // Longs are open but capped at 1% here instead of the global 10%: a 2% lift fails,
+        // a 0.5% lift passes.
+        assert_err!(
+            open(bob(), Side::Long, DEPOSIT),
+            Error::<Test>::PoolCapExceeded
+        );
+        assert_ok!(open(bob(), Side::Long, DEPOSIT / 4));
+
+        // Removing the override puts the subnet back on the global parameters.
+        assert_ok!(Derivatives::sudo_set_subnet_override(
+            RuntimeOrigin::root(),
+            netuid(),
+            None
+        ));
+        assert!(crate::SubnetOverrides::<Test>::get(netuid()).is_none());
+        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+    });
+}
+
+#[test]
+fn subnet_override_requires_root_and_a_non_zero_cap() {
+    new_test_ext().execute_with(|| {
+        setup();
+        let override_ = SubnetOverride {
+            shorts_enabled: true,
+            longs_enabled: true,
+            max_pool_share: Some(Percent::zero()),
+        };
+        assert_err!(
+            Derivatives::sudo_set_subnet_override(
+                RuntimeOrigin::signed(alice()),
+                netuid(),
+                Some(override_)
+            ),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        assert_err!(
+            Derivatives::sudo_set_subnet_override(RuntimeOrigin::root(), netuid(), Some(override_)),
+            Error::<Test>::InvalidParams
+        );
+        assert!(crate::SubnetOverrides::<Test>::get(netuid()).is_none());
     });
 }
 
@@ -508,7 +635,7 @@ fn roll_settles_and_reopens_with_the_payout() {
         let after = position(&alice(), netuid(), Side::Short).unwrap();
         let (tao_back, ..) = last_closed_event();
         assert_eq!(after.opened_at, 100);
-        assert_eq!(after.cushion, TaoBalance::from(tao_back));
+        assert_eq!(after.cushion.tao(), TaoBalance::from(tao_back));
         assert!(tao_back < DEPOSIT, "one day of fee came off the cushion");
         assert!(after.opened_at > before.opened_at);
         assert_eq!(balance(&alice()), balance_before, "nothing left the pallet");

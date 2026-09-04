@@ -464,3 +464,4 @@ class Derivatives:
     Expiring = Item('Derivatives', 'Expiring', 'BoundedVec')
     NextSweep = Item('Derivatives', 'NextSweep', 'u32')
     PalletHotkey = Item('Derivatives', 'PalletHotkey', 'AccountId32')
+    SubnetOverrides = Item('Derivatives', 'SubnetOverrides', 'SubnetOverride')

@@ -229,8 +229,26 @@ def _estimated_close_value(pos: dict, tao_per_alpha: float) -> Balance:
 
 @app.command("params")
 @with_globals
-def show_params(ctx: typer.Context):
-    """Show the derivatives pallet's parameters: leverage, pool cap, lifetime, fees."""
+def show_params(
+    ctx: typer.Context,
+    netuid: Optional[int] = typer.Option(
+        None,
+        "--netuid",
+        help="Also show this subnet's override of the switches and cap, if root set one.",
+    ),
+):
+    """Show the derivatives pallet's parameters: leverage, pool cap, lifetime, fees.
+
+    With `--netuid`, also show whether that subnet is paused or capped differently
+    from the global parameters.
+    """
     app_ctx: AppContext = ctx_of(ctx)
     params = app_ctx.run(lambda client: client.read("derivatives_params"))
     app_ctx.output.detail("derivatives params", params)
+    if netuid is None:
+        return
+    override = app_ctx.run(lambda client: client.read("derivatives_subnet_override", netuid=netuid))
+    if override is None:
+        app_ctx.output.message(f"netuid {netuid}: no override, global parameters apply")
+    else:
+        app_ctx.output.detail(f"netuid {netuid} override", override)

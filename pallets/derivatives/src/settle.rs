@@ -41,10 +41,10 @@ impl<T: Config> Pallet<T> {
         cushion: TaoBalance,
     ) -> DispatchResult {
         let params = Params::<T>::get();
-        let enabled = match side {
-            Side::Short => params.shorts_enabled,
-            Side::Long => params.longs_enabled,
-        };
+        let override_ = SubnetOverrides::<T>::get(netuid);
+        let enabled = override_
+            .map(|o| o.side_enabled(side))
+            .unwrap_or_else(|| params.side_enabled(side));
         ensure!(enabled, Error::<T>::SideDisabled);
         ensure!(T::Pool::is_dynamic(netuid), Error::<T>::SubnetNotDynamic);
         ensure!(
@@ -62,14 +62,17 @@ impl<T: Config> Pallet<T> {
         ensure!(!cushion.is_zero(), Error::<T>::ZeroExposure);
         ensure!(cushion >= params.min_deposit_tao, Error::<T>::DepositTooLow);
 
-        let phi = pool_fraction(params.leverage_percent, cushion.to_u64(), t)
+        let phi = pool_fraction(params.leverage_percent(side), cushion.to_u64(), t)
             .ok_or(Error::<T>::ExposureTooLarge)?;
 
         let lent_reserve = match side {
             Side::Short => t,
             Side::Long => a,
         };
-        let cap = params.max_pool_share.mul_floor(lent_reserve);
+        let max_pool_share = override_
+            .and_then(|o| o.max_pool_share)
+            .unwrap_or(params.max_pool_share);
+        let cap = max_pool_share.mul_floor(lent_reserve);
         let projected = projected_footprint(phi, lent_reserve);
         ensure!(
             Footprint::<T>::get(netuid, side).saturating_add(projected) <= cap,
@@ -124,7 +127,7 @@ impl<T: Config> Pallet<T> {
             &owner,
             (netuid, side),
             Position {
-                cushion,
+                cushion: Cushion::Tao(cushion),
                 legs,
                 exposure_tao: lifted_tao,
                 fee_per_day,
@@ -141,7 +144,7 @@ impl<T: Config> Pallet<T> {
             owner,
             netuid,
             side,
-            cushion,
+            cushion: Cushion::Tao(cushion),
             legs,
             exposure_tao: lifted_tao,
             fee_per_day,
@@ -189,7 +192,7 @@ impl<T: Config> Pallet<T> {
 
             // Everything the pallet holds for the owner, in TAO: the cushion plus whatever the
             // closing trade leaves.
-            let mut pot = position.cushion;
+            let mut pot = position.cushion.tao();
 
             let (mut tao_to_pool, alpha_to_pool, shortfall) = match position.legs {
                 Legs::Short {
@@ -281,8 +284,9 @@ impl<T: Config> Pallet<T> {
             } => (TaoBalance::ZERO, proceeds.saturating_add(escrow)),
         };
 
-        let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, position.cushion);
-        tao_to_pool = tao_to_pool.saturating_add(position.cushion.saturating_sub(tao_to_owner));
+        let cushion = position.cushion.tao();
+        let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, cushion);
+        tao_to_pool = tao_to_pool.saturating_add(cushion.saturating_sub(tao_to_owner));
 
         if let Err(error) = T::Pool::return_liquidity(
             netuid,

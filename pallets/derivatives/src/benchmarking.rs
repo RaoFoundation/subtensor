@@ -6,6 +6,7 @@
 
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
+use sp_runtime::Percent;
 use subtensor_runtime_common::{NetUid, TaoBalance};
 use subtensor_swap_interface::{DerivativesPoolInterface, OrderSwapInterface};
 
@@ -136,7 +137,7 @@ mod benchmarks {
             after.expires_at,
             nominal.saturating_add((settle::MAX_EXPIRY_SHIFT - 1).into())
         );
-        assert!(after.cushion > TaoBalance::from(CUSHION_TAO));
+        assert!(after.cushion.tao() > TaoBalance::from(CUSHION_TAO));
     }
 
     #[benchmark]
@@ -148,6 +149,21 @@ mod benchmarks {
         _(RawOrigin::Root, params.clone());
 
         assert_eq!(Params::<T>::get(), params);
+    }
+
+    #[benchmark]
+    fn sudo_set_subnet_override() {
+        let (_, netuid) = setup::<T>();
+        let override_ = SubnetOverride {
+            shorts_enabled: false,
+            longs_enabled: true,
+            max_pool_share: Some(Percent::from_percent(5)),
+        };
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, netuid, Some(override_));
+
+        assert_eq!(SubnetOverrides::<T>::get(netuid), Some(override_));
     }
 
     impl_benchmark_test_suite!(

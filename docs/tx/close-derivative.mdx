@@ -13,7 +13,7 @@ the pool absorbs the shortfall and the owner gets nothing back.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L241-L259) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L253-L271) |
 
 ## Parameters
 
@@ -66,7 +66,7 @@ result = sub.execute_tool("close_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L243`](/code/pallets/derivatives/src/lib.rs#L241-L259):
+`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L255`](/code/pallets/derivatives/src/lib.rs#L253-L271):
 
 ```rust
 #[pallet::call_index(1)]
@@ -90,6 +90,6 @@ pub fn close(
 }
 ```
 
-Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L171).
+Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L174).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

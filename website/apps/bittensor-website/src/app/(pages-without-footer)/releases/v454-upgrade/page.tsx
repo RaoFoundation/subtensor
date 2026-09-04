@@ -45,10 +45,12 @@ const PayoffChart = () => {
   const w = PLOT_W;
   const h = 300;
   const axis = y0 + h;
-  const yHi = 220;
+  const yHi = 320;
 
   const xFor = (m: number) => x0 + ((m + 100) / 200) * w;
   const yFor = (v: number) => axis - (Math.min(v, yHi) / yHi) * h;
+  // First whole-percent move at which the long's payout is zero: near a halving at 2x.
+  const longGone = Array.from({ length: 101 }, (_, i) => -100 + i).find((m) => payout('long', m) > 0) ?? -50;
   const line = (side: Side) => {
     const parts: string[] = [];
     for (let m = -100; m <= 100; m += 1) {
@@ -62,14 +64,14 @@ const PayoffChart = () => {
       className={styles.graph}
       viewBox='0 0 840 400'
       role='img'
-      aria-label='Value returned for a 100 TAO cushion at 1x, plotted against the alpha price move from minus 100 to plus 100 percent. The short line rises as alpha falls and reaches zero near a doubling. The long line rises as alpha rises and reaches zero as alpha approaches zero. Both cross 100 TAO at no move.'
+      aria-label='Value returned for a 100 TAO cushion, plotted against the alpha price move from minus 100 to plus 100 percent. The short line, at 1x, rises as alpha falls and reaches zero near a doubling. The long line, at 2x, rises twice as fast as alpha rises and reaches zero near a halving. Both cross 100 TAO at no move.'
     >
       <text {...GRAPH_TEXT} x='420' y='28' textAnchor='middle' fill={MUTED} fontSize={12}>
-        WHAT 100 τ COMES BACK AS · 1x · CLOSED AFTER ONE DAY
+        WHAT 100 τ COMES BACK AS · SHORT 1x · LONG 2x · CLOSED AFTER ONE DAY
       </text>
       <line x1={x0} y1={y0} x2={x0} y2={axis} stroke={INK} strokeWidth='1' />
       <line x1={x0} y1={axis} x2={x0 + w} y2={axis} stroke={INK} strokeWidth='1' />
-      {[0, 50, 100, 150, 200].map((v) => (
+      {[0, 100, 200, 300].map((v) => (
         <g key={v}>
           <line
             x1={x0}
@@ -103,14 +105,14 @@ const PayoffChart = () => {
       <path d={line('short')} fill='none' stroke={INK} strokeWidth='1.5' />
       <path d={line('long')} fill='none' stroke={GOLD} strokeWidth='2' strokeDasharray='6 4' />
       <text {...GRAPH_TEXT} x={xFor(-60)} y={yFor(payout('short', -60)) - 10} textAnchor='middle' fill={INK} fontSize={11}>
-        SHORT
+        SHORT · 1x
       </text>
-      <text {...GRAPH_TEXT} x={xFor(60)} y={yFor(payout('long', 60)) - 10} textAnchor='middle' fill={GOLD} fontSize={11}>
-        LONG
+      <text {...GRAPH_TEXT} x={xFor(40)} y={yFor(payout('long', 40)) - 10} textAnchor='middle' fill={GOLD} fontSize={11}>
+        LONG · 2x
       </text>
-      <circle cx={xFor(-100)} cy={axis} r='3.5' fill={RED} />
+      <circle cx={xFor(longGone)} cy={axis} r='3.5' fill={RED} />
       <circle cx={xFor(100)} cy={axis} r='3.5' fill={RED} />
-      <text {...GRAPH_TEXT} x={xFor(-100)} y={axis + 38} fill={RED} fontSize={9}>
+      <text {...GRAPH_TEXT} x={xFor(longGone)} y={axis + 38} textAnchor='middle' fill={RED} fontSize={9}>
         LONG CUSHION GONE
       </text>
       <text {...GRAPH_TEXT} x={xFor(100)} y={axis + 38} textAnchor='end' fill={RED} fontSize={9}>
@@ -227,10 +229,10 @@ const page = () => {
           </p>
           <p>
             There are no synthetic tokens and no order book. Every position is built from the
-            subnet pool&apos;s own reserves: the chain lifts a slice of the pool the same size as
-            your deposit, trades that slice through the ordinary staking swap, and reverses the
+            subnet pool&apos;s own reserves: the chain lifts a slice of the pool sized from your
+            deposit (one times it for a short, two times for a long), trades that slice through the ordinary staking swap, and reverses the
             trade when you close. Nothing is minted, nothing is burned. The pool earns a borrow
-            fee fixed per day at open: 5 τ a day per 100% of the pool a short lifts, 0.02% of
+            fee fixed per day at open: 6 τ a day per 100% of the pool a short lifts, 0.01% of
             exposure a day on a long.
           </p>
           <p>
@@ -252,9 +254,10 @@ const page = () => {
           <div className={styles.step}>
             <p className={styles.step_title}>1 · Lift</p>
             <p>
-              Your 100 τ cushion is 1% of the pool&apos;s TAO, so the pallet lifts 1% of both
-              reserves — 100 τ and 2,000 α — out of the pool. Both sides shrink by the same
-              share, so the price does not move.
+              At 1x your 100 τ cushion sizes a slice worth 1% of the pool&apos;s TAO, so the
+              pallet lifts 1% of both reserves — 100 τ and 2,000 α — out of the pool. (A long,
+              at 2x, would lift 2%.) Both sides shrink by the same share, so the price does not
+              move.
             </p>
           </div>
 
@@ -300,14 +303,19 @@ const page = () => {
           <div className={styles.step}>
             <p className={styles.step_title}>1 · Read the parameters</p>
             <p>
-              Whether each side is enabled, the leverage, the pool cap, the lifetime, the fee
-              rate, and the minimum deposit (
+              Whether each side is enabled, the leverage per side, the pool cap, the lifetime,
+              the fee rates, and the minimum deposit (
               <DocLink href='/docs/query/derivatives-params'>
                 <code>derivatives-params</code>
               </DocLink>
+              ). With <code>--netuid</code>, also whether root has paused or re-capped that one
+              subnet (
+              <DocLink href='/docs/query/derivatives-subnet-override'>
+                <code>derivatives-subnet-override</code>
+              </DocLink>
               ).
             </p>
-            <pre className={styles.step_code}>{`btcli deriv params --json`}</pre>
+            <pre className={styles.step_code}>{`btcli deriv params --netuid 7 --json`}</pre>
           </div>
 
           <div className={styles.step}>
@@ -381,9 +389,13 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
         <section className={styles.section}>
           <h2 className={styles.subtitle}>What bounds it</h2>
           <p>
-            <strong>1x leverage, TAO cushions.</strong> Exposure equals your cushion, so a 20%
-            move in alpha moves a 100 τ position by about 20 τ. Your cushion is the most you can
-            lose, and it is TAO only: a subnet team cannot post alpha it minted to itself as
+            <strong>1x shorts, 2x longs, TAO cushions.</strong> A short&apos;s exposure equals
+            its cushion, so a 20% move in alpha moves a 100 τ short by about 20 τ and a doubling
+            wipes it. A long&apos;s exposure is twice its cushion: a 20% move is worth about
+            40 τ and a halving wipes it. Longs run at 2x because at 1x a long can never cost the
+            pool anything and does nothing a spot buy does not; at 2x it is a real instrument
+            whose worst case for the pool, a halving, is as rare as a doubling is for shorts.
+            Your cushion is the most you can lose, and it is TAO only: a subnet team cannot post alpha it minted to itself as
             collateral. If the closing trade cannot repay what the position borrowed, the
             position is underwater: you are paid nothing, whatever the pallet still holds goes to
             the pool, and the pool carries the remaining shortfall. That rule is enforced at
@@ -394,7 +406,8 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
             borrow at most 10% of the reserve they lend from. Above that, opens fail with{' '}
             <code>PoolCapExceeded</code> until others close. This keeps the pool&apos;s worst
             case — every position on one side blowing through its cushion — small relative to the
-            pool.
+            pool. Root can raise or lower the cap, pause a side chain-wide, or do either for a
+            single subnet without touching the rest.
           </p>
           <p>
             <strong>30-day expiry.</strong> A position may live for 216,000 blocks. After that
@@ -404,15 +417,18 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
           </p>
           <p>
             <strong>Fee to the pool.</strong> Fixed per day at open, one-day minimum, paid at
-            close. A short pays <code>5 τ × phi</code> per day, where <code>phi</code> is the
-            share of the pool it lifted: 1% of any pool costs 0.05 τ a day, 1.5 τ over 30 days.
-            A long pays 0.02% of its TAO exposure per day: 0.6 τ over 30 days on 100 τ. The two
-            sides differ because the pool&apos;s risk differs. A short exposes the pool to a pump,
-            and in a constant-product pool the cost of a pump scales with one over the TAO reserve,
-            so a fixed TAO amount per unit of pool share is the fair form. A long exposes the pool
-            to a crash, which does not depend on pool size. Both constants are about 1.5–2.5×
-            the pool&apos;s measured expected loss over a year of Finney prices. Profit comes out
-            of the pool; loss goes into it. Over time the fee is what the pool earns for lending.
+            close. A short pays <code>6 τ × phi</code> per day, where <code>phi</code> is the
+            share of the pool it lifted: 1% of any pool costs about 0.06 τ a day, 1.9 τ over 30
+            days. A long pays 0.01% of its TAO exposure per day: about 0.02 τ a day on 100 τ at
+            2x, 0.65 τ over 30 days. Both are multiplied by <code>1 / (1 − phi)⁴</code>, which
+            is 1.04 at a 1% slice and 2.4 at 20%: a bigger slice closes into a thinner pool, and
+            this keeps the fee fair however high the cap is set. The two sides differ because the
+            pool&apos;s risk differs. A short exposes the pool to a pump, and in a
+            constant-product pool the cost of a pump scales with one over the TAO reserve, so a
+            fixed TAO amount per unit of pool share is the fair form. A long exposes the pool to a
+            crash, which does not depend on pool size. Both constants are about twice the
+            pool&apos;s measured expected loss over a year of Finney prices. Profit comes out of
+            the pool; loss goes into it. Over time the fee is what the pool earns for lending.
           </p>
           <p>
             <strong>Dissolution.</strong> If a subnet is dissolved with positions open, settling
@@ -426,13 +442,18 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
           <p>
             <code>pallet-derivatives</code> is added at index 33 with three user calls —{' '}
             <code>open</code>, which takes a <code>side</code> of short or long,{' '}
-            <code>close</code>, and <code>roll</code> — plus a root-only{' '}
-            <code>sudo_set_params</code> that rejects a zero leverage, pool share, or lifetime.
-            Its parameters ship at: shorts and longs enabled, <code>leverage_percent</code> 100,{' '}
+            <code>close</code>, and <code>roll</code> — plus two root-only calls:{' '}
+            <code>sudo_set_params</code>, which rejects a zero leverage, pool share, or lifetime,
+            and <code>sudo_set_subnet_override</code>, which pauses a side or replaces the cap on
+            one subnet. Its parameters ship at: shorts and longs enabled,{' '}
+            <code>short_leverage_percent</code> 100, <code>long_leverage_percent</code> 200,{' '}
             <code>max_pool_share</code> 10%, <code>lifetime_blocks</code> 216,000,{' '}
-            <code>short_fee_per_day</code> 5 τ, <code>long_rate_per_day</code> 0.02%,{' '}
-            <code>min_deposit_tao</code> 0.1 τ. Root can switch either side off; existing
-            positions can always be closed.
+            <code>short_fee_per_day</code> 6 τ, <code>long_rate_per_day</code> 0.01%,{' '}
+            <code>min_deposit_tao</code> 0.1 τ. Every one is a dial root can turn later; a
+            position keeps the fee and lifetime it opened with. The cushion is stored as a{' '}
+            <code>Cushion</code> enum with a single <code>Tao</code> variant today, so an alpha
+            variant can be added later without migrating open positions. Existing positions can
+            always be closed, whatever is paused.
           </p>
           <p>
             The subtensor pallet gains a small pool interface for the derivatives pallet:
