@@ -257,6 +257,10 @@ impl<T: Config> Pallet<T> {
         MechanismCountCurrent::<T>::remove(netuid);
         MechanismEmissionSplit::<T>::remove(netuid);
 
+        // Hotkey lineage must survive individual neuron deregistration: a swap
+        // and deregistration can happen in quick succession, even in one batch,
+        // and contracts still need the successor to locate funds. Re-registration
+        // cancels only that hotkey's edge; netuid deregistration clears all edges.
         if !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
             LastHotkeySwapOnNetuid::<T>::clear_prefix(netuid, limit, None)
         }) || !clear_prefix_with_meter(weight_meter, write_weight, |limit| {
