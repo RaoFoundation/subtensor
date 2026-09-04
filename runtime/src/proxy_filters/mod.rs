@@ -30,8 +30,11 @@ type AdminAll = (SubnetManagementCalls, RootConfigCalls, OwnerKeyCalls);
 /// `Transfer`: liquid value movement.
 type TransferAllowed = (BalanceTransferCalls, StakeTransferCalls);
 
-/// `Staking`: stake position management.
-type StakingAllowed = StakeManagementCalls;
+/// `Staking`: stake position management plus claiming the root dividends
+/// those positions accrue. Granting a staking proxy is an explicit signal of
+/// trust that the proxy manages the coldkey's stake, and root claims can only
+/// restake the payout on root for that same coldkey.
+type StakingAllowed = (StakeManagementCalls, RootClaimCalls);
 
 /// `Registration`: acquire a slot (POW or by burn).
 type RegistrationAllowed = (PowRegistrationCalls, BurnedRegistrationCalls);
@@ -472,6 +475,8 @@ mod tests {
                 "SubtensorModule::add_collateral",
                 "SubtensorModule::add_stake",
                 "SubtensorModule::add_stake_limit",
+                "SubtensorModule::claim_root",
+                "SubtensorModule::claim_root_with_hotkey",
                 "SubtensorModule::remove_stake",
                 "SubtensorModule::remove_stake_limit",
                 "SubtensorModule::remove_stake_full_limit",
