@@ -1407,6 +1407,16 @@ impl Contains<RuntimeCall> for ContractCallFilter {
     fn contains(call: &RuntimeCall) -> bool {
         match call {
             RuntimeCall::Proxy(inner) => matches!(inner, pallet_proxy::Call::proxy { .. }),
+            // Since the proxy origin-filter inheritance fix (release 453), calls
+            // dispatched *inside* Proxy::proxy must also pass this filter. A
+            // contract holding an explicit user proxy delegation could
+            // previously execute transfer_stake on the user's behalf; allow
+            // that inner call again. Security is unchanged: the transfer still
+            // requires the user to have registered the contract as a proxy,
+            // and the inherited-filter fix keeps every other call blocked.
+            RuntimeCall::SubtensorModule(inner) => {
+                matches!(inner, pallet_subtensor::Call::transfer_stake { .. })
+            }
             _ => false,
         }
     }
