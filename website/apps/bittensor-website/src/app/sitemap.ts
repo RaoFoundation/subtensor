@@ -18,7 +18,7 @@ const staticRoutes = [
   '/releases/v438-upgrade',
   '/releases/v439-upgrade',
   '/releases/v441-upgrade',
-  '/releases/v453-upgrade',
+  '/releases/v454-upgrade',
   '/wallet',
   '/whitepaper',
 ];
