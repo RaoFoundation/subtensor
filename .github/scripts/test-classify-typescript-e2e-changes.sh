@@ -264,9 +264,24 @@ fi
 grep -Fq 'ref: ${{ github.event_name == '\''pull_request'\'' && github.event.pull_request.base.sha || github.sha }}' "$workflow"
 grep -Fq '.trusted-e2e-filter/ts-tests/scripts/e2e-shard-plan.mjs' "$workflow"
 grep -Fq '.proposed-e2e-plan/ts-tests/e2e-shards.json' "$workflow"
+grep -Fq '.trusted-e2e-filter/.github/scripts/split-typescript-e2e-plan.sh' "$workflow"
+grep -Fq '.proposed-e2e-plan/.github/scripts/split-typescript-e2e-plan.sh' "$workflow"
 grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.shield_matrix) }}' "$workflow"
+grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.fast_state_matrix) }}' "$workflow"
+grep -Fq 'matrix: ${{ fromJSON(needs.changes.outputs.release_state_matrix) }}' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build-fast]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build-release]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, select-release-artifact]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build-fast, run-fast-e2e-tests, sharding-audit-fast]' "$workflow"
+grep -Fq 'needs: [trusted-pr, changes, build-release, run-shield-tests, sharding-audit-release]' "$workflow"
+grep -Fq 'fast_build: ${{ steps.lanes.outputs.fast_build }}' "$workflow"
+grep -Fq 'release_build: ${{ steps.lanes.outputs.release_build }}' "$workflow"
 grep -Fq 'name: Audit canonical unsharded ${{ matrix.test }}' "$workflow"
 grep -Fq 'EVM_SELECTED: ${{ needs.changes.outputs.evm }}' "$workflow"
 grep -Fq 'SHIELD_SELECTED: ${{ needs.changes.outputs.shield }}' "$workflow"
+if grep -Eq '^  build:$' "$workflow"; then
+  echo "TypeScript E2E consumers must not depend on a combined build matrix." >&2
+  exit 1
+fi
 
 echo "typescript E2E change classifier tests passed"
