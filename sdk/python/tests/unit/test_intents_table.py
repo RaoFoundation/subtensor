@@ -26,7 +26,9 @@ from tests.harness.samples import ALICE, ALICE_HOT, BOB, BOB_HOT, INTENT_SAMPLES
 
 @pytest.fixture()
 def substrate() -> FakeSubstrate:
-    return FakeSubstrate()
+    fake = FakeSubstrate()
+    fake.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", [])
+    return fake
 
 
 @pytest.fixture()
@@ -44,6 +46,11 @@ def _seed_root_claim_shortfall(substrate: FakeSubstrate) -> None:
     substrate.seed("SubtensorModule", "RootClaimableThreshold", [0], {"bits": 500_000 << 32})
     substrate.seed("System", "Account", [ALICE], {"data": {"free": 0}})
     substrate.seed_map("SubtensorModule", "NetworksAdded", [(0, True)])
+    substrate.seed_runtime(
+        "StakeInfoRuntimeApi",
+        "get_stake_info_for_coldkey",
+        [{"hotkey": BOB_HOT, "coldkey": ALICE, "netuid": 0, "stake": 1}],
+    )
     substrate.seed_runtime("BetaBasketRuntimeApi", "get_root_basket_owed", 1_000_000)
     substrate.seed_runtime(
         "BetaBasketRuntimeApi", "get_root_basket_positions", [(BOB_HOT, 1, 1_000_000)]
