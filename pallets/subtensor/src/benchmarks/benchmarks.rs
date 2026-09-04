@@ -2051,8 +2051,10 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn claim_root(h: Linear<1, { crate::MAX_ROOT_CLAIM_WORK }>) {
-        // Coldkey-wide claim: `h` validator hotkeys, one holding each. `subnets` is ignored.
+    fn claim_root(h: Linear<1, { crate::MAX_ROOT_CLAIM_WORK / 2 }>) {
+        // Coldkey-wide claim: `h` validator hotkeys, one holding each. Each validator consumes
+        // two admission units (the selected hotkey plus its basket row), so the benchmark's
+        // executable maximum is half the combined work envelope. `subnets` is ignored.
         let coldkey: T::AccountId = whitelisted_caller();
         let owner_coldkey: T::AccountId = account("claim_owner_cold", 0, 0);
         let owner_hotkey: T::AccountId = account("claim_owner_hot", 0, 1);

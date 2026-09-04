@@ -2879,23 +2879,27 @@ fn test_revert_hotkey_swap_with_revert_stake_the_same() {
         // Let's check individual stakes; they changed because of emissions
         let old_hotkey_stake_after_revert_ck =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hk1, &coldkey, netuid_1);
-        assert_eq!(
+        // Dust canonicalization can redistribute less than one rao while moving a position.
+        assert_abs_diff_eq!(
             old_hotkey_stake_after_revert_ck,
-            new_hotkey_stake_before_revert_ck
+            new_hotkey_stake_before_revert_ck,
+            epsilon = 1.into()
         );
 
         let old_hotkey_stake_after_revert_ck_2 =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hk1, &coldkey_2, netuid_1);
-        assert_eq!(
+        assert_abs_diff_eq!(
             old_hotkey_stake_after_revert_ck_2,
-            new_hotkey_stake_before_revert_ck_2
+            new_hotkey_stake_before_revert_ck_2,
+            epsilon = 1.into()
         );
 
         let old_hotkey_stake_after_revert_ck_3 =
             SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hk1, &coldkey_3, netuid_1);
-        assert_eq!(
+        assert_abs_diff_eq!(
             old_hotkey_stake_after_revert_ck_3,
-            new_hotkey_stake_before_revert_ck_3
+            new_hotkey_stake_before_revert_ck_3,
+            epsilon = 1.into()
         );
     });
 }
