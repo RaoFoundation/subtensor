@@ -1966,7 +1966,6 @@ mod dispatches {
         /// # Events
         /// * `RootClaimed`: On successfully claiming the root emissions for a coldkey.
         #[pallet::call_index(121)]
-        // The immutable genesis hash selects the chain-specific declared/admission envelope.
         #[pallet::weight(
             Pallet::<T>::root_claim_declared_weight()
         )]
@@ -1977,7 +1976,13 @@ mod dispatches {
             let coldkey: T::AccountId = ensure_signed(origin)?;
             let _ = subnets; // ignored: basket claims are fund-level, not per-subnet
 
-            let hotkeys = StakingHotkeys::<T>::get(&coldkey);
+            let staking_hotkeys = StakingHotkeys::<T>::get(&coldkey);
+            let selection_scanned = u32::try_from(staking_hotkeys.len()).unwrap_or(u32::MAX);
+            ensure!(
+                selection_scanned <= Self::root_claim_declared_work(),
+                Error::<T>::RootClaimTooHeavy
+            );
+            let hotkeys = Self::root_claim_hotkeys(&coldkey, staking_hotkeys);
             ensure!(
                 Self::root_claim_fits_declared_budget(&hotkeys),
                 Error::<T>::RootClaimTooHeavy
@@ -1986,7 +1991,7 @@ mod dispatches {
             let outcome = Self::do_root_claim(coldkey.clone(), hotkeys)?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::root_claim_actual_weight(hotkey_count, &outcome);
+            let weight = Self::root_claim_actual_weight(hotkey_count, selection_scanned, &outcome);
             Ok((Some(weight), Pays::Yes).into())
         }
 
@@ -2021,7 +2026,7 @@ mod dispatches {
             let outcome = Self::do_root_claim(coldkey.clone(), vec![hotkey])?;
             Self::maybe_add_coldkey_index(&coldkey);
 
-            let weight = Self::root_claim_actual_weight(1, &outcome);
+            let weight = Self::root_claim_actual_weight(1, 0, &outcome);
             Ok((Some(weight), Pays::Yes).into())
         }
 

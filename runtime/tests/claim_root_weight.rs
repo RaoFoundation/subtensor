@@ -1,18 +1,13 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
-use frame_support::{
-    dispatch::{DispatchClass, GetDispatchInfo},
-    traits::Get,
-};
+use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
 use node_subtensor_runtime::{
     BlockWeights, BuildStorage, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TxExtension,
     check_mortality, check_nonce, sudo_wrapper,
     transaction_payment_wrapper::ChargeTransactionPaymentWrapper,
 };
-use sp_core::H256;
 use sp_runtime::{generic::Era, traits::TransactionExtension};
 use sp_std::collections::btree_set::BTreeSet;
-use std::str::FromStr;
 use subtensor_runtime_common::{AccountId, NetUid, TaoBalance};
 
 fn new_test_ext() -> sp_io::TestExternalities {
@@ -27,11 +22,9 @@ fn new_test_ext() -> sp_io::TestExternalities {
 fn expected_root_claim_weight(limit: u32) -> frame_support::weights::Weight {
     use pallet_subtensor::weights::WeightInfo;
 
-    pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root(limit)
-        .saturating_add(
-            pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root_scan(limit),
-        )
-        .saturating_add(<Runtime as frame_system::Config>::DbWeight::get().reads(2))
+    pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root(limit).saturating_add(
+        pallet_subtensor::weights::SubstrateWeight::<Runtime>::claim_root_scan(limit),
+    )
 }
 
 fn assert_call_fits_normal_limit(call: RuntimeCall) {
@@ -76,7 +69,7 @@ fn claim_root_with_extensions_fits_normal_extrinsic_limit() {
         });
         assert_eq!(
             call.get_dispatch_info().call_weight,
-            expected_root_claim_weight(pallet_subtensor::DEFAULT_ROOT_CLAIM_WORK)
+            expected_root_claim_weight(pallet_subtensor::MAX_ROOT_CLAIM_WORK)
         );
         assert_call_fits_normal_limit(call);
     });
@@ -88,25 +81,6 @@ fn claim_root_with_hotkey_with_extensions_fits_normal_extrinsic_limit() {
         let hotkey = AccountId::new([1u8; 32]);
         let call =
             RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey { hotkey });
-        assert_eq!(
-            call.get_dispatch_info().call_weight,
-            expected_root_claim_weight(pallet_subtensor::DEFAULT_ROOT_CLAIM_WORK)
-        );
-        assert_call_fits_normal_limit(call);
-    });
-}
-
-#[test]
-fn finney_testnet_root_claim_envelope_fits_normal_extrinsic_limit() {
-    new_test_ext().execute_with(|| {
-        frame_system::BlockHash::<Runtime>::insert(
-            0_u32,
-            H256::from_str("8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105")
-                .expect("valid Finney testnet genesis hash"),
-        );
-        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::claim_root_with_hotkey {
-            hotkey: AccountId::new([1u8; 32]),
-        });
         assert_eq!(
             call.get_dispatch_info().call_weight,
             expected_root_claim_weight(pallet_subtensor::MAX_ROOT_CLAIM_WORK)

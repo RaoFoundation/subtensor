@@ -6,7 +6,9 @@ use scale_info::prelude::string::String;
 use sp_io::{hashing::twox_128, storage};
 use sp_std::vec::Vec;
 
-const MIGRATION_NAME: &[u8] = b"migrate_storage_bloat_v2";
+// Fresh marker reruns the bounded GC with the AlphaV2 zero-row target added below. The original
+// v2 pass may already be marked complete on-chain.
+const MIGRATION_NAME: &[u8] = b"migrate_storage_bloat_v3";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CleanupMode {
@@ -88,6 +90,12 @@ const TARGETS: &[CleanupTarget] = &[
     CleanupTarget {
         pallet: "SubtensorModule",
         storage: "StakingHotkeys",
+        mode: CleanupMode::ClearIfZero,
+    },
+    // Appended so an interrupted v2 cursor keeps the same target indices after upgrade.
+    CleanupTarget {
+        pallet: "SubtensorModule",
+        storage: "AlphaV2",
         mode: CleanupMode::ClearIfZero,
     },
 ];

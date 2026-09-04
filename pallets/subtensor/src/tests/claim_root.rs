@@ -3,19 +3,19 @@
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
-    BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
-    DEFAULT_ROOT_CLAIM_WORK, DefaultMinRootClaimAmount, Error, FINNEY_TESTNET_GENESIS_HASH, Keys,
-    MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK, NetworksAdded, NumStakingColdkeys,
-    PendingBasketDeposits, RootAlphaDividendsPerSubnet, RootClaimableThreshold, StakingColdkeys,
-    StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn, SubnetMovingPrice, SubnetOwnerHotkey,
-    SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo, TotalStake, Uids, Weights,
+    AlphaV2, BasketClaimed, BasketRate, BasketRedeemedTao, BasketShares, BurnIncreaseMult,
+    DefaultMinRootClaimAmount, Error, Keys, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK,
+    NetworksAdded, NumStakingColdkeys, PendingBasketDeposits, RootAlphaDividendsPerSubnet,
+    RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
+    SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo,
+    TotalStake, Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
 use frame_support::pallet_prelude::Weight;
 use frame_support::traits::Get;
 use frame_support::{assert_err, assert_noop, assert_ok};
-use sp_core::{H256, U256};
+use sp_core::U256;
 use sp_runtime::DispatchError;
 use sp_std::collections::btree_set::BTreeSet;
 use substrate_fixed::types::{I96F32, U64F64, U96F32};
@@ -231,27 +231,23 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             subnets: subnets.clone(),
         });
         let declared_weight = call.get_dispatch_info().call_weight;
-        // The mock genesis is not Finney testnet, so dispatch retains the
-        // conservative default admission budget.
         assert_eq!(
             SubtensorModule::root_claim_declared_work(),
-            DEFAULT_ROOT_CLAIM_WORK
+            MAX_ROOT_CLAIM_WORK
         );
-        let envelope = <Test as crate::Config>::WeightInfo::claim_root(DEFAULT_ROOT_CLAIM_WORK)
+        let envelope = <Test as crate::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
             .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(
-                DEFAULT_ROOT_CLAIM_WORK,
-            ))
-            .saturating_add(<Test as frame_system::Config>::DbWeight::get().reads(2));
+                MAX_ROOT_CLAIM_WORK,
+            ));
         assert!(
             declared_weight.all_gte(envelope),
             "declared {declared_weight:?} must cover the {envelope:?} admission envelope"
         );
-        // Ghost NetworksAdded=false keys must not inflate the single-hotkey quote.
-        let existing = SubtensorModule::root_claim_existing_networks();
-        let ghost = NetUid::from(u16::MAX);
-        NetworksAdded::<Test>::insert(ghost, false);
-        assert_eq!(SubtensorModule::root_claim_existing_networks(), existing);
-        assert!(existing < DEFAULT_ROOT_CLAIM_WORK);
+        // Network count is not part of admission; only relevant hotkeys and stored basket rows
+        // consume the fixed envelope.
+        for raw_netuid in 1..=MAX_ROOT_CLAIM_WORK as u16 {
+            NetworksAdded::<Test>::insert(NetUid::from(raw_netuid), true);
+        }
         let actual_weight = SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), subnets)
             .expect("claim succeeds")
             .actual_weight
@@ -274,11 +270,13 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
 fn test_claim_root_rejects_work_above_declared_budget() {
     new_test_ext(1).execute_with(|| {
         let coldkey = U256::from(1001);
-        let networks = SubtensorModule::root_claim_existing_networks();
-        let too_many = (DEFAULT_ROOT_CLAIM_WORK / networks.max(1)).saturating_add(1);
-        let hotkeys: Vec<U256> = (0..too_many)
+        let hotkeys: Vec<U256> = (0..=MAX_ROOT_CLAIM_WORK)
             .map(|i| U256::from(2_000u32.saturating_add(i)))
             .collect();
+        assert!(!SubtensorModule::root_claim_fits_declared_budget(&hotkeys));
+
+        // Candidate classification is independently bounded even if every relationship would
+        // subsequently be filtered as non-root.
         StakingHotkeys::<Test>::insert(coldkey, hotkeys);
         assert_noop!(
             SubtensorModule::claim_root(RuntimeOrigin::signed(coldkey), BTreeSet::new()),
@@ -288,58 +286,69 @@ fn test_claim_root_rejects_work_above_declared_budget() {
 }
 
 #[test]
-fn test_root_claim_budget_is_raised_only_on_finney_testnet() {
+fn test_claim_root_ignores_network_count_and_bounds_actual_basket_rows() {
     new_test_ext(1).execute_with(|| {
-        assert_eq!(
-            SubtensorModule::root_claim_declared_work(),
-            DEFAULT_ROOT_CLAIM_WORK
-        );
+        for raw_netuid in 1..=(MAX_ROOT_CLAIM_WORK as u16 + 10) {
+            NetworksAdded::<Test>::insert(NetUid::from(raw_netuid), true);
+        }
 
-        frame_system::BlockHash::<Test>::insert(
-            0_u64,
-            H256::from_slice(&FINNEY_TESTNET_GENESIS_HASH),
-        );
-        assert_eq!(
-            SubtensorModule::root_claim_declared_work(),
-            MAX_ROOT_CLAIM_WORK
-        );
+        let hotkey = U256::from(1002);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        assert!(SubtensorModule::root_claim_fits_declared_budget(&[hotkey]));
 
-        frame_system::BlockHash::<Test>::insert(0_u64, H256::from_low_u64_be(0xdeadbeef));
-        assert_eq!(
-            SubtensorModule::root_claim_declared_work(),
-            DEFAULT_ROOT_CLAIM_WORK
+        // One hotkey plus 255 raw basket rows exactly fills the 256-unit envelope.
+        for raw_netuid in 1..MAX_ROOT_CLAIM_WORK as u16 {
+            AlphaV2::<Test>::insert(
+                (hotkey, escrow, NetUid::from(raw_netuid)),
+                share_pool::SafeFloat::from(1_u64),
+            );
+        }
+        assert!(SubtensorModule::root_claim_fits_declared_budget(&[hotkey]));
+
+        AlphaV2::<Test>::insert(
+            (hotkey, escrow, NetUid::from(MAX_ROOT_CLAIM_WORK as u16)),
+            share_pool::SafeFloat::from(1_u64),
         );
+        assert!(!SubtensorModule::root_claim_fits_declared_budget(&[hotkey]));
     });
 }
 
 #[test]
-fn test_testnet_single_hotkey_admission_covers_configured_subnet_limit() {
+fn test_coldkey_wide_claim_selects_only_root_relevant_hotkeys() {
     new_test_ext(1).execute_with(|| {
-        frame_system::BlockHash::<Test>::insert(
-            0_u64,
-            H256::from_slice(&FINNEY_TESTNET_GENESIS_HASH),
-        );
-
-        for raw_netuid in 0..MAX_ROOT_CLAIM_WORK as u16 {
-            NetworksAdded::<Test>::insert(NetUid::from(raw_netuid), true);
-        }
-        assert_eq!(
-            SubtensorModule::root_claim_existing_networks(),
-            MAX_ROOT_CLAIM_WORK
-        );
-
         let coldkey = U256::from(1001);
-        let hotkey = U256::from(1002);
-        assert_ok!(SubtensorModule::claim_root_with_hotkey(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-        ));
+        let root_hotkey = U256::from(1002);
+        let subnet_hotkey = U256::from(1003);
+        let outstanding_hotkey = U256::from(1004);
+        let stale_hotkey = U256::from(1005);
+        let subnet = add_dynamic_network(&subnet_hotkey, &coldkey);
 
-        NetworksAdded::<Test>::insert(NetUid::from(MAX_ROOT_CLAIM_WORK as u16), true);
-        assert_noop!(
-            SubtensorModule::claim_root_with_hotkey(RuntimeOrigin::signed(coldkey), hotkey),
-            Error::<Test>::RootClaimTooHeavy
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &root_hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1_u64.into(),
         );
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &subnet_hotkey,
+            &coldkey,
+            subnet,
+            1_u64.into(),
+        );
+        BasketClaimed::<Test>::insert(outstanding_hotkey, coldkey, -1);
+        StakingHotkeys::<Test>::insert(
+            coldkey,
+            vec![root_hotkey, subnet_hotkey, outstanding_hotkey, stale_hotkey],
+        );
+
+        assert_eq!(
+            SubtensorModule::root_claim_hotkeys(&coldkey, StakingHotkeys::<Test>::get(coldkey)),
+            vec![root_hotkey, outstanding_hotkey]
+        );
+        assert_ok!(SubtensorModule::claim_root(
+            RuntimeOrigin::signed(coldkey),
+            BTreeSet::new()
+        ));
     });
 }
 

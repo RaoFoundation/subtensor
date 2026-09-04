@@ -1,10 +1,8 @@
 """Claim-fee preview for ``claim_root`` / ``claim_root_with_hotkey``.
 
-Both runtime calls reserve a chain-specific declared-work envelope at inclusion,
-then refund down to the work actually done. Finney testnet admits and reserves
-for its larger subnet topology while other chains retain the conservative
-default. The reserve is what people see leave their free balance, and it is
-larger than the fee that finally settles.
+Both runtime calls reserve a fixed declared-work envelope at inclusion, then
+refund down to the work actually done. The reserve is what people see leave
+their free balance, and it is larger than the fee that finally settles.
 
 This module estimates both numbers, compares the spent fee to accrued yield,
 and tells the caller when a claim loses money or cannot even be included.
@@ -17,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
 from .._generated import storage as st
-from .._generated.runtime_apis import BetaBasketRuntimeApi
+from .._generated.runtime_apis import BetaBasketRuntimeApi, StakeInfoRuntimeApi
 from ..balance import Balance
 from ..sp_core import ss58_decode
 
@@ -27,13 +25,11 @@ _SCAN_REF_TIME = 6
 _REDEEM_REF_TIME = 70
 
 # One full ``claim_root`` weight unit under LinearWeightToFee (~τ0.0004475).
-# Both claim paths reserve their chain-specific number of redeem and scan units,
+# Both claim paths reserve 256 redeem and scan units,
 # plus any non-weight base/length fee returned by ``payment_info``.
 _APPROX_REDEEM_FEE_RAO = 447_500
 _APPROX_SCAN_FEE_RAO = _APPROX_REDEEM_FEE_RAO * _SCAN_REF_TIME // _REDEEM_REF_TIME
-_DEFAULT_ROOT_CLAIM_WORK = 256
-_MAX_ROOT_CLAIM_WORK = 1_025
-_FINNEY_TESTNET_GENESIS_HASH = "0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105"
+_MAX_ROOT_CLAIM_WORK = 256
 
 
 def _approx_declared_fee_rao(limit: int) -> int:
@@ -60,20 +56,29 @@ def _i96f32_rao(value: Any) -> int:
     return int(value or 0) >> 32
 
 
-def _admission_blocks(hotkeys: int, networks: int, holdings: int, limit: int) -> list[str]:
-    work = hotkeys * networks
-    if work <= limit and holdings <= limit:
+def _admission_blocks(
+    hotkeys: int,
+    holdings: int,
+    limit: int,
+    selection_scans: int,
+) -> list[str]:
+    work = hotkeys + holdings
+    if work <= limit and selection_scans <= limit:
         return []
-    reasons: list[str] = []
-    if work > limit:
-        reasons.append(f"{hotkeys} hotkeys × {networks} networks = {work}")
-    if holdings > limit:
-        reasons.append(f"{holdings} basket holdings")
     remediation = (
         "claim one validator at a time with claim_root_with_hotkey"
         if hotkeys > 1
         else "the claim cannot be admitted until this basket's work is reduced"
     )
+    reasons = []
+    if work > limit:
+        hotkey_label = "hotkey" if hotkeys == 1 else "hotkeys"
+        holding_label = "holding" if holdings == 1 else "holdings"
+        reasons.append(
+            f"{hotkeys} root {hotkey_label} + {holdings} basket {holding_label} = {work}"
+        )
+    if selection_scans > limit:
+        reasons.append(f"{selection_scans} staking-hotkey relationships to classify")
     return [
         f"root claim exceeds the {limit:,}-unit admission limit ("
         + "; ".join(reasons)
@@ -89,6 +94,7 @@ class RootClaimAdmission:
     holding_counts: tuple[int, ...]
     networks: int
     limit: int
+    selection_scans: int
 
     @property
     def holdings(self) -> int:
@@ -96,10 +102,15 @@ class RootClaimAdmission:
 
     @property
     def too_heavy(self) -> bool:
-        return len(self.hotkeys) * self.networks > self.limit or self.holdings > self.limit
+        return len(self.hotkeys) + self.holdings > self.limit or self.selection_scans > self.limit
 
     def blocks(self) -> list[str]:
-        return _admission_blocks(len(self.hotkeys), self.networks, self.holdings, self.limit)
+        return _admission_blocks(
+            len(self.hotkeys),
+            self.holdings,
+            self.limit,
+            self.selection_scans,
+        )
 
 
 @dataclass(frozen=True)
@@ -109,6 +120,7 @@ class RootClaimWork:
     hotkeys: int
     redeem_holdings: int
     scan_holdings: int
+    selection_scans: int = 0
 
 
 @dataclass(frozen=True)
@@ -141,6 +153,7 @@ class RootClaimFeeQuote:
     below_threshold_hotkeys: int
     redeemable: Balance
     admission_limit: int
+    selection_scans: int
 
     @property
     def refund(self) -> Balance:
@@ -161,8 +174,8 @@ class RootClaimFeeQuote:
     @property
     def too_heavy(self) -> bool:
         return (
-            self.hotkeys * self.networks > self.admission_limit
-            or self.holdings > self.admission_limit
+            self.hotkeys + self.holdings > self.admission_limit
+            or self.selection_scans > self.admission_limit
         )
 
     def facts(self) -> list[tuple[str, str]]:
@@ -230,9 +243,9 @@ class RootClaimFeeQuote:
             out.extend(
                 _admission_blocks(
                     self.hotkeys,
-                    self.networks,
                     self.holdings,
                     self.admission_limit,
+                    self.selection_scans,
                 )
             )
         if self.reserve_shortfall:
@@ -246,7 +259,7 @@ async def root_claim_admission(
     *,
     hotkeys: Optional[list[str]],
 ) -> RootClaimAdmission:
-    """Read only the state used by the runtime's chain-specific admission guard.
+    """Read only the state used by the runtime's fixed admission guard.
 
     Unlike the fee/yield quote, this check is not best-effort: callers use a
     failed read as a hard stop because signing an unverifiable claim can burn
@@ -254,11 +267,38 @@ async def root_claim_admission(
     """
     if hotkeys is None:
         raw_keys = await substrate.query(*st.SubtensorModule.StakingHotkeys, [claimant_address])
-        selected = tuple(str(key) for key in (raw_keys or []))
+        raw_keys = tuple(str(key) for key in (raw_keys or []))
+        stake_rows = await substrate.runtime_call(
+            *StakeInfoRuntimeApi.get_stake_info_for_coldkey,
+            [claimant_address],
+        )
+        if stake_rows is None:
+            raise RuntimeError("coldkey stake positions are unavailable")
+        root_hotkeys = {
+            str(row["hotkey"])
+            for row in stake_rows
+            if int(row["netuid"]) == 0 and int(row["stake"]) > 0
+        }
+        watermarks = await asyncio.gather(
+            *(
+                substrate.query(
+                    *st.SubtensorModule.BasketClaimed,
+                    [hotkey, claimant_address],
+                )
+                for hotkey in raw_keys
+            )
+        )
+        selected = tuple(
+            hotkey
+            for hotkey, watermark in zip(raw_keys, watermarks)
+            if hotkey in root_hotkeys or int(watermark or 0) < 0
+        )
+        selection_scans = len(raw_keys)
     else:
         if len(hotkeys) != 1:
             raise ValueError("per-validator admission expects exactly one hotkey")
         selected = tuple(hotkeys)
+        selection_scans = 0
 
     semaphore = asyncio.Semaphore(16)
 
@@ -274,15 +314,13 @@ async def root_claim_admission(
 
     holding_counts = await asyncio.gather(*(holding_count(hotkey) for hotkey in selected))
 
-    networks, limit = await asyncio.gather(
-        _existing_network_count(substrate),
-        _root_claim_admission_limit(substrate),
-    )
+    networks = await _existing_network_count(substrate)
     return RootClaimAdmission(
         hotkeys=selected,
         holding_counts=tuple(holding_counts),
         networks=networks,
-        limit=limit,
+        limit=_MAX_ROOT_CLAIM_WORK,
+        selection_scans=selection_scans,
     )
 
 
@@ -392,6 +430,7 @@ async def _quote(
             hotkeys=max(len(selected_hotkeys), 1),
             redeem_holdings=redeem_holdings,
             scan_holdings=scan_holdings,
+            selection_scans=admission.selection_scans,
         ),
         admission.limit,
     )
@@ -409,6 +448,7 @@ async def _quote(
         below_threshold_hotkeys=sum(below_threshold),
         redeemable=Balance.from_rao(redeemable_rao),
         admission_limit=admission.limit,
+        selection_scans=admission.selection_scans,
     )
 
 
@@ -417,13 +457,6 @@ async def _existing_network_count(substrate: Any) -> int:
     if rows is None:
         raise RuntimeError("existing-network map is unavailable")
     return max(sum(1 for _netuid, added in rows if added), 1)
-
-
-async def _root_claim_admission_limit(substrate: Any) -> int:
-    genesis_hash = str(await substrate.block_hash(0)).lower()
-    if genesis_hash == _FINNEY_TESTNET_GENESIS_HASH:
-        return _MAX_ROOT_CLAIM_WORK
-    return _DEFAULT_ROOT_CLAIM_WORK
 
 
 async def _threshold_rao(substrate: Any) -> int:
@@ -461,13 +494,7 @@ async def _reserved_fee_with_status(
             call = await compose()
         return await substrate.estimate_fee(call, _FeeView(signer_address)), True
     except Exception:
-        try:
-            limit = await _root_claim_admission_limit(substrate)
-        except Exception:
-            # If both payment-info and chain identity are unavailable, keep the
-            # fallback conservative rather than understate the required reserve.
-            limit = _MAX_ROOT_CLAIM_WORK
-        return Balance.from_rao(_approx_declared_fee_rao(limit)), False
+        return Balance.from_rao(_approx_declared_fee_rao(_MAX_ROOT_CLAIM_WORK)), False
 
 
 async def root_claim_reserve(
@@ -495,21 +522,22 @@ async def root_claim_reserve(
 def _spent_fee(
     reserved: Balance,
     work: RootClaimWork,
-    declared_work: int = _DEFAULT_ROOT_CLAIM_WORK,
+    declared_work: int = _MAX_ROOT_CLAIM_WORK,
 ) -> Balance:
     """Refund unused declared units; keep non-weight base/length fees intact.
 
-    Runtime active units are ``max(hotkey_count, realized + swept, 1)``. The
-    quote floors by the selected hotkey count so empty-basket validators still
-    cost a full unit. ``estimate_fee`` prices the chain-specific declaration
-    plus extrinsic base/length; only the weight slice scales.
+    Runtime active units are ``max(selected hotkeys, relationships classified,
+    realized + swept, 1)``. Classifying a relationship reads its root share-pool
+    state, so the quote prices it conservatively as a full hotkey unit.
+    ``estimate_fee`` prices the fixed declaration plus extrinsic base/length;
+    only the weight slice scales.
     """
     if reserved.rao <= 0:
         return reserved
     declared_weight = _approx_declared_fee_rao(declared_work)
     weight_part = min(reserved.rao, declared_weight)
     base_part = max(0, reserved.rao - declared_weight)
-    active = max(work.redeem_holdings, work.hotkeys, 1)
+    active = max(work.redeem_holdings, work.hotkeys, work.selection_scans, 1)
     active_weight = weight_part * active * _APPROX_REDEEM_FEE_RAO // declared_weight
     scan_weight = weight_part * max(work.scan_holdings, 0) * _APPROX_SCAN_FEE_RAO // declared_weight
     spent_weight = active_weight + scan_weight

@@ -7076,7 +7076,7 @@ fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
     };
 
     new_test_ext(1).execute_with(|| {
-        const MIGRATION_NAME: &[u8] = b"migrate_storage_bloat_v2";
+        const MIGRATION_NAME: &[u8] = b"migrate_storage_bloat_v3";
         let netuid = NetUid::from(1);
         let hot_zero = U256::from(10);
         let hot_nonzero = U256::from(11);
@@ -7109,6 +7109,11 @@ fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
 
         Alpha::<Test>::insert((hot_zero, coldkey, netuid), U64F64::from_num(0));
         Alpha::<Test>::insert((hot_nonzero, coldkey, netuid), U64F64::from_num(7));
+        AlphaV2::<Test>::insert((hot_zero, coldkey, netuid), share_pool::SafeFloat::zero());
+        AlphaV2::<Test>::insert(
+            (hot_nonzero, coldkey, netuid),
+            share_pool::SafeFloat::from(8_u64),
+        );
         TotalHotkeyShares::<Test>::insert(hot_zero, netuid, U64F64::from_num(0));
         TotalHotkeyShares::<Test>::insert(hot_nonzero, netuid, U64F64::from_num(9));
         TotalHotkeyAlpha::<Test>::insert(hot_zero, netuid, AlphaBalance::ZERO);
@@ -7144,6 +7149,11 @@ fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
         assert_eq!(
             Alpha::<Test>::get((hot_nonzero, coldkey, netuid)),
             U64F64::from_num(7)
+        );
+        assert!(!AlphaV2::<Test>::contains_key((hot_zero, coldkey, netuid)));
+        assert_eq!(
+            AlphaV2::<Test>::get((hot_nonzero, coldkey, netuid)),
+            share_pool::SafeFloat::from(8_u64)
         );
         assert!(!TotalHotkeyShares::<Test>::contains_key(hot_zero, netuid));
         assert_eq!(
@@ -7214,14 +7224,25 @@ fn test_staking_hotkeys_cleanup_is_bounded_and_preserves_live_relationships() {
         let v2 = U256::from(202);
         let basket = U256::from(203);
         let other_stale = U256::from(204);
+        let zero_v2 = U256::from(205);
         let netuid = NetUid::from(1);
 
-        StakingHotkeys::<Test>::insert(coldkey, vec![stale, legacy, v2, basket]);
+        // The first cleanup already ran on deployed chains. The fresh v2 marker must schedule
+        // the same bounded implementation again.
+        HasMigrationRun::<Test>::insert(b"migrate_cleanup_staking_hotkeys", true);
+        StakingHotkeys::<Test>::insert(coldkey, vec![stale, legacy, v2, basket, zero_v2]);
         StakingHotkeys::<Test>::insert(all_stale_coldkey, vec![other_stale]);
         StakingHotkeys::<Test>::insert(empty_coldkey, Vec::<U256>::new());
         Alpha::<Test>::insert((legacy, coldkey, netuid), U64F64::from_num(1));
         AlphaV2::<Test>::insert((v2, coldkey, netuid), share_pool::SafeFloat::from(1_u64));
+        AlphaV2::<Test>::insert((zero_v2, coldkey, netuid), share_pool::SafeFloat::zero());
         BasketClaimed::<Test>::insert(basket, coldkey, -1);
+
+        crate::migrations::migrate_storage_bloat_v2::kickoff_storage_bloat_cleanup::<Test>();
+        crate::migrations::migrate_storage_bloat_v2::continue_storage_bloat_cleanup::<Test>(
+            Weight::MAX,
+        );
+        assert!(!AlphaV2::<Test>::contains_key((zero_v2, coldkey, netuid)));
 
         let kickoff_weight = kickoff_staking_hotkeys_cleanup::<Test>();
         assert!(!kickoff_weight.is_zero());

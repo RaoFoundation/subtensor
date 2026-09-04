@@ -361,8 +361,8 @@ mod errors {
         /// (dividends accumulate in place) until weight setting is switched on by
         /// governance or a later upgrade.
         RootWeightSettingDisabled,
-        /// Coldkey-wide `claim_root` would process more work units than the
-        /// chain-specific admission envelope. Use
+        /// A root claim would process more root hotkeys and basket rows than the
+        /// fixed admission envelope. Use
         /// `claim_root_with_hotkey` per validator so admission weight matches
         /// the holdings actually walked.
         RootClaimTooHeavy,

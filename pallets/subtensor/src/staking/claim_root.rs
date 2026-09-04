@@ -895,76 +895,87 @@ impl<T: Config> Pallet<T> {
         swept
     }
 
-    /// Live existing-network count (including root). Ghost `NetworksAdded=false`
-    /// leftovers are excluded so they cannot inflate the single-hotkey quote.
-    pub(crate) fn root_claim_existing_networks() -> u32 {
-        (Self::get_all_subnet_netuids().len() as u32).max(1)
-    }
-
-    /// Chain-specific admission budget for both claim paths. Finney testnet has a
-    /// 1,024-subnet limit, while mainnet and every unknown chain retain the
-    /// conservative default.
+    /// Fixed admission budget for both claim paths.
     pub(crate) fn root_claim_declared_work() -> u32 {
-        let genesis_hash = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
-        let genesis_bytes: &[u8] = genesis_hash.as_ref();
-        if genesis_bytes == crate::FINNEY_TESTNET_GENESIS_HASH {
-            crate::MAX_ROOT_CLAIM_WORK
-        } else {
-            crate::DEFAULT_ROOT_CLAIM_WORK
-        }
+        crate::MAX_ROOT_CLAIM_WORK
     }
 
-    /// Chain-specific pre-dispatch weight for both independently bounded dimensions:
-    /// full claim work and scan-only work. Include the genesis-hash reads used by weight
-    /// selection and the dispatch admission check.
+    /// Pre-dispatch weight for both independently bounded dimensions: full claim work and
+    /// scan-only work.
     pub(crate) fn root_claim_declared_weight() -> Weight {
         let limit = Self::root_claim_declared_work();
-        <T as crate::pallet::Config>::WeightInfo::claim_root(limit)
-            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
-                limit,
-            ))
-            .saturating_add(T::DbWeight::get().reads(2))
+        <T as crate::pallet::Config>::WeightInfo::claim_root(limit).saturating_add(
+            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(limit),
+        )
     }
 
-    /// True when a coldkey-wide claim's reachable work (hotkeys × existing
-    /// networks, and the actual basket rows) fits the admission envelope.
+    /// Hotkeys relevant to a coldkey-wide root claim. Ordinary subnet-only staking hotkeys
+    /// are deliberately excluded. A negative basket watermark keeps an unstaked claimant
+    /// eligible because it encodes shares which still need to be redeemed.
+    pub(crate) fn root_claim_hotkeys(
+        coldkey: &T::AccountId,
+        staking_hotkeys: Vec<T::AccountId>,
+    ) -> Vec<T::AccountId> {
+        staking_hotkeys
+            .into_iter()
+            .filter(|hotkey| {
+                !Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, NetUid::ROOT)
+                    .is_zero()
+                    || BasketClaimed::<T>::get(hotkey, coldkey) < 0
+            })
+            .collect()
+    }
+
+    /// True when the hotkeys plus the basket storage rows the claim will scan fit the fixed
+    /// admission envelope. Count raw Alpha/AlphaV2 rows so legacy duplicates and malformed
+    /// zero rows are charged conservatively, and stop as soon as the bound is exceeded.
     pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
         let budget = Self::root_claim_declared_work();
-        let networks = Self::root_claim_existing_networks();
-        let hotkey_count = hotkeys.len() as u32;
-        if hotkey_count.saturating_mul(networks) > budget {
+        let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
+        if work > budget {
             return false;
         }
-        let mut rows: u32 = 0;
+
+        let escrow = Self::get_beta_escrow_account_id();
         for hotkey in hotkeys {
-            rows = rows.saturating_add(Self::get_basket_holdings(hotkey).len() as u32);
-            if rows > budget {
-                return false;
+            for _ in Alpha::<T>::iter_prefix((hotkey, &escrow)) {
+                work = work.saturating_add(1);
+                if work > budget {
+                    return false;
+                }
+            }
+            for _ in AlphaV2::<T>::iter_prefix((hotkey, &escrow)) {
+                work = work.saturating_add(1);
+                if work > budget {
+                    return false;
+                }
             }
         }
         true
     }
 
-    /// Actual post-dispatch weight of a root claim: full benchmark units for the slots
-    /// that did real work (redeemed or swept — a swap plus stake writes each, floored at
-    /// the hotkey count so walking empty hotkeys stays covered) plus the cheap per-row
-    /// scan cost for holdings that were only valued. This is what lets a fund's claim fee
-    /// decay as dust rows are consolidated, and makes a below-threshold no-op cost a scan
-    /// instead of a full claim. Work above the chain-specific admission budget
+    /// Actual post-dispatch weight of a root claim: full benchmark units for relationships
+    /// classified and slots that did real work (redeemed or swept — a swap plus stake writes
+    /// each, floored at the selected hotkey count) plus the cheap per-row scan cost for holdings
+    /// that were only valued. This is what lets a fund's claim fee decay as dust rows are
+    /// consolidated, and makes a below-threshold no-op cost a scan instead of a full claim.
+    /// Work above the fixed admission budget
     /// is refused at dispatch (`RootClaimTooHeavy`) rather than admitted cheaply.
     pub(crate) fn root_claim_actual_weight(
         hotkey_count: u32,
+        selection_scanned: u32,
         outcome: &RootClaimOutcome,
     ) -> Weight {
         let active = hotkey_count
             .max(outcome.realized.saturating_add(outcome.swept))
+            // Classifying a StakingHotkeys relationship reads the position's share-pool state
+            // and basket watermark. Price it conservatively as a full hotkey unit.
+            .max(selection_scanned)
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
-        <T as crate::pallet::Config>::WeightInfo::claim_root(active)
-            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
-                scanned,
-            ))
-            .saturating_add(T::DbWeight::get().reads(2))
+        <T as crate::pallet::Config>::WeightInfo::claim_root(active).saturating_add(
+            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(scanned),
+        )
     }
 
     pub fn do_root_claim(
