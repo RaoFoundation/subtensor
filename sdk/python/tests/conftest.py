@@ -12,9 +12,16 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
+import pytest
+
 from bittensor._transport.codec import RuntimeCodec, strip_option_opaque_metadata
 
 GOLDEN_FIXTURE = Path(__file__).parent / "fixtures" / "golden.json"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_weight_targets_env(monkeypatch):
+    monkeypatch.delenv("WEIGHT_TARGETS", raising=False)
 
 
 @lru_cache(maxsize=1)

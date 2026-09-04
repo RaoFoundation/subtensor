@@ -271,6 +271,29 @@ These compose with any intent:
   On the CLI: `--proxy-for <ss58|wallet>` on every mutation command. Manage
   delegations with the `add-proxy` / `remove-proxy` intents and the `proxies` read.
 
+  A zero-delay `Validate` proxy needs no subnet code changes. The signing
+  hotkey is direct and every other target must have granted it a `Validate`
+  proxy. Targets supplied by subnet code through the client constructor are
+  merged with `WEIGHT_TARGETS`, so validator operators can add targets without
+  changing the subnet. Duplicates are removed while constructor order is
+  preserved; an empty merged set disables weight submission entirely.
+
+  ```console
+  WEIGHT_TARGETS=5F...DELEGATE,5F...VALIDATOR_A,5F...VALIDATOR_B
+  ```
+
+  The existing subnet call remains unchanged:
+
+  ```python
+  result = await client.execute(
+      bt.SetWeights(netuid=1, weights={0: 0.2, 1: 0.8}), delegate_wallet
+  )
+  ```
+
+  Targets are dispatched with `Utility.force_batch`: one revoked or invalid
+  target is reported in `result.data["weight_results"]` without preventing the
+  remaining validators from setting weights.
+
 - **Atomic batch** — several intents in one all-or-nothing extrinsic:
 
   ```python
