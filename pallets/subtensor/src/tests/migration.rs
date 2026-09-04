@@ -7072,7 +7072,8 @@ fn test_migrate_historical_alpha_burns_skips_non_mainnet() {
 #[test]
 fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
     use crate::migrations::migrate_storage_bloat_v2::{
-        StorageBloatCleanupMigration, continue_storage_bloat_cleanup, kickoff_storage_bloat_cleanup,
+        StorageBloatCleanupMigration, continue_storage_bloat_cleanup,
+        kickoff_storage_bloat_cleanup, storage_bloat_cleanup_complete,
     };
 
     new_test_ext(1).execute_with(|| {
@@ -7130,6 +7131,7 @@ fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
         let kickoff_weight = kickoff_storage_bloat_cleanup::<Test>();
         assert!(!kickoff_weight.is_zero());
         assert!(StorageBloatCleanupMigration::<Test>::exists());
+        assert!(!storage_bloat_cleanup_complete::<Test>());
 
         let limit = <Test as Config>::DbWeight::get().reads_writes(8, 5);
         let mut passes = 0;
@@ -7141,6 +7143,7 @@ fn test_storage_bloat_cleanup_is_bounded_and_preserves_nonzero_state() {
         }
         assert!(passes > 1, "test must exercise resumable progress");
         assert!(HasMigrationRun::<Test>::get(MIGRATION_NAME));
+        assert!(storage_bloat_cleanup_complete::<Test>());
 
         for key in dead_keys {
             assert!(sp_io::storage::get(&key).is_none());

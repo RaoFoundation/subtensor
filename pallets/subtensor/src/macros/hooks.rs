@@ -289,20 +289,21 @@ mod hooks {
                 );
             }
 
-            // StakingHotkeys cleanup depends on storage GC having removed zero legacy Alpha rows.
-            // It is otherwise independent and does not block or gate any runtime operation.
-            let storage_bloat_cursor_read = T::DbWeight::get().reads(1);
-            let storage_bloat_in_progress = if !seed_in_progress
+            // StakingHotkeys cleanup depends on storage GC having completed all of its targets.
+            // Gate on the positive completion marker rather than cursor absence so an absent or
+            // unexpectedly removed cursor cannot start the dependent cleanup early.
+            let storage_bloat_completion_read = T::DbWeight::get().reads(1);
+            let storage_bloat_complete = if !seed_in_progress
                 && weight
-                    .saturating_add(storage_bloat_cursor_read)
+                    .saturating_add(storage_bloat_completion_read)
                     .all_lt(limit)
             {
-                weight.saturating_accrue(storage_bloat_cursor_read);
-                migrations::migrate_storage_bloat_v2::StorageBloatCleanupMigration::<T>::exists()
+                weight.saturating_accrue(storage_bloat_completion_read);
+                migrations::migrate_storage_bloat_v2::storage_bloat_cleanup_complete::<T>()
             } else {
-                true
+                false
             };
-            if !seed_in_progress && !storage_bloat_in_progress && weight.all_lt(limit) {
+            if !seed_in_progress && storage_bloat_complete && weight.all_lt(limit) {
                 weight.saturating_accrue(
                     migrations::migrate_cleanup_staking_hotkeys::continue_staking_hotkeys_cleanup::<
                         T,

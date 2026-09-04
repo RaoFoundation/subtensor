@@ -117,6 +117,14 @@ pub struct StorageBloatCleanupProgress {
 pub type StorageBloatCleanupMigration<T: Config> =
     StorageValue<Pallet<T>, StorageBloatCleanupProgress, OptionQuery>;
 
+/// Returns true only after the current storage-bloat sweep has completed successfully.
+///
+/// Dependants must use this marker instead of cursor absence: a missing cursor can also mean
+/// that the migration was never scheduled or that its progress state was removed unexpectedly.
+pub fn storage_bloat_cleanup_complete<T: Config>() -> bool {
+    HasMigrationRun::<T>::get(MIGRATION_NAME)
+}
+
 fn storage_prefix(pallet: &str, item: &str) -> Vec<u8> {
     [twox_128(pallet.as_bytes()), twox_128(item.as_bytes())].concat()
 }
