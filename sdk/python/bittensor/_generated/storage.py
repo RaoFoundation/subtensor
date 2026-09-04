@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 449
+Spec version: 455
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -102,7 +102,6 @@ class SubtensorModule:
     ParentKeys = Item('SubtensorModule', 'ParentKeys', 'Vec<(u64, AccountId32)>')
     AlphaDividendsPerSubnet = Item('SubtensorModule', 'AlphaDividendsPerSubnet', 'AlphaBalance')
     RootAlphaDividendsPerSubnet = Item('SubtensorModule', 'RootAlphaDividendsPerSubnet', 'AlphaBalance')
-    DeferredRootAlphaDividends = Item('SubtensorModule', 'DeferredRootAlphaDividends', 'AlphaBalance')
     PendingBasketDeposits = Item('SubtensorModule', 'PendingBasketDeposits', 'AlphaBalance')
     PendingBasketFlushCursor = Item('SubtensorModule', 'PendingBasketFlushCursor', 'Vec<u8>')
     BlockEmission = Item('SubtensorModule', 'BlockEmission', 'u64')
@@ -299,6 +298,11 @@ class SubtensorModule:
     RootClaimed = Item('SubtensorModule', 'RootClaimed', 'u128')
     BasketShares = Item('SubtensorModule', 'BasketShares', 'u64')
     BasketRate = Item('SubtensorModule', 'BasketRate', 'FixedI128')
+    BetaBaseline = Item('SubtensorModule', 'BetaBaseline', 'BetaBaselineOf')
+    BasketTwr = Item('SubtensorModule', 'BasketTwr', 'FixedU128')
+    BetaIndexSnapshot = Item('SubtensorModule', 'BetaIndexSnapshot', 'BetaIndexSnapshotOf')
+    BetaIndexSweep = Item('SubtensorModule', 'BetaIndexSweep', 'BetaIndexSweepOf')
+    BetaIndexFundSample = Item('SubtensorModule', 'BetaIndexFundSample', 'BetaIndexFundSampleOf')
     BasketClaimed = Item('SubtensorModule', 'BasketClaimed', 'i128')
     BasketDepositedTao = Item('SubtensorModule', 'BasketDepositedTao', 'TaoBalance')
     BasketRedeemedTao = Item('SubtensorModule', 'BasketRedeemedTao', 'TaoBalance')
@@ -451,3 +455,13 @@ class LimitOrders:
     LimitOrdersEnabled = Item('LimitOrders', 'LimitOrdersEnabled', 'bool')
     LinkedOutputs = Item('LimitOrders', 'LinkedOutputs', 'LinkedOutput')
     HasMigrationRun = Item('LimitOrders', 'HasMigrationRun', 'bool')
+
+class Derivatives:
+    Params = Item('Derivatives', 'Params', 'DerivativesParams')
+    Positions = Item('Derivatives', 'Positions', 'Position')
+    OpenByNetuid = Item('Derivatives', 'OpenByNetuid', '()')
+    Footprint = Item('Derivatives', 'Footprint', 'u64')
+    Expiring = Item('Derivatives', 'Expiring', 'BoundedVec')
+    NextSweep = Item('Derivatives', 'NextSweep', 'u32')
+    PalletHotkey = Item('Derivatives', 'PalletHotkey', 'AccountId32')
+    SubnetOverrides = Item('Derivatives', 'SubnetOverrides', 'SubnetOverride')

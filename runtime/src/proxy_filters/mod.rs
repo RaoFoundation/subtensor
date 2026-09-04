@@ -92,6 +92,7 @@ type NonCriticalAllowed = (
     BalanceMaintenanceCalls,
     StakeManagementCalls,
     StakeTransferCalls,
+    DerivativesCalls,
     PowRegistrationCalls,
     FaucetCalls,
     HotkeySwapCalls,
@@ -303,9 +304,10 @@ mod tests {
     // agree exactly; a missing or extra group in the filter shows up as a diff.
     #[test]
     fn non_transfer_is_everything_but_transfers_and_coldkey_swaps() {
-        let denied = &(&group_calls::<BalanceTransferCalls>()
+        let denied = &(&(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
-            | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
+            | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>()))
+            | &group_calls::<DerivativesCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -314,12 +316,13 @@ mod tests {
 
     #[test]
     fn non_fungible_is_everything_but_value_movement_and_key_swaps() {
-        let denied = &(&(&group_calls::<BalanceTransferCalls>()
+        let denied = &(&(&(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeManagementCalls>() | &group_calls::<StakeTransferCalls>()))
             | &(&(&group_calls::<BurnedRegistrationCalls>()
                 | &group_calls::<RootRegistrationCalls>())
-                | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
+                | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>())))
+            | &group_calls::<DerivativesCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied

@@ -11,7 +11,7 @@ mod config {
     use frame_support::traits::LockableCurrency;
     use pallet_alpha_assets::AlphaAssetsInterface;
     use pallet_commitments::GetCommitments;
-    use subtensor_runtime_common::AuthorshipInfo;
+    use subtensor_runtime_common::{AuthorshipInfo, SubnetDissolveHook};
     use subtensor_swap_interface::{SwapEngine, SwapHandler};
 
     /// Configure the pallet by specifying the parameters and types on which it depends.
@@ -66,6 +66,10 @@ mod config {
 
         /// Interface to mint, burn, and recycle subnet alpha.
         type AlphaAssets: AlphaAssetsInterface;
+
+        /// Pallet holding pool-borrowed positions that must be settled when a subnet dissolves.
+        /// Use `()` when no such pallet is wired.
+        type Derivatives: SubnetDissolveHook;
 
         /// Rate limit for associating an EVM key.
         type EvmKeyAssociateRateLimit: Get<u64>;

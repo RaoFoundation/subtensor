@@ -480,6 +480,24 @@
         }
       ]
     },
+    "BasketDepositPending": {
+      "code": "too_early",
+      "description": "The validator has a queued root-dividend deposit that could not be settled yet, and the call would change the hotkey's root claimant base before it does. Check the pending basket deposits for the hotkey and retry once the deposit becomes executable.",
+      "docs_url": "/docs/errors/chain/BasketDepositPending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketDepositPending/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 377,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L377",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "BasketHasNoWeights": {
       "code": "invalid_argument",
       "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli root weights set` (or `set_root_weights`) first.",
@@ -1377,7 +1395,8 @@
       "docs_url": "/docs/errors/chain/DepositTooLow",
       "markdown_url": "/llms.mdx/docs/errors/chain/DepositTooLow/content.md",
       "pallets": [
-        "Crowdloan"
+        "Crowdloan",
+        "Derivatives"
       ],
       "sources": [
         {
@@ -1386,6 +1405,13 @@
           "line": 241,
           "url": "/code/pallets/crowdloan/src/lib.rs#L241",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        },
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 193,
+          "url": "/code/pallets/derivatives/src/lib.rs#L193",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -1699,6 +1725,42 @@
           "line": 181,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L181",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "ExpiryQueueFull": {
+      "code": "limit_exceeded",
+      "description": "Too many positions already expire in the block this one would land in and the next few. Check `Expiring` around `now + lifetime_blocks` and retry in a later block.",
+      "docs_url": "/docs/errors/chain/ExpiryQueueFull",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ExpiryQueueFull/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 203,
+          "url": "/code/pallets/derivatives/src/lib.rs#L203",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
+    },
+    "ExposureTooLarge": {
+      "code": "limit_exceeded",
+      "description": "Leverage times the cushion would take the whole matching reserve, so no pool share can be lifted. Check the deposit against the pool reserves and use a smaller cushion.",
+      "docs_url": "/docs/errors/chain/ExposureTooLarge",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ExposureTooLarge/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 195,
+          "url": "/code/pallets/derivatives/src/lib.rs#L195",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -2445,6 +2507,24 @@
           "line": 265,
           "url": "/code/pallets/crowdloan/src/lib.rs#L265",
           "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        }
+      ]
+    },
+    "InvalidParams": {
+      "code": "invalid_argument",
+      "description": "Root submitted parameters with a zero leverage, `max_pool_share`, or `lifetime_blocks`, or a subnet override with a zero `max_pool_share`, which would brick opens or make positions closable at once. Pause a side with its enabled switch instead.",
+      "docs_url": "/docs/errors/chain/InvalidParams",
+      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidParams/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 207,
+          "url": "/code/pallets/derivatives/src/lib.rs#L207",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -3555,6 +3635,24 @@
         }
       ]
     },
+    "NoPosition": {
+      "code": "not_found",
+      "description": "No position of this side exists for that owner on that subnet. Check the owner, netuid, and side against `derivative-positions`; it may already have been closed or swept at expiry.",
+      "docs_url": "/docs/errors/chain/NoPosition",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NoPosition/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 191,
+          "url": "/code/pallets/derivatives/src/lib.rs#L191",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
+    },
     "NoSelfProxy": {
       "code": "invalid_argument",
       "description": "An account attempted to register itself as its own proxy, which is not allowed. Check the `delegate` argument to `add_proxy` and ensure it differs from the calling (delegator) account.",
@@ -3822,6 +3920,24 @@
           "line": 32,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L32",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "NotExpired": {
+      "code": "too_early",
+      "description": "Only the owner may close a position before `expires_at`. Check the position's `expires_at` block; anyone may close it after that.",
+      "docs_url": "/docs/errors/chain/NotExpired",
+      "markdown_url": "/llms.mdx/docs/errors/chain/NotExpired/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 201,
+          "url": "/code/pallets/derivatives/src/lib.rs#L201",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -4141,6 +4257,24 @@
         }
       ]
     },
+    "PalletHotkeyUnset": {
+      "code": "too_early",
+      "description": "The pallet has not claimed its custody hotkey yet, so nothing can be opened. Check `Derivatives.PalletHotkey`; it is set by `on_runtime_upgrade` in the upgrade block.",
+      "docs_url": "/docs/errors/chain/PalletHotkeyUnset",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PalletHotkeyUnset/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 209,
+          "url": "/code/pallets/derivatives/src/lib.rs#L209",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
+    },
     "PartialFillNotSupportedForLinkedAmount": {
       "code": "invalid_argument",
       "description": "A `partial_fill` was submitted against a linked (consuming) order. Linked amounts must execute in one shot; omit `partial_fill` and execute the resolved amount in full.",
@@ -4211,6 +4345,42 @@
       "markdown_url": "/llms.mdx/docs/errors/chain/PaymentOverflow/content.md",
       "pallets": [
         "EVM"
+      ]
+    },
+    "PoolCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "Open positions of this side would together borrow more than `max_pool_share` of the lent reserve. Check `Footprint` for the netuid and side against the reserve; try a smaller cushion or wait for other positions to close.",
+      "docs_url": "/docs/errors/chain/PoolCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PoolCapExceeded/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 199,
+          "url": "/code/pallets/derivatives/src/lib.rs#L199",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
+    },
+    "PositionExists": {
+      "code": "already_exists",
+      "description": "The coldkey already holds a position of this side on this subnet; there is one per coldkey, subnet, and side. Check `derivative-positions` and close or roll the existing one first.",
+      "docs_url": "/docs/errors/chain/PositionExists",
+      "markdown_url": "/llms.mdx/docs/errors/chain/PositionExists/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 189,
+          "url": "/code/pallets/derivatives/src/lib.rs#L189",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
       ]
     },
     "PreLogExists": {
@@ -4521,7 +4691,7 @@
     },
     "RootClaimTooHeavy": {
       "code": "limit_exceeded",
-      "description": "A root claim would walk more work than the fixed pre-dispatch weight envelope can admit. For coldkey-wide `claim_root`, hotkeys times existing networks or total basket rows can exceed `MAX_ROOT_CLAIM_WORK`; a single validator basket with too many rows can also make `claim_root_with_hotkey` fail. Split a coldkey-wide claim by validator where that fits, and investigate or consolidate an individually oversized basket.",
+      "description": "A root claim would process more than the fixed 256-unit admission envelope. Only root-relevant validator hotkeys and their stored basket rows count as claim work; classifying the staking-hotkey relationship vector is separately capped at 256. Unrelated subnet stakes are not multiplied by the total network count. Split a coldkey-wide claim by validator where that fits, and investigate or consolidate an individually oversized basket.",
       "docs_url": "/docs/errors/chain/RootClaimTooHeavy",
       "markdown_url": "/llms.mdx/docs/errors/chain/RootClaimTooHeavy/content.md",
       "pallets": [
@@ -4705,6 +4875,24 @@
           "line": 81,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L81",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "SideDisabled": {
+      "code": "disabled",
+      "description": "Opening a position of this side is switched off by root, globally or on this subnet. Check `shorts_enabled` and `longs_enabled` in `deriv params --netuid N`; existing positions can always be closed.",
+      "docs_url": "/docs/errors/chain/SideDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SideDisabled/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 185,
+          "url": "/code/pallets/derivatives/src/lib.rs#L185",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -4951,6 +5139,24 @@
         }
       ]
     },
+    "SubnetNotDynamic": {
+      "code": "subtoken_disabled",
+      "description": "The subnet does not exist, is not AMM-priced, has its subtoken disabled, or has an empty reserve. Check the subnet exists and that `subnets show` reports a live pool.",
+      "docs_url": "/docs/errors/chain/SubnetNotDynamic",
+      "markdown_url": "/llms.mdx/docs/errors/chain/SubnetNotDynamic/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 187,
+          "url": "/code/pallets/derivatives/src/lib.rs#L187",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
+    },
     "SubnetNotExists": {
       "code": "subnet_not_exists",
       "description": "The netuid passed to the call does not correspond to a registered subnet. Verify the netuid argument against `NetworksAdded` or `btcli subnets list`; the subnet may also have been dissolved.",
@@ -5019,7 +5225,8 @@
       "docs_url": "/docs/errors/chain/SwapReturnedZero",
       "markdown_url": "/llms.mdx/docs/errors/chain/SwapReturnedZero/content.md",
       "pallets": [
-        "LimitOrders"
+        "LimitOrders",
+        "Derivatives"
       ],
       "sources": [
         {
@@ -5028,6 +5235,13 @@
           "line": 419,
           "url": "/code/pallets/limit-orders/src/lib.rs#L419",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        },
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 205,
+          "url": "/code/pallets/derivatives/src/lib.rs#L205",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -5885,6 +6099,24 @@
           "line": 46,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L46",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "ZeroExposure": {
+      "code": "invalid_argument",
+      "description": "Leverage times the cushion rounds to nothing against the pool reserve. Check the deposit is well above `min_deposit_tao` relative to the pool size.",
+      "docs_url": "/docs/errors/chain/ZeroExposure",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ZeroExposure/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 197,
+          "url": "/code/pallets/derivatives/src/lib.rs#L197",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },

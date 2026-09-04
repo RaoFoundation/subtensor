@@ -22,7 +22,9 @@ use scale_info::TypeInfo;
 use sp_core::Get;
 use sp_runtime::{DispatchError, PerU16};
 use sp_std::marker::PhantomData;
-use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token, TokenReserve};
+use subtensor_runtime_common::{
+    AlphaBalance, NetUid, SubnetDissolveHook, TaoBalance, Token, TokenReserve,
+};
 
 // ============================
 //	==== Benchmark Imports =====
@@ -3609,9 +3611,8 @@ impl<T> ProxyInterface<T> for () {
     }
 }
 
-/// Interface for purging commitment state when subnets or neurons are removed.
-pub trait CommitmentsInterface<AccountId> {
-    fn purge_netuid(netuid: NetUid, weight_meter: &mut WeightMeter) -> bool;
-
+/// Commitment cleanup when a neuron is removed. Subnet-wide cleanup on dissolution comes from
+/// the [`SubnetDissolveHook`] supertrait.
+pub trait CommitmentsInterface<AccountId>: SubnetDissolveHook {
     fn purge_neuron(netuid: NetUid, account: &AccountId);
 }

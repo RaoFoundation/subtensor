@@ -171,6 +171,23 @@ pub trait AuthorshipInfo<AccountId> {
     fn author() -> Option<AccountId>;
 }
 
+/// Metered, resumable cleanup of a pallet's per-subnet state while that subnet is dissolved.
+/// Each implementer runs in its own `pallet-subtensor` dissolution phase, so the order between
+/// hooks is fixed there, not here.
+pub trait SubnetDissolveHook {
+    /// Clean up everything held on `netuid`, consuming weight from `meter`.
+    ///
+    /// Returns `true` once nothing remains for this subnet, `false` when the caller must call
+    /// again in a later block because the weight budget ran out.
+    fn on_subnet_dissolve(netuid: NetUid, meter: &mut WeightMeter) -> bool;
+}
+
+impl SubnetDissolveHook for () {
+    fn on_subnet_dissolve(_netuid: NetUid, _meter: &mut WeightMeter) -> bool {
+        true
+    }
+}
+
 pub mod time {
     use super::*;
 

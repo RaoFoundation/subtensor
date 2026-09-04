@@ -24,6 +24,17 @@ type Release = {
 const releases: Release[] = [
   {
     tag: 'next',
+    date: 'September 2026',
+    title: 'Longs and Shorts',
+    summary:
+      'V455 adds pallet-derivatives: 30-day longs and shorts on any subnet’s alpha, borrowed ' +
+      'from the subnet’s own pool. No synthetic tokens, nothing minted or burned, a per-day borrow ' +
+      'fee fixed at open and paid to the pool. btcli deriv short, long, list, roll, and close are ' +
+      'the working surface.',
+    href: '/releases/v455-upgrade',
+  },
+  {
+    tag: 'v450',
     date: 'August 2026',
     title: 'Curated Beta',
     summary:

@@ -1,0 +1,353 @@
+---
+title: Longs and shorts
+description: Open a 30-day long or short on a subnet's alpha, borrowed from the subnet's own pool — how the position is built, what it pays, what it costs, and the btcli commands to open, watch, and close it.
+---
+
+A **derivative position** lets you bet on the price of a subnet's alpha
+without holding it. A **short** profits when alpha falls. A **long** profits
+when alpha rises. You put down a **cushion** (your deposit) and the chain
+borrows a matching slice of the subnet pool for you. When you close, the
+borrowed slice goes back, the pool is paid a small **borrow fee**, and you
+get your cushion plus or minus the price move.
+
+There are no synthetic tokens. Nothing is minted or burned. Every position is
+built from the pool's own TAO and alpha, and every position has a hard
+**expiry** of 30 days.
+
+Shipped in the [v455 release](/releases/v455-upgrade). This guide uses the
+same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
+0.05 τ/α** — with round numbers. Read live values with
+[`derivatives-params`](/docs/query/derivatives-params) and
+[`derivative-positions`](/docs/query/derivative-positions) before acting.
+
+## What a position is
+
+| Term | Meaning |
+|------|---------|
+| **Cushion** | Your deposit, in TAO from your coldkey balance. It is held by the pallet while the position is open and returned at close, minus the fee and any loss. |
+| **Exposure** | The TAO value the position moves with: leverage times your cushion. Shorts run at 1x, so exposure equals the cushion; longs run at 2x, so it is twice the cushion. |
+| **Borrowed slice** | The fraction `phi` of the pool the position lifts out: `phi × TAO reserve` and `phi × alpha reserve`. |
+| **Proceeds** | What the opening trade produced. A short sells the lifted alpha, so its proceeds are TAO. A long buys alpha with the lifted TAO, so its proceeds are alpha. |
+| **Debt** | What must go back to the pool at close: the lifted alpha (short) or the lifted TAO (long). |
+| **Escrow** | The other half of the lifted slice. It sits untouched in the pallet and returns to the pool at close. |
+| **Borrow fee** | A per-day amount fixed at open and paid to the pool at close, one-day minimum. A short pays `6 τ × phi` per day (the share of the pool it lifted); a long pays `0.01%` of exposure per day. Both are scaled by `1 / (1 − phi)⁴` for the position's own slippage. |
+| **Expiry** | Open block + 216,000 blocks (~30 days). After that, anyone may close the position for you. |
+
+One position per coldkey, per subnet, per side. You may hold a long and a
+short on the same subnet at once; they are independent.
+
+## How open and close work
+
+The pallet never trades against you and never holds a book. It lifts a slice
+of the pool, trades that slice through the same balancer swap you use when
+you stake, and reverses the trade at close.
+
+The deck below walks one position through all eight steps. Press play, or
+step through with the arrows. Flip **side** to see a long instead of a short,
+and **what happens next** to see the losing path as well as the winning one.
+
+<DerivativesLifecycle />
+
+Three details behind the slides:
+
+- **Lifting is price-neutral.** The pallet removes the same fraction `phi`
+  from both reserves ([`lift_liquidity`](/code/pallets/subtensor/src/staking/derivatives_pool.rs)).
+  The price is a ratio, so it does not move. The pool is briefly shallower,
+  which is why exposure is capped.
+- **The open trade is a real swap.** A short pushes the price down at open; a
+  long pushes it up. You pay slippage on the way in and on the way out,
+  exactly like a spot trade of the same size. Because the pallet sells alpha
+  it just lifted, rather than alpha it bought, there is no round trip that
+  can be arbitraged.
+- **Returning is price-neutral too.** At close the pool gets back its slice
+  plus the fee through
+  [`return_liquidity`](/code/pallets/subtensor/src/staking/derivatives_pool.rs),
+  which adds an uneven TAO/alpha pair without moving the price. Any profit
+  you take leaves the pool a little lighter on one side; any loss you pay
+  leaves it heavier.
+
+The borrowed slice is fixed at open:
+
+$$
+\phi = \frac{L \cdot \text{cushion}}{\text{TAO reserve}}
+$$
+
+where $L$ is the side's leverage: `short_leverage_percent / 100` (1.0 on
+mainnet) for a short, `long_leverage_percent / 100` (2.0) for a long. A 100 τ
+cushion on a 10,000 τ pool lifts 1% of the pool as a short (100 τ and 2,000 α)
+and 2% as a long (200 τ and 4,000 α). See
+[`pool_fraction`](/code/pallets/derivatives/src/position.rs).
+
+## What you get back
+
+<DerivativesPayoff />
+
+Three things to read off the picture:
+
+- **The line crosses your cushion at the open price.** Close with no price
+  move and you get your 100 τ back, minus the fee and a little slippage.
+- **Shorts move one-for-one, longs two-for-one.** Alpha down 20% pays a
+  short about 20 τ on a 100 τ cushion. Alpha up 20% pays a long about 40 τ on
+  the same cushion, and alpha down 20% costs it about 40 τ.
+- **The line stops at zero.** If the closing trade cannot repay what the
+  position borrowed, the position is underwater: you are paid nothing,
+  whatever the pallet still holds goes to the pool, and the pool carries the
+  remaining shortfall
+  ([`do_settle`](/code/pallets/derivatives/src/settle.rs)). For a
+  short that is near a doubling; for a long at 2x it is near a halving. The
+  10% pool cap keeps that gap small relative to the pool.
+
+Why 2x on longs and 1x on shorts? At 1x a long's cushion equals its debt, so
+it can never be underwater and the pool never carries any of its risk. That
+sounds safe, but it also means a 1x long does nothing a spot buy does not do,
+for a fee. At 2x a long is a real instrument, and its worst case for the pool,
+a halving, is about as rare as the doubling that wipes a 1x short. The two
+sides then carry comparable risk, and both leverages are dials root can turn.
+
+Cushions are TAO only. That keeps the payoff the plain line above, and it
+means a subnet team cannot post alpha it minted to itself as collateral.
+
+The fee is the only cost besides slippage. It is fixed per day when you open,
+from the parameters in force then, and charged at close:
+
+$$
+\text{fee} = \text{fee per day} \times \max(1, \text{days open})
+$$
+
+The two sides price differently because they carry different risks for the
+pool:
+
+- **Short:** `fee per day = short_fee_per_day × phi`, with `phi` the share of
+  the pool you lifted. Borrowing 1% of *any* pool costs about 0.06 τ a day
+  (6 τ × 1%), so 1.9 τ over 30 days. The pool's risk on a short is a pump,
+  and in a constant-product pool the cost of a pump scales with `1 / TAO
+  reserve`; a fixed TAO amount per unit of pool share tracks that.
+- **Long:** `fee per day = long_rate_per_day × exposure`. A 200 τ exposure
+  (100 τ at 2x) costs about 0.02 τ a day, so 0.65 τ over 30 days. The pool's
+  risk on a long is a crash, and that risk does not depend on pool size.
+- **Both** are multiplied by a size factor `1 / (1 − phi)⁴`. A position that
+  lifts `phi` of the pool has to close into a pool that is `phi` thinner, and
+  its true expected cost grows faster than `phi`. The factor is 1.04 at a 1%
+  slice, 1.08 at 2%, and 2.4 at 20%. It keeps the fee fair however high the
+  pool cap is set, so no separate per-position limit is needed
+  ([`size_factor`](/code/pallets/derivatives/src/position.rs)).
+
+In the illustrative 10,000 τ pool a 100 τ short lifts `phi = 1%` and pays
+1.9 τ a month; a 100 τ long lifts `phi = 2%` and pays 0.65 τ. Changing the
+parameters later does not reprice a running position: the fee per day is
+stored in the position at open. See
+[`accrued_fee`](/code/pallets/derivatives/src/position.rs) and
+[`DerivativesParams::fee_per_day`](/code/pallets/derivatives/src/position.rs).
+
+<Callout type="note">
+`btcli deriv list` shows an **estimated** close value: cushion + proceeds −
+debt − fee, everything at spot. The real settlement pays slippage on the
+buyback or sale, so expect slightly less.
+</Callout>
+
+## Open a position
+
+Replace netuid `7` with your target subnet. Both sides take the same options:
+`--amount` is the cushion, in TAO, taken from your coldkey balance.
+
+```bash
+# Check the pallet's live parameters first, and whether subnet 7 is paused or re-capped
+btcli deriv params --netuid 7 --json
+
+# Short subnet 7 with a 100 τ cushion (dry-run, then execute)
+btcli deriv short --netuid 7 --amount 100 --dry-run -w my_coldkey
+btcli deriv short --netuid 7 --amount 100 -w my_coldkey
+
+# Long subnet 7 with a 100 τ cushion
+btcli deriv long --netuid 7 --amount 100 -w my_coldkey
+```
+
+The same in Python:
+
+```python
+await client.execute(bt.OpenShort(netuid=7, amount=100), wallet)
+await client.execute(bt.OpenLong(netuid=7, amount=100), wallet)
+```
+
+The call fails if:
+
+| Error | Why |
+|-------|-----|
+| `SideDisabled` | Root has switched that side off, chain-wide with `sudo_set_params` or on this subnet with `sudo_set_subnet_override`. |
+| `SubnetNotDynamic` | The subnet has no pool (root, or a static subnet). |
+| `PositionExists` | You already hold that side on that subnet. Close it first. |
+| `DepositTooLow` | The cushion is less than `min_deposit_tao` (0.1 τ). |
+| `ExposureTooLarge` | `phi` would be 100% or more of the pool. |
+| `PoolCapExceeded` | All open positions of that side already borrow `max_pool_share` (10%, or the subnet's override) of the lent reserve. Try a smaller cushion or wait for others to close. |
+
+## Watch and close
+
+```bash
+# Your open positions, with fee so far, blocks to expiry, and estimated value
+btcli deriv list -w my_coldkey
+btcli deriv list --coldkey <ss58> --netuid 7 --json
+
+# Close your short on subnet 7
+btcli deriv close --netuid 7 --side short -w my_coldkey
+
+# Close someone else's expired position (permissionless once expired)
+btcli deriv close --netuid 7 --side long --owner <their-ss58> -w my_coldkey
+```
+
+```python
+positions = await client.prices.derivative_positions(coldkey_ss58="5C...")
+one = await client.prices.derivative_position(coldkey_ss58="5C...", netuid=7, side="Short")
+await client.execute(bt.ClosePosition(netuid=7, side="Short"), wallet)
+```
+
+Closing is atomic: [`do_settle`](/code/pallets/derivatives/src/settle.rs)
+reverses the open trade, repays the pool, collects the fee, pays you, and
+returns the slice — or the whole call reverts. You may close at any block.
+Closing on the same day you opened still pays one day of fee.
+
+## Roll: stay in past expiry
+
+A position cannot be extended, but it can be **rolled**: settled at today's
+price and reopened in the same transaction
+([`do_roll`](/code/pallets/derivatives/src/settle.rs)).
+
+```bash
+# Close the short on subnet 7 and reopen it with whatever came back
+btcli deriv roll --netuid 7 --side short -w my_coldkey
+
+# Same, adding 50 τ to the new cushion
+btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey
+```
+
+```python
+await client.execute(bt.RollPosition(netuid=7, side="Short", top_up=50), wallet)
+```
+
+What happens, in order:
+
+1. The old position is settled exactly like `close`. The pool gets its slice
+   and the fee so far; your loss or profit is realized now.
+2. What reached you (cushion plus profit, minus loss and fee), plus any
+   `--add`, becomes the cushion of a new position on the same side. It gets
+   today's entry price and a full `lifetime_blocks`.
+
+A roll is a real settlement, so the pool's risk is bounded the same way as
+with a close: no position ever lives longer than `lifetime_blocks` without
+being marked to market. If what comes back is below `min_deposit_tao`, or the
+pool cap is reached, the roll fails and the old position stays as it was;
+`close` instead. Only the owner may roll.
+
+## Expiry
+
+A position may stay open for `lifetime_blocks` (216,000 blocks, about 30
+days). After that:
+
+- The chain sweeps expired positions in
+  [`on_idle`](/code/pallets/derivatives/src/lib.rs) via
+  [`sweep_expired`](/code/pallets/derivatives/src/lib.rs), up to 32 per
+  block, and settles them exactly as a normal close.
+- If a sweep fails (for example, the pool cannot fill the buyback at that
+  moment), the chain emits `SettleFailed` and tries again 300 blocks later,
+  up to three times. After that the position stays open and waits for a
+  manual close. `SettleFailed.retry_at` tells you which case you are in.
+- Anyone may call `close` with `--owner` on an expired position. Before
+  expiry that call fails with `NotExpired`.
+
+The exact expiry block may be a few blocks later than open + 216,000 when
+that block's expiry queue is already full; the position's `expires_at` is
+the number to trust.
+
+## Subnet dissolution
+
+If a subnet is dissolved while positions are open, settling them is the
+**first** cleanup phase
+([`DerivativesSettle`](/code/pallets/subtensor/src/subnets/dissolution.rs)).
+Positions are **unwound**, not settled: the lifted slice goes back to the pool
+in kind, your TAO cushion comes back, and no fee is charged
+([`unwind`](/code/pallets/derivatives/src/settle.rs)). Any profit or
+loss at that moment is cancelled. The pool then proceeds through the normal
+dissolution payout with its full reserves.
+
+## Parameters
+
+Root-set, read with [`derivatives-params`](/docs/query/derivatives-params).
+Mainnet defaults from
+[`DerivativesParams::defaults`](/code/pallets/derivatives/src/position.rs).
+Root sets them with `sudo_set_params`, which rejects a zero leverage,
+`max_pool_share`, or `lifetime_blocks`; use the enable flags to pause a side.
+Every value is a dial: changing one applies to positions opened from then on,
+and a running position keeps the fee per day and expiry it opened with.
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `shorts_enabled` | `true` | Shorts may be opened. Existing shorts can always be closed. |
+| `longs_enabled` | `true` | Longs may be opened. |
+| `short_leverage_percent` | `100` | A short's exposure as a share of its cushion. 100 = 1x. |
+| `long_leverage_percent` | `200` | A long's exposure as a share of its cushion. 200 = 2x. |
+| `max_pool_share` | `10%` | Largest share of the lent reserve all open positions of one side on one subnet may borrow together. |
+| `lifetime_blocks` | `216,000` | Maximum time a position may stay open (~30 days). |
+| `short_fee_per_day` | `6 τ` | What a short pays per day for borrowing the whole pool; a position pays this times its `phi`, times the size factor. Fixed at open, paid at close, one-day minimum. |
+| `long_rate_per_day` | `0.01%` | Fee per day on a long's TAO exposure, times the size factor. Fixed at open, paid at close, one-day minimum. |
+| `min_deposit_tao` | `0.1 τ` | Smallest cushion. |
+
+### Per-subnet overrides
+
+Root can also pause a side or change the cap on one subnet without touching
+the rest, with `sudo_set_subnet_override(netuid, override)`. Read it with
+[`derivatives-subnet-override`](/docs/query/derivatives-subnet-override) or
+`btcli deriv params --netuid N`. Passing `None` removes the override and puts
+the subnet back on the global parameters.
+
+| Field | Meaning |
+|-------|---------|
+| `shorts_enabled` | Replaces the global switch for opening shorts on this subnet. |
+| `longs_enabled` | Replaces the global switch for opening longs on this subnet. |
+| `max_pool_share` | When set, replaces the global cap on this subnet. Must be non-zero. |
+
+An override affects opens only. Positions already open on a paused subnet
+settle as usual, and `roll` cannot reopen there while the side is paused.
+This is the lever to reach for when one pool misbehaves: pause the side, let
+the open positions run off or close, and lift the pause when the pool is
+healthy again.
+
+### Events
+
+Every state change emits an event, so an indexer or a watcher can follow the
+book without reading storage:
+
+| Event | When |
+|-------|------|
+| `PositionOpened` | A position opened: owner, subnet, side, cushion, legs, exposure, fee per day, expiry. |
+| `PositionClosed` | A position settled: who closed it (owner, anyone after expiry, the expiry sweep, a roll, or dissolution), TAO returned, fee paid, and any shortfall the pool carried. |
+| `SettleFailed` | The expiry sweep could not settle a position; it is retried later or left to a permissionless `close`. |
+| `ParamsSet` | Root replaced the global parameters. |
+| `SubnetOverrideSet` | Root set or removed a subnet's override. |
+
+The storage behind them is public too: `Positions`, `Footprint` (borrowed per
+side per subnet), `Expiring`, `Params`, `SubnetOverrides`, and `PalletHotkey`.
+
+## Chain reference
+
+| Item | Where |
+|------|-------|
+| Extrinsics | `open` (with a `side` argument), `close`, and `roll`, plus root-only `sudo_set_params` and `sudo_set_subnet_override`. SDK intents: [`open-short`](/docs/tx/open-short), [`open-long`](/docs/tx/open-long), [`close-derivative`](/docs/tx/close-derivative), [`roll-derivative`](/docs/tx/roll-derivative) |
+| Queries | [`derivative-position`](/docs/query/derivative-position), [`derivative-positions`](/docs/query/derivative-positions), [`derivatives-params`](/docs/query/derivatives-params), [`derivatives-subnet-override`](/docs/query/derivatives-subnet-override) |
+| Open path | [`do_open`](/code/pallets/derivatives/src/settle.rs) |
+| Pool operations | [`derivatives_pool.rs`](/code/pallets/subtensor/src/staking/derivatives_pool.rs) |
+| Position types and math | [`position.rs`](/code/pallets/derivatives/src/position.rs) |
+
+## Rules worth remembering
+
+- One position per coldkey, subnet, and side. A long and a short on the same
+  subnet are allowed and independent.
+- Cushions are TAO only for now. Alpha you hold stays staked and keeps
+  earning. The cushion is stored as a `Cushion` enum with one `Tao` variant,
+  so an alpha variant can be added later without migrating open positions.
+- You can close at any block; you cannot extend past 30 days. `roll` to stay
+  in: it settles at today's price and reopens in one transaction.
+- Slippage is real on both legs. Size positions against the pool's depth,
+  not against your balance.
+- Profit comes from the pool; loss goes to the pool. The leverage (1x shorts,
+  2x longs) and the 10% cap bound how much either can move the pool.
+
+For the pool mechanics underneath, see [Staking pools](/docs/concepts/staking-pools).

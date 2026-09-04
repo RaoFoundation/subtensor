@@ -7,6 +7,7 @@ mod basket_views;
 pub mod beta_pricing;
 mod claim_root;
 pub mod decrease_take;
+pub mod derivatives_pool;
 pub mod helpers;
 pub mod increase_take;
 pub mod lock;

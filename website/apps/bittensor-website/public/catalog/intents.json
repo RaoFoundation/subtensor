@@ -62,9 +62,9 @@
         "pallet": "SubtensorModule",
         "call": "add_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2584,
-        "end_line": 2592,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2582-L2592",
+        "line": 2589,
+        "end_line": 2597,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2587-L2597",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -200,9 +200,9 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_limit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1431,
-        "end_line": 1448,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1429-L1448",
+        "line": 1432,
+        "end_line": 1449,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1430-L1449",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -276,9 +276,9 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_limit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1431,
-        "end_line": 1448,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1429-L1448",
+        "line": 1432,
+        "end_line": 1449,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1430-L1449",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -318,9 +318,9 @@
         "pallet": "SubtensorModule",
         "call": "announce_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2121,
-        "end_line": 2147,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2119-L2147",
+        "line": 2125,
+        "end_line": 2151,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2123-L2151",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -375,9 +375,9 @@
         "pallet": "SubtensorModule",
         "call": "associate_evm_key",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1649,
-        "end_line": 1657,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1643-L1657",
+        "line": 1650,
+        "end_line": 1658,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1644-L1658",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -415,9 +415,9 @@
         "pallet": "SubtensorModule",
         "call": "try_associate_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1591,
-        "end_line": 1597,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1589-L1597",
+        "line": 1592,
+        "end_line": 1598,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1590-L1598",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -546,9 +546,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1974,
-        "end_line": 1992,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1967-L1992",
+        "line": 1972,
+        "end_line": 1996,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1968-L1996",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -556,7 +556,7 @@
   {
     "name": "claim_root_with_hotkey",
     "summary": "Redeem accrued root dividends (basket shares) for one validator.",
-    "description": "Redeem accrued root dividends (basket shares) for one validator.\n\nRedeems the signing coldkey's owed shares on the given validator only:\nthat basket pays out pro-rata (subnet alpha holdings are sold to TAO at\nthe current pool price) and the proceeds are staked back to root on the\nsame validator. Other validators' accrued yield is left untouched.\nClaims whose estimated payout is below the chain's claim threshold\n(see `root_claim_threshold`) are silently skipped and keep accruing.\nOrphaned dust holdings in the basket (subnets outside the validator's\ncurrent weight vector, worth less than the same threshold) are\nconsolidated into the fund's root (TAO) slot as a side effect, so the\nper-holding claim fee shrinks over time; curated positions are left to\ncompound. The transaction fee is charged by work actually done:\nholdings redeemed pay full weight, holdings merely scanned pay a small\nper-row cost. The chain reserves a fixed 256-unit declared-work envelope at\ninclusion, independent of the current network count, and refunds the unused\npart after.\n`plan` and `btcli root claim --dry-run` show reserved versus spent,\nwarn when the spent fee exceeds accrued yield, and refuse when free\nTAO cannot cover the reserve.\nPreview per-validator payouts with `root_basket_owed_breakdown`.",
+    "description": "Redeem accrued root dividends (basket shares) for one validator.\n\nRedeems the signing coldkey's owed shares on the given validator only:\nthat basket pays out pro-rata (subnet alpha holdings are sold to TAO at\nthe current pool price) and the proceeds are staked back to root on the\nsame validator. Other validators' accrued yield is left untouched.\nClaims whose estimated payout is below the chain's claim threshold\n(see `root_claim_threshold`) are silently skipped and keep accruing.\nOrphaned dust holdings in the basket (subnets outside the validator's\ncurrent weight vector, worth less than the same threshold) are\nconsolidated into the fund's root (TAO) slot as a side effect, so the\nper-holding claim fee shrinks over time; curated positions are left to\ncompound. The transaction fee is charged by work actually done:\nholdings redeemed pay full weight, holdings merely scanned pay a small\nper-row cost. The chain reserves a fixed 256-unit declared-work envelope,\ncounts only root-relevant hotkeys and their basket rows for admission, and\nseparately caps classification of the staking-hotkey vector at 256. It\nrefunds the unused part after.\n`plan` and `btcli root claim --dry-run` show reserved versus spent,\nwarn when the spent fee exceeds accrued yield, and refuse when free\nTAO cannot cover the reserve.\nPreview per-validator payouts with `root_basket_owed_breakdown`.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -588,9 +588,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2012,
-        "end_line": 2027,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027",
+        "line": 2016,
+        "end_line": 2031,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2012-L2031",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -623,10 +623,61 @@
         "pallet": "SubtensorModule",
         "call": "clear_coldkey_swap_announcement",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2320,
-        "end_line": 2335,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2318-L2335",
+        "line": 2324,
+        "end_line": 2339,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2322-L2339",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "close_derivative",
+    "summary": "Close a derivatives position and settle it against the pool.",
+    "description": "Close a derivatives position and settle it against the pool.\n\nThe owner may close at any time. After the position's expiry anyone may\nclose it on the owner's behalf, so the pool always gets its liquidity back.\nSettlement reverses the opening trade, repays the pool plus the borrow\nfee, and pays the owner what remains in TAO. If the position is underwater\nthe pool absorbs the shortfall and the owner gets nothing back.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "close"
+      ]
+    ],
+    "docs_url": "/docs/tx/close-derivative",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the position is on."
+        },
+        "side": {
+          "type": "string",
+          "description": "Which position to close: `Short` or `Long`."
+        },
+        "owner_ss58": {
+          "type": "string",
+          "description": "Coldkey that owns the position. Defaults to the signer; pass another owner only to close their expired position."
+        }
+      },
+      "required": [
+        "netuid",
+        "side"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx close-derivative --netuid <int> --side <value>",
+    "python_class": "ClosePosition",
+    "markdown_url": "/llms.mdx/docs/tx/close-derivative/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "close",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 255,
+        "end_line": 271,
+        "url": "/code/pallets/derivatives/src/lib.rs#L253-L271",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
@@ -691,9 +742,9 @@
         "pallet": "SubtensorModule",
         "call": "commit_timelocked_mechanism_weights",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1922,
-        "end_line": 1938,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1938",
+        "line": 1923,
+        "end_line": 1939,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1921-L1939",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -978,9 +1029,9 @@
         "pallet": "SubtensorModule",
         "call": "dispute_coldkey_swap",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2190,
-        "end_line": 2207,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2188-L2207",
+        "line": 2194,
+        "end_line": 2211,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2192-L2211",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1394,9 +1445,9 @@
         "pallet": "SubtensorModule",
         "call": "lock_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2391,
-        "end_line": 2399,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2389-L2399",
+        "line": 2395,
+        "end_line": 2403,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2393-L2403",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1441,9 +1492,9 @@
         "pallet": "SubtensorModule",
         "call": "move_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2415,
-        "end_line": 2422,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2413-L2422",
+        "line": 2419,
+        "end_line": 2426,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2417-L2426",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -1551,18 +1602,18 @@
         "pallet": "SubtensorModule",
         "call": "move_stake_limit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1559,
-        "end_line": 1579,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1557-L1579",
+        "line": 1560,
+        "end_line": 1580,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1558-L1580",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2012,
-        "end_line": 2027,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027",
+        "line": 2016,
+        "end_line": 2031,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2012-L2031",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -1675,18 +1726,18 @@
         "pallet": "SubtensorModule",
         "call": "swap_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1381,
-        "end_line": 1395,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1379-L1395",
+        "line": 1382,
+        "end_line": 1396,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1380-L1396",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
         "call": "swap_stake_limit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1529,
-        "end_line": 1547,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1527-L1547",
+        "line": 1530,
+        "end_line": 1548,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1528-L1548",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -1877,6 +1928,118 @@
     "markdown_url": "/llms.mdx/docs/tx/multisig-threshold-1/content.md"
   },
   {
+    "name": "open_long",
+    "summary": "Open a long on a subnet's alpha, backed by a TAO cushion.",
+    "description": "Open a long on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is sized from the cushion (`long_leverage_percent` of it against the\npool's TAO reserve) and capped by the pool-share limit.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "open"
+      ]
+    ],
+    "docs_url": "/docs/tx/open-long",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha the position is on."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO cushion to deposit from the coldkey balance. Exposure is the side's leverage times this amount, measured against the pool's TAO reserve."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx open-long --netuid <int> --amount <amount|all>",
+    "python_class": "OpenLong",
+    "markdown_url": "/llms.mdx/docs/tx/open-long/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "open",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 241,
+        "end_line": 249,
+        "url": "/code/pallets/derivatives/src/lib.rs#L239-L249",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "open_short",
+    "summary": "Open a short on a subnet's alpha, backed by a TAO cushion.",
+    "description": "Open a short on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is sized from the cushion (`short_leverage_percent` of it\nagainst the pool's TAO reserve) and capped by the pool-share limit.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "open"
+      ]
+    ],
+    "docs_url": "/docs/tx/open-short",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha the position is on."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO cushion to deposit from the coldkey balance. Exposure is the side's leverage times this amount, measured against the pool's TAO reserve."
+        }
+      },
+      "required": [
+        "netuid",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx open-short --netuid <int> --amount <amount|all>",
+    "python_class": "OpenShort",
+    "markdown_url": "/llms.mdx/docs/tx/open-short/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "open",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 241,
+        "end_line": 249,
+        "url": "/code/pallets/derivatives/src/lib.rs#L239-L249",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "refund_crowdloan",
     "summary": "Refund contributors of a non-finalized crowdloan (creator only).",
     "description": "Refund contributors of a non-finalized crowdloan (creator only).\n\nReturns contributions (excluding the creator's) to their contributors.\nOnly the creator may call it. Each call refunds at most 50 contributors,\nso large loans may need several `refund_crowdloan` calls before\neveryone is paid back. Once all contributors are refunded, the creator\nruns `dissolve_crowdloan`, which returns the creator's remaining\ncontribution (including the deposit) and removes the loan.",
@@ -1957,9 +2120,9 @@
         "pallet": "SubtensorModule",
         "call": "register_leased_network",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1743,
-        "end_line": 1749,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1741-L1749",
+        "line": 1744,
+        "end_line": 1750,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1742-L1750",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -2182,18 +2345,18 @@
         "pallet": "SubtensorModule",
         "call": "remove_stake_limit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1484,
-        "end_line": 1500,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1482-L1500",
+        "line": 1485,
+        "end_line": 1501,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1483-L1501",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2012,
-        "end_line": 2027,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027",
+        "line": 2016,
+        "end_line": 2031,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2012-L2031",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -2292,9 +2455,9 @@
         "pallet": "SubtensorModule",
         "call": "remove_stake_limit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1484,
-        "end_line": 1500,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1482-L1500",
+        "line": 1485,
+        "end_line": 1501,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1483-L1501",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -2310,9 +2473,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2012,
-        "end_line": 2027,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027",
+        "line": 2016,
+        "end_line": 2031,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2012-L2031",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -2435,6 +2598,66 @@
         "end_line": 305,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L294-L305",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
+      }
+    ]
+  },
+  {
+    "name": "roll_derivative",
+    "summary": "Settle a position at today's price and reopen it in the same transaction.",
+    "description": "Settle a position at today's price and reopen it in the same transaction.\n\nThe old position is closed like `close`: the pool gets its slice and the\nborrow fee back, and the owner's cushion plus profit or loss comes back in\nTAO. That TAO, plus an optional `top_up`, is then the cushion of a fresh\nposition on the same side with a full lifetime and today's entry price.\nFails without touching the position if the new cushion is below the\nminimum deposit or the pool cap is reached; `close` instead.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "roll"
+      ]
+    ],
+    "docs_url": "/docs/tx/roll-derivative",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet the position is on."
+        },
+        "side": {
+          "type": "string",
+          "description": "Which position to roll: `Short` or `Long`."
+        },
+        "top_up": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "Extra TAO to add to the new cushion from the coldkey balance."
+        }
+      },
+      "required": [
+        "netuid",
+        "side"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx roll-derivative --netuid <int> --side <value>",
+    "python_class": "RollPosition",
+    "markdown_url": "/llms.mdx/docs/tx/roll-derivative/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "roll",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 282,
+        "end_line": 290,
+        "url": "/code/pallets/derivatives/src/lib.rs#L280-L290",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
@@ -2698,9 +2921,9 @@
         "pallet": "SubtensorModule",
         "call": "set_coldkey_auto_stake_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1856,
-        "end_line": 1896,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1854-L1896",
+        "line": 1857,
+        "end_line": 1897,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1855-L1897",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3478,9 +3701,9 @@
         "pallet": "SubtensorModule",
         "call": "set_min_collateral",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2619,
-        "end_line": 2626,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2617-L2626",
+        "line": 2624,
+        "end_line": 2631,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2622-L2631",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3525,9 +3748,9 @@
         "pallet": "SubtensorModule",
         "call": "set_perpetual_lock",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2431,
-        "end_line": 2438,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2429-L2438",
+        "line": 2435,
+        "end_line": 2442,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2433-L2442",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3567,9 +3790,9 @@
         "pallet": "SubtensorModule",
         "call": "set_reject_locked_alpha",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2487,
-        "end_line": 2492,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2485-L2492",
+        "line": 2491,
+        "end_line": 2496,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2489-L2496",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3622,9 +3845,9 @@
         "pallet": "SubtensorModule",
         "call": "sudo_set_root_claim_threshold",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2084,
-        "end_line": 2103,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2082-L2103",
+        "line": 2088,
+        "end_line": 2107,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2086-L2107",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -3941,9 +4164,9 @@
         "pallet": "SubtensorModule",
         "call": "commit_timelocked_mechanism_weights",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1922,
-        "end_line": 1938,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1920-L1938",
+        "line": 1923,
+        "end_line": 1939,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1921-L1939",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4009,9 +4232,9 @@
         "pallet": "SubtensorModule",
         "call": "add_stake_burn",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2304,
-        "end_line": 2312,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2302-L2312",
+        "line": 2308,
+        "end_line": 2316,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2306-L2316",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4071,9 +4294,9 @@
         "pallet": "SubtensorModule",
         "call": "stake_into_basket",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2066,
-        "end_line": 2074,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2059-L2074",
+        "line": 2070,
+        "end_line": 2078,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2063-L2078",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4113,9 +4336,9 @@
         "pallet": "SubtensorModule",
         "call": "start_call",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1609,
-        "end_line": 1612,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1607-L1612",
+        "line": 1610,
+        "end_line": 1613,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1608-L1613",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4155,9 +4378,9 @@
         "pallet": "SubtensorModule",
         "call": "swap_coldkey_announced",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2159,
-        "end_line": 2179,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2157-L2179",
+        "line": 2163,
+        "end_line": 2183,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2161-L2183",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4289,18 +4512,18 @@
         "pallet": "SubtensorModule",
         "call": "swap_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1381,
-        "end_line": 1395,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1379-L1395",
+        "line": 1382,
+        "end_line": 1396,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1380-L1396",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
         "call": "swap_stake_limit",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1529,
-        "end_line": 1547,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1527-L1547",
+        "line": 1530,
+        "end_line": 1548,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1528-L1548",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4344,9 +4567,9 @@
         "pallet": "SubtensorModule",
         "call": "terminate_lease",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1766,
-        "end_line": 1772,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1764-L1772",
+        "line": 1767,
+        "end_line": 1773,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1765-L1773",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4527,18 +4750,18 @@
         "pallet": "SubtensorModule",
         "call": "transfer_stake",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1339,
-        "end_line": 1355,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1337-L1355",
+        "line": 1340,
+        "end_line": 1356,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1338-L1356",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
         "pallet": "SubtensorModule",
         "call": "transfer_stake_and_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2526,
-        "end_line": 2544,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2524-L2544",
+        "line": 2531,
+        "end_line": 2549,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2529-L2549",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
@@ -4646,9 +4869,9 @@
         "pallet": "SubtensorModule",
         "call": "claim_root_with_hotkey",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 2012,
-        "end_line": 2027,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027",
+        "line": 2016,
+        "end_line": 2031,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L2012-L2031",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       },
       {
@@ -4903,9 +5126,9 @@
         "pallet": "SubtensorModule",
         "call": "update_symbol",
         "path": "pallets/subtensor/src/macros/dispatches.rs",
-        "line": 1791,
-        "end_line": 1806,
-        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1789-L1806",
+        "line": 1792,
+        "end_line": 1807,
+        "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L1790-L1807",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
       }
     ]
