@@ -3130,6 +3130,7 @@ fn register_network_fails_without_balance_and_does_not_write_owner_alpha_state()
         );
 
         assert!(!SubtensorModule::if_subnet_exist(would_be_netuid));
+        assert!(!SubtensorModule::hotkey_account_exists(&hot));
         assert_eq!(TotalNetworks::<Test>::get(), 0);
         assert_eq!(
             SubnetAlphaIn::<Test>::get(would_be_netuid),
@@ -3505,7 +3506,7 @@ fn register_network_queues_when_waiting_for_dissolve_cleanup() {
         SubnetLimit::<Test>::put(2u16);
 
         let n1 = add_dynamic_network(&U256::from(9102), &U256::from(9101));
-        let _n2 = add_dynamic_network(&U256::from(9202), &U256::from(9201));
+        let n2 = add_dynamic_network(&U256::from(9202), &U256::from(9201));
 
         assert_ok!(SubtensorModule::do_dissolve_network(n1));
         assert!(DissolveCleanupQueue::<Test>::get().contains(&n1));
@@ -3526,7 +3527,57 @@ fn register_network_queues_when_waiting_for_dissolve_cleanup() {
         assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
         assert_eq!(NetworkRegistrationQueue::<Test>::get()[0].coldkey, cold);
         assert_eq!(TotalNetworks::<Test>::get(), 1);
-        assert!(!SubtensorModule::hotkey_account_exists(&hot));
+        assert!(SubtensorModule::coldkey_owns_hotkey(&cold, &hot));
+
+        SubtensorModule::set_burn(n2, TaoBalance::ZERO);
+        assert_err!(
+            SubtensorModule::burned_register(RuntimeOrigin::signed(U256::from(9303)), n2, hot,),
+            Error::<Test>::NonAssociatedColdKey,
+        );
+    });
+}
+
+#[test]
+fn queued_network_registration_reserves_new_hotkey_for_payer() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(2u16);
+
+        let dissolving = add_dynamic_network(&U256::from(9352), &U256::from(9351));
+        let existing = add_dynamic_network(&U256::from(9362), &U256::from(9361));
+        assert_ok!(SubtensorModule::do_dissolve_network(dissolving));
+
+        let payer = U256::from(9371);
+        let rival = U256::from(9372);
+        let hotkey = U256::from(9373);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&payer, lock_amount.saturating_mul(2.into()).into());
+
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(payer),
+            &hotkey,
+            1,
+            None,
+        ));
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+        assert!(SubtensorModule::coldkey_owns_hotkey(&payer, &hotkey));
+
+        // A later registration attempt cannot acquire the already-reserved hotkey.
+        assert_ok!(SubtensorModule::create_account_if_non_existent(
+            &rival, &hotkey
+        ));
+        assert!(SubtensorModule::coldkey_owns_hotkey(&payer, &hotkey));
+        assert!(!SubtensorModule::coldkey_owns_hotkey(&rival, &hotkey));
+
+        DissolveCleanupQueue::<Test>::kill();
+        run_network_registration_queue();
+
+        let registered_netuid = NetworksAdded::<Test>::iter()
+            .find(|(netuid, added)| *added && *netuid != existing)
+            .map(|(netuid, _)| netuid)
+            .expect("queued registration should create a subnet");
+        assert_eq!(SubnetOwner::<Test>::get(registered_netuid), payer);
+        assert_eq!(SubnetOwnerHotkey::<Test>::get(registered_netuid), hotkey);
+        assert!(SubtensorModule::coldkey_owns_hotkey(&payer, &hotkey));
     });
 }
 
@@ -3601,6 +3652,94 @@ fn register_network_prune_registers_registration_queued() {
         assert!(NetworkRegistrationQueue::<Test>::get().len() == 1);
         assert!(DissolveCleanupQueue::<Test>::get().contains(&n1));
         assert!(!NetworksAdded::<Test>::get(n1));
+    });
+}
+
+#[test]
+fn queued_network_registration_consumes_rate_limit() {
+    new_test_ext(0).execute_with(|| {
+        SubnetLimit::<Test>::put(2u16);
+        NetworkRateLimit::<Test>::put(100u64);
+
+        let n1 = add_dynamic_network(&U256::from(10_102), &U256::from(10_101));
+        let n2 = add_dynamic_network(&U256::from(10_202), &U256::from(10_201));
+
+        let current_block = SubtensorModule::get_network_immunity_period() + 100;
+        System::set_block_number(current_block);
+        Emission::<Test>::insert(n1, vec![AlphaBalance::from(1)]);
+        Emission::<Test>::insert(n2, vec![AlphaBalance::from(1_000)]);
+
+        let cold = U256::from(10_301);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(10.into()).into());
+
+        assert_ok!(SubtensorModule::do_register_network(
+            RuntimeOrigin::signed(cold),
+            &U256::from(10_302),
+            1,
+            None,
+        ));
+        assert_err!(
+            SubtensorModule::do_register_network(
+                RuntimeOrigin::signed(cold),
+                &U256::from(10_303),
+                1,
+                None,
+            ),
+            Error::<Test>::NetworkTxRateLimitExceeded,
+        );
+
+        assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
+        assert_eq!(DissolveCleanupQueue::<Test>::get().len(), 1);
+        assert!(NetworksAdded::<Test>::get(n2));
+        assert_eq!(SubtensorModule::get_network_last_lock(), lock_amount);
+        assert_eq!(
+            SubtensorModule::get_network_last_lock_block(),
+            current_block
+        );
+
+        DissolveCleanupQueue::<Test>::kill();
+        System::set_block_number(current_block + 50);
+        SubtensorModule::process_network_registration_queue();
+
+        assert!(NetworkRegistrationQueue::<Test>::get().is_empty());
+        assert_eq!(SubtensorModule::get_network_last_lock(), lock_amount);
+        assert_eq!(
+            SubtensorModule::get_network_last_lock_block(),
+            current_block
+        );
+    });
+}
+
+#[test]
+fn set_new_network_state_without_lock_id_updates_lock_pricing() {
+    new_test_ext(1).execute_with(|| {
+        let current_block = 123;
+        System::set_block_number(current_block);
+
+        let cold = U256::from(10_001);
+        let hot = U256::from(10_002);
+        let lock_amount = SubtensorModule::get_network_lock_cost();
+        add_balance_to_coldkey_account(&cold, lock_amount.saturating_mul(2.into()).into());
+
+        SubtensorModule::set_network_last_lock(lock_amount.saturating_add(1.into()));
+        SubtensorModule::set_network_last_lock_block(current_block - 1);
+
+        assert_ok!(SubtensorModule::set_new_network_state(
+            &cold,
+            &hot,
+            1,
+            None,
+            lock_amount,
+            SubtensorModule::get_median_subnet_alpha_price(),
+            None,
+        ));
+
+        assert_eq!(SubtensorModule::get_network_last_lock(), lock_amount);
+        assert_eq!(
+            SubtensorModule::get_network_last_lock_block(),
+            current_block
+        );
     });
 }
 
@@ -3830,7 +3969,7 @@ fn process_network_registration_queue_waits_for_cleanup_completion() {
         SubtensorModule::process_network_registration_queue();
 
         assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
-        assert!(!SubtensorModule::hotkey_account_exists(&hot));
+        assert!(SubtensorModule::coldkey_owns_hotkey(&cold, &hot));
         assert_eq!(TotalNetworks::<Test>::get(), 1);
 
         // Once cleanup completes, the same call releases the registration.
@@ -3885,7 +4024,7 @@ fn process_network_registration_queue_processes_one_entry_per_call() {
         SubtensorModule::process_network_registration_queue();
         assert_eq!(NetworkRegistrationQueue::<Test>::get().len(), 1);
         assert!(SubtensorModule::hotkey_account_exists(&hot_a));
-        assert!(!SubtensorModule::hotkey_account_exists(&hot_b));
+        assert!(SubtensorModule::hotkey_account_exists(&hot_b));
         assert_eq!(NetworkRegistrationQueue::<Test>::get()[0].coldkey, cold_b);
 
         // Second call processes the remaining entry.

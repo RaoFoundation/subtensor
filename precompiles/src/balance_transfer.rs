@@ -1,5 +1,7 @@
+use alloc::format;
 use core::marker::PhantomData;
 
+use fp_evm::{ExitError, PrecompileFailure};
 use frame_support::dispatch::{DispatchInfo, GetDispatchInfo, PostDispatchInfo};
 use frame_support::traits::IsSubType;
 use frame_system::RawOrigin;
@@ -77,14 +79,32 @@ where
             return Ok(());
         }
 
+        let caller = handle.caller_account_id::<R>();
         let dest = R::AccountId::from(address.0).into();
 
-        let call = pallet_balances::Call::<R>::transfer_allow_death {
-            dest,
-            value: amount_sub.unique_saturated_into(),
-        };
+        let call = <R as frame_system::Config>::RuntimeCall::from(
+            pallet_balances::Call::<R>::transfer_allow_death {
+                dest,
+                value: amount_sub.unique_saturated_into(),
+            },
+        );
 
-        handle.try_dispatch_runtime_call::<R, _>(call, RawOrigin::Signed(Self::account_id()))
+        // Frontier has already moved msg.value from the mapped caller into this precompile's
+        // account, so the balance dispatch must continue to spend from the precompile account.
+        // Apply the existing centralized swap guard to the true caller before that dispatch.
+        handle.record_db_reads::<R>(2)?;
+        pallet_subtensor::CheckColdkeySwap::<R>::check(&caller, &call).map_err(|error| {
+            PrecompileFailure::Error {
+                exit_status: ExitError::Other(
+                    format!("dispatch execution failed: {error:?}").into(),
+                ),
+            }
+        })?;
+
+        handle.try_dispatch_runtime_call::<R, <R as frame_system::Config>::RuntimeCall>(
+            call,
+            RawOrigin::Signed(Self::account_id()),
+        )
     }
 
     #[precompile::public("transferKeepAlive(bytes32,uint256)")]
