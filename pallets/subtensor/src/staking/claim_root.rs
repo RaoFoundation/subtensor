@@ -902,7 +902,7 @@ impl<T: Config> Pallet<T> {
 
     /// Pre-dispatch weight for both independently bounded dimensions: full claim work and
     /// scan-only work.
-    pub(crate) fn root_claim_declared_weight() -> Weight {
+    pub fn root_claim_declared_weight() -> Weight {
         let limit = Self::root_claim_declared_work();
         <T as crate::pallet::Config>::WeightInfo::claim_root(limit).saturating_add(
             <T as crate::pallet::Config>::WeightInfo::claim_root_scan(limit),
@@ -929,7 +929,7 @@ impl<T: Config> Pallet<T> {
     /// True when the hotkeys plus the basket storage rows the claim will scan fit the fixed
     /// admission envelope. Count raw Alpha/AlphaV2 rows so legacy duplicates and malformed
     /// zero rows are charged conservatively, and stop as soon as the bound is exceeded.
-    pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
+    pub fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
         let budget = Self::root_claim_declared_work();
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
         if work > budget {

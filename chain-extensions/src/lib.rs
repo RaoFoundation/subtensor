@@ -970,13 +970,14 @@ where
                     .read_as()
                     .map_err(|_| DispatchError::Other("Failed to decode input parameters"))?;
 
-                let rows = pallet_subtensor::Pallet::<T>::get_basket_holdings(&hotkey).len();
-                if rows > pallet_subtensor::MAX_ROOT_CLAIM_WORK as usize {
+                let weight = pallet_subtensor::Pallet::<T>::root_claim_declared_weight();
+                env.charge_weight(weight)?;
+
+                if !pallet_subtensor::Pallet::<T>::root_claim_fits_declared_budget(
+                    core::slice::from_ref(&hotkey),
+                ) {
                     return Ok(RetVal::Converging(Output::RuntimeError as u32));
                 }
-
-                let weight = <<T as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::claim_root(pallet_subtensor::MAX_ROOT_CLAIM_WORK);
-                env.charge_weight(weight)?;
 
                 let caller = env.caller();
                 let call_result =
