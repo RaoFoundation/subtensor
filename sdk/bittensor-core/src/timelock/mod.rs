@@ -378,21 +378,19 @@ mod tests {
 
     #[test]
     fn inner_ciphertext_unwraps_user_data_envelope() {
-        let message = b"chain submit bytes";
-        let reveal_round = 30_000_000;
-        let (envelope, round) =
-            encrypt_at_round(message, reveal_round).expect("Encryption should succeed");
-        assert_eq!(round, reveal_round);
+        let expected = b"chain submit bytes".to_vec();
+        let mut envelope = UserData {
+            encrypted_data: expected.clone(),
+            reveal_round: 30_000_000,
+        }
+        .encode();
 
-        let inner = inner_ciphertext(&envelope).expect("envelope should unwrap");
-        assert_ne!(inner, envelope);
-        assert!(inner.len() < envelope.len());
+        assert_eq!(inner_ciphertext(&envelope).unwrap(), expected);
 
-        let mut envelope_with_trailing_data = envelope;
-        envelope_with_trailing_data.push(0);
+        envelope.push(0);
         assert!(
-            inner_ciphertext(&envelope_with_trailing_data).is_err(),
-            "a UserData envelope must consume all input bytes"
+            inner_ciphertext(&envelope).is_err(),
+            "trailing bytes must be rejected"
         );
     }
 
