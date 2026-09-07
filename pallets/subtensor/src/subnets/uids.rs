@@ -116,8 +116,8 @@ impl<T: Config> Pallet<T> {
         Uids::<T>::insert(netuid, new_hotkey.clone(), uid_to_replace); // Make uid - hotkey association.
         BlockAtRegistration::<T>::insert(netuid, uid_to_replace, block_number); // Fill block at registration.
         IsNetworkMember::<T>::insert(new_hotkey.clone(), netuid, true); // Fill network is member.
-        // Drop a stale rename edge if this SS58 was previously swapped away.
-        Self::clear_stale_hotkey_successor(netuid, new_hotkey);
+        // Re-registration cancels any scheduled swap from this hotkey.
+        Self::cancel_hotkey_successor_on_reregistration(netuid, new_hotkey);
 
         // 4. Clear neuron axons, certificates and prometheus info
         Axons::<T>::remove(netuid, &old_hotkey);
@@ -164,8 +164,8 @@ impl<T: Config> Pallet<T> {
         Uids::<T>::insert(netuid, new_hotkey.clone(), next_uid); // Make uid - hotkey association.
         BlockAtRegistration::<T>::insert(netuid, next_uid, block_number); // Fill block at registration.
         IsNetworkMember::<T>::insert(new_hotkey.clone(), netuid, true); // Fill network is member.
-        // Drop a stale rename edge if this SS58 was previously swapped away.
-        Self::clear_stale_hotkey_successor(netuid, new_hotkey);
+        // Re-registration cancels any scheduled swap from this hotkey.
+        Self::cancel_hotkey_successor_on_reregistration(netuid, new_hotkey);
     }
 
     pub fn trim_to_max_allowed_uids(netuid: NetUid, max_n: u16) -> DispatchResult {
