@@ -12,7 +12,7 @@ use pallet_subtensor::weights::WeightInfo as SubtensorWeightInfo;
 use sp_core::Get;
 use sp_core::U256;
 use sp_runtime::DispatchError;
-use substrate_fixed::types::U64F64;
+use substrate_fixed::types::{I96F32, U64F64};
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::SwapHandler;
 
@@ -1356,6 +1356,271 @@ fn assert_success(ret: RetVal) {
         }
         _ => panic!("unexpected return value"),
     }
+}
+
+fn expected_claim_root_with_hotkey_weight() -> Weight {
+    let max = pallet_subtensor::MAX_ROOT_CLAIM_WORK;
+    let full =
+        <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::claim_root(
+            max,
+        );
+    let scan =
+        <<mock::Test as pallet_subtensor::Config>::WeightInfo as SubtensorWeightInfo>::claim_root_scan(
+            max,
+        );
+    full.saturating_add(scan)
+}
+
+#[test]
+fn claim_root_with_hotkey_noop_returns_zero() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61001);
+        let hotkey = U256::from(61002);
+
+        let expected_weight = expected_claim_root_with_hotkey_weight();
+
+        let mut env = MockEnv::new(FunctionId::ClaimRootWithHotkeyV1, coldkey, hotkey.encode())
+            .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        assert_success(ret);
+        assert_eq!(env.charged_weight(), Some(expected_weight));
+
+        let tao: u64 = Decode::decode(&mut &env.output()[..]).unwrap();
+        assert_eq!(tao, 0);
+    });
+}
+
+#[test]
+fn claim_root_with_hotkey_noop_indexes_fresh_coldkey() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61211);
+        let hotkey = U256::from(61212);
+
+        assert!(!pallet_subtensor::StakingColdkeys::<mock::Test>::contains_key(coldkey));
+        let num_before = pallet_subtensor::NumStakingColdkeys::<mock::Test>::get();
+
+        let expected_weight = expected_claim_root_with_hotkey_weight();
+
+        let mut env = MockEnv::new(FunctionId::ClaimRootWithHotkeyV1, coldkey, hotkey.encode())
+            .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        assert_success(ret);
+        assert_eq!(env.charged_weight(), Some(expected_weight));
+
+        let tao: u64 = Decode::decode(&mut &env.output()[..]).unwrap();
+        assert_eq!(tao, 0);
+
+        assert!(pallet_subtensor::StakingColdkeys::<mock::Test>::contains_key(coldkey));
+        assert_eq!(
+            pallet_subtensor::NumStakingColdkeys::<mock::Test>::get(),
+            num_before.saturating_add(1)
+        );
+        let idx = pallet_subtensor::StakingColdkeys::<mock::Test>::get(coldkey).unwrap();
+        assert_eq!(
+            pallet_subtensor::StakingColdkeysByIndex::<mock::Test>::get(idx),
+            Some(coldkey)
+        );
+    });
+}
+
+#[test]
+fn claim_root_with_hotkey_repeat_claim_preserves_index() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61221);
+        let hotkey = U256::from(61222);
+
+        pallet_subtensor::Pallet::<mock::Test>::maybe_add_coldkey_index(&coldkey);
+        let num_before = pallet_subtensor::NumStakingColdkeys::<mock::Test>::get();
+
+        let expected_weight = expected_claim_root_with_hotkey_weight();
+
+        let mut env = MockEnv::new(FunctionId::ClaimRootWithHotkeyV1, coldkey, hotkey.encode())
+            .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        assert_success(ret);
+
+        let tao: u64 = Decode::decode(&mut &env.output()[..]).unwrap();
+        assert_eq!(tao, 0);
+
+        assert_eq!(
+            pallet_subtensor::NumStakingColdkeys::<mock::Test>::get(),
+            num_before
+        );
+        let idx = pallet_subtensor::StakingColdkeys::<mock::Test>::get(coldkey).unwrap();
+        assert_eq!(
+            pallet_subtensor::StakingColdkeysByIndex::<mock::Test>::get(idx),
+            Some(coldkey)
+        );
+    });
+}
+
+#[test]
+fn claim_root_with_hotkey_rejects_basket_above_envelope() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61101);
+        let hotkey = U256::from(61102);
+
+        // Seed the validator's basket with one escrow holding per netuid, 257 rows
+        // > MAX_ROOT_CLAIM_WORK (256): 1 hotkey unit + 257 rows exceed the fixed
+        // admission budget, so the signed path refuses RootClaimTooHeavy here.
+        let escrow = pallet_subtensor::Pallet::<mock::Test>::get_beta_escrow_account_id();
+        for i in 0..=pallet_subtensor::MAX_ROOT_CLAIM_WORK {
+            pallet_subtensor::Pallet::<mock::Test>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                NetUid::from(i as u16),
+                1u64.into(),
+            );
+        }
+        assert!(
+            !pallet_subtensor::Pallet::<mock::Test>::root_claim_fits_declared_budget(
+                core::slice::from_ref(&hotkey)
+            )
+        );
+        let num_before = pallet_subtensor::NumStakingColdkeys::<mock::Test>::get();
+
+        let expected_weight = expected_claim_root_with_hotkey_weight();
+        let mut env = MockEnv::new(FunctionId::ClaimRootWithHotkeyV1, coldkey, hotkey.encode())
+            .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        match ret {
+            RetVal::Converging(code) => assert_eq!(code, Output::RuntimeError as u32),
+            _ => panic!("expected converging error code"),
+        }
+
+        assert_eq!(env.charged_weight(), Some(expected_weight));
+
+        // Rejection must not mutate the index.
+        assert!(!pallet_subtensor::StakingColdkeys::<mock::Test>::contains_key(coldkey));
+        assert_eq!(
+            pallet_subtensor::NumStakingColdkeys::<mock::Test>::get(),
+            num_before
+        );
+    });
+}
+
+#[test]
+fn claim_root_with_hotkey_rejects_basket_at_budget_boundary() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61111);
+        let hotkey = U256::from(61112);
+
+        let escrow = pallet_subtensor::Pallet::<mock::Test>::get_beta_escrow_account_id();
+        for i in 0..pallet_subtensor::MAX_ROOT_CLAIM_WORK {
+            pallet_subtensor::Pallet::<mock::Test>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                NetUid::from(i as u16),
+                1u64.into(),
+            );
+        }
+        assert!(
+            !pallet_subtensor::Pallet::<mock::Test>::root_claim_fits_declared_budget(
+                core::slice::from_ref(&hotkey)
+            )
+        );
+        let num_before = pallet_subtensor::NumStakingColdkeys::<mock::Test>::get();
+
+        let expected_weight = expected_claim_root_with_hotkey_weight();
+        let mut env = MockEnv::new(FunctionId::ClaimRootWithHotkeyV1, coldkey, hotkey.encode())
+            .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        match ret {
+            RetVal::Converging(code) => assert_eq!(code, Output::RuntimeError as u32),
+            _ => panic!("expected converging error code"),
+        }
+        assert_eq!(env.charged_weight(), Some(expected_weight));
+
+        assert!(!pallet_subtensor::StakingColdkeys::<mock::Test>::contains_key(coldkey));
+        assert_eq!(
+            pallet_subtensor::NumStakingColdkeys::<mock::Test>::get(),
+            num_before
+        );
+    });
+}
+
+#[test]
+fn claim_root_with_hotkey_admits_basket_under_budget() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61121);
+        let hotkey = U256::from(61122);
+
+        let escrow = pallet_subtensor::Pallet::<mock::Test>::get_beta_escrow_account_id();
+        for i in 0..pallet_subtensor::MAX_ROOT_CLAIM_WORK.saturating_sub(1) {
+            pallet_subtensor::Pallet::<mock::Test>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                NetUid::from(i as u16),
+                1u64.into(),
+            );
+        }
+        assert!(
+            pallet_subtensor::Pallet::<mock::Test>::root_claim_fits_declared_budget(
+                core::slice::from_ref(&hotkey)
+            )
+        );
+
+        let expected_weight = expected_claim_root_with_hotkey_weight();
+        let mut env = MockEnv::new(FunctionId::ClaimRootWithHotkeyV1, coldkey, hotkey.encode())
+            .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        assert_success(ret);
+        assert_eq!(env.charged_weight(), Some(expected_weight));
+
+        let tao: u64 = Decode::decode(&mut &env.output()[..]).unwrap();
+        assert_eq!(tao, 0);
+
+        assert!(pallet_subtensor::StakingColdkeys::<mock::Test>::contains_key(coldkey));
+    });
+}
+
+#[test]
+fn claim_root_with_hotkey_payout_indexes_coldkey() {
+    mock::new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(61201);
+        let hotkey = U256::from(61202);
+
+        pallet_subtensor::Pallet::<mock::Test>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            1u64.into(),
+        );
+        let escrow = pallet_subtensor::Pallet::<mock::Test>::get_beta_escrow_account_id();
+        pallet_subtensor::Pallet::<mock::Test>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            NetUid::ROOT,
+            1_000_000u64.into(),
+        );
+        pallet_subtensor::BasketShares::<mock::Test>::insert(hotkey, 1u64);
+        pallet_subtensor::BasketRate::<mock::Test>::insert(hotkey, I96F32::from_num(1));
+        pallet_subtensor::RootClaimableThreshold::<mock::Test>::insert(
+            NetUid::ROOT,
+            I96F32::from_num(0),
+        );
+
+        assert!(!pallet_subtensor::StakingColdkeys::<mock::Test>::contains_key(coldkey));
+
+        let expected_weight = expected_claim_root_with_hotkey_weight();
+
+        let mut env = MockEnv::new(FunctionId::ClaimRootWithHotkeyV1, coldkey, hotkey.encode())
+            .with_expected_weight(expected_weight);
+
+        let ret = SubtensorChainExtension::<mock::Test>::dispatch(&mut env).unwrap();
+        assert_success(ret);
+
+        let tao: u64 = Decode::decode(&mut &env.output()[..]).unwrap();
+        assert_eq!(tao, 1_000_000);
+
+        assert!(pallet_subtensor::StakingColdkeys::<mock::Test>::contains_key(coldkey));
+    });
 }
 
 #[test]
