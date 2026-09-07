@@ -56,7 +56,7 @@ Prefer the narrowest type that covers the job:
   **SmallTransfer** is the same but caps each transfer below 0.5 TAO
   (0.5 alpha for stake transfers).
 * **Staking** — stake add / remove / move / swap / unstake-all and their
-  limit variants, plus [`set_root_claim_type`](/code/pallets/subtensor/src/macros/dispatches.rs#L1937-L1951). Its allowlist does *not*
+  limit variants, plus [`claim_root`](/code/pallets/subtensor/src/macros/dispatches.rs#L1967-L1992) and [`claim_root_with_hotkey`](/code/pallets/subtensor/src/macros/dispatches.rs#L2008-L2027). Its allowlist does *not*
   include [`Utility.batch_all`](/code/pallets/utility/src/lib.rs#L314-L362), so batched staking through a Staking proxy
   fails with `CallFiltered` — use NonTransfer for batched staking.
 * **Registration** — neuron registration ([`burned_register`](/code/pallets/subtensor/src/macros/dispatches.rs#L826-L832), [`register`](/code/pallets/subtensor/src/macros/dispatches.rs#L804-L814),
