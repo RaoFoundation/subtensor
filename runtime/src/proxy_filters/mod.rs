@@ -49,7 +49,8 @@ type SubnetLeaseAllowed = (
     SubnetManagementCalls,
 );
 
-/// `NonTransfer`: everything except liquid value movement and coldkey swaps.
+/// `NonTransfer`: excludes liquid value movement, coldkey swaps, and EVM,
+/// Contracts, and Crowdloan calls that can move value indirectly.
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
@@ -87,6 +88,9 @@ type NonFungibleAllowed = (
 /// network dissolution, root/burned registration, or coldkey swaps.
 type NonCriticalAllowed = (
     InfraCommonCalls,
+    EvmCalls,
+    CrowdloanCalls,
+    ContractsCalls,
     AdminAll,
     BalanceTransferCalls,
     BalanceMaintenanceCalls,
@@ -302,10 +306,11 @@ mod tests {
     // Because the inventory groups partition every runtime call, the two must
     // agree exactly; a missing or extra group in the filter shows up as a diff.
     #[test]
-    fn non_transfer_is_everything_but_transfers_and_coldkey_swaps() {
+    fn non_transfer_excludes_transfers_coldkey_swaps_and_indirect_value_pallets() {
         let denied = &(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
+        let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -320,6 +325,7 @@ mod tests {
             | &(&(&group_calls::<BurnedRegistrationCalls>()
                 | &group_calls::<RootRegistrationCalls>())
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
+        let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -335,6 +341,81 @@ mod tests {
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
         );
+    }
+
+    #[test]
+    fn indirect_value_calls_match_proxy_permissions_and_runtime_api_metadata() {
+        use frame_support::weights::Weight;
+        use subtensor_runtime_common::{AccountId, TaoBalance};
+
+        let dest = AccountId::new([2; 32]);
+        let calls = [
+            RuntimeCall::EVM(pallet_evm::Call::call {
+                source: Default::default(),
+                target: Default::default(),
+                input: vec![],
+                value: 1.into(),
+                gas_limit: 100_000,
+                max_fee_per_gas: 1.into(),
+                max_priority_fee_per_gas: None,
+                nonce: None,
+                access_list: vec![],
+                authorization_list: Default::default(),
+            }),
+            RuntimeCall::Contracts(pallet_contracts::Call::call {
+                dest: dest.clone().into(),
+                value: TaoBalance::from(1),
+                gas_limit: Weight::from_parts(100_000, 0),
+                storage_deposit_limit: None,
+                data: vec![],
+            }),
+            RuntimeCall::Crowdloan(pallet_crowdloan::Call::create {
+                deposit: TaoBalance::from(1),
+                min_contribution: TaoBalance::from(1),
+                cap: TaoBalance::from(10),
+                end: 100,
+                call: None,
+                target_address: Some(dest),
+            }),
+            RuntimeCall::Crowdloan(pallet_crowdloan::Call::contribute {
+                crowdloan_id: 0,
+                amount: TaoBalance::from(1),
+            }),
+            RuntimeCall::Crowdloan(pallet_crowdloan::Call::finalize { crowdloan_id: 0 }),
+        ];
+
+        for (proxy_type, expected) in [
+            (ProxyType::Any, true),
+            (ProxyType::NonCritical, true),
+            (ProxyType::NonTransfer, false),
+            (ProxyType::NonFungible, false),
+        ] {
+            // This is the metadata provider exposed by ProxyFilterRuntimeApi.
+            let infos = get_proxy_filters(Some(vec![proxy_type as u8]));
+            assert_eq!(infos.len(), 1);
+            assert_eq!(infos[0].proxy_type, proxy_type as u8);
+            for call in &calls {
+                let metadata = call.get_call_metadata();
+                let executable = proxy_type.filter(call);
+                let advertised = match &infos[0].filter_mode {
+                    FilterMode::AllowAll => true,
+                    FilterMode::Allow(allowed) => allowed.iter().any(|info| {
+                        info.pallet_name == metadata.pallet_name.as_bytes()
+                            && info.call_name == metadata.function_name.as_bytes()
+                    }),
+                };
+                assert_eq!(
+                    executable, expected,
+                    "{proxy_type:?}: {}::{} executable filter",
+                    metadata.pallet_name, metadata.function_name,
+                );
+                assert_eq!(
+                    advertised, executable,
+                    "{proxy_type:?}: {}::{} runtime API metadata",
+                    metadata.pallet_name, metadata.function_name,
+                );
+            }
+        }
     }
 
     #[test]
