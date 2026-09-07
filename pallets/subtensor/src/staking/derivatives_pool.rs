@@ -280,6 +280,50 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         Self::hotkey_account_exists(hotkey)
     }
 
+    /// Mirrors `destroy_alpha_in_out_stakes_get_total_alpha_value`, with the pool put back the
+    /// way it would be with no position open: a short's TAO returns, a long's alpha returns.
+    fn dissolution_totals(
+        netuid: NetUid,
+        tao_lent: TaoBalance,
+        alpha_lent: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance) {
+        let tao = SubnetTAO::<T>::get(netuid).saturating_add(tao_lent);
+        // `SubnetAlphaOut` counts the alpha the derivatives pallet has staked for open longs.
+        // That alpha is the pool's, so it moves to the pool's side of the count.
+        let staked = SubnetAlphaOut::<T>::get(netuid).saturating_sub(alpha_lent);
+        let pool = if Self::dissolution_counts_pool_alpha(netuid) {
+            SubnetAlphaIn::<T>::get(netuid).saturating_add(alpha_lent)
+        } else {
+            AlphaBalance::ZERO
+        };
+        let alpha = staked
+            .saturating_add(pool)
+            .saturating_add(SubnetProtocolAlpha::<T>::get(netuid));
+        (tao, alpha)
+    }
+
+    #[transactional]
+    fn draw_tao_at_dissolution(
+        netuid: NetUid,
+        to_coldkey: &T::AccountId,
+        tao: TaoBalance,
+    ) -> DispatchResult {
+        ensure!(
+            Self::derivatives_pool_present(netuid) && !Self::if_subnet_exist(netuid),
+            Error::<T>::SubnetNotExists
+        );
+        if tao.is_zero() {
+            return Ok(());
+        }
+        ensure!(
+            tao <= SubnetTAO::<T>::get(netuid),
+            Error::<T>::InsufficientLiquidity
+        );
+        // `TotalStake` already excludes a dissolving subnet, so only the reserve moves.
+        Self::decrease_provided_tao_reserve(netuid, tao);
+        Self::transfer_tao_from_subnet(netuid, to_coldkey, tao)
+    }
+
     #[cfg(feature = "runtime-benchmarks")]
     fn set_up_pool_for_benchmark(netuid: NetUid) {
         let tao = TaoBalance::from(1_000_000_000_000_u64);

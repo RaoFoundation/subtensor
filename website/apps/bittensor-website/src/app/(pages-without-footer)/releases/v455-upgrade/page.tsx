@@ -445,8 +445,13 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
           </p>
           <p>
             <strong>Dissolution.</strong> If a subnet is dissolved with positions open, settling
-            them is the first cleanup phase. Positions are unwound, not settled: the slice goes
-            back in kind, your cushion comes back, and no fee is charged.
+            them is the first cleanup phase, before any staker is paid. Every position is
+            settled at the dissolution price: the TAO per alpha the payout gives holders, read
+            once with all open positions netted out of the pool. A short&apos;s alpha debt is
+            charged at that price, a long&apos;s alpha is credited at it, the fee is paid, and
+            the rest is yours. A short that sold above the dissolution price is paid the
+            difference first. On subnets registered after the TAO-in refund that price is near
+            half of spot, so a short into a dereg is paid well and a long is usually underwater.
           </p>
         </section>
 
@@ -475,8 +480,9 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
             The subtensor pallet gains a small pool interface for the derivatives pallet:
             price-neutral <code>lift_liquidity</code> and <code>return_liquidity</code>, internal
             buy and sell through the existing balancer swap, and exact-output swaps for the
-            buyback. Subnet dissolution gains a <code>DerivativesSettle</code> phase that runs first.
-            The emission price EMA now reads <code>get_emission_alpha_price</code>, the spot
+            buyback. Subnet dissolution gains a <code>DerivativesSettle</code> phase that runs
+            first and cash-settles every position at the dissolution price, emitted as{' '}
+            <code>DissolutionPriced</code>. The emission price EMA now reads <code>get_emission_alpha_price</code>, the spot
             price with the long-side footprint added back to the alpha reserve; with no longs
             open it is the spot price exactly.
           </p>

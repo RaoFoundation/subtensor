@@ -18,7 +18,7 @@ past its expiry; it can still be reduced or closed.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L264-L275) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L281-L292) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("add_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L266`](/code/pallets/derivatives/src/lib.rs#L264-L275):
+`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L283`](/code/pallets/derivatives/src/lib.rs#L281-L292):
 
 ```rust
 #[pallet::call_index(0)]
@@ -91,6 +91,6 @@ pub fn add(
 }
 ```
 
-Delegates to [`do_add`](/code/pallets/derivatives/src/settle.rs#L33).
+Delegates to [`do_add`](/code/pallets/derivatives/src/settle.rs#L67).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

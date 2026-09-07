@@ -771,8 +771,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 81,
-        "url": "/code/pallets/derivatives/src/lib.rs#L81",
+        "line": 83,
+        "url": "/code/pallets/derivatives/src/lib.rs#L83",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -797,8 +797,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 81,
-        "url": "/code/pallets/derivatives/src/lib.rs#L81",
+        "line": 83,
+        "url": "/code/pallets/derivatives/src/lib.rs#L83",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -819,8 +819,8 @@
         "container": "Derivatives",
         "name": "Params",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 76,
-        "url": "/code/pallets/derivatives/src/lib.rs#L76",
+        "line": 78,
+        "url": "/code/pallets/derivatives/src/lib.rs#L78",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -845,8 +845,8 @@
         "container": "Derivatives",
         "name": "SubnetOverrides",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 125,
-        "url": "/code/pallets/derivatives/src/lib.rs#L125",
+        "line": 127,
+        "url": "/code/pallets/derivatives/src/lib.rs#L127",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

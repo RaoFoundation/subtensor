@@ -310,6 +310,25 @@ pub trait DerivativesPoolInterface<AccountId> {
     /// Whether `hotkey` is registered to any coldkey.
     fn hotkey_exists(hotkey: &AccountId) -> bool;
 
+    /// The two totals the dissolution payout divides, with derivatives netted out: the TAO the
+    /// pool will share (its reserve plus `tao_lent`, the TAO open shorts hold for it) and the
+    /// alpha that shares it (what stakers hold, less `alpha_lent`, the alpha open longs hold for
+    /// the pool, which is counted where the payout counts the pool's own alpha). Their ratio is
+    /// the price every alpha is worth at dissolution, and the price positions settle at.
+    fn dissolution_totals(
+        netuid: NetUid,
+        tao_lent: TaoBalance,
+        alpha_lent: AlphaBalance,
+    ) -> (TaoBalance, AlphaBalance);
+
+    /// Pay `tao` out of the pool's TAO reserve to `to_coldkey`'s free balance. Only while
+    /// `netuid` is dissolving: the pool is being cashed out and the price no longer matters.
+    fn draw_tao_at_dissolution(
+        netuid: NetUid,
+        to_coldkey: &AccountId,
+        tao: TaoBalance,
+    ) -> DispatchResult;
+
     /// Make `netuid` a live dynamic subnet with a funded, price-initialised pool that
     /// [`Self::is_dynamic`] accepts. `OrderSwapInterface::set_up_netuid_for_benchmark` only
     /// seeds reserves, which is not enough to open a position against.

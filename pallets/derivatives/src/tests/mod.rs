@@ -1046,51 +1046,194 @@ fn early_close_removes_expiry_entry() {
 
 // ── Dissolution ──────────────────────────────────────────────────────────────
 
+/// `alpha` in TAO at the dissolution price `tao / alpha_total`, rounded up as the pallet does
+/// for a debt.
+fn tao_at(alpha: u64, (tao_total, alpha_total): (u64, u64)) -> u64 {
+    ((alpha as u128 * tao_total as u128).div_ceil(alpha_total as u128)) as u64
+}
+
+/// The `(tao, alpha)` of the latest `DissolutionPriced`.
+fn dissolution_price_event() -> (u64, u64) {
+    System::events()
+        .into_iter()
+        .rev()
+        .find_map(|record| match record.event {
+            RuntimeEvent::Derivatives(Event::DissolutionPriced { tao, alpha, .. }) => {
+                Some((tao.into(), alpha.into()))
+            }
+            _ => None,
+        })
+        .expect("DissolutionPriced")
+}
+
+/// Dissolve with a short and a long open and check that each is settled at the dissolution
+/// price, that the pool is left with exactly its own liquidity less what the winners took,
+/// and that the pallet holds nothing. Returns `(alice_payout, bob_payout)`.
+fn dissolve_and_check(expected_totals: (u64, u64)) -> (u64, u64) {
+    let (t0, a0) = reserves(netuid());
+    let out0 = alpha_out(netuid());
+
+    assert_ok!(add(alice(), Side::Short, DEPOSIT));
+    assert_ok!(add(bob(), Side::Long, DEPOSIT));
+    let short = position(&alice(), netuid()).unwrap();
+    let long = position(&bob(), netuid()).unwrap();
+    let (short_proceeds, short_debt, _) = legs(&short);
+    let (long_proceeds, long_debt, _) = legs(&long);
+    let now = System::block_number();
+
+    // Fixed from the pool with both positions netted out: the reserves before either opened.
+    let totals = Derivatives::dissolution_totals(netuid());
+    assert_close(totals.0.into(), expected_totals.0, 100);
+    assert_close(totals.1.into(), expected_totals.1, 100);
+    let totals: (u64, u64) = (totals.0.into(), totals.1.into());
+
+    // Dissolve: the subnet is no longer "added" but its account and pool still exist.
+    assert_ok!(SubtensorModule::do_dissolve_network(netuid()));
+    settle_all_for_dissolution(netuid());
+    assert_eq!(dissolution_price_event(), totals);
+    assert!(crate::DissolutionTotals::<Test>::get(netuid()).is_none());
+
+    // Short: cushion plus proceeds, less the debt bought back at the dissolution price and the
+    // fee. Long: cushion plus the alpha sold at the dissolution price, less the TAO debt and the
+    // fee. Either owner gets nothing when that is negative.
+    let short_owed = tao_at(short_debt, totals);
+    let long_credit = (long_proceeds as u128 * totals.0 as u128 / totals.1 as u128) as u64;
+    let short_value = (DEPOSIT + short_proceeds)
+        .saturating_sub(short_owed)
+        .saturating_sub(u64::from(short.fee_owed(now)));
+    let long_value = (DEPOSIT + long_credit)
+        .saturating_sub(long_debt)
+        .saturating_sub(u64::from(long.fee_owed(now)));
+    let alice_payout = balance(&alice()) - (100 * TAO - DEPOSIT);
+    let bob_payout = balance(&bob()) - (100 * TAO - DEPOSIT);
+    let short_underwater = DEPOSIT + short_proceeds < short_owed;
+    let long_underwater = DEPOSIT + long_credit < long_debt;
+    assert_eq!(alice_payout, if short_underwater { 0 } else { short_value });
+    assert_eq!(bob_payout, if long_underwater { 0 } else { long_value });
+
+    // The pool has its own liquidity back, less what the winners took, plus what the losers
+    // forfeited; alpha is untouched; the pallet holds nothing.
+    for who in [alice(), bob()] {
+        assert!(position(&who, netuid()).is_none());
+    }
+    let (t1, a1) = reserves(netuid());
+    assert_close(t1, t0 + 2 * DEPOSIT - alice_payout - bob_payout, 100);
+    assert_close(a1, a0, 100);
+    assert_close(alpha_out(netuid()), out0, 100);
+    assert_eq!(balance(&pallet_account()), 0);
+    assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
+    assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
+    assert_eq!(Footprint::<Test>::get(netuid(), Side::Long), 0);
+    assert!(
+        crate::OpenByNetuid::<Test>::iter_prefix(netuid())
+            .next()
+            .is_none()
+    );
+    let closers: Vec<_> = System::events()
+        .into_iter()
+        .filter_map(|r| match r.event {
+            RuntimeEvent::Derivatives(Event::PositionClosed { closed_by, .. }) => Some(closed_by),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(closers.len(), 2);
+    assert!(closers.iter().all(|c| *c == Closer::Dissolution));
+    (alice_payout, bob_payout)
+}
+
 #[test]
-fn dissolution_unwinds_both_sides_at_par() {
+fn dissolution_pays_the_short_the_payout_haircut_and_sinks_the_long() {
     new_test_ext().execute_with(|| {
         setup();
+        // Registered after the TAO-in refund cutover: the payout counts the pool's own alpha,
+        // so every alpha is worth t0 / (out + in), half of spot here. The short sold near spot
+        // and buys back at half; the long bought near spot and is paid half, which does not
+        // cover its TAO debt.
+        pallet_subtensor::TaoInRefundDeploymentBlock::<Test>::put(0);
+        pallet_subtensor::NetworkRegisteredAt::<Test>::insert(netuid(), 1);
         let (t0, a0) = reserves(netuid());
-        let out0 = alpha_out(netuid());
+        let (alice_payout, bob_payout) = dissolve_and_check((t0, alpha_out(netuid()) + a0));
+        assert!(
+            alice_payout > DEPOSIT,
+            "short should profit: {alice_payout}"
+        );
+        assert_eq!(bob_payout, 0, "long should be underwater");
+    });
+}
 
+#[test]
+fn dissolution_on_a_legacy_subnet_prices_at_the_stakers_share() {
+    new_test_ext().execute_with(|| {
+        setup();
+        // Registered before the TAO-in refund cutover: the pool's alpha does not share the pot,
+        // so every alpha is worth t0 / out, about spot here. The short pays for its own
+        // slippage and fee; the long is paid nearly what it paid and keeps most of its cushion.
+        pallet_subtensor::TaoInRefundDeploymentBlock::<Test>::put(u64::MAX);
+        pallet_subtensor::NetworkRegisteredAt::<Test>::insert(netuid(), 1);
+        let (t0, _) = reserves(netuid());
+        let (alice_payout, bob_payout) = dissolve_and_check((t0, alpha_out(netuid())));
+        assert!(
+            alice_payout < DEPOSIT,
+            "short should lose a little: {alice_payout}"
+        );
+        assert!(
+            bob_payout > DEPOSIT * 9 / 10 && bob_payout < DEPOSIT,
+            "long should keep most of its cushion: {bob_payout}"
+        );
+    });
+}
+
+#[test]
+fn dissolution_price_is_fixed_before_the_first_settlement() {
+    new_test_ext().execute_with(|| {
+        setup();
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         assert_ok!(add(bob(), Side::Long, DEPOSIT));
-
-        // Dissolve: the subnet is no longer "added" but its account and pool still exist.
+        let totals = Derivatives::dissolution_totals(netuid());
         assert_ok!(SubtensorModule::do_dissolve_network(netuid()));
-        settle_all_for_dissolution(netuid());
 
-        for who in [alice(), bob()] {
-            assert!(position(&who, netuid()).is_none());
-        }
-        // Cushions back, no fee.
-        assert_eq!(balance(&alice()), 100 * TAO);
-        assert_eq!(balance(&bob()), 100 * TAO);
-        // Pool is whole and the pallet holds nothing.
-        let (t1, a1) = reserves(netuid());
-        assert_close(t1, t0, 100);
-        assert_close(a1, a0, 100);
-        assert_close(alpha_out(netuid()), out0, 100);
-        assert_eq!(balance(&pallet_account()), 0);
-        assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
-        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
-        assert_eq!(Footprint::<Test>::get(netuid(), Side::Long), 0);
-        assert!(
-            crate::OpenByNetuid::<Test>::iter_prefix(netuid())
-                .next()
-                .is_none()
+        // One position's worth of weight: the price is fixed and stored, nothing settles yet.
+        let mut meter = frame_support::weights::WeightMeter::with_limit(
+            <() as crate::weights::WeightInfo>::close(),
         );
-        let closers: Vec<_> = System::events()
-            .into_iter()
-            .filter_map(|r| match r.event {
-                RuntimeEvent::Derivatives(Event::PositionClosed { closed_by, .. }) => {
-                    Some(closed_by)
-                }
-                _ => None,
-            })
-            .collect();
-        assert_eq!(closers.len(), 2);
-        assert!(closers.iter().all(|c| *c == Closer::Dissolution));
+        assert!(
+            !<Derivatives as subtensor_runtime_common::SubnetDissolveHook>::on_subnet_dissolve(
+                netuid(),
+                &mut meter
+            )
+        );
+        assert_eq!(
+            crate::DissolutionTotals::<Test>::get(netuid()),
+            Some(totals)
+        );
+        assert_eq!(
+            crate::OpenByNetuid::<Test>::iter_prefix(netuid()).count(),
+            2
+        );
+
+        // Settling the first position moves the reserves; the second still settles at the
+        // stored price.
+        let mut meter = frame_support::weights::WeightMeter::with_limit(
+            <() as crate::weights::WeightInfo>::close(),
+        );
+        assert!(
+            !<Derivatives as subtensor_runtime_common::SubnetDissolveHook>::on_subnet_dissolve(
+                netuid(),
+                &mut meter
+            )
+        );
+        assert_eq!(
+            crate::OpenByNetuid::<Test>::iter_prefix(netuid()).count(),
+            1
+        );
+        assert_eq!(
+            crate::DissolutionTotals::<Test>::get(netuid()),
+            Some(totals)
+        );
+        assert_ne!(Derivatives::dissolution_totals(netuid()), totals);
+
+        settle_all_for_dissolution(netuid());
+        assert!(crate::DissolutionTotals::<Test>::get(netuid()).is_none());
     });
 }
 
@@ -1102,8 +1245,9 @@ fn dissolution_hook_is_bounded_by_weight() {
         assert_ok!(add(bob(), Side::Long, DEPOSIT));
         assert_ok!(SubtensorModule::do_dissolve_network(netuid()));
 
+        // Fixing the price costs one position's worth; then one position fits.
         let mut meter = frame_support::weights::WeightMeter::with_limit(
-            <() as crate::weights::WeightInfo>::close(),
+            <() as crate::weights::WeightInfo>::close().saturating_mul(2),
         );
         assert!(
             !<Derivatives as subtensor_runtime_common::SubnetDissolveHook>::on_subnet_dissolve(

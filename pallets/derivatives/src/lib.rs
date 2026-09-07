@@ -38,7 +38,7 @@ pub enum Closer<AccountId> {
     Account(AccountId),
     /// The `on_idle` sweep found the position expired.
     Expiry,
-    /// The subnet was dissolved; the position was cancelled at par.
+    /// The subnet was dissolved; the position was cash-settled at the dissolution price.
     Dissolution,
 }
 
@@ -127,6 +127,13 @@ pub mod pallet {
     pub type SubnetOverrides<T: Config> =
         StorageMap<_, Identity, NetUid, SubnetOverride, OptionQuery>;
 
+    /// `(tao, alpha)` fixed when a subnet's dissolution reaches the derivatives phase; their
+    /// ratio is the price every position on it settles at. Set before the first position is
+    /// settled, so settling cannot move it, and removed once the last one is.
+    #[pallet::storage]
+    pub type DissolutionTotals<T: Config> =
+        StorageMap<_, Identity, NetUid, (TaoBalance, AlphaBalance), OptionQuery>;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -191,6 +198,14 @@ pub mod pallet {
         SubnetOverrideSet {
             netuid: NetUid,
             override_: Option<SubnetOverride>,
+        },
+        /// A dissolving subnet's positions are about to be settled. Every one of them is
+        /// valued at `tao / alpha` TAO per alpha: the pool's TAO shared over every alpha the
+        /// dissolution payout counts, with open positions netted out.
+        DissolutionPriced {
+            netuid: NetUid,
+            tao: TaoBalance,
+            alpha: AlphaBalance,
         },
     }
 
@@ -428,21 +443,37 @@ pub mod pallet {
     }
 
     impl<T: Config> SubnetDissolveHook for Pallet<T> {
-        /// Cancel every position on `netuid` at par: the borrowed slice goes back to the pool
-        /// in kind, the cushion goes back to its owner, no fee, no profit or loss.
-        /// Settling through swaps is not possible here because the subnet's TAO has already
-        /// been taken out of `TotalStake` and its stake maps are about to be converted.
+        /// Cash-settle every position on `netuid` at the dissolution price, ahead of the stake
+        /// payout. The price is fixed once, from the pool as it stands with every position
+        /// netted out, so no position moves the price it or any other settles at. Swaps cannot
+        /// run here: the subnet's TAO is already out of `TotalStake` and its stake maps are
+        /// about to be converted.
         fn on_subnet_dissolve(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             let per_position = T::WeightInfo::close();
+            if !meter.can_consume(per_position) {
+                return false;
+            }
+            let totals = DissolutionTotals::<T>::get(netuid).unwrap_or_else(|| {
+                meter.consume(per_position);
+                let totals = Self::dissolution_totals(netuid);
+                DissolutionTotals::<T>::insert(netuid, totals);
+                Self::deposit_event(Event::DissolutionPriced {
+                    netuid,
+                    tao: totals.0,
+                    alpha: totals.1,
+                });
+                totals
+            });
             loop {
                 if !meter.can_consume(per_position) {
                     return false;
                 }
                 let Some(owner) = OpenByNetuid::<T>::iter_key_prefix(netuid).next() else {
+                    DissolutionTotals::<T>::remove(netuid);
                     return true;
                 };
                 meter.consume(per_position);
-                Self::unwind(&owner, netuid);
+                Self::settle_at_dissolution(&owner, netuid, totals);
             }
         }
     }

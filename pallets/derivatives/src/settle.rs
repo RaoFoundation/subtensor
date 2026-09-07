@@ -6,6 +6,7 @@
 //! built from those two; `close` is `do_settle` with a fraction of one.
 
 use frame_support::storage::with_storage_layer;
+use sp_runtime::{Rounding, helpers_128bit::multiply_by_rational_with_rounding};
 
 use crate::*;
 
@@ -25,6 +26,39 @@ fn take(pot: &mut TaoBalance, want: TaoBalance) -> TaoBalance {
     let taken = want.min(*pot);
     *pot = pot.saturating_sub(taken);
     taken
+}
+
+/// `alpha` at the dissolution price `tao / alpha` given by `totals`. Alpha is worth nothing when
+/// the pool has no TAO; it is worth everything when there is no alpha to share the TAO.
+fn tao_value(
+    alpha: AlphaBalance,
+    (tao_total, alpha_total): (TaoBalance, AlphaBalance),
+    rounding: Rounding,
+) -> TaoBalance {
+    let value = multiply_by_rational_with_rounding(
+        u128::from(alpha.to_u64()),
+        u128::from(tao_total.to_u64()),
+        u128::from(alpha_total.to_u64()),
+        rounding,
+    )
+    .unwrap_or(if alpha.is_zero() { 0 } else { u128::MAX });
+    TaoBalance::from(u64::try_from(value).unwrap_or(u64::MAX))
+}
+
+/// The inverse of [`tao_value`]: `tao` in alpha at the dissolution price.
+fn alpha_value(
+    tao: TaoBalance,
+    (tao_total, alpha_total): (TaoBalance, AlphaBalance),
+    rounding: Rounding,
+) -> AlphaBalance {
+    let value = multiply_by_rational_with_rounding(
+        u128::from(tao.to_u64()),
+        u128::from(alpha_total.to_u64()),
+        u128::from(tao_total.to_u64()),
+        rounding,
+    )
+    .unwrap_or(if tao.is_zero() { 0 } else { u128::MAX });
+    AlphaBalance::from(u64::try_from(value).unwrap_or(u64::MAX))
 }
 
 impl<T: Config> Pallet<T> {
@@ -423,11 +457,30 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Dissolution path: hand the lifted slice back in kind, hand the cushion back, no swaps,
-    /// no fee. Never fails; anything that cannot reach the owner stays with the pool.
-    pub(crate) fn unwind(owner: &T::AccountId, netuid: NetUid) {
+    /// The pool as it would stand with no position open, in the two totals the dissolution
+    /// payout divides. The short side's footprint is exactly the TAO the pallet holds for the
+    /// pool; the long side's is exactly the alpha.
+    pub(crate) fn dissolution_totals(netuid: NetUid) -> (TaoBalance, AlphaBalance) {
+        T::Pool::dissolution_totals(
+            netuid,
+            TaoBalance::from(Footprint::<T>::get(netuid, Side::Short)),
+            AlphaBalance::from(Footprint::<T>::get(netuid, Side::Long)),
+        )
+    }
+
+    /// Dissolution path: settle the whole position at the dissolution price, no swaps. The
+    /// pool takes back what it lent, alpha valued at that price, plus the fee owed; the owner
+    /// is paid the rest in TAO, or nothing if the position is underwater at that price, as at
+    /// any other settlement. Never fails; anything that cannot reach the owner stays with the
+    /// pool.
+    pub(crate) fn settle_at_dissolution(
+        owner: &T::AccountId,
+        netuid: NetUid,
+        totals: (TaoBalance, AlphaBalance),
+    ) {
         // A position can only exist once the hotkey is claimed.
         let Ok(pallet_hotkey) = Self::pallet_hotkey() else {
+            OpenByNetuid::<T>::remove(netuid, owner);
             return;
         };
         let Some(position) = Positions::<T>::take(owner, netuid) else {
@@ -441,18 +494,58 @@ impl<T: Config> Pallet<T> {
         });
 
         let pallet_account = Self::pallet_account();
-        let (mut tao_to_pool, alpha_to_pool) = match position.legs {
+        let now = frame_system::Pallet::<T>::block_number();
+        let fee_due = position.fee_owed(now);
+        let mut pot = position.cushion.tao();
+
+        // Alpha the pallet holds is handed to the pool and credited at the dissolution price;
+        // alpha it owes is charged at it. Both round in the pool's favour.
+        let (credit, owed, mut tao_to_pool, alpha_to_pool) = match position.legs {
             Legs::Short {
-                proceeds, escrow, ..
-            } => (proceeds.saturating_add(escrow), AlphaBalance::ZERO),
+                proceeds,
+                debt,
+                escrow,
+            } => {
+                pot = pot.saturating_add(proceeds);
+                (
+                    TaoBalance::ZERO,
+                    tao_value(debt, totals, Rounding::Up),
+                    escrow,
+                    AlphaBalance::ZERO,
+                )
+            }
             Legs::Long {
-                proceeds, escrow, ..
-            } => (TaoBalance::ZERO, proceeds.saturating_add(escrow)),
+                proceeds,
+                debt,
+                escrow,
+            } => (
+                tao_value(proceeds, totals, Rounding::Down),
+                debt,
+                TaoBalance::ZERO,
+                proceeds.saturating_add(escrow),
+            ),
         };
 
-        let cushion = position.cushion.tao();
-        let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, cushion);
-        tao_to_pool = tao_to_pool.saturating_add(cushion.saturating_sub(tao_to_owner));
+        if !credit.is_zero() {
+            match T::Pool::draw_tao_at_dissolution(netuid, &pallet_account, credit) {
+                Ok(()) => pot = pot.saturating_add(credit),
+                Err(error) => log::error!(
+                    "derivatives: pool could not pay {credit:?} for {owner:?} on {netuid:?}: {error:?}"
+                ),
+            }
+        }
+
+        let repaid = take(&mut pot, owed);
+        let fee_paid = take(&mut pot, fee_due);
+        tao_to_pool = tao_to_pool.saturating_add(repaid).saturating_add(fee_paid);
+        let shortfall_tao = owed.saturating_sub(repaid);
+        if !shortfall_tao.is_zero() {
+            tao_to_pool = tao_to_pool.saturating_add(pot);
+            pot = TaoBalance::ZERO;
+        }
+
+        let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, pot);
+        tao_to_pool = tao_to_pool.saturating_add(pot.saturating_sub(tao_to_owner));
 
         if let Err(error) = T::Pool::return_liquidity(
             netuid,
@@ -472,10 +565,10 @@ impl<T: Config> Pallet<T> {
             side,
             closed_by: Closer::Dissolution,
             tao_to_owner,
-            fee_paid: TaoBalance::ZERO,
-            shortfall: match position.legs {
-                Legs::Short { .. } => Lent::Alpha(AlphaBalance::ZERO),
-                Legs::Long { .. } => Lent::Tao(TaoBalance::ZERO),
+            fee_paid,
+            shortfall: match side {
+                Side::Short => Lent::Alpha(alpha_value(shortfall_tao, totals, Rounding::Up)),
+                Side::Long => Lent::Tao(shortfall_tao),
             },
         });
     }

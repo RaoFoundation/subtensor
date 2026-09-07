@@ -465,3 +465,4 @@ class Derivatives:
     NextSweep = Item('Derivatives', 'NextSweep', 'u32')
     PalletHotkey = Item('Derivatives', 'PalletHotkey', 'AccountId32')
     SubnetOverrides = Item('Derivatives', 'SubnetOverrides', 'SubnetOverride')
+    DissolutionTotals = Item('Derivatives', 'DissolutionTotals', '(TaoBalance, AlphaBalance)')
