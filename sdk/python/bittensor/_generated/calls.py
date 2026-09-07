@@ -1665,23 +1665,18 @@ class Derivatives:
     """Call builders for the Derivatives pallet."""
 
     @staticmethod
-    def close(owner: 'AccountId32', netuid: 'NetUid', side: 'Side') -> Call:
-        "Settle `owner`'s `side` position on `netuid`. The owner may close at any time; anyone else only once the position has expired. To stay in the trade past expiry, `roll`."
-        return Call('Derivatives', 'close', {'owner': owner, 'netuid': netuid, 'side': side})
+    def add(netuid: 'NetUid', side: 'Side', amount: 'TaoBalance', leverage_percent: 'u16') -> Call:
+        "Add `side` exposure on `netuid`: `leverage_percent / 100` times `amount`, measured against the pool's TAO reserve. One call covers open, add, reduce, and flip.  With no position, or one on the same side, `amount` TAO is taken from the caller's free balance as cushion and a tranche is lifted from the pool and folded into the position. One day of the tranche's fee is booked up front. Nothing can be added to an expired position.  With a position on the other side, this settles the matching share of it at the current price and pays that share of the cushion, less fee and any loss, to the caller. If the exposure asked for is larger than the position, the whole position is closed and the rest, if it reaches `min_deposit_tao`, opens on the new side. Only the cushion for that rest is taken from the caller.  The leverage must be above zero and at most the side's maximum (`max_short_leverage_percent` or `max_long_leverage_percent`)."
+        return Call('Derivatives', 'add', {'netuid': netuid, 'side': side, 'amount': amount, 'leverage_percent': leverage_percent})
 
     @staticmethod
-    def open(netuid: 'NetUid', side: 'Side', cushion: 'TaoBalance', leverage_percent: 'u16') -> Call:
-        "Open a `side` position on `netuid` backed by `cushion` TAO from the caller's free balance, at `leverage_percent` (`100` = 1x).  Exposure is `leverage_percent / 100` times the cushion, measured against the pool's TAO reserve. The leverage must be above zero and at most the side's maximum (`max_short_leverage_percent` or `max_long_leverage_percent`). The position stays open until the owner closes it or `lifetime_blocks` pass, after which anyone may close it."
-        return Call('Derivatives', 'open', {'netuid': netuid, 'side': side, 'cushion': cushion, 'leverage_percent': leverage_percent})
-
-    @staticmethod
-    def roll(netuid: 'NetUid', side: 'Side', top_up: 'TaoBalance') -> Call:
-        "Settle the caller's `side` position on `netuid` at the current price and, in the same transaction, open a fresh one at the same leverage with what came back plus `top_up` as the cushion. Owner only.  The new position gets today's entry price and a full `lifetime_blocks`. Fails, leaving the position open, if the new cushion is below `min_deposit_tao`, the pool cap is reached, or the side's maximum leverage has since dropped below the position's; `close` instead."
-        return Call('Derivatives', 'roll', {'netuid': netuid, 'side': side, 'top_up': top_up})
+    def close(owner: 'AccountId32', netuid: 'NetUid') -> Call:
+        "Settle `owner`'s position on `netuid` in full. The owner may close at any time; anyone else only once the position has expired."
+        return Call('Derivatives', 'close', {'owner': owner, 'netuid': netuid})
 
     @staticmethod
     def sudo_set_params(params: 'DerivativesParams') -> Call:
-        'Replace every parameter at once. Root only. Rejects a zero maximum leverage, `max_pool_share`, or `lifetime_blocks`. Open positions keep the leverage, fee, and lifetime they were opened with.'
+        'Replace every parameter at once. Root only. Rejects a zero maximum leverage, `max_pool_share`, or `lifetime_blocks`. Open positions keep the fee and lifetime they were opened with; a later add is checked against the new values.'
         return Call('Derivatives', 'sudo_set_params', {'params': params})
 
     @staticmethod

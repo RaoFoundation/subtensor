@@ -54,7 +54,7 @@ export interface Outcome {
   priceClose: number;
   /** TAO paid to rebuy the debt (short) or raised by selling the alpha (long). */
   closeLeg: number;
-  /** Borrow fee for `days`, one-day minimum. */
+  /** Borrow fee owed after `days`: the day booked at the add plus `days` of accrual. */
   fee: number;
   /** TAO returned to the owner. Never below zero: the pool carries any shortfall. */
   payout: number;
@@ -67,19 +67,20 @@ export function sizeFactor(p: number): number {
   return 1 / (1 - p) ** 4;
 }
 
-/** Fee per day, fixed at open: `6 τ × phi` for a short, `0.01% × exposure` for a long, times the size factor. */
+/** Fee per day, fixed at the add: `6 τ × phi` for a short, `0.01% × exposure` for a long, times the size factor. */
 export function feePerDay(side: Side): number {
   const p = phi(side);
   const base = side === 'short' ? SHORT_FEE_PER_DAY * p : LONG_RATE_PER_DAY * lift(side).tao;
   return base * sizeFactor(p);
 }
 
+/** The pallet books one day at the add, then accrues per block: `days` held costs `1 + days` days. */
 export function feeFor(side: Side, days: number): number {
-  return feePerDay(side) * Math.max(1, days);
+  return feePerDay(side) * (1 + Math.max(0, days));
 }
 
-/** Close a position `days` after opening with alpha `movePct` away from the open price. */
-export function simulate(side: Side, movePct: number, days = 1): Outcome {
+/** Settle a position `days` after adding it with alpha `movePct` away from the open price. */
+export function simulate(side: Side, movePct: number, days = 0): Outcome {
   // A move of m% in price is the pool drifting so that tao/alpha scales by (1 + m).
   const k = Math.sqrt(1 + movePct / 100);
   const fee = feeFor(side, days);
@@ -122,7 +123,7 @@ export function simulate(side: Side, movePct: number, days = 1): Outcome {
   };
 }
 
-/** TAO returned to the owner, closed after one day at `movePct` from open. */
+/** TAO returned to the owner, closed the same day at `movePct` from open: one day of fee. */
 export function payout(side: Side, movePct: number): number {
   return simulate(side, movePct).payout;
 }

@@ -1,4 +1,9 @@
-//! Opening and settling positions. Every pool touch goes through `T::Pool`.
+//! Adding to and settling positions. Every pool touch goes through `T::Pool`.
+//!
+//! A position is a sum of tranches, so there are only two primitives here: [`Pallet::lift_tranche`]
+//! borrows one more slice of the pool and returns it as a [`Tranche`] to be added in, and
+//! [`Pallet::do_settle`] unwinds a fraction of the position at the current price. `add` is
+//! built from those two; `close` is `do_settle` with a fraction of one.
 
 use frame_support::storage::with_storage_layer;
 
@@ -23,40 +28,194 @@ fn take(pot: &mut TaoBalance, want: TaoBalance) -> TaoBalance {
 }
 
 impl<T: Config> Pallet<T> {
-    /// Open a position. Its own storage layer: the cushion transfer, the lift, and the opening
-    /// swap all roll back if anything after them fails, whoever the caller is.
-    pub(crate) fn do_open(
+    /// Open, add to, reduce, or flip the caller's position on `netuid`. One storage layer around
+    /// the whole call: whichever branch runs, all of it lands or none of it does.
+    pub(crate) fn do_add(
         owner: T::AccountId,
         netuid: NetUid,
         side: Side,
-        cushion: TaoBalance,
+        amount: TaoBalance,
         leverage_percent: u16,
     ) -> DispatchResult {
-        with_storage_layer(|| Self::open_in_layer(owner, netuid, side, cushion, leverage_percent))
+        with_storage_layer(|| {
+            let params = Params::<T>::get();
+            ensure!(
+                params.leverage_allowed(side, leverage_percent),
+                Error::<T>::LeverageOutOfRange
+            );
+            match Positions::<T>::get(&owner, netuid) {
+                None => Self::open_position(owner, netuid, side, amount, leverage_percent, &params),
+                Some(position) if position.side() == side => {
+                    Self::add_tranche(owner, netuid, position, amount, leverage_percent, &params)
+                }
+                Some(position) => Self::reduce_or_flip(
+                    owner,
+                    netuid,
+                    side,
+                    position,
+                    amount,
+                    leverage_percent,
+                    &params,
+                ),
+            }
+        })
     }
 
-    fn open_in_layer(
+    /// First tranche: the position gets its clocks here. Adds never move `expires_at`.
+    fn open_position(
         owner: T::AccountId,
         netuid: NetUid,
         side: Side,
-        cushion: TaoBalance,
+        amount: TaoBalance,
         leverage_percent: u16,
+        params: &DerivativesParams<BlockNumberFor<T>>,
     ) -> DispatchResult {
-        let params = Params::<T>::get();
+        let tranche = Self::lift_tranche(&owner, netuid, side, amount, leverage_percent, params)?;
+        let now = frame_system::Pallet::<T>::block_number();
+        let expires_at =
+            Self::schedule_expiry(&owner, netuid, now.saturating_add(params.lifetime_blocks))?;
+
+        Positions::<T>::insert(
+            &owner,
+            netuid,
+            Position {
+                cushion: Cushion::Tao(tranche.cushion),
+                legs: tranche.legs,
+                exposure_tao: tranche.exposure_tao,
+                fee_per_day: tranche.fee_per_day,
+                // The first day is booked up front.
+                fee_accrued: tranche.fee_per_day,
+                last_touch: now,
+                opened_at: now,
+                expires_at,
+                queued_at: expires_at,
+                failed_sweeps: 0,
+            },
+        );
+        OpenByNetuid::<T>::insert(netuid, &owner, ());
+
+        Self::deposit_event(Event::PositionAdded {
+            owner,
+            netuid,
+            side,
+            cushion_added: tranche.cushion,
+            leverage_percent,
+            legs_added: tranche.legs,
+            exposure_added: tranche.exposure_tao,
+            fee_per_day_added: tranche.fee_per_day,
+            exposure_tao: tranche.exposure_tao,
+            expires_at,
+        });
+        Ok(())
+    }
+
+    /// Same side: lift another slice and fold it in. Sums for everything but the clocks; the
+    /// fee is brought up to date first so the new rate only runs from now.
+    fn add_tranche(
+        owner: T::AccountId,
+        netuid: NetUid,
+        mut position: Position<BlockNumberFor<T>>,
+        amount: TaoBalance,
+        leverage_percent: u16,
+        params: &DerivativesParams<BlockNumberFor<T>>,
+    ) -> DispatchResult {
+        let now = frame_system::Pallet::<T>::block_number();
+        ensure!(now < position.expires_at, Error::<T>::Expired);
+        let side = position.side();
+
+        let tranche = Self::lift_tranche(&owner, netuid, side, amount, leverage_percent, params)?;
+        let legs = position
+            .legs
+            .plus(&tranche.legs)
+            .ok_or(DispatchError::Corruption)?;
+
+        position.fee_accrued = position.fee_owed(now).saturating_add(tranche.fee_per_day);
+        position.last_touch = now;
+        position.cushion = Cushion::Tao(position.cushion.tao().saturating_add(tranche.cushion));
+        position.legs = legs;
+        position.exposure_tao = position.exposure_tao.saturating_add(tranche.exposure_tao);
+        position.fee_per_day = position.fee_per_day.saturating_add(tranche.fee_per_day);
+        let exposure_tao = position.exposure_tao;
+        let expires_at = position.expires_at;
+        Positions::<T>::insert(&owner, netuid, position);
+
+        Self::deposit_event(Event::PositionAdded {
+            owner,
+            netuid,
+            side,
+            cushion_added: tranche.cushion,
+            leverage_percent,
+            legs_added: tranche.legs,
+            exposure_added: tranche.exposure_tao,
+            fee_per_day_added: tranche.fee_per_day,
+            exposure_tao,
+            expires_at,
+        });
+        Ok(())
+    }
+
+    /// Other side: `amount * leverage` of exposure comes off the position. Less than it holds
+    /// settles that share; more closes it and opens the rest on `side`, taking only the cushion
+    /// for that rest from the caller.
+    fn reduce_or_flip(
+        owner: T::AccountId,
+        netuid: NetUid,
+        side: Side,
+        position: Position<BlockNumberFor<T>>,
+        amount: TaoBalance,
+        leverage_percent: u16,
+        params: &DerivativesParams<BlockNumberFor<T>>,
+    ) -> DispatchResult {
+        let asked = (amount.to_u64() as u128)
+            .saturating_mul(u128::from(leverage_percent))
+            .checked_div(100)
+            .unwrap_or(0);
+        ensure!(asked > 0, Error::<T>::ZeroExposure);
+        let held = u128::from(position.exposure_tao.to_u64());
+
+        if asked < held {
+            // Both fit in u64: `asked < held <= u64::MAX`.
+            let fraction = Perquintill::from_rational(asked as u64, held as u64);
+            Self::do_settle(&owner, netuid, fraction, Closer::Account(owner.clone()))?;
+            return Ok(());
+        }
+
+        Self::do_settle(
+            &owner,
+            netuid,
+            Perquintill::one(),
+            Closer::Account(owner.clone()),
+        )?;
+        let rest_cushion = asked
+            .saturating_sub(held)
+            .saturating_mul(100)
+            .checked_div(u128::from(leverage_percent))
+            .unwrap_or(0)
+            .min(u128::from(u64::MAX)) as u64;
+        let rest_cushion = TaoBalance::from(rest_cushion);
+        if rest_cushion < params.min_deposit_tao {
+            // Dust past the flip point is not worth a position.
+            return Ok(());
+        }
+        Self::open_position(owner, netuid, side, rest_cushion, leverage_percent, params)
+    }
+
+    /// Take `amount` TAO from `owner`, lift `phi` of the pool and swap the borrowed half. The
+    /// footprint is booked here; the caller folds the rest into a position.
+    fn lift_tranche(
+        owner: &T::AccountId,
+        netuid: NetUid,
+        side: Side,
+        amount: TaoBalance,
+        leverage_percent: u16,
+        params: &DerivativesParams<BlockNumberFor<T>>,
+    ) -> Result<Tranche, DispatchError> {
         let override_ = SubnetOverrides::<T>::get(netuid);
         let enabled = override_
             .map(|o| o.side_enabled(side))
             .unwrap_or_else(|| params.side_enabled(side));
         ensure!(enabled, Error::<T>::SideDisabled);
-        ensure!(
-            params.leverage_allowed(side, leverage_percent),
-            Error::<T>::LeverageOutOfRange
-        );
         ensure!(T::Pool::is_dynamic(netuid), Error::<T>::SubnetNotDynamic);
-        ensure!(
-            !Positions::<T>::contains_key(&owner, (netuid, side)),
-            Error::<T>::PositionExists
-        );
 
         let pallet_account = Self::pallet_account();
         let pallet_hotkey = Self::pallet_hotkey()?;
@@ -65,10 +224,10 @@ impl<T: Config> Pallet<T> {
         let (t, a) = (tao_reserve.to_u64(), alpha_reserve.to_u64());
         ensure!(t > 0 && a > 0, Error::<T>::SubnetNotDynamic);
 
-        ensure!(!cushion.is_zero(), Error::<T>::ZeroExposure);
-        ensure!(cushion >= params.min_deposit_tao, Error::<T>::DepositTooLow);
+        ensure!(!amount.is_zero(), Error::<T>::ZeroExposure);
+        ensure!(amount >= params.min_deposit_tao, Error::<T>::DepositTooLow);
 
-        let phi = pool_fraction(leverage_percent, cushion.to_u64(), t)
+        let phi = pool_fraction(leverage_percent, amount.to_u64(), t)
             .ok_or(Error::<T>::ExposureTooLarge)?;
 
         let lent_reserve = match side {
@@ -85,10 +244,11 @@ impl<T: Config> Pallet<T> {
             Error::<T>::PoolCapExceeded
         );
 
-        T::Pool::transfer_tao(&owner, &pallet_account, cushion)?;
+        T::Pool::transfer_tao(owner, &pallet_account, amount)?;
 
         let (lifted_tao, lifted_alpha) =
             T::Pool::lift_liquidity(netuid, phi, &pallet_account, &pallet_hotkey)?;
+        ensure!(!lifted_tao.is_zero(), Error::<T>::ZeroExposure);
         let legs = match side {
             Side::Short => {
                 let proceeds = T::Pool::sell_alpha_internal(
@@ -119,99 +279,51 @@ impl<T: Config> Pallet<T> {
                 }
             }
         };
-
-        let now = frame_system::Pallet::<T>::block_number();
-        let expires_at = Self::schedule_expiry(
-            &owner,
-            netuid,
-            side,
-            now.saturating_add(params.lifetime_blocks),
-        )?;
-        let fee_per_day = params.fee_per_day(side, phi, lifted_tao);
-
-        Positions::<T>::insert(
-            &owner,
-            (netuid, side),
-            Position {
-                cushion: Cushion::Tao(cushion),
-                leverage_percent,
-                legs,
-                exposure_tao: lifted_tao,
-                fee_per_day,
-                opened_at: now,
-                expires_at,
-                queued_at: expires_at,
-                failed_sweeps: 0,
-            },
-        );
-        OpenByNetuid::<T>::insert(netuid, (owner.clone(), side), ());
         Footprint::<T>::mutate(netuid, side, |f| *f = f.saturating_add(legs.footprint()));
 
-        Self::deposit_event(Event::PositionOpened {
-            owner,
-            netuid,
-            side,
-            cushion: Cushion::Tao(cushion),
-            leverage_percent,
+        Ok(Tranche {
+            cushion: amount,
             legs,
             exposure_tao: lifted_tao,
-            fee_per_day,
-            expires_at,
-        });
-        Ok(())
-    }
-
-    /// Settle, then reopen the same side at the same leverage with the TAO that came back plus
-    /// `top_up`. One storage layer around both: if the reopen fails, the settlement rolls back
-    /// and the old position is still there.
-    pub(crate) fn do_roll(
-        owner: T::AccountId,
-        netuid: NetUid,
-        side: Side,
-        top_up: TaoBalance,
-    ) -> DispatchResult {
-        with_storage_layer(|| {
-            let leverage_percent = Positions::<T>::get(&owner, (netuid, side))
-                .ok_or(Error::<T>::NoPosition)?
-                .leverage_percent;
-            let back = Self::do_settle(&owner, netuid, side, Closer::Roll)?;
-            Self::do_open(
-                owner,
-                netuid,
-                side,
-                back.saturating_add(top_up),
-                leverage_percent,
-            )
+            fee_per_day: params.fee_per_day(side, phi, lifted_tao),
         })
     }
 
-    /// Reverse the open swap, repay the pool plus fee, pay the owner what is left. Atomic.
-    /// Returns the TAO that reached the owner; everything paid is also reported in
-    /// `Event::PositionClosed`.
+    /// Unwind `fraction` of the position at the current price: reverse that share of the open
+    /// swap, repay the pool plus the whole fee owed so far, pay the owner what is left of that
+    /// share of the cushion. A fraction of one closes the position. Atomic. Returns the TAO that
+    /// reached the owner; everything paid is also reported in the event.
     pub(crate) fn do_settle(
         owner: &T::AccountId,
         netuid: NetUid,
-        side: Side,
+        fraction: Perquintill,
         closer: Closer<T::AccountId>,
     ) -> Result<TaoBalance, DispatchError> {
         with_storage_layer(|| {
-            let position =
-                Positions::<T>::take(owner, (netuid, side)).ok_or(Error::<T>::NoPosition)?;
-            Self::drop_indexes(owner, netuid, side, &position);
+            let mut position = Positions::<T>::take(owner, netuid).ok_or(Error::<T>::NoPosition)?;
+            let side = position.side();
+            let full = fraction.is_one();
 
             let pallet_account = Self::pallet_account();
             let pallet_hotkey = Self::pallet_hotkey()?;
             let now = frame_system::Pallet::<T>::block_number();
-            let blocks_open: u64 = now
-                .saturating_sub(position.opened_at)
-                .unique_saturated_into();
-            let fee_due = accrued_fee(position.fee_per_day, blocks_open);
+            let fee_due = position.fee_owed(now);
 
-            // Everything the pallet holds for the owner, in TAO: the cushion plus whatever the
-            // closing trade leaves.
-            let mut pot = position.cushion.tao();
+            let part = if full {
+                position.legs
+            } else {
+                position.legs.part(fraction)
+            };
+            let cushion = position.cushion.tao();
+            // This share's pot: its cushion plus whatever its closing trade leaves.
+            let mut pot = if full {
+                cushion
+            } else {
+                TaoBalance::from(fraction.mul_floor(cushion.to_u64()))
+            };
+            let mut cushion_rest = cushion.saturating_sub(pot);
 
-            let (mut tao_to_pool, alpha_to_pool, shortfall) = match position.legs {
+            let (mut tao_to_pool, alpha_to_pool, shortfall) = match part {
                 Legs::Short {
                     proceeds,
                     debt,
@@ -240,12 +352,16 @@ impl<T: Config> Pallet<T> {
                 }
             };
 
-            let fee_paid = take(&mut pot, fee_due);
+            // The fee is owed by the whole position. This share pays it first; what it cannot
+            // cover comes off the cushion that stays behind.
+            let mut fee_paid = take(&mut pot, fee_due);
+            fee_paid =
+                fee_paid.saturating_add(take(&mut cushion_rest, fee_due.saturating_sub(fee_paid)));
             tao_to_pool = tao_to_pool.saturating_add(fee_paid);
 
-            // A position that could not repay its debt is underwater: the owner gets nothing and
-            // everything the pallet still holds goes to the pool. This does not depend on the
-            // swap quotes being accurate; it is the rule that bounds the pool's loss.
+            // A share that could not repay its debt is underwater: the owner gets nothing for it
+            // and everything the pallet still holds for it goes to the pool. This does not depend
+            // on the swap quotes being accurate; it is the rule that bounds the pool's loss.
             if !shortfall.is_zero() {
                 tao_to_pool = tao_to_pool.saturating_add(pot);
                 pot = TaoBalance::ZERO;
@@ -264,15 +380,44 @@ impl<T: Config> Pallet<T> {
                 &pallet_account,
                 &pallet_hotkey,
             )?;
+            Footprint::<T>::mutate(netuid, side, |f| *f = f.saturating_sub(part.footprint()));
 
-            Self::deposit_event(Event::PositionClosed {
+            if full {
+                Self::drop_indexes(owner, netuid, &position);
+                Self::deposit_event(Event::PositionClosed {
+                    owner: owner.clone(),
+                    netuid,
+                    side,
+                    closed_by: closer,
+                    tao_to_owner,
+                    fee_paid,
+                    shortfall,
+                });
+                return Ok(tao_to_owner);
+            }
+
+            position.cushion = Cushion::Tao(cushion_rest);
+            position.legs = position.legs.minus(&part);
+            position.exposure_tao = position.exposure_tao.saturating_sub(TaoBalance::from(
+                fraction.mul_floor(position.exposure_tao.to_u64()),
+            ));
+            position.fee_per_day = position.fee_per_day.saturating_sub(TaoBalance::from(
+                fraction.mul_floor(position.fee_per_day.to_u64()),
+            ));
+            position.fee_accrued = fee_due.saturating_sub(fee_paid);
+            position.last_touch = now;
+            let exposure_tao = position.exposure_tao;
+            Positions::<T>::insert(owner, netuid, position);
+
+            Self::deposit_event(Event::PositionReduced {
                 owner: owner.clone(),
                 netuid,
                 side,
-                closed_by: closer,
+                fraction,
                 tao_to_owner,
                 fee_paid,
                 shortfall,
+                exposure_tao,
             });
             Ok(tao_to_owner)
         })
@@ -280,16 +425,20 @@ impl<T: Config> Pallet<T> {
 
     /// Dissolution path: hand the lifted slice back in kind, hand the cushion back, no swaps,
     /// no fee. Never fails; anything that cannot reach the owner stays with the pool.
-    pub(crate) fn unwind(owner: &T::AccountId, netuid: NetUid, side: Side) {
+    pub(crate) fn unwind(owner: &T::AccountId, netuid: NetUid) {
         // A position can only exist once the hotkey is claimed.
         let Ok(pallet_hotkey) = Self::pallet_hotkey() else {
             return;
         };
-        let Some(position) = Positions::<T>::take(owner, (netuid, side)) else {
-            OpenByNetuid::<T>::remove(netuid, (owner.clone(), side));
+        let Some(position) = Positions::<T>::take(owner, netuid) else {
+            OpenByNetuid::<T>::remove(netuid, owner);
             return;
         };
-        Self::drop_indexes(owner, netuid, side, &position);
+        let side = position.side();
+        Self::drop_indexes(owner, netuid, &position);
+        Footprint::<T>::mutate(netuid, side, |f| {
+            *f = f.saturating_sub(position.legs.footprint())
+        });
 
         let pallet_account = Self::pallet_account();
         let (mut tao_to_pool, alpha_to_pool) = match position.legs {
@@ -345,14 +494,11 @@ impl<T: Config> Pallet<T> {
     fn schedule_expiry(
         owner: &T::AccountId,
         netuid: NetUid,
-        side: Side,
         mut at: BlockNumberFor<T>,
     ) -> Result<BlockNumberFor<T>, DispatchError> {
         for _ in 0..MAX_EXPIRY_SHIFT {
             let pushed = Expiring::<T>::try_mutate(at, |queue| {
-                queue
-                    .try_push((owner.clone(), netuid, side))
-                    .map_err(|_| ())
+                queue.try_push((owner.clone(), netuid)).map_err(|_| ())
             });
             if pushed.is_ok() {
                 return Ok(at);
@@ -368,35 +514,27 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn reschedule_failed(
         owner: &T::AccountId,
         netuid: NetUid,
-        side: Side,
         now: BlockNumberFor<T>,
     ) -> Option<BlockNumberFor<T>> {
-        Positions::<T>::mutate_exists(owner, (netuid, side), |slot| {
+        Positions::<T>::mutate_exists(owner, netuid, |slot| {
             let position = slot.as_mut()?;
             if position.failed_sweeps >= MAX_SETTLE_RETRIES {
                 return None;
             }
-            let at =
-                Self::schedule_expiry(owner, netuid, side, now.saturating_add(RETRY_DELAY.into()))
-                    .ok()?;
+            let at = Self::schedule_expiry(owner, netuid, now.saturating_add(RETRY_DELAY.into()))
+                .ok()?;
             position.failed_sweeps.saturating_inc();
             position.queued_at = at;
             Some(at)
         })
     }
 
-    fn drop_indexes(
-        owner: &T::AccountId,
-        netuid: NetUid,
-        side: Side,
-        position: &Position<BlockNumberFor<T>>,
-    ) {
-        OpenByNetuid::<T>::remove(netuid, (owner.clone(), side));
-        Footprint::<T>::mutate(netuid, side, |f| {
-            *f = f.saturating_sub(position.legs.footprint())
-        });
+    /// Remove a closed position from the subnet index and the expiry queue. The footprint is
+    /// the caller's: a partial settlement releases only its share.
+    fn drop_indexes(owner: &T::AccountId, netuid: NetUid, position: &Position<BlockNumberFor<T>>) {
+        OpenByNetuid::<T>::remove(netuid, owner);
         let mut queue = Expiring::<T>::take(position.queued_at);
-        let entry = (owner.clone(), netuid, side);
+        let entry = (owner.clone(), netuid);
         queue.retain(|queued| queued != &entry);
         if !queue.is_empty() {
             Expiring::<T>::insert(position.queued_at, queue);

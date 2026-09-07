@@ -187,9 +187,8 @@ call_filter_group!(
 call_filter_group!(
     DerivativesCalls,
     [
-        RuntimeCall::Derivatives(DerivativesCall::open),
+        RuntimeCall::Derivatives(DerivativesCall::add),
         RuntimeCall::Derivatives(DerivativesCall::close),
-        RuntimeCall::Derivatives(DerivativesCall::roll),
         RuntimeCall::Derivatives(DerivativesCall::sudo_set_params),
         RuntimeCall::Derivatives(DerivativesCall::sudo_set_subnet_override),
     ]

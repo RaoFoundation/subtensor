@@ -23,7 +23,7 @@ use subtensor_runtime_common::{
     AlphaBalance, AuthorshipInfo, ConstTao, NetUid, SubnetDissolveHook, TaoBalance, Token,
 };
 
-use crate::{self as pallet_derivatives, Side};
+use crate::{self as pallet_derivatives};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -563,8 +563,8 @@ pub fn balancer_weight(netuid: NetUid) -> sp_runtime::Perquintill {
     pallet_subtensor_swap::SwapBalancer::<Test>::get(netuid).get_quote_weight()
 }
 
-pub fn position(owner: &AccountId, netuid: NetUid, side: Side) -> Option<crate::Position<u64>> {
-    crate::Positions::<Test>::get(owner, (netuid, side))
+pub fn position(owner: &AccountId, netuid: NetUid) -> Option<crate::Position<u64>> {
+    crate::Positions::<Test>::get(owner, netuid)
 }
 
 /// Run the dissolution hook for `netuid` until it reports done.

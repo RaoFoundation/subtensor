@@ -1,7 +1,7 @@
 //! Benchmarks for `pallet_derivatives`.
 //!
 //! Shorts are the heavier side to settle: the buyback is an exact-output swap that may take
-//! several passes, so the position benchmarks close shorts after the price moved against them.
+//! several passes, so the position benchmarks settle shorts after the price moved against them.
 #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 
 use frame_benchmarking::v2::*;
@@ -16,8 +16,6 @@ use crate::*;
 const CUSHION_TAO: u64 = 10_000_000_000;
 /// TAO a whale trades to move the pool price against the position.
 const WHALE_TAO: u64 = 300_000_000_000;
-/// Smaller price move for `roll`: the position must lose, but keep enough cushion to reopen.
-const ROLL_WHALE_TAO: u64 = 30_000_000_000;
 
 fn setup<T: Config>() -> (T::AccountId, NetUid) {
     let netuid = NetUid::from(1u16);
@@ -35,9 +33,12 @@ fn fill_expiry_queues<T: Config>(owner: &T::AccountId, netuid: NetUid) {
     let now = frame_system::Pallet::<T>::block_number();
     let mut at = now.saturating_add(Params::<T>::get().lifetime_blocks);
     for _ in 1..settle::MAX_EXPIRY_SHIFT {
-        Expiring::<T>::mutate(at, |queue| {
-            while queue.try_push((owner.clone(), netuid, Side::Short)).is_ok() {}
-        });
+        Expiring::<T>::mutate(
+            at,
+            |queue| {
+                while queue.try_push((owner.clone(), netuid)).is_ok() {}
+            },
+        );
         at.saturating_inc();
     }
 }
@@ -46,27 +47,46 @@ fn fill_expiry_queues<T: Config>(owner: &T::AccountId, netuid: NetUid) {
 mod benchmarks {
     use super::*;
 
-    /// Worst case: a full expiry window, so `schedule_expiry` probes every queue.
+    /// Worst case: a flip. The caller's short was pumped underwater, so the settlement runs
+    /// every exact-output pass, spends the whole pot and forfeits the rest; then the surplus
+    /// opens a long into a full expiry window, so `schedule_expiry` probes every queue.
     #[benchmark]
-    fn open() {
+    fn add() {
         let (owner, netuid) = setup::<T>();
+        let whale: T::AccountId = frame_benchmarking::account("whale", 0, 0);
+        T::Pool::set_up_acc_for_benchmark(&whale, &whale);
+
+        Pallet::<T>::do_add(
+            owner.clone(),
+            netuid,
+            Side::Short,
+            TaoBalance::from(CUSHION_TAO),
+            100,
+        )
+        .unwrap();
+        T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(WHALE_TAO)).unwrap();
+        // One block later, so the slot the old position frees in its own queue is not one the
+        // new expiry probes.
+        let now = frame_system::Pallet::<T>::block_number().saturating_add(1u32.into());
+        frame_system::Pallet::<T>::set_block_number(now);
         fill_expiry_queues::<T>(&owner, netuid);
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(owner.clone()),
             netuid,
-            Side::Short,
-            TaoBalance::from(CUSHION_TAO),
+            Side::Long,
+            TaoBalance::from(2 * CUSHION_TAO),
             100,
         );
 
-        let position = Positions::<T>::get(&owner, (netuid, Side::Short)).unwrap();
-        let nominal = position
-            .opened_at
-            .saturating_add(Params::<T>::get().lifetime_blocks);
+        let after = Positions::<T>::get(&owner, netuid).unwrap();
+        assert_eq!(after.side(), Side::Long);
+        assert_eq!(after.cushion.tao(), TaoBalance::from(CUSHION_TAO));
+        assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
+        let nominal = now.saturating_add(Params::<T>::get().lifetime_blocks);
         assert_eq!(
-            position.expires_at,
+            after.expires_at,
             nominal.saturating_add((settle::MAX_EXPIRY_SHIFT - 1).into())
         );
     }
@@ -80,7 +100,7 @@ mod benchmarks {
         let whale: T::AccountId = frame_benchmarking::account("whale", 0, 0);
         T::Pool::set_up_acc_for_benchmark(&whale, &whale);
 
-        Pallet::<T>::do_open(
+        Pallet::<T>::do_add(
             owner.clone(),
             netuid,
             Side::Short,
@@ -91,56 +111,10 @@ mod benchmarks {
         T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(WHALE_TAO)).unwrap();
 
         #[extrinsic_call]
-        _(
-            RawOrigin::Signed(owner.clone()),
-            owner.clone(),
-            netuid,
-            Side::Short,
-        );
+        _(RawOrigin::Signed(owner.clone()), owner.clone(), netuid);
 
-        assert!(!Positions::<T>::contains_key(&owner, (netuid, Side::Short)));
+        assert!(!Positions::<T>::contains_key(&owner, netuid));
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
-    }
-
-    /// Worst case: the `close` path of a losing short (full buyback, fee, payout), then the
-    /// `open` path with a top-up and a full expiry window.
-    #[benchmark]
-    fn roll() {
-        let (owner, netuid) = setup::<T>();
-        let whale: T::AccountId = frame_benchmarking::account("whale", 0, 0);
-        T::Pool::set_up_acc_for_benchmark(&whale, &whale);
-
-        Pallet::<T>::do_open(
-            owner.clone(),
-            netuid,
-            Side::Short,
-            TaoBalance::from(CUSHION_TAO),
-            100,
-        )
-        .unwrap();
-        T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(ROLL_WHALE_TAO))
-            .unwrap();
-        // One block later, so the slot the old position frees in its own queue is not one the
-        // new expiry probes.
-        let now = frame_system::Pallet::<T>::block_number().saturating_add(1u32.into());
-        frame_system::Pallet::<T>::set_block_number(now);
-        fill_expiry_queues::<T>(&owner, netuid);
-
-        #[extrinsic_call]
-        _(
-            RawOrigin::Signed(owner.clone()),
-            netuid,
-            Side::Short,
-            TaoBalance::from(CUSHION_TAO),
-        );
-
-        let after = Positions::<T>::get(&owner, (netuid, Side::Short)).unwrap();
-        let nominal = now.saturating_add(Params::<T>::get().lifetime_blocks);
-        assert_eq!(
-            after.expires_at,
-            nominal.saturating_add((settle::MAX_EXPIRY_SHIFT - 1).into())
-        );
-        assert!(after.cushion.tao() > TaoBalance::from(CUSHION_TAO));
     }
 
     #[benchmark]

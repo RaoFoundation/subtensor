@@ -385,19 +385,20 @@ class Prices(_ReadNamespace):
     async def alpha_prices(self, *, block: Optional[int] = None) -> dict[int, float]:
         """Spot alpha price for every subnet, as TAO per alpha keyed by netuid."""
 
-    async def derivative_position(self, coldkey_ss58: str, netuid: int, side: str, *, block: Optional[int] = None) -> Optional[dict]:
-        """One open position for a coldkey on a subnet and side, or None.
+    async def derivative_position(self, coldkey_ss58: str, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
+        """A coldkey's open position on a subnet, or None. There is at most one.
 
-        `cushion` is the TAO the owner put up and `leverage` the multiple of it
-        they chose at open. `proceeds`, `debt`, and `escrow` are the position's
+        `side` is the direction of its net exposure. `cushion` is the TAO the owner
+        has put up in total and `leverage` is `exposure_tao / cushion`, the blend
+        of every tranche added. `proceeds`, `debt`, and `escrow` are the position's
         `legs`, each already in its own token: a short holds TAO proceeds and TAO
         escrow and owes alpha; a long holds alpha proceeds and alpha escrow and owes
-        TAO. `fee_per_day_tao` was fixed at open; `accrued_fee_tao` is what would be
-        charged if closed now.
+        TAO. `fee_per_day_tao` is the summed rate of its tranches; `accrued_fee_tao`
+        is what would be charged if settled now.
         """
 
     async def derivative_positions(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
-        """Every open long and short a coldkey holds, across all subnets."""
+        """Every open position a coldkey holds, one per subnet."""
 
     async def derivatives_params(self, *, block: Optional[int] = None) -> dict:
         """The derivatives pallet's root-set global parameters.
@@ -405,21 +406,22 @@ class Prices(_ReadNamespace):
         `max_short_leverage_percent` and `max_long_leverage_percent` bound the
         leverage an owner may choose per side (`100` = 1x), `max_pool_share` caps how
         much of a pool's reserve may be lent per side, and `lifetime_blocks` is how
-        long a position may stay open. Fees are fixed at open and charged at close
-        with a one-day minimum: a short pays `short_fee_per_day_tao` times the share
-        of the pool it lifted, a long pays `long_rate_per_day` times its TAO
-        exposure; both are scaled by `1 / (1 - share)^4` for the position's own
-        slippage. A subnet may override the switches and the cap; see
-        `derivatives_subnet_override`.
+        long a position may stay open. Each tranche's fee is fixed when it is added:
+        a short pays `short_fee_per_day_tao` times the share of the pool it lifted,
+        a long pays `long_rate_per_day` times its TAO exposure; both are scaled by
+        `1 / (1 - share)^4` for the tranche's own slippage. One day is booked at the
+        add, the rest accrues per block and is paid at each settlement. A subnet may
+        override the switches and the cap; see `derivatives_subnet_override`.
         """
 
     async def derivatives_subnet_override(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
         """Root-set per-subnet overrides of the derivatives parameters, or None.
 
         None means the subnet runs on the global `derivatives_params`. When set,
-        `shorts_enabled` and `longs_enabled` replace the global switches for opens
+        `shorts_enabled` and `longs_enabled` replace the global switches for adds
         on this subnet, and `max_pool_share` replaces the global cap when it is not
-        None. Open positions are unaffected: a paused side can still close.
+        None. Open positions are unaffected: a paused side can still be reduced and
+        closed.
         """
 
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:

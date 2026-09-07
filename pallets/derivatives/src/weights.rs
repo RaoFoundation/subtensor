@@ -15,9 +15,8 @@ use frame_support::{
 
 /// Weight functions needed for `pallet_derivatives`.
 pub trait WeightInfo {
-    fn open() -> Weight;
+    fn add() -> Weight;
     fn close() -> Weight;
-    fn roll() -> Weight;
     fn sudo_set_params() -> Weight;
     fn sudo_set_subnet_override() -> Weight;
 }
@@ -25,21 +24,19 @@ pub trait WeightInfo {
 /// Weights for `pallet_derivatives` using the Substrate node and recommended hardware.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-    /// Two pool swaps plus stake, reserve and position bookkeeping.
-    fn open() -> Weight {
-        Weight::from_parts(600_000_000, 12_000)
-            .saturating_add(T::DbWeight::get().reads(30_u64))
-            .saturating_add(T::DbWeight::get().writes(20_u64))
+    /// Worst case is a flip: a full settlement followed by a fresh tranche.
+    fn add() -> Weight {
+        Self::close().saturating_add(
+            Weight::from_parts(600_000_000, 12_000)
+                .saturating_add(T::DbWeight::get().reads(30_u64))
+                .saturating_add(T::DbWeight::get().writes(20_u64)),
+        )
     }
     /// Up to three pool swaps plus stake, reserve and position bookkeeping.
     fn close() -> Weight {
         Weight::from_parts(900_000_000, 12_000)
             .saturating_add(T::DbWeight::get().reads(35_u64))
             .saturating_add(T::DbWeight::get().writes(25_u64))
-    }
-    /// A close followed by an open.
-    fn roll() -> Weight {
-        Self::close().saturating_add(Self::open())
     }
     fn sudo_set_params() -> Weight {
         Weight::from_parts(6_000_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
@@ -51,18 +48,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 // For backwards compatibility and tests.
 impl WeightInfo for () {
-    fn open() -> Weight {
-        Weight::from_parts(600_000_000, 12_000)
-            .saturating_add(RocksDbWeight::get().reads(30_u64))
-            .saturating_add(RocksDbWeight::get().writes(20_u64))
+    fn add() -> Weight {
+        Self::close().saturating_add(
+            Weight::from_parts(600_000_000, 12_000)
+                .saturating_add(RocksDbWeight::get().reads(30_u64))
+                .saturating_add(RocksDbWeight::get().writes(20_u64)),
+        )
     }
     fn close() -> Weight {
         Weight::from_parts(900_000_000, 12_000)
             .saturating_add(RocksDbWeight::get().reads(35_u64))
             .saturating_add(RocksDbWeight::get().writes(25_u64))
-    }
-    fn roll() -> Weight {
-        Self::close().saturating_add(Self::open())
     }
     fn sudo_set_params() -> Weight {
         Weight::from_parts(6_000_000, 0).saturating_add(RocksDbWeight::get().writes(1_u64))

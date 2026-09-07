@@ -78,8 +78,8 @@ function slide(phase: Phase, side: Side, outcome: Outcome, n: Numbers): Slide {
       return {
         title: `Alpha ${fell ? 'falls' : 'rises'} ${MOVE_PCT}%`,
         body: short
-          ? `Buying ${alpha(LIFT_ALPHA)} back would now cost ${tao(n.closeLeg)} instead of ${tao(n.proceeds)}. You are ${win ? 'up' : 'down'} about ${tao(Math.abs(n.closeLeg - n.proceeds), 0)}. ${DAYS} days pass: ${tao(n.fee)} of fee has accrued.`
-          : `Selling ${alpha(n.proceeds)} would now raise ${tao(n.closeLeg)} instead of ${tao(LIFT_TAO, 0)}. You are ${win ? 'up' : 'down'} about ${tao(Math.abs(n.closeLeg - LIFT_TAO), 0)}. ${DAYS} days pass: ${tao(n.fee)} of fee has accrued.`,
+          ? `Buying ${alpha(LIFT_ALPHA)} back would now cost ${tao(n.closeLeg)} instead of ${tao(n.proceeds)}. You are ${win ? 'up' : 'down'} about ${tao(Math.abs(n.closeLeg - n.proceeds), 0)}. ${DAYS} days pass: ${tao(n.fee)} of fee is owed (one day booked at open, then per block).`
+          : `Selling ${alpha(n.proceeds)} would now raise ${tao(n.closeLeg)} instead of ${tao(LIFT_TAO, 0)}. You are ${win ? 'up' : 'down'} about ${tao(Math.abs(n.closeLeg - LIFT_TAO), 0)}. ${DAYS} days pass: ${tao(n.fee)} of fee is owed (one day booked at open, then per block).`,
       };
     case 'reverse':
       return {
@@ -145,7 +145,7 @@ function scene(phase: Phase, side: Side, n: Numbers): Scene {
     { k: 'cushion', v: tao(CUSHION, 0) },
     { k: 'holds', v: holds },
     { k: 'owes', v: owes, accent: true },
-    { k: 'fee so far', v: tao(fee) },
+    { k: 'fee owed', v: tao(fee) },
   ];
   const closingLines = (feePaid: boolean): PanelLine[] => [
     { k: 'trade reversed', v: '✓' },
@@ -197,7 +197,7 @@ function scene(phase: Phase, side: Side, n: Numbers): Scene {
     case 'open':
       return {
         ...scene('trade', side, n),
-        position: openLines(simulate(side, 0, 1).fee),
+        position: openLines(simulate(side, 0, 0).fee),
         clock: 'idle',
         callout: null,
       };

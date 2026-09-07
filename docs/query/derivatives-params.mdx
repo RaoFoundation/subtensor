@@ -8,12 +8,12 @@ description: "The derivatives pallet's root-set global parameters."
 `max_short_leverage_percent` and `max_long_leverage_percent` bound the
 leverage an owner may choose per side (`100` = 1x), `max_pool_share` caps how
 much of a pool's reserve may be lent per side, and `lifetime_blocks` is how
-long a position may stay open. Fees are fixed at open and charged at close
-with a one-day minimum: a short pays `short_fee_per_day_tao` times the share
-of the pool it lifted, a long pays `long_rate_per_day` times its TAO
-exposure; both are scaled by `1 / (1 - share)^4` for the position's own
-slippage. A subnet may override the switches and the cap; see
-`derivatives_subnet_override`.
+long a position may stay open. Each tranche's fee is fixed when it is added:
+a short pays `short_fee_per_day_tao` times the share of the pool it lifted,
+a long pays `long_rate_per_day` times its TAO exposure; both are scaled by
+`1 / (1 - share)^4` for the tranche's own slippage. One day is booked at the
+add, the rest accrues per block and is paid at each settlement. A subnet may
+override the switches and the cap; see `derivatives_subnet_override`.
 
 **Category:** Prices & swaps
 
@@ -48,6 +48,6 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Storage [`Derivatives.Params`](/code/pallets/derivatives/src/lib.rs#L77)
+- Storage [`Derivatives.Params`](/code/pallets/derivatives/src/lib.rs#L76)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

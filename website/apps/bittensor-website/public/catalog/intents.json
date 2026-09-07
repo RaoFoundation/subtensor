@@ -70,6 +70,71 @@
     ]
   },
   {
+    "name": "add_derivative",
+    "summary": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.",
+    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, and flip. With no position, or one on the\nsame side, `amount` TAO is taken from the coldkey as cushion, the pool\nlends the matching slice (alpha sold for TAO on a short, TAO spent on\nalpha on a long), and the result is folded into the position; one day of\nthe new tranche's fee is booked up front. With a position on the other\nside, that much exposure is settled at the current price and its share of\nthe cushion, less fee and loss, is paid back; nothing is deposited. Asking\nfor more than the position holds closes it and opens the rest on the new\nside, taking only that rest's cushion. Nothing can be added to a position\npast its expiry; it can still be reduced or closed.",
+    "signer": "coldkey",
+    "origin": "signed",
+    "verify": null,
+    "wraps": [
+      [
+        "Derivatives",
+        "add"
+      ]
+    ],
+    "docs_url": "/docs/tx/add-derivative",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "netuid": {
+          "type": "integer",
+          "description": "Subnet whose alpha the position is on."
+        },
+        "side": {
+          "type": "string",
+          "description": "Direction to add: `Short` or `Long`."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$",
+              "description": "decimal string, for amounts too large for an exact float"
+            }
+          ],
+          "description": "TAO the tranche is sized by. Exposure is `--leverage` times this, measured against the pool's TAO reserve. Deposited as cushion when it adds to your position; only sizes the reduction when it goes against it."
+        },
+        "leverage": {
+          "type": "number",
+          "description": "Exposure as a multiple of `amount`: 1, 2, 5, ... Must be at most the side's maximum (`max_short_leverage_percent` / `max_long_leverage_percent` in `btcli deriv params`)."
+        }
+      },
+      "required": [
+        "netuid",
+        "side",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "cli": "btcli tx add-derivative --netuid <int> --side <value> --amount <amount|all>",
+    "python_class": "AddPosition",
+    "markdown_url": "/llms.mdx/docs/tx/add-derivative/content.md",
+    "sources": [
+      {
+        "pallet": "Derivatives",
+        "call": "add",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 266,
+        "end_line": 275,
+        "url": "/code/pallets/derivatives/src/lib.rs#L264-L275",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
     "name": "add_proxy",
     "summary": "Authorize a delegate key to sign calls on this account's behalf.",
     "description": "Authorize a delegate key to sign calls on this account's behalf.\n\nThe foundation of the keep-the-coldkey-offline setup: sign this once from\nthe coldkey, then let the delegate submit day-to-day calls with\n`proxy_for=<this account>`. The chain reserves a small deposit from the\nsigner per delegation (returned on removal). The delegate can act within\n`proxy_type` immediately (or after announcing, if `delay` > 0) \u2014 grant\nonly to keys you control or fully trust.",
@@ -651,22 +716,17 @@
           "type": "integer",
           "description": "Subnet the position is on."
         },
-        "side": {
-          "type": "string",
-          "description": "Which position to close: `Short` or `Long`."
-        },
         "owner_ss58": {
           "type": "string",
           "description": "Coldkey that owns the position. Defaults to the signer; pass another owner only to close their expired position."
         }
       },
       "required": [
-        "netuid",
-        "side"
+        "netuid"
       ],
       "additionalProperties": false
     },
-    "cli": "btcli tx close-derivative --netuid <int> --side <value>",
+    "cli": "btcli tx close-derivative --netuid <int>",
     "python_class": "ClosePosition",
     "markdown_url": "/llms.mdx/docs/tx/close-derivative/content.md",
     "sources": [
@@ -674,9 +734,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 262,
-        "end_line": 278,
-        "url": "/code/pallets/derivatives/src/lib.rs#L260-L278",
+        "line": 281,
+        "end_line": 291,
+        "url": "/code/pallets/derivatives/src/lib.rs#L279-L291",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -1928,126 +1988,6 @@
     "markdown_url": "/llms.mdx/docs/tx/multisig-threshold-1/content.md"
   },
   {
-    "name": "open_long",
-    "summary": "Open a long on a subnet's alpha, backed by a TAO cushion.",
-    "description": "Open a long on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is `leverage` times the cushion against the pool's TAO reserve, at\nmost `max_long_leverage_percent`, and capped by the pool-share limit.",
-    "signer": "coldkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "Derivatives",
-        "open"
-      ]
-    ],
-    "docs_url": "/docs/tx/open-long",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "netuid": {
-          "type": "integer",
-          "description": "Subnet whose alpha the position is on."
-        },
-        "amount": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "string",
-              "pattern": "^\\d+(\\.\\d+)?$",
-              "description": "decimal string, for amounts too large for an exact float"
-            }
-          ],
-          "description": "TAO cushion to deposit from the coldkey balance. Exposure is `--leverage` times this amount, measured against the pool's TAO reserve."
-        },
-        "leverage": {
-          "type": "number",
-          "description": "Exposure as a multiple of the cushion: 1, 2, 5, ... Must be at most the side's maximum (`max_short_leverage_percent` / `max_long_leverage_percent` in `btcli deriv params`)."
-        }
-      },
-      "required": [
-        "netuid",
-        "amount"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx open-long --netuid <int> --amount <amount|all>",
-    "python_class": "OpenLong",
-    "markdown_url": "/llms.mdx/docs/tx/open-long/content.md",
-    "sources": [
-      {
-        "pallet": "Derivatives",
-        "call": "open",
-        "path": "pallets/derivatives/src/lib.rs",
-        "line": 247,
-        "end_line": 256,
-        "url": "/code/pallets/derivatives/src/lib.rs#L245-L256",
-        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-      }
-    ]
-  },
-  {
-    "name": "open_short",
-    "summary": "Open a short on a subnet's alpha, backed by a TAO cushion.",
-    "description": "Open a short on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is `leverage` times the cushion against the pool's TAO\nreserve, at most `max_short_leverage_percent`, and capped by the pool-share\nlimit.",
-    "signer": "coldkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "Derivatives",
-        "open"
-      ]
-    ],
-    "docs_url": "/docs/tx/open-short",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "netuid": {
-          "type": "integer",
-          "description": "Subnet whose alpha the position is on."
-        },
-        "amount": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "string",
-              "pattern": "^\\d+(\\.\\d+)?$",
-              "description": "decimal string, for amounts too large for an exact float"
-            }
-          ],
-          "description": "TAO cushion to deposit from the coldkey balance. Exposure is `--leverage` times this amount, measured against the pool's TAO reserve."
-        },
-        "leverage": {
-          "type": "number",
-          "description": "Exposure as a multiple of the cushion: 1, 2, 5, ... Must be at most the side's maximum (`max_short_leverage_percent` / `max_long_leverage_percent` in `btcli deriv params`)."
-        }
-      },
-      "required": [
-        "netuid",
-        "amount"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx open-short --netuid <int> --amount <amount|all>",
-    "python_class": "OpenShort",
-    "markdown_url": "/llms.mdx/docs/tx/open-short/content.md",
-    "sources": [
-      {
-        "pallet": "Derivatives",
-        "call": "open",
-        "path": "pallets/derivatives/src/lib.rs",
-        "line": 247,
-        "end_line": 256,
-        "url": "/code/pallets/derivatives/src/lib.rs#L245-L256",
-        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-      }
-    ]
-  },
-  {
     "name": "refund_crowdloan",
     "summary": "Refund contributors of a non-finalized crowdloan (creator only).",
     "description": "Refund contributors of a non-finalized crowdloan (creator only).\n\nReturns contributions (excluding the creator's) to their contributors.\nOnly the creator may call it. Each call refunds at most 50 contributors,\nso large loans may need several `refund_crowdloan` calls before\neveryone is paid back. Once all contributors are refunded, the creator\nruns `dissolve_crowdloan`, which returns the creator's remaining\ncontribution (including the deposit) and removes the loan.",
@@ -2606,66 +2546,6 @@
         "end_line": 305,
         "url": "/code/pallets/subtensor/src/macros/dispatches.rs#L294-L305",
         "raw_url": "/code/raw/pallets/subtensor/src/macros/dispatches.rs"
-      }
-    ]
-  },
-  {
-    "name": "roll_derivative",
-    "summary": "Settle a position at today's price and reopen it in the same transaction.",
-    "description": "Settle a position at today's price and reopen it in the same transaction.\n\nThe old position is closed like `close`: the pool gets its slice and the\nborrow fee back, and the owner's cushion plus profit or loss comes back in\nTAO. That TAO, plus an optional `top_up`, is then the cushion of a fresh\nposition on the same side and at the same leverage, with a full lifetime\nand today's entry price. Fails without touching the position if the new\ncushion is below the minimum deposit, the pool cap is reached, or the\nside's maximum leverage has dropped below the position's; `close`\ninstead.",
-    "signer": "coldkey",
-    "origin": "signed",
-    "verify": null,
-    "wraps": [
-      [
-        "Derivatives",
-        "roll"
-      ]
-    ],
-    "docs_url": "/docs/tx/roll-derivative",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "netuid": {
-          "type": "integer",
-          "description": "Subnet the position is on."
-        },
-        "side": {
-          "type": "string",
-          "description": "Which position to roll: `Short` or `Long`."
-        },
-        "top_up": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "string",
-              "pattern": "^\\d+(\\.\\d+)?$",
-              "description": "decimal string, for amounts too large for an exact float"
-            }
-          ],
-          "description": "Extra TAO to add to the new cushion from the coldkey balance."
-        }
-      },
-      "required": [
-        "netuid",
-        "side"
-      ],
-      "additionalProperties": false
-    },
-    "cli": "btcli tx roll-derivative --netuid <int> --side <value>",
-    "python_class": "RollPosition",
-    "markdown_url": "/llms.mdx/docs/tx/roll-derivative/content.md",
-    "sources": [
-      {
-        "pallet": "Derivatives",
-        "call": "roll",
-        "path": "pallets/derivatives/src/lib.rs",
-        "line": 290,
-        "end_line": 298,
-        "url": "/code/pallets/derivatives/src/lib.rs#L288-L298",
-        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },

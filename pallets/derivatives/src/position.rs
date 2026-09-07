@@ -2,7 +2,10 @@
 
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
-use sp_runtime::{PerThing, Perbill, Percent, RuntimeDebug, traits::Zero};
+use sp_runtime::{
+    PerThing, Perbill, Percent, RuntimeDebug,
+    traits::{Saturating, UniqueSaturatedInto, Zero},
+};
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, TaoBalance, Token};
 use subtensor_swap_interface::Perquintill;
@@ -30,6 +33,15 @@ pub const BLOCKS_PER_DAY: u64 = 7_200;
 pub enum Side {
     Short,
     Long,
+}
+
+impl Side {
+    pub fn opposite(self) -> Side {
+        match self {
+            Side::Short => Side::Long,
+            Side::Long => Side::Short,
+        }
+    }
 }
 
 /// The lifted slice after the opening trade. The variant is the side, so every leg carries its
@@ -85,6 +97,126 @@ impl Legs {
             Legs::Long {
                 proceeds, escrow, ..
             } => proceeds.saturating_add(*escrow).to_u64(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Legs::Short {
+                proceeds,
+                debt,
+                escrow,
+            } => proceeds.is_zero() && debt.is_zero() && escrow.is_zero(),
+            Legs::Long {
+                proceeds,
+                debt,
+                escrow,
+            } => proceeds.is_zero() && debt.is_zero() && escrow.is_zero(),
+        }
+    }
+
+    /// Legs are sums of lifted slices, so two of the same side add leg by leg. `None` when the
+    /// sides differ.
+    pub fn plus(&self, other: &Legs) -> Option<Legs> {
+        match (self, other) {
+            (
+                Legs::Short {
+                    proceeds,
+                    debt,
+                    escrow,
+                },
+                Legs::Short {
+                    proceeds: p2,
+                    debt: d2,
+                    escrow: e2,
+                },
+            ) => Some(Legs::Short {
+                proceeds: proceeds.saturating_add(*p2),
+                debt: debt.saturating_add(*d2),
+                escrow: escrow.saturating_add(*e2),
+            }),
+            (
+                Legs::Long {
+                    proceeds,
+                    debt,
+                    escrow,
+                },
+                Legs::Long {
+                    proceeds: p2,
+                    debt: d2,
+                    escrow: e2,
+                },
+            ) => Some(Legs::Long {
+                proceeds: proceeds.saturating_add(*p2),
+                debt: debt.saturating_add(*d2),
+                escrow: escrow.saturating_add(*e2),
+            }),
+            _ => None,
+        }
+    }
+
+    /// The `fraction` of each leg that a partial settlement unwinds, rounded down so the
+    /// remainder (`self` minus this) never goes negative.
+    pub fn part(&self, fraction: Perquintill) -> Legs {
+        match self {
+            Legs::Short {
+                proceeds,
+                debt,
+                escrow,
+            } => Legs::Short {
+                proceeds: TaoBalance::from(fraction.mul_floor(proceeds.to_u64())),
+                debt: AlphaBalance::from(fraction.mul_floor(debt.to_u64())),
+                escrow: TaoBalance::from(fraction.mul_floor(escrow.to_u64())),
+            },
+            Legs::Long {
+                proceeds,
+                debt,
+                escrow,
+            } => Legs::Long {
+                proceeds: AlphaBalance::from(fraction.mul_floor(proceeds.to_u64())),
+                debt: TaoBalance::from(fraction.mul_floor(debt.to_u64())),
+                escrow: AlphaBalance::from(fraction.mul_floor(escrow.to_u64())),
+            },
+        }
+    }
+
+    /// `self` minus `part`, leg by leg. Saturating; `part` is expected to come from
+    /// [`Legs::part`] of `self`.
+    pub fn minus(&self, part: &Legs) -> Legs {
+        match (self, part) {
+            (
+                Legs::Short {
+                    proceeds,
+                    debt,
+                    escrow,
+                },
+                Legs::Short {
+                    proceeds: p2,
+                    debt: d2,
+                    escrow: e2,
+                },
+            ) => Legs::Short {
+                proceeds: proceeds.saturating_sub(*p2),
+                debt: debt.saturating_sub(*d2),
+                escrow: escrow.saturating_sub(*e2),
+            },
+            (
+                Legs::Long {
+                    proceeds,
+                    debt,
+                    escrow,
+                },
+                Legs::Long {
+                    proceeds: p2,
+                    debt: d2,
+                    escrow: e2,
+                },
+            ) => Legs::Long {
+                proceeds: proceeds.saturating_sub(*p2),
+                debt: debt.saturating_sub(*d2),
+                escrow: escrow.saturating_sub(*e2),
+            },
+            _ => *self,
         }
     }
 }
@@ -144,8 +276,12 @@ impl Cushion {
     }
 }
 
-/// One open position.
-#[freeze_struct("ea10ded882ae91fa")]
+/// One open position: the sum of every tranche the owner has added on this subnet, less
+/// whatever has been settled. One per `(owner, netuid)`; the side is the sign of the exposure.
+///
+/// Every field but the clocks is a plain sum, so adding a tranche is addition and settling a
+/// fraction is multiplication. Nothing here is per tranche.
+#[freeze_struct("b4c605e08da65a24")]
 #[derive(
     Encode,
     Decode,
@@ -158,20 +294,26 @@ impl Cushion {
     RuntimeDebug,
 )]
 pub struct Position<BlockNumber> {
-    /// `P`: what the owner put up. Returned at close minus the fee and any shortfall.
+    /// `P`: what the owner has put up, in total. Returned as the position is settled, minus
+    /// fees and losses.
     pub cushion: Cushion,
-    /// `L`: exposure as a percentage of the cushion, chosen by the owner at open within the
-    /// side's maximum. `roll` reopens at the same value.
-    pub leverage_percent: u16,
     /// The borrowed slice: proceeds held, debt owed, escrow kept. Its variant is the side.
     pub legs: Legs,
-    /// `phi * T` at open: the TAO value the pool lent.
+    /// `sum(phi * T)` over tranches: the TAO value the pool has lent. The position's leverage
+    /// is `exposure_tao / cushion`.
     pub exposure_tao: TaoBalance,
-    /// Borrow fee per day, fixed at open from the parameters in force then. Shorts pay
-    /// `short_fee_per_day * phi`; longs pay `long_rate_per_day * exposure_tao`.
+    /// Borrow fee per day for the whole position: each tranche's rate, fixed when it was added,
+    /// summed. Shorts pay `short_fee_per_day * phi`; longs pay `long_rate_per_day * exposure`.
     pub fee_per_day: TaoBalance,
+    /// Fee owed and not yet paid, as of `last_touch`. Every add puts one day of the new
+    /// tranche's rate here up front; every settlement pays it down.
+    pub fee_accrued: TaoBalance,
+    /// Block the fee was last brought up to date: the latest add or settlement.
+    pub last_touch: BlockNumber,
+    /// Block of the first add.
     pub opened_at: BlockNumber,
-    /// After this block anyone may close the position.
+    /// After this block anyone may close the position, and nothing more can be added to it.
+    /// Set by the first add; adds do not extend it.
     pub expires_at: BlockNumber,
     /// Block whose `Expiring` queue holds this position. Starts as `expires_at`; moves later
     /// each time a sweep fails and is rescheduled.
@@ -180,10 +322,25 @@ pub struct Position<BlockNumber> {
     pub failed_sweeps: u8,
 }
 
-impl<BlockNumber> Position<BlockNumber> {
+impl<BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64>> Position<BlockNumber> {
     pub fn side(&self) -> Side {
         self.legs.side()
     }
+
+    /// Everything owed at `now`: the accrued balance plus the running rate since `last_touch`.
+    pub fn fee_owed(&self, now: BlockNumber) -> TaoBalance {
+        let blocks: u64 = now.saturating_sub(self.last_touch).unique_saturated_into();
+        self.fee_accrued
+            .saturating_add(fee_for_blocks(self.fee_per_day, blocks))
+    }
+}
+
+/// What one `add` contributes to a position. Same shape as the sums it goes into.
+pub struct Tranche {
+    pub cushion: TaoBalance,
+    pub legs: Legs,
+    pub exposure_tao: TaoBalance,
+    pub fee_per_day: TaoBalance,
 }
 
 /// Root-settable parameters.
@@ -373,11 +530,11 @@ pub fn projected_footprint(phi: Perquintill, lent_reserve: u64) -> u64 {
         .saturating_sub(phi.mul_floor(lifted))
 }
 
-/// Borrow fee owed after `blocks_open` blocks, never less than one day's worth.
-pub fn accrued_fee(fee_per_day: TaoBalance, blocks_open: u64) -> TaoBalance {
-    let days_numer = blocks_open.max(BLOCKS_PER_DAY) as u128;
+/// Fee that `blocks` blocks accrue at `fee_per_day`, pro rata. The one-day minimum is not
+/// here: each add books one day of its tranche's rate into `fee_accrued` up front.
+pub fn fee_for_blocks(fee_per_day: TaoBalance, blocks: u64) -> TaoBalance {
     let fee = (fee_per_day.to_u64() as u128)
-        .saturating_mul(days_numer)
+        .saturating_mul(blocks as u128)
         .checked_div(BLOCKS_PER_DAY as u128)
         .unwrap_or(0)
         .min(u64::MAX as u128) as u64;
@@ -408,14 +565,68 @@ mod tests {
     }
 
     #[test]
-    fn fee_has_one_day_floor() {
-        let per_day = TaoBalance::from(500_000);
-        assert_eq!(accrued_fee(per_day, 1), per_day);
-        assert_eq!(accrued_fee(per_day, BLOCKS_PER_DAY), per_day);
+    fn fee_accrues_pro_rata_per_block() {
+        let per_day = TaoBalance::from(7_200_000);
+        assert_eq!(fee_for_blocks(per_day, 0), TaoBalance::from(0));
+        assert_eq!(fee_for_blocks(per_day, 1), TaoBalance::from(1_000));
+        assert_eq!(fee_for_blocks(per_day, BLOCKS_PER_DAY), per_day);
         assert_eq!(
-            accrued_fee(per_day, 30 * BLOCKS_PER_DAY),
-            TaoBalance::from(15_000_000)
+            fee_for_blocks(per_day, 30 * BLOCKS_PER_DAY),
+            TaoBalance::from(216_000_000)
         );
+    }
+
+    #[test]
+    fn legs_add_scale_and_subtract_leg_by_leg() {
+        let a = Legs::Short {
+            proceeds: TaoBalance::from(100),
+            debt: AlphaBalance::from(400),
+            escrow: TaoBalance::from(100),
+        };
+        let b = Legs::Short {
+            proceeds: TaoBalance::from(50),
+            debt: AlphaBalance::from(200),
+            escrow: TaoBalance::from(50),
+        };
+        let sum = a.plus(&b).unwrap();
+        assert_eq!(sum.footprint(), 300);
+        let third = sum.part(Perquintill::from_rational(1u64, 3u64));
+        assert_eq!(third.footprint(), 98); // 49 + 49: each leg rounds down on its own
+        let rest = sum.minus(&third);
+        assert_eq!(rest.plus(&third).unwrap(), sum);
+        assert!(!rest.is_empty());
+        assert!(sum.minus(&sum).is_empty());
+
+        let long = Legs::Long {
+            proceeds: AlphaBalance::from(1),
+            debt: TaoBalance::from(1),
+            escrow: AlphaBalance::from(1),
+        };
+        assert!(a.plus(&long).is_none());
+    }
+
+    #[test]
+    fn position_fee_is_accrued_plus_running_rate() {
+        let position = Position::<u64> {
+            cushion: Cushion::Tao(TaoBalance::from(0)),
+            legs: Legs::Short {
+                proceeds: TaoBalance::from(0),
+                debt: AlphaBalance::from(0),
+                escrow: TaoBalance::from(0),
+            },
+            exposure_tao: TaoBalance::from(0),
+            fee_per_day: TaoBalance::from(7_200),
+            fee_accrued: TaoBalance::from(7_200),
+            last_touch: 10,
+            opened_at: 10,
+            expires_at: 20,
+            queued_at: 20,
+            failed_sweeps: 0,
+        };
+        assert_eq!(position.fee_owed(10), TaoBalance::from(7_200));
+        assert_eq!(position.fee_owed(3_610), TaoBalance::from(10_800));
+        // A clock that ran backwards owes nothing extra.
+        assert_eq!(position.fee_owed(5), TaoBalance::from(7_200));
     }
 
     #[test]

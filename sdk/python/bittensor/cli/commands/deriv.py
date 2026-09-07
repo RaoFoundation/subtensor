@@ -1,4 +1,8 @@
-"""`btcli deriv`: expiry-bounded long and short positions on subnet alpha."""
+"""`btcli deriv`: expiry-bounded long and short positions on subnet alpha.
+
+One position per coldkey and subnet. `short` and `long` are the same call with
+the side fixed: they add to the position, take from it, or flip it.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +12,8 @@ from typing import Optional
 import typer
 
 from ...balance import Balance
-from ...intents import ClosePosition, OpenLong, OpenShort, RollPosition
-from ...intents.derivatives import SideChoice, leverage_percent
+from ...intents import AddPosition, ClosePosition
+from ...intents.derivatives import leverage_percent
 from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -18,7 +22,8 @@ from ..tx import _parse_money
 app = typer.Typer(
     no_args_is_help=True,
     help=(
-        "Long and short positions on subnet alpha, borrowed from the subnet's own pool."
+        "Long and short positions on subnet alpha, borrowed from the subnet's own pool. "
+        "One position per subnet; `short` and `long` add to it, against it, or through zero."
         f"\n\nGuide: {guide_docs_url('derivatives')}"
     ),
 )
@@ -26,18 +31,16 @@ app = typer.Typer(
 POSITIONS_TITLE = "derivative positions (est. value at spot, before slippage)"
 
 
-def _open_options():
+def _add_options():
     """The option set `short` and `long` share."""
     return dict(
-        netuid=typer.Option(..., "--netuid", help=OpenShort.field_help("netuid")),
-        amount=typer.Option(..., "--amount", help=OpenShort.field_help("amount")),
-        leverage=typer.Option(1.0, "--leverage", help=OpenShort.field_help("leverage")),
+        netuid=typer.Option(..., "--netuid", help=AddPosition.field_help("netuid")),
+        amount=typer.Option(..., "--amount", help=AddPosition.field_help("amount")),
+        leverage=typer.Option(1.0, "--leverage", help=AddPosition.field_help("leverage")),
     )
 
 
-def _submit_open(
-    app_ctx: AppContext, intent_cls: type, netuid: int, amount: str, leverage: float
-) -> None:
+def _submit_add(app_ctx: AppContext, side: str, netuid: int, amount: str, leverage: float) -> None:
     try:
         money = _parse_money(amount, False)
     except ValueError as error:
@@ -48,46 +51,50 @@ def _submit_open(
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--leverage`: {error}")
         raise typer.Exit(2)
-    app_ctx.submit(intent_cls(netuid=netuid, amount=money, leverage=leverage))
+    app_ctx.submit(AddPosition(netuid=netuid, side=side, amount=money, leverage=leverage))
 
 
-_OPEN = _open_options()
+_ADD = _add_options()
 
 
 @app.command("short")
 @with_tx_globals
-def open_short(
+def add_short(
     ctx: typer.Context,
-    netuid: int = _OPEN["netuid"],
-    amount: str = _OPEN["amount"],
-    leverage: float = _OPEN["leverage"],
+    netuid: int = _ADD["netuid"],
+    amount: str = _ADD["amount"],
+    leverage: float = _ADD["leverage"],
 ):
-    """Open a short: borrow alpha from the pool and sell it for TAO now.
+    """Add short exposure: borrow alpha from the pool and sell it for TAO now.
 
-    Profit if alpha's price falls before you close; the cushion covers the
-    loss if it rises. `--amount` is the TAO cushion, taken from the coldkey
-    balance. `--leverage` is the exposure as a multiple of it, up to the
-    short maximum in `btcli deriv params`.
+    Profit if alpha's price falls before you settle; the cushion covers the
+    loss if it rises. `--amount` is the TAO the tranche is sized by and
+    `--leverage` the multiple of it, up to the short maximum in `btcli deriv
+    params`. With no position, or a short, `--amount` is deposited as cushion.
+    Against a long it takes that much off at the current price instead, and
+    flips to a short if there is more.
     """
-    _submit_open(ctx_of(ctx), OpenShort, netuid, amount, leverage)
+    _submit_add(ctx_of(ctx), "Short", netuid, amount, leverage)
 
 
 @app.command("long")
 @with_tx_globals
-def open_long(
+def add_long(
     ctx: typer.Context,
-    netuid: int = _OPEN["netuid"],
-    amount: str = _OPEN["amount"],
-    leverage: float = _OPEN["leverage"],
+    netuid: int = _ADD["netuid"],
+    amount: str = _ADD["amount"],
+    leverage: float = _ADD["leverage"],
 ):
-    """Open a long: borrow TAO from the pool and buy alpha with it now.
+    """Add long exposure: borrow TAO from the pool and buy alpha with it now.
 
-    Profit if alpha's price rises before you close; the cushion covers the
-    loss if it falls. `--amount` is the TAO cushion, taken from the coldkey
-    balance. `--leverage` is the exposure as a multiple of it, up to the
-    long maximum in `btcli deriv params`.
+    Profit if alpha's price rises before you settle; the cushion covers the
+    loss if it falls. `--amount` is the TAO the tranche is sized by and
+    `--leverage` the multiple of it, up to the long maximum in `btcli deriv
+    params`. With no position, or a long, `--amount` is deposited as cushion.
+    Against a short it takes that much off at the current price instead, and
+    flips to a long if there is more.
     """
-    _submit_open(ctx_of(ctx), OpenLong, netuid, amount, leverage)
+    _submit_add(ctx_of(ctx), "Long", netuid, amount, leverage)
 
 
 @app.command("close")
@@ -95,50 +102,20 @@ def open_long(
 def close_position(
     ctx: typer.Context,
     netuid: int = typer.Option(..., "--netuid", help=ClosePosition.field_help("netuid")),
-    side: SideChoice = typer.Option(
-        ..., "--side", help=ClosePosition.field_help("side"), case_sensitive=False
-    ),
     owner_ss58: Optional[str] = typer.Option(
         None,
         "--owner",
         help=ClosePosition.field_help("owner_ss58"),
     ),
 ):
-    """Close a position and settle it against the pool.
+    """Close your position on a subnet and settle it against the pool.
 
     The owner may close at any time. Pass `--owner` to close someone else's
     position once it has expired.
     """
     app_ctx: AppContext = ctx_of(ctx)
     owner = app_ctx.resolve_address("coldkey_ss58", owner_ss58) if owner_ss58 else None
-    app_ctx.submit(ClosePosition(netuid=netuid, side=str(side.value), owner_ss58=owner))
-
-
-@app.command("roll")
-@with_tx_globals
-def roll_position(
-    ctx: typer.Context,
-    netuid: int = typer.Option(..., "--netuid", help=RollPosition.field_help("netuid")),
-    side: SideChoice = typer.Option(
-        ..., "--side", help=RollPosition.field_help("side"), case_sensitive=False
-    ),
-    top_up: Optional[str] = typer.Option(None, "--add", help=RollPosition.field_help("top_up")),
-):
-    """Settle a position at today's price and reopen it in one transaction.
-
-    Use this to stay in a trade past its expiry. The loss or profit so far is
-    realized, the fee so far is paid, and the TAO that comes back becomes the
-    cushion of a fresh position with a full lifetime. `--add` puts more TAO in.
-    """
-    app_ctx: AppContext = ctx_of(ctx)
-    money = None
-    if top_up is not None:
-        try:
-            money = _parse_money(top_up, False)
-        except ValueError as error:
-            app_ctx.output.error(f"invalid value for `--add`: {error}")
-            raise typer.Exit(2)
-    app_ctx.submit(RollPosition(netuid=netuid, side=str(side.value), top_up=money))
+    app_ctx.submit(ClosePosition(netuid=netuid, owner_ss58=owner))
 
 
 @app.command("list")
@@ -152,10 +129,10 @@ def list_positions(
         None, "--netuid", help="Only show positions on this subnet."
     ),
 ):
-    """List a coldkey's open longs and shorts with an estimated close value.
+    """List a coldkey's open positions, one per subnet, with an estimated close value.
 
     The estimate prices the buyback or sale at spot and subtracts the borrow
-    fee accrued so far. The real settlement pays slippage on top.
+    fee owed so far. The real settlement pays slippage on top.
     """
     app_ctx: AppContext = ctx_of(ctx)
     owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
@@ -215,11 +192,11 @@ def list_positions(
         rows,
         records,
         legend=[
-            ("lev", "exposure as a multiple of the cushion, chosen at open"),
-            ("cushion", "the TAO you put up, returned after settlement"),
-            ("proceeds", "what the opening trade produced (TAO for a short, alpha for a long)"),
-            ("debt", "what must be bought back or repaid to the pool at close"),
-            ("fee", "borrow fee accrued so far at the rate fixed at open (one-day minimum)"),
+            ("lev", "exposure over cushion: the blend of every tranche added"),
+            ("cushion", "the TAO you have put up, returned as the position settles"),
+            ("proceeds", "what the opening trades produced (TAO for a short, alpha for a long)"),
+            ("debt", "what must be bought back or repaid to the pool at settlement"),
+            ("fee", "borrow fee owed so far: a day per add, then the summed rate per block"),
             ("est. value", "cushion + proceeds - debt - fee at spot, in TAO"),
         ],
     )

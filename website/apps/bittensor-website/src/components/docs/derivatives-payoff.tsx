@@ -139,8 +139,8 @@ export function DerivativesPayoff() {
         ceilings: a short at 1x moves one-for-one against alpha; a long at 2x moves two-for-one with it. Past
         the point where the cushion is gone the position is underwater: settlement pays you nothing,
         gives the pool whatever is left, and the pool carries the shortfall — which is why the pool lends at
-        most 10% of itself per side. Example pool: 10,000 τ / 200,000 α, closed after one day (fee about
-        0.06 τ on the short, 0.02 τ on the long).
+        most 10% of itself per side. Example pool: 10,000 τ / 200,000 α, closed the same day, so only the
+        day of fee booked at the add is paid (about 0.06 τ on the short, 0.02 τ on the long).
       </p>
     </ExplainerPanel>
   );

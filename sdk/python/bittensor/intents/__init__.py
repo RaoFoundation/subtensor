@@ -28,7 +28,7 @@ from .crowdloan import (
     UpdateCrowdloanMinContribution,
     WithdrawCrowdloan,
 )
-from .derivatives import SIDES, ClosePosition, OpenLong, OpenShort, RollPosition
+from .derivatives import SIDES, AddPosition, ClosePosition
 from .evm import EvmWithdraw, FundEvmKey
 from .governance import (
     SetMechanismCount,
@@ -93,6 +93,7 @@ __all__ = [
     "SIDES",
     "UNBOUNDED",
     "AddCollateral",
+    "AddPosition",
     "AddProxy",
     "AddStake",
     "AddStakeLimit",
@@ -130,8 +131,6 @@ __all__ = [
     "MultisigCancel",
     "MultisigExecute",
     "MultisigThreshold1",
-    "OpenLong",
-    "OpenShort",
     "Plan",
     "Policy",
     "RefundCrowdloan",
@@ -143,7 +142,6 @@ __all__ = [
     "RemoveStakeLimit",
     "ResetAxon",
     "RevealWeights",
-    "RollPosition",
     "RootRegister",
     "ServeAxon",
     "ServeAxonTls",

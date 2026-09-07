@@ -4,23 +4,21 @@ from __future__ import annotations
 
 DESCRIPTIONS: dict[str, str] = {
     "SideDisabled": (
-        "Opening a position of this side is switched off by root, globally or on this subnet. "
-        "Check `shorts_enabled` and `longs_enabled` in `deriv params --netuid N`; existing "
-        "positions can always be closed."
+        "Adding to this side is switched off by root, globally or on this subnet. Check "
+        "`shorts_enabled` and `longs_enabled` in `deriv params --netuid N`; existing positions "
+        "can always be reduced or closed."
     ),
     "SubnetNotDynamic": (
         "The subnet does not exist, is not AMM-priced, has its subtoken disabled, or has an "
         "empty reserve. Check the subnet exists and that `subnets show` reports a live pool."
     ),
-    "PositionExists": (
-        "The coldkey already holds a position of this side on this subnet; there is one per "
-        "coldkey, subnet, and side. Check `derivative-positions` and close or roll the "
-        "existing one first."
-    ),
     "NoPosition": (
-        "No position of this side exists for that owner on that subnet. Check the owner, "
-        "netuid, and side against `derivative-positions`; it may already have been closed or "
-        "swept at expiry."
+        "That owner has no position on that subnet. Check the owner and netuid against "
+        "`derivative-positions`; it may already have been closed or swept at expiry."
+    ),
+    "Expired": (
+        "The position is past `expires_at`, so nothing can be added to it. Check `expired` in "
+        "`derivative-positions`; reduce or close it, or wait for the sweep, then add again."
     ),
     "LeverageOutOfRange": (
         "The requested leverage is zero or above the side's maximum. Check "
@@ -51,11 +49,11 @@ DESCRIPTIONS: dict[str, str] = {
     "InvalidParams": (
         "Root submitted parameters with a zero maximum leverage, `max_pool_share`, or "
         "`lifetime_blocks`, "
-        "or a subnet override with a zero `max_pool_share`, which would brick opens or make "
+        "or a subnet override with a zero `max_pool_share`, which would brick adds or make "
         "positions closable at once. Pause a side with its enabled switch instead."
     ),
     "PalletHotkeyUnset": (
-        "The pallet has not claimed its custody hotkey yet, so nothing can be opened. Check "
+        "The pallet has not claimed its custody hotkey yet, so nothing can be added. Check "
         "`Derivatives.PalletHotkey`; it is set by `on_runtime_upgrade` in the upgrade block."
     ),
 }

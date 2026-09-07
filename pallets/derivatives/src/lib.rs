@@ -1,11 +1,14 @@
 //! Expiry-bounded long and short positions on subnet alpha, borrowed from the subnet's own
 //! liquidity pool.
 //!
-//! A position lifts a slice `phi` of both pool reserves without moving price, swaps one half
-//! into the other token, and holds everything until close. At close the swap is reversed, the
-//! borrowed slice plus a borrow fee go back to the pool, and whatever is left of the user's
-//! cushion and proceeds is paid back to the user. Nothing is minted or burned: the pool only
-//! ever gets its own liquidity back.
+//! One position per `(owner, netuid)`, built with one call: `add(side, amount, leverage)`.
+//! Adding on the position's own side lifts a further slice `phi` of both pool reserves without
+//! moving price, swaps one half into the other token, and folds the result into the position.
+//! Adding on the other side settles that much of it at the current price, and flips through
+//! zero if there is more. `close` settles everything. At settlement the swap is reversed, the
+//! borrowed slice plus the borrow fee go back to the pool, and whatever is left of the owner's
+//! cushion and proceeds is paid out. Nothing is minted or burned: the pool only ever gets its
+//! own liquidity back.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -22,21 +25,17 @@ pub mod weights;
 
 use frame_support::{BoundedVec, PalletId, pallet_prelude::*, traits::Get, weights::WeightMeter};
 use frame_system::pallet_prelude::*;
-use sp_runtime::traits::{
-    AccountIdConversion, Hash, Saturating, TrailingZeroInput, UniqueSaturatedInto, Zero,
-};
+use sp_runtime::traits::{AccountIdConversion, Hash, Saturating, TrailingZeroInput, Zero};
 use subtensor_runtime_common::{AlphaBalance, NetUid, SubnetDissolveHook, TaoBalance, Token};
-use subtensor_swap_interface::{DerivativesPoolInterface, OrderSwapInterface};
+use subtensor_swap_interface::{DerivativesPoolInterface, OrderSwapInterface, Perquintill};
 
 /// Who triggered a settlement.
 #[derive(Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, PartialEq, Eq, RuntimeDebug)]
 pub enum Closer<AccountId> {
-    /// The owner closed early, or anyone closed after expiry.
+    /// The owner closed or reduced it, or anyone closed it after expiry.
     Account(AccountId),
     /// The `on_idle` sweep found the position expired.
     Expiry,
-    /// The owner rolled the position: settled it and reopened with what came back.
-    Roll,
     /// The subnet was dissolved; the position was cancelled at par.
     Dissolution,
 }
@@ -77,29 +76,22 @@ pub mod pallet {
     pub type Params<T: Config> =
         StorageValue<_, DerivativesParams<BlockNumberFor<T>>, ValueQuery, DefaultParams<T>>;
 
-    /// One position per `(owner, netuid, side)`.
+    /// One position per `(owner, netuid)`; its side is the sign of its exposure.
     #[pallet::storage]
     pub type Positions<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         T::AccountId,
-        Blake2_128Concat,
-        (NetUid, Side),
+        Identity,
+        NetUid,
         Position<BlockNumberFor<T>>,
         OptionQuery,
     >;
 
     /// Index by subnet so dissolution can find every open position.
     #[pallet::storage]
-    pub type OpenByNetuid<T: Config> = StorageDoubleMap<
-        _,
-        Identity,
-        NetUid,
-        Blake2_128Concat,
-        (T::AccountId, Side),
-        (),
-        OptionQuery,
-    >;
+    pub type OpenByNetuid<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
     /// Sum of [`Legs::footprint`] over open positions, in the lent token (TAO for shorts, alpha
     /// for longs). Compared against `max_pool_share` of the lent reserve at open.
@@ -113,7 +105,7 @@ pub mod pallet {
         _,
         Identity,
         BlockNumberFor<T>,
-        BoundedVec<(T::AccountId, NetUid, Side), T::MaxExpiriesPerBlock>,
+        BoundedVec<(T::AccountId, NetUid), T::MaxExpiriesPerBlock>,
         ValueQuery,
     >;
 
@@ -136,20 +128,40 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        PositionOpened {
+        /// A tranche was added on the position's side (or a new position opened). The `*_added`
+        /// fields are this tranche alone; the position's totals are their running sums.
+        PositionAdded {
             owner: T::AccountId,
             netuid: NetUid,
             side: Side,
-            /// What the owner put up.
-            cushion: Cushion,
-            /// Exposure as a percentage of the cushion, as the owner chose it.
+            /// TAO the owner put up for this tranche.
+            cushion_added: TaoBalance,
+            /// Exposure as a percentage of the cushion, as the owner chose it for this tranche.
             leverage_percent: u16,
-            /// Proceeds held, debt owed, escrow kept, each in its own token.
-            legs: Legs,
+            /// Proceeds held, debt owed, escrow kept by this tranche, each in its own token.
+            legs_added: Legs,
+            exposure_added: TaoBalance,
+            /// Borrow fee per day this tranche adds, fixed for as long as it is held.
+            fee_per_day_added: TaoBalance,
+            /// The position's exposure after this add.
             exposure_tao: TaoBalance,
-            /// Borrow fee per day, fixed for the life of the position.
-            fee_per_day: TaoBalance,
+            /// Unchanged by adds after the first.
             expires_at: BlockNumberFor<T>,
+        },
+        /// Part of a position was settled at the current price; the rest stays open.
+        PositionReduced {
+            owner: T::AccountId,
+            netuid: NetUid,
+            side: Side,
+            /// Share of the position that was unwound.
+            fraction: Perquintill,
+            tao_to_owner: TaoBalance,
+            /// Fee paid on the whole position, brought up to date at this block.
+            fee_paid: TaoBalance,
+            /// Debt the settled part could not repay, in the lent token.
+            shortfall: Lent,
+            /// The position's exposure after this reduction.
+            exposure_tao: TaoBalance,
         },
         PositionClosed {
             owner: T::AccountId,
@@ -167,7 +179,6 @@ pub mod pallet {
         SettleFailed {
             owner: T::AccountId,
             netuid: NetUid,
-            side: Side,
             error: DispatchError,
             retry_at: Option<BlockNumberFor<T>>,
         },
@@ -187,11 +198,11 @@ pub mod pallet {
         SideDisabled,
         /// The subnet does not exist, is not AMM-priced, or has its subtoken disabled.
         SubnetNotDynamic,
-        /// The caller already has a position of this side on this subnet.
-        PositionExists,
         /// No such position.
         NoPosition,
-        /// The cushion is worth less than `min_deposit_tao`.
+        /// The position has expired: it can be closed, but nothing can be added to it.
+        Expired,
+        /// The tranche's cushion is worth less than `min_deposit_tao`.
         DepositTooLow,
         /// Leverage is zero or above the side's maximum (`max_short_leverage_percent` or
         /// `max_long_leverage_percent`).
@@ -234,72 +245,54 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Open a `side` position on `netuid` backed by `cushion` TAO from the caller's free
-        /// balance, at `leverage_percent` (`100` = 1x).
+        /// Add `side` exposure on `netuid`: `leverage_percent / 100` times `amount`, measured
+        /// against the pool's TAO reserve. One call covers open, add, reduce, and flip.
         ///
-        /// Exposure is `leverage_percent / 100` times the cushion, measured against the pool's
-        /// TAO reserve. The leverage must be above zero and at most the side's maximum
-        /// (`max_short_leverage_percent` or `max_long_leverage_percent`). The position stays
-        /// open until the owner closes it or `lifetime_blocks` pass, after which anyone may
-        /// close it.
+        /// With no position, or one on the same side, `amount` TAO is taken from the caller's
+        /// free balance as cushion and a tranche is lifted from the pool and folded into the
+        /// position. One day of the tranche's fee is booked up front. Nothing can be added to an
+        /// expired position.
+        ///
+        /// With a position on the other side, this settles the matching share of it at the
+        /// current price and pays that share of the cushion, less fee and any loss, to the
+        /// caller. If the exposure asked for is larger than the position, the whole position is
+        /// closed and the rest, if it reaches `min_deposit_tao`, opens on the new side. Only the
+        /// cushion for that rest is taken from the caller.
+        ///
+        /// The leverage must be above zero and at most the side's maximum
+        /// (`max_short_leverage_percent` or `max_long_leverage_percent`).
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::open())]
-        pub fn open(
+        #[pallet::weight(T::WeightInfo::add())]
+        pub fn add(
             origin: OriginFor<T>,
             netuid: NetUid,
             side: Side,
-            cushion: TaoBalance,
+            amount: TaoBalance,
             leverage_percent: u16,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
-            Self::do_open(owner, netuid, side, cushion, leverage_percent)
+            Self::do_add(owner, netuid, side, amount, leverage_percent)
         }
 
-        /// Settle `owner`'s `side` position on `netuid`. The owner may close at any time; anyone
-        /// else only once the position has expired. To stay in the trade past expiry, `roll`.
+        /// Settle `owner`'s position on `netuid` in full. The owner may close at any time;
+        /// anyone else only once the position has expired.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::close())]
-        pub fn close(
-            origin: OriginFor<T>,
-            owner: T::AccountId,
-            netuid: NetUid,
-            side: Side,
-        ) -> DispatchResult {
+        pub fn close(origin: OriginFor<T>, owner: T::AccountId, netuid: NetUid) -> DispatchResult {
             let caller = ensure_signed(origin)?;
-            let position =
-                Positions::<T>::get(&owner, (netuid, side)).ok_or(Error::<T>::NoPosition)?;
+            let position = Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::NoPosition)?;
             if caller != owner {
                 ensure!(
                     frame_system::Pallet::<T>::block_number() >= position.expires_at,
                     Error::<T>::NotExpired
                 );
             }
-            Self::do_settle(&owner, netuid, side, Closer::Account(caller)).map(|_| ())
-        }
-
-        /// Settle the caller's `side` position on `netuid` at the current price and, in the same
-        /// transaction, open a fresh one at the same leverage with what came back plus `top_up`
-        /// as the cushion. Owner only.
-        ///
-        /// The new position gets today's entry price and a full `lifetime_blocks`. Fails,
-        /// leaving the position open, if the new cushion is below `min_deposit_tao`, the pool
-        /// cap is reached, or the side's maximum leverage has since dropped below the
-        /// position's; `close` instead.
-        #[pallet::call_index(3)]
-        #[pallet::weight(T::WeightInfo::roll())]
-        pub fn roll(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            side: Side,
-            top_up: TaoBalance,
-        ) -> DispatchResult {
-            let owner = ensure_signed(origin)?;
-            Self::do_roll(owner, netuid, side, top_up)
+            Self::do_settle(&owner, netuid, Perquintill::one(), Closer::Account(caller)).map(|_| ())
         }
 
         /// Replace every parameter at once. Root only. Rejects a zero maximum leverage,
-        /// `max_pool_share`, or `lifetime_blocks`. Open positions keep the leverage, fee, and
-        /// lifetime they were opened with.
+        /// `max_pool_share`, or `lifetime_blocks`. Open positions keep the fee and lifetime
+        /// they were opened with; a later add is checked against the new values.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::sudo_set_params())]
         pub fn sudo_set_params(
@@ -405,21 +398,22 @@ pub mod pallet {
                 meter.consume(step_cost);
 
                 let mut due = Expiring::<T>::take(cursor);
-                while let Some((owner, netuid, side)) = due.pop() {
+                while let Some((owner, netuid)) = due.pop() {
                     if !meter.can_consume(settle_cost) {
                         // Put the unfinished tail back and resume here next block.
-                        due.try_push((owner, netuid, side)).ok();
+                        due.try_push((owner, netuid)).ok();
                         Expiring::<T>::insert(cursor, due);
                         NextSweep::<T>::put(cursor);
                         return;
                     }
                     meter.consume(settle_cost);
-                    if let Err(error) = Self::do_settle(&owner, netuid, side, Closer::Expiry) {
-                        let retry_at = Self::reschedule_failed(&owner, netuid, side, now);
+                    if let Err(error) =
+                        Self::do_settle(&owner, netuid, Perquintill::one(), Closer::Expiry)
+                    {
+                        let retry_at = Self::reschedule_failed(&owner, netuid, now);
                         Self::deposit_event(Event::SettleFailed {
                             owner,
                             netuid,
-                            side,
                             error,
                             retry_at,
                         });
@@ -442,11 +436,11 @@ pub mod pallet {
                 if !meter.can_consume(per_position) {
                     return false;
                 }
-                let Some((owner, side)) = OpenByNetuid::<T>::iter_key_prefix(netuid).next() else {
+                let Some(owner) = OpenByNetuid::<T>::iter_key_prefix(netuid).next() else {
                     return true;
                 };
                 meter.consume(per_position);
-                Self::unwind(&owner, netuid, side);
+                Self::unwind(&owner, netuid);
             }
         }
     }

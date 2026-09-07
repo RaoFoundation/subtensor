@@ -9,7 +9,7 @@ pub(crate) mod mock;
 use frame_support::{assert_err, assert_ok};
 use sp_core::U256;
 use sp_runtime::{Perbill, Percent};
-use subtensor_runtime_common::{NetUid, TaoBalance};
+use subtensor_runtime_common::{NetUid, TaoBalance, Token};
 use subtensor_swap_interface::Perquintill;
 
 use crate::{Closer, Error, Event, Footprint, PalletHotkey, Params, Side, position::*};
@@ -40,33 +40,32 @@ fn setup() {
     let _ = SubtensorModule::create_account_if_non_existent(&alice(), &alice_hotkey());
 }
 
-/// Open at the side's maximum leverage: 1x for shorts, 2x for longs under the defaults.
-fn open(who: U256, side: Side, cushion: u64) -> sp_runtime::DispatchResult {
+/// Add at the side's maximum leverage: 1x for shorts, 2x for longs under the defaults.
+fn add(who: U256, side: Side, amount: u64) -> sp_runtime::DispatchResult {
     let leverage = Params::<Test>::get().max_leverage_percent(side);
-    open_at(who, side, cushion, leverage)
+    add_at(who, side, amount, leverage)
 }
 
-fn open_at(
-    who: U256,
-    side: Side,
-    cushion: u64,
-    leverage_percent: u16,
-) -> sp_runtime::DispatchResult {
-    Derivatives::open(
+fn add_at(who: U256, side: Side, amount: u64, leverage_percent: u16) -> sp_runtime::DispatchResult {
+    Derivatives::add(
         RuntimeOrigin::signed(who),
         netuid(),
         side,
-        cushion.into(),
+        amount.into(),
         leverage_percent,
     )
 }
 
-fn close(caller: U256, owner: U256, side: Side) -> sp_runtime::DispatchResult {
-    Derivatives::close(RuntimeOrigin::signed(caller), owner, netuid(), side)
+fn close(caller: U256, owner: U256) -> sp_runtime::DispatchResult {
+    Derivatives::close(RuntimeOrigin::signed(caller), owner, netuid())
 }
 
 fn one_day_fee(fee_per_day: TaoBalance) -> u64 {
-    accrued_fee(fee_per_day, 1).into()
+    fee_per_day.into()
+}
+
+fn leverage_of(pos: &Position<u64>) -> f64 {
+    u64::from(pos.exposure_tao) as f64 / u64::from(pos.cushion.tao()) as f64
 }
 
 fn assert_close(a: u64, b: u64, tolerance: u64) {
@@ -162,7 +161,7 @@ fn nothing_opens_until_the_hotkey_is_claimed() {
         setup();
         PalletHotkey::<Test>::kill();
         assert_err!(
-            open(alice(), Side::Short, DEPOSIT),
+            add(alice(), Side::Short, DEPOSIT),
             Error::<Test>::PalletHotkeyUnset
         );
         assert_eq!(balance(&alice()), 100 * TAO);
@@ -180,9 +179,9 @@ fn open_short_with_tao_lifts_and_sells() {
         let stake0 = total_stake();
         let flow0 = tao_flow(netuid());
 
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
 
-        let pos = position(&alice(), netuid(), Side::Short).unwrap();
+        let pos = position(&alice(), netuid()).unwrap();
         let (proceeds, debt, escrow) = legs(&pos);
         assert!(matches!(pos.legs, Legs::Short { .. }));
         // 1x leverage: phi = 10 / 1000 = 1%.
@@ -218,9 +217,9 @@ fn open_long_with_tao_lifts_and_buys() {
         let out0 = alpha_out(netuid());
         let stake0 = total_stake();
 
-        assert_ok!(open(alice(), Side::Long, DEPOSIT));
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
 
-        let pos = position(&alice(), netuid(), Side::Long).unwrap();
+        let pos = position(&alice(), netuid()).unwrap();
         let (proceeds, debt, escrow) = legs(&pos);
         assert!(matches!(pos.legs, Legs::Long { .. }));
         // Longs run at 2x: a 10 TAO cushion lifts 2% of the 1000 TAO pool.
@@ -248,12 +247,12 @@ fn open_rejects_bad_inputs() {
     new_test_ext().execute_with(|| {
         setup();
         assert_err!(
-            open(alice(), Side::Short, TAO / 100),
+            add(alice(), Side::Short, TAO / 100),
             Error::<Test>::DepositTooLow
         );
-        assert_err!(open(alice(), Side::Short, 0), Error::<Test>::ZeroExposure);
+        assert_err!(add(alice(), Side::Short, 0), Error::<Test>::ZeroExposure);
         assert_err!(
-            Derivatives::open(
+            Derivatives::add(
                 RuntimeOrigin::signed(alice()),
                 NetUid::from(9u16),
                 Side::Short,
@@ -267,14 +266,8 @@ fn open_rejects_bad_inputs() {
         params.longs_enabled = false;
         assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
         assert_err!(
-            open(alice(), Side::Long, DEPOSIT),
+            add(alice(), Side::Long, DEPOSIT),
             Error::<Test>::SideDisabled
-        );
-
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        assert_err!(
-            open(alice(), Side::Short, DEPOSIT),
-            Error::<Test>::PositionExists
         );
     });
 }
@@ -284,42 +277,43 @@ fn owner_chooses_leverage_up_to_the_side_maximum() {
     new_test_ext().execute_with(|| {
         setup();
         assert_err!(
-            open_at(alice(), Side::Short, DEPOSIT, 0),
+            add_at(alice(), Side::Short, DEPOSIT, 0),
             Error::<Test>::LeverageOutOfRange
         );
         assert_err!(
-            open_at(alice(), Side::Short, DEPOSIT, 101),
+            add_at(alice(), Side::Short, DEPOSIT, 101),
             Error::<Test>::LeverageOutOfRange
         );
         assert_err!(
-            open_at(alice(), Side::Long, DEPOSIT, 201),
+            add_at(alice(), Side::Long, DEPOSIT, 201),
             Error::<Test>::LeverageOutOfRange
         );
 
         // Half leverage on a short: a 10 TAO cushion lifts 0.5% of the 1000 TAO pool.
-        assert_ok!(open_at(alice(), Side::Short, DEPOSIT, 50));
-        let short = position(&alice(), netuid(), Side::Short).unwrap();
-        assert_eq!(short.leverage_percent, 50);
+        assert_ok!(add_at(alice(), Side::Short, DEPOSIT, 50));
+        let short = position(&alice(), netuid()).unwrap();
+        assert_eq!(leverage_of(&short), 0.5);
         assert_eq!(u64::from(short.exposure_tao), POOL_TAO / 200);
 
         // 1.5x on a long, below the 2x maximum.
-        assert_ok!(open_at(alice(), Side::Long, DEPOSIT, 150));
-        let long = position(&alice(), netuid(), Side::Long).unwrap();
-        assert_eq!(long.leverage_percent, 150);
+        assert_ok!(add_at(bob(), Side::Long, DEPOSIT, 150));
+        let long = position(&bob(), netuid()).unwrap();
+        assert_close((leverage_of(&long) * 1000.0) as u64, 1500, 1);
         let (_, debt, _) = legs(&long);
         assert_close(debt, POOL_TAO * 15 / 1000, 1);
+        assert_ok!(close(bob(), bob()));
 
         // Root raises the long maximum; 5x is now open to Bob.
         let mut params = Params::<Test>::get();
         params.max_long_leverage_percent = 500;
         assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
-        assert_ok!(open_at(bob(), Side::Long, DEPOSIT / 2, 500));
-        let bobs = position(&bob(), netuid(), Side::Long).unwrap();
-        assert_eq!(bobs.leverage_percent, 500);
+        assert_ok!(add_at(bob(), Side::Long, DEPOSIT / 2, 500));
+        let bobs = position(&bob(), netuid()).unwrap();
+        assert_close((leverage_of(&bobs) * 1000.0) as u64, 5000, 1);
         // 5 TAO at 5x lifts 2.5% of the pool.
         assert_close(u64::from(bobs.exposure_tao), POOL_TAO / 40, 1);
         assert_err!(
-            open_at(bob(), Side::Short, DEPOSIT, 500),
+            add_at(alice(), Side::Short, DEPOSIT, 500),
             Error::<Test>::LeverageOutOfRange
         );
     });
@@ -334,18 +328,18 @@ fn footprint_cap_rejects_stacking() {
         params.max_pool_share = Percent::from_percent(5);
         assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
 
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        assert_ok!(open(bob(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(bob(), Side::Short, DEPOSIT));
         let charlie = U256::from(3);
         add_balance(&charlie, 100 * TAO);
         // Third one would push the footprint over 5%.
         assert_err!(
-            open(charlie, Side::Short, DEPOSIT),
+            add(charlie, Side::Short, DEPOSIT),
             Error::<Test>::PoolCapExceeded
         );
         // A single oversized position is rejected outright.
         assert_err!(
-            open(charlie, Side::Long, 60 * TAO),
+            add(charlie, Side::Long, 60 * TAO),
             Error::<Test>::PoolCapExceeded
         );
     });
@@ -356,16 +350,16 @@ fn fee_per_day_is_priced_by_side_and_frozen_at_open() {
     new_test_ext().execute_with(|| {
         setup();
         let params = Params::<Test>::get();
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
         // The short's lift shrank the TAO reserve, so the long's phi is a little over 2%.
         let long_phi = pool_fraction(200, DEPOSIT, reserves(netuid()).0).unwrap();
-        assert_ok!(open(bob(), Side::Long, DEPOSIT));
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
 
         // The short lifts phi = 1% at 1x, the long about 2% at 2x. The short pays C * phi in
         // TAO, whatever its exposure; the long pays r * exposure. Both are scaled by the size
         // factor for their own phi.
-        let short = position(&alice(), netuid(), Side::Short).unwrap();
-        let long = position(&bob(), netuid(), Side::Long).unwrap();
+        let short = position(&alice(), netuid()).unwrap();
+        let long = position(&bob(), netuid()).unwrap();
         assert_eq!(
             u64::from(short.fee_per_day),
             size_factor(
@@ -389,12 +383,10 @@ fn fee_per_day_is_priced_by_side_and_frozen_at_open() {
         changed.long_rate_per_day = Perbill::from_percent(50);
         assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), changed));
         assert_eq!(
-            position(&alice(), netuid(), Side::Short)
-                .unwrap()
-                .fee_per_day,
+            position(&alice(), netuid()).unwrap().fee_per_day,
             short.fee_per_day
         );
-        assert_ok!(close(alice(), alice(), Side::Short));
+        assert_ok!(close(alice(), alice()));
         let (_, fee_paid, _) = last_closed_event();
         assert_eq!(fee_paid, one_day_fee(short.fee_per_day));
     });
@@ -403,7 +395,7 @@ fn fee_per_day_is_priced_by_side_and_frozen_at_open() {
 // ── Close ────────────────────────────────────────────────────────────────────
 
 #[test]
-fn short_open_close_same_block_returns_deposit_minus_one_day_fee() {
+fn short_add_close_same_block_returns_deposit_minus_one_day_fee() {
     new_test_ext().execute_with(|| {
         setup();
         let (t0, a0) = reserves(netuid());
@@ -412,9 +404,9 @@ fn short_open_close_same_block_returns_deposit_minus_one_day_fee() {
         let w0 = balancer_weight(netuid());
         let p0 = price(netuid());
 
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        let pos = position(&alice(), netuid(), Side::Short).unwrap();
-        assert_ok!(close(alice(), alice(), Side::Short));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let pos = position(&alice(), netuid()).unwrap();
+        assert_ok!(close(alice(), alice()));
 
         let fee = one_day_fee(pos.fee_per_day);
         let (tao_back, fee_paid, shortfall) = last_closed_event();
@@ -424,7 +416,7 @@ fn short_open_close_same_block_returns_deposit_minus_one_day_fee() {
         // only rounding, so Alice gets her deposit back minus the fee.
         assert_close(tao_back, DEPOSIT - fee, 100);
         assert_eq!(balance(&alice()), 100 * TAO - DEPOSIT + tao_back);
-        assert!(position(&alice(), netuid(), Side::Short).is_none());
+        assert!(position(&alice(), netuid()).is_none());
         assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
         assert_eq!(balance(&pallet_account()), 0);
 
@@ -450,16 +442,16 @@ fn short_open_close_same_block_returns_deposit_minus_one_day_fee() {
 }
 
 #[test]
-fn long_open_close_same_block_returns_deposit_minus_one_day_fee() {
+fn long_add_close_same_block_returns_deposit_minus_one_day_fee() {
     new_test_ext().execute_with(|| {
         setup();
         let (t0, a0) = reserves(netuid());
         let out0 = alpha_out(netuid());
         let stake0 = total_stake();
 
-        assert_ok!(open(alice(), Side::Long, DEPOSIT));
-        let pos = position(&alice(), netuid(), Side::Long).unwrap();
-        assert_ok!(close(alice(), alice(), Side::Long));
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
+        let pos = position(&alice(), netuid()).unwrap();
+        assert_ok!(close(alice(), alice()));
 
         let fee = one_day_fee(pos.fee_per_day);
         let (tao_back, fee_paid, shortfall) = last_closed_event();
@@ -481,7 +473,7 @@ fn long_open_close_same_block_returns_deposit_minus_one_day_fee() {
 fn short_profits_when_price_falls_and_loses_when_it_rises() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
         // Bob dumps alpha: price falls.
         give_stake(&bob(), &alice_hotkey(), netuid(), 400 * TAO);
         assert_ok!(SubtensorModule::remove_stake(
@@ -490,7 +482,7 @@ fn short_profits_when_price_falls_and_loses_when_it_rises() {
             netuid(),
             (400 * TAO).into()
         ));
-        assert_ok!(close(alice(), alice(), Side::Short));
+        assert_ok!(close(alice(), alice()));
         let (tao_back, _, shortfall) = last_closed_event();
         assert_eq!(shortfall, 0);
         assert!(tao_back > DEPOSIT, "short should profit: {tao_back}");
@@ -498,7 +490,7 @@ fn short_profits_when_price_falls_and_loses_when_it_rises() {
 
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
         // Bob buys alpha: price rises.
         assert_ok!(SubtensorModule::add_stake(
             RuntimeOrigin::signed(bob()),
@@ -506,7 +498,7 @@ fn short_profits_when_price_falls_and_loses_when_it_rises() {
             netuid(),
             (50 * TAO).into()
         ));
-        assert_ok!(close(alice(), alice(), Side::Short));
+        assert_ok!(close(alice(), alice()));
         let (tao_back, _, shortfall) = last_closed_event();
         assert_eq!(shortfall, 0);
         assert!(tao_back < DEPOSIT, "short should lose: {tao_back}");
@@ -518,7 +510,7 @@ fn underwater_short_settles_with_shortfall_and_pool_is_never_short() {
     new_test_ext().execute_with(|| {
         setup();
         let (t0, _) = reserves(netuid());
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
         // Price triples: alpha is now far more expensive than N + P can buy.
         let whale = U256::from(7);
         add_balance(&whale, 5_000 * TAO);
@@ -528,7 +520,7 @@ fn underwater_short_settles_with_shortfall_and_pool_is_never_short() {
             netuid(),
             (2_000 * TAO).into()
         ));
-        assert_ok!(close(alice(), alice(), Side::Short));
+        assert_ok!(close(alice(), alice()));
         let (tao_back, fee_paid, shortfall) = last_closed_event();
         assert_eq!(tao_back, 0);
         assert_eq!(fee_paid, 0);
@@ -536,7 +528,7 @@ fn underwater_short_settles_with_shortfall_and_pool_is_never_short() {
         // Everything the pallet held for the position went back to the pool.
         assert_eq!(balance(&pallet_account()), 0);
         assert!(reserves(netuid()).0 > t0);
-        assert!(position(&alice(), netuid(), Side::Short).is_none());
+        assert!(position(&alice(), netuid()).is_none());
     });
 }
 
@@ -544,7 +536,7 @@ fn underwater_short_settles_with_shortfall_and_pool_is_never_short() {
 fn long_at_two_x_survives_a_moderate_drop_and_the_pool_is_whole() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Long, DEPOSIT));
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
         // Price falls about 30%: the proceeds alpha sells for less than D, the cushion covers
         // the gap, the pool gets D back and Alice keeps the rest.
         give_stake(&bob(), &alice_hotkey(), netuid(), 800 * TAO);
@@ -554,7 +546,7 @@ fn long_at_two_x_survives_a_moderate_drop_and_the_pool_is_whole() {
             netuid(),
             (800 * TAO).into()
         ));
-        assert_ok!(close(alice(), alice(), Side::Long));
+        assert_ok!(close(alice(), alice()));
         let (tao_back, fee_paid, shortfall) = last_closed_event();
         assert_eq!(shortfall, 0);
         assert!(fee_paid > 0);
@@ -568,7 +560,7 @@ fn long_at_two_x_survives_a_moderate_drop_and_the_pool_is_whole() {
 fn long_at_two_x_is_underwater_once_the_price_halves() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Long, DEPOSIT));
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
         // At 2x the cushion is D / 2, so a collapse past a halving leaves a shortfall. Alice
         // gets nothing, the pool takes everything the pallet still holds.
         give_stake(&bob(), &alice_hotkey(), netuid(), 20_000 * TAO);
@@ -578,14 +570,14 @@ fn long_at_two_x_is_underwater_once_the_price_halves() {
             netuid(),
             (20_000 * TAO).into()
         ));
-        assert_ok!(close(alice(), alice(), Side::Long));
+        assert_ok!(close(alice(), alice()));
         let (tao_back, fee_paid, shortfall) = last_closed_event();
         assert_eq!(tao_back, 0);
         assert_eq!(fee_paid, 0);
         assert!(shortfall > 0);
         assert_eq!(balance(&pallet_account()), 0);
         assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
-        assert!(position(&alice(), netuid(), Side::Long).is_none());
+        assert!(position(&alice(), netuid()).is_none());
     });
 }
 
@@ -595,7 +587,7 @@ fn long_at_two_x_is_underwater_once_the_price_halves() {
 fn subnet_override_pauses_one_side_and_replaces_the_cap() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
 
         let paused = SubnetOverride {
             shorts_enabled: false,
@@ -618,29 +610,25 @@ fn subnet_override_pauses_one_side_and_replaces_the_cap() {
         // Shorts are paused here but not elsewhere: the global switch is still on.
         assert!(Params::<Test>::get().shorts_enabled);
         assert_err!(
-            open(bob(), Side::Short, DEPOSIT),
+            add(bob(), Side::Short, DEPOSIT),
             Error::<Test>::SideDisabled
         );
-        // A paused side can still close, and roll cannot reopen.
+        // A paused side can still be reduced and closed, but not added to.
         assert_err!(
-            Derivatives::roll(
-                RuntimeOrigin::signed(alice()),
-                netuid(),
-                Side::Short,
-                0.into()
-            ),
+            add(alice(), Side::Short, DEPOSIT),
             Error::<Test>::SideDisabled
         );
-        assert!(position(&alice(), netuid(), Side::Short).is_some());
-        assert_ok!(close(alice(), alice(), Side::Short));
+        assert_ok!(add_at(alice(), Side::Long, DEPOSIT / 2, 100));
+        assert!(position(&alice(), netuid()).is_some());
+        assert_ok!(close(alice(), alice()));
 
         // Longs are open but capped at 1% here instead of the global 10%: a 2% lift fails,
         // a 0.5% lift passes.
         assert_err!(
-            open(bob(), Side::Long, DEPOSIT),
+            add(bob(), Side::Long, DEPOSIT),
             Error::<Test>::PoolCapExceeded
         );
-        assert_ok!(open(bob(), Side::Long, DEPOSIT / 4));
+        assert_ok!(add(bob(), Side::Long, DEPOSIT / 4));
 
         // Removing the override puts the subnet back on the global parameters.
         assert_ok!(Derivatives::sudo_set_subnet_override(
@@ -649,7 +637,7 @@ fn subnet_override_pauses_one_side_and_replaces_the_cap() {
             None
         ));
         assert!(crate::SubnetOverrides::<Test>::get(netuid()).is_none());
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
     });
 }
 
@@ -678,99 +666,314 @@ fn subnet_override_requires_root_and_a_non_zero_cap() {
     });
 }
 
-// ── Roll ─────────────────────────────────────────────────────────────────────
+// ── Add, reduce, flip ────────────────────────────────────────────────────────
 
 #[test]
-fn roll_settles_and_reopens_with_the_payout() {
+fn adding_on_the_same_side_sums_every_leg_and_keeps_the_expiry() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        let before = position(&alice(), netuid(), Side::Short).unwrap();
-        let balance_before = balance(&alice());
-        System::set_block_number(100);
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let first = position(&alice(), netuid()).unwrap();
+        let (p1, d1, e1) = legs(&first);
+        System::set_block_number(101);
 
-        assert_ok!(Derivatives::roll(
-            RuntimeOrigin::signed(alice()),
-            netuid(),
-            Side::Short,
-            0.into()
-        ));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let both = position(&alice(), netuid()).unwrap();
+        let (p2, d2, e2) = legs(&both);
 
-        let after = position(&alice(), netuid(), Side::Short).unwrap();
-        let (tao_back, ..) = last_closed_event();
-        assert_eq!(after.opened_at, 100);
-        assert_eq!(after.cushion.tao(), TaoBalance::from(tao_back));
-        assert!(tao_back < DEPOSIT, "one day of fee came off the cushion");
-        assert!(after.opened_at > before.opened_at);
-        assert_eq!(balance(&alice()), balance_before, "nothing left the pallet");
+        // Two 1x tranches of 10 TAO: cushion and exposure double, each leg is the sum of two
+        // lifts (the second a little smaller in TAO, the pool having lost 1% to the first).
+        assert_eq!(both.cushion.tao(), TaoBalance::from(2 * DEPOSIT));
+        assert_close(
+            u64::from(both.exposure_tao),
+            2 * POOL_TAO / 100,
+            POOL_TAO / 1000,
+        );
+        assert!(p2 > p1 && d2 > d1 && e2 > e1);
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), p2 + e2);
+        assert_eq!(balance(&pallet_account()), 2 * DEPOSIT + p2 + e2);
+
+        // Clocks: opened and expiry stay with the first tranche; the fee clock moved.
+        assert_eq!(both.opened_at, 1);
+        assert_eq!(both.expires_at, first.expires_at);
+        assert_eq!(both.last_touch, 101);
+        assert_eq!(crate::Expiring::<Test>::get(first.expires_at).len(), 1);
+
+        System::assert_last_event(
+            Event::PositionAdded {
+                owner: alice(),
+                netuid: netuid(),
+                side: Side::Short,
+                cushion_added: DEPOSIT.into(),
+                leverage_percent: 100,
+                legs_added: Legs::Short {
+                    proceeds: (p2 - p1).into(),
+                    debt: (d2 - d1).into(),
+                    escrow: (e2 - e1).into(),
+                },
+                exposure_added: (u64::from(both.exposure_tao) - u64::from(first.exposure_tao))
+                    .into(),
+                fee_per_day_added: (u64::from(both.fee_per_day) - u64::from(first.fee_per_day))
+                    .into(),
+                exposure_tao: both.exposure_tao,
+                expires_at: first.expires_at,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn fee_ledger_books_a_day_per_add_and_accrues_the_sum_per_block() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let first = position(&alice(), netuid()).unwrap();
+        let rate1 = u64::from(first.fee_per_day);
+        // One day booked up front, nothing accrued yet.
+        assert_eq!(u64::from(first.fee_accrued), rate1);
+        assert_eq!(u64::from(first.fee_owed(1)), rate1);
+        assert_eq!(u64::from(first.fee_owed(1 + BLOCKS_PER_DAY)), 2 * rate1);
+
+        // Half a day later, a second tranche: the first tranche's half day is settled into the
+        // ledger, the second tranche books its own day, and the rate becomes the sum.
+        System::set_block_number(1 + BLOCKS_PER_DAY / 2);
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let both = position(&alice(), netuid()).unwrap();
+        let rate2 = u64::from(both.fee_per_day) - rate1;
+        assert_eq!(u64::from(both.fee_accrued), rate1 + rate1 / 2 + rate2);
+        assert_eq!(both.last_touch, 1 + BLOCKS_PER_DAY / 2);
+
+        // Close a day after that: everything owed reaches the pool as the fee.
+        System::set_block_number(1 + BLOCKS_PER_DAY / 2 + BLOCKS_PER_DAY);
+        let owed = u64::from(both.fee_owed(System::block_number()));
+        assert_eq!(owed, rate1 + rate1 / 2 + rate2 + rate1 + rate2);
+        assert_ok!(close(alice(), alice()));
+        let (_, fee_paid, _) = last_closed_event();
+        assert_eq!(fee_paid, owed);
+        assert_eq!(balance(&pallet_account()), 0);
+    });
+}
+
+#[test]
+fn adding_the_other_side_reduces_pro_rata_and_pays_that_share_out() {
+    new_test_ext().execute_with(|| {
+        setup();
+        let (t0, a0) = reserves(netuid());
+        assert_ok!(add(alice(), Side::Short, 2 * DEPOSIT));
+        let before = position(&alice(), netuid()).unwrap();
+        let (p0, d0, e0) = legs(&before);
+        let wallet = balance(&alice());
+
+        // A 1x long of 10 TAO against a 1x short of 20 TAO: half the exposure comes off.
+        assert_ok!(add_at(alice(), Side::Long, DEPOSIT, 100));
+
+        let after = position(&alice(), netuid()).unwrap();
+        assert_eq!(after.side(), Side::Short);
+        let (p1, d1, e1) = legs(&after);
+        assert_close(p1, p0 / 2, 1);
+        assert_close(d1, d0 / 2, 1);
+        assert_close(e1, e0 / 2, 1);
+        assert_close(
+            u64::from(after.exposure_tao),
+            u64::from(before.exposure_tao) / 2,
+            1,
+        );
+        assert_close(
+            u64::from(after.fee_per_day),
+            u64::from(before.fee_per_day) / 2,
+            1,
+        );
+        assert_eq!(after.expires_at, before.expires_at);
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), p1 + e1);
+        // The whole fee owed so far (one day of the full rate) was paid out of this share.
+        assert_eq!(after.fee_accrued, TaoBalance::ZERO);
+
+        // Half the cushion came back less the fee less the round trip's rounding; nothing was
+        // deposited for the long.
+        let fee = one_day_fee(before.fee_per_day);
+        // Half the cushion came back less the fee. It is a little more than that: the open sold
+        // all 80 alpha down the curve, and buying the first 40 back starts at the bottom of it.
+        // The other half will pay that back when it closes; the round trip as a whole nets out.
+        let back = balance(&alice()) - wallet;
+        assert!(back > DEPOSIT - fee && back < DEPOSIT, "back = {back}");
+        assert_close(back, DEPOSIT - fee, DEPOSIT / 50);
+        assert_close(u64::from(after.cushion.tao()), DEPOSIT, 1);
         assert_eq!(
-            Footprint::<Test>::get(netuid(), Side::Short),
-            after.legs.footprint()
+            balance(&pallet_account()),
+            u64::from(after.cushion.tao()) + p1 + e1
         );
+        let (t1, a1) = reserves(netuid());
+        assert_close(t1 + p1 + e1, t0 + fee, DEPOSIT / 50);
+        assert_close(a1, a0, 100);
+
+        let reduced = System::events()
+            .into_iter()
+            .rev()
+            .find_map(|record| match record.event {
+                RuntimeEvent::Derivatives(Event::PositionReduced {
+                    fraction,
+                    tao_to_owner,
+                    exposure_tao,
+                    ..
+                }) => Some((fraction, tao_to_owner, exposure_tao)),
+                _ => None,
+            })
+            .expect("PositionReduced event");
+        assert_eq!(reduced.0, Perquintill::from_percent(50));
+        assert_eq!(u64::from(reduced.1), back);
+        assert_eq!(reduced.2, after.exposure_tao);
+
+        // Closing the rest: over both halves Alice paid one day of fee, and the pool is whole
+        // plus the fee. The second buyback ran against a pool that already had the first half's
+        // slice back, so the two halves do not add up to one buyback to the rao; the difference
+        // is one part in 10^4 of the deposit, two orders below the fee.
+        assert_ok!(close(alice(), alice()));
+        assert_close(
+            balance(&alice()),
+            wallet + 2 * DEPOSIT - fee,
+            DEPOSIT / 5_000,
+        );
+        assert_eq!(balance(&pallet_account()), 0);
+        let (t2, a2) = reserves(netuid());
+        assert_close(t2, t0 + fee, DEPOSIT / 5_000);
+        assert_close(a2, a0, 100);
     });
 }
 
 #[test]
-fn roll_keeps_the_leverage_and_fails_once_it_is_above_the_new_maximum() {
+fn adding_more_than_the_position_closes_it_and_opens_the_rest_on_the_other_side() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open_at(alice(), Side::Long, DEPOSIT, 150));
-        System::set_block_number(100);
-        assert_ok!(Derivatives::roll(
-            RuntimeOrigin::signed(alice()),
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let short = position(&alice(), netuid()).unwrap();
+        let wallet = balance(&alice());
+        System::set_block_number(50);
+
+        // A 2x long of 15 TAO asks for 30 TAO of exposure against a 10 TAO short: the short
+        // closes, and the 20 TAO that remain open a long with a 10 TAO cushion at 2x. Alice is
+        // only charged that 10 TAO, plus gets the short's payout.
+        assert_ok!(add(alice(), Side::Long, 15 * TAO));
+
+        let long = position(&alice(), netuid()).unwrap();
+        assert_eq!(long.side(), Side::Long);
+        assert_eq!(long.cushion.tao(), TaoBalance::from(DEPOSIT));
+        assert_close((leverage_of(&long) * 100.0).round() as u64, 200, 1);
+        assert_eq!(long.opened_at, 50);
+        assert!(long.expires_at > short.expires_at);
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
+        assert_eq!(
+            Footprint::<Test>::get(netuid(), Side::Long),
+            long.legs.footprint()
+        );
+        assert_eq!(crate::Expiring::<Test>::get(short.expires_at).len(), 0);
+        assert_eq!(crate::Expiring::<Test>::get(long.expires_at).len(), 1);
+
+        let (tao_back, fee_paid, shortfall) = last_closed_event();
+        assert_eq!(shortfall, 0);
+        // One day booked at open plus 49 blocks of accrual.
+        assert_eq!(fee_paid, u64::from(short.fee_owed(50)));
+        assert_eq!(balance(&alice()), wallet + tao_back - DEPOSIT);
+    });
+}
+
+#[test]
+fn flipping_by_exactly_the_position_or_by_dust_only_closes_it() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
+        let exposure = u64::from(position(&alice(), netuid()).unwrap().exposure_tao);
+        // Exactly the exposure at 1x: closed flat, nothing opened.
+        assert_ok!(add_at(alice(), Side::Short, exposure, 100));
+        assert!(position(&alice(), netuid()).is_none());
+
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
+        let exposure = u64::from(position(&alice(), netuid()).unwrap().exposure_tao);
+        // A hair over: the rest is below `min_deposit_tao`, so it is dropped, not opened.
+        assert_ok!(add_at(alice(), Side::Short, exposure + TAO / 100, 100));
+        assert!(position(&alice(), netuid()).is_none());
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Long), 0);
+        assert_eq!(balance(&pallet_account()), 0);
+    });
+}
+
+#[test]
+fn reducing_an_underwater_position_forfeits_that_share_to_the_pool() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let before = position(&alice(), netuid()).unwrap();
+        let whale = U256::from(7);
+        add_balance(&whale, 5_000 * TAO);
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(whale),
+            alice_hotkey(),
             netuid(),
-            Side::Long,
-            0.into()
+            (2_000 * TAO).into()
         ));
-        let rolled = position(&alice(), netuid(), Side::Long).unwrap();
-        assert_eq!(rolled.leverage_percent, 150);
-        assert_eq!(rolled.opened_at, 100);
+        let wallet = balance(&alice());
+        let (t0, _) = reserves(netuid());
 
-        // Root lowers the long maximum below 1.5x: the roll fails, the position stays.
-        let mut params = Params::<Test>::get();
-        params.max_long_leverage_percent = 100;
-        assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
-        System::set_block_number(200);
-        assert_err!(
-            Derivatives::roll(
-                RuntimeOrigin::signed(alice()),
-                netuid(),
-                Side::Long,
-                0.into()
-            ),
-            Error::<Test>::LeverageOutOfRange
-        );
-        let kept = position(&alice(), netuid(), Side::Long).unwrap();
-        assert_eq!(kept.opened_at, 100);
-        assert_eq!(kept.leverage_percent, 150);
-        // It can still close.
-        assert_ok!(close(alice(), alice(), Side::Long));
+        assert_ok!(add_at(alice(), Side::Long, DEPOSIT / 2, 100));
+
+        // Half is gone: Alice got nothing for it, the pool got everything the pallet held for
+        // that half, and the other half is still open (and just as underwater). The fee, which
+        // the forfeited half could not pay, came off the cushion that stays.
+        assert_eq!(balance(&alice()), wallet);
+        assert!(reserves(netuid()).0 > t0);
+        let rest = position(&alice(), netuid()).unwrap();
+        let fee = one_day_fee(before.fee_per_day);
+        assert_close(u64::from(rest.cushion.tao()), DEPOSIT / 2 - fee, 1);
+        assert_eq!(rest.fee_accrued, TaoBalance::ZERO);
+        let held = System::events()
+            .into_iter()
+            .rev()
+            .find_map(|record| match record.event {
+                RuntimeEvent::Derivatives(Event::PositionReduced {
+                    tao_to_owner,
+                    shortfall,
+                    ..
+                }) => Some((tao_to_owner, shortfall)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(held.0, TaoBalance::ZERO);
+        assert!(!held.1.is_zero());
     });
 }
 
 #[test]
-fn failed_roll_leaves_the_old_position_untouched() {
+fn nothing_can_be_added_to_an_expired_position_but_it_can_be_reduced() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        let before = position(&alice(), netuid(), Side::Short).unwrap();
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let expires_at = position(&alice(), netuid()).unwrap().expires_at;
+        System::set_block_number(expires_at);
+        assert_err!(add(alice(), Side::Short, DEPOSIT), Error::<Test>::Expired);
+        assert_ok!(add_at(alice(), Side::Long, DEPOSIT / 2, 100));
+        assert!(position(&alice(), netuid()).is_some());
+        assert_ok!(close(alice(), alice()));
+    });
+}
+
+#[test]
+fn a_failed_add_leaves_the_position_untouched() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let before = position(&alice(), netuid()).unwrap();
         let footprint = Footprint::<Test>::get(netuid(), Side::Short);
         let balance_before = balance(&alice());
         let pool_before = reserves(netuid());
 
-        // A top-up that pushes the new position past the pool cap: the reopen fails after the
-        // settle ran, and both roll back.
+        // A flip whose new long is over the pool cap: the settlement ran and rolled back.
         assert_err!(
-            Derivatives::roll(
-                RuntimeOrigin::signed(alice()),
-                netuid(),
-                Side::Short,
-                (55 * TAO).into()
-            ),
+            add(alice(), Side::Long, 65 * TAO),
             Error::<Test>::PoolCapExceeded
         );
 
-        assert_eq!(position(&alice(), netuid(), Side::Short), Some(before));
+        assert_eq!(position(&alice(), netuid()), Some(before));
         assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), footprint);
         assert_eq!(balance(&alice()), balance_before);
         assert_eq!(reserves(netuid()), pool_before);
@@ -783,19 +986,14 @@ fn failed_roll_leaves_the_old_position_untouched() {
 fn only_owner_may_close_before_expiry() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        assert_err!(
-            close(bob(), alice(), Side::Short),
-            Error::<Test>::NotExpired
-        );
-        assert_err!(close(bob(), bob(), Side::Short), Error::<Test>::NoPosition);
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        assert_err!(close(bob(), alice()), Error::<Test>::NotExpired);
+        assert_err!(close(bob(), bob()), Error::<Test>::NoPosition);
 
-        let expires_at = position(&alice(), netuid(), Side::Short)
-            .unwrap()
-            .expires_at;
+        let expires_at = position(&alice(), netuid()).unwrap().expires_at;
         System::set_block_number(expires_at);
-        assert_ok!(close(bob(), alice(), Side::Short));
-        assert!(position(&alice(), netuid(), Side::Short).is_none());
+        assert_ok!(close(bob(), alice()));
+        assert!(position(&alice(), netuid()).is_none());
     });
 }
 
@@ -806,31 +1004,27 @@ fn on_idle_sweeps_expired_positions_and_spills_full_blocks() {
         let charlie = U256::from(3);
         add_balance(&charlie, 100 * TAO);
         // MaxExpiriesPerBlock = 2, so the third position lands one block later.
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        assert_ok!(open(bob(), Side::Short, DEPOSIT));
-        assert_ok!(open(charlie, Side::Short, DEPOSIT));
-        let a = position(&alice(), netuid(), Side::Short)
-            .unwrap()
-            .expires_at;
-        let c = position(&charlie, netuid(), Side::Short)
-            .unwrap()
-            .expires_at;
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(bob(), Side::Short, DEPOSIT));
+        assert_ok!(add(charlie, Side::Short, DEPOSIT));
+        let a = position(&alice(), netuid()).unwrap().expires_at;
+        let c = position(&charlie, netuid()).unwrap().expires_at;
         assert_eq!(c, a + 1);
 
         // Nothing happens before expiry.
         System::set_block_number(a - 1);
         run_idle();
-        assert!(position(&alice(), netuid(), Side::Short).is_some());
+        assert!(position(&alice(), netuid()).is_some());
 
         System::set_block_number(a);
         run_idle();
-        assert!(position(&alice(), netuid(), Side::Short).is_none());
-        assert!(position(&bob(), netuid(), Side::Short).is_none());
-        assert!(position(&charlie, netuid(), Side::Short).is_some());
+        assert!(position(&alice(), netuid()).is_none());
+        assert!(position(&bob(), netuid()).is_none());
+        assert!(position(&charlie, netuid()).is_some());
 
         System::set_block_number(c);
         run_idle();
-        assert!(position(&charlie, netuid(), Side::Short).is_none());
+        assert!(position(&charlie, netuid()).is_none());
         assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
         assert!(crate::Expiring::<Test>::get(a).is_empty());
         assert!(crate::Expiring::<Test>::get(c).is_empty());
@@ -841,10 +1035,10 @@ fn on_idle_sweeps_expired_positions_and_spills_full_blocks() {
 fn early_close_removes_expiry_entry() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Long, DEPOSIT));
-        let at = position(&alice(), netuid(), Side::Long).unwrap().expires_at;
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
+        let at = position(&alice(), netuid()).unwrap().expires_at;
         assert_eq!(crate::Expiring::<Test>::get(at).len(), 1);
-        assert_ok!(close(alice(), alice(), Side::Long));
+        assert_ok!(close(alice(), alice()));
         assert!(crate::Expiring::<Test>::get(at).is_empty());
     });
 }
@@ -852,21 +1046,21 @@ fn early_close_removes_expiry_entry() {
 // ── Dissolution ──────────────────────────────────────────────────────────────
 
 #[test]
-fn dissolution_unwinds_all_four_kinds_at_par() {
+fn dissolution_unwinds_both_sides_at_par() {
     new_test_ext().execute_with(|| {
         setup();
         let (t0, a0) = reserves(netuid());
         let out0 = alpha_out(netuid());
 
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        assert_ok!(open(bob(), Side::Long, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
 
         // Dissolve: the subnet is no longer "added" but its account and pool still exist.
         assert_ok!(SubtensorModule::do_dissolve_network(netuid()));
         settle_all_for_dissolution(netuid());
 
-        for (who, side) in [(alice(), Side::Short), (bob(), Side::Long)] {
-            assert!(position(&who, netuid(), side).is_none());
+        for who in [alice(), bob()] {
+            assert!(position(&who, netuid()).is_none());
         }
         // Cushions back, no fee.
         assert_eq!(balance(&alice()), 100 * TAO);
@@ -903,8 +1097,8 @@ fn dissolution_unwinds_all_four_kinds_at_par() {
 fn dissolution_hook_is_bounded_by_weight() {
     new_test_ext().execute_with(|| {
         setup();
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        assert_ok!(open(bob(), Side::Long, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
         assert_ok!(SubtensorModule::do_dissolve_network(netuid()));
 
         let mut meter = frame_support::weights::WeightMeter::with_limit(
@@ -929,15 +1123,15 @@ fn dissolution_hook_is_bounded_by_weight() {
 }
 
 #[test]
-fn positions_are_isolated_per_side_and_conserve_alpha() {
+fn opposite_positions_conserve_alpha() {
     new_test_ext().execute_with(|| {
         setup();
         let supply0 = reserves(netuid()).1 + alpha_out(netuid());
-        assert_ok!(open(alice(), Side::Short, DEPOSIT));
-        assert_ok!(open(alice(), Side::Long, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
         assert_eq!(reserves(netuid()).1 + alpha_out(netuid()), supply0);
-        assert_ok!(close(alice(), alice(), Side::Short));
-        assert_ok!(close(alice(), alice(), Side::Long));
+        assert_ok!(close(alice(), alice()));
+        assert_ok!(close(bob(), bob()));
         assert_close(reserves(netuid()).1 + alpha_out(netuid()), supply0, 100);
         assert_eq!(tao_flow(netuid()), 0);
     });

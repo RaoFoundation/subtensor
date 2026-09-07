@@ -751,17 +751,15 @@
   },
   {
     "name": "derivative_position",
-    "summary": "One open position for a coldkey on a subnet and side, or None.",
-    "description": "One open position for a coldkey on a subnet and side, or None.\n\n`cushion` is the TAO the owner put up and `leverage` the multiple of it\nthey chose at open. `proceeds`, `debt`, and `escrow` are the position's\n`legs`, each already in its own token: a short holds TAO proceeds and TAO\nescrow and owes alpha; a long holds alpha proceeds and alpha escrow and owes\nTAO. `fee_per_day_tao` was fixed at open; `accrued_fee_tao` is what would be\ncharged if closed now.",
+    "summary": "A coldkey's open position on a subnet, or None. There is at most one.",
+    "description": "A coldkey's open position on a subnet, or None. There is at most one.\n\n`side` is the direction of its net exposure. `cushion` is the TAO the owner\nhas put up in total and `leverage` is `exposure_tao / cushion`, the blend\nof every tranche added. `proceeds`, `debt`, and `escrow` are the position's\n`legs`, each already in its own token: a short holds TAO proceeds and TAO\nescrow and owes alpha; a long holds alpha proceeds and alpha escrow and owes\nTAO. `fee_per_day_tao` is the summed rate of its tranches; `accrued_fee_tao`\nis what would be charged if settled now.",
     "params": {
       "coldkey_ss58": "string",
-      "netuid": "integer",
-      "side": "string"
+      "netuid": "integer"
     },
     "param_docs": {
       "coldkey_ss58": "Coldkey that owns the position.",
-      "netuid": "Subnet the position is on.",
-      "side": "`Short` or `Long`."
+      "netuid": "Subnet the position is on."
     },
     "category": "Prices & swaps",
     "docs_url": "/docs/query/derivative-position",
@@ -773,16 +771,16 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 82,
-        "url": "/code/pallets/derivatives/src/lib.rs#L82",
+        "line": 81,
+        "url": "/code/pallets/derivatives/src/lib.rs#L81",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
   {
     "name": "derivative_positions",
-    "summary": "Every open long and short a coldkey holds, across all subnets.",
-    "description": "Every open long and short a coldkey holds, across all subnets.",
+    "summary": "Every open position a coldkey holds, one per subnet.",
+    "description": "Every open position a coldkey holds, one per subnet.",
     "params": {
       "coldkey_ss58": "string"
     },
@@ -799,8 +797,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 82,
-        "url": "/code/pallets/derivatives/src/lib.rs#L82",
+        "line": 81,
+        "url": "/code/pallets/derivatives/src/lib.rs#L81",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -808,7 +806,7 @@
   {
     "name": "derivatives_params",
     "summary": "The derivatives pallet's root-set global parameters.",
-    "description": "The derivatives pallet's root-set global parameters.\n\n`max_short_leverage_percent` and `max_long_leverage_percent` bound the\nleverage an owner may choose per side (`100` = 1x), `max_pool_share` caps how\nmuch of a pool's reserve may be lent per side, and `lifetime_blocks` is how\nlong a position may stay open. Fees are fixed at open and charged at close\nwith a one-day minimum: a short pays `short_fee_per_day_tao` times the share\nof the pool it lifted, a long pays `long_rate_per_day` times its TAO\nexposure; both are scaled by `1 / (1 - share)^4` for the position's own\nslippage. A subnet may override the switches and the cap; see\n`derivatives_subnet_override`.",
+    "description": "The derivatives pallet's root-set global parameters.\n\n`max_short_leverage_percent` and `max_long_leverage_percent` bound the\nleverage an owner may choose per side (`100` = 1x), `max_pool_share` caps how\nmuch of a pool's reserve may be lent per side, and `lifetime_blocks` is how\nlong a position may stay open. Each tranche's fee is fixed when it is added:\na short pays `short_fee_per_day_tao` times the share of the pool it lifted,\na long pays `long_rate_per_day` times its TAO exposure; both are scaled by\n`1 / (1 - share)^4` for the tranche's own slippage. One day is booked at the\nadd, the rest accrues per block and is paid at each settlement. A subnet may\noverride the switches and the cap; see `derivatives_subnet_override`.",
     "params": {},
     "param_docs": {},
     "category": "Prices & swaps",
@@ -821,8 +819,8 @@
         "container": "Derivatives",
         "name": "Params",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 77,
-        "url": "/code/pallets/derivatives/src/lib.rs#L77",
+        "line": 76,
+        "url": "/code/pallets/derivatives/src/lib.rs#L76",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -830,7 +828,7 @@
   {
     "name": "derivatives_subnet_override",
     "summary": "Root-set per-subnet overrides of the derivatives parameters, or None.",
-    "description": "Root-set per-subnet overrides of the derivatives parameters, or None.\n\nNone means the subnet runs on the global `derivatives_params`. When set,\n`shorts_enabled` and `longs_enabled` replace the global switches for opens\non this subnet, and `max_pool_share` replaces the global cap when it is not\nNone. Open positions are unaffected: a paused side can still close.",
+    "description": "Root-set per-subnet overrides of the derivatives parameters, or None.\n\nNone means the subnet runs on the global `derivatives_params`. When set,\n`shorts_enabled` and `longs_enabled` replace the global switches for adds\non this subnet, and `max_pool_share` replaces the global cap when it is not\nNone. Open positions are unaffected: a paused side can still be reduced and\nclosed.",
     "params": {
       "netuid": "integer"
     },
@@ -847,8 +845,8 @@
         "container": "Derivatives",
         "name": "SubnetOverrides",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 133,
-        "url": "/code/pallets/derivatives/src/lib.rs#L133",
+        "line": 125,
+        "url": "/code/pallets/derivatives/src/lib.rs#L125",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
