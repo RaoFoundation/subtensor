@@ -100,6 +100,15 @@ impl Legs {
         }
     }
 
+    /// Alpha that changes hands when this settles: what a short must buy back, what a long has
+    /// to sell. Summed per side in `AlphaToSettle` so a dissolution can net the two.
+    pub fn alpha_to_settle(&self) -> u64 {
+        match self {
+            Legs::Short { debt, .. } => debt.to_u64(),
+            Legs::Long { proceeds, .. } => proceeds.to_u64(),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         match self {
             Legs::Short {

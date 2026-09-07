@@ -18,7 +18,7 @@ past its expiry; it can still be reduced or closed.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L281-L292) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L289-L300) |
 
 ## Parameters
 
@@ -74,7 +74,7 @@ result = sub.execute_tool("add_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L283`](/code/pallets/derivatives/src/lib.rs#L281-L292):
+`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L291`](/code/pallets/derivatives/src/lib.rs#L289-L300):
 
 ```rust
 #[pallet::call_index(0)]

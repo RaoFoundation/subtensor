@@ -101,6 +101,12 @@ pub mod pallet {
     pub type Footprint<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Identity, Side, u64, ValueQuery>;
 
+    /// Sum of [`Legs::alpha_to_settle`] over open positions: alpha every short owes, alpha every
+    /// long holds. At dissolution the two are netted into one swap.
+    #[pallet::storage]
+    pub type AlphaToSettle<T: Config> =
+        StorageDoubleMap<_, Identity, NetUid, Identity, Side, u64, ValueQuery>;
+
     /// Positions that stop being owner-only at this block. Drained by `on_idle`.
     #[pallet::storage]
     pub type Expiring<T: Config> = StorageMap<
@@ -127,11 +133,11 @@ pub mod pallet {
     pub type SubnetOverrides<T: Config> =
         StorageMap<_, Identity, NetUid, SubnetOverride, OptionQuery>;
 
-    /// `(tao, alpha)` fixed when a subnet's dissolution reaches the derivatives phase; their
-    /// ratio is the price every position on it settles at. Set before the first position is
-    /// settled, so settling cannot move it, and removed once the last one is.
+    /// `(tao, alpha)` of the one net swap that closes every position on a dissolving subnet;
+    /// their ratio is the price each of them settles at. Fixed before the first one is settled
+    /// and removed once the last one is.
     #[pallet::storage]
-    pub type DissolutionTotals<T: Config> =
+    pub type DissolutionPrice<T: Config> =
         StorageMap<_, Identity, NetUid, (TaoBalance, AlphaBalance), OptionQuery>;
 
     #[pallet::event]
@@ -199,11 +205,13 @@ pub mod pallet {
             netuid: NetUid,
             override_: Option<SubnetOverride>,
         },
-        /// A dissolving subnet's positions are about to be settled. Every one of them is
-        /// valued at `tao / alpha` TAO per alpha: the pool's TAO shared over every alpha the
-        /// dissolution payout counts, with open positions netted out.
+        /// A dissolving subnet's positions are about to be settled as one net swap: the alpha
+        /// shorts owe against the alpha longs hold, the difference quoted against the pool.
+        /// Every position is then valued at `tao / alpha` TAO per alpha.
         DissolutionPriced {
             netuid: NetUid,
+            alpha_owed: AlphaBalance,
+            alpha_held: AlphaBalance,
             tao: TaoBalance,
             alpha: AlphaBalance,
         },
@@ -443,37 +451,42 @@ pub mod pallet {
     }
 
     impl<T: Config> SubnetDissolveHook for Pallet<T> {
-        /// Cash-settle every position on `netuid` at the dissolution price, ahead of the stake
-        /// payout. The price is fixed once, from the pool as it stands with every position
-        /// netted out, so no position moves the price it or any other settles at. Swaps cannot
-        /// run here: the subnet's TAO is already out of `TotalStake` and its stake maps are
-        /// about to be converted.
+        /// Close every position on `netuid` as one atomic swap, ahead of the stake payout: the
+        /// alpha shorts owe is netted against the alpha longs hold and only the difference is
+        /// priced against the pool, exactly as its swap would. That price is fixed once, before
+        /// the first position is settled, and every position settles at it. The swap is quoted
+        /// rather than executed: the subnet's TAO is already out of `TotalStake` and its stake
+        /// maps are about to be converted, but the balancer is still in storage.
         fn on_subnet_dissolve(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             let per_position = T::WeightInfo::close();
             if !meter.can_consume(per_position) {
                 return false;
             }
-            let totals = DissolutionTotals::<T>::get(netuid).unwrap_or_else(|| {
+            let price = DissolutionPrice::<T>::get(netuid).unwrap_or_else(|| {
                 meter.consume(per_position);
-                let totals = Self::dissolution_totals(netuid);
-                DissolutionTotals::<T>::insert(netuid, totals);
+                let alpha_owed = AlphaBalance::from(AlphaToSettle::<T>::get(netuid, Side::Short));
+                let alpha_held = AlphaBalance::from(AlphaToSettle::<T>::get(netuid, Side::Long));
+                let price = T::Pool::dissolution_price(netuid, alpha_owed, alpha_held);
+                DissolutionPrice::<T>::insert(netuid, price);
                 Self::deposit_event(Event::DissolutionPriced {
                     netuid,
-                    tao: totals.0,
-                    alpha: totals.1,
+                    alpha_owed,
+                    alpha_held,
+                    tao: price.0,
+                    alpha: price.1,
                 });
-                totals
+                price
             });
             loop {
                 if !meter.can_consume(per_position) {
                     return false;
                 }
                 let Some(owner) = OpenByNetuid::<T>::iter_key_prefix(netuid).next() else {
-                    DissolutionTotals::<T>::remove(netuid);
+                    DissolutionPrice::<T>::remove(netuid);
                     return true;
                 };
                 meter.consume(per_position);
-                Self::settle_at_dissolution(&owner, netuid, totals);
+                Self::settle_at_dissolution(&owner, netuid, price);
             }
         }
     }

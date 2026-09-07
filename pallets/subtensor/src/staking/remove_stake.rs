@@ -544,13 +544,6 @@ impl<T: Config> Pallet<T> {
         true
     }
 
-    /// Whether the pool's own alpha (`SubnetAlphaIn`) shares the TAO pot at dissolution.
-    /// Legacy subnets keep the old dereg behaviour and ignore it; subnets registered after the
-    /// TAO-in refund deployment count it, and its share is recycled.
-    pub fn dissolution_counts_pool_alpha(netuid: NetUid) -> bool {
-        NetworkRegisteredAt::<T>::get(netuid) > TaoInRefundDeploymentBlock::<T>::get()
-    }
-
     /// This function calculates the total alpha value for a subnet.
     /// It iterates through all hotkeys in the subnet and calculates the total alpha value.
     /// It returns true if all hotkeys are iterated, otherwise false.
@@ -577,7 +570,12 @@ impl<T: Config> Pallet<T> {
         if let Some(value) = status.subnet_total_alpha_value {
             total_alpha_value_u128 = value;
         } else {
-            let protocol_alpha_value_u128: u128 = if Self::dissolution_counts_pool_alpha(netuid) {
+            let reg_at: u64 = NetworkRegisteredAt::<T>::get(netuid);
+            let tao_in_refund_deployment_block: u64 = TaoInRefundDeploymentBlock::<T>::get();
+
+            // Legacy subnets keep the old dereg behavior: ignore SubnetAlphaIn.
+            // New subnets include SubnetAlphaIn.
+            let protocol_alpha_value_u128: u128 = if reg_at > tao_in_refund_deployment_block {
                 SubnetAlphaIn::<T>::get(netuid)
                     .saturating_add(SubnetProtocolAlpha::<T>::get(netuid))
                     .to_u64() as u128

@@ -619,6 +619,24 @@ impl<T: Config> SwapHandler for Pallet<T> {
         }
     }
 
+    /// Same arithmetic as the sell step of `swap`: ∆y = y · (1 − (x / (x + ∆x))^(w_base/w_quote)).
+    fn tao_out_for_alpha(netuid: NetUid, alpha_amount: AlphaBalance) -> TaoBalance {
+        match T::SubnetInfo::mechanism(netuid) {
+            1 => {
+                let tao_reserve = T::TaoReserve::reserve(netuid);
+                let alpha_reserve = T::AlphaReserve::reserve(netuid);
+                let balancer = SwapBalancer::<T>::get(netuid);
+                let e = balancer.exp_base_quote(alpha_reserve.to_u64(), alpha_amount.to_u64());
+                TaoBalance::from(
+                    U64F64::from_num(tao_reserve.to_u64())
+                        .saturating_mul(U64F64::from_num(1).saturating_sub(e))
+                        .saturating_to_num::<u64>(),
+                )
+            }
+            _ => alpha_amount.to_u64().into(),
+        }
+    }
+
     fn max_swap_input<O: OrderT>(netuid: NetUid) -> O::PaidIn
     where
         Self: SwapEngine<O>,

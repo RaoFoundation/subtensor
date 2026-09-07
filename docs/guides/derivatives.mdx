@@ -314,25 +314,30 @@ weight uses the adjusted price.
 If a subnet is dissolved while positions are open, settling them is the
 **first** cleanup phase
 ([`DerivativesSettle`](/code/pallets/subtensor/src/subnets/dissolution.rs)),
-before any staker is paid. Positions are paid first, and they are paid at the
-**dissolution price**: the TAO per alpha the payout gives every holder.
+before any staker is paid. Dissolution is a forced close of every position on
+the subnet at that block's price, and all of them close together as **one
+atomic swap**.
 
-Dissolution pays the pool's TAO out pro rata over every alpha it counts. The
-dissolution price is that ratio, read once with every open position netted
-out of the pool, so no position moves the price it or any other settles at
-([`dissolution_totals`](/code/pallets/derivatives/src/settle.rs), reported in
-`DissolutionPriced`). For subnets registered after the TAO-in refund the
-count includes the pool's own alpha, which puts the price near half of spot;
-older subnets count only staked alpha, which puts it near spot.
+The chain sums the alpha every short owes (`AlphaToSettle` for the short
+side) and the alpha every long holds (the long side). The two cancel; only
+the difference is quoted against the pool, exactly as the pool's own swap
+would price it
+([`dissolution_price`](/code/pallets/subtensor/src/staking/derivatives_pool.rs)).
+The TAO and alpha of that one net swap are stored once, before the first
+position is settled, and reported in `DissolutionPriced`; their ratio is the
+**dissolution price**, and every position settles at it. No position moves
+the price it or any other gets, and a short and a long that offset each other
+pay no slippage at all. With one lone position open, the result is what
+`close` would have paid in that block, to the rounding of a quote.
 
-Each position is then settled at that price with no swap
+Each position is then settled at that price with no further swap
 ([`settle_at_dissolution`](/code/pallets/derivatives/src/settle.rs)). A
 short's alpha debt is charged in TAO at the price; a long's alpha is handed
 to the pool and credited in TAO at the price. The fee owed is paid. What is
 left of the cushion and proceeds is yours; if it is negative the position is
 underwater, you are paid nothing, and the pool takes what the pallet holds,
-as at any settlement. A short that sold above the dissolution price is paid
-the difference, first, in TAO. The stakers are paid from what is left.
+as at any settlement. A short that is in the money at that block is paid its
+gain, first, in TAO. The stakers are paid from what is left.
 
 ## Parameters
 
@@ -390,11 +395,12 @@ book without reading storage:
 | `SettleFailed` | The expiry sweep could not settle a position; it is retried later or left to a permissionless `close`. |
 | `ParamsSet` | Root replaced the global parameters. |
 | `SubnetOverrideSet` | Root set or removed a subnet's override. |
-| `DissolutionPriced` | A dissolving subnet's positions are about to settle; `tao / alpha` is the price every one of them settles at. |
+| `DissolutionPriced` | A dissolving subnet's positions are about to settle as one net swap: the alpha shorts owe, the alpha longs hold, and the `tao` and `alpha` of the netted swap; `tao / alpha` is the price every one of them settles at. |
 
 The storage behind them is public too: `Positions`, `Footprint` (borrowed per
+side per subnet), `AlphaToSettle` (alpha owed by shorts and held by longs, per
 side per subnet), `Expiring`, `Params`, `SubnetOverrides`, `PalletHotkey`, and
-`DissolutionTotals` while a subnet's positions are being settled.
+`DissolutionPrice` while a subnet's positions are being settled.
 
 ## Chain reference
 

@@ -280,26 +280,22 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         Self::hotkey_account_exists(hotkey)
     }
 
-    /// Mirrors `destroy_alpha_in_out_stakes_get_total_alpha_value`, with the pool put back the
-    /// way it would be with no position open: a short's TAO returns, a long's alpha returns.
-    fn dissolution_totals(
+    /// Quoted, not executed: the balancer is still in storage while the subnet dissolves, and
+    /// these are the exact fee-free amounts its swap would move.
+    fn dissolution_price(
         netuid: NetUid,
-        tao_lent: TaoBalance,
-        alpha_lent: AlphaBalance,
+        alpha_owed: AlphaBalance,
+        alpha_held: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance) {
-        let tao = SubnetTAO::<T>::get(netuid).saturating_add(tao_lent);
-        // `SubnetAlphaOut` counts the alpha the derivatives pallet has staked for open longs.
-        // That alpha is the pool's, so it moves to the pool's side of the count.
-        let staked = SubnetAlphaOut::<T>::get(netuid).saturating_sub(alpha_lent);
-        let pool = if Self::dissolution_counts_pool_alpha(netuid) {
-            SubnetAlphaIn::<T>::get(netuid).saturating_add(alpha_lent)
+        if alpha_owed > alpha_held {
+            let buy = alpha_owed.saturating_sub(alpha_held);
+            (T::SwapInterface::tao_needed_for_alpha(netuid, buy), buy)
+        } else if alpha_held > alpha_owed {
+            let sell = alpha_held.saturating_sub(alpha_owed);
+            (T::SwapInterface::tao_out_for_alpha(netuid, sell), sell)
         } else {
-            AlphaBalance::ZERO
-        };
-        let alpha = staked
-            .saturating_add(pool)
-            .saturating_add(SubnetProtocolAlpha::<T>::get(netuid));
-        (tao, alpha)
+            <Self as DerivativesPoolInterface<T::AccountId>>::reserves(netuid)
+        }
     }
 
     #[transactional]

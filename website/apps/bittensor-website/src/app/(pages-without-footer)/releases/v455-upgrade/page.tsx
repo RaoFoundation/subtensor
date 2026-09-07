@@ -445,13 +445,15 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
           </p>
           <p>
             <strong>Dissolution.</strong> If a subnet is dissolved with positions open, settling
-            them is the first cleanup phase, before any staker is paid. Every position is
-            settled at the dissolution price: the TAO per alpha the payout gives holders, read
-            once with all open positions netted out of the pool. A short&apos;s alpha debt is
-            charged at that price, a long&apos;s alpha is credited at it, the fee is paid, and
-            the rest is yours. A short that sold above the dissolution price is paid the
-            difference first. On subnets registered after the TAO-in refund that price is near
-            half of spot, so a short into a dereg is paid well and a long is usually underwater.
+            them is the first cleanup phase, before any staker is paid. Dissolution is a forced
+            close of every position at that block&apos;s price, done as one atomic swap: the
+            alpha all shorts owe is netted against the alpha all longs hold, and only the
+            difference is quoted against the pool, exactly as its swap would price it. That one
+            price is fixed before the first position settles and every position settles at it.
+            A short&apos;s alpha debt is charged at that price, a long&apos;s alpha is credited
+            at it, the fee is paid, and the rest is yours. A short that is in the money is paid
+            its gain first; with a lone position open, dissolution pays what <code>close</code>{' '}
+            would have paid in that block.
           </p>
         </section>
 
@@ -481,7 +483,7 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
             price-neutral <code>lift_liquidity</code> and <code>return_liquidity</code>, internal
             buy and sell through the existing balancer swap, and exact-output swaps for the
             buyback. Subnet dissolution gains a <code>DerivativesSettle</code> phase that runs
-            first and cash-settles every position at the dissolution price, emitted as{' '}
+            first and closes every position as one net swap at one price, emitted as{' '}
             <code>DissolutionPriced</code>. The emission price EMA now reads <code>get_emission_alpha_price</code>, the spot
             price with the long-side footprint added back to the alpha reserve; with no longs
             open it is the spot price exactly.

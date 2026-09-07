@@ -80,6 +80,9 @@ pub trait SwapHandler {
     /// Returns `AlphaBalance::MAX` when the pool cannot supply that much TAO.
     fn alpha_needed_for_tao(netuid: NetUid, tao_amount: TaoBalance) -> AlphaBalance;
 
+    /// Exact (slippage-aware, fee-free) TAO the pool pays out for `alpha_amount` sold into it.
+    fn tao_out_for_alpha(netuid: NetUid, alpha_amount: AlphaBalance) -> TaoBalance;
+
     /// Maximum conservative gross input accepted by one swap for this order. Protocol basket
     /// swaps drop fees, so the input-reserve multiple is exact for their use. Larger operations
     /// must be executed in sequential chunks so each chunk observes the reserves left by the
@@ -310,15 +313,15 @@ pub trait DerivativesPoolInterface<AccountId> {
     /// Whether `hotkey` is registered to any coldkey.
     fn hotkey_exists(hotkey: &AccountId) -> bool;
 
-    /// The two totals the dissolution payout divides, with derivatives netted out: the TAO the
-    /// pool will share (its reserve plus `tao_lent`, the TAO open shorts hold for it) and the
-    /// alpha that shares it (what stakers hold, less `alpha_lent`, the alpha open longs hold for
-    /// the pool, which is counted where the payout counts the pool's own alpha). Their ratio is
-    /// the price every alpha is worth at dissolution, and the price positions settle at.
-    fn dissolution_totals(
+    /// Execution price of the one swap that closes every position on a dissolving subnet at
+    /// once: `alpha_owed` (every short's debt) bought and `alpha_held` (every long's proceeds)
+    /// sold, netted against each other and the difference quoted exactly against the pool as it
+    /// stands. Returned as `(tao, alpha)` whose ratio is the price; when nothing is net the
+    /// pool's own reserves are returned, which is spot.
+    fn dissolution_price(
         netuid: NetUid,
-        tao_lent: TaoBalance,
-        alpha_lent: AlphaBalance,
+        alpha_owed: AlphaBalance,
+        alpha_held: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance);
 
     /// Pay `tao` out of the pool's TAO reserve to `to_coldkey`'s free balance. Only while
