@@ -2043,6 +2043,33 @@ pub mod pallet {
     /// same EMA-price shares that drive emission. Zero means "not yet computed"
     /// and disables the gate.
     pub type EmissionGateBar<T: Config> = StorageValue<_, U64F64, ValueQuery>;
+
+    #[pallet::type_value]
+    /// Default emission depth bar (D): the SubnetTAO reserve, in rao, at which a subnet's
+    /// depth weight `w(T) = T^k/(T^k+D^k)` reaches exactly 0.5 (the half-credit pool size).
+    /// With the default exponent k = 3 this lands w ~= 0.89 at 1000 TAO and ~= 1.0 at 10k TAO
+    /// of reserve. Zero disables the depth cap (every subnet keeps its full EMA price).
+    pub fn DefaultEmissionDepthBar<T: Config>() -> u64 {
+        // 500 TAO in rao. Half-credit pool size (w = 0.5 at 500 TAO) at the default exponent k = 3.
+        500_000_000_000
+    }
+    #[pallet::storage]
+    /// ITEM --> Emission depth bar (D), in rao of SubnetTAO reserve. Small pools have their
+    /// emission-relevant EMA price capped toward the network median; the cap relaxes as the
+    /// pool deepens past this bar.
+    pub type EmissionDepthBar<T: Config> =
+        StorageValue<_, u64, ValueQuery, DefaultEmissionDepthBar<T>>;
+
+    #[pallet::type_value]
+    /// Default emission depth exponent (k) for the depth-weight Hill curve. Higher = sharper
+    /// falloff of emission below the bar.
+    pub fn DefaultEmissionDepthExponent<T: Config>() -> u16 {
+        3
+    }
+    #[pallet::storage]
+    /// ITEM --> Emission depth exponent (k), clamped to 1..=8 when read.
+    pub type EmissionDepthExponent<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultEmissionDepthExponent<T>>;
     #[pallet::type_value]
     /// Default value for flow EMA smoothing.
     pub fn DefaultFlowEmaSmoothingFactor<T: Config>() -> u64 {

@@ -2125,6 +2125,33 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Sets the emission depth bar (D), in rao of SubnetTAO reserve. Pools below the bar
+        /// have their emission-relevant EMA price capped toward the network median; the cap
+        /// relaxes as the pool deepens. Zero disables the cap. (Reuses the gate-exponent
+        /// weight; a dedicated benchmark should be added before mainnet.)
+        #[pallet::call_index(103)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_gate_exponent())]
+        pub fn sudo_set_emission_depth_bar(origin: OriginFor<T>, bar: u64) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::Pallet::<T>::set_emission_depth_bar(bar);
+            log::debug!("set_emission_depth_bar( {bar:?} ) ");
+            Ok(())
+        }
+
+        /// Sets the emission depth exponent (k): sharpness of the depth-cap falloff
+        #[pallet::call_index(104)]
+        #[pallet::weight(<T as Config>::WeightInfo::sudo_set_emission_gate_exponent())]
+        pub fn sudo_set_emission_depth_exponent(
+            origin: OriginFor<T>,
+            exponent: u16,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!((1..=8).contains(&exponent), Error::<T>::InvalidValue);
+            pallet_subtensor::Pallet::<T>::set_emission_depth_exponent(exponent);
+            log::debug!("set_emission_depth_exponent( {exponent:?} ) ");
+            Ok(())
+        }
+
         /// Sets TAO flow smoothing factor (alpha)
         #[pallet::call_index(83)]
         #[pallet::weight(<T as Config>::WeightInfo::sudo_set_tao_flow_smoothing_factor())]
