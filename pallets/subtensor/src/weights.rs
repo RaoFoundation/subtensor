@@ -80,6 +80,16 @@ pub trait WeightInfo {
 	fn set_subnet_identity() -> Weight;
 	fn swap_hotkey() -> Weight;
 	fn try_associate_hotkey() -> Weight;
+	/// Conservative composition of existing reference weights until CI generates
+	/// the dedicated benchmark. Charge a whole association for each bounded
+	/// probe/vector element; do not substitute locally measured timing constants.
+	fn disassociate_hotkey(h: u32, a: u32, s: u32) -> Weight {
+		let probes = s.saturating_mul(3)
+			.saturating_add(32)
+			.saturating_add(h)
+			.saturating_add(a.saturating_mul(3));
+		Self::try_associate_hotkey().saturating_mul(u64::from(probes))
+	}
 	fn unstake_all() -> Weight;
 	fn unstake_all_alpha() -> Weight;
 	fn remove_stake_full_limit() -> Weight;

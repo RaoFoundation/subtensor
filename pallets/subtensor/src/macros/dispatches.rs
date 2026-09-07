@@ -2629,5 +2629,28 @@ mod dispatches {
         ) -> DispatchResult {
             Self::do_set_min_collateral(origin, netuid, hotkey, min_locked)
         }
+
+        /// Releases an idle hotkey owned by the signed coldkey. Active
+        /// registrations, relationships, stake and rewards block release.
+        /// On success emits `HotkeyDisassociated`; any coldkey may then associate
+        /// the hotkey. Cooldowns, lineage and its EVM association are preserved.
+        ///
+        /// `max_items` must cover the sum of:
+        /// - The owner's `OwnedHotkeys` and `StakingHotkeys` vector lengths.
+        /// - Inverse autostake rows for this hotkey and their coldkey-vector lengths.
+        /// - Distinct netuids in each of `SubnetOwnerHotkey`, `PendingChildKeys`,
+        ///   `Uids`, `LockingColdkeys`, `MinerCollateral` and `RootClaimed`.
+        /// An insufficient limit fails before cleanup; an overestimate pays for
+        /// the larger weight. Read the indexes at one block and retry if they grow.
+        #[pallet::call_index(150)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::disassociate_hotkey(*max_items, *max_items, *max_items))]
+        pub fn disassociate_hotkey(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            max_items: u32,
+        ) -> DispatchResult {
+            let coldkey = ensure_signed(origin)?;
+            Self::do_disassociate_hotkey(&coldkey, &hotkey, max_items)
+        }
     }
 }
