@@ -291,8 +291,6 @@ pub mod pallet {
         MaximumContributionTooLow,
         /// The minimum contribution is too high.
         MinimumContributionTooHigh,
-        /// Contributions are temporarily disabled.
-        DisabledTemporarily,
     }
 
     #[pallet::hooks]
@@ -444,7 +442,6 @@ pub mod pallet {
             #[pallet::compact] crowdloan_id: CrowdloanId,
             #[pallet::compact] amount: BalanceOf<T>,
         ) -> DispatchResult {
-            ensure!(false, Error::<T>::DisabledTemporarily);
             let contributor = ensure_signed(origin)?;
             let now = frame_system::Pallet::<T>::block_number();
 
