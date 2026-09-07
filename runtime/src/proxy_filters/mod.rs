@@ -393,11 +393,12 @@ mod tests {
             // This is the metadata provider exposed by ProxyFilterRuntimeApi.
             let infos = get_proxy_filters(Some(vec![proxy_type as u8]));
             assert_eq!(infos.len(), 1);
-            assert_eq!(infos[0].proxy_type, proxy_type as u8);
+            let info = infos.first().unwrap();
+            assert_eq!(info.proxy_type, proxy_type as u8);
             for call in &calls {
                 let metadata = call.get_call_metadata();
                 let executable = proxy_type.filter(call);
-                let advertised = match &infos[0].filter_mode {
+                let advertised = match &info.filter_mode {
                     FilterMode::AllowAll => true,
                     FilterMode::Allow(allowed) => allowed.iter().any(|info| {
                         info.pallet_name == metadata.pallet_name.as_bytes()
