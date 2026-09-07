@@ -37,6 +37,7 @@ PROXY_TYPES = (
     "SwapHotkey",
     "SubnetLeaseBeneficiary",
     "RootClaim",
+    "SetRootWeights",
 )
 
 
@@ -58,7 +59,8 @@ PROXY_TYPE_HELP = (
     + ", ".join(PROXY_TYPES)
     + ". Triumvirate, Senate, Governance, and RootWeights are deprecated on "
     "the current runtime: they deny all calls, so a proxy of those types can "
-    "dispatch nothing. Prefer the narrowest type that covers your use; Any "
+    "dispatch nothing. SetRootWeights permits only set_root_weights. Prefer the "
+    "narrowest type that covers your use; Any "
     "can do everything the account can, including transfers."
 )
 

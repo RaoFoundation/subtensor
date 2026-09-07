@@ -418,6 +418,14 @@ call_filter_group!(
     ]
 );
 
+// Curating a validator's root basket.
+call_filter_group!(
+    RootWeightsCalls,
+    [RuntimeCall::SubtensorModule(
+        SubtensorCall::set_root_weights
+    ),]
+);
+
 // A subnet's public identity and token symbol.
 call_filter_group!(
     SubnetIdentityCalls,
@@ -441,7 +449,6 @@ call_filter_group!(
     SubtensorCommonCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),

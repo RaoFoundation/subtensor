@@ -64,6 +64,7 @@ type NonTransferAllowed = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
+    RootWeightsCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -79,6 +80,7 @@ type NonFungibleAllowed = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
+    RootWeightsCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -101,6 +103,7 @@ type NonCriticalAllowed = (
     HotkeySwapCalls,
     ChildKeyCalls,
     RootClaimCalls,
+    RootWeightsCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,
@@ -121,6 +124,7 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::SwapHotkey => HotkeySwapCalls::contains(call),
         ProxyType::SubnetLeaseBeneficiary => SubnetLeaseAllowed::contains(call),
         ProxyType::RootClaim => RootClaimCalls::contains(call),
+        ProxyType::SetRootWeights => RootWeightsCalls::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -156,7 +160,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::SudoUncheckedSetCode
                 | ProxyType::SwapHotkey
                 | ProxyType::SubnetLeaseBeneficiary
-                | ProxyType::RootClaim,
+                | ProxyType::RootClaim
+                | ProxyType::SetRootWeights,
             ) => true,
             (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
             _ => false,
@@ -187,6 +192,7 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::SwapHotkey => FilterMode::Allow(HotkeySwapCalls::call_infos()),
         ProxyType::SubnetLeaseBeneficiary => FilterMode::Allow(SubnetLeaseAllowed::call_infos()),
         ProxyType::RootClaim => FilterMode::Allow(RootClaimCalls::call_infos()),
+        ProxyType::SetRootWeights => FilterMode::Allow(RootWeightsCalls::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -242,6 +248,7 @@ mod tests {
         string::{String, ToString},
         vec,
     };
+    use codec::Encode;
     use frame_support::traits::GetCallMetadata;
     use subtensor_runtime_common::CallInfo;
 
@@ -291,6 +298,7 @@ mod tests {
     #[test]
     fn any_allows_everything_and_deprecated_allow_nothing() {
         assert_eq!(allowed_calls(ProxyType::Any), all_runtime_calls());
+        assert!(!ProxyType::SetRootWeights.is_deprecated());
         for deprecated in [
             ProxyType::Triumvirate,
             ProxyType::Senate,
@@ -299,6 +307,14 @@ mod tests {
         ] {
             assert!(allowed_calls(deprecated).is_empty());
         }
+    }
+
+    #[test]
+    fn set_root_weights_has_a_fresh_wire_index() {
+        assert_eq!(u8::from(ProxyType::RootWeights), 12);
+        assert_eq!(ProxyType::RootWeights.encode(), vec![12]);
+        assert_eq!(u8::from(ProxyType::SetRootWeights), 18);
+        assert_eq!(ProxyType::SetRootWeights.encode(), vec![18]);
     }
 
     // Broad proxies are specified subtractively here (all calls minus a few
@@ -480,6 +496,7 @@ mod tests {
             ProxyType::SwapHotkey,
             ProxyType::SubnetLeaseBeneficiary,
             ProxyType::RootClaim,
+            ProxyType::SetRootWeights,
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
@@ -595,6 +612,10 @@ mod tests {
                 "SubtensorModule::claim_root",
                 "SubtensorModule::claim_root_with_hotkey",
             ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::SetRootWeights),
+            expected(&["SubtensorModule::set_root_weights"])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),
