@@ -36,7 +36,7 @@ pub enum ProxyType {
     Registration,
     Transfer,
     SmallTransfer,
-    RootWeights, // Deprecated
+    RootWeights,
     ChildKeys,
     SudoUncheckedSetCode,
     SwapHotkey,
@@ -99,10 +99,7 @@ impl From<ProxyType> for u8 {
 
 impl ProxyType {
     pub fn is_deprecated(&self) -> bool {
-        matches!(
-            self,
-            Self::Triumvirate | Self::Senate | Self::Governance | Self::RootWeights
-        )
+        matches!(self, Self::Triumvirate | Self::Senate | Self::Governance)
     }
 }
 
