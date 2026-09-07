@@ -1,11 +1,9 @@
 name: Publish Docker Image
 
 # Node images publish whenever main or a network mirror moves, on runtime
-# releases, and on demand. Main advances the development-facing :main tag.
-# Releases cut by watch-mainnet-release.yml use the default GITHUB_TOKEN, which
-# never emits `release: published`; the watcher therefore dispatches this
-# workflow directly with the release tag. Release-version tags (vN) move
-# :latest; branch tags do not.
+# releases, and on demand. Main advances both :main and :latest so every
+# successful merge publishes the default production image without waiting for
+# a runtime release. Release-version and other branch tags never move :latest.
 
 on:
   release:
@@ -21,7 +19,9 @@ on:
 
 concurrency:
   group: docker-${{ github.ref }}
-  cancel-in-progress: true
+  # Main publications run serially so an older push cannot finish after a
+  # newer one and roll :latest backward. Other refs keep the fast-cancel path.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -122,29 +122,15 @@ jobs:
     runs-on: [self-hosted, fireactions-turbo-8]
     timeout-minutes: 30
     steps:
-      - name: Determine tag and image name
-        env:
-          INPUT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          # Docker tags cannot contain '/', so derive the tag by replacing any
-          # disallowed characters — otherwise a ref like `feat/x` fails tag
-          # validation at push time.
-          tag="${INPUT_TAG//[^a-zA-Z0-9._-]/-}"
-          echo "tag=$tag" >> $GITHUB_ENV
-          # Move :latest for release events and for dispatched release-version
-          # tags (the watcher dispatches with tag=vN because its GITHUB_TOKEN
-          # release cannot fire the `release` trigger).
-          if [[ "${{ github.event_name }}" == "release" || "$tag" =~ ^v[0-9]+$ ]]; then
-            echo "latest_tag=true" >> $GITHUB_ENV
-          else
-            echo "latest_tag=false" >> $GITHUB_ENV
-          fi
-          # Docker requires lowercase image names; github.repository is RaoFoundation/subtensor
-          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.setup.outputs.sha }}
+
+      - name: Determine tag and image name
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          SOURCE_REF: ${{ github.ref }}
+        run: ./.github/scripts/resolve-node-image.sh
 
       - name: Download AMD64 production binary
         uses: actions/download-artifact@v5
@@ -170,6 +156,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify current main revision
+        if: env.latest_tag == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILT_SHA: ${{ needs.setup.outputs.sha }}
+        run: |
+          current_main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          [ "$BUILT_SHA" = "$current_main" ] || {
+            echo "Refusing to move :latest from stale main revision $BUILT_SHA; current main is $current_main" >&2
+            exit 1
+          }
 
       - name: Build and push
         uses: docker/build-push-action@v6
