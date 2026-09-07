@@ -145,7 +145,7 @@ impl Cushion {
 }
 
 /// One open position.
-#[freeze_struct("cd9e5fdfbc8a1e58")]
+#[freeze_struct("ea10ded882ae91fa")]
 #[derive(
     Encode,
     Decode,
@@ -160,6 +160,9 @@ impl Cushion {
 pub struct Position<BlockNumber> {
     /// `P`: what the owner put up. Returned at close minus the fee and any shortfall.
     pub cushion: Cushion,
+    /// `L`: exposure as a percentage of the cushion, chosen by the owner at open within the
+    /// side's maximum. `roll` reopens at the same value.
+    pub leverage_percent: u16,
     /// The borrowed slice: proceeds held, debt owed, escrow kept. Its variant is the side.
     pub legs: Legs,
     /// `phi * T` at open: the TAO value the pool lent.
@@ -184,7 +187,7 @@ impl<BlockNumber> Position<BlockNumber> {
 }
 
 /// Root-settable parameters.
-#[freeze_struct("e263f11aa1ca8132")]
+#[freeze_struct("d506fe231a223242")]
 #[derive(
     Encode,
     Decode,
@@ -199,13 +202,13 @@ impl<BlockNumber> Position<BlockNumber> {
 pub struct DerivativesParams<BlockNumber> {
     pub shorts_enabled: bool,
     pub longs_enabled: bool,
-    /// `L_short`: a short's exposure as a percentage of its cushion. `100` = 1x. The pool is
-    /// wiped when the price rises by `1 / L`: 2x at 1x leverage.
-    pub short_leverage_percent: u16,
-    /// `L_long`: a long's exposure as a percentage of its cushion. `200` = 2x. The pool is
-    /// wiped when the price falls by `1 / L`: a halving at 2x. At 1x a long can never lose
-    /// the pool anything, and is nothing a spot buy does not do better.
-    pub long_leverage_percent: u16,
+    /// Highest leverage a short may choose, as a percentage of its cushion. `100` = 1x. A
+    /// short at leverage `L` costs the pool once the price rises by `1 / L`: 2x at 1x.
+    pub max_short_leverage_percent: u16,
+    /// Highest leverage a long may choose. `200` = 2x. A long at leverage `L` costs the pool
+    /// once the price falls by `1 / L`: a halving at 2x. At 1x a long can never lose the pool
+    /// anything, and is nothing a spot buy does not do better.
+    pub max_long_leverage_percent: u16,
     /// `kappa`: the largest share of the lent reserve that all open positions of one side on
     /// one subnet may borrow together. A subnet's [`SubnetOverride`] can replace it.
     pub max_pool_share: Percent,
@@ -223,8 +226,8 @@ pub struct DerivativesParams<BlockNumber> {
 }
 
 impl<BlockNumber: From<u32>> DerivativesParams<BlockNumber> {
-    /// Mainnet defaults: shorts 1x, longs 2x, 10% of the pool, 30 days, 6 TAO/day per unit
-    /// pool share on shorts, 0.01%/day of exposure on longs, 0.1 TAO minimum cushion.
+    /// Mainnet defaults: shorts up to 1x, longs up to 2x, 10% of the pool, 30 days, 6 TAO/day
+    /// per unit pool share on shorts, 0.01%/day of exposure on longs, 0.1 TAO minimum cushion.
     ///
     /// Each fee is twice the pool's measured expected loss over a year of Finney pool prices:
     /// `E[(theta - 2)+] * T ~= 86 TAO` per 30 days on shorts (2.9 TAO/day), `E[(1/2 - theta)+]
@@ -234,8 +237,8 @@ impl<BlockNumber: From<u32>> DerivativesParams<BlockNumber> {
         Self {
             shorts_enabled: true,
             longs_enabled: true,
-            short_leverage_percent: 100,
-            long_leverage_percent: 200,
+            max_short_leverage_percent: 100,
+            max_long_leverage_percent: 200,
             max_pool_share: Percent::from_percent(10),
             lifetime_blocks: BlockNumber::from(216_000u32),
             short_fee_per_day: TaoBalance::from(6_000_000_000u64),
@@ -244,11 +247,17 @@ impl<BlockNumber: From<u32>> DerivativesParams<BlockNumber> {
         }
     }
 
-    pub fn leverage_percent(&self, side: Side) -> u16 {
+    pub fn max_leverage_percent(&self, side: Side) -> u16 {
         match side {
-            Side::Short => self.short_leverage_percent,
-            Side::Long => self.long_leverage_percent,
+            Side::Short => self.max_short_leverage_percent,
+            Side::Long => self.max_long_leverage_percent,
         }
+    }
+
+    /// Whether an owner may open `side` at `leverage_percent`: above zero and at most the
+    /// side's maximum.
+    pub fn leverage_allowed(&self, side: Side, leverage_percent: u16) -> bool {
+        leverage_percent > 0 && leverage_percent <= self.max_leverage_percent(side)
     }
 
     pub fn side_enabled(&self, side: Side) -> bool {
@@ -275,12 +284,12 @@ impl<BlockNumber: From<u32>> DerivativesParams<BlockNumber> {
 }
 
 impl<BlockNumber: Zero> DerivativesParams<BlockNumber> {
-    /// A parameter set every open can act on. Zero leverage or a zero pool share would make
-    /// every `open` fail; a zero lifetime would let anyone close a position the block it opens.
-    /// Use `shorts_enabled` / `longs_enabled` to pause opens instead.
+    /// A parameter set every open can act on. A zero maximum leverage or a zero pool share
+    /// would make every `open` fail; a zero lifetime would let anyone close a position the
+    /// block it opens. Use `shorts_enabled` / `longs_enabled` to pause opens instead.
     pub fn is_valid(&self) -> bool {
-        self.short_leverage_percent > 0
-            && self.long_leverage_percent > 0
+        self.max_short_leverage_percent > 0
+            && self.max_long_leverage_percent > 0
             && !self.max_pool_share.is_zero()
             && !self.lifetime_blocks.is_zero()
     }
@@ -443,14 +452,30 @@ mod tests {
     fn defaults_are_valid_and_each_leverage_is_checked() {
         let params = DerivativesParams::<u64>::defaults();
         assert!(params.is_valid());
-        assert_eq!(params.leverage_percent(Side::Short), 100);
-        assert_eq!(params.leverage_percent(Side::Long), 200);
+        assert_eq!(params.max_leverage_percent(Side::Short), 100);
+        assert_eq!(params.max_leverage_percent(Side::Long), 200);
         let mut no_long = params.clone();
-        no_long.long_leverage_percent = 0;
+        no_long.max_long_leverage_percent = 0;
         assert!(!no_long.is_valid());
         let mut no_short = params;
-        no_short.short_leverage_percent = 0;
+        no_short.max_short_leverage_percent = 0;
         assert!(!no_short.is_valid());
+    }
+
+    #[test]
+    fn owner_picks_any_leverage_up_to_the_side_maximum() {
+        let params = DerivativesParams::<u64>::defaults();
+        assert!(params.leverage_allowed(Side::Short, 1));
+        assert!(params.leverage_allowed(Side::Short, 50));
+        assert!(params.leverage_allowed(Side::Short, 100));
+        assert!(!params.leverage_allowed(Side::Short, 101));
+        assert!(!params.leverage_allowed(Side::Short, 0));
+        assert!(params.leverage_allowed(Side::Long, 200));
+        assert!(!params.leverage_allowed(Side::Long, 201));
+        let mut raised = params;
+        raised.max_long_leverage_percent = 1_000;
+        assert!(raised.leverage_allowed(Side::Long, 1_000));
+        assert!(!raised.leverage_allowed(Side::Short, 200));
     }
 
     #[test]

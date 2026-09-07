@@ -674,9 +674,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 255,
-        "end_line": 271,
-        "url": "/code/pallets/derivatives/src/lib.rs#L253-L271",
+        "line": 262,
+        "end_line": 278,
+        "url": "/code/pallets/derivatives/src/lib.rs#L260-L278",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -1930,7 +1930,7 @@
   {
     "name": "open_long",
     "summary": "Open a long on a subnet's alpha, backed by a TAO cushion.",
-    "description": "Open a long on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is sized from the cushion (`long_leverage_percent` of it against the\npool's TAO reserve) and capped by the pool-share limit.",
+    "description": "Open a long on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of TAO, which buys alpha at once.\nClosing sells the alpha back: if the price rose the sale covers the loan\nwith profit left over; if it fell the cushion covers the loss. The borrowed\nslice is `leverage` times the cushion against the pool's TAO reserve, at\nmost `max_long_leverage_percent`, and capped by the pool-share limit.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -1959,7 +1959,11 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "TAO cushion to deposit from the coldkey balance. Exposure is the side's leverage times this amount, measured against the pool's TAO reserve."
+          "description": "TAO cushion to deposit from the coldkey balance. Exposure is `--leverage` times this amount, measured against the pool's TAO reserve."
+        },
+        "leverage": {
+          "type": "number",
+          "description": "Exposure as a multiple of the cushion: 1, 2, 5, ... Must be at most the side's maximum (`max_short_leverage_percent` / `max_long_leverage_percent` in `btcli deriv params`)."
         }
       },
       "required": [
@@ -1976,9 +1980,9 @@
         "pallet": "Derivatives",
         "call": "open",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 241,
-        "end_line": 249,
-        "url": "/code/pallets/derivatives/src/lib.rs#L239-L249",
+        "line": 247,
+        "end_line": 256,
+        "url": "/code/pallets/derivatives/src/lib.rs#L245-L256",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -1986,7 +1990,7 @@
   {
     "name": "open_short",
     "summary": "Open a short on a subnet's alpha, backed by a TAO cushion.",
-    "description": "Open a short on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is sized from the cushion (`short_leverage_percent` of it\nagainst the pool's TAO reserve) and capped by the pool-share limit.",
+    "description": "Open a short on a subnet's alpha, backed by a TAO cushion.\n\nThe pool lends the position a slice of alpha, which is sold for TAO at\nonce. Closing buys the alpha back: if the price fell the buyback is cheaper\nand the difference is profit; if it rose the cushion covers the loss. The\nborrowed slice is `leverage` times the cushion against the pool's TAO\nreserve, at most `max_short_leverage_percent`, and capped by the pool-share\nlimit.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2015,7 +2019,11 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "TAO cushion to deposit from the coldkey balance. Exposure is the side's leverage times this amount, measured against the pool's TAO reserve."
+          "description": "TAO cushion to deposit from the coldkey balance. Exposure is `--leverage` times this amount, measured against the pool's TAO reserve."
+        },
+        "leverage": {
+          "type": "number",
+          "description": "Exposure as a multiple of the cushion: 1, 2, 5, ... Must be at most the side's maximum (`max_short_leverage_percent` / `max_long_leverage_percent` in `btcli deriv params`)."
         }
       },
       "required": [
@@ -2032,9 +2040,9 @@
         "pallet": "Derivatives",
         "call": "open",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 241,
-        "end_line": 249,
-        "url": "/code/pallets/derivatives/src/lib.rs#L239-L249",
+        "line": 247,
+        "end_line": 256,
+        "url": "/code/pallets/derivatives/src/lib.rs#L245-L256",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -2604,7 +2612,7 @@
   {
     "name": "roll_derivative",
     "summary": "Settle a position at today's price and reopen it in the same transaction.",
-    "description": "Settle a position at today's price and reopen it in the same transaction.\n\nThe old position is closed like `close`: the pool gets its slice and the\nborrow fee back, and the owner's cushion plus profit or loss comes back in\nTAO. That TAO, plus an optional `top_up`, is then the cushion of a fresh\nposition on the same side with a full lifetime and today's entry price.\nFails without touching the position if the new cushion is below the\nminimum deposit or the pool cap is reached; `close` instead.",
+    "description": "Settle a position at today's price and reopen it in the same transaction.\n\nThe old position is closed like `close`: the pool gets its slice and the\nborrow fee back, and the owner's cushion plus profit or loss comes back in\nTAO. That TAO, plus an optional `top_up`, is then the cushion of a fresh\nposition on the same side and at the same leverage, with a full lifetime\nand today's entry price. Fails without touching the position if the new\ncushion is below the minimum deposit, the pool cap is reached, or the\nside's maximum leverage has dropped below the position's; `close`\ninstead.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -2654,9 +2662,9 @@
         "pallet": "Derivatives",
         "call": "roll",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 282,
-        "end_line": 290,
-        "url": "/code/pallets/derivatives/src/lib.rs#L280-L290",
+        "line": 290,
+        "end_line": 298,
+        "url": "/code/pallets/derivatives/src/lib.rs#L288-L298",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

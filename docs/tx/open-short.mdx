@@ -8,19 +8,21 @@ description: "Open a short on a subnet's alpha, backed by a TAO cushion."
 The pool lends the position a slice of alpha, which is sold for TAO at
 once. Closing buys the alpha back: if the price fell the buyback is cheaper
 and the difference is profit; if it rose the cushion covers the loss. The
-borrowed slice is sized from the cushion (`short_leverage_percent` of it
-against the pool's TAO reserve) and capped by the pool-share limit.
+borrowed slice is `leverage` times the cushion against the pool's TAO
+reserve, at most `max_short_leverage_percent`, and capped by the pool-share
+limit.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.open`](/code/pallets/derivatives/src/lib.rs#L239-L249) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.open`](/code/pallets/derivatives/src/lib.rs#L245-L256) |
 
 ## Parameters
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `netuid` | integer | yes | Subnet whose alpha the position is on. |
-| `amount` | number \| `"all"` | yes | TAO cushion to deposit from the coldkey balance. Exposure is the side's leverage times this amount, measured against the pool's TAO reserve. |
+| `amount` | number \| `"all"` | yes | TAO cushion to deposit from the coldkey balance. Exposure is `--leverage` times this amount, measured against the pool's TAO reserve. |
+| `leverage` | number | no | Exposure as a multiple of the cushion: 1, 2, 5, ... Must be at most the side's maximum (`max_short_leverage_percent` / `max_long_leverage_percent` in `btcli deriv params`). |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -65,7 +67,7 @@ result = sub.execute_tool("open_short", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.open` — [`pallets/derivatives/src/lib.rs#L241`](/code/pallets/derivatives/src/lib.rs#L239-L249):
+`Derivatives.open` — [`pallets/derivatives/src/lib.rs#L247`](/code/pallets/derivatives/src/lib.rs#L245-L256):
 
 ```rust
 #[pallet::call_index(0)]
@@ -75,9 +77,10 @@ pub fn open(
     netuid: NetUid,
     side: Side,
     cushion: TaoBalance,
+    leverage_percent: u16,
 ) -> DispatchResult {
     let owner = ensure_signed(origin)?;
-    Self::do_open(owner, netuid, side, cushion)
+    Self::do_open(owner, netuid, side, cushion, leverage_percent)
 }
 ```
 

@@ -9,7 +9,7 @@ import typer
 
 from ...balance import Balance
 from ...intents import ClosePosition, OpenLong, OpenShort, RollPosition
-from ...intents.derivatives import SideChoice
+from ...intents.derivatives import SideChoice, leverage_percent
 from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -31,16 +31,24 @@ def _open_options():
     return dict(
         netuid=typer.Option(..., "--netuid", help=OpenShort.field_help("netuid")),
         amount=typer.Option(..., "--amount", help=OpenShort.field_help("amount")),
+        leverage=typer.Option(1.0, "--leverage", help=OpenShort.field_help("leverage")),
     )
 
 
-def _submit_open(app_ctx: AppContext, intent_cls: type, netuid: int, amount: str) -> None:
+def _submit_open(
+    app_ctx: AppContext, intent_cls: type, netuid: int, amount: str, leverage: float
+) -> None:
     try:
         money = _parse_money(amount, False)
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--amount`: {error}")
         raise typer.Exit(2)
-    app_ctx.submit(intent_cls(netuid=netuid, amount=money))
+    try:
+        leverage_percent(leverage)
+    except ValueError as error:
+        app_ctx.output.error(f"invalid value for `--leverage`: {error}")
+        raise typer.Exit(2)
+    app_ctx.submit(intent_cls(netuid=netuid, amount=money, leverage=leverage))
 
 
 _OPEN = _open_options()
@@ -52,14 +60,16 @@ def open_short(
     ctx: typer.Context,
     netuid: int = _OPEN["netuid"],
     amount: str = _OPEN["amount"],
+    leverage: float = _OPEN["leverage"],
 ):
     """Open a short: borrow alpha from the pool and sell it for TAO now.
 
     Profit if alpha's price falls before you close; the cushion covers the
     loss if it rises. `--amount` is the TAO cushion, taken from the coldkey
-    balance.
+    balance. `--leverage` is the exposure as a multiple of it, up to the
+    short maximum in `btcli deriv params`.
     """
-    _submit_open(ctx_of(ctx), OpenShort, netuid, amount)
+    _submit_open(ctx_of(ctx), OpenShort, netuid, amount, leverage)
 
 
 @app.command("long")
@@ -68,14 +78,16 @@ def open_long(
     ctx: typer.Context,
     netuid: int = _OPEN["netuid"],
     amount: str = _OPEN["amount"],
+    leverage: float = _OPEN["leverage"],
 ):
     """Open a long: borrow TAO from the pool and buy alpha with it now.
 
     Profit if alpha's price rises before you close; the cushion covers the
     loss if it falls. `--amount` is the TAO cushion, taken from the coldkey
-    balance.
+    balance. `--leverage` is the exposure as a multiple of it, up to the
+    long maximum in `btcli deriv params`.
     """
-    _submit_open(ctx_of(ctx), OpenLong, netuid, amount)
+    _submit_open(ctx_of(ctx), OpenLong, netuid, amount, leverage)
 
 
 @app.command("close")
@@ -170,6 +182,7 @@ def list_positions(
             [
                 pos["netuid"],
                 pos["side"],
+                f"{pos['leverage']:g}x",
                 str(pos["cushion"]),
                 str(pos["proceeds"]),
                 str(pos["debt"]),
@@ -182,6 +195,7 @@ def list_positions(
             {
                 "netuid": pos["netuid"],
                 "side": pos["side"],
+                "leverage": pos["leverage"],
                 "cushion": str(pos["cushion"]),
                 "proceeds": str(pos["proceeds"]),
                 "debt": str(pos["debt"]),
@@ -197,10 +211,11 @@ def list_positions(
         )
     app_ctx.output.table(
         POSITIONS_TITLE,
-        ["netuid", "side", "cushion", "proceeds", "debt", "fee", "expires in", "est. value"],
+        ["netuid", "side", "lev", "cushion", "proceeds", "debt", "fee", "expires in", "est. value"],
         rows,
         records,
         legend=[
+            ("lev", "exposure as a multiple of the cushion, chosen at open"),
             ("cushion", "the TAO you put up, returned after settlement"),
             ("proceeds", "what the opening trade produced (TAO for a short, alpha for a long)"),
             ("debt", "what must be bought back or repaid to the pool at close"),
@@ -237,7 +252,7 @@ def show_params(
         help="Also show this subnet's override of the switches and cap, if root set one.",
     ),
 ):
-    """Show the derivatives pallet's parameters: leverage, pool cap, lifetime, fees.
+    """Show the derivatives pallet's parameters: max leverage, pool cap, lifetime, fees.
 
     With `--netuid`, also show whether that subnet is paused or capped differently
     from the global parameters.

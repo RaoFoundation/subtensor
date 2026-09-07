@@ -58,6 +58,7 @@ mod benchmarks {
             netuid,
             Side::Short,
             TaoBalance::from(CUSHION_TAO),
+            100,
         );
 
         let position = Positions::<T>::get(&owner, (netuid, Side::Short)).unwrap();
@@ -84,6 +85,7 @@ mod benchmarks {
             netuid,
             Side::Short,
             TaoBalance::from(CUSHION_TAO),
+            100,
         )
         .unwrap();
         T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(WHALE_TAO)).unwrap();
@@ -113,6 +115,7 @@ mod benchmarks {
             netuid,
             Side::Short,
             TaoBalance::from(CUSHION_TAO),
+            100,
         )
         .unwrap();
         T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(ROLL_WHALE_TAO))

@@ -30,8 +30,9 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         side: Side,
         cushion: TaoBalance,
+        leverage_percent: u16,
     ) -> DispatchResult {
-        with_storage_layer(|| Self::open_in_layer(owner, netuid, side, cushion))
+        with_storage_layer(|| Self::open_in_layer(owner, netuid, side, cushion, leverage_percent))
     }
 
     fn open_in_layer(
@@ -39,6 +40,7 @@ impl<T: Config> Pallet<T> {
         netuid: NetUid,
         side: Side,
         cushion: TaoBalance,
+        leverage_percent: u16,
     ) -> DispatchResult {
         let params = Params::<T>::get();
         let override_ = SubnetOverrides::<T>::get(netuid);
@@ -46,6 +48,10 @@ impl<T: Config> Pallet<T> {
             .map(|o| o.side_enabled(side))
             .unwrap_or_else(|| params.side_enabled(side));
         ensure!(enabled, Error::<T>::SideDisabled);
+        ensure!(
+            params.leverage_allowed(side, leverage_percent),
+            Error::<T>::LeverageOutOfRange
+        );
         ensure!(T::Pool::is_dynamic(netuid), Error::<T>::SubnetNotDynamic);
         ensure!(
             !Positions::<T>::contains_key(&owner, (netuid, side)),
@@ -62,7 +68,7 @@ impl<T: Config> Pallet<T> {
         ensure!(!cushion.is_zero(), Error::<T>::ZeroExposure);
         ensure!(cushion >= params.min_deposit_tao, Error::<T>::DepositTooLow);
 
-        let phi = pool_fraction(params.leverage_percent(side), cushion.to_u64(), t)
+        let phi = pool_fraction(leverage_percent, cushion.to_u64(), t)
             .ok_or(Error::<T>::ExposureTooLarge)?;
 
         let lent_reserve = match side {
@@ -128,6 +134,7 @@ impl<T: Config> Pallet<T> {
             (netuid, side),
             Position {
                 cushion: Cushion::Tao(cushion),
+                leverage_percent,
                 legs,
                 exposure_tao: lifted_tao,
                 fee_per_day,
@@ -145,6 +152,7 @@ impl<T: Config> Pallet<T> {
             netuid,
             side,
             cushion: Cushion::Tao(cushion),
+            leverage_percent,
             legs,
             exposure_tao: lifted_tao,
             fee_per_day,
@@ -153,9 +161,9 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Settle, then reopen the same side with the TAO that came back plus `top_up`. One storage
-    /// layer around both: if the reopen fails, the settlement rolls back and the old position
-    /// is still there.
+    /// Settle, then reopen the same side at the same leverage with the TAO that came back plus
+    /// `top_up`. One storage layer around both: if the reopen fails, the settlement rolls back
+    /// and the old position is still there.
     pub(crate) fn do_roll(
         owner: T::AccountId,
         netuid: NetUid,
@@ -163,8 +171,17 @@ impl<T: Config> Pallet<T> {
         top_up: TaoBalance,
     ) -> DispatchResult {
         with_storage_layer(|| {
+            let leverage_percent = Positions::<T>::get(&owner, (netuid, side))
+                .ok_or(Error::<T>::NoPosition)?
+                .leverage_percent;
             let back = Self::do_settle(&owner, netuid, side, Closer::Roll)?;
-            Self::do_open(owner, netuid, side, back.saturating_add(top_up))
+            Self::do_open(
+                owner,
+                netuid,
+                side,
+                back.saturating_add(top_up),
+                leverage_percent,
+            )
         })
     }
 

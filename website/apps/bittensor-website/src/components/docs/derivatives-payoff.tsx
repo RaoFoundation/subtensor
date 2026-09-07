@@ -135,8 +135,9 @@ export function DerivativesPayoff() {
         )}
       </svg>
       <p className="mt-3 text-[0.6875rem] leading-relaxed text-mute">
-        A short runs at 1x and moves one-for-one against alpha; a long runs at 2x and moves two-for-one with
-        it. Past the point where the cushion is gone the position is underwater: settlement pays you nothing,
+        The slope is the leverage you choose at open, up to a ceiling root sets per side. Shown at the
+        ceilings: a short at 1x moves one-for-one against alpha; a long at 2x moves two-for-one with it. Past
+        the point where the cushion is gone the position is underwater: settlement pays you nothing,
         gives the pool whatever is left, and the pool carries the shortfall — which is why the pool lends at
         most 10% of itself per side. Example pool: 10,000 τ / 200,000 α, closed after one day (fee about
         0.06 τ on the short, 0.02 τ on the long).

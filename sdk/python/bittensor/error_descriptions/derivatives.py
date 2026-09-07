@@ -22,6 +22,11 @@ DESCRIPTIONS: dict[str, str] = {
         "netuid, and side against `derivative-positions`; it may already have been closed or "
         "swept at expiry."
     ),
+    "LeverageOutOfRange": (
+        "The requested leverage is zero or above the side's maximum. Check "
+        "`max_short_leverage_percent` / `max_long_leverage_percent` in `deriv params` "
+        "(`100` = 1x) and pass a `--leverage` at or below it."
+    ),
     "ExposureTooLarge": (
         "Leverage times the cushion would take the whole matching reserve, so no pool share "
         "can be lifted. Check the deposit against the pool reserves and use a smaller cushion."
@@ -44,7 +49,8 @@ DESCRIPTIONS: dict[str, str] = {
         "few. Check `Expiring` around `now + lifetime_blocks` and retry in a later block."
     ),
     "InvalidParams": (
-        "Root submitted parameters with a zero leverage, `max_pool_share`, or `lifetime_blocks`, "
+        "Root submitted parameters with a zero maximum leverage, `max_pool_share`, or "
+        "`lifetime_blocks`, "
         "or a subnet override with a zero `max_pool_share`, which would brick opens or make "
         "positions closable at once. Pause a side with its enabled switch instead."
     ),

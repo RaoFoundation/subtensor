@@ -8,13 +8,15 @@ description: "Settle a position at today's price and reopen it in the same trans
 The old position is closed like `close`: the pool gets its slice and the
 borrow fee back, and the owner's cushion plus profit or loss comes back in
 TAO. That TAO, plus an optional `top_up`, is then the cushion of a fresh
-position on the same side with a full lifetime and today's entry price.
-Fails without touching the position if the new cushion is below the
-minimum deposit or the pool cap is reached; `close` instead.
+position on the same side and at the same leverage, with a full lifetime
+and today's entry price. Fails without touching the position if the new
+cushion is below the minimum deposit, the pool cap is reached, or the
+side's maximum leverage has dropped below the position's; `close`
+instead.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.roll`](/code/pallets/derivatives/src/lib.rs#L280-L290) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.roll`](/code/pallets/derivatives/src/lib.rs#L288-L298) |
 
 ## Parameters
 
@@ -67,7 +69,7 @@ result = sub.execute_tool("roll_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.roll` — [`pallets/derivatives/src/lib.rs#L282`](/code/pallets/derivatives/src/lib.rs#L280-L290):
+`Derivatives.roll` — [`pallets/derivatives/src/lib.rs#L290`](/code/pallets/derivatives/src/lib.rs#L288-L298):
 
 ```rust
 #[pallet::call_index(3)]
@@ -83,6 +85,6 @@ pub fn roll(
 }
 ```
 
-Delegates to [`do_roll`](/code/pallets/derivatives/src/settle.rs#L159).
+Delegates to [`do_roll`](/code/pallets/derivatives/src/settle.rs#L167).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

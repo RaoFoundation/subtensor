@@ -25,7 +25,8 @@ same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
 | Term | Meaning |
 |------|---------|
 | **Cushion** | Your deposit, in TAO from your coldkey balance. It is held by the pallet while the position is open and returned at close, minus the fee and any loss. |
-| **Exposure** | The TAO value the position moves with: leverage times your cushion. Shorts run at 1x, so exposure equals the cushion; longs run at 2x, so it is twice the cushion. |
+| **Leverage** | A multiple you choose at open with `--leverage` (default 1). Root sets a ceiling per side: today 1x on shorts and 2x on longs. |
+| **Exposure** | The TAO value the position moves with: leverage times your cushion. A 100 τ cushion at 1x is 100 τ of exposure; at 2x it is 200 τ. |
 | **Borrowed slice** | The fraction `phi` of the pool the position lifts out: `phi × TAO reserve` and `phi × alpha reserve`. |
 | **Proceeds** | What the opening trade produced. A short sells the lifted alpha, so its proceeds are TAO. A long buys alpha with the lifted TAO, so its proceeds are alpha. |
 | **Debt** | What must go back to the pool at close: the lifted alpha (short) or the lifted TAO (long). |
@@ -72,10 +73,11 @@ $$
 \phi = \frac{L \cdot \text{cushion}}{\text{TAO reserve}}
 $$
 
-where $L$ is the side's leverage: `short_leverage_percent / 100` (1.0 on
-mainnet) for a short, `long_leverage_percent / 100` (2.0) for a long. A 100 τ
-cushion on a 10,000 τ pool lifts 1% of the pool as a short (100 τ and 2,000 α)
-and 2% as a long (200 τ and 4,000 α). See
+where $L$ is the leverage you chose (`leverage_percent / 100`), at most the
+side's ceiling: `max_short_leverage_percent / 100` (1.0 on mainnet) for a
+short, `max_long_leverage_percent / 100` (2.0) for a long. A 100 τ cushion on
+a 10,000 τ pool lifts 1% of the pool at 1x (100 τ and 2,000 α) and 2% at 2x
+(200 τ and 4,000 α). See
 [`pool_fraction`](/code/pallets/derivatives/src/position.rs).
 
 ## What you get back
@@ -86,23 +88,26 @@ Three things to read off the picture:
 
 - **The line crosses your cushion at the open price.** Close with no price
   move and you get your 100 τ back, minus the fee and a little slippage.
-- **Shorts move one-for-one, longs two-for-one.** Alpha down 20% pays a
-  short about 20 τ on a 100 τ cushion. Alpha up 20% pays a long about 40 τ on
-  the same cushion, and alpha down 20% costs it about 40 τ.
+- **The slope is your leverage.** At 1x, alpha down 20% pays a short about
+  20 τ on a 100 τ cushion. At 2x, alpha up 20% pays a long about 40 τ on the
+  same cushion, and alpha down 20% costs it about 40 τ. The chart shows each
+  side at its current ceiling.
 - **The line stops at zero.** If the closing trade cannot repay what the
   position borrowed, the position is underwater: you are paid nothing,
   whatever the pallet still holds goes to the pool, and the pool carries the
   remaining shortfall
-  ([`do_settle`](/code/pallets/derivatives/src/settle.rs)). For a
-  short that is near a doubling; for a long at 2x it is near a halving. The
-  10% pool cap keeps that gap small relative to the pool.
+  ([`do_settle`](/code/pallets/derivatives/src/settle.rs)). At leverage $L$
+  that happens once the price moves against you by $1 / L$: a doubling for a
+  1x short, a halving for a 2x long. The 10% pool cap keeps that gap small
+  relative to the pool.
 
-Why 2x on longs and 1x on shorts? At 1x a long's cushion equals its debt, so
-it can never be underwater and the pool never carries any of its risk. That
-sounds safe, but it also means a 1x long does nothing a spot buy does not do,
-for a fee. At 2x a long is a real instrument, and its worst case for the pool,
-a halving, is about as rare as the doubling that wipes a 1x short. The two
-sides then carry comparable risk, and both leverages are dials root can turn.
+Why a 2x ceiling on longs and 1x on shorts? At 1x a long's cushion equals its
+debt, so it can never be underwater and the pool never carries any of its
+risk. That sounds safe, but it also means a 1x long does nothing a spot buy
+does not do, for a fee. At 2x a long is a real instrument, and its worst case
+for the pool, a halving, is about as rare as the doubling that wipes a 1x
+short. The two ceilings then carry comparable risk. Both are dials root can
+turn, and you may always pick less than the ceiling.
 
 Cushions are TAO only. That keeps the payoff the plain line above, and it
 means a subnet team cannot post alpha it minted to itself as collateral.
@@ -148,25 +153,27 @@ buyback or sale, so expect slightly less.
 ## Open a position
 
 Replace netuid `7` with your target subnet. Both sides take the same options:
-`--amount` is the cushion, in TAO, taken from your coldkey balance.
+`--amount` is the cushion, in TAO, taken from your coldkey balance;
+`--leverage` is the exposure as a multiple of it (default 1), up to the side's
+ceiling in `btcli deriv params`.
 
 ```bash
 # Check the pallet's live parameters first, and whether subnet 7 is paused or re-capped
 btcli deriv params --netuid 7 --json
 
-# Short subnet 7 with a 100 τ cushion (dry-run, then execute)
+# Short subnet 7 with a 100 τ cushion at 1x (dry-run, then execute)
 btcli deriv short --netuid 7 --amount 100 --dry-run -w my_coldkey
 btcli deriv short --netuid 7 --amount 100 -w my_coldkey
 
-# Long subnet 7 with a 100 τ cushion
-btcli deriv long --netuid 7 --amount 100 -w my_coldkey
+# Long subnet 7 with a 100 τ cushion at 2x: 200 τ of exposure
+btcli deriv long --netuid 7 --amount 100 --leverage 2 -w my_coldkey
 ```
 
 The same in Python:
 
 ```python
 await client.execute(bt.OpenShort(netuid=7, amount=100), wallet)
-await client.execute(bt.OpenLong(netuid=7, amount=100), wallet)
+await client.execute(bt.OpenLong(netuid=7, amount=100, leverage=2), wallet)
 ```
 
 The call fails if:
@@ -177,6 +184,7 @@ The call fails if:
 | `SubnetNotDynamic` | The subnet has no pool (root, or a static subnet). |
 | `PositionExists` | You already hold that side on that subnet. Close it first. |
 | `DepositTooLow` | The cushion is less than `min_deposit_tao` (0.1 τ). |
+| `LeverageOutOfRange` | `--leverage` is zero or above the side's ceiling (`max_short_leverage_percent` / `max_long_leverage_percent`). |
 | `ExposureTooLarge` | `phi` would be 100% or more of the pool. |
 | `PoolCapExceeded` | All open positions of that side already borrow `max_pool_share` (10%, or the subnet's override) of the lent reserve. Try a smaller cushion or wait for others to close. |
 
@@ -228,13 +236,14 @@ What happens, in order:
 1. The old position is settled exactly like `close`. The pool gets its slice
    and the fee so far; your loss or profit is realized now.
 2. What reached you (cushion plus profit, minus loss and fee), plus any
-   `--add`, becomes the cushion of a new position on the same side. It gets
-   today's entry price and a full `lifetime_blocks`.
+   `--add`, becomes the cushion of a new position on the same side, at the
+   same leverage. It gets today's entry price and a full `lifetime_blocks`.
 
 A roll is a real settlement, so the pool's risk is bounded the same way as
 with a close: no position ever lives longer than `lifetime_blocks` without
-being marked to market. If what comes back is below `min_deposit_tao`, or the
-pool cap is reached, the roll fails and the old position stays as it was;
+being marked to market. If what comes back is below `min_deposit_tao`, the
+pool cap is reached, or root has since lowered the side's leverage ceiling
+below your position's, the roll fails and the old position stays as it was;
 `close` instead. Only the owner may roll.
 
 ## Expiry
@@ -273,17 +282,18 @@ dissolution payout with its full reserves.
 Root-set, read with [`derivatives-params`](/docs/query/derivatives-params).
 Mainnet defaults from
 [`DerivativesParams::defaults`](/code/pallets/derivatives/src/position.rs).
-Root sets them with `sudo_set_params`, which rejects a zero leverage,
+Root sets them with `sudo_set_params`, which rejects a zero leverage ceiling,
 `max_pool_share`, or `lifetime_blocks`; use the enable flags to pause a side.
 Every value is a dial: changing one applies to positions opened from then on,
-and a running position keeps the fee per day and expiry it opened with.
+and a running position keeps the leverage, fee per day, and expiry it opened
+with.
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `shorts_enabled` | `true` | Shorts may be opened. Existing shorts can always be closed. |
 | `longs_enabled` | `true` | Longs may be opened. |
-| `short_leverage_percent` | `100` | A short's exposure as a share of its cushion. 100 = 1x. |
-| `long_leverage_percent` | `200` | A long's exposure as a share of its cushion. 200 = 2x. |
+| `max_short_leverage_percent` | `100` | Highest leverage a short may choose. 100 = 1x. |
+| `max_long_leverage_percent` | `200` | Highest leverage a long may choose. 200 = 2x. |
 | `max_pool_share` | `10%` | Largest share of the lent reserve all open positions of one side on one subnet may borrow together. |
 | `lifetime_blocks` | `216,000` | Maximum time a position may stay open (~30 days). |
 | `short_fee_per_day` | `6 τ` | What a short pays per day for borrowing the whole pool; a position pays this times its `phi`, times the size factor. Fixed at open, paid at close, one-day minimum. |
@@ -317,7 +327,7 @@ book without reading storage:
 
 | Event | When |
 |-------|------|
-| `PositionOpened` | A position opened: owner, subnet, side, cushion, legs, exposure, fee per day, expiry. |
+| `PositionOpened` | A position opened: owner, subnet, side, cushion, leverage, legs, exposure, fee per day, expiry. |
 | `PositionClosed` | A position settled: who closed it (owner, anyone after expiry, the expiry sweep, a roll, or dissolution), TAO returned, fee paid, and any shortfall the pool carried. |
 | `SettleFailed` | The expiry sweep could not settle a position; it is retried later or left to a permissionless `close`. |
 | `ParamsSet` | Root replaced the global parameters. |
@@ -347,7 +357,9 @@ side per subnet), `Expiring`, `Params`, `SubnetOverrides`, and `PalletHotkey`.
   in: it settles at today's price and reopens in one transaction.
 - Slippage is real on both legs. Size positions against the pool's depth,
   not against your balance.
-- Profit comes from the pool; loss goes to the pool. The leverage (1x shorts,
-  2x longs) and the 10% cap bound how much either can move the pool.
+- Profit comes from the pool; loss goes to the pool. The leverage ceilings
+  (1x shorts, 2x longs) and the 10% cap bound how much either can move the
+  pool. You pick your own leverage under the ceiling; a position keeps it for
+  life, including through `roll`.
 
 For the pool mechanics underneath, see [Staking pools](/docs/concepts/staking-pools).

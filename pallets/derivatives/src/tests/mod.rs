@@ -40,8 +40,25 @@ fn setup() {
     let _ = SubtensorModule::create_account_if_non_existent(&alice(), &alice_hotkey());
 }
 
+/// Open at the side's maximum leverage: 1x for shorts, 2x for longs under the defaults.
 fn open(who: U256, side: Side, cushion: u64) -> sp_runtime::DispatchResult {
-    Derivatives::open(RuntimeOrigin::signed(who), netuid(), side, cushion.into())
+    let leverage = Params::<Test>::get().max_leverage_percent(side);
+    open_at(who, side, cushion, leverage)
+}
+
+fn open_at(
+    who: U256,
+    side: Side,
+    cushion: u64,
+    leverage_percent: u16,
+) -> sp_runtime::DispatchResult {
+    Derivatives::open(
+        RuntimeOrigin::signed(who),
+        netuid(),
+        side,
+        cushion.into(),
+        leverage_percent,
+    )
 }
 
 fn close(caller: U256, owner: U256, side: Side) -> sp_runtime::DispatchResult {
@@ -240,7 +257,8 @@ fn open_rejects_bad_inputs() {
                 RuntimeOrigin::signed(alice()),
                 NetUid::from(9u16),
                 Side::Short,
-                DEPOSIT.into()
+                DEPOSIT.into(),
+                100,
             ),
             Error::<Test>::SubnetNotDynamic
         );
@@ -257,6 +275,52 @@ fn open_rejects_bad_inputs() {
         assert_err!(
             open(alice(), Side::Short, DEPOSIT),
             Error::<Test>::PositionExists
+        );
+    });
+}
+
+#[test]
+fn owner_chooses_leverage_up_to_the_side_maximum() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_err!(
+            open_at(alice(), Side::Short, DEPOSIT, 0),
+            Error::<Test>::LeverageOutOfRange
+        );
+        assert_err!(
+            open_at(alice(), Side::Short, DEPOSIT, 101),
+            Error::<Test>::LeverageOutOfRange
+        );
+        assert_err!(
+            open_at(alice(), Side::Long, DEPOSIT, 201),
+            Error::<Test>::LeverageOutOfRange
+        );
+
+        // Half leverage on a short: a 10 TAO cushion lifts 0.5% of the 1000 TAO pool.
+        assert_ok!(open_at(alice(), Side::Short, DEPOSIT, 50));
+        let short = position(&alice(), netuid(), Side::Short).unwrap();
+        assert_eq!(short.leverage_percent, 50);
+        assert_eq!(u64::from(short.exposure_tao), POOL_TAO / 200);
+
+        // 1.5x on a long, below the 2x maximum.
+        assert_ok!(open_at(alice(), Side::Long, DEPOSIT, 150));
+        let long = position(&alice(), netuid(), Side::Long).unwrap();
+        assert_eq!(long.leverage_percent, 150);
+        let (_, debt, _) = legs(&long);
+        assert_close(debt, POOL_TAO * 15 / 1000, 1);
+
+        // Root raises the long maximum; 5x is now open to Bob.
+        let mut params = Params::<Test>::get();
+        params.max_long_leverage_percent = 500;
+        assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
+        assert_ok!(open_at(bob(), Side::Long, DEPOSIT / 2, 500));
+        let bobs = position(&bob(), netuid(), Side::Long).unwrap();
+        assert_eq!(bobs.leverage_percent, 500);
+        // 5 TAO at 5x lifts 2.5% of the pool.
+        assert_close(u64::from(bobs.exposure_tao), POOL_TAO / 40, 1);
+        assert_err!(
+            open_at(bob(), Side::Short, DEPOSIT, 500),
+            Error::<Test>::LeverageOutOfRange
         );
     });
 }
@@ -643,6 +707,44 @@ fn roll_settles_and_reopens_with_the_payout() {
             Footprint::<Test>::get(netuid(), Side::Short),
             after.legs.footprint()
         );
+    });
+}
+
+#[test]
+fn roll_keeps_the_leverage_and_fails_once_it_is_above_the_new_maximum() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(open_at(alice(), Side::Long, DEPOSIT, 150));
+        System::set_block_number(100);
+        assert_ok!(Derivatives::roll(
+            RuntimeOrigin::signed(alice()),
+            netuid(),
+            Side::Long,
+            0.into()
+        ));
+        let rolled = position(&alice(), netuid(), Side::Long).unwrap();
+        assert_eq!(rolled.leverage_percent, 150);
+        assert_eq!(rolled.opened_at, 100);
+
+        // Root lowers the long maximum below 1.5x: the roll fails, the position stays.
+        let mut params = Params::<Test>::get();
+        params.max_long_leverage_percent = 100;
+        assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
+        System::set_block_number(200);
+        assert_err!(
+            Derivatives::roll(
+                RuntimeOrigin::signed(alice()),
+                netuid(),
+                Side::Long,
+                0.into()
+            ),
+            Error::<Test>::LeverageOutOfRange
+        );
+        let kept = position(&alice(), netuid(), Side::Long).unwrap();
+        assert_eq!(kept.opened_at, 100);
+        assert_eq!(kept.leverage_percent, 150);
+        // It can still close.
+        assert_ok!(close(alice(), alice(), Side::Long));
     });
 }
 

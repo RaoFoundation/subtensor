@@ -255,9 +255,9 @@ const page = () => {
             <p className={styles.step_title}>1 · Lift</p>
             <p>
               At 1x your 100 τ cushion sizes a slice worth 1% of the pool&apos;s TAO, so the
-              pallet lifts 1% of both reserves — 100 τ and 2,000 α — out of the pool. (A long,
-              at 2x, would lift 2%.) Both sides shrink by the same share, so the price does not
-              move.
+              pallet lifts 1% of both reserves — 100 τ and 2,000 α — out of the pool. (The same
+              cushion at 2x would lift 2%.) Both sides shrink by the same share, so the price
+              does not move.
             </p>
           </div>
 
@@ -297,13 +297,15 @@ const page = () => {
           <h2 className={styles.subtitle}>Open, watch, close</h2>
           <p className={styles.graph_caption}>
             Replace netuid 7 with your target subnet. <code>--amount</code> is the cushion, in
-            TAO, taken from your coldkey balance.
+            TAO, taken from your coldkey balance. <code>--leverage</code> is the exposure as a
+            multiple of it (default 1), up to the side&apos;s ceiling.
           </p>
 
           <div className={styles.step}>
             <p className={styles.step_title}>1 · Read the parameters</p>
             <p>
-              Whether each side is enabled, the leverage per side, the pool cap, the lifetime,
+              Whether each side is enabled, the leverage ceiling per side, the pool cap, the
+              lifetime,
               the fee rates, and the minimum deposit (
               <DocLink href='/docs/query/derivatives-params'>
                 <code>derivatives-params</code>
@@ -335,7 +337,7 @@ const page = () => {
             </p>
             <pre className={styles.step_code}>
               {`btcli deriv short --netuid 7 --amount 100 -w my_coldkey
-btcli deriv long  --netuid 7 --amount 100 -w my_coldkey`}
+btcli deriv long  --netuid 7 --amount 100 --leverage 2 -w my_coldkey`}
             </pre>
           </div>
 
@@ -389,14 +391,17 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
         <section className={styles.section}>
           <h2 className={styles.subtitle}>What bounds it</h2>
           <p>
-            <strong>1x shorts, 2x longs, TAO cushions.</strong> A short&apos;s exposure equals
-            its cushion, so a 20% move in alpha moves a 100 τ short by about 20 τ and a doubling
-            wipes it. A long&apos;s exposure is twice its cushion: a 20% move is worth about
-            40 τ and a halving wipes it. Longs run at 2x because at 1x a long can never cost the
-            pool anything and does nothing a spot buy does not; at 2x it is a real instrument
-            whose worst case for the pool, a halving, is as rare as a doubling is for shorts.
-            Your cushion is the most you can lose, and it is TAO only: a subnet team cannot post alpha it minted to itself as
-            collateral. If the closing trade cannot repay what the position borrowed, the
+            <strong>Leverage you choose, under a ceiling root sets: 1x on shorts, 2x on longs.
+            TAO cushions.</strong> At 1x a short&apos;s exposure equals its cushion, so a 20%
+            move in alpha moves a 100 τ short by about 20 τ and a doubling wipes it. At 2x a
+            long&apos;s exposure is twice its cushion: a 20% move is worth about 40 τ and a
+            halving wipes it. In general a position at leverage L is wiped by a move of 1/L
+            against it. The long ceiling is 2x because at 1x a long can never cost the pool
+            anything and does nothing a spot buy does not; at 2x it is a real instrument whose
+            worst case for the pool, a halving, is as rare as a doubling is for shorts. Both
+            ceilings are dials; the protocol is built for higher ones later. Your cushion is the
+            most you can lose, and it is TAO only: a subnet team cannot post alpha it minted to
+            itself as collateral. If the closing trade cannot repay what the position borrowed, the
             position is underwater: you are paid nothing, whatever the pallet still holds goes to
             the pool, and the pool carries the remaining shortfall. That rule is enforced at
             settlement, not inferred from swap quotes.
@@ -441,16 +446,17 @@ btcli deriv roll --netuid 7 --side short --add 50 -w my_coldkey`}
           <h2 className={styles.subtitle}>What changed on chain</h2>
           <p>
             <code>pallet-derivatives</code> is added at index 33 with three user calls —{' '}
-            <code>open</code>, which takes a <code>side</code> of short or long,{' '}
-            <code>close</code>, and <code>roll</code> — plus two root-only calls:{' '}
-            <code>sudo_set_params</code>, which rejects a zero leverage, pool share, or lifetime,
-            and <code>sudo_set_subnet_override</code>, which pauses a side or replaces the cap on
-            one subnet. Its parameters ship at: shorts and longs enabled,{' '}
-            <code>short_leverage_percent</code> 100, <code>long_leverage_percent</code> 200,{' '}
-            <code>max_pool_share</code> 10%, <code>lifetime_blocks</code> 216,000,{' '}
+            <code>open</code>, which takes a <code>side</code> of short or long and a{' '}
+            <code>leverage_percent</code>, <code>close</code>, and <code>roll</code>, which
+            reopens at the same leverage — plus two root-only calls:{' '}
+            <code>sudo_set_params</code>, which rejects a zero leverage ceiling, pool share, or
+            lifetime, and <code>sudo_set_subnet_override</code>, which pauses a side or replaces
+            the cap on one subnet. Its parameters ship at: shorts and longs enabled,{' '}
+            <code>max_short_leverage_percent</code> 100, <code>max_long_leverage_percent</code>{' '}
+            200, <code>max_pool_share</code> 10%, <code>lifetime_blocks</code> 216,000,{' '}
             <code>short_fee_per_day</code> 6 τ, <code>long_rate_per_day</code> 0.01%,{' '}
             <code>min_deposit_tao</code> 0.1 τ. Every one is a dial root can turn later; a
-            position keeps the fee and lifetime it opened with. The cushion is stored as a{' '}
+            position keeps the leverage, fee, and lifetime it opened with. The cushion is stored as a{' '}
             <code>Cushion</code> enum with a single <code>Tao</code> variant today, so an alpha
             variant can be added later without migrating open positions. Existing positions can
             always be closed, whatever is paused.

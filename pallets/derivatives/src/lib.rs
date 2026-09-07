@@ -142,6 +142,8 @@ pub mod pallet {
             side: Side,
             /// What the owner put up.
             cushion: Cushion,
+            /// Exposure as a percentage of the cushion, as the owner chose it.
+            leverage_percent: u16,
             /// Proceeds held, debt owed, escrow kept, each in its own token.
             legs: Legs,
             exposure_tao: TaoBalance,
@@ -191,6 +193,9 @@ pub mod pallet {
         NoPosition,
         /// The cushion is worth less than `min_deposit_tao`.
         DepositTooLow,
+        /// Leverage is zero or above the side's maximum (`max_short_leverage_percent` or
+        /// `max_long_leverage_percent`).
+        LeverageOutOfRange,
         /// Leverage times deposit would take the whole reserve.
         ExposureTooLarge,
         /// Leverage times deposit rounds to nothing.
@@ -203,7 +208,7 @@ pub mod pallet {
         ExpiryQueueFull,
         /// The pool swap returned nothing for a non-zero input.
         SwapReturnedZero,
-        /// A leverage, `max_pool_share`, or `lifetime_blocks` is zero.
+        /// A maximum leverage, `max_pool_share`, or `lifetime_blocks` is zero.
         InvalidParams,
         /// The pallet has not claimed its hotkey yet; no position can be opened.
         PalletHotkeyUnset,
@@ -230,12 +235,13 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Open a `side` position on `netuid` backed by `cushion` TAO from the caller's free
-        /// balance.
+        /// balance, at `leverage_percent` (`100` = 1x).
         ///
-        /// Exposure is the side's leverage (`short_leverage_percent` or
-        /// `long_leverage_percent`) times the cushion, measured against the pool's TAO
-        /// reserve. The position stays open until the owner closes it or `lifetime_blocks`
-        /// pass, after which anyone may close it.
+        /// Exposure is `leverage_percent / 100` times the cushion, measured against the pool's
+        /// TAO reserve. The leverage must be above zero and at most the side's maximum
+        /// (`max_short_leverage_percent` or `max_long_leverage_percent`). The position stays
+        /// open until the owner closes it or `lifetime_blocks` pass, after which anyone may
+        /// close it.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::open())]
         pub fn open(
@@ -243,9 +249,10 @@ pub mod pallet {
             netuid: NetUid,
             side: Side,
             cushion: TaoBalance,
+            leverage_percent: u16,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
-            Self::do_open(owner, netuid, side, cushion)
+            Self::do_open(owner, netuid, side, cushion, leverage_percent)
         }
 
         /// Settle `owner`'s `side` position on `netuid`. The owner may close at any time; anyone
@@ -271,12 +278,13 @@ pub mod pallet {
         }
 
         /// Settle the caller's `side` position on `netuid` at the current price and, in the same
-        /// transaction, open a fresh one with what came back plus `top_up` as the cushion.
-        /// Owner only.
+        /// transaction, open a fresh one at the same leverage with what came back plus `top_up`
+        /// as the cushion. Owner only.
         ///
         /// The new position gets today's entry price and a full `lifetime_blocks`. Fails,
-        /// leaving the position open, if the new cushion is below `min_deposit_tao` or the pool
-        /// cap is reached; `close` instead.
+        /// leaving the position open, if the new cushion is below `min_deposit_tao`, the pool
+        /// cap is reached, or the side's maximum leverage has since dropped below the
+        /// position's; `close` instead.
         #[pallet::call_index(3)]
         #[pallet::weight(T::WeightInfo::roll())]
         pub fn roll(
@@ -289,9 +297,9 @@ pub mod pallet {
             Self::do_roll(owner, netuid, side, top_up)
         }
 
-        /// Replace every parameter at once. Root only. Rejects a zero leverage,
-        /// `max_pool_share`, or `lifetime_blocks`. Open positions keep the fee and lifetime
-        /// they were opened with.
+        /// Replace every parameter at once. Root only. Rejects a zero maximum leverage,
+        /// `max_pool_share`, or `lifetime_blocks`. Open positions keep the leverage, fee, and
+        /// lifetime they were opened with.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::sudo_set_params())]
         pub fn sudo_set_params(

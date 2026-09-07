@@ -178,6 +178,7 @@
     "LeaseHasNoEndBlock",
     "LeaseHasNotEnded",
     "LeaseNetuidNotFound",
+    "LeverageOutOfRange",
     "LimitOrdersDisabled",
     "LinkedAmountResolvedToZero",
     "LinkedOutputAssetMismatch",

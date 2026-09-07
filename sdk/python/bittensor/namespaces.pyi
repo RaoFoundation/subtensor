@@ -388,11 +388,12 @@ class Prices(_ReadNamespace):
     async def derivative_position(self, coldkey_ss58: str, netuid: int, side: str, *, block: Optional[int] = None) -> Optional[dict]:
         """One open position for a coldkey on a subnet and side, or None.
 
-        `cushion` is the TAO the owner put up. `proceeds`, `debt`, and `escrow` are
-        the position's `legs`, each already in
-        its own token: a short holds TAO proceeds and TAO escrow and owes alpha; a
-        long holds alpha proceeds and alpha escrow and owes TAO. `fee_per_day_tao`
-        was fixed at open; `accrued_fee_tao` is what would be charged if closed now.
+        `cushion` is the TAO the owner put up and `leverage` the multiple of it
+        they chose at open. `proceeds`, `debt`, and `escrow` are the position's
+        `legs`, each already in its own token: a short holds TAO proceeds and TAO
+        escrow and owes alpha; a long holds alpha proceeds and alpha escrow and owes
+        TAO. `fee_per_day_tao` was fixed at open; `accrued_fee_tao` is what would be
+        charged if closed now.
         """
 
     async def derivative_positions(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
@@ -401,14 +402,15 @@ class Prices(_ReadNamespace):
     async def derivatives_params(self, *, block: Optional[int] = None) -> dict:
         """The derivatives pallet's root-set global parameters.
 
-        `short_leverage_percent` and `long_leverage_percent` size the borrowed slice
-        from the cushion per side, `max_pool_share` caps how much of a pool's reserve
-        may be lent per side, and `lifetime_blocks` is how long a position may stay
-        open. Fees are fixed at open and charged at close with a one-day minimum: a
-        short pays `short_fee_per_day_tao` times the share of the pool it lifted, a
-        long pays `long_rate_per_day` times its TAO exposure; both are scaled by
-        `1 / (1 - share)^4` for the position's own slippage. A subnet may override
-        the switches and the cap; see `derivatives_subnet_override`.
+        `max_short_leverage_percent` and `max_long_leverage_percent` bound the
+        leverage an owner may choose per side (`100` = 1x), `max_pool_share` caps how
+        much of a pool's reserve may be lent per side, and `lifetime_blocks` is how
+        long a position may stay open. Fees are fixed at open and charged at close
+        with a one-day minimum: a short pays `short_fee_per_day_tao` times the share
+        of the pool it lifted, a long pays `long_rate_per_day` times its TAO
+        exposure; both are scaled by `1 / (1 - share)^4` for the position's own
+        slippage. A subnet may override the switches and the cap; see
+        `derivatives_subnet_override`.
         """
 
     async def derivatives_subnet_override(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:

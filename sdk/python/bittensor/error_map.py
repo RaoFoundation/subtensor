@@ -463,6 +463,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "SubnetNotDynamic": _C.SUBTOKEN_DISABLED,
     "PositionExists": _C.ALREADY_EXISTS,
     "NoPosition": _C.NOT_FOUND,
+    "LeverageOutOfRange": _C.INVALID_ARGUMENT,
     "ExposureTooLarge": _C.LIMIT_EXCEEDED,
     "ZeroExposure": _C.INVALID_ARGUMENT,
     "PoolCapExceeded": _C.LIMIT_EXCEEDED,

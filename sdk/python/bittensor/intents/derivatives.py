@@ -32,6 +32,16 @@ def check_side(side: str) -> str:
     return side
 
 
+def leverage_percent(leverage: float) -> int:
+    """`1` -> `100`, `2.5` -> `250`. The runtime takes whole percent points in a `u16`."""
+    percent = round(float(leverage) * 100)
+    if abs(percent - float(leverage) * 100) > 1e-6:
+        raise ValueError(f"leverage {leverage} is finer than 0.01x")
+    if not 1 <= percent <= 65_535:
+        raise ValueError(f"leverage {leverage} is out of range; use 0.01x to 655.35x")
+    return percent
+
+
 @dataclass
 class _OpenPosition(Intent):
     """Shared body of ``open_short`` / ``open_long``; the subclass fixes ``side``."""
@@ -44,22 +54,42 @@ class _OpenPosition(Intent):
     amount: Money = field(
         metadata={
             "help": (
-                "TAO cushion to deposit from the coldkey balance. Exposure is the side's "
-                "leverage times this amount, measured against the pool's TAO reserve."
+                "TAO cushion to deposit from the coldkey balance. Exposure is `--leverage` "
+                "times this amount, measured against the pool's TAO reserve."
             )
         }
+    )
+    leverage: float = field(
+        default=1.0,
+        metadata={
+            "help": (
+                "Exposure as a multiple of the cushion: 1, 2, 5, ... Must be at most the "
+                "side's maximum (`max_short_leverage_percent` / `max_long_leverage_percent` "
+                "in `btcli deriv params`)."
+            )
+        },
     )
 
     def __post_init__(self):
         self.amount = tao_amount(self.amount)
+        self.leverage = float(self.leverage)
+        leverage_percent(self.leverage)
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
-            calls.Derivatives.open(netuid=self.netuid, side=self.side, cushion=self.amount.rao)
+            calls.Derivatives.open(
+                netuid=self.netuid,
+                side=self.side,
+                cushion=self.amount.rao,
+                leverage_percent=leverage_percent(self.leverage),
+            )
         )
 
     def summary(self) -> str:
-        return f"open {self.side.lower()} on netuid {self.netuid} with a {self.amount} cushion"
+        return (
+            f"open {self.side.lower()} on netuid {self.netuid} with a {self.amount} cushion "
+            f"at {self.leverage:g}x"
+        )
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         return [
@@ -79,8 +109,9 @@ class OpenShort(_OpenPosition):
     The pool lends the position a slice of alpha, which is sold for TAO at
     once. Closing buys the alpha back: if the price fell the buyback is cheaper
     and the difference is profit; if it rose the cushion covers the loss. The
-    borrowed slice is sized from the cushion (`short_leverage_percent` of it
-    against the pool's TAO reserve) and capped by the pool-share limit.
+    borrowed slice is `leverage` times the cushion against the pool's TAO
+    reserve, at most `max_short_leverage_percent`, and capped by the pool-share
+    limit.
     """
 
     op = "open_short"
@@ -95,8 +126,8 @@ class OpenLong(_OpenPosition):
     The pool lends the position a slice of TAO, which buys alpha at once.
     Closing sells the alpha back: if the price rose the sale covers the loan
     with profit left over; if it fell the cushion covers the loss. The borrowed
-    slice is sized from the cushion (`long_leverage_percent` of it against the
-    pool's TAO reserve) and capped by the pool-share limit.
+    slice is `leverage` times the cushion against the pool's TAO reserve, at
+    most `max_long_leverage_percent`, and capped by the pool-share limit.
     """
 
     op = "open_long"
@@ -158,9 +189,11 @@ class RollPosition(Intent):
     The old position is closed like ``close``: the pool gets its slice and the
     borrow fee back, and the owner's cushion plus profit or loss comes back in
     TAO. That TAO, plus an optional ``top_up``, is then the cushion of a fresh
-    position on the same side with a full lifetime and today's entry price.
-    Fails without touching the position if the new cushion is below the
-    minimum deposit or the pool cap is reached; ``close`` instead.
+    position on the same side and at the same leverage, with a full lifetime
+    and today's entry price. Fails without touching the position if the new
+    cushion is below the minimum deposit, the pool cap is reached, or the
+    side's maximum leverage has dropped below the position's; ``close``
+    instead.
     """
 
     op = "roll_derivative"

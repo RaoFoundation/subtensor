@@ -1,7 +1,8 @@
 /**
  * The worked example every derivatives figure uses: a 100 τ cushion on a
- * 10,000 τ / 200,000 α pool (0.05 τ/α). Shorts run at 1x and lift 1% of the
- * pool; longs run at 2x and lift 2%. A short pays 6 τ/day × the pool share it
+ * 10,000 τ / 200,000 α pool (0.05 τ/α). Each side is shown at its leverage
+ * ceiling: the short at 1x lifts 1% of the pool, the long at 2x lifts 2%. A
+ * short pays 6 τ/day × the pool share it
  * lifts; a long pays 0.01%/day of its TAO exposure. Both fees are scaled by
  * `1 / (1 − phi)^4` for the position's own slippage.
  *
@@ -16,7 +17,11 @@ export type Side = 'short' | 'long';
 export const POOL_TAO = 10_000;
 export const POOL_ALPHA = 200_000;
 export const CUSHION = 100;
-/** `short_leverage_percent` / `long_leverage_percent`, as multipliers. */
+/**
+ * The leverage the figures use per side: the mainnet ceilings
+ * `max_short_leverage_percent` / `max_long_leverage_percent`, as multipliers.
+ * An owner may open at anything from 0.01x up to these.
+ */
 export const LEVERAGE: Record<Side, number> = {short: 1, long: 2};
 /** TAO per day a short pays for borrowing the whole pool (`short_fee_per_day`). */
 export const SHORT_FEE_PER_DAY = 6;

@@ -565,7 +565,8 @@ export function DerivativesLifecycle() {
 
       <p className="mt-4 border-t border-line pt-3 text-[0.6875rem] leading-relaxed text-mute">
         Example pool 10,000 τ / 200,000 α at 0.05 τ/α; the slice is drawn larger than it is so you can see it.
-        Shorts run at 1x and lift 1%, longs at 2x and lift 2%. Cushions are always TAO.
+        You choose the leverage at open, up to a ceiling root sets per side; the figure shows each side at its
+        ceiling: the short at 1x lifts 1%, the long at 2x lifts 2%. Cushions are always TAO.
       </p>
     </ExplainerPanel>
   );

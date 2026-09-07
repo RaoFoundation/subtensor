@@ -76,6 +76,7 @@ def _position_record(
         "coldkey": coldkey,
         "netuid": netuid,
         "side": side,
+        "leverage": int(raw.get("leverage_percent") or 0) / _PERCENT,
         "cushion": Balance.from_rao(_cushion_rao(raw.get("cushion"))),
         "proceeds": legs["proceeds"],
         "debt": legs["debt"],
@@ -95,8 +96,8 @@ def _params_record(raw: Any) -> dict:
     return {
         "shorts_enabled": bool(raw.get("shorts_enabled", False)),
         "longs_enabled": bool(raw.get("longs_enabled", False)),
-        "short_leverage_percent": int(raw.get("short_leverage_percent") or 0),
-        "long_leverage_percent": int(raw.get("long_leverage_percent") or 0),
+        "max_short_leverage_percent": int(raw.get("max_short_leverage_percent") or 0),
+        "max_long_leverage_percent": int(raw.get("max_long_leverage_percent") or 0),
         "max_pool_share": int(raw.get("max_pool_share") or 0) / _PERCENT,
         "lifetime_blocks": int(raw.get("lifetime_blocks") or 0),
         "short_fee_per_day_tao": Balance.from_rao(int(raw.get("short_fee_per_day") or 0)),
@@ -113,14 +114,15 @@ def _params_record(raw: Any) -> dict:
 async def derivatives_params(view) -> dict:
     """The derivatives pallet's root-set global parameters.
 
-    `short_leverage_percent` and `long_leverage_percent` size the borrowed slice
-    from the cushion per side, `max_pool_share` caps how much of a pool's reserve
-    may be lent per side, and `lifetime_blocks` is how long a position may stay
-    open. Fees are fixed at open and charged at close with a one-day minimum: a
-    short pays `short_fee_per_day_tao` times the share of the pool it lifted, a
-    long pays `long_rate_per_day` times its TAO exposure; both are scaled by
-    `1 / (1 - share)^4` for the position's own slippage. A subnet may override
-    the switches and the cap; see `derivatives_subnet_override`.
+    `max_short_leverage_percent` and `max_long_leverage_percent` bound the
+    leverage an owner may choose per side (`100` = 1x), `max_pool_share` caps how
+    much of a pool's reserve may be lent per side, and `lifetime_blocks` is how
+    long a position may stay open. Fees are fixed at open and charged at close
+    with a one-day minimum: a short pays `short_fee_per_day_tao` times the share
+    of the pool it lifted, a long pays `long_rate_per_day` times its TAO
+    exposure; both are scaled by `1 / (1 - share)^4` for the position's own
+    slippage. A subnet may override the switches and the cap; see
+    `derivatives_subnet_override`.
     """
     return _params_record(await view.query(st.Derivatives.Params))
 
@@ -166,11 +168,12 @@ async def derivatives_subnet_override(view, netuid: int) -> Optional[dict]:
 async def derivative_position(view, coldkey_ss58: str, netuid: int, side: str) -> Optional[dict]:
     """One open position for a coldkey on a subnet and side, or None.
 
-    `cushion` is the TAO the owner put up. `proceeds`, `debt`, and `escrow` are
-    the position's `legs`, each already in
-    its own token: a short holds TAO proceeds and TAO escrow and owes alpha; a
-    long holds alpha proceeds and alpha escrow and owes TAO. `fee_per_day_tao`
-    was fixed at open; `accrued_fee_tao` is what would be charged if closed now.
+    `cushion` is the TAO the owner put up and `leverage` the multiple of it
+    they chose at open. `proceeds`, `debt`, and `escrow` are the position's
+    `legs`, each already in its own token: a short holds TAO proceeds and TAO
+    escrow and owes alpha; a long holds alpha proceeds and alpha escrow and owes
+    TAO. `fee_per_day_tao` was fixed at open; `accrued_fee_tao` is what would be
+    charged if closed now.
     """
     view = await view.at()
     raw = await view.query(st.Derivatives.Positions, [coldkey_ss58, (netuid, side)])
