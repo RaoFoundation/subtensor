@@ -3,7 +3,9 @@ use safe_math::*;
 use share_pool::{SafeFloat, SharePool, SharePoolDataOperations};
 use sp_std::{collections::btree_map::BTreeMap, ops::Neg};
 use substrate_fixed::types::{I64F64, I96F32, U64F64, U96F32};
-use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, TaoBalance, Token};
+use subtensor_runtime_common::{
+    AlphaBalance, AuthorshipInfo, DerivativesHook, NetUid, TaoBalance, Token,
+};
 use subtensor_swap_interface::{Order, SwapHandler, SwapResult};
 
 impl<T: Config> Pallet<T> {
@@ -36,6 +38,25 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// The spot price with every open long's alpha counted back into the pool.
+    ///
+    /// A long leaves the pool's TAO where it was and takes alpha out, which lifts the spot
+    /// price for as long as it is open. Emission is price-weighted, so a subnet that longed
+    /// itself would be paid for it. This is the price the pool would show if the derivatives
+    /// pallet returned what it holds for longs, and it is what the emission EMA tracks. Shorts
+    /// are left in: a short is meant to lower the price.
+    pub fn get_emission_alpha_price(netuid: NetUid) -> U64F64 {
+        let outstanding = T::Derivatives::long_alpha_outstanding(netuid);
+        if outstanding.is_zero() {
+            return T::SwapInterface::current_alpha_price(netuid);
+        }
+        T::SwapInterface::alpha_price_for_reserves(
+            netuid,
+            SubnetAlphaIn::<T>::get(netuid).saturating_add(outstanding),
+            SubnetTAO::<T>::get(netuid),
+        )
+    }
+
     pub fn update_moving_price(netuid: NetUid) {
         let blocks_since_start_call = U64F64::saturating_from_num({
             // We expect FirstEmissionBlockNumber to be set earlier, and we take the block when
@@ -59,10 +80,9 @@ impl<T: Config> Pallet<T> {
         // Because alpha = b / (b + h), where b and h > 0, alpha < 1, so 1 - alpha > 0.
         // We can use unsigned type here: U96F32
         let one_minus_alpha: U64F64 = U64F64::saturating_from_num(1.0).saturating_sub(alpha);
-        let current_price: U64F64 = alpha.saturating_mul(U64F64::saturating_from_num(
-            T::SwapInterface::current_alpha_price(netuid.into())
-                .min(U64F64::saturating_from_num(1.0)),
-        ));
+        let current_price: U64F64 = alpha.saturating_mul(
+            Self::get_emission_alpha_price(netuid).min(U64F64::saturating_from_num(1.0)),
+        );
         let current_moving: U64F64 = one_minus_alpha.saturating_mul(U64F64::saturating_from_num(
             Self::get_moving_alpha_price(netuid),
         ));

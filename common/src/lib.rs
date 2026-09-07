@@ -188,6 +188,24 @@ impl SubnetDissolveHook for () {
     }
 }
 
+/// What a derivatives pallet holds against a subnet's pool, as `pallet-subtensor` needs to see
+/// it. Use `()` when no such pallet is wired.
+pub trait DerivativesHook: SubnetDissolveHook {
+    /// Alpha the pool on `netuid` would hold if every open long handed its slice back in kind.
+    ///
+    /// A long lifts a slice of both reserves and spends the lifted TAO on alpha, so the pool
+    /// keeps its TAO and is short exactly this much alpha while the long is open. Emission
+    /// weights add it back before pricing the subnet, so a long cannot buy emission for its
+    /// own subnet. Shorts are not adjusted for: a short lowers the price on purpose.
+    fn long_alpha_outstanding(netuid: NetUid) -> AlphaBalance;
+}
+
+impl DerivativesHook for () {
+    fn long_alpha_outstanding(_netuid: NetUid) -> AlphaBalance {
+        AlphaBalance::ZERO
+    }
+}
+
 pub mod time {
     use super::*;
 

@@ -51,6 +51,13 @@ pub trait SwapHandler {
 
     fn approx_fee_amount<T: Token>(netuid: NetUid, amount: T) -> T;
     fn current_alpha_price(netuid: NetUid) -> U64F64;
+    /// The price `netuid`'s pool would quote with these reserves instead of its own. Same
+    /// curve, same weights; only the reserves differ.
+    fn alpha_price_for_reserves(
+        netuid: NetUid,
+        alpha_reserve: AlphaBalance,
+        tao_reserve: TaoBalance,
+    ) -> U64F64;
     fn max_price<C: Token>() -> C;
     fn min_price<C: Token>() -> C;
     fn adjust_protocol_liquidity(

@@ -26,7 +26,9 @@ pub mod weights;
 use frame_support::{BoundedVec, PalletId, pallet_prelude::*, traits::Get, weights::WeightMeter};
 use frame_system::pallet_prelude::*;
 use sp_runtime::traits::{AccountIdConversion, Hash, Saturating, TrailingZeroInput, Zero};
-use subtensor_runtime_common::{AlphaBalance, NetUid, SubnetDissolveHook, TaoBalance, Token};
+use subtensor_runtime_common::{
+    AlphaBalance, DerivativesHook, NetUid, SubnetDissolveHook, TaoBalance, Token,
+};
 use subtensor_swap_interface::{DerivativesPoolInterface, OrderSwapInterface, Perquintill};
 
 /// Who triggered a settlement.
@@ -442,6 +444,14 @@ pub mod pallet {
                 meter.consume(per_position);
                 Self::unwind(&owner, netuid);
             }
+        }
+    }
+
+    impl<T: Config> DerivativesHook for Pallet<T> {
+        /// The long-side footprint is exactly the alpha the pool is missing: the lifted slice
+        /// plus what the lifted TAO bought, both held by the pallet until settlement.
+        fn long_alpha_outstanding(netuid: NetUid) -> AlphaBalance {
+            AlphaBalance::from(Footprint::<T>::get(netuid, Side::Long))
         }
     }
 }

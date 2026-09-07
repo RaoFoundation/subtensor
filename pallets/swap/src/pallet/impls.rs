@@ -20,15 +20,26 @@ use crate::{pallet::Balancer, pallet::balancer::BalancerError};
 
 impl<T: Config> Pallet<T> {
     pub fn current_price(netuid: NetUid) -> U64F64 {
+        Self::price_for_reserves(
+            netuid,
+            T::AlphaReserve::reserve(netuid.into()),
+            T::TaoReserve::reserve(netuid.into()),
+        )
+    }
+
+    /// Price of `netuid`'s curve at the given reserves. Zero when there is no alpha to price.
+    pub fn price_for_reserves(
+        netuid: NetUid,
+        alpha_reserve: AlphaBalance,
+        tao_reserve: TaoBalance,
+    ) -> U64F64 {
         match T::SubnetInfo::mechanism(netuid.into()) {
             1 => {
-                let alpha_reserve = T::AlphaReserve::reserve(netuid.into());
-                if !alpha_reserve.is_zero() {
-                    let tao_reserve = T::TaoReserve::reserve(netuid.into());
-                    let balancer = SwapBalancer::<T>::get(netuid);
-                    balancer.calculate_price(alpha_reserve.into(), tao_reserve.into())
-                } else {
+                if alpha_reserve.is_zero() {
                     U64F64::saturating_from_num(0)
+                } else {
+                    SwapBalancer::<T>::get(netuid)
+                        .calculate_price(alpha_reserve.into(), tao_reserve.into())
                 }
             }
             _ => U64F64::saturating_from_num(1),
@@ -504,6 +515,14 @@ impl<T: Config> SwapHandler for Pallet<T> {
 
     fn current_alpha_price(netuid: NetUid) -> U64F64 {
         Self::current_price(netuid.into())
+    }
+
+    fn alpha_price_for_reserves(
+        netuid: NetUid,
+        alpha_reserve: AlphaBalance,
+        tao_reserve: TaoBalance,
+    ) -> U64F64 {
+        Self::price_for_reserves(netuid, alpha_reserve, tao_reserve)
     }
 
     fn min_price<C: Token>() -> C {

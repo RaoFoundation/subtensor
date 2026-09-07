@@ -290,6 +290,25 @@ The exact expiry block may be a few blocks later than open + 216,000 when
 that block's expiry queue is already full; the position's `expires_at` is
 the number to trust.
 
+## Longs do not earn emission
+
+Subnet emission is weighted by each subnet's moving price. A long lifts the
+spot price for as long as it is open, so without a correction a team could
+long its own subnet and be paid emission for it. The chain closes that door:
+the price the emission EMA tracks is computed with every open long's alpha
+counted back into the pool
+([`get_emission_alpha_price`](/code/pallets/subtensor/src/staking/stake_utils.rs)).
+
+A long removes alpha from the reserve and leaves the TAO where it was, so the
+alpha the pool is missing is exactly the long side's `Footprint`. Adding it
+back gives the price the pool would show if every long handed its slice back
+in kind. On a constant-product pool that is the pre-long price to the rao.
+
+Shorts are not corrected. A short lowers the price on purpose, and the
+emission follows it. Spot price, swaps, and the price-neutral injection of
+emission into the pool all still use the real reserves; only the emission
+weight uses the adjusted price.
+
 ## Subnet dissolution
 
 If a subnet is dissolved while positions are open, settling them is the
@@ -386,5 +405,7 @@ side per subnet), `Expiring`, `Params`, `SubnetOverrides`, and `PalletHotkey`.
   (1x shorts, 2x longs) and the 10% cap bound how much either can move the
   pool. You pick your own leverage under the ceiling on every add; the
   position's leverage is the blend.
+- A long moves the spot price but not the price emission is weighted by. A
+  short moves both.
 
 For the pool mechanics underneath, see [Staking pools](/docs/concepts/staking-pools).

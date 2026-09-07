@@ -434,6 +434,16 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
             the pool; loss goes into it. Over time the fee is what the pool earns for lending.
           </p>
           <p>
+            <strong>Longs do not earn emission.</strong> Emission is weighted by each
+            subnet&apos;s moving price, and a long lifts the spot price for as long as it is
+            open. So the price the emission EMA tracks is computed with every open long&apos;s
+            alpha counted back into the pool: a long leaves the pool&apos;s TAO where it was and
+            takes alpha out, so adding that alpha back gives the price the pool would show with
+            no longs at all. A team cannot long its own subnet to be paid more. Shorts are left
+            in; a short lowers the price on purpose, and the emission follows it. Swaps and the
+            pool itself use the real reserves; only the emission weight is adjusted.
+          </p>
+          <p>
             <strong>Dissolution.</strong> If a subnet is dissolved with positions open, settling
             them is the first cleanup phase. Positions are unwound, not settled: the slice goes
             back in kind, your cushion comes back, and no fee is charged.
@@ -466,6 +476,9 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
             price-neutral <code>lift_liquidity</code> and <code>return_liquidity</code>, internal
             buy and sell through the existing balancer swap, and exact-output swaps for the
             buyback. Subnet dissolution gains a <code>DerivativesSettle</code> phase that runs first.
+            The emission price EMA now reads <code>get_emission_alpha_price</code>, the spot
+            price with the long-side footprint added back to the alpha reserve; with no longs
+            open it is the spot price exactly.
           </p>
           <p>
             New runtime reads:{' '}

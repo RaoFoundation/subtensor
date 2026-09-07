@@ -9,6 +9,7 @@ pub(crate) mod mock;
 use frame_support::{assert_err, assert_ok};
 use sp_core::U256;
 use sp_runtime::{Perbill, Percent};
+use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{NetUid, TaoBalance, Token};
 use subtensor_swap_interface::Perquintill;
 
@@ -1134,6 +1135,40 @@ fn opposite_positions_conserve_alpha() {
         assert_ok!(close(bob(), bob()));
         assert_close(reserves(netuid()).1 + alpha_out(netuid()), supply0, 100);
         assert_eq!(tao_flow(netuid()), 0);
+    });
+}
+
+/// A long lifts the spot price but not the price emission is weighted by; a short lowers both.
+#[test]
+fn longs_do_not_move_the_emission_price_but_shorts_do() {
+    new_test_ext().execute_with(|| {
+        setup();
+        let emission_price = || SubtensorModule::get_emission_alpha_price(netuid());
+        let p0 = price(netuid());
+        assert_eq!(emission_price(), p0);
+
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
+        assert!(price(netuid()) > p0);
+        let p1 = emission_price();
+        let drift = if p1 > p0 { p1 - p0 } else { p0 - p1 } / p0;
+        assert!(
+            drift < U64F64::from_num(0.000_001),
+            "emission price moved by {drift}"
+        );
+
+        assert_ok!(add(bob(), Side::Short, DEPOSIT));
+        assert!(emission_price() < p0);
+        assert_eq!(
+            emission_price(),
+            <Swap as subtensor_swap_interface::SwapHandler>::alpha_price_for_reserves(
+                netuid(),
+                (reserves(netuid()).1 + Footprint::<Test>::get(netuid(), Side::Long)).into(),
+                reserves(netuid()).0.into(),
+            )
+        );
+
+        assert_ok!(close(alice(), alice()));
+        assert_eq!(emission_price(), price(netuid()));
     });
 }
 
