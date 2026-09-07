@@ -42,6 +42,7 @@ pub enum ProxyType {
     SwapHotkey,
     SubnetLeaseBeneficiary,
     RootClaim,
+    Validate,
 }
 
 impl TryFrom<u8> for ProxyType {
@@ -67,6 +68,7 @@ impl TryFrom<u8> for ProxyType {
             15 => Ok(Self::SwapHotkey),
             16 => Ok(Self::SubnetLeaseBeneficiary),
             17 => Ok(Self::RootClaim),
+            18 => Ok(Self::Validate),
             _ => Err(()),
         }
     }
@@ -93,6 +95,7 @@ impl From<ProxyType> for u8 {
             ProxyType::SwapHotkey => 15,
             ProxyType::SubnetLeaseBeneficiary => 16,
             ProxyType::RootClaim => 17,
+            ProxyType::Validate => 18,
         }
     }
 }
@@ -109,6 +112,17 @@ impl ProxyType {
 impl Default for ProxyType {
     fn default() -> Self {
         Self::Any
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProxyType;
+
+    #[test]
+    fn validate_proxy_type_id_is_stable() {
+        assert_eq!(u8::from(ProxyType::Validate), 18);
+        assert_eq!(ProxyType::try_from(18), Ok(ProxyType::Validate));
     }
 }
 

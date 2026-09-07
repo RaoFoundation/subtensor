@@ -92,7 +92,7 @@
         },
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, Validate. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -871,7 +871,7 @@
       "properties": {
         "proxy_type": {
           "type": "string",
-          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
+          "description": "Scope of calls the delegation covers. One of: Any, Owner, NonCritical, NonTransfer, Senate, NonFungible, Triumvirate, Governance, Staking, Registration, Transfer, SmallTransfer, RootWeights, ChildKeys, SudoUncheckedSetCode, SwapHotkey, SubnetLeaseBeneficiary, RootClaim, Validate. Triumvirate, Senate, Governance, and RootWeights are deprecated on the current runtime: they deny all calls, so a proxy of those types can dispatch nothing. Prefer the narrowest type that covers your use; Any can do everything the account can, including transfers."
         },
         "delay": {
           "type": "integer",
@@ -3874,7 +3874,7 @@
   {
     "name": "set_weights",
     "summary": "Set validator weights, auto-selecting plaintext or commit-reveal.",
-    "description": "Set validator weights, auto-selecting plaintext or commit-reveal.\n\nThe one entry point validators need for scoring miners: it conforms the\nweights to the subnet's hyperparameters (max-weight clip, u16 quantization,\nminimum weight count) and submits via whichever path the subnet runs \u2014 a\nplain `set_weights` when commit-reveal is off, or a timelock-encrypted\ncommit (auto-revealed by the chain at the drand reveal round) when it is on.\nSigned by the hotkey, which must be registered on the subnet. Before\nsigning it preflights registration and the rate limit, so those failures\nare caught fast with the same error the chain would return; the rate-limit\nerror says how many blocks to wait. The chain additionally enforces checks\nthat are not preflighted: the hotkey must hold the minimum stake to set\nweights, must hold a validator permit to set non-self weights (the subnet\nowner is exempt), and `version_key` must not be older than the subnet's\nrequired version. Prefer this over `commit_weights`/`reveal_weights`\nunless you specifically need to force one path.",
+    "description": "Set validator weights, auto-selecting plaintext or commit-reveal.\n\nThe one entry point validators need for scoring miners: it conforms the\nweights to the subnet's hyperparameters (max-weight clip, u16 quantization,\nminimum weight count) and submits via whichever path the subnet runs \u2014 a\nplain `set_weights` when commit-reveal is off, or a timelock-encrypted\ncommit (auto-revealed by the chain at the drand reveal round) when it is on.\nWhen the client has `weight_targets` configured, its exact combination of\nthe signing hotkey and zero-delay `Validate` delegations is submitted with\nper-target failure isolation; the chain verifies each proxy grant, and an\nempty list is a no-op.\nSubnet call sites do not change.\nSigned by the hotkey, which must be registered on the subnet. Before\nsigning it preflights registration and the rate limit, so those failures\nare caught fast with the same error the chain would return; the rate-limit\nerror says how many blocks to wait. The chain additionally enforces checks\nthat are not preflighted: the hotkey must hold the minimum stake to set\nweights, must hold a validator permit to set non-self weights (the subnet\nowner is exempt), and `version_key` must not be older than the subnet's\nrequired version. Prefer this over `commit_weights`/`reveal_weights`\nunless you specifically need to force one path.",
     "signer": "hotkey",
     "origin": "signed",
     "verify": null,

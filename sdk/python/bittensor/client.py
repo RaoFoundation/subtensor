@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional, Union
@@ -69,6 +70,32 @@ WhenLike = Union[datetime, str, int, float]
 
 # Slot duration of a fast-blocks chain (local/e2e testing mode), in seconds.
 FAST_BLOCK_TIME = 0.25
+
+
+def _weight_targets_from_env() -> Optional[list[str]]:
+    raw = os.getenv("WEIGHT_TARGETS")
+    if raw is None:
+        return None
+    if not raw.strip():
+        return []
+    targets = [target.strip() for target in raw.split(",")]
+    if any(not target for target in targets):
+        raise ValueError("WEIGHT_TARGETS must be comma-separated ss58 addresses")
+    return targets
+
+
+def _merge_weight_targets(
+    configured: Optional[list[str]], environment: Optional[list[str]]
+) -> Optional[list[str]]:
+    if configured is None and environment is None:
+        return None
+    if configured is not None and not isinstance(configured, list):
+        raise TypeError("weight_targets must be a list of hotkey addresses")
+    merged = []
+    for target in (configured or []) + (environment or []):
+        if target not in merged:
+            merged.append(target)
+    return merged
 
 
 @dataclass
@@ -145,6 +172,7 @@ class Client:
         fallback_endpoints: Optional[list[str]] = None,
         archive_endpoints: Optional[list[str]] = None,
         retry_forever: bool = False,
+        weight_targets: Optional[list[str]] = None,
         substrate: Optional[Substrate] = None,
     ):
         """Create a client for a network name (``finney``/``test``/``local``) or a
@@ -159,6 +187,14 @@ class Client:
         pass ``[]`` to pin the client to its single endpoint. With
         ``retry_forever`` connection failures never give up — the client keeps
         cycling through the endpoint pool until one answers.
+
+        ``weight_targets`` configures transparent multi-hotkey validation. The
+        signing hotkey may appear for a direct submission; every other address
+        must grant it a zero-delay ``Validate`` proxy. These targets are merged
+        with the comma-separated ``WEIGHT_TARGETS`` environment variable, with
+        duplicates removed and constructor order preserved. If the merged set
+        is empty, ``SetWeights`` is a no-op; if both sources are omitted, normal
+        single-hotkey behavior is preserved.
 
         ``substrate`` swaps the chain-access backend: any :class:`Substrate`
         implementation (e.g. an in-memory fake for tests). When set, the
@@ -179,7 +215,11 @@ class Client:
                 archive_endpoints=archive_endpoints,
                 retry_forever=retry_forever,
             )
-        self._executor = Executor(self._substrate, policy=policy)
+        self._executor = Executor(
+            self._substrate,
+            policy=policy,
+            weight_targets=_merge_weight_targets(weight_targets, _weight_targets_from_env()),
+        )
 
         # Typed read namespaces: projections over the read registry
         # (bittensor.reads), one per category — curated methods plus every

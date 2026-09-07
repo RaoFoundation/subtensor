@@ -12,7 +12,7 @@ const FUND_SOURCE_URI = process.env.PROXY_FILTER_FUND_SOURCE_URI ?? "//Alice";
 const FUND_AMOUNT = BigInt(process.env.PROXY_FILTER_FUND_AMOUNT ?? "5000000000000");
 const ZERO_HASH = `0x${"00".repeat(32)}`;
 
-const PROXY_TYPES = ["NonFungible", "SwapHotkey", "NonTransfer", "Owner"];
+const PROXY_TYPES = ["NonFungible", "SwapHotkey", "NonTransfer", "Owner", "Validate"];
 
 const keyring = new Keyring({ type: "sr25519" });
 const fundSource = keyring.addFromUri(FUND_SOURCE_URI);
@@ -76,6 +76,33 @@ async function main() {
       api.tx.adminUtils.sudoSetSnOwnerHotkey(0, replacementHotkey.address)
     );
 
+    const validateCalls = [
+      ["set weights", api.tx.subtensorModule.setMechanismWeights(0, 0, [], [], 0)],
+      ["serve axon", api.tx.subtensorModule.serveAxon(0, 1, 2130706433, 8091, 4, 0, 0, 0)],
+      [
+        "serve axon TLS",
+        api.tx.subtensorModule.serveAxonTls(0, 1, 2130706433, 8092, 4, 0, 0, 0, "0x"),
+      ],
+      [
+        "associate EVM key",
+        api.tx.subtensorModule.associateEvmKey(
+          0,
+          `0x${"11".repeat(20)}`,
+          1,
+          `0x${"22".repeat(65)}`
+        ),
+      ],
+      ["set commitment", api.tx.commitments.setCommitment(0, { fields: [] })],
+    ];
+    for (const [name, call] of validateCalls) {
+      await expectProxyTypeAllowed(`Validate allows ${name}`, "Validate", call);
+    }
+    await expectProxyTypeDenied(
+      "Validate denies transfer",
+      "Validate",
+      balancesTransfer(dummyHotkey.address, 1n)
+    );
+
     console.log("proxy filter security regressions: ok");
   } finally {
     await api?.disconnect();
@@ -101,6 +128,11 @@ async function assertMetadataAvailable() {
     // sudo_set_sn_owner_hotkey (call 67); the Owner-proxy denial property
     // is the same.
     ["AdminUtils.sudoSetSnOwnerHotkey", api.tx.adminUtils?.sudoSetSnOwnerHotkey],
+    ["SubtensorModule.setMechanismWeights", api.tx.subtensorModule?.setMechanismWeights],
+    ["SubtensorModule.serveAxon", api.tx.subtensorModule?.serveAxon],
+    ["SubtensorModule.serveAxonTls", api.tx.subtensorModule?.serveAxonTls],
+    ["SubtensorModule.associateEvmKey", api.tx.subtensorModule?.associateEvmKey],
+    ["Commitments.setCommitment", api.tx.commitments?.setCommitment],
   ].filter(([, value]) => !value);
 
   assert.equal(

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import logging
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
 from typing import Any, Optional
@@ -29,6 +30,7 @@ from .intents import Intent, Plan, Policy, list_tools
 from .intents import build as build_intent
 from .intents.base import BuiltCall, IntentPreflight
 from .intents.proxy import check_proxy_type
+from .keyfiles import Keypair
 from .result import (
     ChainError,
     ExtrinsicResult,
@@ -45,6 +47,8 @@ from .signing import (
     resolve_signer,
 )
 from .sp_core import ss58_decode
+
+logger = logging.getLogger(__name__)
 
 # Transaction-pool rejections that resolve themselves within a block or so (a
 # competing extrinsic at the same nonce, or a race against pool state). Worth
@@ -286,6 +290,36 @@ def _event_parts(entry: Any) -> tuple[Optional[str], Optional[str], Any, Optiona
     except (TypeError, ValueError):
         index = None
     return event.get("module_id"), event.get("event_id"), event.get("attributes"), index
+
+
+def _weight_batch_results(events: list, targets: list[str]) -> Optional[list[dict[str, Any]]]:
+    """Per-item outcomes from a completed ``Utility.force_batch``."""
+    results = []
+    proxy_error = None
+    completed = False
+    for entry in events:
+        module, event, attributes, _ = _event_parts(entry)
+        if module == "Proxy" and event == "ProxyExecuted":
+            dispatch = attributes.get("result") if isinstance(attributes, dict) else attributes
+            if isinstance(dispatch, dict) and "Err" in dispatch:
+                proxy_error = dispatch["Err"]
+        elif module == "Utility" and event in {"ItemCompleted", "ItemFailed"}:
+            if len(results) >= len(targets):
+                return None
+            error = proxy_error
+            if event == "ItemFailed":
+                error = attributes.get("error") if isinstance(attributes, dict) else attributes
+            item = {"target": targets[len(results)], "success": error is None}
+            if error is not None:
+                item["error"] = chain_error_from_dispatch(error).message
+            results.append(item)
+            proxy_error = None
+        elif module == "Utility" and event in {
+            "BatchCompleted",
+            "BatchCompletedWithErrors",
+        }:
+            completed = True
+    return results if completed and len(results) == len(targets) else None
 
 
 def _event_netuid(attributes: Any) -> Optional[int]:
@@ -594,9 +628,27 @@ def _pure_created_data(result: ExtrinsicResult) -> dict[str, Any]:
 
 
 class Executor:
-    def __init__(self, substrate: Substrate, policy: Optional[Policy] = None):
+    def __init__(
+        self,
+        substrate: Substrate,
+        policy: Optional[Policy] = None,
+        weight_targets: Optional[list[str]] = None,
+    ):
         self.substrate = substrate
         self.policy = policy
+        if weight_targets is not None:
+            if not isinstance(weight_targets, list):
+                raise TypeError("weight_targets must be a list of hotkey addresses")
+            if len(weight_targets) > 256:
+                raise ValueError("weight_targets supports at most 256 hotkeys")
+            for target in weight_targets:
+                if not isinstance(target, str) or not target:
+                    raise TypeError("every weight target must be a non-empty ss58 string")
+                Keypair(ss58_address=target)
+            if len(set(weight_targets)) != len(weight_targets):
+                raise ValueError("weight_targets must not contain duplicates")
+            weight_targets = list(weight_targets)
+        self.weight_targets = weight_targets
 
     @staticmethod
     def _public_keypair(wallet: WalletLike, signer: str):
@@ -634,6 +686,110 @@ class Executor:
         violations = active.check_raw_call() if active else []
         if violations:
             raise PolicyError(violations)
+
+    async def _build_validate_weights(self, intent: Any, wallet: Any, delegate: str):
+        """Build weights for the exact hotkey list configured on this client.
+
+        The signing hotkey is direct; every other target must have granted it a
+        zero-delay Validate proxy. ``None`` preserves the ordinary single-wallet
+        behavior, while an explicit empty list is a no-op.
+        """
+        if self.weight_targets is None:
+            logger.info(
+                "Building weights: netuid=%s mechid=%s target=1/1 hotkey=%s route=direct",
+                intent.netuid,
+                intent.mechid,
+                delegate,
+            )
+            return await intent.build(self.substrate, wallet)
+        if not self.weight_targets:
+            logger.info(
+                "Skipping weight submission: netuid=%s mechid=%s no targets configured",
+                intent.netuid,
+                intent.mechid,
+            )
+            return BuiltCall(
+                None,
+                {
+                    "weight_targets": [],
+                    "submitted_weight_targets": [],
+                    "weight_build_errors": {},
+                    "no_op": True,
+                },
+            )
+
+        targets = self.weight_targets
+        composed = []
+        submitted = []
+        build_errors = {}
+        build_extras = {}
+        for index, target in enumerate(targets):
+            direct = target == delegate
+            route = "direct" if direct else "Validate proxy"
+            logger.info(
+                "Building weights: netuid=%s mechid=%s target=%s/%s hotkey=%s route=%s delegate=%s",
+                intent.netuid,
+                intent.mechid,
+                index + 1,
+                len(targets),
+                target,
+                route,
+                delegate,
+            )
+            build_wallet = wallet if direct else _OriginView(target)
+            try:
+                built = await intent.build(self.substrate, build_wallet)
+            except ChainError as error:
+                build_errors[target] = error.message
+                logger.warning(
+                    "Skipping weight target: netuid=%s mechid=%s target=%s/%s hotkey=%s "
+                    "route=%s error=%s",
+                    intent.netuid,
+                    intent.mechid,
+                    index + 1,
+                    len(targets),
+                    target,
+                    route,
+                    error.message,
+                )
+                continue
+            if isinstance(built, BuiltCall):
+                inner = built.call
+                build_extras.update(
+                    {f"target:{index}.{key}": value for key, value in built.extras.items()}
+                )
+            else:
+                inner = built
+            if direct:
+                composed.append(inner)
+            else:
+                composed.append(
+                    await self.substrate.compose(
+                        generated_calls.Proxy.proxy(
+                            real=target, force_proxy_type="Validate", call=inner
+                        )
+                    )
+                )
+            submitted.append(target)
+
+        extras: dict[str, Any] = {
+            "weight_targets": targets,
+            "submitted_weight_targets": submitted,
+            "weight_build_errors": build_errors,
+            **build_extras,
+        }
+        if not composed:
+            return BuiltCall(None, {**extras, "no_op": True})
+        logger.info(
+            "Built weight batch: netuid=%s mechid=%s delegate=%s submitted=%s failed=%s",
+            intent.netuid,
+            intent.mechid,
+            delegate,
+            len(submitted),
+            len(build_errors),
+        )
+        call = await self.substrate.compose(generated_calls.Utility.force_batch(calls=composed))
+        return BuiltCall(call, extras)
 
     async def preflight(
         self,
@@ -725,15 +881,35 @@ class Executor:
         """
         wallet = as_wallet(wallet)
         intent = _coerce_addresses(intent)
-        call, extras = await _compose_intent_call(
-            self.substrate,
-            intent,
-            wallet,
-            proxy_for=proxy_for,
-            proxy_type=proxy_type,
-        )
         pub = self._public_keypair(wallet, intent.signer)
         _origin, signer_address = _intent_accounts(self.substrate, intent, wallet, proxy_for)
+        if intent.op == "set_weights" and proxy_for is None:
+            built = await self._build_validate_weights(intent, wallet, signer_address)
+            if isinstance(built, BuiltCall):
+                call, extras = built.call, built.extras
+            else:
+                call, extras = built, {}
+        else:
+            call, extras = await _compose_intent_call(
+                self.substrate,
+                intent,
+                wallet,
+                proxy_for=proxy_for,
+                proxy_type=proxy_type,
+            )
+        if extras.get("no_op"):
+            return Plan(
+                op=intent.op,
+                summary=intent.summary(),
+                signer=intent.signer,
+                signer_address=signer_address,
+                fee=None,
+                effects=["no weight targets configured; nothing will be submitted"],
+                warnings=[],
+                violations=self._violations(intent, None, policy),
+                call=None,
+                extras=extras,
+            )
         preflight = await self._preflight(
             intent,
             wallet,
@@ -753,6 +929,8 @@ class Executor:
         effects = list(preflight.effects)
         if proxy_for is not None:
             effects.append(f"dispatched via proxy as {proxy_for} (signed by {signer_address})")
+        elif extras.get("weight_targets"):
+            effects.append("weight targets: " + ", ".join(extras["weight_targets"]))
         violations = self._violations(intent, fee, policy)
         violations.extend(preflight.blocks)
 
@@ -827,6 +1005,23 @@ class Executor:
         )
         if not plan.ok:
             raise PolicyError(plan.violations)
+        if plan.extras.get("no_op"):
+            build_errors = plan.extras.get("weight_build_errors", {})
+            return ExtrinsicResult(
+                success=True,
+                message=(
+                    "No valid weight targets; nothing submitted."
+                    if build_errors
+                    else "No weight targets configured; nothing submitted."
+                ),
+                data={
+                    **plan.extras,
+                    "weight_results": [
+                        {"target": target, "success": False, "error": error}
+                        for target, error in build_errors.items()
+                    ],
+                },
+            )
 
         keypair = resolve_signer(wallet, intent.signer)
         attempts = max(0, int(retries)) + 1
@@ -842,10 +1037,38 @@ class Executor:
                 break
             # One block, as the chain measures it (0.25s on fast-blocks localnets).
             await asyncio.sleep(await self.substrate.block_time())
+        batch_results = _weight_batch_results(
+            result.events, plan.extras.get("submitted_weight_targets", [])
+        )
+        tolerant_batch = batch_results is not None
+        if tolerant_batch:
+            submitted_results = iter(batch_results)
+            build_errors = plan.extras.get("weight_build_errors", {})
+            ordered = [
+                (
+                    {"target": target, "success": False, "error": build_errors[target]}
+                    if target in build_errors
+                    else next(submitted_results)
+                )
+                for target in plan.extras["weight_targets"]
+            ]
+            failures = sum(not item["success"] for item in ordered)
+            result = replace(
+                result,
+                success=True,
+                message=(
+                    "All weight targets completed."
+                    if failures == 0
+                    else f"Weight submission completed with {failures} target failure(s)."
+                ),
+                error=None,
+                data={**result.data, "weight_results": ordered},
+            )
         # Defense for backends that mark ExtrinsicSuccess without decoding
         # nested Sudo/Proxy/Multisig Results (e.g. in-memory fakes). The RPC
         # path already fails these in resolve_outcome.
-        result = _with_nested_dispatch_failure(result)
+        if not tolerant_batch:
+            result = _with_nested_dispatch_failure(result)
         if result.success:
             data = dict(result.data)
             semantic_intent = _coerce_addresses(intent.semantic_intent())

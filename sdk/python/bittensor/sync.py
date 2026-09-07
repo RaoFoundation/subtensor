@@ -205,6 +205,7 @@ class SyncClient:
         fallback_endpoints: Optional[list[str]] = None,
         archive_endpoints: Optional[list[str]] = None,
         retry_forever: bool = False,
+        weight_targets: Optional[list[str]] = None,
         substrate: Optional[Substrate] = None,
     ):
         self._client = Client(
@@ -213,6 +214,7 @@ class SyncClient:
             fallback_endpoints=fallback_endpoints,
             archive_endpoints=archive_endpoints,
             retry_forever=retry_forever,
+            weight_targets=weight_targets,
             substrate=substrate,
         )
         self.network = self._client.network
