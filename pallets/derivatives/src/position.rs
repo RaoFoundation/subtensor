@@ -581,7 +581,7 @@ impl DerivativesParams {
             max_long_leverage_percent: 200,
             max_pool_share: Percent::from_percent(10),
             rate_per_day: Perbill::from_rational(5u32, 10_000u32),
-            lifetime_blocks: 90 * BLOCKS_PER_DAY as u32,
+            lifetime_blocks: (BLOCKS_PER_DAY as u32).saturating_mul(90),
             min_deposit_tao: TaoBalance::from(100_000_000),
         }
     }

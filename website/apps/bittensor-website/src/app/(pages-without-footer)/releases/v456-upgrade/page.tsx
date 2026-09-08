@@ -6,14 +6,14 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V455 Upgrade — Longs and Shorts',
+  title: 'The V456 Upgrade — Longs and Shorts',
   description:
-    'V455 adds pallet-derivatives: longs and shorts on any subnet’s alpha, borrowed from the ' +
+    'V456 adds pallet-derivatives: longs and shorts on any subnet’s alpha, borrowed from the ' +
     'subnet’s own pool. One position per subnet and one call to add to it, take from it, ' +
     'flip it, or roll it; a 90-day term. No synthetic tokens, nothing minted or burned, one ' +
     'per-day borrow fee for both sides paid to the pool. btcli deriv short, long, list, ' +
     'closable, and close are the working surface.',
-  alternates: {canonical: '/releases/v455-upgrade'},
+  alternates: {canonical: '/releases/v456-upgrade'},
 };
 
 const DocLink = ({href, children}: {href: string; children: React.ReactNode}) => (
@@ -203,7 +203,7 @@ const page = () => {
     <Suspense fallback={<div style={{minHeight: '100vh', backgroundColor: 'white'}} />}>
       <FadeInWrapper className={styles.page_container}>
         <section className={styles.title_section}>
-          <h1 className={styles.paper_title}>The V455 Upgrade</h1>
+          <h1 className={styles.paper_title}>The V456 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
             Longs and shorts · September 2026
           </p>
@@ -224,7 +224,7 @@ const page = () => {
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>455</strong> adds <code>pallet-derivatives</code>. Anyone can now take
+            Spec <strong>456</strong> adds <code>pallet-derivatives</code>. Anyone can now take
             a <strong>long</strong> or a <strong>short</strong> on a subnet&apos;s alpha, backed
             by a TAO deposit, for a 90-day term. A short profits when alpha falls; a long profits
             when alpha rises.
