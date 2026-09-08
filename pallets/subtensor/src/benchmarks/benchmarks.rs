@@ -1779,7 +1779,7 @@ mod pallet_benchmarks {
                 &hotkey, netuid,
             ));
         }
-        let mut db = MemoryDB::<T::Hashing>::default();
+        let mut db = MemoryDB::<T::Hashing>::new(&[0]);
         let mut root = T::Hash::default();
         {
             let mut trie =
