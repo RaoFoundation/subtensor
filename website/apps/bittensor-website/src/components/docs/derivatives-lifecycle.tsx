@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ExplainerPanel, ExplainerToggle } from './explainer-panel';
 import { ACCENT, ACCENT_WASH, INK, INK_FAINT } from './chart-theme';
-import { CUSHION, LEVERAGE, OPEN_PRICE, feePerDay, lift, phi, simulate, type Outcome as Numbers, type Side } from '@/lib/derivatives-math';
+import { CUSHION, LEVERAGE, LIFETIME_DAYS, OPEN_PRICE, feePerDay, lift, phi, simulate, type Outcome as Numbers, type Side } from '@/lib/derivatives-math';
 
 type Outcome = 'down' | 'up';
 
@@ -71,8 +71,8 @@ function slide(phase: Phase, side: Side, outcome: Outcome, n: Numbers): Slide {
       return {
         title: 'Your position is open',
         body: short
-          ? `It holds ${tao(CUSHION + n.proceeds)} (cushion + proceeds) and owes ${alpha(LIFT_ALPHA)} to the pool. A 30-day clock starts; the fee is ${tao(feePerDay('short'))} per day (6 τ × the ${sharePct} of the pool lifted, scaled a little for slippage).`
-          : `It holds your ${tao(CUSHION, 0)} cushion plus ${alpha(n.proceeds)}, and owes ${tao(LIFT_TAO, 0)} to the pool. A 30-day clock starts; the fee is ${tao(feePerDay('long'))} per day (0.01% of ${tao(LIFT_TAO, 0)}, scaled a little for slippage).`,
+          ? `It holds ${tao(CUSHION + n.proceeds)} (cushion + proceeds) and owes ${alpha(LIFT_ALPHA)} to the pool. Two clocks start: ${LIFETIME_DAYS} days to expiry, and a fee of ${tao(feePerDay('short'))} per day (0.05% of ${tao(LIFT_TAO, 0)} exposure), one day booked now.`
+          : `It holds your ${tao(CUSHION, 0)} cushion plus ${alpha(n.proceeds)}, and owes ${tao(LIFT_TAO, 0)} to the pool. Two clocks start: ${LIFETIME_DAYS} days to expiry, and a fee of ${tao(feePerDay('long'))} per day (0.05% of ${tao(LIFT_TAO, 0)} exposure), one day booked now.`,
       };
     case 'move':
       return {
@@ -310,7 +310,7 @@ function Clock({ x, y, fraction, visible }: { x: number; y: number; fraction: nu
       <circle cx={x} cy={y} r={r} fill="none" stroke={INK_FAINT} strokeWidth={1} />
       {fraction > 0 && <path d={`M ${x} ${y} L ${x} ${y - r} A ${r} ${r} 0 ${large} 1 ${ex} ${ey} Z`} fill={ACCENT_WASH} stroke={ACCENT} strokeWidth={1} />}
       <text {...FONT} x={x - r - 8} y={y + 3.5} textAnchor="end" fill={INK_FAINT} fontSize={9}>
-        {fraction > 0 ? `DAY ${Math.round(fraction * 30)} / 30` : '30-DAY CLOCK'}
+        {fraction > 0 ? `DAY ${Math.round(fraction * LIFETIME_DAYS)} / ${LIFETIME_DAYS}` : 'DAY 0'}
       </text>
     </g>
   );
@@ -481,7 +481,7 @@ export function DerivativesLifecycle() {
 
           {/* Position */}
           <Panel x={POS.x} y={POS.y} w={POS.w} h={POS.h} title={`YOUR ${short ? 'SHORT' : 'LONG'}`} lines={s.position} dashed={!s.positionOpen} />
-          <Clock x={POS.x + POS.w - 16} y={POS.y - 48} fraction={s.clock === 'running' ? DAYS / 30 : 0} visible={s.clock !== 'hidden'} />
+          <Clock x={POS.x + POS.w - 16} y={POS.y - 48} fraction={s.clock === 'running' ? DAYS / LIFETIME_DAYS : 0} visible={s.clock !== 'hidden'} />
 
           {/* P&L badge */}
           <Moving x={POS.x + 62} y={POS.y - 18} visible={s.pnlBadge}>

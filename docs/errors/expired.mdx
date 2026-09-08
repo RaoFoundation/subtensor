@@ -20,7 +20,6 @@ The exact chain error names (from the extrinsic receipt) that classify to `expir
 | Chain error | Description |
 | --- | --- |
 | [`ContributionPeriodEnded`](/docs/errors/chain/ContributionPeriodEnded) | A contribution was made at or after the crowdloan's `end` block. Compare the `end` field of the `Crowdloans` entry with the current block number; the creator can extend it with `update_end` while the crowdloan is not finalized. |
-| [`Expired`](/docs/errors/chain/Expired) | The position is past `expires_at`, so nothing can be added to it. Check `expired` in `derivative-positions`; reduce or close it, or wait for the sweep, then add again. |
 | [`ExpiredWeightCommit`](/docs/errors/chain/ExpiredWeightCommit) | The hash supplied to `reveal_weights` matches a commit whose reveal window has already passed, so it can no longer be revealed. Check the `commit_reveal_period` hyperparameter and reveal within the allowed epochs after committing; re-commit and reveal on time. |
 | [`InvalidRevealRound`](/docs/errors/chain/InvalidRevealRound) | A timelocked weights commit specified a `reveal_round` older than the latest stored DRAND round, so it could be decrypted immediately. Query the drand pallet's `LastStoredRound` and commit with a future round number. |
 | [`LinkedOutputExpired`](/docs/errors/chain/LinkedOutputExpired) | The provider record's `expires_at` is in the past, so the output is no longer drawable. Compare `LinkedOutputs.expires_at` with the chain `Timestamp`; unused records can be pruned with `prune_linked_output`. |

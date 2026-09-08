@@ -237,6 +237,24 @@
         }
       ]
     },
+    "AlphaCushionDisabled": {
+      "code": "disabled",
+      "description": "Alpha cushions are switched off for this side; deposit TAO instead. Check `alpha_cushion_shorts` / `alpha_cushion_longs` in `deriv params`.",
+      "docs_url": "/docs/errors/chain/AlphaCushionDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/AlphaCushionDisabled/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 218,
+          "url": "/code/pallets/derivatives/src/lib.rs#L218",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
+    },
     "AlphaHighTooLow": {
       "code": "invalid_argument",
       "description": "The `alpha_high` argument to set liquid-alpha values was below the minimum of roughly 0.025 (1638/65535 in u16 units). Raise `alpha_high` in the `sudo_set_alpha_values` call; current values are in the `AlphaValues` storage per netuid.",
@@ -1409,8 +1427,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 231,
-          "url": "/code/pallets/derivatives/src/lib.rs#L231",
+          "line": 224,
+          "url": "/code/pallets/derivatives/src/lib.rs#L224",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -1710,24 +1728,6 @@
         "Balances"
       ]
     },
-    "Expired": {
-      "code": "expired",
-      "description": "The position is past `expires_at`, so nothing can be added to it. Check `expired` in `derivative-positions`; reduce or close it, or wait for the sweep, then add again.",
-      "docs_url": "/docs/errors/chain/Expired",
-      "markdown_url": "/llms.mdx/docs/errors/chain/Expired/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 229,
-          "url": "/code/pallets/derivatives/src/lib.rs#L229",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "ExpiredWeightCommit": {
       "code": "expired",
       "description": "The hash supplied to `reveal_weights` matches a commit whose reveal window has already passed, so it can no longer be revealed. Check the `commit_reveal_period` hyperparameter and reveal within the allowed epochs after committing; re-commit and reveal on time.",
@@ -1746,24 +1746,6 @@
         }
       ]
     },
-    "ExpiryQueueFull": {
-      "code": "limit_exceeded",
-      "description": "Too many positions already expire in the block this one would land in and the next few. Check `Expiring` around `now + lifetime_blocks` and retry in a later block.",
-      "docs_url": "/docs/errors/chain/ExpiryQueueFull",
-      "markdown_url": "/llms.mdx/docs/errors/chain/ExpiryQueueFull/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 244,
-          "url": "/code/pallets/derivatives/src/lib.rs#L244",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "ExposureTooLarge": {
       "code": "limit_exceeded",
       "description": "Leverage times the cushion would take the whole matching reserve, so no pool share can be lifted. Check the deposit against the pool reserves and use a smaller cushion.",
@@ -1776,8 +1758,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 236,
-          "url": "/code/pallets/derivatives/src/lib.rs#L236",
+          "line": 229,
+          "url": "/code/pallets/derivatives/src/lib.rs#L229",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -2530,7 +2512,7 @@
     },
     "InvalidParams": {
       "code": "invalid_argument",
-      "description": "Root submitted parameters with a zero maximum leverage, `max_pool_share`, or `lifetime_blocks`, or a subnet override with a zero `max_pool_share`, which would brick adds or make positions closable at once. Pause a side with its enabled switch instead.",
+      "description": "Root submitted parameters with a zero maximum leverage, `max_pool_share`, `rate_per_day`, or `lifetime_blocks`, or a subnet override with a zero cap or rate, which would brick adds or leave nobody paid to close. Pause a side with its enabled switch instead.",
       "docs_url": "/docs/errors/chain/InvalidParams",
       "markdown_url": "/llms.mdx/docs/errors/chain/InvalidParams/content.md",
       "pallets": [
@@ -2540,8 +2522,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 248,
-          "url": "/code/pallets/derivatives/src/lib.rs#L248",
+          "line": 240,
+          "url": "/code/pallets/derivatives/src/lib.rs#L240",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -2919,8 +2901,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 234,
-          "url": "/code/pallets/derivatives/src/lib.rs#L234",
+          "line": 227,
+          "url": "/code/pallets/derivatives/src/lib.rs#L227",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3673,7 +3655,7 @@
     },
     "NoPosition": {
       "code": "not_found",
-      "description": "That owner has no position on that subnet. Check the owner and netuid against `derivative-positions`; it may already have been closed or swept at expiry.",
+      "description": "That owner has no position on that subnet. Check the owner and netuid against `derivative-positions`; it may already have been closed or liquidated.",
       "docs_url": "/docs/errors/chain/NoPosition",
       "markdown_url": "/llms.mdx/docs/errors/chain/NoPosition/content.md",
       "pallets": [
@@ -3683,8 +3665,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 227,
-          "url": "/code/pallets/derivatives/src/lib.rs#L227",
+          "line": 222,
+          "url": "/code/pallets/derivatives/src/lib.rs#L222",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3956,24 +3938,6 @@
           "line": 32,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L32",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "NotExpired": {
-      "code": "too_early",
-      "description": "Only the owner may close a position before `expires_at`. Check the position's `expires_at` block; anyone may close it after that.",
-      "docs_url": "/docs/errors/chain/NotExpired",
-      "markdown_url": "/llms.mdx/docs/errors/chain/NotExpired/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 242,
-          "url": "/code/pallets/derivatives/src/lib.rs#L242",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -4257,6 +4221,24 @@
         }
       ]
     },
+    "OwnerOnly": {
+      "code": "too_early",
+      "description": "The position has not expired and its equity still covers one day of fee at the chain's quote, so only its owner may close it. Check `expires_at`, `healthy`, and `equity_tao` in `derivative-position`; the SDK estimate can differ from the chain's Balancer quote near the line.",
+      "docs_url": "/docs/errors/chain/OwnerOnly",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OwnerOnly/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 236,
+          "url": "/code/pallets/derivatives/src/lib.rs#L236",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
+    },
     "POWRegistrationDisabled": {
       "code": "disabled",
       "description": "`sudo_set_network_pow_registration_allowed` unconditionally fails because proof-of-work registration is deprecated and its toggle can no longer be changed. Nothing to check; the call is permanently disabled.",
@@ -4305,8 +4287,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 250,
-          "url": "/code/pallets/derivatives/src/lib.rs#L250",
+          "line": 242,
+          "url": "/code/pallets/derivatives/src/lib.rs#L242",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4395,8 +4377,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 240,
-          "url": "/code/pallets/derivatives/src/lib.rs#L240",
+          "line": 233,
+          "url": "/code/pallets/derivatives/src/lib.rs#L233",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4908,8 +4890,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 223,
-          "url": "/code/pallets/derivatives/src/lib.rs#L223",
+          "line": 215,
+          "url": "/code/pallets/derivatives/src/lib.rs#L215",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5169,8 +5151,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 225,
-          "url": "/code/pallets/derivatives/src/lib.rs#L225",
+          "line": 220,
+          "url": "/code/pallets/derivatives/src/lib.rs#L220",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5257,8 +5239,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 246,
-          "url": "/code/pallets/derivatives/src/lib.rs#L246",
+          "line": 238,
+          "url": "/code/pallets/derivatives/src/lib.rs#L238",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6132,8 +6114,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 238,
-          "url": "/code/pallets/derivatives/src/lib.rs#L238",
+          "line": 231,
+          "url": "/code/pallets/derivatives/src/lib.rs#L231",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]

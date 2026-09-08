@@ -227,6 +227,7 @@ READ_SAMPLES: dict[str, dict] = {
     "delegate_take": {"hotkey_ss58": ALICE_HOT},
     "derivative_position": {"coldkey_ss58": ALICE, "netuid": 1},
     "derivative_positions": {"coldkey_ss58": ALICE},
+    "derivative_positions_on_subnet": {"netuid": 1},
     "derivatives_params": {},
     "derivatives_subnet_override": {"netuid": 1},
     "delegated": {"coldkey_ss58": ALICE},

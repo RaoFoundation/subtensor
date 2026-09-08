@@ -1370,13 +1370,11 @@ impl pallet_limit_orders::Config for Runtime {
 // Derivatives
 parameter_types! {
     pub const DerivativesPalletId: PalletId = PalletId(*b"bt/deriv");
-    pub const DerivativesMaxExpiriesPerBlock: u32 = 32;
 }
 
 impl pallet_derivatives::Config for Runtime {
     type Pool = SubtensorModule;
     type PalletId = DerivativesPalletId;
-    type MaxExpiriesPerBlock = DerivativesMaxExpiriesPerBlock;
     type WeightInfo = pallet_derivatives::weights::SubstrateWeight<Runtime>;
 }
 

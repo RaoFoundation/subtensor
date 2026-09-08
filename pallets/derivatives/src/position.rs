@@ -3,15 +3,15 @@
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use sp_runtime::{
-    PerThing, Perbill, Percent, RuntimeDebug,
+    Perbill, Percent, RuntimeDebug,
     traits::{Saturating, UniqueSaturatedInto, Zero},
 };
 use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, TaoBalance, Token};
 use subtensor_swap_interface::Perquintill;
 
-/// Blocks in one day at a 12-second block time. The borrow fee is quoted per day and never
-/// charged for less than one day.
+/// Blocks in one day at a 12-second block time. The borrow fee is quoted per day; each add
+/// books one day of its rate up front.
 pub const BLOCKS_PER_DAY: u64 = 7_200;
 
 /// Direction of a position.
@@ -80,6 +80,22 @@ pub enum Legs {
 }
 
 impl Legs {
+    /// No slice lifted yet, on `side`.
+    pub fn empty(side: Side) -> Self {
+        match side {
+            Side::Short => Legs::Short {
+                proceeds: TaoBalance::ZERO,
+                debt: AlphaBalance::ZERO,
+                escrow: TaoBalance::ZERO,
+            },
+            Side::Long => Legs::Long {
+                proceeds: AlphaBalance::ZERO,
+                debt: TaoBalance::ZERO,
+                escrow: AlphaBalance::ZERO,
+            },
+        }
+    }
+
     pub fn side(&self) -> Side {
         match self {
             Legs::Short { .. } => Side::Short,
@@ -257,9 +273,8 @@ impl Lent {
     }
 }
 
-/// What the owner put up. Only TAO today. An enum so that an alpha variant can be added later
-/// without migrating stored positions: SCALE encodes the variant index first, so existing
-/// `Tao` values keep decoding.
+/// What one `add` puts up as cushion. TAO comes from the caller's free balance; alpha is stake
+/// the caller holds at `hotkey` on the position's subnet, and goes back there at close.
 #[derive(
     Encode,
     Decode,
@@ -267,30 +282,121 @@ impl Lent {
     TypeInfo,
     MaxEncodedLen,
     Clone,
-    Copy,
     PartialEq,
     Eq,
     RuntimeDebug,
 )]
-pub enum Cushion {
+pub enum Deposit<AccountId> {
     Tao(TaoBalance),
+    Alpha {
+        hotkey: AccountId,
+        amount: AlphaBalance,
+    },
 }
 
-impl Cushion {
-    /// The cushion's TAO, once any alpha variant is valued. Today it is the deposit itself.
-    pub fn tao(&self) -> TaoBalance {
+impl<AccountId: Clone> Deposit<AccountId> {
+    pub fn is_zero(&self) -> bool {
         match self {
-            Cushion::Tao(amount) => *amount,
+            Deposit::Tao(amount) => amount.is_zero(),
+            Deposit::Alpha { amount, .. } => amount.is_zero(),
         }
+    }
+
+    /// The `fraction` of this deposit, rounded down. Used when an add flips through zero and
+    /// only the part past the flip point opens the new position.
+    pub fn part(&self, fraction: Perquintill) -> Self {
+        match self {
+            Deposit::Tao(amount) => {
+                Deposit::Tao(TaoBalance::from(fraction.mul_floor(amount.to_u64())))
+            }
+            Deposit::Alpha { hotkey, amount } => Deposit::Alpha {
+                hotkey: hotkey.clone(),
+                amount: AlphaBalance::from(fraction.mul_floor(amount.to_u64())),
+            },
+        }
+    }
+}
+
+/// What the owner has put up, in total: TAO and alpha side by side, since tranches may be added
+/// in either. Returned in kind as the position is settled, minus fees and losses; alpha that
+/// cannot go back to `alpha_hotkey` is sold and returned as TAO.
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+    Clone,
+    PartialEq,
+    Eq,
+    RuntimeDebug,
+)]
+pub struct Cushion<AccountId> {
+    pub tao: TaoBalance,
+    pub alpha: AlphaBalance,
+    /// Where the alpha goes back: the hotkey of the latest alpha deposit. `None` while the
+    /// cushion holds no alpha.
+    pub alpha_hotkey: Option<AccountId>,
+}
+
+impl<AccountId: Clone> Cushion<AccountId> {
+    pub fn tao_only(tao: TaoBalance) -> Self {
+        Self {
+            tao,
+            alpha: AlphaBalance::ZERO,
+            alpha_hotkey: None,
+        }
+    }
+
+    /// Fold a deposit in. An alpha deposit makes its hotkey the one the alpha goes back to.
+    pub fn plus(&self, deposit: &Deposit<AccountId>) -> Self {
+        match deposit {
+            Deposit::Tao(amount) => Self {
+                tao: self.tao.saturating_add(*amount),
+                alpha: self.alpha,
+                alpha_hotkey: self.alpha_hotkey.clone(),
+            },
+            Deposit::Alpha { hotkey, amount } => Self {
+                tao: self.tao,
+                alpha: self.alpha.saturating_add(*amount),
+                alpha_hotkey: Some(hotkey.clone()),
+            },
+        }
+    }
+
+    /// The `fraction` of each leg, rounded down, keeping the hotkey.
+    pub fn part(&self, fraction: Perquintill) -> Self {
+        Self {
+            tao: TaoBalance::from(fraction.mul_floor(self.tao.to_u64())),
+            alpha: AlphaBalance::from(fraction.mul_floor(self.alpha.to_u64())),
+            alpha_hotkey: self.alpha_hotkey.clone(),
+        }
+    }
+
+    /// `self` minus `part`, leg by leg. Saturating; `part` is expected to come from
+    /// [`Cushion::part`] of `self`.
+    pub fn minus(&self, part: &Self) -> Self {
+        Self {
+            tao: self.tao.saturating_sub(part.tao),
+            alpha: self.alpha.saturating_sub(part.alpha),
+            alpha_hotkey: self.alpha_hotkey.clone(),
+        }
+    }
+
+    /// The cushion in TAO, given what its alpha would sell for right now.
+    pub fn value(&self, alpha_quote: TaoBalance) -> TaoBalance {
+        self.tao.saturating_add(alpha_quote)
     }
 }
 
 /// One open position: the sum of every tranche the owner has added on this subnet, less
 /// whatever has been settled. One per `(owner, netuid)`; the side is the sign of the exposure.
 ///
-/// Every field but the clocks is a plain sum, so adding a tranche is addition and settling a
-/// fraction is multiplication. Nothing here is per tranche.
-#[freeze_struct("b4c605e08da65a24")]
+/// Every field but the block numbers is a plain sum, so adding a tranche is addition and
+/// settling a fraction is multiplication. Nothing here is per tranche. A position lives until
+/// its owner closes it, it can no longer pay its fee, or it expires; after either of the last
+/// two anyone may close it.
+#[freeze_struct("d57ca244d8ff61fa")]
 #[derive(
     Encode,
     Decode,
@@ -302,17 +408,17 @@ impl Cushion {
     Eq,
     RuntimeDebug,
 )]
-pub struct Position<BlockNumber> {
-    /// `P`: what the owner has put up, in total. Returned as the position is settled, minus
-    /// fees and losses.
-    pub cushion: Cushion,
+pub struct Position<AccountId, BlockNumber> {
+    /// `P`: what the owner has put up, in total, TAO and alpha. Returned in kind as the
+    /// position is settled, minus fees and losses.
+    pub cushion: Cushion<AccountId>,
     /// The borrowed slice: proceeds held, debt owed, escrow kept. Its variant is the side.
     pub legs: Legs,
     /// `sum(phi * T)` over tranches: the TAO value the pool has lent. The position's leverage
     /// is `exposure_tao / cushion`.
     pub exposure_tao: TaoBalance,
-    /// Borrow fee per day for the whole position: each tranche's rate, fixed when it was added,
-    /// summed. Shorts pay `short_fee_per_day * phi`; longs pay `long_rate_per_day * exposure`.
+    /// Borrow fee per day for the whole position: `rate_per_day * exposure` of each tranche,
+    /// fixed when it was added, summed.
     pub fee_per_day: TaoBalance,
     /// Fee owed and not yet paid, as of `last_touch`. Every add puts one day of the new
     /// tranche's rate here up front; every settlement pays it down.
@@ -321,19 +427,54 @@ pub struct Position<BlockNumber> {
     pub last_touch: BlockNumber,
     /// Block of the first add.
     pub opened_at: BlockNumber,
-    /// After this block anyone may close the position, and nothing more can be added to it.
-    /// Set by the first add; adds do not extend it.
+    /// `opened_at + lifetime_blocks` as of the first add. Adding does not move it. From this
+    /// block nothing can be added and anyone may close the position.
     pub expires_at: BlockNumber,
-    /// Block whose `Expiring` queue holds this position. Starts as `expires_at`; moves later
-    /// each time a sweep fails and is rescheduled.
-    pub queued_at: BlockNumber,
-    /// Sweeps that have failed so far. Rescheduling stops at `MAX_SETTLE_RETRIES`.
-    pub failed_sweeps: u8,
 }
 
-impl<BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64>> Position<BlockNumber> {
+/// The two pool quotes a position's value depends on, both exact and fee-free as of now.
+#[derive(Clone, Copy, PartialEq, Eq, RuntimeDebug)]
+pub struct Quotes {
+    /// TAO to buy back a short's debt, or TAO a long's proceeds sell for.
+    pub legs: TaoBalance,
+    /// TAO the cushion's alpha sells for. Zero for a TAO-only cushion.
+    pub cushion_alpha: TaoBalance,
+}
+
+impl<AccountId: Clone, BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64>>
+    Position<AccountId, BlockNumber>
+{
+    /// A position with nothing in it yet, born at `now` and expiring at `expires_at`. The first
+    /// tranche folded in opens it.
+    pub fn empty(side: Side, now: BlockNumber, expires_at: BlockNumber) -> Self {
+        Self {
+            cushion: Cushion::tao_only(TaoBalance::ZERO),
+            legs: Legs::empty(side),
+            exposure_tao: TaoBalance::ZERO,
+            fee_per_day: TaoBalance::ZERO,
+            fee_accrued: TaoBalance::ZERO,
+            last_touch: now,
+            opened_at: now,
+            expires_at,
+        }
+    }
+
     pub fn side(&self) -> Side {
         self.legs.side()
+    }
+
+    /// Fold a tranche of the same side in at `now`. Every field is a sum, so this is addition;
+    /// the fee is brought up to date first so the new rate only runs from now, and one day of
+    /// it is booked up front. `None` if the tranche is on the other side.
+    pub fn fold(&mut self, tranche: Tranche<AccountId>, now: BlockNumber) -> Option<()> {
+        let legs = self.legs.plus(&tranche.legs)?;
+        self.fee_accrued = self.fee_owed(now).saturating_add(tranche.fee_per_day);
+        self.last_touch = now;
+        self.cushion = self.cushion.plus(&tranche.cushion);
+        self.legs = legs;
+        self.exposure_tao = self.exposure_tao.saturating_add(tranche.exposure_tao);
+        self.fee_per_day = self.fee_per_day.saturating_add(tranche.fee_per_day);
+        Some(())
     }
 
     /// Everything owed at `now`: the accrued balance plus the running rate since `last_touch`.
@@ -342,18 +483,46 @@ impl<BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64>> Position<BlockNu
         self.fee_accrued
             .saturating_add(fee_for_blocks(self.fee_per_day, blocks))
     }
+
+    /// What a full close at `now` would leave the owner, in TAO, at the given quotes. Negative
+    /// means underwater. Quoting the two alpha amounts separately understates what they would
+    /// fetch together, so this errs on the side of calling a position unhealthy.
+    pub fn equity(&self, now: BlockNumber, quotes: Quotes) -> i128 {
+        let cushion = i128::from(self.cushion.value(quotes.cushion_alpha).to_u64());
+        let fee = i128::from(self.fee_owed(now).to_u64());
+        let quote = i128::from(quotes.legs.to_u64());
+        let legs = match self.legs {
+            Legs::Short { proceeds, .. } => i128::from(proceeds.to_u64()).saturating_sub(quote),
+            Legs::Long { debt, .. } => quote.saturating_sub(i128::from(debt.to_u64())),
+        };
+        cushion.saturating_add(legs).saturating_sub(fee)
+    }
+
+    /// A position can pay its way while its equity covers one more day of fee. Below that
+    /// anyone may close it and is paid the fee for doing so.
+    pub fn is_healthy(&self, now: BlockNumber, quotes: Quotes) -> bool {
+        self.equity(now, quotes) >= i128::from(self.fee_per_day.to_u64())
+    }
+
+    /// Past its term: nothing can be added, anyone may close it.
+    pub fn is_expired(&self, now: BlockNumber) -> bool
+    where
+        BlockNumber: PartialOrd,
+    {
+        now >= self.expires_at
+    }
 }
 
 /// What one `add` contributes to a position. Same shape as the sums it goes into.
-pub struct Tranche {
-    pub cushion: TaoBalance,
+pub struct Tranche<AccountId> {
+    pub cushion: Deposit<AccountId>,
     pub legs: Legs,
     pub exposure_tao: TaoBalance,
     pub fee_per_day: TaoBalance,
 }
 
 /// Root-settable parameters.
-#[freeze_struct("d506fe231a223242")]
+#[freeze_struct("3716b9e23941aca9")]
 #[derive(
     Encode,
     Decode,
@@ -365,9 +534,15 @@ pub struct Tranche {
     Eq,
     RuntimeDebug,
 )]
-pub struct DerivativesParams<BlockNumber> {
+pub struct DerivativesParams {
     pub shorts_enabled: bool,
     pub longs_enabled: bool,
+    /// Whether a short may put up alpha as cushion. A short holder posting alpha is betting
+    /// against what they hold, which is the one alpha cushion a subnet team has no use for.
+    pub alpha_cushion_shorts: bool,
+    /// Whether a long may put up alpha as cushion. Off, a team cannot post self-minted alpha
+    /// and long its own pool; on, that lever exists.
+    pub alpha_cushion_longs: bool,
     /// Highest leverage a short may choose, as a percentage of its cushion. `100` = 1x. A
     /// short at leverage `L` costs the pool once the price rises by `1 / L`: 2x at 1x.
     pub max_short_leverage_percent: u16,
@@ -378,37 +553,35 @@ pub struct DerivativesParams<BlockNumber> {
     /// `kappa`: the largest share of the lent reserve that all open positions of one side on
     /// one subnet may borrow together. A subnet's [`SubnetOverride`] can replace it.
     pub max_pool_share: Percent,
-    /// `X`: how long a position may stay open.
-    pub lifetime_blocks: BlockNumber,
-    /// `C`: what a short pays per day for borrowing the whole pool, in TAO. A short that
-    /// lifts a share `phi` pays `C * phi` per day. Pump risk in a constant-product pool
-    /// scales with `1 / T`, so a fixed TAO amount per unit of pool share is the fair form.
-    pub short_fee_per_day: TaoBalance,
-    /// `r`: what a long pays per day, as a fraction of `exposure_tao`. Crash risk does not
-    /// depend on pool size, so a plain rate on exposure is the fair form.
-    pub long_rate_per_day: Perbill,
+    /// `r`: the borrow fee per day, as a fraction of `exposure_tao`, the same on both sides.
+    /// Fixed for each tranche when it is added. A subnet's [`SubnetOverride`] can replace it.
+    pub rate_per_day: Perbill,
+    /// How long a position lives from its first add, in blocks. Adding does not extend it.
+    pub lifetime_blocks: u32,
     /// Smallest cushion, measured in TAO at the open price.
     pub min_deposit_tao: TaoBalance,
 }
 
-impl<BlockNumber: From<u32>> DerivativesParams<BlockNumber> {
-    /// Mainnet defaults: shorts up to 1x, longs up to 2x, 10% of the pool, 30 days, 6 TAO/day
-    /// per unit pool share on shorts, 0.01%/day of exposure on longs, 0.1 TAO minimum cushion.
+impl DerivativesParams {
+    /// Mainnet defaults: shorts up to 1x, longs up to 2x, TAO cushions only, 10% of the pool,
+    /// 0.05% of exposure per day (1.5% a month, 4.5% over a term), a 90-day term, 0.1 TAO
+    /// minimum cushion.
     ///
-    /// Each fee is twice the pool's measured expected loss over a year of Finney pool prices:
-    /// `E[(theta - 2)+] * T ~= 86 TAO` per 30 days on shorts (2.9 TAO/day), `E[(1/2 - theta)+]
-    /// ~= 0.11%` of exposure per 30 days on longs at 2x (0.004%/day). The factor of two covers
-    /// the sampling error on ~60 pump episodes and the book closing against the pool at the cap.
+    /// The rate is rent for the pool's depth and covers the pool's measured expected loss to
+    /// pumps on pools above a few thousand TAO (`E[(theta - 2)+] * T ~= 86 TAO` per 30 days for
+    /// a whole pool, over a year of Finney prices). Smaller pools carry more pump risk per unit
+    /// of exposure; root prices them with the per-subnet rate override or a lower cap.
     pub fn defaults() -> Self {
         Self {
             shorts_enabled: true,
             longs_enabled: true,
+            alpha_cushion_shorts: false,
+            alpha_cushion_longs: false,
             max_short_leverage_percent: 100,
             max_long_leverage_percent: 200,
             max_pool_share: Percent::from_percent(10),
-            lifetime_blocks: BlockNumber::from(216_000u32),
-            short_fee_per_day: TaoBalance::from(6_000_000_000u64),
-            long_rate_per_day: Perbill::from_rational(1u32, 10_000u32),
+            rate_per_day: Perbill::from_rational(5u32, 10_000u32),
+            lifetime_blocks: 90 * BLOCKS_PER_DAY as u32,
             min_deposit_tao: TaoBalance::from(100_000_000),
         }
     }
@@ -433,37 +606,35 @@ impl<BlockNumber: From<u32>> DerivativesParams<BlockNumber> {
         }
     }
 
-    /// Fee per day for a new position: `C * phi` on a short, `r * exposure` on a long, both
-    /// times [`size_factor`] for the position's own slippage.
-    pub fn fee_per_day(
-        &self,
-        side: Side,
-        phi: Perquintill,
-        exposure_tao: TaoBalance,
-    ) -> TaoBalance {
-        let base = match side {
-            Side::Short => phi.mul_floor(self.short_fee_per_day.to_u64()),
-            Side::Long => self.long_rate_per_day.mul_floor(exposure_tao.to_u64()),
-        };
-        TaoBalance::from(size_factor(phi, base))
+    /// Whether `side` accepts an alpha cushion. TAO is always accepted.
+    pub fn alpha_cushion_allowed(&self, side: Side) -> bool {
+        match side {
+            Side::Short => self.alpha_cushion_shorts,
+            Side::Long => self.alpha_cushion_longs,
+        }
     }
-}
 
-impl<BlockNumber: Zero> DerivativesParams<BlockNumber> {
-    /// A parameter set every open can act on. A zero maximum leverage or a zero pool share
-    /// would make every `open` fail; a zero lifetime would let anyone close a position the
-    /// block it opens. Use `shorts_enabled` / `longs_enabled` to pause opens instead.
+    /// Fee per day for a new tranche: `rate * exposure`, whichever side.
+    pub fn fee_per_day(rate_per_day: Perbill, exposure_tao: TaoBalance) -> TaoBalance {
+        TaoBalance::from(rate_per_day.mul_floor(exposure_tao.to_u64()))
+    }
+
+    /// A parameter set every add can act on. A zero maximum leverage or a zero pool share
+    /// would make every add fail; a zero rate would leave nobody paid to liquidate, and a zero
+    /// lifetime would make every position closable at once. Use `shorts_enabled` /
+    /// `longs_enabled` to pause adds instead.
     pub fn is_valid(&self) -> bool {
         self.max_short_leverage_percent > 0
             && self.max_long_leverage_percent > 0
             && !self.max_pool_share.is_zero()
-            && !self.lifetime_blocks.is_zero()
+            && !self.rate_per_day.is_zero()
+            && self.lifetime_blocks > 0
     }
 }
 
-/// Root-settable per-subnet overrides. Absent means the global parameters apply. Only opens
-/// look at it: a paused side can still close, roll cannot reopen.
-#[freeze_struct("c897b7b9addbdd09")]
+/// Root-settable per-subnet overrides. Absent means the global parameters apply. Only adds
+/// look at it: a paused side can still close and reduce.
+#[freeze_struct("61e993a65ca571e9")]
 #[derive(
     Encode,
     Decode,
@@ -481,6 +652,9 @@ pub struct SubnetOverride {
     pub longs_enabled: bool,
     /// Replaces the global `max_pool_share` on this subnet when set.
     pub max_pool_share: Option<Percent>,
+    /// Replaces the global `rate_per_day` on this subnet when set: the lever for a small pool
+    /// whose pump risk the flat rate underprices.
+    pub rate_per_day: Option<Perbill>,
 }
 
 impl SubnetOverride {
@@ -491,29 +665,24 @@ impl SubnetOverride {
         }
     }
 
-    /// A zero cap would make every open fail; pause the side instead.
+    /// A zero cap would make every add fail and a zero rate would leave nobody paid to
+    /// liquidate; pause the side instead.
     pub fn is_valid(&self) -> bool {
         self.max_pool_share.is_none_or(|share| !share.is_zero())
+            && self.rate_per_day.is_none_or(|rate| !rate.is_zero())
     }
 }
 
-/// `base / (1 - phi)^4`: the fee scaled for the position's own slippage at close.
-///
-/// The linear fee laws assume a small slice. A position that lifts `phi` of the pool must buy
-/// back (or sell) into a pool that is `phi` smaller, and its exact expected loss over the
-/// measured price history is `(1 - phi)^-4` times the small-slice value to within 3% for
-/// `phi` up to 25% (x1.23 at 5%, x2.4 at 20%). With this factor the fee stays fair at any
-/// pool-share cap without a separate per-position limit. Saturates as `phi` nears one.
-pub fn size_factor(phi: Perquintill, base: u64) -> u64 {
-    let one_minus = phi.left_from_one();
-    let denom = one_minus.square().square();
-    if denom.is_zero() {
-        return u64::MAX;
+/// TAO value of `amount` alpha at the spot ratio `tao_reserve / alpha_reserve`, rounded down.
+/// Sizes an alpha cushion at open; settlement itself goes through the pool.
+pub fn alpha_value_in_tao(amount: u64, tao_reserve: u64, alpha_reserve: u64) -> u64 {
+    if alpha_reserve == 0 {
+        return 0;
     }
-    (base as u128)
-        .saturating_mul(Perquintill::ACCURACY as u128)
-        .checked_div(denom.deconstruct() as u128)
-        .unwrap_or(u64::MAX as u128)
+    (amount as u128)
+        .saturating_mul(tao_reserve as u128)
+        .checked_div(alpha_reserve as u128)
+        .unwrap_or(0)
         .min(u64::MAX as u128) as u64
 }
 
@@ -616,8 +785,8 @@ mod tests {
 
     #[test]
     fn position_fee_is_accrued_plus_running_rate() {
-        let position = Position::<u64> {
-            cushion: Cushion::Tao(TaoBalance::from(0)),
+        let position = Position::<u64, u64> {
+            cushion: Cushion::tao_only(TaoBalance::from(0)),
             legs: Legs::Short {
                 proceeds: TaoBalance::from(0),
                 debt: AlphaBalance::from(0),
@@ -628,9 +797,7 @@ mod tests {
             fee_accrued: TaoBalance::from(7_200),
             last_touch: 10,
             opened_at: 10,
-            expires_at: 20,
-            queued_at: 20,
-            failed_sweeps: 0,
+            expires_at: u64::MAX,
         };
         assert_eq!(position.fee_owed(10), TaoBalance::from(7_200));
         assert_eq!(position.fee_owed(3_610), TaoBalance::from(10_800));
@@ -638,42 +805,181 @@ mod tests {
         assert_eq!(position.fee_owed(5), TaoBalance::from(7_200));
     }
 
+    /// Quotes with a TAO-only cushion.
+    fn q(legs: u64) -> Quotes {
+        Quotes {
+            legs: TaoBalance::from(legs),
+            cushion_alpha: TaoBalance::ZERO,
+        }
+    }
+
     #[test]
-    fn short_fee_scales_with_pool_share_and_long_fee_with_exposure() {
-        let params = DerivativesParams::<u64>::defaults();
-        let one_percent = Perquintill::from_percent(1);
-        let exposure = TaoBalance::from(1_000_000_000_000u64); // 1000 TAO
-        // 1% of any pool: 6 TAO/day * 1% = 0.06 TAO/day, whatever the exposure, times the
-        // size factor at 1%.
+    fn equity_is_what_a_close_would_pay_and_health_is_one_more_day_of_fee() {
+        // Short: 100 cushion, sold for 100, owes alpha; fee 10/day, one day booked.
+        let short = Position::<u64, u64> {
+            cushion: Cushion::tao_only(TaoBalance::from(100)),
+            legs: Legs::Short {
+                proceeds: TaoBalance::from(100),
+                debt: AlphaBalance::from(1_000),
+                escrow: TaoBalance::from(100),
+            },
+            exposure_tao: TaoBalance::from(100),
+            fee_per_day: TaoBalance::from(10),
+            fee_accrued: TaoBalance::from(10),
+            last_touch: 0,
+            opened_at: 0,
+            expires_at: u64::MAX,
+        };
+        // Buying the debt back costs what it sold for: equity is the cushion less the fee.
+        assert_eq!(short.equity(0, q(100)), 90);
+        assert!(short.is_healthy(0, q(100)));
+        // Price doubled: equity is 200 - 200 - 10 = -10, underwater.
+        assert_eq!(short.equity(0, q(200)), -10);
+        assert!(!short.is_healthy(0, q(200)));
+        // Exactly one day of fee left is still healthy; one rao less is not.
+        assert!(short.is_healthy(0, q(180)));
+        assert!(!short.is_healthy(0, q(181)));
+        // Time alone can do it: one day booked plus eight accrued leaves exactly one day's
+        // buffer; a ninth takes it.
+        assert!(short.is_healthy(8 * BLOCKS_PER_DAY, q(100)));
+        assert!(!short.is_healthy(9 * BLOCKS_PER_DAY, q(100)));
+
+        // Long: 100 cushion, borrowed 100 and bought alpha; selling it back quotes `q`.
+        let long = Position::<u64, u64> {
+            cushion: Cushion::tao_only(TaoBalance::from(100)),
+            legs: Legs::Long {
+                proceeds: AlphaBalance::from(1_000),
+                debt: TaoBalance::from(100),
+                escrow: AlphaBalance::from(1_000),
+            },
+            exposure_tao: TaoBalance::from(200),
+            fee_per_day: TaoBalance::from(10),
+            fee_accrued: TaoBalance::from(10),
+            last_touch: 0,
+            opened_at: 0,
+            expires_at: u64::MAX,
+        };
+        assert_eq!(long.equity(0, q(100)), 90);
+        assert_eq!(long.equity(0, q(50)), 40);
+        assert!(!long.is_healthy(0, q(19)));
+        assert!(long.is_healthy(0, q(20)));
+    }
+
+    #[test]
+    fn cushion_holds_both_tokens_and_counts_alpha_at_its_quote() {
+        let cushion = Cushion::<u64>::tao_only(TaoBalance::from(100))
+            .plus(&Deposit::Alpha {
+                hotkey: 7,
+                amount: AlphaBalance::from(1_000),
+            })
+            .plus(&Deposit::Tao(TaoBalance::from(50)));
+        assert_eq!(cushion.tao, TaoBalance::from(150));
+        assert_eq!(cushion.alpha, AlphaBalance::from(1_000));
+        assert_eq!(cushion.alpha_hotkey, Some(7));
+        // The latest alpha deposit decides where the alpha goes back.
+        let moved = cushion.plus(&Deposit::Alpha {
+            hotkey: 8,
+            amount: AlphaBalance::from(0),
+        });
+        assert_eq!(moved.alpha_hotkey, Some(8));
+
+        let half = cushion.part(Perquintill::from_percent(50));
+        assert_eq!(half.tao, TaoBalance::from(75));
+        assert_eq!(half.alpha, AlphaBalance::from(500));
+        assert_eq!(half.alpha_hotkey, Some(7));
+        let rest = cushion.minus(&half);
+        assert_eq!(rest, half);
+        assert_eq!(cushion.value(TaoBalance::from(40)), TaoBalance::from(190));
+
+        let deposit = Deposit::<u64>::Alpha {
+            hotkey: 7,
+            amount: AlphaBalance::from(1_000),
+        };
         assert_eq!(
-            params.fee_per_day(Side::Short, one_percent, exposure),
-            TaoBalance::from(size_factor(one_percent, 60_000_000))
+            deposit.part(Perquintill::from_percent(25)),
+            Deposit::Alpha {
+                hotkey: 7,
+                amount: AlphaBalance::from(250)
+            }
         );
-        // Long: 0.01%/day of 1000 TAO = 0.1 TAO/day, whatever the pool share, times the same
-        // factor.
+        assert!(Deposit::<u64>::Tao(TaoBalance::ZERO).is_zero());
+
+        // An alpha cushion is worth what it sells for, so a falling price hurts a long twice.
+        let long = Position::<u64, u64> {
+            cushion: Cushion::tao_only(TaoBalance::ZERO).plus(&Deposit::Alpha {
+                hotkey: 7,
+                amount: AlphaBalance::from(1_000),
+            }),
+            legs: Legs::Long {
+                proceeds: AlphaBalance::from(1_000),
+                debt: TaoBalance::from(100),
+                escrow: AlphaBalance::from(1_000),
+            },
+            exposure_tao: TaoBalance::from(200),
+            fee_per_day: TaoBalance::from(10),
+            fee_accrued: TaoBalance::from(10),
+            last_touch: 0,
+            opened_at: 0,
+            expires_at: u64::MAX,
+        };
+        let at = |legs: u64, cushion_alpha: u64| Quotes {
+            legs: TaoBalance::from(legs),
+            cushion_alpha: TaoBalance::from(cushion_alpha),
+        };
+        assert_eq!(long.equity(0, at(100, 100)), 90);
+        assert_eq!(long.equity(0, at(50, 50)), -10);
+        assert!(!long.is_healthy(0, at(50, 50)));
+    }
+
+    #[test]
+    fn alpha_is_valued_at_spot_for_sizing() {
+        assert_eq!(alpha_value_in_tao(400, 1_000, 4_000), 100);
+        assert_eq!(alpha_value_in_tao(1, 1_000, 4_000), 0);
+        assert_eq!(alpha_value_in_tao(400, 1_000, 0), 0);
+    }
+
+    #[test]
+    fn fee_is_one_rate_on_exposure_for_both_sides() {
+        let params = DerivativesParams::defaults();
+        let exposure = TaoBalance::from(1_000_000_000_000u64); // 1000 TAO
+        // 0.05%/day of 1000 TAO = 0.5 TAO/day. The side and the pool share do not enter.
         assert_eq!(
-            params.fee_per_day(Side::Long, one_percent, exposure),
-            TaoBalance::from(size_factor(one_percent, 100_000_000))
+            DerivativesParams::fee_per_day(params.rate_per_day, exposure),
+            TaoBalance::from(500_000_000)
+        );
+        assert_eq!(
+            DerivativesParams::fee_per_day(params.rate_per_day, TaoBalance::from(1_999)),
+            TaoBalance::ZERO
+        );
+        // 90 days of 0.05% is 4.5% of exposure.
+        assert_eq!(
+            fee_for_blocks(
+                DerivativesParams::fee_per_day(params.rate_per_day, exposure),
+                params.lifetime_blocks as u64
+            ),
+            TaoBalance::from(45_000_000_000u64)
         );
     }
 
     #[test]
-    fn size_factor_is_inverse_fourth_power_of_the_remaining_pool() {
-        let base = 1_000_000;
-        // (1 - phi)^-4: 1.0410 at 1%, 1.0842 at 2%, 2.4414 at 20%.
-        assert_eq!(size_factor(Perquintill::from_percent(1), base), 1_041_020);
-        assert_eq!(size_factor(Perquintill::from_percent(2), base), 1_084_165);
-        assert_eq!(size_factor(Perquintill::from_percent(20), base), 2_441_406);
-        assert_eq!(size_factor(Perquintill::zero(), base), base);
-        assert_eq!(size_factor(Perquintill::one(), base), u64::MAX);
+    fn a_position_expires_at_the_block_set_by_its_first_add() {
+        let position = Position::<u64, u64>::empty(Side::Short, 10, 10 + 648_000);
+        assert_eq!(position.expires_at, 648_010);
+        assert!(!position.is_expired(10));
+        assert!(!position.is_expired(648_009));
+        assert!(position.is_expired(648_010));
+        assert_eq!(DerivativesParams::defaults().lifetime_blocks, 648_000);
     }
 
     #[test]
     fn defaults_are_valid_and_each_leverage_is_checked() {
-        let params = DerivativesParams::<u64>::defaults();
+        let params = DerivativesParams::defaults();
         assert!(params.is_valid());
         assert_eq!(params.max_leverage_percent(Side::Short), 100);
         assert_eq!(params.max_leverage_percent(Side::Long), 200);
+        // Alpha cushions ship switched off on both sides.
+        assert!(!params.alpha_cushion_allowed(Side::Short));
+        assert!(!params.alpha_cushion_allowed(Side::Long));
         let mut no_long = params.clone();
         no_long.max_long_leverage_percent = 0;
         assert!(!no_long.is_valid());
@@ -684,7 +990,7 @@ mod tests {
 
     #[test]
     fn owner_picks_any_leverage_up_to_the_side_maximum() {
-        let params = DerivativesParams::<u64>::defaults();
+        let params = DerivativesParams::defaults();
         assert!(params.leverage_allowed(Side::Short, 1));
         assert!(params.leverage_allowed(Side::Short, 50));
         assert!(params.leverage_allowed(Side::Short, 100));
@@ -699,15 +1005,20 @@ mod tests {
     }
 
     #[test]
-    fn subnet_override_rejects_a_zero_cap() {
+    fn subnet_override_rejects_a_zero_cap_or_rate() {
         let mut override_ = SubnetOverride {
             shorts_enabled: false,
             longs_enabled: true,
             max_pool_share: None,
+            rate_per_day: None,
         };
         assert!(override_.is_valid());
         override_.max_pool_share = Some(Percent::from_percent(5));
+        override_.rate_per_day = Some(Perbill::from_percent(1));
         assert!(override_.is_valid());
+        override_.rate_per_day = Some(Perbill::zero());
+        assert!(!override_.is_valid());
+        override_.rate_per_day = None;
         override_.max_pool_share = Some(Percent::zero());
         assert!(!override_.is_valid());
     }

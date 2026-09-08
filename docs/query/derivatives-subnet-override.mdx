@@ -7,9 +7,9 @@ description: "Root-set per-subnet overrides of the derivatives parameters, or No
 
 None means the subnet runs on the global `derivatives_params`. When set,
 `shorts_enabled` and `longs_enabled` replace the global switches for adds
-on this subnet, and `max_pool_share` replaces the global cap when it is not
-None. Open positions are unaffected: a paused side can still be reduced and
-closed.
+on this subnet, and `max_pool_share` and `rate_per_day` replace the global
+cap and fee rate when they are not None. Open positions are unaffected: a
+paused side can still be reduced and closed.
 
 **Category:** Prices & swaps
 
@@ -46,6 +46,6 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Storage [`Derivatives.SubnetOverrides`](/code/pallets/derivatives/src/lib.rs#L133)
+- Storage [`Derivatives.SubnetOverrides`](/code/pallets/derivatives/src/lib.rs#L124)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

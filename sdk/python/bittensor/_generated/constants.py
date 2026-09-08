@@ -189,4 +189,3 @@ class LimitOrders:
 
 class Derivatives:
     PalletId = Item('Derivatives', 'PalletId')
-    MaxExpiriesPerBlock = Item('Derivatives', 'MaxExpiriesPerBlock')

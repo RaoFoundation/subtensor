@@ -72,7 +72,7 @@
   {
     "name": "add_derivative",
     "summary": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.",
-    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, and flip. With no position, or one on the\nsame side, `amount` TAO is taken from the coldkey as cushion, the pool\nlends the matching slice (alpha sold for TAO on a short, TAO spent on\nalpha on a long), and the result is folded into the position; one day of\nthe new tranche's fee is booked up front. With a position on the other\nside, that much exposure is settled at the current price and its share of\nthe cushion, less fee and loss, is paid back; nothing is deposited. Asking\nfor more than the position holds closes it and opens the rest on the new\nside, taking only that rest's cushion. Nothing can be added to a position\npast its expiry; it can still be reduced or closed.",
+    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, flip, and roll. With no position, or one\non the same side, `amount` is taken as cushion (TAO from the coldkey, or\nalpha from stake on `hotkey_ss58`), the pool lends the matching slice\n(alpha sold for TAO on a short, TAO spent on alpha on a long), and the\nresult is folded into the position; one day of the new tranche's fee is\nbooked up front. The expiry is set by the first add and does not move.\nWith a position on the other side, that much exposure is settled at the\ncurrent price and its share of the cushion, less fee and loss, is paid\nback; nothing is deposited. Asking for more than the position holds closes\nit and opens the rest on the new side, taking only that rest's cushion.\nOn an expired position, a same-side add settles it first and opens a fresh\none from `amount` alone.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -105,11 +105,19 @@
               "description": "decimal string, for amounts too large for an exact float"
             }
           ],
-          "description": "TAO the tranche is sized by. Exposure is `--leverage` times this, measured against the pool's TAO reserve. Deposited as cushion when it adds to your position; only sizes the reduction when it goes against it."
+          "description": "Cushion the tranche is sized by, in TAO or in the subnet's alpha depending on `deposit_in`. Exposure is `--leverage` times its TAO value, measured against the pool's TAO reserve. Deposited when it adds to your position; only sizes the reduction when it goes against it."
         },
         "leverage": {
           "type": "number",
           "description": "Exposure as a multiple of `amount`: 1, 2, 5, ... Must be at most the side's maximum (`max_short_leverage_percent` / `max_long_leverage_percent` in `btcli deriv params`)."
+        },
+        "deposit_in": {
+          "type": "string",
+          "description": "Asset the cushion is paid in: `tao` from the coldkey balance, or `alpha` already staked on `hotkey_ss58` at this subnet. Alpha cushions must be switched on by root for the side (`alpha_cushion_shorts` / `alpha_cushion_longs` in `btcli deriv params`)."
+        },
+        "hotkey_ss58": {
+          "type": "string",
+          "description": "Hotkey the alpha cushion is staked on (only with `deposit_in=alpha`). Defaults to the wallet hotkey. The cushion comes back to the same hotkey."
         }
       },
       "required": [
@@ -127,9 +135,9 @@
         "pallet": "Derivatives",
         "call": "add",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 291,
-        "end_line": 300,
-        "url": "/code/pallets/derivatives/src/lib.rs#L289-L300",
+        "line": 284,
+        "end_line": 293,
+        "url": "/code/pallets/derivatives/src/lib.rs#L282-L293",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -698,7 +706,7 @@
   {
     "name": "close_derivative",
     "summary": "Close a derivatives position and settle it against the pool.",
-    "description": "Close a derivatives position and settle it against the pool.\n\nThe owner may close at any time. After the position's expiry anyone may\nclose it on the owner's behalf, so the pool always gets its liquidity back.\nSettlement reverses the opening trade, repays the pool plus the borrow\nfee, and pays the owner what remains in TAO. If the position is underwater\nthe pool absorbs the shortfall and the owner gets nothing back.",
+    "description": "Close a derivatives position and settle it against the pool.\n\nThe owner may close at any time. Anyone may close a position that is no\nlonger healthy (its equity is below one day of fee) or that has expired.\nA liquidator is paid the fee owed plus whatever is left after the pool is\nrepaid, topped up by the pool to one day of fee, and the owner gets\nnothing. The closer of an expired position is paid one day of fee and the\nowner gets the rest. Settlement reverses the opening trade, repays the pool\nplus the borrow fee, and pays the owner what remains, in kind. If the\nposition is underwater the pool absorbs the shortfall and the owner gets\nnothing back.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -718,7 +726,7 @@
         },
         "owner_ss58": {
           "type": "string",
-          "description": "Coldkey that owns the position. Defaults to the signer; pass another owner only to close their expired position."
+          "description": "Coldkey that owns the position. Defaults to the signer; pass another owner to close their position once `healthy` is False or `expired` is True in `derivative-position`."
         }
       },
       "required": [
@@ -734,9 +742,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 306,
-        "end_line": 316,
-        "url": "/code/pallets/derivatives/src/lib.rs#L304-L316",
+        "line": 303,
+        "end_line": 318,
+        "url": "/code/pallets/derivatives/src/lib.rs#L301-L318",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

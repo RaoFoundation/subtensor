@@ -14,11 +14,7 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "NoPosition": (
         "That owner has no position on that subnet. Check the owner and netuid against "
-        "`derivative-positions`; it may already have been closed or swept at expiry."
-    ),
-    "Expired": (
-        "The position is past `expires_at`, so nothing can be added to it. Check `expired` in "
-        "`derivative-positions`; reduce or close it, or wait for the sweep, then add again."
+        "`derivative-positions`; it may already have been closed or liquidated."
     ),
     "LeverageOutOfRange": (
         "The requested leverage is zero or above the side's maximum. Check "
@@ -38,19 +34,21 @@ DESCRIPTIONS: dict[str, str] = {
         "lent reserve. Check `Footprint` for the netuid and side against the reserve; try a "
         "smaller cushion or wait for other positions to close."
     ),
-    "NotExpired": (
-        "Only the owner may close a position before `expires_at`. Check the position's "
-        "`expires_at` block; anyone may close it after that."
+    "OwnerOnly": (
+        "The position has not expired and its equity still covers one day of fee at the "
+        "chain's quote, so only its owner may close it. Check `expires_at`, `healthy`, and "
+        "`equity_tao` in `derivative-position`; the SDK estimate can differ from the chain's "
+        "Balancer quote near the line."
     ),
-    "ExpiryQueueFull": (
-        "Too many positions already expire in the block this one would land in and the next "
-        "few. Check `Expiring` around `now + lifetime_blocks` and retry in a later block."
+    "AlphaCushionDisabled": (
+        "Alpha cushions are switched off for this side; deposit TAO instead. Check "
+        "`alpha_cushion_shorts` / `alpha_cushion_longs` in `deriv params`."
     ),
     "InvalidParams": (
-        "Root submitted parameters with a zero maximum leverage, `max_pool_share`, or "
-        "`lifetime_blocks`, "
-        "or a subnet override with a zero `max_pool_share`, which would brick adds or make "
-        "positions closable at once. Pause a side with its enabled switch instead."
+        "Root submitted parameters with a zero maximum leverage, `max_pool_share`, "
+        "`rate_per_day`, or `lifetime_blocks`, or a subnet override with a zero cap or rate, "
+        "which would brick adds or leave nobody paid to close. Pause a side with its enabled "
+        "switch instead."
     ),
     "PalletHotkeyUnset": (
         "The pallet has not claimed its custody hotkey yet, so nothing can be added. Check "

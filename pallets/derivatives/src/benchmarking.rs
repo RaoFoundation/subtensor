@@ -14,8 +14,9 @@ use crate::*;
 
 /// The owner's TAO cushion.
 const CUSHION_TAO: u64 = 10_000_000_000;
-/// TAO a whale trades to move the pool price against the position.
-const WHALE_TAO: u64 = 300_000_000_000;
+/// TAO a whale trades to move the pool price against the position: 900 TAO into a 1000 TAO
+/// pool takes the price ×3.6, so a 1x short's buyback costs well over its pot.
+const WHALE_TAO: u64 = 900_000_000_000;
 
 fn setup<T: Config>() -> (T::AccountId, NetUid) {
     let netuid = NetUid::from(1u16);
@@ -27,20 +28,19 @@ fn setup<T: Config>() -> (T::AccountId, NetUid) {
     (owner, netuid)
 }
 
-/// Fill the `MAX_EXPIRY_SHIFT - 1` queues a new position probes first, so `schedule_expiry`
-/// walks every one of them before it finds room.
-fn fill_expiry_queues<T: Config>(owner: &T::AccountId, netuid: NetUid) {
-    let now = frame_system::Pallet::<T>::block_number();
-    let mut at = now.saturating_add(Params::<T>::get().lifetime_blocks);
-    for _ in 1..settle::MAX_EXPIRY_SHIFT {
-        Expiring::<T>::mutate(
-            at,
-            |queue| {
-                while queue.try_push((owner.clone(), netuid)).is_ok() {}
-            },
-        );
-        at.saturating_inc();
-    }
+/// A short for `owner`, then a whale pump big enough to leave it underwater.
+fn underwater_short<T: Config>(owner: &T::AccountId, netuid: NetUid) {
+    let whale: T::AccountId = frame_benchmarking::account("whale", 0, 0);
+    T::Pool::set_up_acc_for_benchmark(&whale, &whale);
+    Pallet::<T>::do_add(
+        owner.clone(),
+        netuid,
+        Side::Short,
+        Deposit::Tao(TaoBalance::from(CUSHION_TAO)),
+        100,
+    )
+    .unwrap();
+    T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(WHALE_TAO)).unwrap();
 }
 
 #[benchmarks]
@@ -49,69 +49,40 @@ mod benchmarks {
 
     /// Worst case: a flip. The caller's short was pumped underwater, so the settlement runs
     /// every exact-output pass, spends the whole pot and forfeits the rest; then the surplus
-    /// opens a long into a full expiry window, so `schedule_expiry` probes every queue.
+    /// opens a long.
     #[benchmark]
     fn add() {
         let (owner, netuid) = setup::<T>();
-        let whale: T::AccountId = frame_benchmarking::account("whale", 0, 0);
-        T::Pool::set_up_acc_for_benchmark(&whale, &whale);
-
-        Pallet::<T>::do_add(
-            owner.clone(),
-            netuid,
-            Side::Short,
-            TaoBalance::from(CUSHION_TAO),
-            100,
-        )
-        .unwrap();
-        T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(WHALE_TAO)).unwrap();
-        // One block later, so the slot the old position frees in its own queue is not one the
-        // new expiry probes.
-        let now = frame_system::Pallet::<T>::block_number().saturating_add(1u32.into());
-        frame_system::Pallet::<T>::set_block_number(now);
-        fill_expiry_queues::<T>(&owner, netuid);
+        underwater_short::<T>(&owner, netuid);
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(owner.clone()),
             netuid,
             Side::Long,
-            TaoBalance::from(2 * CUSHION_TAO),
+            Deposit::Tao(TaoBalance::from(2 * CUSHION_TAO)),
             100,
         );
 
         let after = Positions::<T>::get(&owner, netuid).unwrap();
         assert_eq!(after.side(), Side::Long);
-        assert_eq!(after.cushion.tao(), TaoBalance::from(CUSHION_TAO));
+        assert_eq!(after.cushion.tao, TaoBalance::from(CUSHION_TAO));
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
-        let nominal = now.saturating_add(Params::<T>::get().lifetime_blocks);
-        assert_eq!(
-            after.expires_at,
-            nominal.saturating_add((settle::MAX_EXPIRY_SHIFT - 1).into())
-        );
     }
 
-    /// Worst case: a short closed after a pump big enough to leave it underwater. The buyback
-    /// runs every exact-output pass and then spends the whole pot, and the remainder is
-    /// forfeited to the pool.
+    /// Worst case: a liquidation of a short pumped underwater. The health check quotes the
+    /// buyback, the buyback runs every exact-output pass and then spends the whole pot, the
+    /// remainder is forfeited to the pool, and the pool tops the liquidator up to one day of
+    /// fee.
     #[benchmark]
     fn close() {
         let (owner, netuid) = setup::<T>();
-        let whale: T::AccountId = frame_benchmarking::account("whale", 0, 0);
-        T::Pool::set_up_acc_for_benchmark(&whale, &whale);
-
-        Pallet::<T>::do_add(
-            owner.clone(),
-            netuid,
-            Side::Short,
-            TaoBalance::from(CUSHION_TAO),
-            100,
-        )
-        .unwrap();
-        T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(WHALE_TAO)).unwrap();
+        underwater_short::<T>(&owner, netuid);
+        let liquidator: T::AccountId = frame_benchmarking::account("liquidator", 0, 0);
+        T::Pool::set_up_acc_for_benchmark(&liquidator, &liquidator);
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(owner.clone()), owner.clone(), netuid);
+        _(RawOrigin::Signed(liquidator), owner.clone(), netuid);
 
         assert!(!Positions::<T>::contains_key(&owner, netuid));
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
@@ -135,6 +106,7 @@ mod benchmarks {
             shorts_enabled: false,
             longs_enabled: true,
             max_pool_share: Some(Percent::from_percent(5)),
+            rate_per_day: None,
         };
 
         #[extrinsic_call]

@@ -1,19 +1,20 @@
-"""`btcli deriv`: expiry-bounded long and short positions on subnet alpha.
+"""`btcli deriv`: long and short positions on subnet alpha.
 
 One position per coldkey and subnet. `short` and `long` are the same call with
-the side fixed: they add to the position, take from it, or flip it.
+the side fixed: they add to the position, take from it, flip it, or roll it
+once it has expired. `close` ends a position: by its owner at any time, or by
+anyone once it has expired or can no longer pay a day of fee; `closable` lists
+those.
 """
 
 from __future__ import annotations
 
-import asyncio
 from typing import Optional
 
 import typer
 
-from ...balance import Balance
 from ...intents import AddPosition, ClosePosition
-from ...intents.derivatives import leverage_percent
+from ...intents.derivatives import DepositAssetChoice, leverage_percent
 from ...settings import guide_docs_url
 from ..context import AppContext, address_cli_name, ctx_of, ss58_param_help
 from ..globals import with_globals, with_tx_globals
@@ -28,7 +29,30 @@ app = typer.Typer(
     ),
 )
 
-POSITIONS_TITLE = "derivative positions (est. value at spot, before slippage)"
+POSITIONS_TITLE = "derivative positions (equity estimated on a constant-product curve)"
+POSITIONS_COLUMNS = [
+    "netuid",
+    "side",
+    "lev",
+    "cushion",
+    "proceeds",
+    "debt",
+    "fee",
+    "equity",
+    "expires",
+    "health",
+]
+POSITIONS_LEGEND = [
+    ("lev", "exposure over cushion value: the blend of every tranche added"),
+    ("cushion", "what you have put up (TAO, plus alpha if any), returned as the position settles"),
+    ("proceeds", "what the opening trades produced (TAO for a short, alpha for a long)"),
+    ("debt", "what must be bought back or repaid to the pool at settlement"),
+    ("fee", "borrow fee owed so far: a day per add, then the summed rate per block"),
+    ("equity", "cushion + proceeds - debt - fee, the debt priced with slippage, in TAO"),
+    ("expires", "days until expiry, set by the first add; after it anyone may close"),
+    ("health", "ok while equity covers one more day of fee and unexpired; else closable"),
+]
+_BLOCKS_PER_DAY = 7_200
 
 
 def _add_options():
@@ -37,10 +61,26 @@ def _add_options():
         netuid=typer.Option(..., "--netuid", help=AddPosition.field_help("netuid")),
         amount=typer.Option(..., "--amount", help=AddPosition.field_help("amount")),
         leverage=typer.Option(1.0, "--leverage", help=AddPosition.field_help("leverage")),
+        deposit_in=typer.Option(
+            DepositAssetChoice.tao,
+            "--in",
+            help=AddPosition.field_help("deposit_in"),
+        ),
+        hotkey_ss58=typer.Option(
+            None, address_cli_name("hotkey_ss58"), help=AddPosition.field_help("hotkey_ss58")
+        ),
     )
 
 
-def _submit_add(app_ctx: AppContext, side: str, netuid: int, amount: str, leverage: float) -> None:
+def _submit_add(
+    app_ctx: AppContext,
+    side: str,
+    netuid: int,
+    amount: str,
+    leverage: float,
+    deposit_in: DepositAssetChoice,
+    hotkey_ss58: Optional[str],
+) -> None:
     try:
         money = _parse_money(amount, False)
     except ValueError as error:
@@ -51,7 +91,18 @@ def _submit_add(app_ctx: AppContext, side: str, netuid: int, amount: str, levera
     except ValueError as error:
         app_ctx.output.error(f"invalid value for `--leverage`: {error}")
         raise typer.Exit(2)
-    app_ctx.submit(AddPosition(netuid=netuid, side=side, amount=money, leverage=leverage))
+    # Only an alpha cushion lives on a hotkey; a TAO cushion must not prompt for one.
+    hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58) if deposit_in == "alpha" else None
+    app_ctx.submit(
+        AddPosition(
+            netuid=netuid,
+            side=side,
+            amount=money,
+            leverage=leverage,
+            deposit_in=deposit_in.value,
+            hotkey_ss58=hotkey,
+        )
+    )
 
 
 _ADD = _add_options()
@@ -64,17 +115,21 @@ def add_short(
     netuid: int = _ADD["netuid"],
     amount: str = _ADD["amount"],
     leverage: float = _ADD["leverage"],
+    deposit_in: DepositAssetChoice = _ADD["deposit_in"],
+    hotkey_ss58: Optional[str] = _ADD["hotkey_ss58"],
 ):
     """Add short exposure: borrow alpha from the pool and sell it for TAO now.
 
     Profit if alpha's price falls before you settle; the cushion covers the
     loss if it rises. `--amount` is the TAO the tranche is sized by and
     `--leverage` the multiple of it, up to the short maximum in `btcli deriv
-    params`. With no position, or a short, `--amount` is deposited as cushion.
+    params`. With no position, or a short, `--amount` is deposited as cushion
+    (TAO, or the subnet's alpha with `--in alpha` from stake on `--hotkey`).
     Against a long it takes that much off at the current price instead, and
-    flips to a short if there is more.
+    flips to a short if there is more. On an expired short it rolls: settles at
+    today's price and reopens from `--amount`.
     """
-    _submit_add(ctx_of(ctx), "Short", netuid, amount, leverage)
+    _submit_add(ctx_of(ctx), "Short", netuid, amount, leverage, deposit_in, hotkey_ss58)
 
 
 @app.command("long")
@@ -84,17 +139,21 @@ def add_long(
     netuid: int = _ADD["netuid"],
     amount: str = _ADD["amount"],
     leverage: float = _ADD["leverage"],
+    deposit_in: DepositAssetChoice = _ADD["deposit_in"],
+    hotkey_ss58: Optional[str] = _ADD["hotkey_ss58"],
 ):
     """Add long exposure: borrow TAO from the pool and buy alpha with it now.
 
     Profit if alpha's price rises before you settle; the cushion covers the
     loss if it falls. `--amount` is the TAO the tranche is sized by and
     `--leverage` the multiple of it, up to the long maximum in `btcli deriv
-    params`. With no position, or a long, `--amount` is deposited as cushion.
+    params`. With no position, or a long, `--amount` is deposited as cushion
+    (TAO, or the subnet's alpha with `--in alpha` from stake on `--hotkey`).
     Against a short it takes that much off at the current price instead, and
-    flips to a long if there is more.
+    flips to a long if there is more. On an expired long it rolls: settles at
+    today's price and reopens from `--amount`.
     """
-    _submit_add(ctx_of(ctx), "Long", netuid, amount, leverage)
+    _submit_add(ctx_of(ctx), "Long", netuid, amount, leverage, deposit_in, hotkey_ss58)
 
 
 @app.command("close")
@@ -111,11 +170,68 @@ def close_position(
     """Close your position on a subnet and settle it against the pool.
 
     The owner may close at any time. Pass `--owner` to close someone else's
-    position once it has expired.
+    position once it has expired or is unhealthy (see `deriv closable`); you
+    are paid one day of fee for an expired one, and the fee owed (at least one
+    day) for an unhealthy one.
     """
     app_ctx: AppContext = ctx_of(ctx)
     owner = app_ctx.resolve_address("coldkey_ss58", owner_ss58) if owner_ss58 else None
     app_ctx.submit(ClosePosition(netuid=netuid, owner_ss58=owner))
+
+
+def _position_row(pos: dict, with_owner: bool) -> list:
+    row = [
+        pos["netuid"],
+        pos["side"],
+        f"{pos['leverage']:g}x",
+        _cushion_cell(pos),
+        str(pos["proceeds"]),
+        str(pos["debt"]),
+        str(pos["accrued_fee_tao"]),
+        str(pos["equity_tao"]),
+        "expired" if pos["expired"] else f"{pos['blocks_left'] / _BLOCKS_PER_DAY:.1f}d",
+        "ok" if pos["healthy"] and not pos["expired"] else "closable",
+    ]
+    return [pos["coldkey"], *row] if with_owner else row
+
+
+def _cushion_cell(pos: dict) -> str:
+    alpha = pos["cushion_alpha"]
+    return f"{pos['cushion']} + {alpha}" if alpha.rao else str(pos["cushion"])
+
+
+def _position_record(pos: dict) -> dict:
+    return {
+        "coldkey": pos["coldkey"],
+        "netuid": pos["netuid"],
+        "side": pos["side"],
+        "leverage": pos["leverage"],
+        "cushion": str(pos["cushion"]),
+        "cushion_alpha": str(pos["cushion_alpha"]),
+        "cushion_alpha_hotkey": pos["cushion_alpha_hotkey"],
+        "proceeds": str(pos["proceeds"]),
+        "debt": str(pos["debt"]),
+        "escrow": str(pos["escrow"]),
+        "exposure_tao": pos["exposure_tao"].tao,
+        "fee_per_day_tao": pos["fee_per_day_tao"].tao,
+        "accrued_fee_tao": pos["accrued_fee_tao"].tao,
+        "opened_at": pos["opened_at"],
+        "expires_at": pos["expires_at"],
+        "expired": pos["expired"],
+        "equity_tao": pos["equity_tao"].tao,
+        "healthy": pos["healthy"],
+    }
+
+
+def _positions_table(app_ctx: AppContext, title: str, positions: list[dict], with_owner: bool):
+    columns = ["owner", *POSITIONS_COLUMNS] if with_owner else POSITIONS_COLUMNS
+    app_ctx.output.table(
+        title,
+        columns,
+        [_position_row(pos, with_owner) for pos in positions],
+        [_position_record(pos) for pos in positions],
+        legend=POSITIONS_LEGEND,
+    )
 
 
 @app.command("list")
@@ -129,94 +245,44 @@ def list_positions(
         None, "--netuid", help="Only show positions on this subnet."
     ),
 ):
-    """List a coldkey's open positions, one per subnet, with an estimated close value.
+    """List a coldkey's open positions, one per subnet, with estimated equity and health.
 
-    The estimate prices the buyback or sale at spot and subtracts the borrow
-    fee owed so far. The real settlement pays slippage on top.
+    Equity prices the buyback or sale on a constant-product curve and subtracts
+    the borrow fee owed so far; the chain's own quote decides at settlement.
     """
     app_ctx: AppContext = ctx_of(ctx)
     owner = app_ctx.resolve_address("coldkey_ss58", coldkey_ss58)
-
-    async def _op(client):
-        positions, prices, block = await asyncio.gather(
-            client.read("derivative_positions", coldkey_ss58=owner),
-            client.read("alpha_prices"),
-            client.block(),
-        )
-        return positions, prices, block
-
-    positions, prices, block = app_ctx.run(_op)
+    positions = app_ctx.run(lambda client: client.read("derivative_positions", coldkey_ss58=owner))
     if netuid is not None:
         positions = [p for p in positions if p["netuid"] == netuid]
+    _positions_table(app_ctx, POSITIONS_TITLE, positions, with_owner=False)
 
-    rows = []
-    records = []
-    for pos in positions:
-        price = prices.get(pos["netuid"], 0.0)
-        estimate = _estimated_close_value(pos, price)
-        blocks_left = max(0, pos["expires_at"] - block)
-        rows.append(
-            [
-                pos["netuid"],
-                pos["side"],
-                f"{pos['leverage']:g}x",
-                str(pos["cushion"]),
-                str(pos["proceeds"]),
-                str(pos["debt"]),
-                str(pos["accrued_fee_tao"]),
-                "expired" if pos["expired"] else f"{blocks_left} blocks",
-                str(estimate),
-            ]
-        )
-        records.append(
-            {
-                "netuid": pos["netuid"],
-                "side": pos["side"],
-                "leverage": pos["leverage"],
-                "cushion": str(pos["cushion"]),
-                "proceeds": str(pos["proceeds"]),
-                "debt": str(pos["debt"]),
-                "escrow": str(pos["escrow"]),
-                "exposure_tao": pos["exposure_tao"].tao,
-                "fee_per_day_tao": pos["fee_per_day_tao"].tao,
-                "accrued_fee_tao": pos["accrued_fee_tao"].tao,
-                "opened_at": pos["opened_at"],
-                "expires_at": pos["expires_at"],
-                "expired": pos["expired"],
-                "estimated_value_tao": estimate.tao,
-            }
-        )
-    app_ctx.output.table(
-        POSITIONS_TITLE,
-        ["netuid", "side", "lev", "cushion", "proceeds", "debt", "fee", "expires in", "est. value"],
-        rows,
-        records,
-        legend=[
-            ("lev", "exposure over cushion: the blend of every tranche added"),
-            ("cushion", "the TAO you have put up, returned as the position settles"),
-            ("proceeds", "what the opening trades produced (TAO for a short, alpha for a long)"),
-            ("debt", "what must be bought back or repaid to the pool at settlement"),
-            ("fee", "borrow fee owed so far: a day per add, then the summed rate per block"),
-            ("est. value", "cushion + proceeds - debt - fee at spot, in TAO"),
-        ],
+
+@app.command("closable")
+@with_globals
+def list_closable(
+    ctx: typer.Context,
+    netuid: int = typer.Option(..., "--netuid", help="Subnet whose positions to scan."),
+    all_positions: bool = typer.Option(
+        False, "--all", help="Show every position on the subnet, healthy ones too."
+    ),
+):
+    """List positions on a subnet that anyone may close, lowest equity first.
+
+    A position is closable once it has expired or its equity no longer covers
+    one day of fee. Closing one with `deriv close --owner <coldkey>` pays you
+    one day of fee for an expired one, or the fee owed (topped up by the pool
+    to one day) for an unhealthy one. Health here is an estimate; the chain
+    rejects a close of a position it still finds healthy and unexpired.
+    """
+    app_ctx: AppContext = ctx_of(ctx)
+    positions = app_ctx.run(
+        lambda client: client.read("derivative_positions_on_subnet", netuid=netuid)
     )
-
-
-def _estimated_close_value(pos: dict, tao_per_alpha: float) -> Balance:
-    """Cushion plus proceeds minus debt and fee, everything valued in TAO at spot."""
-
-    def tao_of(balance: Balance) -> int:
-        if balance.netuid == 0:
-            return balance.rao
-        return int(balance.rao * tao_per_alpha)
-
-    value = (
-        pos["cushion"].rao
-        + tao_of(pos["proceeds"])
-        - tao_of(pos["debt"])
-        - pos["accrued_fee_tao"].rao
-    )
-    return Balance.from_rao(max(0, value))
+    if not all_positions:
+        positions = [p for p in positions if p["expired"] or not p["healthy"]]
+    title = f"netuid {netuid}: {'all' if all_positions else 'closable'} positions"
+    _positions_table(app_ctx, title, positions, with_owner=True)
 
 
 @app.command("params")
@@ -226,13 +292,13 @@ def show_params(
     netuid: Optional[int] = typer.Option(
         None,
         "--netuid",
-        help="Also show this subnet's override of the switches and cap, if root set one.",
+        help="Also show this subnet's override of the switches, cap, and rate, if root set one.",
     ),
 ):
-    """Show the derivatives pallet's parameters: max leverage, pool cap, lifetime, fees.
+    """Show the derivatives pallet's parameters: max leverage, pool cap, fee rate, lifetime.
 
-    With `--netuid`, also show whether that subnet is paused or capped differently
-    from the global parameters.
+    With `--netuid`, also show whether that subnet is paused, capped, or priced
+    differently from the global parameters.
     """
     app_ctx: AppContext = ctx_of(ctx)
     params = app_ctx.run(lambda client: client.read("derivatives_params"))

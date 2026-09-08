@@ -75,6 +75,7 @@
     "alpha-prices",
     "derivative-position",
     "derivative-positions",
+    "derivative-positions-on-subnet",
     "derivatives-params",
     "derivatives-subnet-override",
     "quote-stake",

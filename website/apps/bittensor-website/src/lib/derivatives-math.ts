@@ -1,10 +1,9 @@
 /**
  * The worked example every derivatives figure uses: a 100 τ cushion on a
  * 10,000 τ / 200,000 α pool (0.05 τ/α). Each side is shown at its leverage
- * ceiling: the short at 1x lifts 1% of the pool, the long at 2x lifts 2%. A
- * short pays 6 τ/day × the pool share it
- * lifts; a long pays 0.01%/day of its TAO exposure. Both fees are scaled by
- * `1 / (1 − phi)^4` for the position's own slippage.
+ * ceiling: the short at 1x lifts 1% of the pool, the long at 2x lifts 2%. Both
+ * pay the same fee law: `rate_per_day` (0.05%) of their TAO exposure per day,
+ * so the 2x long pays twice the 1x short. A position lasts `LIFETIME_DAYS`.
  *
  * `simulate` mirrors `pallet-derivatives`: lift `phi` of both reserves, trade one
  * half through the constant-product pool, let the market move, reverse the trade
@@ -23,10 +22,10 @@ export const CUSHION = 100;
  * An owner may open at anything from 0.01x up to these.
  */
 export const LEVERAGE: Record<Side, number> = {short: 1, long: 2};
-/** TAO per day a short pays for borrowing the whole pool (`short_fee_per_day`). */
-export const SHORT_FEE_PER_DAY = 6;
-/** Fraction of TAO exposure a long pays per day (`long_rate_per_day`). */
-export const LONG_RATE_PER_DAY = 0.0001;
+/** Fraction of TAO exposure either side pays per day (`rate_per_day`). */
+export const RATE_PER_DAY = 0.0005;
+/** Term of a position from its first add (`lifetime_blocks` / 7,200). */
+export const LIFETIME_DAYS = 90;
 export const OPEN_PRICE = POOL_TAO / POOL_ALPHA;
 
 /** Share of the pool the position lifts: `L × cushion / T`. */
@@ -62,16 +61,9 @@ export interface Outcome {
   pnl: number;
 }
 
-/** `1 / (1 − phi)^4`: the pallet's `size_factor`. */
-export function sizeFactor(p: number): number {
-  return 1 / (1 - p) ** 4;
-}
-
-/** Fee per day, fixed at the add: `6 τ × phi` for a short, `0.01% × exposure` for a long, times the size factor. */
+/** Fee per day, fixed at the add: `rate_per_day × exposure`, the same law on both sides. */
 export function feePerDay(side: Side): number {
-  const p = phi(side);
-  const base = side === 'short' ? SHORT_FEE_PER_DAY * p : LONG_RATE_PER_DAY * lift(side).tao;
-  return base * sizeFactor(p);
+  return RATE_PER_DAY * lift(side).tao;
 }
 
 /** The pallet books one day at the add, then accrues per block: `days` held costs `1 + days` days. */

@@ -25,6 +25,7 @@ BeaconConfigurationPayload = Any
 BoundedVec = Any
 CommitmentInfo = Any
 ConsensusMode = Any
+Deposit = Any
 DerivativesParams = Any
 Determinism = Any
 EquivocationProof = Any
@@ -1665,21 +1666,21 @@ class Derivatives:
     """Call builders for the Derivatives pallet."""
 
     @staticmethod
-    def add(netuid: 'NetUid', side: 'Side', amount: 'TaoBalance', leverage_percent: 'u16') -> Call:
-        "Add `side` exposure on `netuid`: `leverage_percent / 100` times `amount`, measured against the pool's TAO reserve. One call covers open, add, reduce, and flip.  With no position, or one on the same side, `amount` TAO is taken from the caller's free balance as cushion and a tranche is lifted from the pool and folded into the position. One day of the tranche's fee is booked up front. Nothing can be added to an expired position.  With a position on the other side, this settles the matching share of it at the current price and pays that share of the cushion, less fee and any loss, to the caller. If the exposure asked for is larger than the position, the whole position is closed and the rest, if it reaches `min_deposit_tao`, opens on the new side. Only the cushion for that rest is taken from the caller.  The leverage must be above zero and at most the side's maximum (`max_short_leverage_percent` or `max_long_leverage_percent`)."
-        return Call('Derivatives', 'add', {'netuid': netuid, 'side': side, 'amount': amount, 'leverage_percent': leverage_percent})
+    def add(netuid: 'NetUid', side: 'Side', deposit: 'Deposit', leverage_percent: 'u16') -> Call:
+        "Add `side` exposure on `netuid`: `leverage_percent / 100` times the TAO value of `deposit`, measured against the pool's TAO reserve. One call covers open, add, reduce, and flip.  `deposit` is TAO from the caller's free balance, or alpha the caller has staked at a hotkey on this subnet, valued at spot. Alpha is accepted only where `alpha_cushion_shorts` / `alpha_cushion_longs` allow it, and goes back to that hotkey at close.  With no position, or one on the same side, the deposit becomes cushion and a tranche is lifted from the pool and folded into the position. One day of the tranche's fee is booked up front. The expiry is set by the first add and does not move. If the position has expired, it is settled at the current price first and the deposit opens a fresh one: a roll.  With a position on the other side, this settles the matching share of it at the current price and pays that share of the cushion, less fee and any loss, to the caller. If the exposure asked for is larger than the position, the whole position is closed and the rest, if it reaches `min_deposit_tao`, opens on the new side. Only the deposit for that rest is taken from the caller.  The leverage must be above zero and at most the side's maximum (`max_short_leverage_percent` or `max_long_leverage_percent`)."
+        return Call('Derivatives', 'add', {'netuid': netuid, 'side': side, 'deposit': deposit, 'leverage_percent': leverage_percent})
 
     @staticmethod
     def close(owner: 'AccountId32', netuid: 'NetUid') -> Call:
-        "Settle `owner`'s position on `netuid` in full. The owner may close at any time; anyone else only once the position has expired."
+        "Settle `owner`'s position on `netuid` in full. The owner may close at any time. Anyone else may close it once it is unhealthy (its equity at the current quotes no longer covers one day of fee) or expired. A liquidator is paid the fee owed and whatever is left after the pool is repaid, topped up by the pool to one day of fee if that is less, and the owner is paid nothing. The closer of an expired position is paid one day of fee and the owner gets the rest."
         return Call('Derivatives', 'close', {'owner': owner, 'netuid': netuid})
 
     @staticmethod
     def sudo_set_params(params: 'DerivativesParams') -> Call:
-        'Replace every parameter at once. Root only. Rejects a zero maximum leverage, `max_pool_share`, or `lifetime_blocks`. Open positions keep the fee and lifetime they were opened with; a later add is checked against the new values.'
+        'Replace every parameter at once. Root only. Rejects a zero maximum leverage, `max_pool_share`, `rate_per_day`, or `lifetime_blocks`. Open positions keep the fee rate and expiry they were added with; a later add is checked against the new values.'
         return Call('Derivatives', 'sudo_set_params', {'params': params})
 
     @staticmethod
     def sudo_set_subnet_override(netuid: 'NetUid', override_: 'Any') -> Call:
-        'Pause a side or change the pool-share cap on one subnet. Root only. `None` removes the override. Affects opens only; positions already open settle as usual.'
+        'Pause a side, or change the pool-share cap or the fee rate, on one subnet. Root only. `None` removes the override. Affects adds only; positions already open settle as usual.'
         return Call('Derivatives', 'sudo_set_subnet_override', {'netuid': netuid, 'override_': override_})

@@ -462,8 +462,6 @@ class Derivatives:
     OpenByNetuid = Item('Derivatives', 'OpenByNetuid', '()')
     Footprint = Item('Derivatives', 'Footprint', 'u64')
     AlphaToSettle = Item('Derivatives', 'AlphaToSettle', 'u64')
-    Expiring = Item('Derivatives', 'Expiring', 'BoundedVec')
-    NextSweep = Item('Derivatives', 'NextSweep', 'u32')
     PalletHotkey = Item('Derivatives', 'PalletHotkey', 'AccountId32')
     SubnetOverrides = Item('Derivatives', 'SubnetOverrides', 'SubnetOverride')
     DissolutionPrice = Item('Derivatives', 'DissolutionPrice', '(TaoBalance, AlphaBalance)')

@@ -8,10 +8,11 @@ import styles from '../v436-upgrade/page.module.css';
 export const metadata: Metadata = {
   title: 'The V455 Upgrade — Longs and Shorts',
   description:
-    'V455 adds pallet-derivatives: 30-day longs and shorts on any subnet’s alpha, borrowed ' +
-    'from the subnet’s own pool. One position per subnet and one call to add to it, take ' +
-    'from it, or flip it. No synthetic tokens, nothing minted or burned, a per-day borrow fee ' +
-    'paid to the pool. btcli deriv short, long, list, and close are the working surface.',
+    'V455 adds pallet-derivatives: longs and shorts on any subnet’s alpha, borrowed from the ' +
+    'subnet’s own pool. One position per subnet and one call to add to it, take from it, ' +
+    'flip it, or roll it; a 90-day term. No synthetic tokens, nothing minted or burned, one ' +
+    'per-day borrow fee for both sides paid to the pool. btcli deriv short, long, list, ' +
+    'closable, and close are the working surface.',
   alternates: {canonical: '/releases/v455-upgrade'},
 };
 
@@ -187,7 +188,7 @@ const FootprintChart = () => {
         </g>
       ))}
       <text {...GRAPH_TEXT} x={xFor(0.45)} y={yFor(dipped) + 18} textAnchor='middle' fill={MUTED} fontSize={9}>
-        HOLD · UP TO 30 DAYS · FEE ACCRUES
+        HOLD · NO EXPIRY · FEE ACCRUES
       </text>
       <path d={path} fill='none' stroke={INK} strokeWidth='1.5' />
       <text {...GRAPH_TEXT} x={xFor(0.18) - 8} y={yFor(dipped) + 3} textAnchor='end' fill={GOLD} fontSize={11}>
@@ -224,15 +225,16 @@ const page = () => {
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
             Spec <strong>455</strong> adds <code>pallet-derivatives</code>. Anyone can now take
-            a <strong>long</strong> or a <strong>short</strong> on a subnet&apos;s alpha for up
-            to 30 days, backed by a TAO deposit. A short profits when alpha falls; a long profits
+            a <strong>long</strong> or a <strong>short</strong> on a subnet&apos;s alpha, backed
+            by a TAO deposit, for a 90-day term. A short profits when alpha falls; a long profits
             when alpha rises.
           </p>
           <p>
             You hold one position per subnet, and you move it with one call. Add on the side you
             hold and it grows. Add on the other side and that much comes off, paid out at
-            today&apos;s price. Add more than you hold and it flips. <code>close</code> settles
-            all of it.
+            today&apos;s price. Add more than you hold and it flips. Add on your side after the
+            term is up and it rolls: settled at today&apos;s price and reopened for another 90
+            days. <code>close</code> settles all of it.
           </p>
           <p>
             There are no synthetic tokens and no order book. Every position is built from the
@@ -240,12 +242,12 @@ const page = () => {
             deposit (one times it for a short, two times for a long), trades that slice through
             the ordinary staking swap, and reverses the trade when you settle. Nothing is minted,
             nothing is burned. The pool earns a borrow fee fixed per day for each slice when it
-            is added: 6 τ a day per 100% of the pool a short lifts, 0.01% of exposure a day on a
-            long.
+            is added: 0.05% of the slice&apos;s TAO exposure a day, the same law on both sides.
           </p>
           <p>
             <code>btcli deriv</code> is the working surface: <code>short</code>,{' '}
-            <code>long</code>, <code>list</code>, <code>close</code>, and <code>params</code>.
+            <code>long</code>, <code>list</code>, <code>closable</code>, <code>close</code>, and{' '}
+            <code>params</code>.
             The full walk-through, with an animated slide deck of one position from open to
             close, is in the{' '}
             <DocLink href='/docs/guides/derivatives'>Longs and shorts</DocLink> guide.
@@ -283,7 +285,8 @@ const page = () => {
           <div className={styles.step}>
             <p className={styles.step_title}>3 · Close</p>
             <p>
-              At any block within 30 days — or by anyone after — the trade is reversed: a short
+              At any block — by you, or by anyone once the position has run its 90 days or can
+              no longer pay a day of fee — the trade is reversed: a short
               buys its 2,000 α back, a long sells its alpha and repays the 100 τ. The slice goes
               home together with the fee, added to the pool without moving the price. You get
               your cushion back, plus or minus the move, minus the fee. Adding the other side
@@ -299,8 +302,8 @@ const page = () => {
           <p className={styles.graph_caption}>
             The pool&apos;s view of the same short. Only the two swaps move the price; the lift
             and the return are neutral. With no market move the buyback lands exactly where the
-            sale started, and the pool is about 0.06 τ richer for each day the position was open
-            (a 100 τ short lifts 1% of this 10,000 τ pool; 6 τ × 1% = 0.06 τ a day).
+            sale started, and the pool is 0.05 τ richer for each day the position was open
+            (0.05% a day of the 100 τ this short has in play).
           </p>
         </section>
 
@@ -316,14 +319,13 @@ const page = () => {
           <div className={styles.step}>
             <p className={styles.step_title}>1 · Read the parameters</p>
             <p>
-              Whether each side is enabled, the leverage ceiling per side, the pool cap, the
-              lifetime,
-              the fee rates, and the minimum deposit (
+              Whether each side is enabled, the leverage ceiling per side, the pool cap,
+              the fee rate, the term, and the minimum deposit (
               <DocLink href='/docs/query/derivatives-params'>
                 <code>derivatives-params</code>
               </DocLink>
-              ). With <code>--netuid</code>, also whether root has paused or re-capped that one
-              subnet (
+              ). With <code>--netuid</code>, also whether root has paused, re-capped, or
+              re-priced that one subnet (
               <DocLink href='/docs/query/derivatives-subnet-override'>
                 <code>derivatives-subnet-override</code>
               </DocLink>
@@ -340,29 +342,36 @@ const page = () => {
               <DocLink href='/docs/tx/add-derivative'>
                 <code>add</code>
               </DocLink>{' '}
-              call with the side fixed. Same side: another slice is lifted and folded in, and
-              the expiry does not move. Other side: that share is settled at today&apos;s price
-              and paid out. More than you hold: the position closes and the rest opens on the
-              new side, with a fresh expiry.
+              call with the side fixed. Same side: another slice is lifted and folded in. Other side: that share is settled
+              at today&apos;s price and paid out. More than you hold: the position closes and
+              the rest opens on the new side. Same side after the 90 days: the position is
+              settled at today&apos;s price and a new one opens from the amount, a roll.
             </p>
             <pre className={styles.step_code}>
               {`btcli deriv short --netuid 7 --amount 100 -w my_coldkey                # open a short
 btcli deriv short --netuid 7 --amount 50 -w my_coldkey                 # add to it
 btcli deriv long  --netuid 7 --amount 30 -w my_coldkey                 # take 30 τ off it
-btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to a long`}
+btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to a long
+btcli deriv long  --netuid 7 --amount 100 --leverage 2 -w my_coldkey   # after day 90: roll it`}
             </pre>
           </div>
 
           <div className={styles.step}>
             <p className={styles.step_title}>3 · Watch</p>
             <p>
-              Fee so far, blocks to expiry, and an estimated close value at spot (
+              Fee so far, days to expiry, estimated equity, and health (owner-only, or closable
+              by anyone) (
               <DocLink href='/docs/query/derivative-positions'>
                 <code>derivative-positions</code>
               </DocLink>
-              ). The real settlement pays slippage on the closing leg, so expect slightly less.
+              ). Equity prices the closing leg on a constant-product curve; the chain&apos;s own
+              quote decides. <code>closable</code> lists every position on a subnet that anyone
+              may close, expired or unhealthy, lowest equity first.
             </p>
-            <pre className={styles.step_code}>{`btcli deriv list -w my_coldkey`}</pre>
+            <pre className={styles.step_code}>
+              {`btcli deriv list -w my_coldkey
+btcli deriv closable --netuid 7`}
+            </pre>
           </div>
 
           <div className={styles.step}>
@@ -373,10 +382,10 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to
               <DocLink href='/docs/tx/close-derivative'>
                 <code>close</code>
               </DocLink>
-              ). Past expiry, anyone may close a position with <code>--owner</code>. To stay in
-              past the 30 days, close and add again: the new position gets today&apos;s price
-              and a full lifetime. A position is never extended without being marked to market,
-              and an expired one cannot be added to.
+              ). Once a position has expired, anyone may close it with <code>--owner</code> and
+              is paid one day of fee; the owner gets the rest. Once its equity no longer covers
+              one day of fee, anyone may close it and is paid the fee owed, at least one day of
+              it; the owner gets nothing. Add cushion before that to keep it healthy.
             </p>
             <pre className={styles.step_code}>
               {`btcli deriv close --netuid 7 -w my_coldkey
@@ -389,7 +398,7 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
           <h2 className={styles.subtitle}>What bounds it</h2>
           <p>
             <strong>Leverage you choose on each add, under a ceiling root sets: 1x on shorts,
-            2x on longs. TAO cushions.</strong> At 1x a short&apos;s exposure equals its cushion, so a 20%
+            2x on longs.</strong> At 1x a short&apos;s exposure equals its cushion, so a 20%
             move in alpha moves a 100 τ short by about 20 τ and a doubling wipes it. At 2x a
             long&apos;s exposure is twice its cushion: a 20% move is worth about 40 τ and a
             halving wipes it. In general a position at leverage L is wiped by a move of 1/L
@@ -397,8 +406,9 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
             anything and does nothing a spot buy does not; at 2x it is a real instrument whose
             worst case for the pool, a halving, is as rare as a doubling is for shorts. Both
             ceilings are dials; the protocol is built for higher ones later. Your cushion is the
-            most you can lose, and it is TAO only: a subnet team cannot post alpha it minted to
-            itself as collateral. If the closing trade cannot repay what the position borrowed, the
+            most you can lose, and it is TAO unless root switches alpha cushions on for a side
+            (they ship off): a subnet team cannot post alpha it minted to itself as collateral.
+            If the closing trade cannot repay what the position borrowed, the
             position is underwater: you are paid nothing, whatever the pallet still holds goes to
             the pool, and the pool carries the remaining shortfall. That rule is enforced at
             settlement, not inferred from swap quotes.
@@ -412,26 +422,39 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
             single subnet without touching the rest.
           </p>
           <p>
-            <strong>30-day expiry.</strong> A position may live for 216,000 blocks. After that
-            the chain sweeps it in <code>on_idle</code>, up to 32 per block, and settles it like
-            any close; anyone may also close it by hand. Adds never move the expiry and are
-            refused once it has passed — close and add again to stay in.
+            <strong>A 90-day term.</strong> Every position expires <code>lifetime_blocks</code>{' '}
+            (648,000 blocks, 90 days) after its first add. Adding does not move it. After it,
+            anyone may close the position for one day of its fee and the owner is paid the rest
+            as at any close; the owner&apos;s own add on the same side rolls it instead, settling
+            at today&apos;s price and reopening from the new deposit for another 90 days, in one
+            transaction. Expiry is a forced mark to market, not a penalty: what it buys the pool
+            is that no slice of liquidity can be held out for good, and every position must
+            re-enter through the cap and the ceilings in force that day.
           </p>
           <p>
-            <strong>Fee to the pool.</strong> Each add fixes a per-day rate for its slice, books
-            one day of it at once, and from then on the position&apos;s summed rate accrues per
-            block; every settlement pays what is owed. A short pays <code>6 τ × phi</code> per day, where <code>phi</code> is the
-            share of the pool it lifted: 1% of any pool costs about 0.06 τ a day, 1.9 τ over 30
-            days. A long pays 0.01% of its TAO exposure per day: about 0.02 τ a day on 100 τ at
-            2x, 0.65 τ over 30 days. Both are multiplied by <code>1 / (1 − phi)⁴</code>, which
-            is 1.04 at a 1% slice and 2.4 at 20%: a bigger slice closes into a thinner pool, and
-            this keeps the fee fair however high the cap is set. The two sides differ because the
-            pool&apos;s risk differs. A short exposes the pool to a pump, and in a
-            constant-product pool the cost of a pump scales with one over the TAO reserve, so a
-            fixed TAO amount per unit of pool share is the fair form. A long exposes the pool to a
-            crash, which does not depend on pool size. Both constants are about twice the
-            pool&apos;s measured expected loss over a year of Finney prices. Profit comes out of
-            the pool; loss goes into it. Over time the fee is what the pool earns for lending.
+            <strong>Health inside the term.</strong> A position&apos;s equity is what a close
+            now would pay: cushion plus proceeds, less the debt at the pool&apos;s quote, less
+            the fee owed. While that covers one more day of fee the position is healthy and
+            owner-only. Below it, anyone may close it and is paid the fee owed plus whatever is
+            left after the pool is repaid, topped up by the pool to one day of fee if less. The
+            buffer is what makes the liquidation pay for itself: at the moment a position
+            becomes closable it still holds about a day of fee, so the bounty comes out of the
+            position, and the pool only pays the floor when a price jump takes a position
+            straight to underwater. The chain runs no sweep; closing what is expired or unhealthy
+            is permissionless work. Adding cushion restores health.
+          </p>
+          <p>
+            <strong>One fee, both sides.</strong> Each add fixes a per-day rate for its slice,
+            books one day of it at once, and from then on the position&apos;s summed rate
+            accrues per block; every settlement pays what is owed. The rate is{' '}
+            <code>rate_per_day</code>, 0.05%, times the slice&apos;s TAO exposure, whichever
+            side: a 100 τ short at 1x pays 0.05 τ a day, 4.5 τ over its term; a 100 τ long at 2x
+            has 200 τ in play and pays 0.1 τ a day, 9 τ over its term. Leverage costs in
+            proportion to what it borrows, and pool size and pool share do not enter. The fee is
+            a rent on the pool&apos;s liquidity, not an option premium; what protects the pool
+            from a position that turns dangerous is the cap, the ceilings, and the term. Root can
+            set a different rate for one subnet whose pool the flat rate underprices. Profit comes
+            out of the pool; loss goes into it.
           </p>
           <p>
             <strong>Longs do not earn emission.</strong> Emission is weighted by each
@@ -463,20 +486,22 @@ btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey`}
             <code>pallet-derivatives</code> is added at index 33 with two user calls —{' '}
             <code>add</code>, which takes a <code>side</code> of short or long, an amount and a{' '}
             <code>leverage_percent</code>, and <code>close</code> — plus two root-only calls:{' '}
-            <code>sudo_set_params</code>, which rejects a zero leverage ceiling, pool share, or
-            lifetime, and <code>sudo_set_subnet_override</code>, which pauses a side or replaces
-            the cap on one subnet. Its parameters ship at: shorts and longs enabled,{' '}
+            <code>sudo_set_params</code>, which rejects a zero leverage ceiling, pool share,
+            fee rate, or lifetime, and <code>sudo_set_subnet_override</code>, which pauses a
+            side or replaces the cap or the fee rate on one subnet. Its parameters ship at:
+            shorts and longs enabled, alpha cushions off on both sides,{' '}
             <code>max_short_leverage_percent</code> 100, <code>max_long_leverage_percent</code>{' '}
-            200, <code>max_pool_share</code> 10%, <code>lifetime_blocks</code> 216,000,{' '}
-            <code>short_fee_per_day</code> 6 τ, <code>long_rate_per_day</code> 0.01%,{' '}
-            <code>min_deposit_tao</code> 0.1 τ. Every one is a dial root can turn later; a
-            position keeps the fee and lifetime it has, and its next add is checked against the
-            new values. A position is one record per coldkey and subnet, every field a sum over
-            its adds, with a fee ledger of <code>fee_per_day</code> and{' '}
-            <code>fee_accrued</code>. The cushion is stored as a{' '}
-            <code>Cushion</code> enum with a single <code>Tao</code> variant today, so an alpha
-            variant can be added later without migrating open positions. Existing positions can
-            always be closed, whatever is paused.
+            200, <code>max_pool_share</code> 10%, <code>rate_per_day</code> 0.05%,{' '}
+            <code>lifetime_blocks</code> 648,000, <code>min_deposit_tao</code> 0.1 τ. Every one
+            is a dial root can turn later; a position keeps the fee rate and the expiry it has,
+            and its next add is checked against the new values. A position is one record per
+            coldkey and subnet, every field a sum over its adds, with a fee ledger of{' '}
+            <code>fee_per_day</code> and <code>fee_accrued</code> and an{' '}
+            <code>expires_at</code>. The cushion is a <code>Cushion</code> of TAO, alpha, and
+            the hotkey the alpha returns to; the <code>add</code> call takes a{' '}
+            <code>Deposit</code> of <code>Tao</code> or <code>Alpha</code>, and the alpha path
+            is switched off until root turns it on per side. Existing positions can always be
+            closed, whatever is paused.
           </p>
           <p>
             The subtensor pallet gains a small pool interface for the derivatives pallet:

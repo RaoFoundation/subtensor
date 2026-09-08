@@ -276,8 +276,71 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         )
     }
 
+    fn transfer_stake_internal(
+        from_coldkey: &T::AccountId,
+        from_hotkey: &T::AccountId,
+        to_coldkey: &T::AccountId,
+        to_hotkey: &T::AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult {
+        ensure!(
+            Self::derivatives_pool_present(netuid),
+            Error::<T>::SubnetNotExists
+        );
+        // Stake on a hotkey with no owner cannot be moved out again by anyone.
+        ensure!(
+            Self::hotkey_account_exists(to_hotkey),
+            Error::<T>::HotKeyAccountNotExists
+        );
+        if amount.is_zero() {
+            return Ok(());
+        }
+        let held =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(from_hotkey, from_coldkey, netuid);
+        ensure!(held >= amount, Error::<T>::NotEnoughStakeToWithdraw);
+        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            from_hotkey,
+            from_coldkey,
+            netuid,
+            amount,
+        );
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            to_hotkey, to_coldkey, netuid, amount,
+        );
+        Ok(())
+    }
+
     fn hotkey_exists(hotkey: &T::AccountId) -> bool {
         Self::hotkey_account_exists(hotkey)
+    }
+
+    fn quote_buy_alpha(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance {
+        T::SwapInterface::tao_needed_for_alpha(netuid, alpha)
+    }
+
+    fn quote_sell_alpha(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance {
+        T::SwapInterface::tao_out_for_alpha(netuid, alpha)
+    }
+
+    #[transactional]
+    fn draw_tao(netuid: NetUid, to_coldkey: &T::AccountId, tao: TaoBalance) -> DispatchResult {
+        ensure!(
+            Self::derivatives_pool_present(netuid),
+            Error::<T>::SubnetNotExists
+        );
+        if tao.is_zero() {
+            return Ok(());
+        }
+        ensure!(
+            tao <= SubnetTAO::<T>::get(netuid),
+            Error::<T>::InsufficientLiquidity
+        );
+        // `derivatives_adjust_total_stake` is a no-op for a dissolving subnet: `TotalStake`
+        // already excludes it.
+        Self::decrease_provided_tao_reserve(netuid, tao);
+        Self::derivatives_adjust_total_stake(netuid, tao, false);
+        Self::transfer_tao_from_subnet(netuid, to_coldkey, tao)
     }
 
     /// Quoted, not executed: the balancer is still in storage while the subnet dissolves, and
@@ -296,28 +359,6 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         } else {
             <Self as DerivativesPoolInterface<T::AccountId>>::reserves(netuid)
         }
-    }
-
-    #[transactional]
-    fn draw_tao_at_dissolution(
-        netuid: NetUid,
-        to_coldkey: &T::AccountId,
-        tao: TaoBalance,
-    ) -> DispatchResult {
-        ensure!(
-            Self::derivatives_pool_present(netuid) && !Self::if_subnet_exist(netuid),
-            Error::<T>::SubnetNotExists
-        );
-        if tao.is_zero() {
-            return Ok(());
-        }
-        ensure!(
-            tao <= SubnetTAO::<T>::get(netuid),
-            Error::<T>::InsufficientLiquidity
-        );
-        // `TotalStake` already excludes a dissolving subnet, so only the reserve moves.
-        Self::decrease_provided_tao_reserve(netuid, tao);
-        Self::transfer_tao_from_subnet(netuid, to_coldkey, tao)
     }
 
     #[cfg(feature = "runtime-benchmarks")]

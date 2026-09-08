@@ -310,8 +310,33 @@ pub trait DerivativesPoolInterface<AccountId> {
         budget: AlphaBalance,
     ) -> Result<(AlphaBalance, TaoBalance), DispatchError>;
 
+    /// Move `amount` staked alpha between two `(coldkey, hotkey)` pairs with no validation
+    /// beyond the sender's balance and the destination hotkey still existing. Also works while
+    /// the subnet is dissolving. Used to hand a cushion back to its owner; user-facing deposits
+    /// go through [`OrderSwapInterface::transfer_staked_alpha`] with validation on.
+    fn transfer_stake_internal(
+        from_coldkey: &AccountId,
+        from_hotkey: &AccountId,
+        to_coldkey: &AccountId,
+        to_hotkey: &AccountId,
+        netuid: NetUid,
+        amount: AlphaBalance,
+    ) -> DispatchResult;
+
     /// Whether `hotkey` is registered to any coldkey.
     fn hotkey_exists(hotkey: &AccountId) -> bool;
+
+    /// Exact, fee-free TAO the pool would charge right now to buy `alpha`. `TaoBalance::MAX`
+    /// when the pool cannot supply that much.
+    fn quote_buy_alpha(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance;
+
+    /// Exact, fee-free TAO the pool would pay right now for `alpha` sold into it.
+    fn quote_sell_alpha(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance;
+
+    /// Pay `tao` out of the pool's TAO reserve to `to_coldkey`'s free balance. On a live
+    /// subnet the price moves as for any TAO leaving the reserve; while dissolving, the pool
+    /// is being cashed out and only the reserve changes.
+    fn draw_tao(netuid: NetUid, to_coldkey: &AccountId, tao: TaoBalance) -> DispatchResult;
 
     /// Execution price of the one swap that closes every position on a dissolving subnet at
     /// once: `alpha_owed` (every short's debt) bought and `alpha_held` (every long's proceeds)
@@ -323,14 +348,6 @@ pub trait DerivativesPoolInterface<AccountId> {
         alpha_owed: AlphaBalance,
         alpha_held: AlphaBalance,
     ) -> (TaoBalance, AlphaBalance);
-
-    /// Pay `tao` out of the pool's TAO reserve to `to_coldkey`'s free balance. Only while
-    /// `netuid` is dissolving: the pool is being cashed out and the price no longer matters.
-    fn draw_tao_at_dissolution(
-        netuid: NetUid,
-        to_coldkey: &AccountId,
-        tao: TaoBalance,
-    ) -> DispatchResult;
 
     /// Make `netuid` a live dynamic subnet with a funded, price-initialised pool that
     /// [`Self::is_dynamic`] accepts. `OrderSwapInterface::set_up_netuid_for_benchmark` only

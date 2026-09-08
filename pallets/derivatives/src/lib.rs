@@ -1,14 +1,21 @@
-//! Expiry-bounded long and short positions on subnet alpha, borrowed from the subnet's own
-//! liquidity pool.
+//! Long and short positions on subnet alpha, borrowed from the subnet's own liquidity pool.
 //!
-//! One position per `(owner, netuid)`, built with one call: `add(side, amount, leverage)`.
-//! Adding on the position's own side lifts a further slice `phi` of both pool reserves without
-//! moving price, swaps one half into the other token, and folds the result into the position.
-//! Adding on the other side settles that much of it at the current price, and flips through
-//! zero if there is more. `close` settles everything. At settlement the swap is reversed, the
-//! borrowed slice plus the borrow fee go back to the pool, and whatever is left of the owner's
-//! cushion and proceeds is paid out. Nothing is minted or burned: the pool only ever gets its
-//! own liquidity back.
+//! One position per `(owner, netuid)`, built with one call: `add(side, deposit, leverage)`.
+//! The deposit is TAO, or alpha staked on the subnet where root allows it. Adding on the
+//! position's own side lifts a further slice `phi` of both pool reserves without moving price,
+//! swaps one half into the other token, and folds the result into the position. Adding on the
+//! other side settles that much of it at the current price, and flips through zero if there is
+//! more. `close` settles everything. At settlement the swap is reversed, the borrowed slice
+//! plus the borrow fee go back to the pool, and whatever is left of the owner's cushion and
+//! proceeds is paid out in kind. Nothing is minted or burned: the pool only ever gets its own
+//! liquidity back.
+//!
+//! The fee is one rate on exposure, the same for both sides, fixed per tranche when it is
+//! added, accruing per block. A position lives for `lifetime_blocks` from its first add, or
+//! until it can no longer cover one more day of fee. After either, anyone may close it and is
+//! paid for doing so: the fee owed on an unhealthy position, one day of fee on an expired one.
+//! An owner's same-side add on an expired position settles it and reopens at today's price.
+//! The chain runs no sweep of its own.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -23,9 +30,9 @@ mod settle;
 mod tests;
 pub mod weights;
 
-use frame_support::{BoundedVec, PalletId, pallet_prelude::*, traits::Get, weights::WeightMeter};
+use frame_support::{PalletId, pallet_prelude::*, traits::Get, weights::WeightMeter};
 use frame_system::pallet_prelude::*;
-use sp_runtime::traits::{AccountIdConversion, Hash, Saturating, TrailingZeroInput, Zero};
+use sp_runtime::traits::{AccountIdConversion, Hash, Saturating, TrailingZeroInput};
 use subtensor_runtime_common::{
     AlphaBalance, DerivativesHook, NetUid, SubnetDissolveHook, TaoBalance, Token,
 };
@@ -34,10 +41,14 @@ use subtensor_swap_interface::{DerivativesPoolInterface, OrderSwapInterface, Per
 /// Who triggered a settlement.
 #[derive(Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, PartialEq, Eq, RuntimeDebug)]
 pub enum Closer<AccountId> {
-    /// The owner closed or reduced it, or anyone closed it after expiry.
-    Account(AccountId),
-    /// The `on_idle` sweep found the position expired.
-    Expiry,
+    /// The owner closed, reduced, or rolled it.
+    Owner,
+    /// The position could no longer cover a day of fee and this account closed it. The fee
+    /// owed, and anything left after the pool is repaid, went to them.
+    Liquidator(AccountId),
+    /// The position was past its term and this account closed it, for one day of fee; the
+    /// owner was paid the rest.
+    Expired(AccountId),
     /// The subnet was dissolved; the position was cash-settled at the dissolution price.
     Dissolution,
 }
@@ -61,22 +72,16 @@ pub mod pallet {
         #[pallet::constant]
         type PalletId: Get<PalletId>;
 
-        /// How many positions may be scheduled to expire in one block. Overflow spills to the
-        /// next block.
-        #[pallet::constant]
-        type MaxExpiriesPerBlock: Get<u32>;
-
         type WeightInfo: WeightInfo;
     }
 
     #[pallet::type_value]
-    pub fn DefaultParams<T: Config>() -> DerivativesParams<BlockNumberFor<T>> {
+    pub fn DefaultParams<T: Config>() -> DerivativesParams {
         DerivativesParams::defaults()
     }
 
     #[pallet::storage]
-    pub type Params<T: Config> =
-        StorageValue<_, DerivativesParams<BlockNumberFor<T>>, ValueQuery, DefaultParams<T>>;
+    pub type Params<T: Config> = StorageValue<_, DerivativesParams, ValueQuery, DefaultParams<T>>;
 
     /// One position per `(owner, netuid)`; its side is the sign of its exposure.
     #[pallet::storage]
@@ -86,7 +91,7 @@ pub mod pallet {
         T::AccountId,
         Identity,
         NetUid,
-        Position<BlockNumberFor<T>>,
+        Position<T::AccountId, BlockNumberFor<T>>,
         OptionQuery,
     >;
 
@@ -106,20 +111,6 @@ pub mod pallet {
     #[pallet::storage]
     pub type AlphaToSettle<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Identity, Side, u64, ValueQuery>;
-
-    /// Positions that stop being owner-only at this block. Drained by `on_idle`.
-    #[pallet::storage]
-    pub type Expiring<T: Config> = StorageMap<
-        _,
-        Identity,
-        BlockNumberFor<T>,
-        BoundedVec<(T::AccountId, NetUid), T::MaxExpiriesPerBlock>,
-        ValueQuery,
-    >;
-
-    /// First block of `Expiring` not yet swept. Zero means "not started".
-    #[pallet::storage]
-    pub type NextSweep<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
     /// Hotkey owned by the pallet account; all alpha the pallet holds is staked here. Chosen
     /// and registered in the upgrade block from that block's parent hash (see
@@ -149,8 +140,8 @@ pub mod pallet {
             owner: T::AccountId,
             netuid: NetUid,
             side: Side,
-            /// TAO the owner put up for this tranche.
-            cushion_added: TaoBalance,
+            /// What the owner put up for this tranche, TAO or alpha.
+            cushion_added: Deposit<T::AccountId>,
             /// Exposure as a percentage of the cushion, as the owner chose it for this tranche.
             leverage_percent: u16,
             /// Proceeds held, debt owed, escrow kept by this tranche, each in its own token.
@@ -160,7 +151,7 @@ pub mod pallet {
             fee_per_day_added: TaoBalance,
             /// The position's exposure after this add.
             exposure_tao: TaoBalance,
-            /// Unchanged by adds after the first.
+            /// When the position expires. Set by the first add; later adds repeat it.
             expires_at: BlockNumberFor<T>,
         },
         /// Part of a position was settled at the current price; the rest stays open.
@@ -171,6 +162,8 @@ pub mod pallet {
             /// Share of the position that was unwound.
             fraction: Perquintill,
             tao_to_owner: TaoBalance,
+            /// Cushion alpha staked back to the owner's hotkey.
+            alpha_to_owner: AlphaBalance,
             /// Fee paid on the whole position, brought up to date at this block.
             fee_paid: TaoBalance,
             /// Debt the settled part could not repay, in the lent token.
@@ -184,21 +177,20 @@ pub mod pallet {
             side: Side,
             closed_by: Closer<T::AccountId>,
             tao_to_owner: TaoBalance,
+            /// Cushion alpha staked back to the owner's hotkey. Alpha that could not go back
+            /// in kind was sold and is part of `tao_to_owner`.
+            alpha_to_owner: AlphaBalance,
+            /// Fee collected: paid to the pool, or to the liquidator when one closed it.
             fee_paid: TaoBalance,
             /// Debt the position could not repay, in the lent token.
             shortfall: Lent,
-        },
-        /// A scheduled settlement failed. The position stays open and can still be closed
-        /// permissionlessly. `retry_at` is the block of the next automatic attempt, or `None`
-        /// when the retries are used up.
-        SettleFailed {
-            owner: T::AccountId,
-            netuid: NetUid,
-            error: DispatchError,
-            retry_at: Option<BlockNumberFor<T>>,
+            /// TAO the closer was paid when it was not the owner. A liquidator gets the fee,
+            /// whatever was left after the pool was repaid, and any top-up from the pool to
+            /// reach one day of fee; the closer of an expired position gets one day of fee.
+            bounty: TaoBalance,
         },
         ParamsSet {
-            params: DerivativesParams<BlockNumberFor<T>>,
+            params: DerivativesParams,
         },
         /// `None` means the subnet is back on the global parameters.
         SubnetOverrideSet {
@@ -221,12 +213,13 @@ pub mod pallet {
     pub enum Error<T> {
         /// Opening this side is switched off, globally or on this subnet.
         SideDisabled,
+        /// This side does not accept alpha as cushion (`alpha_cushion_shorts` /
+        /// `alpha_cushion_longs`); put up TAO instead.
+        AlphaCushionDisabled,
         /// The subnet does not exist, is not AMM-priced, or has its subtoken disabled.
         SubnetNotDynamic,
         /// No such position.
         NoPosition,
-        /// The position has expired: it can be closed, but nothing can be added to it.
-        Expired,
         /// The tranche's cushion is worth less than `min_deposit_tao`.
         DepositTooLow,
         /// Leverage is zero or above the side's maximum (`max_short_leverage_percent` or
@@ -238,13 +231,12 @@ pub mod pallet {
         ZeroExposure,
         /// Open positions of this side would exceed `max_pool_share` of the lent reserve.
         PoolCapExceeded,
-        /// Only the owner may close before `expires_at`.
-        NotExpired,
-        /// Too many positions already expire in the next blocks.
-        ExpiryQueueFull,
+        /// The position still covers a day of fee and has not expired; only its owner may close
+        /// it.
+        OwnerOnly,
         /// The pool swap returned nothing for a non-zero input.
         SwapReturnedZero,
-        /// A maximum leverage, `max_pool_share`, or `lifetime_blocks` is zero.
+        /// A maximum leverage, `max_pool_share`, `rate_per_day`, or `lifetime_blocks` is zero.
         InvalidParams,
         /// The pallet has not claimed its hotkey yet; no position can be opened.
         PalletHotkeyUnset,
@@ -260,29 +252,30 @@ pub mod pallet {
             Self::claim_hotkey();
             T::DbWeight::get().reads_writes(4, 4)
         }
-
-        fn on_idle(now: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
-            let mut meter = WeightMeter::with_limit(remaining_weight);
-            Self::sweep_expired(now, &mut meter);
-            meter.consumed()
-        }
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Add `side` exposure on `netuid`: `leverage_percent / 100` times `amount`, measured
-        /// against the pool's TAO reserve. One call covers open, add, reduce, and flip.
+        /// Add `side` exposure on `netuid`: `leverage_percent / 100` times the TAO value of
+        /// `deposit`, measured against the pool's TAO reserve. One call covers open, add, reduce,
+        /// and flip.
         ///
-        /// With no position, or one on the same side, `amount` TAO is taken from the caller's
-        /// free balance as cushion and a tranche is lifted from the pool and folded into the
-        /// position. One day of the tranche's fee is booked up front. Nothing can be added to an
-        /// expired position.
+        /// `deposit` is TAO from the caller's free balance, or alpha the caller has staked at a
+        /// hotkey on this subnet, valued at spot. Alpha is accepted only where
+        /// `alpha_cushion_shorts` / `alpha_cushion_longs` allow it, and goes back to that hotkey
+        /// at close.
+        ///
+        /// With no position, or one on the same side, the deposit becomes cushion and a tranche
+        /// is lifted from the pool and folded into the position. One day of the tranche's fee is
+        /// booked up front. The expiry is set by the first add and does not move. If the position
+        /// has expired, it is settled at the current price first and the deposit opens a fresh
+        /// one: a roll.
         ///
         /// With a position on the other side, this settles the matching share of it at the
         /// current price and pays that share of the cushion, less fee and any loss, to the
         /// caller. If the exposure asked for is larger than the position, the whole position is
         /// closed and the rest, if it reaches `min_deposit_tao`, opens on the new side. Only the
-        /// cushion for that rest is taken from the caller.
+        /// deposit for that rest is taken from the caller.
         ///
         /// The leverage must be above zero and at most the side's maximum
         /// (`max_short_leverage_percent` or `max_long_leverage_percent`).
@@ -292,38 +285,44 @@ pub mod pallet {
             origin: OriginFor<T>,
             netuid: NetUid,
             side: Side,
-            amount: TaoBalance,
+            deposit: Deposit<T::AccountId>,
             leverage_percent: u16,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
-            Self::do_add(owner, netuid, side, amount, leverage_percent)
+            Self::do_add(owner, netuid, side, deposit, leverage_percent)
         }
 
-        /// Settle `owner`'s position on `netuid` in full. The owner may close at any time;
-        /// anyone else only once the position has expired.
+        /// Settle `owner`'s position on `netuid` in full. The owner may close at any time.
+        /// Anyone else may close it once it is unhealthy (its equity at the current quotes no
+        /// longer covers one day of fee) or expired. A liquidator is paid the fee owed and
+        /// whatever is left after the pool is repaid, topped up by the pool to one day of fee if
+        /// that is less, and the owner is paid nothing. The closer of an expired position is
+        /// paid one day of fee and the owner gets the rest.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::close())]
         pub fn close(origin: OriginFor<T>, owner: T::AccountId, netuid: NetUid) -> DispatchResult {
             let caller = ensure_signed(origin)?;
-            let position = Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::NoPosition)?;
-            if caller != owner {
-                ensure!(
-                    frame_system::Pallet::<T>::block_number() >= position.expires_at,
-                    Error::<T>::NotExpired
-                );
-            }
-            Self::do_settle(&owner, netuid, Perquintill::one(), Closer::Account(caller)).map(|_| ())
+            let closer = if caller == owner {
+                Closer::Owner
+            } else {
+                let position = Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::NoPosition)?;
+                if !Self::is_healthy(&position, netuid) {
+                    Closer::Liquidator(caller)
+                } else if position.is_expired(frame_system::Pallet::<T>::block_number()) {
+                    Closer::Expired(caller)
+                } else {
+                    return Err(Error::<T>::OwnerOnly.into());
+                }
+            };
+            Self::do_settle(&owner, netuid, Perquintill::one(), closer).map(|_| ())
         }
 
         /// Replace every parameter at once. Root only. Rejects a zero maximum leverage,
-        /// `max_pool_share`, or `lifetime_blocks`. Open positions keep the fee and lifetime
-        /// they were opened with; a later add is checked against the new values.
+        /// `max_pool_share`, `rate_per_day`, or `lifetime_blocks`. Open positions keep the fee
+        /// rate and expiry they were added with; a later add is checked against the new values.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::sudo_set_params())]
-        pub fn sudo_set_params(
-            origin: OriginFor<T>,
-            params: DerivativesParams<BlockNumberFor<T>>,
-        ) -> DispatchResult {
+        pub fn sudo_set_params(origin: OriginFor<T>, params: DerivativesParams) -> DispatchResult {
             ensure_root(origin)?;
             ensure!(params.is_valid(), Error::<T>::InvalidParams);
             Params::<T>::put(params.clone());
@@ -331,8 +330,9 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Pause a side or change the pool-share cap on one subnet. Root only. `None` removes
-        /// the override. Affects opens only; positions already open settle as usual.
+        /// Pause a side, or change the pool-share cap or the fee rate, on one subnet. Root only.
+        /// `None` removes the override. Affects adds only; positions already open settle as
+        /// usual.
         #[pallet::call_index(4)]
         #[pallet::weight(T::WeightInfo::sudo_set_subnet_override())]
         pub fn sudo_set_subnet_override(
@@ -399,54 +399,36 @@ pub mod pallet {
             T::AccountId::decode(&mut TrailingZeroInput::new(seed.as_ref())).ok()
         }
 
-        /// Settle everything that expired up to `now`, as far as `meter` allows.
-        pub(crate) fn sweep_expired(now: BlockNumberFor<T>, meter: &mut WeightMeter) {
-            let step_cost = T::DbWeight::get().reads_writes(2, 2);
-            // A failed settle is rescheduled: one position write plus up to
-            // `MAX_EXPIRY_SHIFT` queue probes.
-            let settle_cost = T::WeightInfo::close().saturating_add(
-                T::DbWeight::get()
-                    .reads_writes(u64::from(settle::MAX_EXPIRY_SHIFT).saturating_add(1), 2),
-            );
-
-            let mut cursor = NextSweep::<T>::get();
-            if cursor.is_zero() {
-                // First run on a chain that already has history: nothing can have been scheduled
-                // before now, so skip the empty prefix instead of reading it block by block.
-                cursor = now;
+        /// What closing `position` right now would move through the pool: the TAO to buy back a
+        /// short's debt or that a long's proceeds sell for, and what the cushion's alpha sells
+        /// for. Exact, fee-free, read-only.
+        pub fn quotes(
+            position: &Position<T::AccountId, BlockNumberFor<T>>,
+            netuid: NetUid,
+        ) -> Quotes {
+            let legs = match position.legs {
+                Legs::Short { debt, .. } => T::Pool::quote_buy_alpha(netuid, debt),
+                Legs::Long { proceeds, .. } => T::Pool::quote_sell_alpha(netuid, proceeds),
+            };
+            let cushion_alpha = if position.cushion.alpha.is_zero() {
+                TaoBalance::ZERO
+            } else {
+                T::Pool::quote_sell_alpha(netuid, position.cushion.alpha)
+            };
+            Quotes {
+                legs,
+                cushion_alpha,
             }
+        }
 
-            while cursor <= now {
-                if !meter.can_consume(step_cost) {
-                    break;
-                }
-                meter.consume(step_cost);
-
-                let mut due = Expiring::<T>::take(cursor);
-                while let Some((owner, netuid)) = due.pop() {
-                    if !meter.can_consume(settle_cost) {
-                        // Put the unfinished tail back and resume here next block.
-                        due.try_push((owner, netuid)).ok();
-                        Expiring::<T>::insert(cursor, due);
-                        NextSweep::<T>::put(cursor);
-                        return;
-                    }
-                    meter.consume(settle_cost);
-                    if let Err(error) =
-                        Self::do_settle(&owner, netuid, Perquintill::one(), Closer::Expiry)
-                    {
-                        let retry_at = Self::reschedule_failed(&owner, netuid, now);
-                        Self::deposit_event(Event::SettleFailed {
-                            owner,
-                            netuid,
-                            error,
-                            retry_at,
-                        });
-                    }
-                }
-                cursor.saturating_inc();
-            }
-            NextSweep::<T>::put(cursor);
+        /// Whether `position` still covers one more day of fee at the current quotes. Healthy
+        /// positions are owner-only; unhealthy ones may be closed by anyone.
+        pub fn is_healthy(
+            position: &Position<T::AccountId, BlockNumberFor<T>>,
+            netuid: NetUid,
+        ) -> bool {
+            let now = frame_system::Pallet::<T>::block_number();
+            position.is_healthy(now, Self::quotes(position, netuid))
         }
     }
 

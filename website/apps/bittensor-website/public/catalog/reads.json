@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2543,
-        "end_line": 2553,
-        "url": "/code/runtime/src/lib.rs#L2543-L2553",
+        "line": 2541,
+        "end_line": 2551,
+        "url": "/code/runtime/src/lib.rs#L2541-L2551",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -752,7 +752,7 @@
   {
     "name": "derivative_position",
     "summary": "A coldkey's open position on a subnet, or None. There is at most one.",
-    "description": "A coldkey's open position on a subnet, or None. There is at most one.\n\n`side` is the direction of its net exposure. `cushion` is the TAO the owner\nhas put up in total and `leverage` is `exposure_tao / cushion`, the blend\nof every tranche added. `proceeds`, `debt`, and `escrow` are the position's\n`legs`, each already in its own token: a short holds TAO proceeds and TAO\nescrow and owes alpha; a long holds alpha proceeds and alpha escrow and owes\nTAO. `fee_per_day_tao` is the summed rate of its tranches; `accrued_fee_tao`\nis what would be charged if settled now.",
+    "description": "A coldkey's open position on a subnet, or None. There is at most one.\n\n`side` is the direction of its net exposure. `cushion` is the TAO the owner\nhas put up and `cushion_alpha` the alpha, returned to `cushion_alpha_hotkey`;\n`cushion_value_tao` prices both in TAO and `leverage` is `exposure_tao`\nover that, the blend of every tranche added. `proceeds`, `debt`, and\n`escrow` are the position's `legs`, each already in its own token: a short\nholds TAO proceeds and TAO escrow and owes alpha; a long holds alpha\nproceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed\nrate of its tranches; `accrued_fee_tao` is what would be charged if settled\nnow. `expires_at` is set by the first add and does not move; `expired` is\nwhether that block has passed, after which anyone may close the position\nfor one day of fee, and an owner's same-side add rolls it.\n\n`equity_tao` is an estimate of what a close now would pay the owner:\ncushion value plus proceeds, less debt priced on a constant-product curve,\nless the fee owed. Negative means underwater. `healthy` is whether that\nequity still covers one more day of fee; when it does not, anyone may close\nthe position with `close_derivative` and is paid the fee for it. The\nchain's own quote decides; this is a preview.",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer"
@@ -771,16 +771,16 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 83,
-        "url": "/code/pallets/derivatives/src/lib.rs#L83",
+        "line": 88,
+        "url": "/code/pallets/derivatives/src/lib.rs#L88",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
   {
     "name": "derivative_positions",
-    "summary": "Every open position a coldkey holds, one per subnet.",
-    "description": "Every open position a coldkey holds, one per subnet.",
+    "summary": "Every open position a coldkey holds, one per subnet. Same fields as",
+    "description": "Every open position a coldkey holds, one per subnet. Same fields as\n`derivative_position`.",
     "params": {
       "coldkey_ss58": "string"
     },
@@ -797,8 +797,43 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 83,
-        "url": "/code/pallets/derivatives/src/lib.rs#L83",
+        "line": 88,
+        "url": "/code/pallets/derivatives/src/lib.rs#L88",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      }
+    ]
+  },
+  {
+    "name": "derivative_positions_on_subnet",
+    "summary": "Every open position on a subnet, whoever owns it. Same fields as",
+    "description": "Every open position on a subnet, whoever owns it. Same fields as\n`derivative_position`.\n\nThe list a liquidator works from: filter on `healthy` being False or\n`expired` being True and call `close_derivative` with that `coldkey` as\n`owner_ss58`.",
+    "params": {
+      "netuid": "integer"
+    },
+    "param_docs": {
+      "netuid": "Subnet whose open positions to list."
+    },
+    "category": "Prices & swaps",
+    "docs_url": "/docs/query/derivative-positions-on-subnet",
+    "markdown_url": "/llms.mdx/docs/query/derivative-positions-on-subnet/content.md",
+    "python": "sub.prices.derivative_positions_on_subnet(...)",
+    "hits": [
+      {
+        "kind": "storage",
+        "container": "Derivatives",
+        "name": "OpenByNetuid",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 100,
+        "url": "/code/pallets/derivatives/src/lib.rs#L100",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Derivatives",
+        "name": "Positions",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 88,
+        "url": "/code/pallets/derivatives/src/lib.rs#L88",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -806,7 +841,7 @@
   {
     "name": "derivatives_params",
     "summary": "The derivatives pallet's root-set global parameters.",
-    "description": "The derivatives pallet's root-set global parameters.\n\n`max_short_leverage_percent` and `max_long_leverage_percent` bound the\nleverage an owner may choose per side (`100` = 1x), `max_pool_share` caps how\nmuch of a pool's reserve may be lent per side, and `lifetime_blocks` is how\nlong a position may stay open. Each tranche's fee is fixed when it is added:\na short pays `short_fee_per_day_tao` times the share of the pool it lifted,\na long pays `long_rate_per_day` times its TAO exposure; both are scaled by\n`1 / (1 - share)^4` for the tranche's own slippage. One day is booked at the\nadd, the rest accrues per block and is paid at each settlement. A subnet may\noverride the switches and the cap; see `derivatives_subnet_override`.",
+    "description": "The derivatives pallet's root-set global parameters.\n\n`max_short_leverage_percent` and `max_long_leverage_percent` bound the\nleverage an owner may choose per side (`100` = 1x), and `max_pool_share`\ncaps how much of a pool's reserve may be lent per side.\n`alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side\naccepts an alpha cushion; TAO is always accepted. The fee is one rate for\nboth sides, `rate_per_day` of a tranche's TAO exposure, fixed when the\ntranche is added: one day is booked at the add, the rest accrues per block\nand is paid at each settlement. A position expires `lifetime_blocks` after\nits first add; after that, or once its equity drops below one day of fee,\nanyone may close it. A subnet may override the switches, the cap, and the\nrate; see `derivatives_subnet_override`.",
     "params": {},
     "param_docs": {},
     "category": "Prices & swaps",
@@ -819,8 +854,8 @@
         "container": "Derivatives",
         "name": "Params",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 78,
-        "url": "/code/pallets/derivatives/src/lib.rs#L78",
+        "line": 84,
+        "url": "/code/pallets/derivatives/src/lib.rs#L84",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -828,7 +863,7 @@
   {
     "name": "derivatives_subnet_override",
     "summary": "Root-set per-subnet overrides of the derivatives parameters, or None.",
-    "description": "Root-set per-subnet overrides of the derivatives parameters, or None.\n\nNone means the subnet runs on the global `derivatives_params`. When set,\n`shorts_enabled` and `longs_enabled` replace the global switches for adds\non this subnet, and `max_pool_share` replaces the global cap when it is not\nNone. Open positions are unaffected: a paused side can still be reduced and\nclosed.",
+    "description": "Root-set per-subnet overrides of the derivatives parameters, or None.\n\nNone means the subnet runs on the global `derivatives_params`. When set,\n`shorts_enabled` and `longs_enabled` replace the global switches for adds\non this subnet, and `max_pool_share` and `rate_per_day` replace the global\ncap and fee rate when they are not None. Open positions are unaffected: a\npaused side can still be reduced and closed.",
     "params": {
       "netuid": "integer"
     },
@@ -845,8 +880,8 @@
         "container": "Derivatives",
         "name": "SubnetOverrides",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 133,
-        "url": "/code/pallets/derivatives/src/lib.rs#L133",
+        "line": 124,
+        "url": "/code/pallets/derivatives/src/lib.rs#L124",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -993,9 +1028,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2404,
-        "end_line": 2406,
-        "url": "/code/runtime/src/lib.rs#L2404-L2406",
+        "line": 2402,
+        "end_line": 2404,
+        "url": "/code/runtime/src/lib.rs#L2402-L2404",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1455,9 +1490,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2408,
-        "end_line": 2410,
-        "url": "/code/runtime/src/lib.rs#L2408-L2410",
+        "line": 2406,
+        "end_line": 2408,
+        "url": "/code/runtime/src/lib.rs#L2406-L2408",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1708,9 +1743,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2555,
-        "end_line": 2583,
-        "url": "/code/runtime/src/lib.rs#L2555-L2583",
+        "line": 2553,
+        "end_line": 2581,
+        "url": "/code/runtime/src/lib.rs#L2553-L2581",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1737,9 +1772,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2585,
-        "end_line": 2613,
-        "url": "/code/runtime/src/lib.rs#L2585-L2613",
+        "line": 2583,
+        "end_line": 2611,
+        "url": "/code/runtime/src/lib.rs#L2583-L2611",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1818,9 +1853,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2421,
-        "end_line": 2423,
-        "url": "/code/runtime/src/lib.rs#L2421-L2423",
+        "line": 2419,
+        "end_line": 2421,
+        "url": "/code/runtime/src/lib.rs#L2419-L2421",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1883,9 +1918,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2433,
-        "end_line": 2435,
-        "url": "/code/runtime/src/lib.rs#L2433-L2435",
+        "line": 2431,
+        "end_line": 2433,
+        "url": "/code/runtime/src/lib.rs#L2431-L2433",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2455,9 +2490,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2414,
-        "end_line": 2416,
-        "url": "/code/runtime/src/lib.rs#L2414-L2416",
+        "line": 2412,
+        "end_line": 2414,
+        "url": "/code/runtime/src/lib.rs#L2412-L2414",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2752,9 +2787,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2427,
-        "end_line": 2429,
-        "url": "/code/runtime/src/lib.rs#L2427-L2429",
+        "line": 2425,
+        "end_line": 2427,
+        "url": "/code/runtime/src/lib.rs#L2425-L2427",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2815,9 +2850,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_weights",
         "path": "runtime/src/lib.rs",
-        "line": 2436,
-        "end_line": 2438,
-        "url": "/code/runtime/src/lib.rs#L2436-L2438",
+        "line": 2434,
+        "end_line": 2436,
+        "url": "/code/runtime/src/lib.rs#L2434-L2436",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

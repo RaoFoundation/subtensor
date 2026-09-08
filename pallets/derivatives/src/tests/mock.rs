@@ -6,7 +6,7 @@ use core::num::NonZeroU64;
 
 use frame_support::{
     PalletId, derive_impl, parameter_types,
-    traits::{Everything, Hooks, PrivilegeCmp},
+    traits::{Everything, PrivilegeCmp},
     weights::WeightMeter,
 };
 use frame_system::{self as system, EnsureRoot, limits};
@@ -453,7 +453,6 @@ parameter_types! {
 impl pallet_derivatives::Config for Test {
     type Pool = SubtensorModule;
     type PalletId = DerivativesPalletId;
-    type MaxExpiriesPerBlock = ConstU32<2>;
     type WeightInfo = ();
 }
 
@@ -482,11 +481,6 @@ pub fn pallet_account() -> AccountId {
 /// The hotkey `on_runtime_upgrade` claimed for the pallet in `new_test_ext`.
 pub fn pallet_hotkey() -> AccountId {
     Derivatives::pallet_hotkey().expect("claimed at upgrade")
-}
-
-/// Run the derivatives `on_idle` hook at the current block with a large weight budget.
-pub fn run_idle() -> Weight {
-    Derivatives::on_idle(System::block_number(), Weight::MAX)
 }
 
 /// A dynamic subnet with `tao` and `alpha` in the pool and a balancer initialised at the
@@ -563,7 +557,7 @@ pub fn balancer_weight(netuid: NetUid) -> sp_runtime::Perquintill {
     pallet_subtensor_swap::SwapBalancer::<Test>::get(netuid).get_quote_weight()
 }
 
-pub fn position(owner: &AccountId, netuid: NetUid) -> Option<crate::Position<u64>> {
+pub fn position(owner: &AccountId, netuid: NetUid) -> Option<crate::Position<AccountId, u64>> {
     crate::Positions::<Test>::get(owner, netuid)
 }
 
