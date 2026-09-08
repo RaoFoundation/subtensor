@@ -59,6 +59,9 @@ extern crate alloc;
 
 pub type OriginFor<T> = <T as frame_system::Config>::RuntimeOrigin;
 
+/// A retained block header and its storage proof for pre-upgrade hotkey indexes.
+pub type DisassociationProof<T> = (frame_system::pallet_prelude::HeaderFor<T>, Vec<Vec<u8>>);
+
 pub const MAX_CRV3_COMMIT_SIZE_BYTES: u32 = 5000;
 
 pub const ALPHA_MAP_BATCH_SIZE: usize = 30;
@@ -1712,6 +1715,18 @@ pub mod pallet {
     #[pallet::storage]
     pub type OwnedHotkeys<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, Vec<T::AccountId>, ValueQuery>;
+
+    /// Upper bounds on vector lengths, keyed by Blake2-256 of the raw storage key.
+    /// Every writer that can grow OwnedHotkeys, StakingHotkeys or
+    /// AutoStakeDestinationColdkeys must record its new length before writing.
+    /// Shrinking/removing a vector may leave the previous (conservative) bound.
+    #[pallet::storage]
+    pub type HotkeyIndexLengths<T: Config> = StorageMap<_, Identity, [u8; 32], u32, OptionQuery>;
+
+    /// First block in which every growing hotkey-index write records its length.
+    /// Older proofs cannot bound legacy entries that have no recorded length.
+    #[pallet::storage]
+    pub type HotkeyIndexTrackingSince<T: Config> = StorageValue<_, BlockNumberFor<T>, OptionQuery>;
 
     /// DMAP ( cold, netuid )--> hot | Returns the hotkey a coldkey will autostake to with mining rewards.
     #[pallet::storage]

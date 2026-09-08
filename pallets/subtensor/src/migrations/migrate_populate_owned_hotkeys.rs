@@ -56,12 +56,16 @@ pub fn migrate_populate_owned<T: Config>() -> Weight {
                 }
 
                 // Update the OwnedHotkeys storage
+                Pallet::<T>::note_hotkey_index_length(
+                    &OwnedHotkeys::<T>::hashed_key_for(&coldkey),
+                    hotkeys.len(),
+                );
                 OwnedHotkeys::<T>::insert(&coldkey, hotkeys);
-                storage_writes = storage_writes.saturating_add(1); // Write to OwnedHotkeys storage
+                storage_writes = storage_writes.saturating_add(2); // Index and length metadata
             }
 
             // Accrue weight for reads and writes
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(2, 1));
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(2, 2));
         });
 
         // Log migration results

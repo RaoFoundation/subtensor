@@ -10,6 +10,7 @@ mod genesis {
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
+            HotkeyIndexTrackingSince::<T>::put(frame_system::Pallet::<T>::block_number());
             // Alice's public key
             let alice_bytes = sp_keyring::Sr25519Keyring::Alice.public();
 
@@ -111,6 +112,10 @@ mod genesis {
             let mut staking_hotkeys = StakingHotkeys::<T>::get(hotkey.clone());
             if !staking_hotkeys.contains(&hotkey) {
                 staking_hotkeys.push(hotkey.clone());
+                Pallet::<T>::note_hotkey_index_length(
+                    &StakingHotkeys::<T>::hashed_key_for(hotkey.clone()),
+                    staking_hotkeys.len(),
+                );
                 StakingHotkeys::<T>::insert(hotkey.clone(), staking_hotkeys.clone());
             }
 

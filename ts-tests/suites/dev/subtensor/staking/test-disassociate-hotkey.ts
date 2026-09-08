@@ -4,7 +4,7 @@ import type { ApiPromise } from "@polkadot/api";
 import type { SubmittableExtrinsic } from "@polkadot/api/types";
 import { Keyring } from "@polkadot/keyring";
 import type { Bytes, Option } from "@polkadot/types";
-import { randomAsU8a } from "@polkadot/util-crypto";
+import { blake2AsHex, randomAsU8a } from "@polkadot/util-crypto";
 
 const generateKeyringPair = () => new Keyring({ type: "sr25519" }).addFromSeed(randomAsU8a(32));
 
@@ -31,12 +31,12 @@ describeSuite({
 
         // Pin work estimates to one block; count distinct netuid buckets per map.
         async function release(hotkey: string, signer = coldkey, underestimate = false) {
-            const at = await api.at(await api.rpc.chain.getBlockHash());
+            const hash = await api.rpc.chain.getBlockHash();
+            const at = await api.at(hash);
             const module = at.query.subtensorModule;
-            const [owned, staking, destinations, ...buckets] = await Promise.all([
-                module.ownedHotkeys(signer.address),
-                module.stakingHotkeys(signer.address),
-                module.autoStakeDestinationColdkeys.entries(hotkey),
+            const [destinations, claims, ...buckets] = await Promise.all([
+                module.autoStakeDestinationColdkeys.keys(hotkey),
+                module.basketClaimed.keys(hotkey),
                 module.subnetOwnerHotkey.keys(),
                 module.pendingChildKeys.keys(),
                 module.uids.keys(),
@@ -44,14 +44,33 @@ describeSuite({
                 module.minerCollateral.keys(),
                 module.rootClaimed.keys(),
             ]);
-            const hotkeyCount = (owned as any).length + (staking as any).length;
-            const autoStakeCount = (destinations as any[]).reduce((total, [, keys]) => total + keys.length, 0);
-            const subnetCount = (buckets as any[][]).reduce(
+            const indexKeys = [
+                module.ownedHotkeys.key(signer.address),
+                module.stakingHotkeys.key(signer.address),
+                ...destinations.map((key) => key.toHex()),
+            ];
+            const legacyKeys: string[] = [];
+            let maxItems = destinations.length + claims.length;
+            for (const key of indexKeys) {
+                const length = await module.hotkeyIndexLengths(blake2AsHex(key));
+                if ((length as any).isSome) {
+                    maxItems += (length as any).unwrap().toNumber();
+                } else {
+                    const value = await api.rpc.state.getStorage<Option<Bytes>>(key, hash);
+                    if (value.isSome) {
+                        maxItems += api.createType("Vec<AccountId>", value.unwrap()).length;
+                    }
+                    legacyKeys.push(key);
+                }
+            }
+            maxItems += buckets.reduce(
                 (total, keys) => total + new Set(keys.map((key) => key.args[0].toString())).size,
-                (destinations as any[]).length
+                0
             );
-            const maxItems = hotkeyCount + autoStakeCount + subnetCount;
-            return api.tx.subtensorModule.disassociateHotkey(hotkey, underestimate ? maxItems - 1 : maxItems);
+            const proof = legacyKeys.length
+                ? [await api.rpc.chain.getHeader(hash), (await api.rpc.state.getReadProof(legacyKeys, hash)).proof]
+                : null;
+            return api.tx.subtensorModule.disassociateHotkey(hotkey, underestimate ? maxItems - 1 : maxItems, proof);
         }
 
         async function ownerExists(hotkey: string) {
@@ -260,6 +279,58 @@ describeSuite({
                 const executed = released.events.find(({ event }) => api.events.proxy.ProxyExecuted.is(event));
                 expect((executed.event.data[0] as any).isOk).toBe(true);
                 expect(await ownerExists(hotkey.address)).toBe(false);
+            },
+        });
+
+        it({
+            id: "T08",
+            title: "clears fully settled basket watermarks and the historical rate",
+            test: async () => {
+                const hotkey = await associate();
+                const claimant = generateKeyringPair();
+                await seedStorage([
+                    [
+                        api.query.subtensorModule.basketClaimed.key(hotkey.address, claimant.address),
+                        api.createType("i128", 0).toHex(),
+                    ],
+                    [
+                        api.query.subtensorModule.basketRate.key(hotkey.address),
+                        api.createType("i128", 10n << 32n).toHex(),
+                    ],
+                ]);
+                expect((await submit(await release(hotkey.address))).successful).toBe(true);
+                expect(await api.query.subtensorModule.basketClaimed.keys(hotkey.address)).toHaveLength(0);
+                expect(
+                    (
+                        await api.rpc.state.getStorage<Option<Bytes>>(
+                            api.query.subtensorModule.basketRate.key(hotkey.address)
+                        )
+                    ).isNone
+                ).toBe(true);
+            },
+        });
+
+        it({
+            id: "T09",
+            title: "legacy vectors reject missing proofs and accept a real RPC storage proof",
+            test: async () => {
+                const hotkey = await associate();
+                const keys = [
+                    api.query.subtensorModule.ownedHotkeys.key(coldkey.address),
+                    api.query.subtensorModule.stakingHotkeys.key(coldkey.address),
+                ];
+                const cacheKeys = keys.map((key) => api.query.subtensorModule.hotkeyIndexLengths.key(blake2AsHex(key)));
+                const cleared = await submit(
+                    api.tx.sudo.sudo(api.tx.system.killStorage(cacheKeys)),
+                    context.keyring.alice
+                );
+                const sudo = cleared.events.find(({ event }) => api.events.sudo.Sudid.is(event));
+                expect((sudo.event.data[0] as any).isOk).toBe(true);
+                await expectFailure(
+                    api.tx.subtensorModule.disassociateHotkey(hotkey.address, 100, null),
+                    "InvalidDisassociationWitness"
+                );
+                expect((await submit(await release(hotkey.address))).successful).toBe(true);
             },
         });
     },

@@ -19,6 +19,7 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
         max_items: u32,
+        legacy_proof: Option<&DisassociationProof<T>>,
     ) -> DispatchResult {
         let owner = Owner::<T>::try_get(hotkey).map_err(|_| Error::<T>::HotKeyAccountNotExists)?;
         ensure!(&owner == coldkey, Error::<T>::NonAssociatedColdKey);
@@ -28,9 +29,15 @@ impl<T: Config> Pallet<T> {
         );
         Self::ensure_beta_basket_seed_idle()?;
 
-        let indexed_hotkeys = OwnedHotkeys::<T>::decode_len(coldkey)
-            .unwrap_or(0)
-            .saturating_add(StakingHotkeys::<T>::decode_len(coldkey).unwrap_or(0));
+        let proof = Self::disassociation_index_proof(legacy_proof)?;
+        let indexed_hotkeys = Self::disassociation_index_length(
+            &OwnedHotkeys::<T>::hashed_key_for(coldkey),
+            proof.as_ref(),
+        )?
+        .saturating_add(Self::disassociation_index_length(
+            &StakingHotkeys::<T>::hashed_key_for(coldkey),
+            proof.as_ref(),
+        )?);
         let mut remaining = max_items;
         Self::consume_disassociation_items(&mut remaining, indexed_hotkeys)?;
 
@@ -49,14 +56,19 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(
             BasketShares::<T>::get(hotkey) == 0
-                && !BasketRate::<T>::contains_key(hotkey)
-                && BasketClaimed::<T>::iter_key_prefix(hotkey).next().is_none()
                 && PendingBasketDeposits::<T>::iter_key_prefix(hotkey)
                     .next()
                     .is_none()
                 && !RootClaimable::<T>::contains_key(hotkey),
             Error::<T>::HotkeyHasOutstandingRewards
         );
+        for staker in BasketClaimed::<T>::iter_key_prefix(hotkey) {
+            Self::consume_disassociation_items(&mut remaining, 1)?;
+            ensure!(
+                BasketClaimed::<T>::get(hotkey, staker) == 0,
+                Error::<T>::HotkeyHasOutstandingRewards
+            );
+        }
         ensure!(
             ChildKeys::<T>::iter_key_prefix(hotkey).next().is_none()
                 && ParentKeys::<T>::iter_key_prefix(hotkey).next().is_none(),
@@ -119,7 +131,10 @@ impl<T: Config> Pallet<T> {
             Self::consume_disassociation_items(&mut remaining, 1)?;
             Self::consume_disassociation_items(
                 &mut remaining,
-                AutoStakeDestinationColdkeys::<T>::decode_len(hotkey, netuid).unwrap_or(0),
+                Self::disassociation_index_length(
+                    &AutoStakeDestinationColdkeys::<T>::hashed_key_for(hotkey, netuid),
+                    proof.as_ref(),
+                )?,
             )?;
         }
 
@@ -141,6 +156,8 @@ impl<T: Config> Pallet<T> {
             }
         });
         Self::maybe_remove_staking_hotkey(hotkey, coldkey);
+        for _ in BasketClaimed::<T>::drain_prefix(hotkey) {}
+        BasketRate::<T>::remove(hotkey);
         Owner::<T>::remove(hotkey);
         Delegates::<T>::remove(hotkey);
         AutoParentDelegationEnabled::<T>::remove(hotkey);

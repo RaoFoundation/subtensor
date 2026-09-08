@@ -749,6 +749,7 @@ mod tests {
         let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::disassociate_hotkey {
             hotkey: sp_runtime::AccountId32::new([1; 32]),
             max_items: 2,
+            legacy_proof: None,
         });
         for proxy_type in all_proxy_types() {
             assert_eq!(

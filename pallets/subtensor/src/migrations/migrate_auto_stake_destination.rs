@@ -56,11 +56,16 @@ pub fn migrate_auto_stake_destination<T: Config>() -> Weight {
                 if *netuid == root_netuid {
                     continue;
                 }
+                weight.saturating_accrue(T::DbWeight::get().writes(1));
                 AutoStakeDestination::<T>::insert(coldkey, netuid, hotkey.clone());
                 AutoStakeDestinationColdkeys::<T>::mutate(hotkey.clone(), netuid, |v| {
                     if !v.contains(coldkey) {
                         v.push(coldkey.clone());
                     }
+                    Pallet::<T>::note_hotkey_index_length(
+                        &AutoStakeDestinationColdkeys::<T>::hashed_key_for(&hotkey, netuid),
+                        v.len(),
+                    );
                 });
             }
 

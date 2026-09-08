@@ -489,6 +489,10 @@ impl<T: Config> Pallet<T> {
         let mut staking_hotkeys = StakingHotkeys::<T>::get(coldkey);
         if !staking_hotkeys.contains(hotkey) {
             staking_hotkeys.push(hotkey.clone());
+            Pallet::<T>::note_hotkey_index_length(
+                &StakingHotkeys::<T>::hashed_key_for(coldkey),
+                staking_hotkeys.len(),
+            );
             StakingHotkeys::<T>::insert(coldkey, staking_hotkeys);
         }
         Self::maybe_add_coldkey_index(coldkey);
@@ -518,7 +522,7 @@ impl<T: Config> Pallet<T> {
                     .saturating_add(T::DbWeight::get().reads(4_u64))
                     .saturating_mul(num_holdings.max(1)),
             )
-            .saturating_add(T::DbWeight::get().reads_writes(8_u64, 6_u64))
+            .saturating_add(T::DbWeight::get().reads_writes(8_u64, 7_u64))
     }
 
     /// A staker's gross *fund-share* entitlement on a validator: `BasketRate * root_stake`.

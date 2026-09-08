@@ -42,7 +42,7 @@ mod hooks {
 
         fn on_runtime_upgrade() -> frame_support::weights::Weight {
             // --- Migrate storage
-            let mut weight = frame_support::weights::Weight::from_parts(0, 0);
+            let mut weight = Self::start_hotkey_index_tracking();
 
             // Hex encoded foundation coldkey
             let hex = hex_literal::hex![
@@ -238,7 +238,7 @@ mod hooks {
         fn try_state(_n: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
             // Disabled: https://github.com/RaoFoundation/subtensor/pull/1166
             // Self::check_total_stake()?;
-            Ok(())
+            Self::check_hotkey_index_lengths()
         }
 
         fn on_idle(_block: BlockNumberFor<T>, limit: Weight) -> Weight {

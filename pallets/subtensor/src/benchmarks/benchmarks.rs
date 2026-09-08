@@ -1724,72 +1724,120 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn disassociate_hotkey(h: Linear<2, 1024>, a: Linear<0, 1024>, s: Linear<7, 1024>) {
+    fn disassociate_hotkey(k: Linear<1, 1024>, p: Linear<0, 65536>) {
+        use sp_runtime::traits::Header;
+        use sp_trie::{MemoryDB, TrieDBMutBuilder, TrieMut};
+
         let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("released", 0, 0);
         assert_ok!(Subtensor::<T>::create_account_if_non_existent(
             &coldkey, &hotkey
         ));
-        let mut owned = vec![hotkey.clone()];
-        for i in 2..h {
-            owned.push(account("owned", i, 0));
+        let mut keys = vec![hotkey.clone()];
+        for i in 1..k {
+            keys.push(account("owned", i, 0));
         }
-        OwnedHotkeys::<T>::insert(&coldkey, owned);
+        OwnedHotkeys::<T>::insert(&coldkey, &keys);
+        StakingHotkeys::<T>::insert(&coldkey, &keys);
         Delegates::<T>::insert(&hotkey, PerU16::from_percent(10));
         AutoParentDelegationEnabled::<T>::insert(&hotkey, false);
+        BasketRate::<T>::insert(&hotkey, I96F32::from_num(1));
 
-        // Isolate exactly s buckets across all seven indexes. Foreign account
-        // rows exercise the seek path without making the released hotkey active.
         let _ = SubnetOwnerHotkey::<T>::clear(u32::MAX, None);
         let _ = PendingChildKeys::<T>::clear(u32::MAX, None);
         let _ = Uids::<T>::clear(u32::MAX, None);
         let _ = LockingColdkeys::<T>::clear(u32::MAX, None);
         let _ = MinerCollateral::<T>::clear(u32::MAX, None);
         let _ = RootClaimed::<T>::clear(u32::MAX, None);
-        let other: T::AccountId = account("other owner", 0, 0);
-        for raw in 0..s.saturating_sub(6) {
-            SubnetOwnerHotkey::<T>::insert(NetUid::from(raw as u16), &other);
+        let mut legacy_keys = vec![
+            OwnedHotkeys::<T>::hashed_key_for(&coldkey),
+            StakingHotkeys::<T>::hashed_key_for(&coldkey),
+        ];
+        // Populate every kind of work k times. This deliberately measures more
+        // than any mix with total work <= k, including every subnet seek path.
+        for i in 0..k {
+            let netuid = NetUid::from(i as u16);
+            let other: T::AccountId = account("other", i, 0);
+            SubnetOwnerHotkey::<T>::insert(netuid, &other);
+            PendingChildKeys::<T>::insert(netuid, &other, (vec![(u64::MAX, other.clone())], 100));
+            Uids::<T>::insert(netuid, &other, 0);
+            LockingColdkeys::<T>::insert((netuid, &other, &other), ());
+            MinerCollateral::<T>::insert(
+                (netuid, &other, &other),
+                MinerCollateralState {
+                    locked: 1.into(),
+                    drain_ratio: U64F64::from_num(1),
+                    min_locked: 0.into(),
+                    earned: 0.into(),
+                },
+            );
+            RootClaimed::<T>::insert((netuid, &other, &other), 1);
+            BasketClaimed::<T>::insert(&hotkey, &other, 0);
+            AutoStakeDestination::<T>::insert(&other, netuid, &hotkey);
+            AutoStakeDestinationColdkeys::<T>::insert(&hotkey, netuid, vec![other]);
+            legacy_keys.push(AutoStakeDestinationColdkeys::<T>::hashed_key_for(
+                &hotkey, netuid,
+            ));
         }
-        let netuid = NetUid::from(u16::MAX);
-        PendingChildKeys::<T>::insert(netuid, &other, (vec![(u64::MAX, other.clone())], 100));
-        Uids::<T>::insert(netuid, &other, 0);
-        LockingColdkeys::<T>::insert((netuid, &other, &other), ());
-        MinerCollateral::<T>::insert(
-            (netuid, &other, &other),
-            MinerCollateralState {
-                locked: 1.into(),
-                drain_ratio: U64F64::from_num(1),
-                min_locked: 0.into(),
-                earned: 0.into(),
-            },
+        let mut db = MemoryDB::<T::Hashing>::default();
+        let mut root = T::Hash::default();
+        {
+            let mut trie =
+                TrieDBMutBuilder::<sp_trie::LayoutV1<T::Hashing>>::new(&mut db, &mut root).build();
+            for key in legacy_keys {
+                HotkeyIndexLengths::<T>::remove(sp_io::hashing::blake2_256(&key));
+                trie.insert(&key, &sp_io::storage::get(&key).unwrap())
+                    .unwrap();
+            }
+        }
+        let mut nodes: Vec<Vec<u8>> = db
+            .drain()
+            .into_values()
+            .filter_map(|(value, refs)| (refs > 0).then_some(value))
+            .collect();
+        // p small, distinct nodes exercise hashing, sorting and database inserts.
+        // Dispatch charges encoded bytes, hence at least one unit per node.
+        nodes.extend((0..p).map(|i| i.encode()));
+        let header = frame_system::pallet_prelude::HeaderFor::<T>::new(
+            1u32.into(),
+            Default::default(),
+            root,
+            Default::default(),
+            Default::default(),
         );
-        RootClaimed::<T>::insert((netuid, &other, &other), 1);
-        AutoStakeDestinationColdkeys::<T>::insert(&hotkey, netuid, Vec::<T::AccountId>::new());
-        for i in 0..a {
-            let staker: T::AccountId = account("autostaker", i, 0);
-            AutoStakeDestination::<T>::insert(&staker, netuid, &hotkey);
-            AutoStakeDestinationColdkeys::<T>::mutate(&hotkey, netuid, |keys| keys.push(staker));
-        }
+        HotkeyIndexTrackingSince::<T>::put(BlockNumberFor::<T>::from(1u32));
+        frame_system::Pallet::<T>::set_block_number(2u32.into());
+        frame_system::BlockHash::<T>::insert(header.number(), header.hash());
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
             hotkey.clone(),
-            h.saturating_add(a).saturating_add(s),
+            k.saturating_mul(11),
+            Some((header, nodes)),
         );
 
         assert!(!Owner::<T>::contains_key(&hotkey));
         assert!(!OwnedHotkeys::<T>::get(&coldkey).contains(&hotkey));
-        assert!(!StakingHotkeys::<T>::contains_key(&coldkey));
+        assert!(!StakingHotkeys::<T>::get(&coldkey).contains(&hotkey));
         assert!(!Delegates::<T>::contains_key(&hotkey));
+        assert!(!BasketRate::<T>::contains_key(&hotkey));
+        assert!(
+            BasketClaimed::<T>::iter_key_prefix(&hotkey)
+                .next()
+                .is_none()
+        );
         assert!(
             AutoStakeDestinationColdkeys::<T>::iter_key_prefix(&hotkey)
                 .next()
                 .is_none()
         );
-        for i in 0..a {
-            let staker: T::AccountId = account("autostaker", i, 0);
-            assert!(!AutoStakeDestination::<T>::contains_key(staker, netuid));
+        for i in 0..k {
+            let staker: T::AccountId = account("other", i, 0);
+            assert!(!AutoStakeDestination::<T>::contains_key(
+                staker,
+                NetUid::from(i as u16)
+            ));
         }
         frame_system::Pallet::<T>::assert_last_event(
             Event::<T>::HotkeyDisassociated { coldkey, hotkey }.into(),

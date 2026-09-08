@@ -11272,6 +11272,7 @@ dependencies = [
  "sp-runtime",
  "sp-std",
  "sp-tracing",
+ "sp-trie",
  "sp-version",
  "substrate-fixed",
  "subtensor-macros",
