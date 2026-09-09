@@ -29,16 +29,16 @@ describeSuite({
             return hotkey;
         }
 
-        // Pin work estimates to one block; count distinct netuid buckets per map.
+        // Pin work estimates to one block; count each pending parent separately.
         async function release(hotkey: string, signer = coldkey, underestimate = false) {
             const hash = await api.rpc.chain.getBlockHash();
             const at = await api.at(hash);
             const module = at.query.subtensorModule;
-            const [destinations, claims, ...buckets] = await Promise.all([
+            const [destinations, claims, pendingParents, ...buckets] = await Promise.all([
                 module.autoStakeDestinationColdkeys.keys(hotkey),
                 module.basketClaimed.keys(hotkey),
-                module.subnetOwnerHotkey.keys(),
                 module.pendingChildKeys.keys(),
+                module.subnetOwnerHotkey.keys(),
                 module.uids.keys(),
                 module.lockingColdkeys.keys(),
                 module.minerCollateral.keys(),
@@ -49,7 +49,7 @@ describeSuite({
                 module.stakingHotkeys.key(signer.address),
                 ...destinations.map((key) => key.toHex()),
             ];
-            let maxItems = destinations.length + claims.length;
+            let maxItems = destinations.length + claims.length + pendingParents.length;
             for (const key of indexKeys) {
                 const value = await api.rpc.state.getStorage<Option<Bytes>>(key, hash);
                 if (value.isSome) {
@@ -155,7 +155,7 @@ describeSuite({
             test: async () => {
                 const hotkey = await associate();
                 expect((await submit(api.tx.subtensorModule.rootRegister(hotkey.address))).successful).toBe(true);
-                await expectFailure(await release(hotkey.address), "HotkeyIsStillRegistered");
+                await expectFailure(await release(hotkey.address), "HotKeyAlreadyRegisteredInSubNet");
                 expect(await ownerExists(hotkey.address)).toBe(true);
             },
         });
@@ -311,6 +311,52 @@ describeSuite({
                 expect(await ownerExists(hotkey.address)).toBe(true);
                 expect((await submit(await release(hotkey.address))).successful).toBe(true);
                 expect((await api.query.subtensorModule.owner(other.address)).toString()).toBe(coldkey.address);
+            },
+        });
+
+        it({
+            id: "T10",
+            title: "rejects a hotkey named in another parent's pending children",
+            test: async () => {
+                const hotkey = await associate();
+                const parent = generateKeyringPair();
+                const netuid = 65535;
+                const key = api.query.subtensorModule.pendingChildKeys.key(netuid, parent.address);
+                const pending = api
+                    .createType("(Vec<(u64, AccountId)>, u64)", [[[1n, hotkey.address]], (1n << 64n) - 1n])
+                    .toHex();
+                await seedStorage([
+                    [api.query.subtensorModule.subtokenEnabled.key(netuid), api.createType("bool", true).toHex()],
+                    [key, pending],
+                ]);
+                expect((await api.query.subtensorModule.parentKeys(hotkey.address, netuid)).toJSON()).toEqual([]);
+                await expectFailure(await release(hotkey.address), "HotkeyHasActiveRelationships");
+                expect(await ownerExists(hotkey.address)).toBe(true);
+                expect((await api.rpc.state.getStorage<Option<Bytes>>(key)).toHex()).toBe(pending);
+            },
+        });
+
+        it({
+            id: "T11",
+            title: "counts new pending parents even when the subnet count is unchanged",
+            test: async () => {
+                const hotkey = await associate();
+                const netuid = 65535;
+                const pending = api.createType("(Vec<(u64, AccountId)>, u64)", [[], (1n << 64n) - 1n]).toHex();
+                const first = api.query.subtensorModule.pendingChildKeys.key(netuid, generateKeyringPair().address);
+                const second = api.query.subtensorModule.pendingChildKeys.key(netuid, generateKeyringPair().address);
+                await seedStorage([
+                    [api.query.subtensorModule.subtokenEnabled.key(netuid), api.createType("bool", true).toHex()],
+                    [first, pending],
+                ]);
+                const staleEstimate = await release(hotkey.address);
+                await seedStorage([[second, pending]]);
+                await expectFailure(staleEstimate, "InvalidDisassociationWitness");
+                expect(await ownerExists(hotkey.address)).toBe(true);
+                expect((await submit(await release(hotkey.address))).successful).toBe(true);
+                for (const key of [first, second]) {
+                    expect((await api.rpc.state.getStorage<Option<Bytes>>(key)).toHex()).toBe(pending);
+                }
             },
         });
     },

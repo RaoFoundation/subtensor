@@ -2639,7 +2639,8 @@ mod dispatches {
         /// - The owner's `OwnedHotkeys` and `StakingHotkeys` lengths.
         /// - Inverse autostake rows for this hotkey and their coldkey-vector lengths.
         /// - Settled `BasketClaimed` rows for this hotkey.
-        /// - Distinct netuids in each of `SubnetOwnerHotkey`, `PendingChildKeys`,
+        /// - All `PendingChildKeys` parent rows, including other parents.
+        /// - Distinct netuids in each of `SubnetOwnerHotkey`,
         ///   `Uids`, `LockingColdkeys`, `MinerCollateral` and `RootClaimed`.
         /// An insufficient limit fails before cleanup; an overestimate pays for
         /// the larger weight. Read the indexes at one block and retry if they grow.

@@ -102,7 +102,7 @@ fn rejects_membership_on_root_and_other_subnets() {
             IsNetworkMember::<Test>::insert(hotkey, netuid, true);
             assert_noop!(
                 disassociate(coldkey, hotkey),
-                Error::<Test>::HotkeyIsStillRegistered
+                Error::<Test>::HotKeyAlreadyRegisteredInSubNet
             );
         });
     }
@@ -115,7 +115,7 @@ fn also_checks_uid_index() {
         Uids::<Test>::insert(NetUid::from(4095), hotkey, 1);
         assert_noop!(
             disassociate(coldkey, hotkey),
-            Error::<Test>::HotkeyIsStillRegistered
+            Error::<Test>::HotKeyAlreadyRegisteredInSubNet
         );
     });
 }
@@ -199,6 +199,73 @@ fn rejects_residual_locks_on_dissolved_subnets() {
         assert_noop!(
             disassociate(coldkey, hotkey),
             Error::<Test>::HotkeyHasOutstandingStake
+        );
+    });
+}
+
+#[test]
+fn rejects_inbound_pending_children_before_the_inverse_index_exists() {
+    for raw_netuid in [1, 256, u16::MAX] {
+        new_test_ext(1).execute_with(|| {
+            let (coldkey, hotkey) = associate();
+            let netuid = NetUid::from(raw_netuid);
+            let parent = U256::from(20);
+            SubtokenEnabled::<Test>::insert(netuid, true);
+            PendingChildKeys::<Test>::insert(
+                netuid,
+                parent,
+                (
+                    vec![(u64::MAX / 2, U256::from(21)), (u64::MAX / 2, hotkey)],
+                    100,
+                ),
+            );
+            assert!(!ParentKeys::<Test>::contains_key(hotkey, netuid));
+            assert!(!PendingChildKeys::<Test>::contains_key(netuid, hotkey));
+            assert_noop!(
+                disassociate(coldkey, hotkey),
+                Error::<Test>::HotkeyHasActiveRelationships
+            );
+
+            // The scheduled relation really does create an inbound link later.
+            System::set_block_number(101);
+            SubtensorModule::do_set_pending_children(netuid);
+            assert_eq!(
+                ParentKeys::<Test>::get(hotkey, netuid),
+                vec![(u64::MAX / 2, parent)]
+            );
+            assert_noop!(
+                disassociate(coldkey, hotkey),
+                Error::<Test>::HotkeyHasActiveRelationships
+            );
+        });
+    }
+}
+
+#[test]
+fn work_limit_counts_every_pending_parent_on_the_same_subnet() {
+    new_test_ext(1).execute_with(|| {
+        let (coldkey, hotkey) = associate();
+        let netuid = NetUid::from(1);
+        for id in 20..23 {
+            let children: Vec<_> = (100..105)
+                .map(|child| (u64::MAX / 5, U256::from(child)))
+                .collect();
+            PendingChildKeys::<Test>::insert(netuid, U256::from(id), (children, 100));
+        }
+        let pending = PendingChildKeys::<Test>::iter().collect::<Vec<_>>();
+        // Two owner-index entries plus three parent rows, even on one subnet.
+        assert_noop!(
+            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 4),
+            Error::<Test>::InvalidDisassociationWitness
+        );
+        assert_ok!(SubtensorModule::disassociate_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            5
+        ));
+        assert_eq!(
+            PendingChildKeys::<Test>::iter().collect::<Vec<_>>(),
+            pending
         );
     });
 }

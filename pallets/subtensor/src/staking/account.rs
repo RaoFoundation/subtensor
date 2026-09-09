@@ -42,7 +42,7 @@ impl<T: Config> Pallet<T> {
             IsNetworkMember::<T>::iter_key_prefix(hotkey)
                 .next()
                 .is_none(),
-            Error::<T>::HotkeyIsStillRegistered
+            Error::<T>::HotKeyAlreadyRegisteredInSubNet
         );
         ensure!(
             Alpha::<T>::iter_key_prefix((hotkey,)).next().is_none()
@@ -70,9 +70,22 @@ impl<T: Config> Pallet<T> {
             Error::<T>::HotkeyHasActiveRelationships
         );
 
-        // Count distinct netuid buckets, not account rows. A raw trie seek
-        // skips every other account in a bucket, so unrelated nominators cannot
-        // make validation unbounded. The work limit covers all maps together.
+        // Pending relations have no inverse index until they are applied.
+        // Check both directions, charging each parent row before reading its
+        // value. Scheduling caps each parent's vector at five children.
+        for (netuid, parent) in PendingChildKeys::<T>::iter_keys() {
+            Self::consume_disassociation_items(&mut remaining, 1)?;
+            ensure!(&parent != hotkey, Error::<T>::HotkeyHasActiveRelationships);
+            let (children, _) = PendingChildKeys::<T>::try_get(netuid, &parent)
+                .map_err(|_| Error::<T>::InvalidDisassociationWitness)?;
+            ensure!(
+                children.iter().all(|(_, child)| child != hotkey),
+                Error::<T>::HotkeyHasActiveRelationships
+            );
+        }
+
+        // For the remaining maps, count distinct netuid buckets, not account
+        // rows. Raw trie seeks skip unrelated accounts within each bucket.
         for (_, subnet_owner) in SubnetOwnerHotkey::<T>::iter() {
             Self::consume_disassociation_items(&mut remaining, 1)?;
             ensure!(
@@ -81,15 +94,9 @@ impl<T: Config> Pallet<T> {
             );
         }
         Self::ensure_disassociation_subnets(
-            &PendingChildKeys::<T>::final_prefix(),
-            &mut remaining,
-            Error::<T>::HotkeyHasActiveRelationships,
-            |netuid| !PendingChildKeys::<T>::contains_key(netuid, hotkey),
-        )?;
-        Self::ensure_disassociation_subnets(
             &Uids::<T>::final_prefix(),
             &mut remaining,
-            Error::<T>::HotkeyIsStillRegistered,
+            Error::<T>::HotKeyAlreadyRegisteredInSubNet,
             |netuid| !Uids::<T>::contains_key(netuid, hotkey),
         )?;
         Self::ensure_disassociation_subnets(

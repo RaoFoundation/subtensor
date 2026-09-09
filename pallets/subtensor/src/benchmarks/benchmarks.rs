@@ -1752,7 +1752,10 @@ mod pallet_benchmarks {
             let netuid = NetUid::from(i as u16);
             let other: T::AccountId = account("other", i, 0);
             SubnetOwnerHotkey::<T>::insert(netuid, &other);
-            PendingChildKeys::<T>::insert(netuid, &other, (vec![(u64::MAX, other.clone())], 100));
+            let children: Vec<_> = (0..5)
+                .map(|j| (u64::MAX / 5, account::<T::AccountId>("child", i, j)))
+                .collect();
+            PendingChildKeys::<T>::insert(netuid, &other, (children, 100));
             Uids::<T>::insert(netuid, &other, 0);
             LockingColdkeys::<T>::insert((netuid, &other, &other), ());
             MinerCollateral::<T>::insert(
