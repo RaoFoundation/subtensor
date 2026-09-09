@@ -36,11 +36,7 @@ pub fn migrate_fix_staking_hot_keys<T: Config>() -> Weight {
 
         if !staking_hotkeys.contains(&hotkey) {
             staking_hotkeys.push(hotkey.clone());
-            storage_writes = storage_writes.saturating_add(2);
-            Pallet::<T>::note_hotkey_index_length(
-                &StakingHotkeys::<T>::hashed_key_for(&coldkey),
-                staking_hotkeys.len(),
-            );
+            storage_writes = storage_writes.saturating_add(1);
             StakingHotkeys::<T>::insert(&coldkey, staking_hotkeys.clone());
         }
     }

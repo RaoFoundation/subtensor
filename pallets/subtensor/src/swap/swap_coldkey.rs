@@ -96,17 +96,10 @@ impl<T: Config> Pallet<T> {
         if let Some(old_auto_stake_hotkey) = AutoStakeDestination::<T>::get(old_coldkey, netuid) {
             AutoStakeDestination::<T>::remove(old_coldkey, netuid);
             AutoStakeDestination::<T>::insert(new_coldkey, netuid, old_auto_stake_hotkey.clone());
-            AutoStakeDestinationColdkeys::<T>::mutate(&old_auto_stake_hotkey, netuid, |v| {
+            AutoStakeDestinationColdkeys::<T>::mutate(old_auto_stake_hotkey, netuid, |v| {
                 // Remove old/new coldkeys (avoid duplicates), then add the new one.
                 v.retain(|c| *c != *old_coldkey && *c != *new_coldkey);
                 v.push(new_coldkey.clone());
-                Self::note_hotkey_index_length(
-                    &AutoStakeDestinationColdkeys::<T>::hashed_key_for(
-                        &old_auto_stake_hotkey,
-                        netuid,
-                    ),
-                    v.len(),
-                );
             });
         }
     }
@@ -177,10 +170,6 @@ impl<T: Config> Pallet<T> {
         if new_staking_hotkeys.is_empty() {
             StakingHotkeys::<T>::remove(new_coldkey);
         } else {
-            Pallet::<T>::note_hotkey_index_length(
-                &StakingHotkeys::<T>::hashed_key_for(new_coldkey),
-                new_staking_hotkeys.len(),
-            );
             StakingHotkeys::<T>::insert(new_coldkey, new_staking_hotkeys);
         }
     }
@@ -203,10 +192,6 @@ impl<T: Config> Pallet<T> {
             }
         }
         OwnedHotkeys::<T>::remove(old_coldkey);
-        Pallet::<T>::note_hotkey_index_length(
-            &OwnedHotkeys::<T>::hashed_key_for(new_coldkey),
-            new_owned_hotkeys.len(),
-        );
         OwnedHotkeys::<T>::insert(new_coldkey, new_owned_hotkeys);
         Ok(())
     }

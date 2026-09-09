@@ -4,7 +4,7 @@ import type { ApiPromise } from "@polkadot/api";
 import type { SubmittableExtrinsic } from "@polkadot/api/types";
 import { Keyring } from "@polkadot/keyring";
 import type { Bytes, Option } from "@polkadot/types";
-import { blake2AsHex, randomAsU8a } from "@polkadot/util-crypto";
+import { randomAsU8a } from "@polkadot/util-crypto";
 
 const generateKeyringPair = () => new Keyring({ type: "sr25519" }).addFromSeed(randomAsU8a(32));
 
@@ -49,28 +49,18 @@ describeSuite({
                 module.stakingHotkeys.key(signer.address),
                 ...destinations.map((key) => key.toHex()),
             ];
-            const legacyKeys: string[] = [];
             let maxItems = destinations.length + claims.length;
             for (const key of indexKeys) {
-                const length = await module.hotkeyIndexLengths(blake2AsHex(key));
-                if ((length as any).isSome) {
-                    maxItems += (length as any).unwrap().toNumber();
-                } else {
-                    const value = await api.rpc.state.getStorage<Option<Bytes>>(key, hash);
-                    if (value.isSome) {
-                        maxItems += api.createType("Vec<AccountId>", value.unwrap()).length;
-                    }
-                    legacyKeys.push(key);
+                const value = await api.rpc.state.getStorage<Option<Bytes>>(key, hash);
+                if (value.isSome) {
+                    maxItems += api.createType("Vec<AccountId>", value.unwrap()).length;
                 }
             }
             maxItems += buckets.reduce(
                 (total, keys) => total + new Set(keys.map((key) => key.args[0].toString())).size,
                 0
             );
-            const proof = legacyKeys.length
-                ? [await api.rpc.chain.getHeader(hash), (await api.rpc.state.getReadProof(legacyKeys, hash)).proof]
-                : null;
-            return api.tx.subtensorModule.disassociateHotkey(hotkey, underestimate ? maxItems - 1 : maxItems, proof);
+            return api.tx.subtensorModule.disassociateHotkey(hotkey, underestimate ? maxItems - 1 : maxItems);
         }
 
         async function ownerExists(hotkey: string) {
@@ -312,25 +302,15 @@ describeSuite({
 
         it({
             id: "T09",
-            title: "legacy vectors reject missing proofs and accept a real RPC storage proof",
+            title: "rejects a stale work estimate after the owner's indexes grow",
             test: async () => {
                 const hotkey = await associate();
-                const keys = [
-                    api.query.subtensorModule.ownedHotkeys.key(coldkey.address),
-                    api.query.subtensorModule.stakingHotkeys.key(coldkey.address),
-                ];
-                const cacheKeys = keys.map((key) => api.query.subtensorModule.hotkeyIndexLengths.key(blake2AsHex(key)));
-                const cleared = await submit(
-                    api.tx.sudo.sudo(api.tx.system.killStorage(cacheKeys)),
-                    context.keyring.alice
-                );
-                const sudo = cleared.events.find(({ event }) => api.events.sudo.Sudid.is(event));
-                expect((sudo.event.data[0] as any).isOk).toBe(true);
-                await expectFailure(
-                    api.tx.subtensorModule.disassociateHotkey(hotkey.address, 100, null),
-                    "InvalidDisassociationWitness"
-                );
+                const staleEstimate = await release(hotkey.address);
+                const other = await associate();
+                await expectFailure(staleEstimate, "InvalidDisassociationWitness");
+                expect(await ownerExists(hotkey.address)).toBe(true);
                 expect((await submit(await release(hotkey.address))).successful).toBe(true);
+                expect((await api.query.subtensorModule.owner(other.address)).toString()).toBe(coldkey.address);
             },
         });
     },

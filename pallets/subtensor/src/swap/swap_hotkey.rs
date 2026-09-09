@@ -28,7 +28,7 @@ impl<T: Config> Pallet<T> {
             // LastHotkeySwap, successor clear+insert, root insert.
             Weight::from_parts(275_300_000, 0)
                 .saturating_add(T::DbWeight::get().reads(53_u64))
-                .saturating_add(T::DbWeight::get().writes(41_u64))
+                .saturating_add(T::DbWeight::get().writes(39_u64))
         };
         base.saturating_add(Self::basket_claimed_swap_weight(old_hotkey, netuid))
     }
@@ -443,11 +443,6 @@ impl<T: Config> Pallet<T> {
 
         // 5. Remove the old key.
         hotkeys.retain(|hk| *hk != *old_hotkey);
-        weight.saturating_accrue(T::DbWeight::get().writes(1));
-        Pallet::<T>::note_hotkey_index_length(
-            &OwnedHotkeys::<T>::hashed_key_for(coldkey),
-            hotkeys.len(),
-        );
         OwnedHotkeys::<T>::insert(coldkey, hotkeys);
 
         weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
@@ -507,11 +502,6 @@ impl<T: Config> Pallet<T> {
                         if !staking_hotkeys.contains(new_hotkey) {
                             staking_hotkeys.push(new_hotkey.clone());
                         }
-                        weight.saturating_accrue(T::DbWeight::get().writes(1));
-                        Pallet::<T>::note_hotkey_index_length(
-                            &StakingHotkeys::<T>::hashed_key_for(coldkey),
-                            staking_hotkeys.len(),
-                        );
                         StakingHotkeys::<T>::insert(coldkey, staking_hotkeys);
                         weight.saturating_accrue(T::DbWeight::get().writes(1));
                     }
@@ -592,11 +582,6 @@ impl<T: Config> Pallet<T> {
         // Add the new key if needed.
         if !hotkeys.contains(new_hotkey) {
             hotkeys.push(new_hotkey.clone());
-            weight.saturating_accrue(T::DbWeight::get().writes(1));
-            Pallet::<T>::note_hotkey_index_length(
-                &OwnedHotkeys::<T>::hashed_key_for(coldkey),
-                hotkeys.len(),
-            );
             OwnedHotkeys::<T>::insert(coldkey, hotkeys);
             weight.saturating_accrue(T::DbWeight::get().reads_writes(1, 1));
         }
@@ -817,11 +802,6 @@ impl<T: Config> Pallet<T> {
                 AutoStakeDestination::<T>::insert(coldkey, netuid, new_hotkey);
             }
             AutoStakeDestinationColdkeys::<T>::remove(old_hotkey, netuid);
-            weight.saturating_accrue(T::DbWeight::get().writes(1));
-            Pallet::<T>::note_hotkey_index_length(
-                &AutoStakeDestinationColdkeys::<T>::hashed_key_for(new_hotkey, netuid),
-                old_auto_stake_coldkeys.len(),
-            );
             AutoStakeDestinationColdkeys::<T>::insert(new_hotkey, netuid, old_auto_stake_coldkeys);
         }
 
@@ -902,11 +882,6 @@ impl<T: Config> Pallet<T> {
 
                 if staking_hotkeys.contains(old_hotkey) && !staking_hotkeys.contains(new_hotkey) {
                     staking_hotkeys.push(new_hotkey.clone());
-                    weight.saturating_accrue(T::DbWeight::get().writes(1));
-                    Pallet::<T>::note_hotkey_index_length(
-                        &StakingHotkeys::<T>::hashed_key_for(coldkey),
-                        staking_hotkeys.len(),
-                    );
                     StakingHotkeys::<T>::insert(coldkey, staking_hotkeys);
                     weight.saturating_accrue(T::DbWeight::get().writes(1));
                 }

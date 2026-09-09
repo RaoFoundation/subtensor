@@ -1,5 +1,5 @@
 use super::*;
-use codec::MaxEncodedLen;
+use codec::{Compact, MaxEncodedLen};
 use frame_support::storage::StoragePrefixedMap;
 
 impl<T: Config> Pallet<T> {
@@ -14,12 +14,11 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Release an idle hotkey without transferring stake or financial entitlements.
-    /// The shared work limit bounds all reads and cleanup before any mutation.
+    /// The work limit bounds subnet probes, decoded index entries and cleanup.
     pub fn do_disassociate_hotkey(
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
         max_items: u32,
-        legacy_proof: Option<&DisassociationProof<T>>,
     ) -> DispatchResult {
         let owner = Owner::<T>::try_get(hotkey).map_err(|_| Error::<T>::HotKeyAccountNotExists)?;
         ensure!(&owner == coldkey, Error::<T>::NonAssociatedColdKey);
@@ -29,15 +28,11 @@ impl<T: Config> Pallet<T> {
         );
         Self::ensure_beta_basket_seed_idle()?;
 
-        let proof = Self::disassociation_index_proof(legacy_proof)?;
-        let indexed_hotkeys = Self::disassociation_index_length(
-            &OwnedHotkeys::<T>::hashed_key_for(coldkey),
-            proof.as_ref(),
-        )?
-        .saturating_add(Self::disassociation_index_length(
-            &StakingHotkeys::<T>::hashed_key_for(coldkey),
-            proof.as_ref(),
-        )?);
+        let indexed_hotkeys =
+            Self::disassociation_index_length(&OwnedHotkeys::<T>::hashed_key_for(coldkey))?
+                .saturating_add(Self::disassociation_index_length(
+                    &StakingHotkeys::<T>::hashed_key_for(coldkey),
+                )?);
         let mut remaining = max_items;
         Self::consume_disassociation_items(&mut remaining, indexed_hotkeys)?;
 
@@ -133,7 +128,6 @@ impl<T: Config> Pallet<T> {
                 &mut remaining,
                 Self::disassociation_index_length(
                     &AutoStakeDestinationColdkeys::<T>::hashed_key_for(hotkey, netuid),
-                    proof.as_ref(),
                 )?,
             )?;
         }
@@ -168,6 +162,20 @@ impl<T: Config> Pallet<T> {
             hotkey: hotkey.clone(),
         });
         Ok(())
+    }
+
+    /// Copy only the SCALE length prefix into the runtime before decoding an
+    /// index. The host still reads the full existing Vec value and includes it
+    /// in storage proofs; max_items does not bound that underlying storage read.
+    fn disassociation_index_length(key: &[u8]) -> Result<usize, DispatchError> {
+        let mut prefix = [0u8; 5];
+        let Some(encoded_len) = sp_io::storage::read(key, &mut prefix, 0) else {
+            return Ok(0);
+        };
+        let prefix_len = (encoded_len as usize).min(prefix.len());
+        let Compact(len) = Compact::<u32>::decode(&mut &prefix[..prefix_len])
+            .map_err(|_| Error::<T>::InvalidDisassociationWitness)?;
+        Ok(len as usize)
     }
 
     fn consume_disassociation_items(remaining: &mut u32, count: usize) -> DispatchResult {

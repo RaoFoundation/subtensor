@@ -1724,10 +1724,7 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
-    fn disassociate_hotkey(k: Linear<1, 1024>, p: Linear<0, 65536>) {
-        use sp_runtime::traits::Header;
-        use sp_trie::{MemoryDB, TrieDBMutBuilder, TrieMut};
-
+    fn disassociate_hotkey(k: Linear<1, 1024>) {
         let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("released", 0, 0);
         assert_ok!(Subtensor::<T>::create_account_if_non_existent(
@@ -1749,10 +1746,6 @@ mod pallet_benchmarks {
         let _ = LockingColdkeys::<T>::clear(u32::MAX, None);
         let _ = MinerCollateral::<T>::clear(u32::MAX, None);
         let _ = RootClaimed::<T>::clear(u32::MAX, None);
-        let mut legacy_keys = vec![
-            OwnedHotkeys::<T>::hashed_key_for(&coldkey),
-            StakingHotkeys::<T>::hashed_key_for(&coldkey),
-        ];
         // Populate every kind of work k times. This deliberately measures more
         // than any mix with total work <= k, including every subnet seek path.
         for i in 0..k {
@@ -1775,46 +1768,13 @@ mod pallet_benchmarks {
             BasketClaimed::<T>::insert(&hotkey, &other, 0);
             AutoStakeDestination::<T>::insert(&other, netuid, &hotkey);
             AutoStakeDestinationColdkeys::<T>::insert(&hotkey, netuid, vec![other]);
-            legacy_keys.push(AutoStakeDestinationColdkeys::<T>::hashed_key_for(
-                &hotkey, netuid,
-            ));
         }
-        let mut db = MemoryDB::<T::Hashing>::new(&[0]);
-        let mut root = T::Hash::default();
-        {
-            let mut trie =
-                TrieDBMutBuilder::<sp_trie::LayoutV1<T::Hashing>>::new(&mut db, &mut root).build();
-            for key in legacy_keys {
-                HotkeyIndexLengths::<T>::remove(sp_io::hashing::blake2_256(&key));
-                trie.insert(&key, &sp_io::storage::get(&key).unwrap())
-                    .unwrap();
-            }
-        }
-        let mut nodes: Vec<Vec<u8>> = db
-            .drain()
-            .into_values()
-            .filter_map(|(value, refs)| (refs > 0).then_some(value))
-            .collect();
-        // p small, distinct nodes exercise hashing, sorting and database inserts.
-        // Dispatch charges encoded bytes, hence at least one unit per node.
-        nodes.extend((0..p).map(|i| i.encode()));
-        let header = frame_system::pallet_prelude::HeaderFor::<T>::new(
-            1u32.into(),
-            Default::default(),
-            root,
-            Default::default(),
-            Default::default(),
-        );
-        HotkeyIndexTrackingSince::<T>::put(BlockNumberFor::<T>::from(1u32));
-        frame_system::Pallet::<T>::set_block_number(2u32.into());
-        frame_system::BlockHash::<T>::insert(header.number(), header.hash());
 
         #[extrinsic_call]
         _(
             RawOrigin::Signed(coldkey.clone()),
             hotkey.clone(),
             k.saturating_mul(11),
-            Some((header, nodes)),
         );
 
         assert!(!Owner::<T>::contains_key(&hotkey));

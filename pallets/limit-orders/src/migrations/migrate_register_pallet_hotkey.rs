@@ -36,8 +36,8 @@ pub fn migrate_register_pallet_hotkey<T: Config>() -> Weight {
 
     if !T::SwapInterface::pallet_hotkey_registered(&pallet_acct, &pallet_hotkey) {
         let _ = T::SwapInterface::register_pallet_hotkey(&pallet_acct, &pallet_hotkey);
-        // Owner, OwnedHotkeys, StakingHotkeys and the two length records.
-        weight = weight.saturating_add(T::DbWeight::get().writes(5));
+        // register_pallet_hotkey writes Owner, OwnedHotkeys, StakingHotkeys
+        weight = weight.saturating_add(T::DbWeight::get().writes(3));
     }
 
     HasMigrationRun::<T>::insert(&migration_name, true);

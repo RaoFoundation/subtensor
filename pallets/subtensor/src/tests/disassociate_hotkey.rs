@@ -21,7 +21,7 @@ fn associate() -> (U256, U256) {
 }
 
 fn disassociate(coldkey: U256, hotkey: U256) -> DispatchResult {
-    SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 34, None)
+    SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 34)
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn requires_signed_existing_owner_even_for_default_account() {
         let (coldkey, hotkey) = associate();
         for origin in [RuntimeOrigin::none(), RuntimeOrigin::root()] {
             assert_noop!(
-                SubtensorModule::disassociate_hotkey(origin, hotkey, 34, None),
+                SubtensorModule::disassociate_hotkey(origin, hotkey, 34),
                 DispatchError::BadOrigin
             );
         }
@@ -214,19 +214,14 @@ fn validates_both_vector_lengths_and_preserves_other_relationships() {
             other
         ));
         StakingHotkeys::<Test>::append(coldkey, staked);
-        SubtensorModule::note_hotkey_index_length(
-            &StakingHotkeys::<Test>::hashed_key_for(coldkey),
-            3,
-        );
         assert_noop!(
-            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 4, None),
+            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 4),
             Error::<Test>::InvalidDisassociationWitness
         );
         assert_ok!(SubtensorModule::disassociate_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey,
-            5,
-            None
+            5
         ));
         assert_eq!(OwnedHotkeys::<Test>::get(coldkey), vec![other]);
         assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![other, staked]);
@@ -250,26 +245,17 @@ fn cleans_autostake_for_all_coldkeys_but_preserves_retargeted_entries() {
                 netuid,
                 vec![coldkey, staker, retargeted],
             );
-            SubtensorModule::note_hotkey_index_length(
-                &AutoStakeDestinationColdkeys::<Test>::hashed_key_for(hotkey, netuid),
-                3,
-            );
         }
         AutoStakeDestinationColdkeys::<Test>::insert(hotkey, NetUid::from(2), Vec::<U256>::new());
-        SubtensorModule::note_hotkey_index_length(
-            &AutoStakeDestinationColdkeys::<Test>::hashed_key_for(hotkey, NetUid::from(2)),
-            0,
-        );
         // Underestimation discovered on the last subnet must not partially clean the first.
         assert_noop!(
-            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 10, None),
+            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 10),
             Error::<Test>::InvalidDisassociationWitness
         );
         assert_ok!(SubtensorModule::disassociate_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey,
-            11,
-            None
+            11
         ));
         for netuid in [NetUid::from(1), NetUid::from(4095)] {
             assert!(!AutoStakeDestination::<Test>::contains_key(coldkey, netuid));
@@ -293,7 +279,6 @@ fn charge_scales_with_work_limit_and_pays_fees() {
         RuntimeCall::SubtensorModule(Call::disassociate_hotkey {
             hotkey: U256::from(11),
             max_items,
-            legacy_proof: None,
         })
         .get_dispatch_info()
     };
@@ -318,14 +303,13 @@ fn work_limit_counts_subnet_buckets_not_unrelated_accounts() {
             }
         }
         assert_noop!(
-            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 13, None),
+            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 13),
             Error::<Test>::InvalidDisassociationWitness
         );
         assert_ok!(SubtensorModule::disassociate_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey,
-            14,
-            None
+            14
         ));
         assert_eq!(Uids::<Test>::iter().count(), 600);
         assert_eq!(LockingColdkeys::<Test>::iter().count(), 600);
@@ -398,7 +382,6 @@ fn swap_guard_blocks_disassociation_of_a_frozen_coldkey() {
         let call = RuntimeCall::SubtensorModule(Call::disassociate_hotkey {
             hotkey,
             max_items: 2,
-            legacy_proof: None,
         });
         let err =
             <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
@@ -412,91 +395,7 @@ fn swap_guard_blocks_disassociation_of_a_frozen_coldkey() {
 }
 
 #[test]
-fn review_rejected_zero_witness_must_cover_owner_vector_proof() {
-    let mut ext = new_test_ext(1);
-    let (coldkey, hotkey) = ext.execute_with(|| {
-        let pair = associate();
-        let mut keys = vec![pair.1];
-        for id in 100..10_100 {
-            let other = U256::from(id);
-            Owner::<Test>::insert(other, pair.0);
-            keys.push(other);
-        }
-        SubtensorModule::note_hotkey_index_length(
-            &OwnedHotkeys::<Test>::hashed_key_for(pair.0),
-            keys.len(),
-        );
-        SubtensorModule::note_hotkey_index_length(
-            &StakingHotkeys::<Test>::hashed_key_for(pair.0),
-            keys.len(),
-        );
-        OwnedHotkeys::<Test>::insert(pair.0, &keys);
-        StakingHotkeys::<Test>::insert(pair.0, &keys);
-        pair
-    });
-    ext.commit_all().unwrap();
-    let call = RuntimeCall::SubtensorModule(Call::disassociate_hotkey {
-        hotkey,
-        max_items: 0,
-        legacy_proof: None,
-    });
-    let charged = call.get_dispatch_info().call_weight.proof_size();
-    let (result, proof) = ext.execute_and_prove(|| {
-        SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 0, None)
-    });
-    assert_eq!(
-        result,
-        Err(Error::<Test>::InvalidDisassociationWitness.into())
-    );
-    ext.execute_with(|| assert_eq!(Owner::<Test>::get(hotkey), coldkey));
-    let actual: usize = proof.iter_nodes().map(Vec::len).sum();
-    assert!(
-        actual as u64 <= charged,
-        "owner vectors: recorded proof {actual} bytes exceeds declared {charged} bytes"
-    );
-}
-
-#[test]
-fn review_rejected_autostake_witness_must_cover_vector_proof() {
-    let mut ext = new_test_ext(1);
-    let (coldkey, hotkey) = ext.execute_with(|| {
-        let pair = associate();
-        let netuid = NetUid::from(65535);
-        let keys: Vec<_> = (100..10_100).map(U256::from).collect();
-        for staker in &keys {
-            AutoStakeDestination::<Test>::insert(staker, netuid, pair.1);
-        }
-        SubtensorModule::note_hotkey_index_length(
-            &AutoStakeDestinationColdkeys::<Test>::hashed_key_for(pair.1, netuid),
-            keys.len(),
-        );
-        AutoStakeDestinationColdkeys::<Test>::insert(pair.1, netuid, keys);
-        pair
-    });
-    ext.commit_all().unwrap();
-    let call = RuntimeCall::SubtensorModule(Call::disassociate_hotkey {
-        hotkey,
-        max_items: 3,
-        legacy_proof: None,
-    });
-    let charged = call.get_dispatch_info().call_weight.proof_size();
-    let (result, proof) = ext.execute_and_prove(|| {
-        SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 3, None)
-    });
-    assert_eq!(
-        result,
-        Err(Error::<Test>::InvalidDisassociationWitness.into())
-    );
-    ext.execute_with(|| assert_eq!(Owner::<Test>::get(hotkey), coldkey));
-    let actual: usize = proof.iter_nodes().map(Vec::len).sum();
-    assert!(
-        actual as u64 <= charged,
-        "autostake vector: recorded proof {actual} bytes exceeds declared {charged} bytes"
-    );
-}
-
-#[test]
-fn review_fully_settled_basket_must_not_prevent_release() {
+fn fully_settled_basket_must_not_prevent_release() {
     new_test_ext(1).execute_with(|| {
         let (coldkey, hotkey) = associate();
         let staker = U256::from(20);
@@ -550,146 +449,6 @@ fn review_fully_settled_basket_must_not_prevent_release() {
     });
 }
 
-fn historical_index_proof(
-    ext: &mut sp_io::TestExternalities,
-    keys: &[Vec<u8>],
-) -> DisassociationProof<Test> {
-    use sp_runtime::traits::Header;
-    ext.execute_with(|| {
-        System::set_block_number(0);
-        SubtensorModule::start_hotkey_index_tracking();
-        System::set_block_number(1);
-        for key in keys {
-            HotkeyIndexLengths::<Test>::remove(sp_io::hashing::blake2_256(key));
-        }
-    });
-    ext.commit_all().unwrap();
-    let root = *ext.backend.root();
-    let (_, proof) = ext.execute_and_prove(|| {
-        for key in keys {
-            assert!(sp_io::storage::get(key).is_some());
-        }
-    });
-    let header = frame_system::pallet_prelude::HeaderFor::<Test>::new(
-        1,
-        Default::default(),
-        root,
-        Default::default(),
-        Default::default(),
-    );
-    ext.execute_with(|| {
-        System::set_block_number(2);
-        frame_system::BlockHash::<Test>::insert(1, header.hash());
-    });
-    (header, proof.into_iter_nodes().collect())
-}
-
-#[test]
-fn legacy_indexes_require_authenticated_post_activation_proof() {
-    use sp_runtime::traits::Header;
-    let mut ext = new_test_ext(1);
-    let (coldkey, hotkey) = ext.execute_with(associate);
-    let keys = [
-        OwnedHotkeys::<Test>::hashed_key_for(coldkey),
-        StakingHotkeys::<Test>::hashed_key_for(coldkey),
-    ];
-    let proof = historical_index_proof(&mut ext, &keys);
-    ext.execute_with(|| {
-        assert_noop!(
-            disassociate(coldkey, hotkey),
-            Error::<Test>::InvalidDisassociationWitness
-        );
-        let release = |proof| {
-            SubtensorModule::disassociate_hotkey(
-                RuntimeOrigin::signed(coldkey),
-                hotkey,
-                2,
-                Some(proof),
-            )
-        };
-        let mut tampered = proof.clone();
-        tampered.0.set_state_root(Default::default());
-        assert_noop!(
-            release(tampered),
-            Error::<Test>::InvalidDisassociationWitness
-        );
-        assert_noop!(
-            release((proof.0.clone(), vec![])),
-            Error::<Test>::InvalidDisassociationWitness
-        );
-        HotkeyIndexTrackingSince::<Test>::put(2);
-        assert_noop!(
-            release(proof.clone()),
-            Error::<Test>::InvalidDisassociationWitness
-        );
-        HotkeyIndexTrackingSince::<Test>::put(1);
-        frame_system::BlockHash::<Test>::remove(1);
-        assert_noop!(
-            release(proof.clone()),
-            Error::<Test>::InvalidDisassociationWitness
-        );
-        frame_system::BlockHash::<Test>::insert(1, proof.0.hash());
-        assert_ok!(release(proof));
-        assert!(!Owner::<Test>::contains_key(hotkey));
-    });
-}
-
-#[test]
-fn historical_proof_cannot_underestimate_indexes_that_have_grown() {
-    let mut ext = new_test_ext(1);
-    let (coldkey, hotkey) = ext.execute_with(associate);
-    let proof = historical_index_proof(
-        &mut ext,
-        &[
-            OwnedHotkeys::<Test>::hashed_key_for(coldkey),
-            StakingHotkeys::<Test>::hashed_key_for(coldkey),
-        ],
-    );
-    ext.execute_with(|| {
-        assert_ok!(SubtensorModule::try_associate_hotkey(
-            RuntimeOrigin::signed(coldkey),
-            U256::from(12)
-        ));
-        assert_noop!(
-            SubtensorModule::disassociate_hotkey(
-                RuntimeOrigin::signed(coldkey),
-                hotkey,
-                2,
-                Some(proof.clone())
-            ),
-            Error::<Test>::InvalidDisassociationWitness
-        );
-        assert_ok!(SubtensorModule::disassociate_hotkey(
-            RuntimeOrigin::signed(coldkey),
-            hotkey,
-            4,
-            Some(proof)
-        ));
-        assert_eq!(OwnedHotkeys::<Test>::get(coldkey), vec![U256::from(12)]);
-    });
-}
-
-#[test]
-fn missing_length_metadata_rejects_without_reading_large_legacy_value() {
-    let mut ext = new_test_ext(1);
-    let (coldkey, hotkey) = ext.execute_with(|| {
-        let pair = associate();
-        let key = OwnedHotkeys::<Test>::hashed_key_for(pair.0);
-        OwnedHotkeys::<Test>::insert(pair.0, vec![pair.1; 10_000]);
-        HotkeyIndexLengths::<Test>::remove(sp_io::hashing::blake2_256(&key));
-        pair
-    });
-    ext.commit_all().unwrap();
-    let (_, proof) = ext.execute_and_prove(|| {
-        assert_noop!(
-            disassociate(coldkey, hotkey),
-            Error::<Test>::InvalidDisassociationWitness
-        );
-    });
-    // Reading the legacy value would record over 320 kB, independently of max_items.
-    assert!(proof.iter_nodes().map(Vec::len).sum::<usize>() < 20_000);
-}
-
 #[test]
 fn settled_claim_rows_are_bounded_and_cleared_before_reassociation() {
     new_test_ext(1).execute_with(|| {
@@ -699,14 +458,13 @@ fn settled_claim_rows_are_bounded_and_cleared_before_reassociation() {
             BasketClaimed::<Test>::insert(hotkey, U256::from(id), 0);
         }
         assert_noop!(
-            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 4, None),
+            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 4),
             Error::<Test>::InvalidDisassociationWitness
         );
         assert_ok!(SubtensorModule::disassociate_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey,
-            5,
-            None
+            5
         ));
         assert!(!BasketRate::<Test>::contains_key(hotkey));
         assert!(
@@ -727,91 +485,113 @@ fn settled_claim_rows_are_bounded_and_cleared_before_reassociation() {
 }
 
 #[test]
-fn tracking_activation_is_idempotent_and_does_not_scan_legacy_indexes() {
+fn rejects_underestimated_large_owner_indexes_without_cleanup() {
+    for owned in [true, false] {
+        new_test_ext(1).execute_with(|| {
+            let (coldkey, hotkey) = associate();
+            let mut keys = vec![hotkey];
+            keys.extend((100..10_100).map(U256::from));
+            let key = if owned {
+                OwnedHotkeys::<Test>::hashed_key_for(coldkey)
+            } else {
+                StakingHotkeys::<Test>::hashed_key_for(coldkey)
+            };
+            let encoded = keys.encode();
+            sp_io::storage::set(&key, &encoded);
+            assert_noop!(
+                SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 2),
+                Error::<Test>::InvalidDisassociationWitness
+            );
+            assert_eq!(
+                sp_io::storage::get(&key).unwrap().as_ref(),
+                encoded.as_slice()
+            );
+            assert_eq!(Owner::<Test>::get(hotkey), coldkey);
+        });
+    }
+}
+
+#[test]
+fn rejects_underestimated_large_autostake_index_without_cleanup() {
     new_test_ext(1).execute_with(|| {
-        let (coldkey, _) = associate();
-        HotkeyIndexLengths::<Test>::remove(sp_io::hashing::blake2_256(
-            &OwnedHotkeys::<Test>::hashed_key_for(coldkey),
-        ));
-        System::set_block_number(100);
-        SubtensorModule::start_hotkey_index_tracking();
-        System::set_block_number(200);
-        SubtensorModule::start_hotkey_index_tracking();
-        assert_eq!(HotkeyIndexTrackingSince::<Test>::get(), Some(101));
-        assert!(
-            HotkeyIndexLengths::<Test>::get(sp_io::hashing::blake2_256(
-                &OwnedHotkeys::<Test>::hashed_key_for(coldkey)
-            ))
-            .is_none()
+        let (coldkey, hotkey) = associate();
+        let netuid = NetUid::from(u16::MAX);
+        let stakers: Vec<_> = (100..10_100).map(U256::from).collect();
+        AutoStakeDestination::<Test>::insert(stakers[0], netuid, hotkey);
+        AutoStakeDestinationColdkeys::<Test>::insert(hotkey, netuid, &stakers);
+        assert_noop!(
+            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 3),
+            Error::<Test>::InvalidDisassociationWitness
+        );
+        assert_eq!(Owner::<Test>::get(hotkey), coldkey);
+        assert_eq!(OwnedHotkeys::<Test>::get(coldkey), vec![hotkey]);
+        assert_eq!(
+            AutoStakeDestination::<Test>::get(stakers[0], netuid),
+            Some(hotkey)
+        );
+        assert_eq!(
+            AutoStakeDestinationColdkeys::<Test>::get(hotkey, netuid),
+            stakers
         );
     });
 }
 
 #[test]
-fn autostake_growth_and_retargeting_preserve_length_bounds() {
+fn rejects_malformed_index_lengths_without_releasing_ownership() {
+    for value in [vec![], vec![1], vec![2, 0], vec![3, 0, 0, 0]] {
+        new_test_ext(1).execute_with(|| {
+            let (coldkey, hotkey) = associate();
+            let key = OwnedHotkeys::<Test>::hashed_key_for(coldkey);
+            sp_io::storage::set(&key, &value);
+            assert_noop!(
+                disassociate(coldkey, hotkey),
+                Error::<Test>::InvalidDisassociationWitness
+            );
+            assert_eq!(Owner::<Test>::get(hotkey), coldkey);
+            assert_eq!(
+                sp_io::storage::get(&key).unwrap().as_ref(),
+                value.as_slice()
+            );
+        });
+    }
+}
+
+#[test]
+fn rejects_stale_work_estimates_after_index_growth() {
     new_test_ext(1).execute_with(|| {
         let (coldkey, hotkey) = associate();
         let other = U256::from(30);
-        let netuid = NetUid::from(1);
-        add_network(netuid, 100, 0);
-        Uids::<Test>::insert(netuid, hotkey, 0);
-        Uids::<Test>::insert(netuid, other, 1);
-        let key = AutoStakeDestinationColdkeys::<Test>::hashed_key_for(hotkey, netuid);
-        // Legacy inverse entry: a real growth must install metadata for its full length.
-        AutoStakeDestinationColdkeys::<Test>::insert(hotkey, netuid, vec![U256::from(20)]);
-        assert_ok!(SubtensorModule::set_coldkey_auto_stake_hotkey(
+        assert_ok!(SubtensorModule::try_associate_hotkey(
             RuntimeOrigin::signed(coldkey),
-            netuid,
-            hotkey
-        ));
-        assert_eq!(
-            HotkeyIndexLengths::<Test>::get(sp_io::hashing::blake2_256(&key)),
-            Some(2)
-        );
-        assert_ok!(SubtensorModule::set_coldkey_auto_stake_hotkey(
-            RuntimeOrigin::signed(coldkey),
-            netuid,
             other
         ));
-        assert_eq!(
-            AutoStakeDestinationColdkeys::<Test>::get(hotkey, netuid).len(),
-            1
+        assert_noop!(
+            SubtensorModule::disassociate_hotkey(RuntimeOrigin::signed(coldkey), hotkey, 2),
+            Error::<Test>::InvalidDisassociationWitness
         );
-        assert_ok!(SubtensorModule::check_hotkey_index_lengths());
-        HotkeyIndexLengths::<Test>::insert(sp_io::hashing::blake2_256(&key), 0);
-        assert!(SubtensorModule::check_hotkey_index_lengths().is_err());
+        assert_ok!(SubtensorModule::disassociate_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            hotkey,
+            4
+        ));
+        assert_eq!(OwnedHotkeys::<Test>::get(coldkey), vec![other]);
+        assert_eq!(StakingHotkeys::<Test>::get(coldkey), vec![other]);
+        assert_eq!(Owner::<Test>::get(other), coldkey);
     });
 }
 
 #[test]
-fn historical_length_remains_safe_after_untracked_cleanup() {
-    let mut ext = new_test_ext(1);
-    let (coldkey, hotkey) = ext.execute_with(associate);
-    let proof = historical_index_proof(
-        &mut ext,
-        &[
-            OwnedHotkeys::<Test>::hashed_key_for(coldkey),
-            StakingHotkeys::<Test>::hashed_key_for(coldkey),
-        ],
-    );
-    ext.execute_with(|| {
+fn releases_a_hotkey_whose_staking_index_was_already_cleaned() {
+    new_test_ext(1).execute_with(|| {
+        let (coldkey, hotkey) = associate();
         SubtensorModule::maybe_remove_staking_hotkey(&hotkey, &coldkey);
         assert!(!StakingHotkeys::<Test>::contains_key(coldkey));
         assert_ok!(SubtensorModule::disassociate_hotkey(
             RuntimeOrigin::signed(coldkey),
             hotkey,
-            2,
-            Some(proof)
+            1
         ));
-    });
-}
-
-#[test]
-fn fresh_genesis_enables_index_proofs_without_a_runtime_upgrade() {
-    use frame_support::traits::BuildGenesisConfig;
-    new_test_ext(0).execute_with(|| {
-        crate::GenesisConfig::<Test>::default().build();
-        assert_eq!(HotkeyIndexTrackingSince::<Test>::get(), Some(0));
-        assert_ok!(SubtensorModule::check_hotkey_index_lengths());
+        assert!(!Owner::<Test>::contains_key(hotkey));
+        assert!(!OwnedHotkeys::<Test>::contains_key(coldkey));
     });
 }

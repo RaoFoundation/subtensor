@@ -1885,10 +1885,6 @@ mod dispatches {
                 if !v.contains(&coldkey) {
                     v.push(coldkey.clone());
                 }
-                Self::note_hotkey_index_length(
-                    &AutoStakeDestinationColdkeys::<T>::hashed_key_for(&hotkey, netuid),
-                    v.len(),
-                );
             });
 
             Self::deposit_event(Event::AutoStakeDestinationSet {
@@ -2640,27 +2636,24 @@ mod dispatches {
         /// the hotkey. Cooldowns, lineage and its EVM association are preserved.
         ///
         /// `max_items` must cover the sum of:
-        /// - The owner's `OwnedHotkeys` and `StakingHotkeys` length bounds.
+        /// - The owner's `OwnedHotkeys` and `StakingHotkeys` lengths.
         /// - Inverse autostake rows for this hotkey and their coldkey-vector lengths.
         /// - Settled `BasketClaimed` rows for this hotkey.
         /// - Distinct netuids in each of `SubnetOwnerHotkey`, `PendingChildKeys`,
         ///   `Uids`, `LockingColdkeys`, `MinerCollateral` and `RootClaimed`.
         /// An insufficient limit fails before cleanup; an overestimate pays for
         /// the larger weight. Read the indexes at one block and retry if they grow.
-        /// Length bounds are in `HotkeyIndexLengths`, keyed by Blake2-256 of each
-        /// raw index key. Legacy entries without a bound require `legacy_proof`:
-        /// a retained post-activation block header and its `state_getReadProof`
-        /// proof for those keys. Proof bytes are charged separately from work.
+        /// This bounds decoded entries and cleanup. Reading an existing Vec's
+        /// length still accesses its full stored value and storage proof.
         #[pallet::call_index(150)]
-        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::disassociate_hotkey(*max_items, legacy_proof.as_ref().map_or(0, |proof| u32::try_from(proof.encoded_size()).unwrap_or(u32::MAX))))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::disassociate_hotkey(*max_items))]
         pub fn disassociate_hotkey(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
             max_items: u32,
-            legacy_proof: Option<crate::DisassociationProof<T>>,
         ) -> DispatchResult {
             let coldkey = ensure_signed(origin)?;
-            Self::do_disassociate_hotkey(&coldkey, &hotkey, max_items, legacy_proof.as_ref())
+            Self::do_disassociate_hotkey(&coldkey, &hotkey, max_items)
         }
     }
 }

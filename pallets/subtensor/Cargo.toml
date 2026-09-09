@@ -29,7 +29,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sp-runtime.workspace = true
 sp-std.workspace = true
-sp-trie = { workspace = true, default-features = false }
 libsecp256k1.workspace = true
 log.workspace = true
 substrate-fixed.workspace = true
@@ -113,7 +112,6 @@ std = [
 	"sp-io/std",
 	"sp-runtime/std",
 	"sp-std/std",
-	"sp-trie/std",
 	"sp-tracing/std",
 	"sp-version/std",
 	"sp-keyring/std",

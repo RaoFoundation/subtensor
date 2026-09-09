@@ -8,7 +8,6 @@ pub mod beta_pricing;
 mod claim_root;
 pub mod decrease_take;
 pub mod helpers;
-mod hotkey_index;
 pub mod increase_take;
 pub mod lock;
 pub mod move_stake;

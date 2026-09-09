@@ -127,7 +127,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 100]`.
 	fn execute_orders(n: u32, ) -> Weight {
-		// Reserve length-index writes for recipients and the intermediary.
 		// Proof Size summary in bytes:
 		//  Measured:  `1110 + n * (452 ±0)`
 		//  Estimated: `6148 + n * (5158 ±0)`
@@ -138,7 +137,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(17_u64))
 			.saturating_add(T::DbWeight::get().reads((11_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(10_u64))
-			.saturating_add(T::DbWeight::get().writes((8_u64).saturating_mul(n.into()).saturating_add(1)))
+			.saturating_add(T::DbWeight::get().writes((7_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
@@ -195,7 +194,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 100]`.
 	fn execute_batched_orders(n: u32, ) -> Weight {
-		// Reserve length-index writes for recipients and the intermediary.
 		// Proof Size summary in bytes:
 		//  Measured:  `1263 + n * (283 ±0)`
 		//  Estimated: `8727 + n * (5158 ±0)`
@@ -206,7 +204,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(25_u64))
 			.saturating_add(T::DbWeight::get().reads((10_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(15_u64))
-			.saturating_add(T::DbWeight::get().writes((8_u64).saturating_mul(n.into()).saturating_add(1)))
+			.saturating_add(T::DbWeight::get().writes((7_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
 }
@@ -294,7 +292,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 100]`.
 	fn execute_orders(n: u32, ) -> Weight {
-		// Reserve length-index writes for recipients and the intermediary.
 		// Proof Size summary in bytes:
 		//  Measured:  `1110 + n * (452 ±0)`
 		//  Estimated: `6148 + n * (5158 ±0)`
@@ -305,7 +302,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(17_u64))
 			.saturating_add(RocksDbWeight::get().reads((11_u64).saturating_mul(n.into())))
 			.saturating_add(RocksDbWeight::get().writes(10_u64))
-			.saturating_add(RocksDbWeight::get().writes((8_u64).saturating_mul(n.into()).saturating_add(1)))
+			.saturating_add(RocksDbWeight::get().writes((7_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
 	/// Storage: `LimitOrders::LimitOrdersEnabled` (r:1 w:0)
@@ -362,7 +359,6 @@ impl WeightInfo for () {
 	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `n` is `[1, 100]`.
 	fn execute_batched_orders(n: u32, ) -> Weight {
-		// Reserve length-index writes for recipients and the intermediary.
 		// Proof Size summary in bytes:
 		//  Measured:  `1263 + n * (283 ±0)`
 		//  Estimated: `8727 + n * (5158 ±0)`
@@ -373,7 +369,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(25_u64))
 			.saturating_add(RocksDbWeight::get().reads((10_u64).saturating_mul(n.into())))
 			.saturating_add(RocksDbWeight::get().writes(15_u64))
-			.saturating_add(RocksDbWeight::get().writes((8_u64).saturating_mul(n.into()).saturating_add(1)))
+			.saturating_add(RocksDbWeight::get().writes((7_u64).saturating_mul(n.into())))
 			.saturating_add(Weight::from_parts(0, 5158).saturating_mul(n.into()))
 	}
 }
