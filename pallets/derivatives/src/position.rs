@@ -10,9 +10,12 @@ use subtensor_macros::freeze_struct;
 use subtensor_runtime_common::{AlphaBalance, TaoBalance, Token};
 use subtensor_swap_interface::Perquintill;
 
-/// Blocks in one day at a 12-second block time. The borrow fee is quoted per day; each add
-/// books one day of its rate up front.
+/// Blocks in one day at a 12-second block time. The rent is set per year and accrued per
+/// block; a position carries it as a per-day amount, and each add books one day up front.
 pub const BLOCKS_PER_DAY: u64 = 7_200;
+
+/// Days the yearly rate is spread over.
+pub const DAYS_PER_YEAR: u64 = 365;
 
 /// Direction of a position.
 ///
@@ -393,10 +396,10 @@ impl<AccountId: Clone> Cushion<AccountId> {
 /// whatever has been settled. One per `(owner, netuid)`; the side is the sign of the exposure.
 ///
 /// Every field but the block numbers is a plain sum, so adding a tranche is addition and
-/// settling a fraction is multiplication. Nothing here is per tranche. A position lives until
-/// its owner closes it, it can no longer pay its fee, or it expires; after either of the last
-/// two anyone may close it.
-#[freeze_struct("d57ca244d8ff61fa")]
+/// settling a fraction is multiplication. Nothing here is per tranche. A position has no term:
+/// it lives until its owner closes it or it can no longer pay its rent, after which anyone may
+/// close it.
+#[freeze_struct("f34b637020d14de8")]
 #[derive(
     Encode,
     Decode,
@@ -417,19 +420,16 @@ pub struct Position<AccountId, BlockNumber> {
     /// `sum(phi * T)` over tranches: the TAO value the pool has lent. The position's leverage
     /// is `exposure_tao / cushion`.
     pub exposure_tao: TaoBalance,
-    /// Borrow fee per day for the whole position: `rate_per_day * exposure` of each tranche,
+    /// Rent per day for the whole position: `rate_per_year * exposure / 365` of each tranche,
     /// fixed when it was added, summed.
     pub fee_per_day: TaoBalance,
-    /// Fee owed and not yet paid, as of `last_touch`. Every add puts one day of the new
+    /// Rent owed and not yet paid, as of `last_touch`. Every add puts one day of the new
     /// tranche's rate here up front; every settlement pays it down.
     pub fee_accrued: TaoBalance,
-    /// Block the fee was last brought up to date: the latest add or settlement.
+    /// Block the rent was last brought up to date: the latest add or settlement.
     pub last_touch: BlockNumber,
     /// Block of the first add.
     pub opened_at: BlockNumber,
-    /// `opened_at + lifetime_blocks` as of the first add. Adding does not move it. From this
-    /// block nothing can be added and anyone may close the position.
-    pub expires_at: BlockNumber,
 }
 
 /// The two pool quotes a position's value depends on, both exact and fee-free as of now.
@@ -444,9 +444,8 @@ pub struct Quotes {
 impl<AccountId: Clone, BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64>>
     Position<AccountId, BlockNumber>
 {
-    /// A position with nothing in it yet, born at `now` and expiring at `expires_at`. The first
-    /// tranche folded in opens it.
-    pub fn empty(side: Side, now: BlockNumber, expires_at: BlockNumber) -> Self {
+    /// A position with nothing in it yet, born at `now`. The first tranche folded in opens it.
+    pub fn empty(side: Side, now: BlockNumber) -> Self {
         Self {
             cushion: Cushion::tao_only(TaoBalance::ZERO),
             legs: Legs::empty(side),
@@ -455,7 +454,6 @@ impl<AccountId: Clone, BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64>
             fee_accrued: TaoBalance::ZERO,
             last_touch: now,
             opened_at: now,
-            expires_at,
         }
     }
 
@@ -498,18 +496,10 @@ impl<AccountId: Clone, BlockNumber: Copy + Saturating + UniqueSaturatedInto<u64>
         cushion.saturating_add(legs).saturating_sub(fee)
     }
 
-    /// A position can pay its way while its equity covers one more day of fee. Below that
-    /// anyone may close it and is paid the fee for doing so.
+    /// A position can pay its way while its equity covers one more day of rent. Below that
+    /// anyone may close it and is paid the rent for doing so.
     pub fn is_healthy(&self, now: BlockNumber, quotes: Quotes) -> bool {
         self.equity(now, quotes) >= i128::from(self.fee_per_day.to_u64())
-    }
-
-    /// Past its term: nothing can be added, anyone may close it.
-    pub fn is_expired(&self, now: BlockNumber) -> bool
-    where
-        BlockNumber: PartialOrd,
-    {
-        now >= self.expires_at
     }
 }
 
@@ -521,8 +511,9 @@ pub struct Tranche<AccountId> {
     pub fee_per_day: TaoBalance,
 }
 
-/// Root-settable parameters.
-#[freeze_struct("3716b9e23941aca9")]
+/// Root-settable parameters. Two of them are the design: `max_pool_share` is how much of a pool
+/// is for rent, `rate_per_year` is the rent. The rest are switches and safety bounds.
+#[freeze_struct("4b841bde447129eb")]
 #[derive(
     Encode,
     Decode,
@@ -553,24 +544,23 @@ pub struct DerivativesParams {
     /// `kappa`: the largest share of the lent reserve that all open positions of one side on
     /// one subnet may borrow together. A subnet's [`SubnetOverride`] can replace it.
     pub max_pool_share: Percent,
-    /// `r`: the borrow fee per day, as a fraction of `exposure_tao`, the same on both sides.
-    /// Fixed for each tranche when it is added. A subnet's [`SubnetOverride`] can replace it.
-    pub rate_per_day: Perbill,
-    /// How long a position lives from its first add, in blocks. Adding does not extend it.
-    pub lifetime_blocks: u32,
+    /// `X`: the rent per year, as a fraction of `exposure_tao`, the same on both sides.
+    /// Accrued per block; fixed for each tranche when it is added. A subnet's
+    /// [`SubnetOverride`] can replace it.
+    pub rate_per_year: Perbill,
     /// Smallest cushion, measured in TAO at the open price.
     pub min_deposit_tao: TaoBalance,
 }
 
 impl DerivativesParams {
-    /// Mainnet defaults: shorts up to 1x, longs up to 2x, TAO cushions only, 10% of the pool,
-    /// 0.05% of exposure per day (1.5% a month, 4.5% over a term), a 90-day term, 0.1 TAO
-    /// minimum cushion.
+    /// Mainnet defaults: shorts up to 1x, longs up to 2x, TAO cushions only, 10% of the pool
+    /// for rent at 20% a year (about 0.055% a day, 1.6% a month), 0.1 TAO minimum cushion.
     ///
-    /// The rate is rent for the pool's depth and covers the pool's measured expected loss to
-    /// pumps on pools above a few thousand TAO (`E[(theta - 2)+] * T ~= 86 TAO` per 30 days for
-    /// a whole pool, over a year of Finney prices). Smaller pools carry more pump risk per unit
-    /// of exposure; root prices them with the per-subnet rate override or a lower cap.
+    /// The rent covers the pool's measured expected loss to pumps on pools above a few thousand
+    /// TAO (`E[(theta - 2)+] * T ~= 86 TAO` per 30 days for a whole pool, over a year of Finney
+    /// prices). Smaller pools carry more pump risk per unit of exposure; root prices them with
+    /// the per-subnet rate override or a lower cap. There is no term: a position runs while it
+    /// pays its rent, and the rent is what makes holding one indefinitely cost something.
     pub fn defaults() -> Self {
         Self {
             shorts_enabled: true,
@@ -580,8 +570,7 @@ impl DerivativesParams {
             max_short_leverage_percent: 100,
             max_long_leverage_percent: 200,
             max_pool_share: Percent::from_percent(10),
-            rate_per_day: Perbill::from_rational(5u32, 10_000u32),
-            lifetime_blocks: (BLOCKS_PER_DAY as u32).saturating_mul(90),
+            rate_per_year: Perbill::from_percent(20),
             min_deposit_tao: TaoBalance::from(100_000_000),
         }
     }
@@ -614,27 +603,26 @@ impl DerivativesParams {
         }
     }
 
-    /// Fee per day for a new tranche: `rate * exposure`, whichever side.
-    pub fn fee_per_day(rate_per_day: Perbill, exposure_tao: TaoBalance) -> TaoBalance {
-        TaoBalance::from(rate_per_day.mul_floor(exposure_tao.to_u64()))
+    /// Rent per day for a new tranche: `rate_per_year * exposure / 365`, whichever side.
+    pub fn fee_per_day(rate_per_year: Perbill, exposure_tao: TaoBalance) -> TaoBalance {
+        let per_year = rate_per_year.mul_floor(exposure_tao.to_u64());
+        TaoBalance::from(per_year.checked_div(DAYS_PER_YEAR).unwrap_or(0))
     }
 
     /// A parameter set every add can act on. A zero maximum leverage or a zero pool share
-    /// would make every add fail; a zero rate would leave nobody paid to liquidate, and a zero
-    /// lifetime would make every position closable at once. Use `shorts_enabled` /
-    /// `longs_enabled` to pause adds instead.
+    /// would make every add fail, and a zero rate would leave nobody paid to liquidate. Use
+    /// `shorts_enabled` / `longs_enabled` to pause adds instead.
     pub fn is_valid(&self) -> bool {
         self.max_short_leverage_percent > 0
             && self.max_long_leverage_percent > 0
             && !self.max_pool_share.is_zero()
-            && !self.rate_per_day.is_zero()
-            && self.lifetime_blocks > 0
+            && !self.rate_per_year.is_zero()
     }
 }
 
 /// Root-settable per-subnet overrides. Absent means the global parameters apply. Only adds
 /// look at it: a paused side can still close and reduce.
-#[freeze_struct("61e993a65ca571e9")]
+#[freeze_struct("94414fc12b6c8ac7")]
 #[derive(
     Encode,
     Decode,
@@ -652,9 +640,9 @@ pub struct SubnetOverride {
     pub longs_enabled: bool,
     /// Replaces the global `max_pool_share` on this subnet when set.
     pub max_pool_share: Option<Percent>,
-    /// Replaces the global `rate_per_day` on this subnet when set: the lever for a small pool
+    /// Replaces the global `rate_per_year` on this subnet when set: the lever for a small pool
     /// whose pump risk the flat rate underprices.
-    pub rate_per_day: Option<Perbill>,
+    pub rate_per_year: Option<Perbill>,
 }
 
 impl SubnetOverride {
@@ -669,7 +657,7 @@ impl SubnetOverride {
     /// liquidate; pause the side instead.
     pub fn is_valid(&self) -> bool {
         self.max_pool_share.is_none_or(|share| !share.is_zero())
-            && self.rate_per_day.is_none_or(|rate| !rate.is_zero())
+            && self.rate_per_year.is_none_or(|rate| !rate.is_zero())
     }
 }
 
@@ -797,7 +785,6 @@ mod tests {
             fee_accrued: TaoBalance::from(7_200),
             last_touch: 10,
             opened_at: 10,
-            expires_at: u64::MAX,
         };
         assert_eq!(position.fee_owed(10), TaoBalance::from(7_200));
         assert_eq!(position.fee_owed(3_610), TaoBalance::from(10_800));
@@ -828,7 +815,6 @@ mod tests {
             fee_accrued: TaoBalance::from(10),
             last_touch: 0,
             opened_at: 0,
-            expires_at: u64::MAX,
         };
         // Buying the debt back costs what it sold for: equity is the cushion less the fee.
         assert_eq!(short.equity(0, q(100)), 90);
@@ -857,7 +843,6 @@ mod tests {
             fee_accrued: TaoBalance::from(10),
             last_touch: 0,
             opened_at: 0,
-            expires_at: u64::MAX,
         };
         assert_eq!(long.equity(0, q(100)), 90);
         assert_eq!(long.equity(0, q(50)), 40);
@@ -920,7 +905,6 @@ mod tests {
             fee_accrued: TaoBalance::from(10),
             last_touch: 0,
             opened_at: 0,
-            expires_at: u64::MAX,
         };
         let at = |legs: u64, cushion_alpha: u64| Quotes {
             legs: TaoBalance::from(legs),
@@ -939,36 +923,31 @@ mod tests {
     }
 
     #[test]
-    fn fee_is_one_rate_on_exposure_for_both_sides() {
+    fn rent_is_one_yearly_rate_on_exposure_for_both_sides() {
         let params = DerivativesParams::defaults();
         let exposure = TaoBalance::from(1_000_000_000_000u64); // 1000 TAO
-        // 0.05%/day of 1000 TAO = 0.5 TAO/day. The side and the pool share do not enter.
+        // 20%/year of 1000 TAO is 200 TAO/year, 0.5479 TAO/day. The side and the pool share
+        // do not enter.
+        let per_day = DerivativesParams::fee_per_day(params.rate_per_year, exposure);
+        assert_eq!(per_day, TaoBalance::from(547_945_205));
+        // A year of days pays back the yearly rent, less rounding.
         assert_eq!(
-            DerivativesParams::fee_per_day(params.rate_per_day, exposure),
-            TaoBalance::from(500_000_000)
+            fee_for_blocks(per_day, DAYS_PER_YEAR * BLOCKS_PER_DAY),
+            TaoBalance::from(199_999_999_825u64)
         );
+        // Too small an exposure rounds to no rent; `min_deposit_tao` keeps this out of reach.
         assert_eq!(
-            DerivativesParams::fee_per_day(params.rate_per_day, TaoBalance::from(1_999)),
+            DerivativesParams::fee_per_day(params.rate_per_year, TaoBalance::from(1_824)),
             TaoBalance::ZERO
-        );
-        // 90 days of 0.05% is 4.5% of exposure.
-        assert_eq!(
-            fee_for_blocks(
-                DerivativesParams::fee_per_day(params.rate_per_day, exposure),
-                params.lifetime_blocks as u64
-            ),
-            TaoBalance::from(45_000_000_000u64)
         );
     }
 
     #[test]
-    fn a_position_expires_at_the_block_set_by_its_first_add() {
-        let position = Position::<u64, u64>::empty(Side::Short, 10, 10 + 648_000);
-        assert_eq!(position.expires_at, 648_010);
-        assert!(!position.is_expired(10));
-        assert!(!position.is_expired(648_009));
-        assert!(position.is_expired(648_010));
-        assert_eq!(DerivativesParams::defaults().lifetime_blocks, 648_000);
+    fn a_position_has_no_term() {
+        let position = Position::<u64, u64>::empty(Side::Short, 10);
+        assert_eq!(position.opened_at, 10);
+        assert_eq!(position.last_touch, 10);
+        assert_eq!(position.fee_per_day, TaoBalance::ZERO);
     }
 
     #[test]
@@ -1010,15 +989,15 @@ mod tests {
             shorts_enabled: false,
             longs_enabled: true,
             max_pool_share: None,
-            rate_per_day: None,
+            rate_per_year: None,
         };
         assert!(override_.is_valid());
         override_.max_pool_share = Some(Percent::from_percent(5));
-        override_.rate_per_day = Some(Perbill::from_percent(1));
+        override_.rate_per_year = Some(Perbill::from_percent(1));
         assert!(override_.is_valid());
-        override_.rate_per_day = Some(Perbill::zero());
+        override_.rate_per_year = Some(Perbill::zero());
         assert!(!override_.is_valid());
-        override_.rate_per_day = None;
+        override_.rate_per_year = None;
         override_.max_pool_share = Some(Percent::zero());
         assert!(!override_.is_valid());
     }

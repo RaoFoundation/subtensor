@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ExplainerPanel, ExplainerToggle } from './explainer-panel';
 import { ACCENT, ACCENT_WASH, INK, INK_FAINT } from './chart-theme';
-import { CUSHION, LEVERAGE, LIFETIME_DAYS, OPEN_PRICE, feePerDay, lift, phi, simulate, type Outcome as Numbers, type Side } from '@/lib/derivatives-math';
+import { CUSHION, LEVERAGE, OPEN_PRICE, feePerDay, lift, phi, simulate, type Outcome as Numbers, type Side } from '@/lib/derivatives-math';
 
 type Outcome = 'down' | 'up';
 
@@ -71,15 +71,15 @@ function slide(phase: Phase, side: Side, outcome: Outcome, n: Numbers): Slide {
       return {
         title: 'Your position is open',
         body: short
-          ? `It holds ${tao(CUSHION + n.proceeds)} (cushion + proceeds) and owes ${alpha(LIFT_ALPHA)} to the pool. Two clocks start: ${LIFETIME_DAYS} days to expiry, and a fee of ${tao(feePerDay('short'))} per day (0.05% of ${tao(LIFT_TAO, 0)} exposure), one day booked now.`
-          : `It holds your ${tao(CUSHION, 0)} cushion plus ${alpha(n.proceeds)}, and owes ${tao(LIFT_TAO, 0)} to the pool. Two clocks start: ${LIFETIME_DAYS} days to expiry, and a fee of ${tao(feePerDay('long'))} per day (0.05% of ${tao(LIFT_TAO, 0)} exposure), one day booked now.`,
+          ? `It holds ${tao(CUSHION + n.proceeds)} (cushion + proceeds) and owes ${alpha(LIFT_ALPHA)} to the pool. The rent meter starts: ${tao(feePerDay('short'))} per day (20% a year on ${tao(LIFT_TAO, 0)} of exposure), one day booked now. There is no expiry; the position runs while it can pay.`
+          : `It holds your ${tao(CUSHION, 0)} cushion plus ${alpha(n.proceeds)}, and owes ${tao(LIFT_TAO, 0)} to the pool. The rent meter starts: ${tao(feePerDay('long'))} per day (20% a year on ${tao(LIFT_TAO, 0)} of exposure), one day booked now. There is no expiry; the position runs while it can pay.`,
       };
     case 'move':
       return {
         title: `Alpha ${fell ? 'falls' : 'rises'} ${MOVE_PCT}%`,
         body: short
-          ? `Buying ${alpha(LIFT_ALPHA)} back would now cost ${tao(n.closeLeg)} instead of ${tao(n.proceeds)}. You are ${win ? 'up' : 'down'} about ${tao(Math.abs(n.closeLeg - n.proceeds), 0)}. ${DAYS} days pass: ${tao(n.fee)} of fee is owed (one day booked at open, then per block).`
-          : `Selling ${alpha(n.proceeds)} would now raise ${tao(n.closeLeg)} instead of ${tao(LIFT_TAO, 0)}. You are ${win ? 'up' : 'down'} about ${tao(Math.abs(n.closeLeg - LIFT_TAO), 0)}. ${DAYS} days pass: ${tao(n.fee)} of fee is owed (one day booked at open, then per block).`,
+          ? `Buying ${alpha(LIFT_ALPHA)} back would now cost ${tao(n.closeLeg)} instead of ${tao(n.proceeds)}. You are ${win ? 'up' : 'down'} about ${tao(Math.abs(n.closeLeg - n.proceeds), 0)}. ${DAYS} days pass: ${tao(n.fee)} of rent is owed (one day booked at open, then per block).`
+          : `Selling ${alpha(n.proceeds)} would now raise ${tao(n.closeLeg)} instead of ${tao(LIFT_TAO, 0)}. You are ${win ? 'up' : 'down'} about ${tao(Math.abs(n.closeLeg - LIFT_TAO), 0)}. ${DAYS} days pass: ${tao(n.fee)} of rent is owed (one day booked at open, then per block).`,
       };
     case 'reverse':
       return {
@@ -90,10 +90,10 @@ function slide(phase: Phase, side: Side, outcome: Outcome, n: Numbers): Slide {
       };
     case 'return':
       return {
-        title: 'The slice goes home, plus the fee',
+        title: 'The slice goes home, plus the rent',
         body: short
-          ? `${alpha(LIFT_ALPHA)} and the ${tao(LIFT_TAO, 0)} escrow return to the pool together with the ${tao(n.fee)} fee. Uneven amounts are added without moving the price.`
-          : `${tao(LIFT_TAO, 0)} and the ${alpha(LIFT_ALPHA)} escrow return to the pool together with the ${tao(n.fee)} fee. Uneven amounts are added without moving the price.`,
+          ? `${alpha(LIFT_ALPHA)} and the ${tao(LIFT_TAO, 0)} escrow return to the pool together with the ${tao(n.fee)} rent. Uneven amounts are added without moving the price.`
+          : `${tao(LIFT_TAO, 0)} and the ${alpha(LIFT_ALPHA)} escrow return to the pool together with the ${tao(n.fee)} rent. Uneven amounts are added without moving the price.`,
       };
     case 'payout':
       return {
@@ -145,13 +145,13 @@ function scene(phase: Phase, side: Side, n: Numbers): Scene {
     { k: 'cushion', v: tao(CUSHION, 0) },
     { k: 'holds', v: holds },
     { k: 'owes', v: owes, accent: true },
-    { k: 'fee owed', v: tao(fee) },
+    { k: 'rent owed', v: tao(fee) },
   ];
   const closingLines = (feePaid: boolean): PanelLine[] => [
     { k: 'trade reversed', v: '✓' },
     { k: 'owes', v: '—' },
-    { k: 'net before fee', v: tao(netBeforeFee) },
-    { k: feePaid ? 'fee paid' : 'fee due', v: tao(n.fee), accent: !feePaid },
+    { k: 'net before rent', v: tao(netBeforeFee) },
+    { k: feePaid ? 'rent paid' : 'rent due', v: tao(n.fee), accent: !feePaid },
   ];
 
   const start: Scene = {
@@ -299,8 +299,10 @@ function Panel({ x, y, w, h, title, lines, dashed = false }: { x: number; y: num
   );
 }
 
-function Clock({ x, y, fraction, visible }: { x: number; y: number; fraction: number; visible: boolean }) {
+/** Days the position has been open. One turn of the dial is a month; the dial has no end. */
+function Clock({ x, y, days, visible }: { x: number; y: number; days: number; visible: boolean }) {
   const r = 13;
+  const fraction = Math.min(days / 30, 1);
   const a = fraction * Math.PI * 2;
   const ex = x + r * Math.sin(a);
   const ey = y - r * Math.cos(a);
@@ -310,7 +312,7 @@ function Clock({ x, y, fraction, visible }: { x: number; y: number; fraction: nu
       <circle cx={x} cy={y} r={r} fill="none" stroke={INK_FAINT} strokeWidth={1} />
       {fraction > 0 && <path d={`M ${x} ${y} L ${x} ${y - r} A ${r} ${r} 0 ${large} 1 ${ex} ${ey} Z`} fill={ACCENT_WASH} stroke={ACCENT} strokeWidth={1} />}
       <text {...FONT} x={x - r - 8} y={y + 3.5} textAnchor="end" fill={INK_FAINT} fontSize={9}>
-        {fraction > 0 ? `DAY ${Math.round(fraction * LIFETIME_DAYS)} / ${LIFETIME_DAYS}` : 'DAY 0'}
+        {`DAY ${days}`}
       </text>
     </g>
   );
@@ -468,20 +470,20 @@ export function DerivativesLifecycle() {
               <circle key={i} cx={POS.x - 14 - i * 22} cy={BAR_TOP + BAR_H - 14 - i * 4} r={1.8} fill={INK} />
             ))}
             <text {...FONT} x={(POS.x + RIGHT_BAR_X + BAR_W) / 2} y={BAR_TOP + BAR_H + 8} textAnchor="middle" fill={INK_FAINT} fontSize={9}>
-              FEE {tao(feePerDay(side))} / DAY
+              RENT {tao(feePerDay(side))} / DAY
             </text>
           </g>
 
           {/* The slice and fee go home */}
           <g style={{ opacity: s.callout === 'return' ? 1 : 0, transition: 'opacity 450ms ease' }}>
             <text {...FONT} x={BARS_MID} y={TRAY_Y + 4} textAnchor="middle" fill={ACCENT} fontSize={9.5} fontWeight={600}>
-              SLICE BACK + {tao(n.fee)} FEE
+              SLICE BACK + {tao(n.fee)} RENT
             </text>
           </g>
 
           {/* Position */}
           <Panel x={POS.x} y={POS.y} w={POS.w} h={POS.h} title={`YOUR ${short ? 'SHORT' : 'LONG'}`} lines={s.position} dashed={!s.positionOpen} />
-          <Clock x={POS.x + POS.w - 16} y={POS.y - 48} fraction={s.clock === 'running' ? DAYS / LIFETIME_DAYS : 0} visible={s.clock !== 'hidden'} />
+          <Clock x={POS.x + POS.w - 16} y={POS.y - 48} days={s.clock === 'running' ? DAYS : 0} visible={s.clock !== 'hidden'} />
 
           {/* P&L badge */}
           <Moving x={POS.x + 62} y={POS.y - 18} visible={s.pnlBadge}>

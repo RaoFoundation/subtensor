@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { ExplainerPanel, ExplainerToggle } from './explainer-panel';
 import { ACCENT, ACCENT_REGION, INK, INK_FAINT } from './chart-theme';
-import { CUSHION, payout, type Side } from '@/lib/derivatives-math';
+import { CUSHION, feePerDay, payout, type Side } from '@/lib/derivatives-math';
 
 const MOVE_MIN = -100;
 const MOVE_MAX = 100;
@@ -140,7 +140,8 @@ export function DerivativesPayoff() {
         the point where the cushion is gone the position is underwater: settlement pays you nothing,
         gives the pool whatever is left, and the pool carries the shortfall — which is why the pool lends at
         most 10% of itself per side. Example pool: 10,000 τ / 200,000 α, closed the same day, so only the
-        day of fee booked at the add is paid (0.05 τ on the short, 0.1 τ on the 2x long).
+        day of rent booked at the add is paid ({feePerDay('short').toFixed(3)} τ on the short,{' '}
+        {feePerDay('long').toFixed(3)} τ on the 2x long: 20% a year on the exposure, per day).
       </p>
     </ExplainerPanel>
   );

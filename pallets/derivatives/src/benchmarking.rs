@@ -106,7 +106,7 @@ mod benchmarks {
             shorts_enabled: false,
             longs_enabled: true,
             max_pool_share: Some(Percent::from_percent(5)),
-            rate_per_day: None,
+            rate_per_year: None,
         };
 
         #[extrinsic_call]

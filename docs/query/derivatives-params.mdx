@@ -9,11 +9,11 @@ description: "The derivatives pallet's root-set global parameters."
 leverage an owner may choose per side (`100` = 1x), and `max_pool_share`
 caps how much of a pool's reserve may be lent per side.
 `alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side
-accepts an alpha cushion; TAO is always accepted. The fee is one rate for
-both sides, `rate_per_day` of a tranche's TAO exposure, fixed when the
+accepts an alpha cushion; TAO is always accepted. The rent is one rate for
+both sides, `rate_per_year` of a tranche's TAO exposure, fixed when the
 tranche is added: one day is booked at the add, the rest accrues per block
-and is paid at each settlement. A position expires `lifetime_blocks` after
-its first add; after that, or once its equity drops below one day of fee,
+and is paid at each settlement. There is no term. A position runs until its
+owner closes it or its equity drops below one day of rent, after which
 anyone may close it. A subnet may override the switches, the cap, and the
 rate; see `derivatives_subnet_override`.
 
@@ -50,6 +50,6 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Storage [`Derivatives.Params`](/code/pallets/derivatives/src/lib.rs#L84)
+- Storage [`Derivatives.Params`](/code/pallets/derivatives/src/lib.rs#L80)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

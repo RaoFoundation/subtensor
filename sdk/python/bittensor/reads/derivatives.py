@@ -8,8 +8,8 @@ from .._generated import storage as st
 from ..balance import Balance
 from .base import read
 
-# Mirrors `BLOCKS_PER_DAY` in the pallet: the borrow fee is quoted per day and
-# accrues per block on top of the day each add books up front.
+# Mirrors `BLOCKS_PER_DAY` in the pallet: the rent is set per year, carried per
+# day, and accrues per block on top of the day each add books up front.
 _BLOCKS_PER_DAY = 7_200
 _PERBILL = 1_000_000_000
 _PERCENT = 100
@@ -106,7 +106,6 @@ def _position_record(
     fee_accrued = int(raw.get("fee_accrued") or 0)
     last_touch = int(raw.get("last_touch") or 0)
     opened_at = int(raw.get("opened_at") or 0)
-    expires_at = int(raw.get("expires_at") or 0)
     legs = _legs(view, raw.get("legs"), netuid)
     side = legs["side"]
     fee_owed = _fee_owed_rao(fee_accrued, fee_per_day, now - last_touch)
@@ -136,11 +135,8 @@ def _position_record(
         "exposure_tao": Balance.from_rao(exposure),
         "fee_per_day_tao": Balance.from_rao(fee_per_day),
         "opened_at": opened_at,
-        "expires_at": expires_at,
         "last_touch": last_touch,
         "blocks_open": max(0, now - opened_at),
-        "blocks_left": max(0, expires_at - now),
-        "expired": now >= expires_at,
         "accrued_fee_tao": Balance.from_rao(fee_owed),
         "equity_tao": Balance.from_rao(equity),
         "healthy": equity >= fee_per_day,
@@ -157,8 +153,7 @@ def _params_record(raw: Any) -> dict:
         "alpha_cushion_shorts": bool(raw.get("alpha_cushion_shorts", False)),
         "alpha_cushion_longs": bool(raw.get("alpha_cushion_longs", False)),
         "max_pool_share": int(raw.get("max_pool_share") or 0) / _PERCENT,
-        "rate_per_day": int(raw.get("rate_per_day") or 0) / _PERBILL,
-        "lifetime_blocks": int(raw.get("lifetime_blocks") or 0),
+        "rate_per_year": int(raw.get("rate_per_year") or 0) / _PERBILL,
         "min_deposit_tao": Balance.from_rao(int(raw.get("min_deposit_tao") or 0)),
     }
 
@@ -175,11 +170,11 @@ async def derivatives_params(view) -> dict:
     leverage an owner may choose per side (`100` = 1x), and `max_pool_share`
     caps how much of a pool's reserve may be lent per side.
     `alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side
-    accepts an alpha cushion; TAO is always accepted. The fee is one rate for
-    both sides, `rate_per_day` of a tranche's TAO exposure, fixed when the
+    accepts an alpha cushion; TAO is always accepted. The rent is one rate for
+    both sides, `rate_per_year` of a tranche's TAO exposure, fixed when the
     tranche is added: one day is booked at the add, the rest accrues per block
-    and is paid at each settlement. A position expires `lifetime_blocks` after
-    its first add; after that, or once its equity drops below one day of fee,
+    and is paid at each settlement. There is no term. A position runs until its
+    owner closes it or its equity drops below one day of rent, after which
     anyone may close it. A subnet may override the switches, the cap, and the
     rate; see `derivatives_subnet_override`.
     """
@@ -190,12 +185,12 @@ def _override_record(raw: Any) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
     share = raw.get("max_pool_share")
-    rate = raw.get("rate_per_day")
+    rate = raw.get("rate_per_year")
     return {
         "shorts_enabled": bool(raw.get("shorts_enabled", False)),
         "longs_enabled": bool(raw.get("longs_enabled", False)),
         "max_pool_share": None if share is None else int(share) / _PERCENT,
-        "rate_per_day": None if rate is None else int(rate) / _PERBILL,
+        "rate_per_year": None if rate is None else int(rate) / _PERBILL,
     }
 
 
@@ -210,8 +205,8 @@ async def derivatives_subnet_override(view, netuid: int) -> Optional[dict]:
 
     None means the subnet runs on the global `derivatives_params`. When set,
     `shorts_enabled` and `longs_enabled` replace the global switches for adds
-    on this subnet, and `max_pool_share` and `rate_per_day` replace the global
-    cap and fee rate when they are not None. Open positions are unaffected: a
+    on this subnet, and `max_pool_share` and `rate_per_year` replace the global
+    cap and rent when they are not None. Open positions are unaffected: a
     paused side can still be reduced and closed.
     """
     return _override_record(await view.query(st.Derivatives.SubnetOverrides, [netuid]))
@@ -236,17 +231,15 @@ async def derivative_position(view, coldkey_ss58: str, netuid: int) -> Optional[
     `escrow` are the position's `legs`, each already in its own token: a short
     holds TAO proceeds and TAO escrow and owes alpha; a long holds alpha
     proceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed
-    rate of its tranches; `accrued_fee_tao` is what would be charged if settled
-    now. `expires_at` is set by the first add and does not move; `expired` is
-    whether that block has passed, after which anyone may close the position
-    for one day of fee, and an owner's same-side add rolls it.
+    rent of its tranches; `accrued_fee_tao` is what would be charged if settled
+    now. There is no expiry: a position runs while it pays.
 
     `equity_tao` is an estimate of what a close now would pay the owner:
     cushion value plus proceeds, less debt priced on a constant-product curve,
-    less the fee owed. Negative means underwater. `healthy` is whether that
-    equity still covers one more day of fee; when it does not, anyone may close
-    the position with `close_derivative` and is paid the fee for it. The
-    chain's own quote decides; this is a preview.
+    less the rent owed. Negative means underwater. `healthy` is whether that
+    equity still covers one more day of rent; when it does not, anyone may
+    close the position with `close_derivative` and is paid the rent for it.
+    The chain's own quote decides; this is a preview.
     """
     view = await view.at()
     raw = await view.query(st.Derivatives.Positions, [coldkey_ss58, netuid])
@@ -291,9 +284,8 @@ async def derivative_positions_on_subnet(view, netuid: int) -> list[dict]:
     """Every open position on a subnet, whoever owns it. Same fields as
     `derivative_position`.
 
-    The list a liquidator works from: filter on `healthy` being False or
-    `expired` being True and call `close_derivative` with that `coldkey` as
-    `owner_ss58`.
+    The list a liquidator works from: filter on `healthy` being False and call
+    `close_derivative` with that `coldkey` as `owner_ss58`.
     """
     view = await view.at()
     owners = await view.query_map(st.Derivatives.OpenByNetuid, [netuid])

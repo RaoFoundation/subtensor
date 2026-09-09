@@ -412,8 +412,8 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 6): ErrorInfo('Derivatives', 'ExposureTooLarge', 'Leverage times deposit would take the whole reserve.'),
     (33, 7): ErrorInfo('Derivatives', 'ZeroExposure', 'Leverage times deposit rounds to nothing.'),
     (33, 8): ErrorInfo('Derivatives', 'PoolCapExceeded', 'Open positions of this side would exceed `max_pool_share` of the lent reserve.'),
-    (33, 9): ErrorInfo('Derivatives', 'OwnerOnly', 'The position still covers a day of fee and has not expired; only its owner may close it.'),
+    (33, 9): ErrorInfo('Derivatives', 'OwnerOnly', 'The position still covers a day of rent; only its owner may close it.'),
     (33, 10): ErrorInfo('Derivatives', 'SwapReturnedZero', 'The pool swap returned nothing for a non-zero input.'),
-    (33, 11): ErrorInfo('Derivatives', 'InvalidParams', 'A maximum leverage, `max_pool_share`, `rate_per_day`, or `lifetime_blocks` is zero.'),
+    (33, 11): ErrorInfo('Derivatives', 'InvalidParams', 'A maximum leverage, `max_pool_share`, or `rate_per_year` is zero.'),
     (33, 12): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
 }

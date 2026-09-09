@@ -12,17 +12,15 @@ over that, the blend of every tranche added. `proceeds`, `debt`, and
 `escrow` are the position's `legs`, each already in its own token: a short
 holds TAO proceeds and TAO escrow and owes alpha; a long holds alpha
 proceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed
-rate of its tranches; `accrued_fee_tao` is what would be charged if settled
-now. `expires_at` is set by the first add and does not move; `expired` is
-whether that block has passed, after which anyone may close the position
-for one day of fee, and an owner's same-side add rolls it.
+rent of its tranches; `accrued_fee_tao` is what would be charged if settled
+now. There is no expiry: a position runs while it pays.
 
 `equity_tao` is an estimate of what a close now would pay the owner:
 cushion value plus proceeds, less debt priced on a constant-product curve,
-less the fee owed. Negative means underwater. `healthy` is whether that
-equity still covers one more day of fee; when it does not, anyone may close
-the position with `close_derivative` and is paid the fee for it. The
-chain's own quote decides; this is a preview.
+less the rent owed. Negative means underwater. `healthy` is whether that
+equity still covers one more day of rent; when it does not, anyone may
+close the position with `close_derivative` and is paid the rent for it.
+The chain's own quote decides; this is a preview.
 
 **Category:** Prices & swaps
 
@@ -60,6 +58,6 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Storage [`Derivatives.Positions`](/code/pallets/derivatives/src/lib.rs#L88)
+- Storage [`Derivatives.Positions`](/code/pallets/derivatives/src/lib.rs#L84)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

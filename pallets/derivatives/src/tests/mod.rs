@@ -365,24 +365,24 @@ fn fee_per_day_is_the_rate_on_exposure_and_frozen_at_open() {
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         assert_ok!(add(bob(), Side::Long, DEPOSIT));
 
-        // One rate, both sides: 0.05%/day of exposure. The short's exposure is its 10 TAO
-        // deposit at 1x; the long's is 20 TAO at 2x, so it pays twice as much.
+        // One rate, both sides: 20%/year of exposure, carried as a per-day amount. The short's
+        // exposure is its 10 TAO deposit at 1x; the long's is 20 TAO at 2x, so it pays twice.
         let short = position(&alice(), netuid()).unwrap();
         let long = position(&bob(), netuid()).unwrap();
         assert_eq!(
             short.fee_per_day,
-            DerivativesParams::fee_per_day(params.rate_per_day, short.exposure_tao)
+            DerivativesParams::fee_per_day(params.rate_per_year, short.exposure_tao)
         );
-        assert_eq!(u64::from(short.fee_per_day), DEPOSIT / 2_000);
+        assert_eq!(u64::from(short.fee_per_day), DEPOSIT / 5 / 365);
         assert_eq!(
             long.fee_per_day,
-            DerivativesParams::fee_per_day(params.rate_per_day, long.exposure_tao)
+            DerivativesParams::fee_per_day(params.rate_per_year, long.exposure_tao)
         );
-        assert_close(u64::from(long.fee_per_day), DEPOSIT / 1_000, 1);
+        assert_close(u64::from(long.fee_per_day), 2 * DEPOSIT / 5 / 365, 1);
 
         // Changing the parameters after the open does not reprice a running position.
         let mut changed = params.clone();
-        changed.rate_per_day = Perbill::from_percent(50);
+        changed.rate_per_year = Perbill::from_percent(50);
         assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), changed));
         assert_eq!(
             position(&alice(), netuid()).unwrap().fee_per_day,
@@ -595,7 +595,7 @@ fn subnet_override_pauses_one_side_and_replaces_the_cap() {
             shorts_enabled: false,
             longs_enabled: true,
             max_pool_share: Some(Percent::from_percent(1)),
-            rate_per_day: None,
+            rate_per_year: None,
         };
         assert_ok!(Derivatives::sudo_set_subnet_override(
             RuntimeOrigin::root(),
@@ -652,7 +652,7 @@ fn subnet_override_requires_root_and_a_non_zero_cap() {
             shorts_enabled: true,
             longs_enabled: true,
             max_pool_share: Some(Percent::zero()),
-            rate_per_day: None,
+            rate_per_year: None,
         };
         assert_err!(
             Derivatives::sudo_set_subnet_override(
@@ -697,13 +697,8 @@ fn adding_on_the_same_side_sums_every_leg_and_keeps_opened_at() {
         assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), p2 + e2);
         assert_eq!(balance(&pallet_account()), 2 * DEPOSIT + p2 + e2);
 
-        // Clocks: `opened_at` and `expires_at` stay with the first tranche; the fee clock moved.
+        // Clocks: `opened_at` stays with the first tranche; the rent clock moved.
         assert_eq!(both.opened_at, 1);
-        assert_eq!(both.expires_at, first.expires_at);
-        assert_eq!(
-            both.expires_at,
-            1 + Params::<Test>::get().lifetime_blocks as u64
-        );
         assert_eq!(both.last_touch, 101);
 
         System::assert_last_event(
@@ -723,7 +718,6 @@ fn adding_on_the_same_side_sums_every_leg_and_keeps_opened_at() {
                 fee_per_day_added: (u64::from(both.fee_per_day) - u64::from(first.fee_per_day))
                     .into(),
                 exposure_tao: both.exposure_tao,
-                expires_at: both.expires_at,
             }
             .into(),
         );
@@ -867,10 +861,6 @@ fn adding_more_than_the_position_closes_it_and_opens_the_rest_on_the_other_side(
         assert_close(u64::from(long.cushion.tao), DEPOSIT, 1);
         assert_close((leverage_of(&long) * 100.0).round() as u64, 200, 1);
         assert_eq!(long.opened_at, 50);
-        assert_eq!(
-            long.expires_at,
-            50 + Params::<Test>::get().lifetime_blocks as u64
-        );
         assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
         assert_eq!(
             Footprint::<Test>::get(netuid(), Side::Long),
@@ -951,36 +941,32 @@ fn reducing_an_underwater_position_forfeits_that_share_to_the_pool() {
     });
 }
 
-/// Set the global fee rate. The default 0.05%/day takes a 1x position about 2,000 days to
-/// starve, far past its 90-day term; tests about starvation raise it.
+/// Set the global rent. The default 20%/year takes a 1x position about five years to starve;
+/// tests about starvation raise it to the ceiling, 100%/year, which takes about a year.
 fn set_rate(rate: Perbill) {
     let mut params = Params::<Test>::get();
-    params.rate_per_day = rate;
+    params.rate_per_year = rate;
     assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
-}
-
-fn lifetime() -> u64 {
-    Params::<Test>::get().lifetime_blocks as u64
 }
 
 #[test]
 fn a_starving_position_can_be_rescued_by_an_add() {
     new_test_ext().execute_with(|| {
         setup();
-        // 2%/day: 0.2 TAO a day on a 10 TAO cushion, gone in about 48 days.
-        set_rate(Perbill::from_percent(2));
+        // 100%/year: 10 TAO of rent a year on a 10 TAO cushion at 1x, gone in about a year.
+        set_rate(Perbill::one());
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         let first = position(&alice(), netuid()).unwrap();
 
-        // 20 days on, still healthy, and everything still works.
-        System::set_block_number(1 + 20 * BLOCKS_PER_DAY);
+        // 100 days on, still healthy, and everything still works.
+        System::set_block_number(1 + 100 * BLOCKS_PER_DAY);
         assert!(Derivatives::is_healthy(&first, netuid()));
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         assert_ok!(add_at(alice(), Side::Long, DEPOSIT / 2, 100));
 
-        // Left long enough, the fee alone makes it unhealthy; adding cushion makes it healthy
+        // Left long enough, the rent alone makes it unhealthy; adding cushion makes it healthy
         // again, because the new tranche's cushion is equity too.
-        System::set_block_number(1 + 75 * BLOCKS_PER_DAY);
+        System::set_block_number(1 + 500 * BLOCKS_PER_DAY);
         let starved = position(&alice(), netuid()).unwrap();
         assert!(!Derivatives::is_healthy(&starved, netuid()));
         assert_ok!(add(alice(), Side::Short, 2 * DEPOSIT));
@@ -990,119 +976,48 @@ fn a_starving_position_can_be_rescued_by_an_add() {
     });
 }
 
-// ── Expiry ───────────────────────────────────────────────────────────────────
+// ── No term ──────────────────────────────────────────────────────────────────
 
 #[test]
-fn a_same_side_add_on_an_expired_position_rolls_it() {
+fn a_position_has_no_term_and_runs_while_it_pays_its_rent() {
     new_test_ext().execute_with(|| {
         setup();
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
-        let old = position(&alice(), netuid()).unwrap();
-        assert_eq!(old.expires_at, 1 + lifetime());
+        let first = position(&alice(), netuid()).unwrap();
 
-        // The block before expiry: a same-side add grows, nothing settles.
-        System::set_block_number(old.expires_at - 1);
+        // Two years on at the default rent, a 1x position has paid about 40% of its cushion
+        // and is still healthy. Nobody else may close it.
+        System::set_block_number(1 + 730 * BLOCKS_PER_DAY);
+        let later = position(&alice(), netuid()).unwrap();
+        assert!(Derivatives::is_healthy(&later, netuid()));
+        let owed = u64::from(later.fee_owed(1 + 730 * BLOCKS_PER_DAY));
+        assert_close(owed, 2 * DEPOSIT / 5, DEPOSIT / 100);
+        assert_err!(close(bob(), alice()), Error::<Test>::OwnerOnly);
+
+        // A same-side add grows it in place: nothing settles, `opened_at` stays, the rent so
+        // far is booked and the clock restarts.
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         let grown = position(&alice(), netuid()).unwrap();
         assert_eq!(grown.cushion.tao, TaoBalance::from(2 * DEPOSIT));
-        assert_eq!(grown.expires_at, old.expires_at);
-        assert_eq!(grown.opened_at, 1);
-
-        // At expiry: the same add settles the whole position at today's price, then opens a
-        // fresh one from the deposit alone. The old equity is back in the wallet first.
-        System::set_block_number(old.expires_at);
-        let wallet = balance(&alice());
-        let fee_owed = u64::from(grown.fee_owed(old.expires_at));
-        assert_ok!(add(alice(), Side::Short, DEPOSIT));
-
-        let rolled = position(&alice(), netuid()).unwrap();
-        assert_eq!(rolled.cushion.tao, TaoBalance::from(DEPOSIT));
-        assert_eq!(rolled.opened_at, old.expires_at);
-        assert_eq!(rolled.expires_at, old.expires_at + lifetime());
-        assert_eq!(rolled.fee_accrued, rolled.fee_per_day);
-        assert_eq!(rolled.last_touch, old.expires_at);
+        assert_eq!(grown.opened_at, first.opened_at);
+        assert_eq!(grown.last_touch, 1 + 730 * BLOCKS_PER_DAY);
         assert_eq!(
-            Footprint::<Test>::get(netuid(), Side::Short),
-            rolled.legs.footprint()
+            grown.fee_accrued,
+            TaoBalance::from(owed + u64::from(grown.fee_per_day) - u64::from(first.fee_per_day))
         );
+        assert!(System::events().iter().all(|record| {
+            !matches!(
+                record.event,
+                RuntimeEvent::Derivatives(Event::PositionClosed { .. })
+            )
+        }));
 
-        // The settlement was the owner's: fee paid, no bounty, equity to Alice.
-        let (closer, bounty) = last_closer_and_bounty();
-        assert_eq!(closer, Closer::Owner);
-        assert_eq!(bounty, 0);
-        let (tao_back, fee_paid, shortfall) = last_closed_event();
-        assert_eq!(fee_paid, fee_owed);
+        // The owner closes whenever they like and pays everything owed.
+        assert_ok!(close(alice(), alice()));
+        let (_, fee_paid, shortfall) = last_closed_event();
+        assert_eq!(fee_paid, u64::from(grown.fee_accrued));
         assert_eq!(shortfall, 0);
-        assert_close(tao_back, 2 * DEPOSIT - fee_owed, DEPOSIT / 50);
-        assert_eq!(balance(&alice()), wallet + tao_back - DEPOSIT);
-        assert_eq!(
-            balance(&pallet_account()),
-            DEPOSIT + rolled.legs.footprint()
-        );
-    });
-}
-
-#[test]
-fn anyone_may_close_an_expired_position_for_one_day_of_fee() {
-    new_test_ext().execute_with(|| {
-        setup();
-        let (t0, a0) = reserves(netuid());
-        assert_ok!(add(alice(), Side::Short, DEPOSIT));
-        let short = position(&alice(), netuid()).unwrap();
-        let rate = u64::from(short.fee_per_day);
-
-        System::set_block_number(short.expires_at - 1);
-        assert!(Derivatives::is_healthy(&short, netuid()));
-        assert_err!(close(bob(), alice()), Error::<Test>::OwnerOnly);
-
-        System::set_block_number(short.expires_at);
-        let fee_owed = u64::from(short.fee_owed(short.expires_at));
-        let alice_before = balance(&alice());
-        let bob_before = balance(&bob());
-        assert_ok!(close(bob(), alice()));
-
-        // Bob takes one day of fee off the top; Alice gets the rest of her cushion less the
-        // fee owed. Not a liquidation: the position was healthy, only out of time.
-        let (closer, bounty) = last_closer_and_bounty();
-        assert_eq!(closer, Closer::Expired(bob()));
-        assert_eq!(bounty, rate);
-        assert_eq!(balance(&bob()), bob_before + rate);
-        let (tao_back, fee_paid, shortfall) = last_closed_event();
-        assert_eq!(fee_paid, fee_owed);
-        assert_eq!(shortfall, 0);
-        assert_eq!(balance(&alice()), alice_before + tao_back);
-        assert_close(tao_back, DEPOSIT - fee_owed - rate, DEPOSIT / 5_000);
-
         assert!(position(&alice(), netuid()).is_none());
-        assert_eq!(balance(&pallet_account()), 0);
-        let (t1, a1) = reserves(netuid());
-        assert_close(t1, t0 + fee_owed, DEPOSIT / 5_000);
-        assert_close(a1, a0, 100);
-    });
-}
-
-#[test]
-fn an_opposite_side_add_on_an_expired_position_still_reduces_it() {
-    new_test_ext().execute_with(|| {
-        setup();
-        assert_ok!(add(alice(), Side::Short, DEPOSIT));
-        let short = position(&alice(), netuid()).unwrap();
-        System::set_block_number(short.expires_at + 10);
-        // A half-size long reduces the expired short by half. Expiry never blocks a settlement.
-        assert_ok!(add_at(alice(), Side::Long, DEPOSIT / 2, 100));
-        let rest = position(&alice(), netuid()).unwrap();
-        assert_eq!(rest.side(), Side::Short);
-        assert_eq!(rest.expires_at, short.expires_at);
-        assert_close(
-            u64::from(rest.exposure_tao),
-            u64::from(short.exposure_tao) / 2,
-            1,
-        );
-        // Flipping past it opens the new side on a fresh term.
-        assert_ok!(add_at(alice(), Side::Long, DEPOSIT, 100));
-        let long = position(&alice(), netuid()).unwrap();
-        assert_eq!(long.side(), Side::Long);
-        assert_eq!(long.expires_at, short.expires_at + 10 + lifetime());
     });
 }
 
@@ -1198,19 +1113,19 @@ fn a_starved_position_is_closed_by_anyone_who_is_paid_the_fee() {
     new_test_ext().execute_with(|| {
         setup();
         let (t0, a0) = reserves(netuid());
-        set_rate(Perbill::from_percent(2));
+        set_rate(Perbill::one());
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         let short = position(&alice(), netuid()).unwrap();
         let rate = u64::from(short.fee_per_day);
 
-        // Find the first day the position stops covering one more day of fee.
+        // Find the first day the position stops covering one more day of rent.
         let mut day = 1;
         while Derivatives::is_healthy(&short, netuid()) {
             day += 1;
             System::set_block_number(1 + day * BLOCKS_PER_DAY);
         }
-        // Roughly cushion / rate days, less the round trip and the day booked: about 48.
-        assert!(day > 40 && day < 50, "starved after {day} days");
+        // Roughly cushion / rate days, less the round trip and the day booked: about 360.
+        assert!(day > 340 && day < 366, "starved after {day} days");
         let now = System::block_number();
         let fee_owed = u64::from(short.fee_owed(now));
         let equity = short.equity(now, Derivatives::quotes(&short, netuid()));

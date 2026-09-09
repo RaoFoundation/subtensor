@@ -137,19 +137,10 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::LeverageOutOfRange
             );
             let now = frame_system::Pallet::<T>::block_number();
-            let fresh =
-                || Position::empty(side, now, now.saturating_add(params.lifetime_blocks.into()));
+            let fresh = || Position::empty(side, now);
             let (position, deposit) = match Positions::<T>::get(&owner, netuid) {
                 None => (fresh(), deposit),
-                Some(position) if position.side() == side => {
-                    if position.is_expired(now) {
-                        // A roll: settle at today's price, then open again below.
-                        Self::do_settle(&owner, netuid, Perquintill::one(), Closer::Owner)?;
-                        (fresh(), deposit)
-                    } else {
-                        (position, deposit)
-                    }
-                }
+                Some(position) if position.side() == side => (position, deposit),
                 Some(position) => {
                     match Self::reduce(
                         &owner,
@@ -190,7 +181,6 @@ impl<T: Config> Pallet<T> {
             exposure_added: tranche.exposure_tao,
             fee_per_day_added: tranche.fee_per_day,
             exposure_tao: position.exposure_tao.saturating_add(tranche.exposure_tao),
-            expires_at: position.expires_at,
         };
         position
             .fold(tranche, frame_system::Pallet::<T>::block_number())
@@ -306,9 +296,9 @@ impl<T: Config> Pallet<T> {
         let max_pool_share = override_
             .and_then(|o| o.max_pool_share)
             .unwrap_or(params.max_pool_share);
-        let rate_per_day = override_
-            .and_then(|o| o.rate_per_day)
-            .unwrap_or(params.rate_per_day);
+        let rate_per_year = override_
+            .and_then(|o| o.rate_per_year)
+            .unwrap_or(params.rate_per_year);
         let cap = max_pool_share.mul_floor(lent_reserve);
         let projected = projected_footprint(phi, lent_reserve);
         ensure!(
@@ -372,20 +362,19 @@ impl<T: Config> Pallet<T> {
             cushion: deposit,
             legs,
             exposure_tao: lifted_tao,
-            fee_per_day: DerivativesParams::fee_per_day(rate_per_day, lifted_tao),
+            fee_per_day: DerivativesParams::fee_per_day(rate_per_year, lifted_tao),
         })
     }
 
     /// Unwind `fraction` of the position at the current price: reverse that share of the open
-    /// swap, repay the pool plus the whole fee owed so far, pay the owner what is left of that
+    /// swap, repay the pool plus the whole rent owed so far, pay the owner what is left of that
     /// share of the cushion, in kind. A fraction of one closes the position. Atomic. Returns the
     /// TAO that reached the owner; everything paid is also reported in the event.
     ///
-    /// A [`Closer::Liquidator`] is paid instead of the owner, in TAO: the fee owed, plus what
-    /// is left after the pool is repaid, topped up from the pool to one day of fee when that is
+    /// A [`Closer::Liquidator`] is paid instead of the owner, in TAO: the rent owed, plus what
+    /// is left after the pool is repaid, topped up from the pool to one day of rent when that is
     /// less. The liquidator only gets here once the position is unhealthy, so what the owner
-    /// forgoes is at most one day of fee. A [`Closer::Expired`] is paid one day of fee off the
-    /// top and the owner is paid the rest as usual.
+    /// forgoes is at most one day of rent.
     pub(crate) fn do_settle(
         owner: &T::AccountId,
         netuid: NetUid,
@@ -502,23 +491,8 @@ impl<T: Config> Pallet<T> {
                         paid.saturating_add(topped_up),
                     )
                 }
-                Closer::Owner | Closer::Expired(_) | Closer::Dissolution => {
+                Closer::Owner | Closer::Dissolution => {
                     tao_to_pool = tao_to_pool.saturating_add(fee_paid);
-                    // The closer of an expired position takes one day of fee off the top; the
-                    // owner gets the rest below.
-                    let bounty = if let Closer::Expired(closer) = &closer {
-                        let due = pot.cover_tao::<T>(
-                            position.fee_per_day,
-                            netuid,
-                            &pallet_account,
-                            &pallet_hotkey,
-                        )?;
-                        let paid = Self::pay_owner_tao(&pallet_account, closer, due);
-                        tao_to_pool = tao_to_pool.saturating_add(due.saturating_sub(paid));
-                        paid
-                    } else {
-                        TaoBalance::ZERO
-                    };
                     // Alpha goes back first; what cannot go back in kind is sold and joins the
                     // TAO. If it cannot be sold either, it stays with the pool.
                     let alpha_to_owner = Self::return_alpha(
@@ -539,7 +513,7 @@ impl<T: Config> Pallet<T> {
                     }
                     let tao_to_owner = Self::pay_owner_tao(&pallet_account, owner, pot.tao);
                     tao_to_pool = tao_to_pool.saturating_add(pot.tao.saturating_sub(tao_to_owner));
-                    (tao_to_owner, alpha_to_owner, bounty)
+                    (tao_to_owner, alpha_to_owner, TaoBalance::ZERO)
                 }
             };
 

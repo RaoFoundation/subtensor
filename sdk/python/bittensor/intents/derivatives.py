@@ -7,16 +7,14 @@ subnet's alpha. There is one position per coldkey and subnet, and one call
 that moves it: ``add``. Adding on the position's side puts more in; adding on
 the other side takes that much off, paying that share out at the current
 price, and flips through zero if there is more. ``close`` settles everything.
-At settlement the pool gets its slice plus the per-day borrow fee back; the
-owner gets what is left of the cushion and the trade's profit or loss, in
-kind.
+At settlement the pool gets its slice plus the rent back; the owner gets what
+is left of the cushion and the trade's profit or loss, in kind.
 
-The fee is one rate on TAO exposure, the same for both sides, fixed per
-tranche when it is added. A position lives for ``lifetime_blocks`` from its
-first add (90 days by default) or until its equity no longer covers one day
-of fee. After either, anyone may close it and is paid for doing so. An
-owner's same-side add on an expired position settles it at today's price and
-reopens it: a roll.
+The rent is one yearly rate on TAO exposure (``rate_per_year``), the same for
+both sides, fixed per tranche when it is added and accrued per block. There
+is no term: a position lives until its owner closes it or its equity no
+longer covers one day of rent, after which anyone may close it and is paid
+the rent for doing so.
 """
 
 from __future__ import annotations
@@ -80,18 +78,16 @@ def leverage_percent(leverage: float) -> int:
 class AddPosition(Intent):
     """Add `leverage` times `amount` of `side` exposure to your position on a subnet.
 
-    One call for open, add, reduce, flip, and roll. With no position, or one
-    on the same side, `amount` is taken as cushion (TAO from the coldkey, or
-    alpha from stake on `hotkey_ss58`), the pool lends the matching slice
-    (alpha sold for TAO on a short, TAO spent on alpha on a long), and the
-    result is folded into the position; one day of the new tranche's fee is
-    booked up front. The expiry is set by the first add and does not move.
-    With a position on the other side, that much exposure is settled at the
-    current price and its share of the cushion, less fee and loss, is paid
-    back; nothing is deposited. Asking for more than the position holds closes
-    it and opens the rest on the new side, taking only that rest's cushion.
-    On an expired position, a same-side add settles it first and opens a fresh
-    one from `amount` alone.
+    One call for open, add, reduce, and flip. With no position, or one on the
+    same side, `amount` is taken as cushion (TAO from the coldkey, or alpha
+    from stake on `hotkey_ss58`), the pool lends the matching slice (alpha
+    sold for TAO on a short, TAO spent on alpha on a long), and the result is
+    folded into the position; one day of the new tranche's rent is booked up
+    front. With a position on the other side, that much exposure is settled at
+    the current price and its share of the cushion, less rent and loss, is
+    paid back; nothing is deposited. Asking for more than the position holds
+    closes it and opens the rest on the new side, taking only that rest's
+    cushion.
     """
 
     op = "add_derivative"
@@ -162,11 +158,10 @@ class AddPosition(Intent):
         out = [
             "against an open position of the other side this reduces or flips it at the "
             "current price: that share's loss or profit is realized now",
-            "each add books one day of its borrow fee up front; the fee then accrues per block",
-            "the position expires `lifetime_blocks` after its first add (90 days by default); "
-            "adding does not extend it, and after it anyone may close it for one day of fee",
-            "once the position's equity drops below one day of fee, anyone may close it and "
-            "keeps the fee; add cushion or close before that",
+            "each add books one day of its rent up front; the rent then accrues per block "
+            "at `rate_per_year` of exposure for as long as the position is open",
+            "once the position's equity drops below one day of rent, anyone may close it and "
+            "keeps the rent; add cushion or close before that",
         ]
         if self.deposit_in == "alpha":
             out.append("the alpha cushion earns no staking emission while the position is open")
@@ -185,14 +180,12 @@ class ClosePosition(Intent):
     """Close a derivatives position and settle it against the pool.
 
     The owner may close at any time. Anyone may close a position that is no
-    longer healthy (its equity is below one day of fee) or that has expired.
-    A liquidator is paid the fee owed plus whatever is left after the pool is
-    repaid, topped up by the pool to one day of fee, and the owner gets
-    nothing. The closer of an expired position is paid one day of fee and the
-    owner gets the rest. Settlement reverses the opening trade, repays the pool
-    plus the borrow fee, and pays the owner what remains, in kind. If the
-    position is underwater the pool absorbs the shortfall and the owner gets
-    nothing back.
+    longer healthy (its equity is below one day of rent). That liquidator is
+    paid the rent owed plus whatever is left after the pool is repaid, topped
+    up by the pool to one day of rent, and the owner gets nothing. Settlement
+    reverses the opening trade, repays the pool plus the rent, and pays the
+    owner what remains, in kind. If the position is underwater the pool
+    absorbs the shortfall and the owner gets nothing back.
     """
 
     op = "close_derivative"
@@ -205,8 +198,7 @@ class ClosePosition(Intent):
         metadata={
             "help": (
                 "Coldkey that owns the position. Defaults to the signer; pass another owner "
-                "to close their position once `healthy` is False or `expired` is True in "
-                "`derivative-position`."
+                "to close their position once `healthy` is False in `derivative-position`."
             )
         },
     )
@@ -222,7 +214,7 @@ class ClosePosition(Intent):
     async def warnings(self, substrate, signer_address: str) -> list[str]:
         if self.owner_ss58 and self.owner_ss58 != signer_address:
             return [
-                "closing another owner's position only succeeds once it has expired or is "
-                "unhealthy at the chain's own quote; the SDK's `healthy` flag is an estimate"
+                "closing another owner's position only succeeds once it is unhealthy at the "
+                "chain's own quote; the SDK's `healthy` flag is an estimate"
             ]
         return []

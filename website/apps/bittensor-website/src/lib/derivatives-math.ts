@@ -2,8 +2,9 @@
  * The worked example every derivatives figure uses: a 100 τ cushion on a
  * 10,000 τ / 200,000 α pool (0.05 τ/α). Each side is shown at its leverage
  * ceiling: the short at 1x lifts 1% of the pool, the long at 2x lifts 2%. Both
- * pay the same fee law: `rate_per_day` (0.05%) of their TAO exposure per day,
- * so the 2x long pays twice the 1x short. A position lasts `LIFETIME_DAYS`.
+ * pay the same rent: `rate_per_year` (20%) of their TAO exposure per year,
+ * accrued per day, so the 2x long pays twice the 1x short. There is no term;
+ * `SHOWN_DAYS` is just how long the figures let a position run.
  *
  * `simulate` mirrors `pallet-derivatives`: lift `phi` of both reserves, trade one
  * half through the constant-product pool, let the market move, reverse the trade
@@ -22,10 +23,12 @@ export const CUSHION = 100;
  * An owner may open at anything from 0.01x up to these.
  */
 export const LEVERAGE: Record<Side, number> = {short: 1, long: 2};
-/** Fraction of TAO exposure either side pays per day (`rate_per_day`). */
-export const RATE_PER_DAY = 0.0005;
-/** Term of a position from its first add (`lifetime_blocks` / 7,200). */
-export const LIFETIME_DAYS = 90;
+/** Fraction of TAO exposure either side pays per year (`rate_per_year`). */
+export const RATE_PER_YEAR = 0.2;
+/** The same rent per day: the pallet carries it this way (`fee_per_day`). */
+export const RATE_PER_DAY = RATE_PER_YEAR / 365;
+/** Days the figures run a position for. Not a limit: a position has no expiry. */
+export const SHOWN_DAYS = 90;
 export const OPEN_PRICE = POOL_TAO / POOL_ALPHA;
 
 /** Share of the pool the position lifts: `L × cushion / T`. */
@@ -53,7 +56,7 @@ export interface Outcome {
   priceClose: number;
   /** TAO paid to rebuy the debt (short) or raised by selling the alpha (long). */
   closeLeg: number;
-  /** Borrow fee owed after `days`: the day booked at the add plus `days` of accrual. */
+  /** Rent owed after `days`: the day booked at the add plus `days` of accrual. */
   fee: number;
   /** TAO returned to the owner. Never below zero: the pool carries any shortfall. */
   payout: number;
@@ -61,7 +64,7 @@ export interface Outcome {
   pnl: number;
 }
 
-/** Fee per day, fixed at the add: `rate_per_day × exposure`, the same law on both sides. */
+/** Rent per day, fixed at the add: `rate_per_year × exposure / 365`, the same on both sides. */
 export function feePerDay(side: Side): number {
   return RATE_PER_DAY * lift(side).tao;
 }

@@ -7,9 +7,8 @@ description: "Every open position on a subnet, whoever owns it. Same fields as"
 
 `derivative_position`.
 
-The list a liquidator works from: filter on `healthy` being False or
-`expired` being True and call `close_derivative` with that `coldkey` as
-`owner_ss58`.
+The list a liquidator works from: filter on `healthy` being False and call
+`close_derivative` with that `coldkey` as `owner_ss58`.
 
 **Category:** Prices & swaps
 
@@ -46,7 +45,7 @@ Async is the same surface awaited: `async with bt.Subtensor() as client:`.
 
 ## On-chain implementation
 
-- Storage [`Derivatives.OpenByNetuid`](/code/pallets/derivatives/src/lib.rs#L100)
-- Storage [`Derivatives.Positions`](/code/pallets/derivatives/src/lib.rs#L88)
+- Storage [`Derivatives.OpenByNetuid`](/code/pallets/derivatives/src/lib.rs#L96)
+- Storage [`Derivatives.Positions`](/code/pallets/derivatives/src/lib.rs#L84)
 
 Every file is browsable under [/code](/code) exactly as built into the runtime.

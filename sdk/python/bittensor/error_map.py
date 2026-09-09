@@ -466,7 +466,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "ExposureTooLarge": _C.LIMIT_EXCEEDED,
     "ZeroExposure": _C.INVALID_ARGUMENT,
     "PoolCapExceeded": _C.LIMIT_EXCEEDED,
-    "OwnerOnly": _C.TOO_EARLY,
+    "OwnerOnly": _C.NOT_AUTHORIZED,
     "AlphaCushionDisabled": _C.DISABLED,
     "InvalidParams": _C.INVALID_ARGUMENT,
     "PalletHotkeyUnset": _C.TOO_EARLY,

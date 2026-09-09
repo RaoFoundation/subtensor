@@ -395,17 +395,15 @@ class Prices(_ReadNamespace):
         `escrow` are the position's `legs`, each already in its own token: a short
         holds TAO proceeds and TAO escrow and owes alpha; a long holds alpha
         proceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed
-        rate of its tranches; `accrued_fee_tao` is what would be charged if settled
-        now. `expires_at` is set by the first add and does not move; `expired` is
-        whether that block has passed, after which anyone may close the position
-        for one day of fee, and an owner's same-side add rolls it.
+        rent of its tranches; `accrued_fee_tao` is what would be charged if settled
+        now. There is no expiry: a position runs while it pays.
 
         `equity_tao` is an estimate of what a close now would pay the owner:
         cushion value plus proceeds, less debt priced on a constant-product curve,
-        less the fee owed. Negative means underwater. `healthy` is whether that
-        equity still covers one more day of fee; when it does not, anyone may close
-        the position with `close_derivative` and is paid the fee for it. The
-        chain's own quote decides; this is a preview.
+        less the rent owed. Negative means underwater. `healthy` is whether that
+        equity still covers one more day of rent; when it does not, anyone may
+        close the position with `close_derivative` and is paid the rent for it.
+        The chain's own quote decides; this is a preview.
         """
 
     async def derivative_positions(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
@@ -417,9 +415,8 @@ class Prices(_ReadNamespace):
         """Every open position on a subnet, whoever owns it. Same fields as
         `derivative_position`.
 
-        The list a liquidator works from: filter on `healthy` being False or
-        `expired` being True and call `close_derivative` with that `coldkey` as
-        `owner_ss58`.
+        The list a liquidator works from: filter on `healthy` being False and call
+        `close_derivative` with that `coldkey` as `owner_ss58`.
         """
 
     async def derivatives_params(self, *, block: Optional[int] = None) -> dict:
@@ -429,11 +426,11 @@ class Prices(_ReadNamespace):
         leverage an owner may choose per side (`100` = 1x), and `max_pool_share`
         caps how much of a pool's reserve may be lent per side.
         `alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side
-        accepts an alpha cushion; TAO is always accepted. The fee is one rate for
-        both sides, `rate_per_day` of a tranche's TAO exposure, fixed when the
+        accepts an alpha cushion; TAO is always accepted. The rent is one rate for
+        both sides, `rate_per_year` of a tranche's TAO exposure, fixed when the
         tranche is added: one day is booked at the add, the rest accrues per block
-        and is paid at each settlement. A position expires `lifetime_blocks` after
-        its first add; after that, or once its equity drops below one day of fee,
+        and is paid at each settlement. There is no term. A position runs until its
+        owner closes it or its equity drops below one day of rent, after which
         anyone may close it. A subnet may override the switches, the cap, and the
         rate; see `derivatives_subnet_override`.
         """
@@ -443,8 +440,8 @@ class Prices(_ReadNamespace):
 
         None means the subnet runs on the global `derivatives_params`. When set,
         `shorts_enabled` and `longs_enabled` replace the global switches for adds
-        on this subnet, and `max_pool_share` and `rate_per_day` replace the global
-        cap and fee rate when they are not None. Open positions are unaffected: a
+        on this subnet, and `max_pool_share` and `rate_per_year` replace the global
+        cap and rent when they are not None. Open positions are unaffected: a
         paused side can still be reduced and closed.
         """
 

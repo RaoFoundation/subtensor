@@ -752,7 +752,7 @@
   {
     "name": "derivative_position",
     "summary": "A coldkey's open position on a subnet, or None. There is at most one.",
-    "description": "A coldkey's open position on a subnet, or None. There is at most one.\n\n`side` is the direction of its net exposure. `cushion` is the TAO the owner\nhas put up and `cushion_alpha` the alpha, returned to `cushion_alpha_hotkey`;\n`cushion_value_tao` prices both in TAO and `leverage` is `exposure_tao`\nover that, the blend of every tranche added. `proceeds`, `debt`, and\n`escrow` are the position's `legs`, each already in its own token: a short\nholds TAO proceeds and TAO escrow and owes alpha; a long holds alpha\nproceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed\nrate of its tranches; `accrued_fee_tao` is what would be charged if settled\nnow. `expires_at` is set by the first add and does not move; `expired` is\nwhether that block has passed, after which anyone may close the position\nfor one day of fee, and an owner's same-side add rolls it.\n\n`equity_tao` is an estimate of what a close now would pay the owner:\ncushion value plus proceeds, less debt priced on a constant-product curve,\nless the fee owed. Negative means underwater. `healthy` is whether that\nequity still covers one more day of fee; when it does not, anyone may close\nthe position with `close_derivative` and is paid the fee for it. The\nchain's own quote decides; this is a preview.",
+    "description": "A coldkey's open position on a subnet, or None. There is at most one.\n\n`side` is the direction of its net exposure. `cushion` is the TAO the owner\nhas put up and `cushion_alpha` the alpha, returned to `cushion_alpha_hotkey`;\n`cushion_value_tao` prices both in TAO and `leverage` is `exposure_tao`\nover that, the blend of every tranche added. `proceeds`, `debt`, and\n`escrow` are the position's `legs`, each already in its own token: a short\nholds TAO proceeds and TAO escrow and owes alpha; a long holds alpha\nproceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed\nrent of its tranches; `accrued_fee_tao` is what would be charged if settled\nnow. There is no expiry: a position runs while it pays.\n\n`equity_tao` is an estimate of what a close now would pay the owner:\ncushion value plus proceeds, less debt priced on a constant-product curve,\nless the rent owed. Negative means underwater. `healthy` is whether that\nequity still covers one more day of rent; when it does not, anyone may\nclose the position with `close_derivative` and is paid the rent for it.\nThe chain's own quote decides; this is a preview.",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer"
@@ -771,8 +771,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 88,
-        "url": "/code/pallets/derivatives/src/lib.rs#L88",
+        "line": 84,
+        "url": "/code/pallets/derivatives/src/lib.rs#L84",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -797,8 +797,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 88,
-        "url": "/code/pallets/derivatives/src/lib.rs#L88",
+        "line": 84,
+        "url": "/code/pallets/derivatives/src/lib.rs#L84",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -806,7 +806,7 @@
   {
     "name": "derivative_positions_on_subnet",
     "summary": "Every open position on a subnet, whoever owns it. Same fields as",
-    "description": "Every open position on a subnet, whoever owns it. Same fields as\n`derivative_position`.\n\nThe list a liquidator works from: filter on `healthy` being False or\n`expired` being True and call `close_derivative` with that `coldkey` as\n`owner_ss58`.",
+    "description": "Every open position on a subnet, whoever owns it. Same fields as\n`derivative_position`.\n\nThe list a liquidator works from: filter on `healthy` being False and call\n`close_derivative` with that `coldkey` as `owner_ss58`.",
     "params": {
       "netuid": "integer"
     },
@@ -823,8 +823,8 @@
         "container": "Derivatives",
         "name": "OpenByNetuid",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 100,
-        "url": "/code/pallets/derivatives/src/lib.rs#L100",
+        "line": 96,
+        "url": "/code/pallets/derivatives/src/lib.rs#L96",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       },
       {
@@ -832,8 +832,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 88,
-        "url": "/code/pallets/derivatives/src/lib.rs#L88",
+        "line": 84,
+        "url": "/code/pallets/derivatives/src/lib.rs#L84",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -841,7 +841,7 @@
   {
     "name": "derivatives_params",
     "summary": "The derivatives pallet's root-set global parameters.",
-    "description": "The derivatives pallet's root-set global parameters.\n\n`max_short_leverage_percent` and `max_long_leverage_percent` bound the\nleverage an owner may choose per side (`100` = 1x), and `max_pool_share`\ncaps how much of a pool's reserve may be lent per side.\n`alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side\naccepts an alpha cushion; TAO is always accepted. The fee is one rate for\nboth sides, `rate_per_day` of a tranche's TAO exposure, fixed when the\ntranche is added: one day is booked at the add, the rest accrues per block\nand is paid at each settlement. A position expires `lifetime_blocks` after\nits first add; after that, or once its equity drops below one day of fee,\nanyone may close it. A subnet may override the switches, the cap, and the\nrate; see `derivatives_subnet_override`.",
+    "description": "The derivatives pallet's root-set global parameters.\n\n`max_short_leverage_percent` and `max_long_leverage_percent` bound the\nleverage an owner may choose per side (`100` = 1x), and `max_pool_share`\ncaps how much of a pool's reserve may be lent per side.\n`alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side\naccepts an alpha cushion; TAO is always accepted. The rent is one rate for\nboth sides, `rate_per_year` of a tranche's TAO exposure, fixed when the\ntranche is added: one day is booked at the add, the rest accrues per block\nand is paid at each settlement. There is no term. A position runs until its\nowner closes it or its equity drops below one day of rent, after which\nanyone may close it. A subnet may override the switches, the cap, and the\nrate; see `derivatives_subnet_override`.",
     "params": {},
     "param_docs": {},
     "category": "Prices & swaps",
@@ -854,8 +854,8 @@
         "container": "Derivatives",
         "name": "Params",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 84,
-        "url": "/code/pallets/derivatives/src/lib.rs#L84",
+        "line": 80,
+        "url": "/code/pallets/derivatives/src/lib.rs#L80",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -863,7 +863,7 @@
   {
     "name": "derivatives_subnet_override",
     "summary": "Root-set per-subnet overrides of the derivatives parameters, or None.",
-    "description": "Root-set per-subnet overrides of the derivatives parameters, or None.\n\nNone means the subnet runs on the global `derivatives_params`. When set,\n`shorts_enabled` and `longs_enabled` replace the global switches for adds\non this subnet, and `max_pool_share` and `rate_per_day` replace the global\ncap and fee rate when they are not None. Open positions are unaffected: a\npaused side can still be reduced and closed.",
+    "description": "Root-set per-subnet overrides of the derivatives parameters, or None.\n\nNone means the subnet runs on the global `derivatives_params`. When set,\n`shorts_enabled` and `longs_enabled` replace the global switches for adds\non this subnet, and `max_pool_share` and `rate_per_year` replace the global\ncap and rent when they are not None. Open positions are unaffected: a\npaused side can still be reduced and closed.",
     "params": {
       "netuid": "integer"
     },
@@ -880,8 +880,8 @@
         "container": "Derivatives",
         "name": "SubnetOverrides",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 124,
-        "url": "/code/pallets/derivatives/src/lib.rs#L124",
+        "line": 120,
+        "url": "/code/pallets/derivatives/src/lib.rs#L120",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

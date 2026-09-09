@@ -35,18 +35,17 @@ DESCRIPTIONS: dict[str, str] = {
         "smaller cushion or wait for other positions to close."
     ),
     "OwnerOnly": (
-        "The position has not expired and its equity still covers one day of fee at the "
-        "chain's quote, so only its owner may close it. Check `expires_at`, `healthy`, and "
-        "`equity_tao` in `derivative-position`; the SDK estimate can differ from the chain's "
-        "Balancer quote near the line."
+        "The position's equity still covers one day of rent at the chain's quote, so only "
+        "its owner may close it. Check `healthy` and `equity_tao` in `derivative-position`; "
+        "the SDK estimate can differ from the chain's Balancer quote near the line."
     ),
     "AlphaCushionDisabled": (
         "Alpha cushions are switched off for this side; deposit TAO instead. Check "
         "`alpha_cushion_shorts` / `alpha_cushion_longs` in `deriv params`."
     ),
     "InvalidParams": (
-        "Root submitted parameters with a zero maximum leverage, `max_pool_share`, "
-        "`rate_per_day`, or `lifetime_blocks`, or a subnet override with a zero cap or rate, "
+        "Root submitted parameters with a zero maximum leverage, `max_pool_share`, or "
+        "`rate_per_year`, or a subnet override with a zero cap or rate, "
         "which would brick adds or leave nobody paid to close. Pause a side with its enabled "
         "switch instead."
     ),

@@ -72,7 +72,7 @@
   {
     "name": "add_derivative",
     "summary": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.",
-    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, flip, and roll. With no position, or one\non the same side, `amount` is taken as cushion (TAO from the coldkey, or\nalpha from stake on `hotkey_ss58`), the pool lends the matching slice\n(alpha sold for TAO on a short, TAO spent on alpha on a long), and the\nresult is folded into the position; one day of the new tranche's fee is\nbooked up front. The expiry is set by the first add and does not move.\nWith a position on the other side, that much exposure is settled at the\ncurrent price and its share of the cushion, less fee and loss, is paid\nback; nothing is deposited. Asking for more than the position holds closes\nit and opens the rest on the new side, taking only that rest's cushion.\nOn an expired position, a same-side add settles it first and opens a fresh\none from `amount` alone.",
+    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, and flip. With no position, or one on the\nsame side, `amount` is taken as cushion (TAO from the coldkey, or alpha\nfrom stake on `hotkey_ss58`), the pool lends the matching slice (alpha\nsold for TAO on a short, TAO spent on alpha on a long), and the result is\nfolded into the position; one day of the new tranche's rent is booked up\nfront. With a position on the other side, that much exposure is settled at\nthe current price and its share of the cushion, less rent and loss, is\npaid back; nothing is deposited. Asking for more than the position holds\ncloses it and opens the rest on the new side, taking only that rest's\ncushion.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -135,9 +135,9 @@
         "pallet": "Derivatives",
         "call": "add",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 284,
-        "end_line": 293,
-        "url": "/code/pallets/derivatives/src/lib.rs#L282-L293",
+        "line": 275,
+        "end_line": 284,
+        "url": "/code/pallets/derivatives/src/lib.rs#L273-L284",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -706,7 +706,7 @@
   {
     "name": "close_derivative",
     "summary": "Close a derivatives position and settle it against the pool.",
-    "description": "Close a derivatives position and settle it against the pool.\n\nThe owner may close at any time. Anyone may close a position that is no\nlonger healthy (its equity is below one day of fee) or that has expired.\nA liquidator is paid the fee owed plus whatever is left after the pool is\nrepaid, topped up by the pool to one day of fee, and the owner gets\nnothing. The closer of an expired position is paid one day of fee and the\nowner gets the rest. Settlement reverses the opening trade, repays the pool\nplus the borrow fee, and pays the owner what remains, in kind. If the\nposition is underwater the pool absorbs the shortfall and the owner gets\nnothing back.",
+    "description": "Close a derivatives position and settle it against the pool.\n\nThe owner may close at any time. Anyone may close a position that is no\nlonger healthy (its equity is below one day of rent). That liquidator is\npaid the rent owed plus whatever is left after the pool is repaid, topped\nup by the pool to one day of rent, and the owner gets nothing. Settlement\nreverses the opening trade, repays the pool plus the rent, and pays the\nowner what remains, in kind. If the position is underwater the pool\nabsorbs the shortfall and the owner gets nothing back.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -726,7 +726,7 @@
         },
         "owner_ss58": {
           "type": "string",
-          "description": "Coldkey that owns the position. Defaults to the signer; pass another owner to close their position once `healthy` is False or `expired` is True in `derivative-position`."
+          "description": "Coldkey that owns the position. Defaults to the signer; pass another owner to close their position once `healthy` is False in `derivative-position`."
         }
       },
       "required": [
@@ -742,9 +742,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 303,
-        "end_line": 318,
-        "url": "/code/pallets/derivatives/src/lib.rs#L301-L318",
+        "line": 293,
+        "end_line": 303,
+        "url": "/code/pallets/derivatives/src/lib.rs#L291-L303",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
