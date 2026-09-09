@@ -1724,6 +1724,90 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn disassociate_hotkey(k: Linear<1, 1024>) {
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("released", 0, 0);
+        assert_ok!(Subtensor::<T>::create_account_if_non_existent(
+            &coldkey, &hotkey
+        ));
+        let mut keys = vec![hotkey.clone()];
+        for i in 1..k {
+            keys.push(account("owned", i, 0));
+        }
+        OwnedHotkeys::<T>::insert(&coldkey, &keys);
+        StakingHotkeys::<T>::insert(&coldkey, &keys);
+        Delegates::<T>::insert(&hotkey, PerU16::from_percent(10));
+        AutoParentDelegationEnabled::<T>::insert(&hotkey, false);
+        BasketRate::<T>::insert(&hotkey, I96F32::from_num(1));
+
+        let _ = SubnetOwnerHotkey::<T>::clear(u32::MAX, None);
+        let _ = PendingChildKeys::<T>::clear(u32::MAX, None);
+        let _ = Uids::<T>::clear(u32::MAX, None);
+        let _ = LockingColdkeys::<T>::clear(u32::MAX, None);
+        let _ = MinerCollateral::<T>::clear(u32::MAX, None);
+        let _ = RootClaimed::<T>::clear(u32::MAX, None);
+        // Populate every kind of work k times. This deliberately measures more
+        // than any mix with total work <= k, including every subnet seek path.
+        for i in 0..k {
+            let netuid = NetUid::from(i as u16);
+            let other: T::AccountId = account("other", i, 0);
+            SubnetOwnerHotkey::<T>::insert(netuid, &other);
+            let children: Vec<_> = (0..5)
+                .map(|j| (u64::MAX / 5, account::<T::AccountId>("child", i, j)))
+                .collect();
+            PendingChildKeys::<T>::insert(netuid, &other, (children, 100));
+            Uids::<T>::insert(netuid, &other, 0);
+            LockingColdkeys::<T>::insert((netuid, &other, &other), ());
+            MinerCollateral::<T>::insert(
+                (netuid, &other, &other),
+                MinerCollateralState {
+                    locked: 1.into(),
+                    drain_ratio: U64F64::from_num(1),
+                    min_locked: 0.into(),
+                    earned: 0.into(),
+                },
+            );
+            RootClaimed::<T>::insert((netuid, &other, &other), 1);
+            BasketClaimed::<T>::insert(&hotkey, &other, 0);
+            AutoStakeDestination::<T>::insert(&other, netuid, &hotkey);
+            AutoStakeDestinationColdkeys::<T>::insert(&hotkey, netuid, vec![other]);
+        }
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey.clone()),
+            hotkey.clone(),
+            k.saturating_mul(11),
+        );
+
+        assert!(!Owner::<T>::contains_key(&hotkey));
+        assert!(!OwnedHotkeys::<T>::get(&coldkey).contains(&hotkey));
+        assert!(!StakingHotkeys::<T>::get(&coldkey).contains(&hotkey));
+        assert!(!Delegates::<T>::contains_key(&hotkey));
+        assert!(!BasketRate::<T>::contains_key(&hotkey));
+        assert!(
+            BasketClaimed::<T>::iter_key_prefix(&hotkey)
+                .next()
+                .is_none()
+        );
+        assert!(
+            AutoStakeDestinationColdkeys::<T>::iter_key_prefix(&hotkey)
+                .next()
+                .is_none()
+        );
+        for i in 0..k {
+            let staker: T::AccountId = account("other", i, 0);
+            assert!(!AutoStakeDestination::<T>::contains_key(
+                staker,
+                NetUid::from(i as u16)
+            ));
+        }
+        frame_system::Pallet::<T>::assert_last_event(
+            Event::<T>::HotkeyDisassociated { coldkey, hotkey }.into(),
+        );
+    }
+
+    #[benchmark]
     fn unstake_all() {
         let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("A", 0, 14);

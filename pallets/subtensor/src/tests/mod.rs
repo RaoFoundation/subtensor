@@ -10,6 +10,7 @@ mod coldkey_lineage;
 mod consensus;
 mod delegate_info;
 mod destroy_alpha_tests;
+mod disassociate_hotkey;
 mod dissolution;
 mod emission;
 mod ensure;

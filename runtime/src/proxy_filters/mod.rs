@@ -743,4 +743,18 @@ mod tests {
             &checked
         ));
     }
+
+    #[test]
+    fn only_any_proxy_can_release_hotkey_ownership() {
+        let call = RuntimeCall::SubtensorModule(pallet_subtensor::Call::disassociate_hotkey {
+            hotkey: sp_runtime::AccountId32::new([1; 32]),
+            max_items: 2,
+        });
+        for proxy_type in all_proxy_types() {
+            assert_eq!(
+                proxy_type_filter(&proxy_type, &call),
+                proxy_type == ProxyType::Any
+            );
+        }
+    }
 }

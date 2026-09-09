@@ -375,5 +375,13 @@ mod errors {
         /// A queued root-dividend deposit could not be settled. Operations which change
         /// the hotkey's root claimant base must retry after the deposit becomes executable.
         BasketDepositPending,
+        /// Stake, locks or collateral still reference the hotkey.
+        HotkeyHasOutstandingStake,
+        /// Root/basket entitlements still reference the hotkey.
+        HotkeyHasOutstandingRewards,
+        /// Subnet ownership or child/parent relationships still reference the hotkey.
+        HotkeyHasActiveRelationships,
+        /// The disassociation work limit is insufficient for the stored indexes.
+        InvalidDisassociationWitness,
     }
 }
