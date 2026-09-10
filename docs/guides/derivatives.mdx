@@ -1,13 +1,13 @@
 ---
 title: Longs and shorts
-description: Take a long or short on a subnet's alpha, borrowed from the subnet's own pool — one position per subnet, one call to add to it, take from it, or flip it; one yearly rent for both sides and no expiry; how it is built, what it pays, what it costs, and the btcli commands.
+description: Take a long or short on a subnet's alpha, borrowed from the subnet's own pool — one position per subnet, one call to add to it, take from it, or flip it; two numbers set the whole design; no expiry, no liquidation.
 ---
 
 A **derivative position** lets you bet on the price of a subnet's alpha
 without holding it. A **short** profits when alpha falls. A **long** profits
-when alpha rises. You put down a **cushion** (your deposit) and the chain
+when alpha rises. You put down a **cushion** (a TAO deposit) and the chain
 borrows a matching slice of the subnet pool for you. When you settle, the
-borrowed slice goes back, the pool is paid its **rent**, and you get your
+borrowed slice goes back, the pool is paid its **interest**, and you get your
 cushion plus or minus the price move.
 
 You hold **one position per subnet**, and you move it with **one call**:
@@ -17,13 +17,12 @@ you hold and the position flips through zero. `close` settles all of it.
 
 There are no synthetic tokens. Nothing is minted or burned. Every position is
 built from the pool's own TAO and alpha. A position has **no expiry**. It
-lives until you close it or until it can no longer pay one more day of its
-rent; after that anyone may close it for you and is paid for doing so.
+lives until you close it, or until its cushion can no longer pay its interest
+and the chain hands it back to the pool. Nobody else can touch it.
 
-The whole design is two numbers. The pool rents out at most `max_pool_share`
-of itself per side (10%), and it charges `rate_per_year` on what it lends
-(20%), the same for shorts and longs. Root picks those two; everything else
-follows.
+The whole design is two numbers, and root sets both. The pool lends out at
+most `pool_share` of itself per side (25%), and it charges `interest_rate` on
+what it lends (25%), the same for shorts and longs. Everything else follows.
 
 Shipped in the [v456 release](/releases/v456-upgrade). This guide uses the
 same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
@@ -35,17 +34,17 @@ same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
 
 | Term | Meaning |
 |------|---------|
-| **Cushion** | Your deposit. TAO from your coldkey balance, or, where root has switched it on for the side, alpha already staked on one of your hotkeys. It is held by the pallet while the position is open and paid back in kind as the position settles, minus the rent and any loss. |
-| **Leverage** | A multiple you choose on each add with `--leverage` (default 1). Root sets a ceiling per side: today 1x on shorts and 2x on longs. A position's own leverage is `exposure / cushion`, the blend of its adds. |
+| **Cushion** | Your deposit, in TAO. It is held by the pallet while the position is open and paid back as the position settles, minus the interest and any loss. |
+| **Leverage** | A multiple you choose on each add with `--leverage` (default 1). The runtime fixes a ceiling per side: 1x on shorts and 2x on longs. A position's own leverage is `exposure / cushion`, the blend of its adds. |
 | **Exposure** | The TAO value the position moves with: leverage times your cushion. A 100 τ cushion at 1x is 100 τ of exposure; at 2x it is 200 τ. |
-| **Tranche** | What one `add` contributes: its cushion, its slice, its rent. A position is the running sum of its tranches; nothing is tracked per tranche. |
+| **Tranche** | What one `add` contributes: its cushion, its slice, its interest. A position is the running sum of its tranches; nothing is tracked per tranche. |
 | **Borrowed slice** | The fraction `phi` of the pool the position lifts out: `phi × TAO reserve` and `phi × alpha reserve`. |
 | **Proceeds** | What the opening trade produced. A short sells the lifted alpha, so its proceeds are TAO. A long buys alpha with the lifted TAO, so its proceeds are alpha. |
 | **Debt** | What must go back to the pool at settlement: the lifted alpha (short) or the lifted TAO (long). |
 | **Escrow** | The other half of the lifted slice. It sits untouched in the pallet and returns to the pool at settlement. |
-| **Rent** | One rate for both sides, `rate_per_year` (20%) of a tranche's TAO exposure per year, fixed for the tranche when it is added and paid to the pool whenever the position settles. The position carries it as a per-day amount. One day is booked the moment you add; after that the rent runs per block. |
-| **Equity** | What a close right now would pay you: cushion + proceeds − debt at the pool's quote − rent owed. Negative means underwater. |
-| **Health** | A position is healthy while its equity covers one more day of rent. Once it does not, anyone may close it and is paid the rent owed (at least one day of it); you get nothing. Adding cushion restores health. |
+| **Interest** | `interest_rate` (25%) of a tranche's TAO exposure per year, the same for both sides, fixed for the tranche when it is added and accrued per block. Once a week the chain takes it out of your cushion, buys alpha with it, and recycles the alpha: interest is buy pressure on the pool. Nothing is charged up front. |
+| **Runway** | How long your cushion keeps paying interest at the current rate. When it cannot, the position is **starved**: the chain forfeits everything it holds for it to the pool, with no swap, and you get nothing. Adding cushion extends the runway. |
+| **Equity** | What a close right now would pay you: cushion + proceeds − debt at the pool's quote − interest owed. An estimate; only you can act on it. |
 
 One position per coldkey per subnet. Its side is simply the sign of what you
 hold: a short that you add a bigger long to becomes a long.
@@ -73,12 +72,14 @@ Three details behind the slides:
   exactly like a spot trade of the same size. Because the pallet sells alpha
   it just lifted, rather than alpha it bought, there is no round trip that
   can be arbitraged.
-- **Returning is price-neutral too.** At settlement the pool gets back its slice
-  plus the rent through
+- **Returning is price-neutral too.** At settlement the pool gets its slice
+  back through
   [`return_liquidity`](/code/pallets/subtensor/src/staking/derivatives_pool.rs),
   which adds an uneven TAO/alpha pair without moving the price. Any profit
   you take leaves the pool a little lighter on one side; any loss you pay
-  leaves it heavier.
+  leaves it heavier. The interest does not travel this way: it buys alpha and
+  recycles it, so it is the one thing a position does that always moves the
+  price up.
 
 The borrowed slice of each tranche is fixed when it is added:
 
@@ -87,25 +88,32 @@ $$
 $$
 
 where $L$ is the leverage you chose (`leverage_percent / 100`), at most the
-side's ceiling: `max_short_leverage_percent / 100` (1.0 on mainnet) for a
-short, `max_long_leverage_percent / 100` (2.0) for a long. A 100 τ cushion on
-a 10,000 τ pool lifts 1% of the pool at 1x (100 τ and 2,000 α) and 2% at 2x
+side's ceiling: 1.0 for a short, 2.0 for a long. A 100 τ cushion on a
+10,000 τ pool lifts 1% of the pool at 1x (100 τ and 2,000 α) and 2% at 2x
 (200 τ and 4,000 α). See
 [`pool_fraction`](/code/pallets/derivatives/src/position.rs).
+
+The slice is bounded on both tokens: no more TAO than $L \times$ cushion, and
+no more alpha than that TAO is worth at the subnet's **moving-average price**,
+the same smoothed price emission uses. On an untouched pool the two bounds
+agree. If someone moves the spot pool in the same block, one of them binds
+instead, so a dump does not buy a bigger alpha slice and a pump does not buy
+a bigger TAO one. The cap is checked the same way, against the smaller of the
+live and the smoothed reserve.
 
 ### One position, many adds
 
 Every quantity in a position is a plain sum: cushion, proceeds, debt, escrow,
-exposure, and rent per day. That is what makes one call enough
+exposure, and interest per year. That is what makes one call enough
 ([`do_add`](/code/pallets/derivatives/src/settle.rs)):
 
 | You hold | You add | What happens |
 |----------|---------|--------------|
-| nothing | 100 τ short | A short opens. Cushion 100 τ, one day of rent booked. |
-| 100 τ short | 50 τ short | A second slice is lifted and sold at today's price. Cushion 150 τ, every leg is the sum of two lifts, the rent is the sum of both. |
-| 150 τ short | 50 τ long | One third of the short is settled at today's price: a third of the debt is bought back, a third of the escrow returned, and a third of the cushion, less rent and less or plus the price move, comes back to you. Nothing is deposited. |
+| nothing | 100 τ short | A short opens with a 100 τ cushion. |
+| 100 τ short | 50 τ short | A second slice is lifted and sold at today's price. Cushion 150 τ, every leg is the sum of two lifts, the interest is the sum of both. |
+| 150 τ short | 50 τ long | One third of the short is settled at today's price: a third of the debt is bought back, a third of the escrow returned, and a third of the cushion, less interest and less or plus the price move, comes back to you. Nothing is deposited. |
 | 100 τ short | 250 τ long at 1x | The whole short is settled and paid out. The 150 τ that remain open a long with a 150 τ cushion; only that 150 τ is taken from you. |
-| 100 τ short | 100 τ long at 1x | The short is settled; you are flat. Anything left over that is below `min_deposit_tao` is dropped rather than opened. |
+| 100 τ short | 100 τ long at 1x | The short is settled; you are flat. Anything left over that is below the minimum deposit (0.1 τ) is dropped rather than opened. |
 
 A reduction is a fraction of the position, and it is the same fraction of
 every leg ([`do_settle`](/code/pallets/derivatives/src/settle.rs)). Because
@@ -121,62 +129,81 @@ close. The rest stays open.
 Three things to read off the picture:
 
 - **The line crosses your cushion at the open price.** Close with no price
-  move and you get your 100 τ back, minus the rent and a little slippage.
+  move and you get your 100 τ back, minus the interest and a little slippage.
 - **The slope is your leverage.** At 1x, alpha down 20% pays a short about
   20 τ on a 100 τ cushion. At 2x, alpha up 20% pays a long about 40 τ on the
   same cushion, and alpha down 20% costs it about 40 τ. The chart shows each
-  side at its current ceiling.
+  side at its ceiling.
 - **The line stops at zero.** If the closing trade cannot repay what the
   position borrowed, the position is underwater: you are paid nothing,
   whatever the pallet still holds goes to the pool, and the pool carries the
   remaining shortfall
   ([`do_settle`](/code/pallets/derivatives/src/settle.rs)). At leverage $L$
   that happens once the price moves against you by $1 / L$: a doubling for a
-  1x short, a halving for a 2x long. The 10% pool cap keeps that gap small
+  1x short, a halving for a 2x long. The pool share cap keeps that gap small
   relative to the pool.
 
 Why a 2x ceiling on longs and 1x on shorts? At 1x a long's cushion equals its
 debt, so it can never be underwater and the pool never carries any of its
 risk. That sounds safe, but it also means a 1x long does nothing a spot buy
-does not do, for rent. At 2x a long is a real instrument, and its worst case
+does not do, and pays interest for it. At 2x a long is a real instrument, and its worst case
 for the pool, a halving, is about as rare as the doubling that wipes a 1x
-short. The two ceilings then carry comparable risk. Both are dials root can
-turn, and you may always pick less than the ceiling.
+short. The two ceilings then carry comparable risk. They are runtime
+constants (`MaxShortLeverage`, `MaxLongLeverage`), changed only by an
+upgrade, and you may always pick less.
 
-Cushions are TAO by default. Root can switch alpha cushions on per side
-(`alpha_cushion_shorts`, `alpha_cushion_longs`); they ship off, so a subnet
-team cannot post alpha it minted to itself as collateral. An alpha cushion is
-sized at the spot price when you add and valued at the pool's quote in
-equity, so a falling price hurts a long with an alpha cushion twice.
+### The interest
 
-The rent is the only cost besides slippage, and it is the same law for both
-sides. Each tranche's rent is fixed when you add it, from the parameters in
-force then; one day is booked at once and the rest accrues per block, charged
-at every settlement:
+The interest is the only cost besides slippage, and it is one law for both
+sides. A tranche's interest is fixed when you add it, from the rate in force
+then, and accrues per block from that moment:
 
 $$
-\text{rent per day} = \frac{\text{rate\_per\_year} \times \text{exposure}}{365}
+\text{interest} = \text{interest\_rate} \times \text{exposure} \times \frac{\text{blocks open}}{\text{blocks per year}}
 $$
 
-with `rate_per_year` 20% on mainnet. A 100 τ short at 1x has 100 τ of
-exposure and pays about 0.055 τ a day: 1.6 τ a month, 20 τ a year. A 100 τ
+with `interest_rate` 25% on mainnet. A 100 τ short at 1x has 100 τ of
+exposure and pays 25 τ a year: about 2.1 τ a month, 0.068 τ a day. A 100 τ
 long at 2x has 200 τ of exposure and pays twice that: leverage costs in
-proportion to what it borrows. Pool size and pool share do not enter. The
-rate is rent on the pool's liquidity, not an option premium; the pool's
-protection against a position that turns out to be dangerous is the cap and
-the leverage ceilings, not the price of the rent. What the rent does is make
-time cost something: a position that is not earning its keep is one its owner
-closes. Root can still set a different rate for one subnet with a per-subnet
-override.
+proportion to what it borrows. Pool size and pool share do not enter.
+Nothing is booked up front: add and close in the same block and you pay no
+interest.
 
-Changing the parameters later does not reprice a running position: the rent
-per day is stored in the position when the tranche is added. See
-[`fee_owed`](/code/pallets/derivatives/src/position.rs) and
-[`DerivativesParams::fee_per_day`](/code/pallets/derivatives/src/position.rs).
+**The chain collects it, once a week, as buy pressure.** When a position
+opens it is given a due block one week ahead, and it is listed in a queue
+under that block. When the chain reaches the block it collects the position:
+the interest accrued since the last collection comes out of the cushion, buys
+alpha from the pool at the going price, and that alpha is recycled, the same
+way a registration burn is
+([`collect_due`](/code/pallets/derivatives/src/settle.rs)). The pool keeps
+the TAO; the alpha leaves circulation; the price ticks up. Shorts and longs
+pay the same way, so interest on either side is a buy of the subnet's alpha.
+Then the position is booked again one week later. You never pay it by hand,
+and the position's trade, leverage, and exposure are not touched. Each block
+does only the collections that fall on it, up to a fixed number; if more
+positions share a block than that, the rest are collected in the following
+blocks, and if the chain ever stalls, the queue catches up and charges the
+exact time elapsed. Adding to a position or reducing it does not move its
+week.
+
+The same path is used when you close or reduce: the interest owed buys and
+recycles alpha, and only the borrowed slice goes back to the pool in kind.
+
+The rate is interest on the pool's liquidity, not an option premium. What
+protects the pool from a position that turns out to be dangerous is the
+cap and the leverage ceilings. What the interest does is make time cost
+something: a slice cannot be held out of the pool for free, so a position
+that is not earning its keep is one its owner closes, and one whose owner
+walks away pays the pool until its cushion is gone.
+
+Changing `interest_rate` later does not reprice a running position: each
+tranche keeps the rate it was added at, and the position carries the sum as
+`interest_per_year` in TAO. See
+[`interest_due`](/code/pallets/derivatives/src/position.rs).
 
 <Callout type="note">
 `btcli deriv list` shows an **estimated** equity: cushion + proceeds − debt −
-rent, with the debt priced on a constant-product curve. The chain's Balancer
+interest, with the debt priced on a constant-product curve. The chain's Balancer
 quote differs a little from that, so treat `health` near the line as a
 warning, not a verdict.
 </Callout>
@@ -186,15 +213,13 @@ warning, not a verdict.
 Replace netuid `7` with your target subnet. `short` and `long` are the same
 call with the side fixed. `--amount` is the TAO the tranche is sized by;
 `--leverage` is the exposure as a multiple of it (default 1), up to the side's
-ceiling in `btcli deriv params`. When the add is on your position's side (or
-you have none), `--amount` is deposited as cushion, in TAO, or in the subnet's
-alpha with `--in alpha` from stake on `--hotkey` where root allows it. When it
-goes against your position, nothing is deposited: it only sizes how much comes
-off.
+ceiling. When the add is on your position's side (or you have none),
+`--amount` is deposited as cushion. When it goes against your position,
+nothing is deposited: it only sizes how much comes off.
 
 ```bash
-# Check the pallet's live parameters first, and whether subnet 7 is paused or re-capped
-btcli deriv params --netuid 7 --json
+# Check the two parameters and the fixed limits first
+btcli deriv params --json
 
 # Short subnet 7 with a 100 τ cushion at 1x (dry-run, then execute)
 btcli deriv short --netuid 7 --amount 100 --dry-run -w my_coldkey
@@ -221,94 +246,71 @@ The call fails if:
 
 | Error | Why |
 |-------|-----|
-| `SideDisabled` | Root has switched that side off, chain-wide with `sudo_set_params` or on this subnet with `sudo_set_subnet_override`. Reducing a position is never blocked. |
 | `SubnetNotDynamic` | The subnet has no pool (root, or a static subnet). |
-| `DepositTooLow` | The tranche's cushion is worth less than `min_deposit_tao` (0.1 τ). |
-| `AlphaCushionDisabled` | You passed `--in alpha` and root has not switched alpha cushions on for that side. |
-| `LeverageOutOfRange` | `--leverage` is zero or above the side's ceiling (`max_short_leverage_percent` / `max_long_leverage_percent`). |
-| `ExposureTooLarge` | `phi` would be 100% or more of the pool. |
-| `PoolCapExceeded` | All open positions of that side already borrow `max_pool_share` (10%, or the subnet's override) of the lent reserve. Try a smaller cushion or wait for others to close. |
+| `DepositTooLow` | The deposit is below the minimum, 0.1 τ. |
+| `LeverageOutOfRange` | `--leverage` is zero or above the side's ceiling. |
+| `ZeroExposure` | The slice rounds to nothing against the pool, or the pool would swap it for nothing. |
+| `PoolCapExceeded` | All open positions of that side already borrow `pool_share` (25%) of the lent reserve, or your slice alone would take the whole pool. A `pool_share` of zero means root has paused new positions. Try a smaller cushion or wait for others to close. |
 
 ## Watch and close
 
 ```bash
-# Your open positions, with rent so far, estimated equity, and health
+# Your open positions, with interest so far, runway, and estimated equity
 btcli deriv list -w my_coldkey
 btcli deriv list --coldkey <ss58> --netuid 7 --json
 
 # Close your position on subnet 7
 btcli deriv close --netuid 7 -w my_coldkey
-
-# Positions on subnet 7 that anyone may close (unhealthy), lowest equity first
-btcli deriv closable --netuid 7
-
-# Close one of them and be paid for it
-btcli deriv close --netuid 7 --owner <their-ss58> -w my_coldkey
 ```
 
 ```python
 positions = await client.prices.derivative_positions(coldkey_ss58="5C...")
 one = await client.prices.derivative_position(coldkey_ss58="5C...", netuid=7)
-closable = await client.prices.derivative_positions_on_subnet(netuid=7)
+everyone = await client.prices.derivative_positions_on_subnet(netuid=7)
 await client.execute(bt.ClosePosition(netuid=7), wallet)
 ```
 
 Settling is atomic: [`do_settle`](/code/pallets/derivatives/src/settle.rs)
-reverses the open trade, repays the pool, collects the rent, pays you, and
+reverses the open trade, repays the pool, collects the interest, pays you, and
 returns the slice — or the whole call reverts. You may close, or reduce, at
 any block.
 
-### The rent ledger
+## No expiry, no liquidation
 
-The position keeps two rent numbers: `fee_per_day`, the summed rent of its
-tranches, and `fee_accrued`, what is owed and not yet paid. Every add books
-one day of the new tranche's rent into `fee_accrued` at once; from then on
-the summed rent accrues per block. Every settlement, partial or full, pays
-the whole `fee_accrued` to the pool out of the share being settled (and out
-of the cushion that stays if that share cannot cover it), then the clock
-starts again from zero. Adding and closing in the same block therefore still
-pays one day of rent; holding a tranche for a day pays two.
-
-## No expiry, one health check
-
-A position ends in one of two ways: you close it, or it runs out of equity.
-Only the second lets anyone else touch it
+A position ends in one of two ways: you close it, or its cushion runs out.
+Nobody else can close it. `close` only ever settles the caller's own position
 ([`close`](/code/pallets/derivatives/src/lib.rs)).
 
 There is no term. Nothing forces a mark to market on a date, nothing has to be
 rolled, and no add is ever refused for being late. What keeps a slice of the
-pool from being held out for good is the rent: every day open costs the same
-share of exposure, so a position that is not earning its keep is one its
-owner closes, and one that stops paying is closed for them.
+pool from being held out for good is the interest: every block open costs the
+same share of exposure, the chain takes it from your cushion as it goes, and a
+cushion that runs dry ends the position.
 
-**Health.** What bounds a position is its own equity: what a close at this
-block would pay you, after the pool is repaid at its current quote and the
-rent owed is taken out
-([`Position::equity`](/code/pallets/derivatives/src/position.rs)).
+**Why no liquidation.** A position that could be closed by anyone once the
+price moved against it would invite a squeeze: pump the price, close the
+shorts, and sell into the buybacks the closes force. So there is no such
+door. A price move against you never costs you the position. It costs you
+only if you close into it, or if you hold until the interest has used up the
+cushion. The pool's own protection is the cap and the leverage ceilings, not
+a liquidator.
 
-- While equity covers **one more day of rent**, the position is **healthy**
-  and only you can touch it.
-- Once equity drops below one day of rent, from time or from price, it is
-  **unhealthy**. Anyone may then `close` it. The closer is paid the rent owed
-  plus whatever is left after the pool is repaid; if that is less than one day
-  of rent, the pool tops it up to one day. You are paid nothing.
-- Before that happens, you can **add cushion**: a new tranche's cushion is
-  equity too, so adding on your own side restores health. Or reduce, or close.
+**Runway.** `btcli deriv list` shows how many days your cushion keeps paying
+at the current rate. At 25% a year, a 1x position lasts four years and a 2x
+long two. When a collection finds a cushion that cannot cover the interest
+due, the position is **starved** and forfeited
+([`forfeit`](/code/pallets/derivatives/src/settle.rs)): every TAO and every
+alpha the pallet holds for it goes back to the pool, in kind, with no swap.
+The pool gets its slice back plus the cushion; you get nothing. Because
+nothing is traded, a forfeit moves no price. To extend the runway, add
+cushion on your own side.
 
-At 20% a year, time alone takes a 1x position about five years to starve, so
-health is mostly about price. The one-day buffer is what makes a liquidation
-pay for itself: at the moment a position becomes closable it still holds
-about a day of rent, so the closer's bounty comes out of the position, not
-the pool. The pool only pays the floor when a price jump takes a position
-from healthy to underwater between blocks.
-
-The chain runs no sweep of its own. Closing what is unhealthy is a job for
-anyone with a bot: read
-[`derivative-positions-on-subnet`](/docs/query/derivative-positions-on-subnet),
-filter on `healthy`, and call `close` on what you find. The SDK's `healthy` is
-an estimate on a constant-product curve; the chain decides with its own
-Balancer quote and rejects a close of a position it still finds healthy with
-`OwnerOnly`.
+**Underwater but alive.** If the price has moved so far against you that a
+close would pay nothing, you can still hold. The pool is not yet out of
+pocket: it holds your cushion and the slice's TAO and alpha, and it keeps
+collecting interest. If the price comes back, so does your equity. If it does
+not, the cushion runs down and the position is forfeited in the end. Either
+way the pool is whole, and the most you lose is the cushion.
 
 ## Longs do not earn emission
 
@@ -334,75 +336,47 @@ weight uses the adjusted price.
 If a subnet is dissolved while positions are open, settling them is the
 **first** cleanup phase
 ([`DerivativesSettle`](/code/pallets/subtensor/src/subnets/dissolution.rs)),
-before any staker is paid. Dissolution is a forced close of every position on
-the subnet at that block's price, and all of them close together as **one
-atomic swap**.
+before any staker is paid. Dissolution is a **cash settlement** of every
+position at the pool's **spot price** in the block dissolution began. Nothing
+is swapped.
 
-The chain sums the alpha every short owes (`AlphaToSettle` for the short
-side) and the alpha every long holds (the long side). The two cancel; only
-the difference is quoted against the pool, exactly as the pool's own swap
-would price it
-([`dissolution_price`](/code/pallets/subtensor/src/staking/derivatives_pool.rs)).
-The TAO and alpha of that one net swap are stored once, before the first
-position is settled, and reported in `DissolutionPriced`; their ratio is the
-**dissolution price**, and every position settles at it. No position moves
-the price it or any other gets, and a short and a long that offset each other
-pay no slippage at all. With one lone position open, the result is what
-`close` would have paid in that block, to the rounding of a quote.
-
-Each position is then settled at that price with no further swap
+The spot price is read once, before the first position is settled, and
+reported in `DissolutionPriced` as a `tao / alpha` pair
+([`spot_price`](/code/pallets/subtensor/src/staking/derivatives_pool.rs)).
+Every position then settles at it
 ([`settle_at_dissolution`](/code/pallets/derivatives/src/settle.rs)). A
-short's alpha debt is charged in TAO at the price; a long's alpha is handed
-to the pool and credited in TAO at the price. The rent owed is paid. What is
-left of the cushion and proceeds is yours; if it is negative the position is
-underwater, you are paid nothing, and the pool takes what the pallet holds,
-as at any settlement. A short that is in the money at that block is paid its
-gain, first, in TAO. The stakers are paid from what is left.
+short's alpha debt is charged in TAO at that price; a long's alpha is handed
+to the pool and credited in TAO at that price. The interest owed is paid.
+What is left of the cushion and proceeds is yours; if it is negative the
+position is underwater, you are paid nothing, and the pool takes what the
+pallet holds, as at any settlement. A short that is in the money is paid its
+gain first, in TAO. The stakers are paid from what is left.
+
+Because nothing is bought back, a short's own price impact is not reversed.
+A short that sold its slice down the curve and then saw the subnet dissolve
+is charged at the price the pool last showed, not at what climbing the curve
+back would have cost. That is the one place a short is paid for its own
+impact, and it is bounded by the cap on how much of a pool can be shorted.
 
 ## Parameters
 
-Root-set, read with [`derivatives-params`](/docs/query/derivatives-params).
-Mainnet defaults from
+Two numbers, root-set with `sudo_set_params`, read with
+[`derivatives-params`](/docs/query/derivatives-params). Defaults from
 [`DerivativesParams::defaults`](/code/pallets/derivatives/src/position.rs).
-Root sets them with `sudo_set_params`, which rejects a zero leverage ceiling,
-`max_pool_share`, or `rate_per_year`; use the enable flags to pause a side.
-Every value is a dial: changing one applies to tranches added from then on. A
-running position keeps the rent per day it has; its next add is checked
-against the new ceilings and cap.
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `shorts_enabled` | `true` | Short tranches may be added. Existing positions can always be reduced or closed. |
-| `longs_enabled` | `true` | Long tranches may be added. |
-| `max_short_leverage_percent` | `100` | Highest leverage a short may choose. 100 = 1x. |
-| `max_long_leverage_percent` | `200` | Highest leverage a long may choose. 200 = 2x. |
-| `alpha_cushion_shorts` | `false` | Whether a short tranche may deposit alpha as its cushion. TAO is always accepted. |
-| `alpha_cushion_longs` | `false` | Whether a long tranche may deposit alpha as its cushion. |
-| `max_pool_share` | `10%` | Largest share of the lent reserve all open positions of one side on one subnet may borrow together. |
-| `rate_per_year` | `20%` | Rent per year on a tranche's TAO exposure, both sides, carried per day (`/ 365`). Fixed when added; one day booked at once, then per block. |
-| `min_deposit_tao` | `0.1 τ` | Smallest cushion a tranche may add, in TAO value. Also the smallest surplus a flip will open. |
+| `pool_share` | `25%` | Largest share of the lent reserve all open positions of one side on one subnet may borrow together. Zero pauses new positions; open ones still reduce and close. |
+| `interest_rate` | `25%` | Interest per year on a tranche's TAO exposure, both sides, accrued per block. Fixed for each tranche when it is added. |
 
-### Per-subnet overrides
+Three limits are runtime constants, visible in the same read and changed only
+by an upgrade:
 
-Root can also pause a side, change the cap, or change the rent on one
-subnet without touching the rest, with
-`sudo_set_subnet_override(netuid, override)`. Read it with
-[`derivatives-subnet-override`](/docs/query/derivatives-subnet-override) or
-`btcli deriv params --netuid N`. Passing `None` removes the override and puts
-the subnet back on the global parameters.
-
-| Field | Meaning |
-|-------|---------|
-| `shorts_enabled` | Replaces the global switch for adding short tranches on this subnet. |
-| `longs_enabled` | Replaces the global switch for adding long tranches on this subnet. |
-| `max_pool_share` | When set, replaces the global cap on this subnet. Must be non-zero. |
-| `rate_per_year` | When set, replaces the global rent for tranches added on this subnet. Must be non-zero. The lever for a small pool whose pump risk the flat rate underprices. |
-
-An override affects adds only. Positions already open on a paused subnet can
-be reduced and closed as usual; they cannot grow while the side is paused.
-This is the lever to reach for when one pool misbehaves: pause the side, let
-the open positions run off or close, and lift the pause when the pool is
-healthy again.
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `MaxShortLeverage` | `100` | Highest leverage a short may choose. 100 = 1x. |
+| `MaxLongLeverage` | `200` | Highest leverage a long may choose. 200 = 2x. |
+| `MinDeposit` | `0.1 τ` | Smallest cushion a tranche may add. Also the smallest surplus a flip will open. |
 
 ### Events
 
@@ -411,25 +385,24 @@ book without reading storage:
 
 | Event | When |
 |-------|------|
-| `PositionAdded` | A tranche was added (or a position opened): owner, subnet, side, the tranche's deposit (`Tao` or `Alpha`), leverage, legs, exposure and rent per day, plus the position's exposure after it. |
-| `PositionReduced` | Part of a position was settled: owner, subnet, side, the fraction unwound, TAO and alpha returned, rent paid, any shortfall, and the exposure left. |
-| `PositionClosed` | A position settled in full: who closed it (`Owner`, `Liquidator(account)`, or `Dissolution`), TAO and alpha returned to the owner, rent paid, any shortfall the pool carried, and the `bounty` paid to a liquidator. |
-| `ParamsSet` | Root replaced the global parameters. |
-| `SubnetOverrideSet` | Root set or removed a subnet's override. |
-| `DissolutionPriced` | A dissolving subnet's positions are about to settle as one net swap: the alpha shorts owe, the alpha longs hold, and the `tao` and `alpha` of the netted swap; `tao / alpha` is the price every one of them settles at. |
+| `PositionAdded` | A tranche was added (or a position opened): owner, subnet, side, the deposit, leverage, legs, exposure added, and the position's exposure after it. |
+| `PositionReduced` | Part of a position was settled: owner, subnet, side, the fraction unwound, the payout, interest paid, any shortfall, and the exposure left. |
+| `PositionClosed` | A position settled in full: why (`Owner`, `Starved`, or `Dissolution`), the payout to the owner, interest paid, and any shortfall the pool carried. A starved position pays what was left of its cushion as interest and has no shortfall: nothing was swapped. |
+| `ParamsSet` | Root set the two parameters. |
+| `DissolutionPriced` | A dissolving subnet's positions are about to be cash-settled: `tao / alpha` is the spot price every one of them settles at. |
 
 The storage behind them is public too: `Positions`, `Footprint` (borrowed per
-side per subnet), `AlphaToSettle` (alpha owed by shorts and held by longs, per
-side per subnet), `OpenByNetuid` (who holds a position on a subnet), `Params`,
-`SubnetOverrides`, `PalletHotkey`, and `DissolutionPrice` while a subnet's
-positions are being settled.
+side per subnet), `OpenByNetuid` (who holds a position on a subnet),
+`Due` (the interest queue, positions by the block they are next collected)
+and `NextDue` (the first slot not yet collected), `Params`, `PalletHotkey`,
+and `DissolutionPrice` while a subnet's positions are being settled.
 
 ## Chain reference
 
 | Item | Where |
 |------|-------|
-| Extrinsics | `add` (with a `side` argument) and `close`, plus root-only `sudo_set_params` and `sudo_set_subnet_override`. SDK intents: [`add-derivative`](/docs/tx/add-derivative), [`close-derivative`](/docs/tx/close-derivative) |
-| Queries | [`derivative-position`](/docs/query/derivative-position), [`derivative-positions`](/docs/query/derivative-positions), [`derivative-positions-on-subnet`](/docs/query/derivative-positions-on-subnet), [`derivatives-params`](/docs/query/derivatives-params), [`derivatives-subnet-override`](/docs/query/derivatives-subnet-override) |
+| Extrinsics | `add` (with a `side` argument) and `close`, plus root-only `sudo_set_params`. SDK intents: [`add-derivative`](/docs/tx/add-derivative), [`close-derivative`](/docs/tx/close-derivative) |
+| Queries | [`derivative-position`](/docs/query/derivative-position), [`derivative-positions`](/docs/query/derivative-positions), [`derivative-positions-on-subnet`](/docs/query/derivative-positions-on-subnet), [`derivatives-params`](/docs/query/derivatives-params) |
 | Add path | [`do_add`](/code/pallets/derivatives/src/settle.rs) |
 | Pool operations | [`derivatives_pool.rs`](/code/pallets/subtensor/src/staking/derivatives_pool.rs) |
 | Position types and math | [`position.rs`](/code/pallets/derivatives/src/position.rs) |
@@ -438,18 +411,17 @@ positions are being settled.
 
 - One position per coldkey and subnet. Its side is the sign of what you hold;
   adding the other side takes from it or flips it.
-- Cushions are TAO unless root has switched alpha on for the side. A cushion
-  holds both, tracked separately, and comes back in kind.
-- You can reduce or close at any block. There is no expiry. Keep equity above
-  one day of rent (add cushion if you must) or anyone may close you out and
-  keep that rent.
-- One rent for both sides, on exposure: 20% a year, accrued per block. A 2x
-  long pays twice a 1x short of the same cushion, because it borrows twice as
-  much.
+- Cushions are TAO, and they come back as TAO.
+- You can reduce or close at any block. Nobody else can. There is no expiry
+  and no liquidation: a price move never takes your position, only an empty
+  cushion does. Watch the runway and add cushion if you must.
+- One interest rate for both sides, on exposure: 25% a year, accrued per
+  block and taken from your cushion by the chain as it goes. A 2x long pays
+  twice a 1x short of the same cushion, because it borrows twice as much.
 - Slippage is real on both legs. Size positions against the pool's depth,
   not against your balance.
 - Profit comes from the pool; loss goes to the pool. The leverage ceilings
-  (1x shorts, 2x longs) and the 10% cap bound how much either can move the
+  (1x shorts, 2x longs) and the 25% cap bound how much either can move the
   pool. You pick your own leverage under the ceiling on every add; the
   position's leverage is the blend.
 - A long moves the spot price but not the price emission is weighted by. A

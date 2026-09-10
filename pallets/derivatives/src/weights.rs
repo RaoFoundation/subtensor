@@ -18,7 +18,8 @@ pub trait WeightInfo {
     fn add() -> Weight;
     fn close() -> Weight;
     fn sudo_set_params() -> Weight;
-    fn sudo_set_subnet_override() -> Weight;
+    /// One collection from the interest queue: worst case a forfeit.
+    fn collect_interest() -> Weight;
 }
 
 /// Weights for `pallet_derivatives` using the Substrate node and recommended hardware.
@@ -41,8 +42,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     fn sudo_set_params() -> Weight {
         Weight::from_parts(6_000_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
     }
-    fn sudo_set_subnet_override() -> Weight {
-        Weight::from_parts(6_000_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
+    /// Position, footprint and index bookkeeping plus one price-neutral liquidity return.
+    fn collect_interest() -> Weight {
+        Weight::from_parts(150_000_000, 6_000)
+            .saturating_add(T::DbWeight::get().reads(12_u64))
+            .saturating_add(T::DbWeight::get().writes(10_u64))
     }
 }
 
@@ -63,7 +67,9 @@ impl WeightInfo for () {
     fn sudo_set_params() -> Weight {
         Weight::from_parts(6_000_000, 0).saturating_add(RocksDbWeight::get().writes(1_u64))
     }
-    fn sudo_set_subnet_override() -> Weight {
-        Weight::from_parts(6_000_000, 0).saturating_add(RocksDbWeight::get().writes(1_u64))
+    fn collect_interest() -> Weight {
+        Weight::from_parts(150_000_000, 6_000)
+            .saturating_add(RocksDbWeight::get().reads(12_u64))
+            .saturating_add(RocksDbWeight::get().writes(10_u64))
     }
 }

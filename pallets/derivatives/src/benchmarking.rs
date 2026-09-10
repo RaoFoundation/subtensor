@@ -36,7 +36,7 @@ fn underwater_short<T: Config>(owner: &T::AccountId, netuid: NetUid) {
         owner.clone(),
         netuid,
         Side::Short,
-        Deposit::Tao(TaoBalance::from(CUSHION_TAO)),
+        TaoBalance::from(CUSHION_TAO),
         100,
     )
     .unwrap();
@@ -60,29 +60,57 @@ mod benchmarks {
             RawOrigin::Signed(owner.clone()),
             netuid,
             Side::Long,
-            Deposit::Tao(TaoBalance::from(2 * CUSHION_TAO)),
+            TaoBalance::from(2 * CUSHION_TAO),
             100,
         );
 
         let after = Positions::<T>::get(&owner, netuid).unwrap();
         assert_eq!(after.side(), Side::Long);
-        assert_eq!(after.cushion.tao, TaoBalance::from(CUSHION_TAO));
+        assert_eq!(after.cushion, TaoBalance::from(CUSHION_TAO));
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
     }
 
-    /// Worst case: a liquidation of a short pumped underwater. The health check quotes the
-    /// buyback, the buyback runs every exact-output pass and then spends the whole pot, the
-    /// remainder is forfeited to the pool, and the pool tops the liquidator up to one day of
-    /// fee.
+    /// Worst case: closing a short pumped underwater. The buyback runs every exact-output pass
+    /// and then spends the whole pot, and the remainder is forfeited to the pool.
     #[benchmark]
     fn close() {
         let (owner, netuid) = setup::<T>();
         underwater_short::<T>(&owner, netuid);
-        let liquidator: T::AccountId = frame_benchmarking::account("liquidator", 0, 0);
-        T::Pool::set_up_acc_for_benchmark(&liquidator, &liquidator);
 
         #[extrinsic_call]
-        _(RawOrigin::Signed(liquidator), owner.clone(), netuid);
+        _(RawOrigin::Signed(owner.clone()), netuid);
+
+        assert!(!Positions::<T>::contains_key(&owner, netuid));
+        assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
+    }
+
+    /// Worst case for one collection: a starved short is forfeited, which returns both tokens
+    /// and clears every index.
+    #[benchmark]
+    fn collect_interest() {
+        let (owner, netuid) = setup::<T>();
+        Pallet::<T>::do_add(
+            owner.clone(),
+            netuid,
+            Side::Short,
+            TaoBalance::from(CUSHION_TAO),
+            100,
+        )
+        .unwrap();
+        // Ten years on, the interest due is far more than the cushion.
+        frame_system::Pallet::<T>::set_block_number(
+            frame_system::Pallet::<T>::block_number() + ((10 * BLOCKS_PER_YEAR) as u32).into(),
+        );
+
+        #[block]
+        {
+            Pallet::<T>::collect_interest(
+                &owner,
+                netuid,
+                frame_system::Pallet::<T>::block_number(),
+            )
+            .unwrap();
+        }
 
         assert!(!Positions::<T>::contains_key(&owner, netuid));
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
@@ -90,29 +118,15 @@ mod benchmarks {
 
     #[benchmark]
     fn sudo_set_params() {
-        let mut params = Params::<T>::get();
-        params.shorts_enabled = false;
-
-        #[extrinsic_call]
-        _(RawOrigin::Root, params.clone());
-
-        assert_eq!(Params::<T>::get(), params);
-    }
-
-    #[benchmark]
-    fn sudo_set_subnet_override() {
-        let (_, netuid) = setup::<T>();
-        let override_ = SubnetOverride {
-            shorts_enabled: false,
-            longs_enabled: true,
-            max_pool_share: Some(Percent::from_percent(5)),
-            rate_per_year: None,
+        let params = DerivativesParams {
+            pool_share: Percent::from_percent(5),
+            interest_rate: Percent::from_percent(50),
         };
 
         #[extrinsic_call]
-        _(RawOrigin::Root, netuid, Some(override_));
+        _(RawOrigin::Root, params);
 
-        assert_eq!(SubnetOverrides::<T>::get(netuid), Some(override_));
+        assert_eq!(Params::<T>::get(), params);
     }
 
     impl_benchmark_test_suite!(

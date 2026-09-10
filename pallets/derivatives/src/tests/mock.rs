@@ -448,11 +448,17 @@ where
 
 parameter_types! {
     pub const DerivativesPalletId: PalletId = PalletId(*b"bt/deriv");
+    pub const DerivativesMaxShortLeverage: u16 = 100;
+    pub const DerivativesMaxLongLeverage: u16 = 200;
+    pub const DerivativesMinDeposit: TaoBalance = TaoBalance::new(100_000_000);
 }
 
 impl pallet_derivatives::Config for Test {
     type Pool = SubtensorModule;
     type PalletId = DerivativesPalletId;
+    type MaxShortLeverage = DerivativesMaxShortLeverage;
+    type MaxLongLeverage = DerivativesMaxLongLeverage;
+    type MinDeposit = DerivativesMinDeposit;
     type WeightInfo = ();
 }
 
@@ -499,6 +505,17 @@ pub fn add_dynamic_network(netuid: NetUid, tao: u64, alpha: u64) {
     add_balance(&subnet_account, tao);
     let price = U64F64::from_num(tao) / U64F64::from_num(alpha);
     <Swap as subtensor_swap_interface::SwapHandler>::init_swap(netuid, Some(price));
+}
+
+/// Pin the subnet's moving-average price to its current spot price, as a long-settled market
+/// would have it.
+pub fn settle_moving_price(netuid: NetUid) {
+    let (tao, alpha) = reserves(netuid);
+    pallet_subtensor::SubnetMovingPrice::<Test>::insert(
+        netuid,
+        substrate_fixed::types::I96F32::from_num(tao)
+            / substrate_fixed::types::I96F32::from_num(alpha),
+    );
 }
 
 pub fn add_balance(who: &AccountId, tao: u64) {
@@ -553,11 +570,7 @@ pub fn price(netuid: NetUid) -> U64F64 {
     <Swap as subtensor_swap_interface::SwapHandler>::current_alpha_price(netuid)
 }
 
-pub fn balancer_weight(netuid: NetUid) -> sp_runtime::Perquintill {
-    pallet_subtensor_swap::SwapBalancer::<Test>::get(netuid).get_quote_weight()
-}
-
-pub fn position(owner: &AccountId, netuid: NetUid) -> Option<crate::Position<AccountId, u64>> {
+pub fn position(owner: &AccountId, netuid: NetUid) -> Option<crate::Position<u64>> {
     crate::Positions::<Test>::get(owner, netuid)
 }
 

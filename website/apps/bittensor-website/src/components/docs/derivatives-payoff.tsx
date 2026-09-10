@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { ExplainerPanel, ExplainerToggle } from './explainer-panel';
 import { ACCENT, ACCENT_REGION, INK, INK_FAINT } from './chart-theme';
-import { CUSHION, feePerDay, payout, type Side } from '@/lib/derivatives-math';
+import { CUSHION, payout, type Side } from '@/lib/derivatives-math';
 
 const MOVE_MIN = -100;
 const MOVE_MAX = 100;
@@ -135,13 +135,13 @@ export function DerivativesPayoff() {
         )}
       </svg>
       <p className="mt-3 text-[0.6875rem] leading-relaxed text-mute">
-        The slope is the leverage you choose at open, up to a ceiling root sets per side. Shown at the
+        The slope is the leverage you choose at open, up to the ceiling per side. Shown at the
         ceilings: a short at 1x moves one-for-one against alpha; a long at 2x moves two-for-one with it. Past
         the point where the cushion is gone the position is underwater: settlement pays you nothing,
         gives the pool whatever is left, and the pool carries the shortfall — which is why the pool lends at
-        most 10% of itself per side. Example pool: 10,000 τ / 200,000 α, closed the same day, so only the
-        day of rent booked at the add is paid ({feePerDay('short').toFixed(3)} τ on the short,{' '}
-        {feePerDay('long').toFixed(3)} τ on the 2x long: 20% a year on the exposure, per day).
+        most 25% of itself per side. Example pool: 10,000 τ / 200,000 α, closed in the opening block, so
+        no interest is paid; held, the short would pay 25 τ a year on its 100 τ of exposure and the 2x long
+        50 τ on its 200 τ.
       </p>
     </ExplainerPanel>
   );

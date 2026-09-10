@@ -389,21 +389,21 @@ class Prices(_ReadNamespace):
         """A coldkey's open position on a subnet, or None. There is at most one.
 
         `side` is the direction of its net exposure. `cushion` is the TAO the owner
-        has put up and `cushion_alpha` the alpha, returned to `cushion_alpha_hotkey`;
-        `cushion_value_tao` prices both in TAO and `leverage` is `exposure_tao`
-        over that, the blend of every tranche added. `proceeds`, `debt`, and
-        `escrow` are the position's `legs`, each already in its own token: a short
-        holds TAO proceeds and TAO escrow and owes alpha; a long holds alpha
-        proceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed
-        rent of its tranches; `accrued_fee_tao` is what would be charged if settled
-        now. There is no expiry: a position runs while it pays.
+        has put up and `leverage` is `exposure_tao` over it, the blend of every
+        tranche added. `proceeds`, `debt`, and `escrow` are the position's `legs`,
+        each already in its own token: a short holds TAO proceeds and TAO escrow
+        and owes alpha; a long holds alpha proceeds and alpha escrow and owes TAO.
+        `interest_per_year_tao` is the summed interest of its tranches;
+        `interest_due_tao` is what has accrued since the chain last collected, at
+        block `since`; `due` is the block it collects next, one week after the last
+        time. `runway_days` is how long the cushion keeps paying at this rate; at a
+        collection it cannot pay, the chain forfeits the position to the pool and
+        the owner gets nothing. Add cushion to extend it. There is no expiry, and
+        only the owner can close.
 
         `equity_tao` is an estimate of what a close now would pay the owner:
-        cushion value plus proceeds, less debt priced on a constant-product curve,
-        less the rent owed. Negative means underwater. `healthy` is whether that
-        equity still covers one more day of rent; when it does not, anyone may
-        close the position with `close_derivative` and is paid the rent for it.
-        The chain's own quote decides; this is a preview.
+        cushion plus proceeds, less debt priced on a constant-product curve, less
+        the interest due. The chain's own quote decides; this is a preview.
         """
 
     async def derivative_positions(self, coldkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
@@ -412,37 +412,24 @@ class Prices(_ReadNamespace):
         """
 
     async def derivative_positions_on_subnet(self, netuid: int, *, block: Optional[int] = None) -> list[dict]:
-        """Every open position on a subnet, whoever owns it. Same fields as
-        `derivative_position`.
-
-        The list a liquidator works from: filter on `healthy` being False and call
-        `close_derivative` with that `coldkey` as `owner_ss58`.
+        """Every open position on a subnet, whoever owns it, largest exposure first.
+        Same fields as `derivative_position`.
         """
 
     async def derivatives_params(self, *, block: Optional[int] = None) -> dict:
-        """The derivatives pallet's root-set global parameters.
+        """The derivatives pallet's two root-set parameters, plus its constants.
 
-        `max_short_leverage_percent` and `max_long_leverage_percent` bound the
-        leverage an owner may choose per side (`100` = 1x), and `max_pool_share`
-        caps how much of a pool's reserve may be lent per side.
-        `alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side
-        accepts an alpha cushion; TAO is always accepted. The rent is one rate for
-        both sides, `rate_per_year` of a tranche's TAO exposure, fixed when the
-        tranche is added: one day is booked at the add, the rest accrues per block
-        and is paid at each settlement. There is no term. A position runs until its
-        owner closes it or its equity drops below one day of rent, after which
-        anyone may close it. A subnet may override the switches, the cap, and the
-        rate; see `derivatives_subnet_override`.
-        """
+        `pool_share` is the largest share of a pool's reserve that all open
+        positions of one side may borrow together; zero means root has paused new
+        positions. `interest_rate` is the interest, as a fraction of a tranche's TAO
+        exposure per year, the same for both sides, fixed when the tranche is
+        added and accrued per block; once a week, on the position's own block, the
+        chain takes it from the cushion, buys alpha with it, and recycles the alpha.
+        Both are fractions (`0.25` = 25%).
 
-    async def derivatives_subnet_override(self, netuid: int, *, block: Optional[int] = None) -> Optional[dict]:
-        """Root-set per-subnet overrides of the derivatives parameters, or None.
-
-        None means the subnet runs on the global `derivatives_params`. When set,
-        `shorts_enabled` and `longs_enabled` replace the global switches for adds
-        on this subnet, and `max_pool_share` and `rate_per_year` replace the global
-        cap and rent when they are not None. Open positions are unaffected: a
-        paused side can still be reduced and closed.
+        The rest are fixed by the runtime: `max_short_leverage` and
+        `max_long_leverage` bound the leverage an owner may choose per side (`1.0`
+        = 1x), and `min_deposit_tao` is the smallest deposit one add may put up.
         """
 
     async def quote_stake(self, netuid: int, amount_tao: float, *, block: Optional[int] = None) -> SwapQuote:

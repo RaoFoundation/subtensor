@@ -76,10 +76,6 @@ pub trait SwapHandler {
     /// Returns `TaoBalance::MAX` when the pool cannot supply that much alpha.
     fn tao_needed_for_alpha(netuid: NetUid, alpha_amount: AlphaBalance) -> TaoBalance;
 
-    /// Exact (slippage-aware, fee-free) alpha input needed to obtain `tao_amount` from the pool.
-    /// Returns `AlphaBalance::MAX` when the pool cannot supply that much TAO.
-    fn alpha_needed_for_tao(netuid: NetUid, tao_amount: TaoBalance) -> AlphaBalance;
-
     /// Exact (slippage-aware, fee-free) TAO the pool pays out for `alpha_amount` sold into it.
     fn tao_out_for_alpha(netuid: NetUid, alpha_amount: AlphaBalance) -> TaoBalance;
 
@@ -246,6 +242,12 @@ pub trait DerivativesPoolInterface<AccountId> {
     /// Current price-active reserves `(SubnetTAO, SubnetAlphaIn)`.
     fn reserves(netuid: NetUid) -> (TaoBalance, AlphaBalance);
 
+    /// The reserves the pool would hold at its moving-average price with today's depth: the
+    /// live pair projected onto the smoothed price along a constant-product curve. A one-block
+    /// move of the spot pool changes the live reserves but not these. Used to size positions
+    /// so that a swap in the same block cannot buy a bigger slice or more room under the cap.
+    fn smoothed_reserves(netuid: NetUid) -> (TaoBalance, AlphaBalance);
+
     /// Remove the fraction `phi` of both reserves from the pool without moving price. The TAO
     /// lands on `to_coldkey`'s free balance, the alpha becomes stake at
     /// `(to_hotkey, to_coldkey)`. Returns the exact `(tao, alpha)` removed (rounded down).
@@ -298,56 +300,27 @@ pub trait DerivativesPoolInterface<AccountId> {
         budget: TaoBalance,
     ) -> Result<(TaoBalance, AlphaBalance), DispatchError>;
 
-    /// Sell at most `budget` alpha staked at `(hotkey, coldkey)` to raise at least `want` TAO
-    /// for `coldkey`. Same accounting as [`Self::sell_alpha_internal`]. Returns
-    /// `(alpha_sold, tao_raised)`; `tao_raised` is below `want` only when the whole budget was
-    /// sold.
-    fn sell_alpha_for(
+    /// Take `alpha` staked at `(hotkey, coldkey)` out of existence: off the stake and off the
+    /// subnet's alpha issuance, as a registration burn does. How interest paid in TAO reaches
+    /// the pool: it buys alpha, and the alpha is recycled.
+    fn recycle_alpha(
         coldkey: &AccountId,
         hotkey: &AccountId,
         netuid: NetUid,
-        want: TaoBalance,
-        budget: AlphaBalance,
-    ) -> Result<(AlphaBalance, TaoBalance), DispatchError>;
-
-    /// Move `amount` staked alpha between two `(coldkey, hotkey)` pairs with no validation
-    /// beyond the sender's balance and the destination hotkey still existing. Also works while
-    /// the subnet is dissolving. Used to hand a cushion back to its owner; user-facing deposits
-    /// go through [`OrderSwapInterface::transfer_staked_alpha`] with validation on.
-    fn transfer_stake_internal(
-        from_coldkey: &AccountId,
-        from_hotkey: &AccountId,
-        to_coldkey: &AccountId,
-        to_hotkey: &AccountId,
-        netuid: NetUid,
-        amount: AlphaBalance,
+        alpha: AlphaBalance,
     ) -> DispatchResult;
 
     /// Whether `hotkey` is registered to any coldkey.
     fn hotkey_exists(hotkey: &AccountId) -> bool;
-
-    /// Exact, fee-free TAO the pool would charge right now to buy `alpha`. `TaoBalance::MAX`
-    /// when the pool cannot supply that much.
-    fn quote_buy_alpha(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance;
-
-    /// Exact, fee-free TAO the pool would pay right now for `alpha` sold into it.
-    fn quote_sell_alpha(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance;
 
     /// Pay `tao` out of the pool's TAO reserve to `to_coldkey`'s free balance. On a live
     /// subnet the price moves as for any TAO leaving the reserve; while dissolving, the pool
     /// is being cashed out and only the reserve changes.
     fn draw_tao(netuid: NetUid, to_coldkey: &AccountId, tao: TaoBalance) -> DispatchResult;
 
-    /// Execution price of the one swap that closes every position on a dissolving subnet at
-    /// once: `alpha_owed` (every short's debt) bought and `alpha_held` (every long's proceeds)
-    /// sold, netted against each other and the difference quoted exactly against the pool as it
-    /// stands. Returned as `(tao, alpha)` whose ratio is the price; when nothing is net the
-    /// pool's own reserves are returned, which is spot.
-    fn dissolution_price(
-        netuid: NetUid,
-        alpha_owed: AlphaBalance,
-        alpha_held: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance);
+    /// The pool's spot price right now, as a `(tao, alpha)` pair whose ratio is the price.
+    /// Every position on a dissolving subnet is cash-settled at this, with no swap.
+    fn spot_price(netuid: NetUid) -> (TaoBalance, AlphaBalance);
 
     /// Make `netuid` a live dynamic subnet with a funded, price-initialised pool that
     /// [`Self::is_dynamic`] accepts. `OrderSwapInterface::set_up_netuid_for_benchmark` only

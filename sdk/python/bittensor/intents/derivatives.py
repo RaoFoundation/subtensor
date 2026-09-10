@@ -2,30 +2,32 @@
 
 A position borrows a slice of the subnet's own liquidity pool. A short borrows
 alpha and sells it for TAO; a long borrows TAO and buys alpha. Both are backed
-by a cushion the user deposits, in TAO or (where root allows it) in the
-subnet's alpha. There is one position per coldkey and subnet, and one call
-that moves it: ``add``. Adding on the position's side puts more in; adding on
-the other side takes that much off, paying that share out at the current
-price, and flips through zero if there is more. ``close`` settles everything.
-At settlement the pool gets its slice plus the rent back; the owner gets what
-is left of the cushion and the trade's profit or loss, in kind.
+by a TAO cushion the user deposits. There is one position per coldkey and
+subnet, and one call that moves it: ``add``. Adding on the position's side
+puts more in; adding on the other side takes that much off, paying that share
+out at the current price, and flips through zero if there is more. ``close``
+settles everything. At settlement the pool gets its slice plus the interest back;
+the owner gets what is left of the cushion and the trade's profit or loss.
 
-The rent is one yearly rate on TAO exposure (``rate_per_year``), the same for
-both sides, fixed per tranche when it is added and accrued per block. There
-is no term: a position lives until its owner closes it or its equity no
-longer covers one day of rent, after which anyone may close it and is paid
-the rent for doing so.
+Two root-set numbers are the design: the pool lends out at most ``pool_share``
+of itself per side, at ``interest_rate`` on TAO exposure, the same for both
+sides, fixed per tranche when it is added and accrued per block. Once a week,
+on its own block, each position's interest is collected out of its cushion and
+spent buying alpha from the pool, which is then recycled: the interest reaches
+the pool as buy pressure, on either side. There is no term: a position lives
+until its owner closes it, or until its cushion can no longer pay and the chain
+forfeits it to the pool. Nobody else can touch it.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from .._generated import calls
 from ..balance import Balance
-from ._money import Money, Spend, alpha_amount, tao_amount
+from ._money import Money, Spend, tao_amount
 from .base import Intent
 from .registry import register
 
@@ -33,34 +35,11 @@ from .registry import register
 SIDES = ("Short", "Long")
 SideChoice = Enum("SideChoice", [(name, name) for name in SIDES], type=str)
 
-# Variants of the runtime's `Deposit` enum, lower-cased for the CLI.
-DEPOSIT_ASSETS = ("tao", "alpha")
-DepositAssetChoice = Enum("DepositAssetChoice", [(name, name) for name in DEPOSIT_ASSETS], type=str)
-
-DEPOSIT_IN_HELP = (
-    "Asset the cushion is paid in: `tao` from the coldkey balance, or `alpha` already staked "
-    "on `hotkey_ss58` at this subnet. Alpha cushions must be switched on by root for the side "
-    "(`alpha_cushion_shorts` / `alpha_cushion_longs` in `btcli deriv params`)."
-)
-HOTKEY_HELP = (
-    "Hotkey the alpha cushion is staked on (only with `deposit_in=alpha`). Defaults to the "
-    "wallet hotkey. The cushion comes back to the same hotkey."
-)
-
 
 def check_side(side: str) -> str:
     if side not in SIDES:
         raise ValueError(f"unknown side {side!r}; expected one of: {', '.join(SIDES)}")
     return side
-
-
-def check_deposit_asset(asset: str) -> str:
-    asset = str(asset).lower()
-    if asset not in DEPOSIT_ASSETS:
-        raise ValueError(
-            f"unknown deposit asset {asset!r}; expected one of: {', '.join(DEPOSIT_ASSETS)}"
-        )
-    return asset
 
 
 def leverage_percent(leverage: float) -> int:
@@ -79,15 +58,13 @@ class AddPosition(Intent):
     """Add `leverage` times `amount` of `side` exposure to your position on a subnet.
 
     One call for open, add, reduce, and flip. With no position, or one on the
-    same side, `amount` is taken as cushion (TAO from the coldkey, or alpha
-    from stake on `hotkey_ss58`), the pool lends the matching slice (alpha
-    sold for TAO on a short, TAO spent on alpha on a long), and the result is
-    folded into the position; one day of the new tranche's rent is booked up
-    front. With a position on the other side, that much exposure is settled at
-    the current price and its share of the cushion, less rent and loss, is
-    paid back; nothing is deposited. Asking for more than the position holds
-    closes it and opens the rest on the new side, taking only that rest's
-    cushion.
+    same side, `amount` TAO is taken from the coldkey as cushion, the pool
+    lends the matching slice (alpha sold for TAO on a short, TAO spent on
+    alpha on a long), and the result is folded into the position. With a
+    position on the other side, that much exposure is settled at the current
+    price and its share of the cushion, less interest and loss, is paid back;
+    nothing is deposited. Asking for more than the position holds closes it
+    and opens the rest on the new side, taking only that rest's cushion.
     """
 
     op = "add_derivative"
@@ -99,10 +76,9 @@ class AddPosition(Intent):
     amount: Money = field(
         metadata={
             "help": (
-                "Cushion the tranche is sized by, in TAO or in the subnet's alpha depending on "
-                "`deposit_in`. Exposure is `--leverage` times its TAO value, measured against "
-                "the pool's TAO reserve. Deposited when it adds to your position; only sizes "
-                "the reduction when it goes against it."
+                "TAO the tranche is sized by. Exposure is `leverage` times it, measured against "
+                "the pool's TAO reserve. Deposited as cushion when it adds to your position; "
+                "only sizes the reduction when it goes against it."
             )
         }
     )
@@ -110,41 +86,25 @@ class AddPosition(Intent):
         default=1.0,
         metadata={
             "help": (
-                "Exposure as a multiple of `amount`: 1, 2, 5, ... Must be at most the side's "
-                "maximum (`max_short_leverage_percent` / `max_long_leverage_percent` in "
+                "Exposure as a multiple of `amount`: 1, 1.5, 2. At most the side's maximum: 1x "
+                "for shorts, 2x for longs (`max_short_leverage` / `max_long_leverage` in "
                 "`btcli deriv params`)."
             )
         },
     )
-    deposit_in: str = field(default="tao", metadata={"help": DEPOSIT_IN_HELP})
-    hotkey_ss58: Optional[str] = field(default=None, metadata={"help": HOTKEY_HELP})
 
     def __post_init__(self):
         self.side = check_side(self.side)
-        self.deposit_in = check_deposit_asset(self.deposit_in)
-        if self.deposit_in == "tao":
-            self.amount = tao_amount(self.amount)
-        else:
-            self.amount = alpha_amount(self.amount, self.netuid)
+        self.amount = tao_amount(self.amount)
         self.leverage = float(self.leverage)
         leverage_percent(self.leverage)
-
-    def _deposit(self, wallet: Any) -> dict:
-        if self.deposit_in == "tao":
-            return {"Tao": self.amount.rao}
-        return {
-            "Alpha": {
-                "hotkey": self.hotkey_address(wallet, self.hotkey_ss58),
-                "amount": self.amount.rao,
-            }
-        }
 
     async def build(self, substrate, wallet: Any):
         return await substrate.compose(
             calls.Derivatives.add(
                 netuid=self.netuid,
                 side=self.side,
-                deposit=self._deposit(wallet),
+                deposit=self.amount.rao,
                 leverage_percent=leverage_percent(self.leverage),
             )
         )
@@ -155,21 +115,19 @@ class AddPosition(Intent):
         )
 
     async def warnings(self, substrate, signer_address: str) -> list[str]:
-        out = [
+        return [
             "against an open position of the other side this reduces or flips it at the "
             "current price: that share's loss or profit is realized now",
-            "each add books one day of its rent up front; the rent then accrues per block "
-            "at `rate_per_year` of exposure for as long as the position is open",
-            "once the position's equity drops below one day of rent, anyone may close it and "
-            "keeps the rent; add cushion or close before that",
+            "interest accrues per block at `interest_rate` on exposure for as long as the position "
+            "is open; once a week the chain takes it out of the cushion and buys and recycles "
+            "alpha with it",
+            "once the cushion can no longer pay the interest, the chain forfeits the position to "
+            "the pool; watch `runway_days` and add cushion or close before that",
         ]
-        if self.deposit_in == "alpha":
-            out.append("the alpha cushion earns no staking emission while the position is open")
-        return out
 
     def spend(self) -> Spend:
         # An upper bound: a reduce deposits nothing, a flip only the surplus.
-        if self.deposit_in == "tao" and isinstance(self.amount, Balance):
+        if isinstance(self.amount, Balance):
             return self.amount
         return None
 
@@ -177,15 +135,12 @@ class AddPosition(Intent):
 @register
 @dataclass
 class ClosePosition(Intent):
-    """Close a derivatives position and settle it against the pool.
+    """Close your derivatives position on a subnet and settle it against the pool.
 
-    The owner may close at any time. Anyone may close a position that is no
-    longer healthy (its equity is below one day of rent). That liquidator is
-    paid the rent owed plus whatever is left after the pool is repaid, topped
-    up by the pool to one day of rent, and the owner gets nothing. Settlement
-    reverses the opening trade, repays the pool plus the rent, and pays the
-    owner what remains, in kind. If the position is underwater the pool
-    absorbs the shortfall and the owner gets nothing back.
+    Only the owner can close. Settlement reverses the opening trade, repays
+    the pool plus the interest owed, and pays you what remains. If the
+    position is underwater the pool absorbs the shortfall and you get nothing
+    back.
     """
 
     op = "close_derivative"
@@ -193,28 +148,9 @@ class ClosePosition(Intent):
     wraps = (("Derivatives", "close"),)
 
     netuid: int = field(metadata={"help": "Subnet the position is on."})
-    owner_ss58: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": (
-                "Coldkey that owns the position. Defaults to the signer; pass another owner "
-                "to close their position once `healthy` is False in `derivative-position`."
-            )
-        },
-    )
 
     async def build(self, substrate, wallet: Any):
-        owner = self.owner_ss58 or self.coldkey_address(wallet)
-        return await substrate.compose(calls.Derivatives.close(owner=owner, netuid=self.netuid))
+        return await substrate.compose(calls.Derivatives.close(netuid=self.netuid))
 
     def summary(self) -> str:
-        whose = f" owned by {self.owner_ss58}" if self.owner_ss58 else ""
-        return f"close derivatives position on netuid {self.netuid}{whose}"
-
-    async def warnings(self, substrate, signer_address: str) -> list[str]:
-        if self.owner_ss58 and self.owner_ss58 != signer_address:
-            return [
-                "closing another owner's position only succeeds once it is unhealthy at the "
-                "chain's own quote; the SDK's `healthy` flag is an estimate"
-            ]
-        return []
+        return f"close derivatives position on netuid {self.netuid}"

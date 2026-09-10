@@ -437,7 +437,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "OrderCancelled": _C.EXPIRED,
     "OrderExpired": _C.EXPIRED,
     "PriceConditionNotMet": _C.TOO_EARLY,
-    "SwapReturnedZero": _C.INSUFFICIENT_LIQUIDITY,  # also Derivatives
+    "SwapReturnedZero": _C.INSUFFICIENT_LIQUIDITY,
     "RootNetUidNotAllowed": _C.INVALID_ARGUMENT,
     "OrderNetUidMismatch": _C.INVALID_ARGUMENT,
     "LimitOrdersDisabled": _C.DISABLED,
@@ -459,16 +459,11 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
     "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
     # ── Derivatives ─────────────────────────────────────────────────────
-    "SideDisabled": _C.DISABLED,
     "SubnetNotDynamic": _C.SUBTOKEN_DISABLED,
     "NoPosition": _C.NOT_FOUND,
     "LeverageOutOfRange": _C.INVALID_ARGUMENT,
-    "ExposureTooLarge": _C.LIMIT_EXCEEDED,
     "ZeroExposure": _C.INVALID_ARGUMENT,
     "PoolCapExceeded": _C.LIMIT_EXCEEDED,
-    "OwnerOnly": _C.NOT_AUTHORIZED,
-    "AlphaCushionDisabled": _C.DISABLED,
-    "InvalidParams": _C.INVALID_ARGUMENT,
     "PalletHotkeyUnset": _C.TOO_EARLY,
 }
 

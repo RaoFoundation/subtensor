@@ -237,24 +237,6 @@
         }
       ]
     },
-    "AlphaCushionDisabled": {
-      "code": "disabled",
-      "description": "Alpha cushions are switched off for this side; deposit TAO instead. Check `alpha_cushion_shorts` / `alpha_cushion_longs` in `deriv params`.",
-      "docs_url": "/docs/errors/chain/AlphaCushionDisabled",
-      "markdown_url": "/llms.mdx/docs/errors/chain/AlphaCushionDisabled/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 212,
-          "url": "/code/pallets/derivatives/src/lib.rs#L212",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "AlphaHighTooLow": {
       "code": "invalid_argument",
       "description": "The `alpha_high` argument to set liquid-alpha values was below the minimum of roughly 0.025 (1638/65535 in u16 units). Raise `alpha_high` in the `sudo_set_alpha_values` call; current values are in the `AlphaValues` storage per netuid.",
@@ -1427,8 +1409,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 218,
-          "url": "/code/pallets/derivatives/src/lib.rs#L218",
+          "line": 222,
+          "url": "/code/pallets/derivatives/src/lib.rs#L222",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -1743,24 +1725,6 @@
           "line": 181,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L181",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
-        }
-      ]
-    },
-    "ExposureTooLarge": {
-      "code": "limit_exceeded",
-      "description": "Leverage times the cushion would take the whole matching reserve, so no pool share can be lifted. Check the deposit against the pool reserves and use a smaller cushion.",
-      "docs_url": "/docs/errors/chain/ExposureTooLarge",
-      "markdown_url": "/llms.mdx/docs/errors/chain/ExposureTooLarge/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 223,
-          "url": "/code/pallets/derivatives/src/lib.rs#L223",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -2510,24 +2474,6 @@
         }
       ]
     },
-    "InvalidParams": {
-      "code": "invalid_argument",
-      "description": "Root submitted parameters with a zero maximum leverage, `max_pool_share`, or `rate_per_year`, or a subnet override with a zero cap or rate, which would brick adds or leave nobody paid to close. Pause a side with its enabled switch instead.",
-      "docs_url": "/docs/errors/chain/InvalidParams",
-      "markdown_url": "/llms.mdx/docs/errors/chain/InvalidParams/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 233,
-          "url": "/code/pallets/derivatives/src/lib.rs#L233",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "InvalidPort": {
       "code": "invalid_argument",
       "description": "The `port` argument to serve_axon or serve_prometheus is 0, which is rejected. Check the miner or client axon configuration and serve on a non-zero port.",
@@ -2891,7 +2837,7 @@
     },
     "LeverageOutOfRange": {
       "code": "invalid_argument",
-      "description": "The requested leverage is zero or above the side's maximum. Check `max_short_leverage_percent` / `max_long_leverage_percent` in `deriv params` (`100` = 1x) and pass a `--leverage` at or below it.",
+      "description": "The requested leverage is zero or above the side's maximum: 1x for shorts, 2x for longs (`max_short_leverage` / `max_long_leverage` in `deriv params`). Pass a `--leverage` at or below it.",
       "docs_url": "/docs/errors/chain/LeverageOutOfRange",
       "markdown_url": "/llms.mdx/docs/errors/chain/LeverageOutOfRange/content.md",
       "pallets": [
@@ -2901,8 +2847,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 221,
-          "url": "/code/pallets/derivatives/src/lib.rs#L221",
+          "line": 225,
+          "url": "/code/pallets/derivatives/src/lib.rs#L225",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3655,7 +3601,7 @@
     },
     "NoPosition": {
       "code": "not_found",
-      "description": "That owner has no position on that subnet. Check the owner and netuid against `derivative-positions`; it may already have been closed or liquidated.",
+      "description": "That owner has no position on that subnet. Check the owner and netuid against `derivative-positions`; it may already have been closed, or forfeited once its cushion could no longer pay its interest.",
       "docs_url": "/docs/errors/chain/NoPosition",
       "markdown_url": "/llms.mdx/docs/errors/chain/NoPosition/content.md",
       "pallets": [
@@ -3665,8 +3611,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 216,
-          "url": "/code/pallets/derivatives/src/lib.rs#L216",
+          "line": 220,
+          "url": "/code/pallets/derivatives/src/lib.rs#L220",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4221,24 +4167,6 @@
         }
       ]
     },
-    "OwnerOnly": {
-      "code": "not_authorized",
-      "description": "The position's equity still covers one day of rent at the chain's quote, so only its owner may close it. Check `healthy` and `equity_tao` in `derivative-position`; the SDK estimate can differ from the chain's Balancer quote near the line.",
-      "docs_url": "/docs/errors/chain/OwnerOnly",
-      "markdown_url": "/llms.mdx/docs/errors/chain/OwnerOnly/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 229,
-          "url": "/code/pallets/derivatives/src/lib.rs#L229",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "POWRegistrationDisabled": {
       "code": "disabled",
       "description": "`sudo_set_network_pow_registration_allowed` unconditionally fails because proof-of-work registration is deprecated and its toggle can no longer be changed. Nothing to check; the call is permanently disabled.",
@@ -4287,8 +4215,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 235,
-          "url": "/code/pallets/derivatives/src/lib.rs#L235",
+          "line": 232,
+          "url": "/code/pallets/derivatives/src/lib.rs#L232",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4367,7 +4295,7 @@
     },
     "PoolCapExceeded": {
       "code": "limit_exceeded",
-      "description": "Open positions of this side would together borrow more than `max_pool_share` of the lent reserve. Check `Footprint` for the netuid and side against the reserve; try a smaller cushion or wait for other positions to close.",
+      "description": "Open positions of this side would together borrow more than `pool_share` of the lent reserve, or the deposit alone would take the whole pool. A `pool_share` of zero means root has paused new positions. Check `deriv params`; try a smaller deposit or wait for other positions to close.",
       "docs_url": "/docs/errors/chain/PoolCapExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/PoolCapExceeded/content.md",
       "pallets": [
@@ -4377,8 +4305,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 227,
-          "url": "/code/pallets/derivatives/src/lib.rs#L227",
+          "line": 230,
+          "url": "/code/pallets/derivatives/src/lib.rs#L230",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4878,24 +4806,6 @@
         }
       ]
     },
-    "SideDisabled": {
-      "code": "disabled",
-      "description": "Adding to this side is switched off by root, globally or on this subnet. Check `shorts_enabled` and `longs_enabled` in `deriv params --netuid N`; existing positions can always be reduced or closed.",
-      "docs_url": "/docs/errors/chain/SideDisabled",
-      "markdown_url": "/llms.mdx/docs/errors/chain/SideDisabled/content.md",
-      "pallets": [
-        "Derivatives"
-      ],
-      "sources": [
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 209,
-          "url": "/code/pallets/derivatives/src/lib.rs#L209",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-        }
-      ]
-    },
     "SignatoriesOutOfOrder": {
       "code": "invalid_argument",
       "description": "The `other_signatories` list is not sorted in strictly ascending account order, which the multisig pallet requires for a canonical account derivation. Sort the list and remove duplicates before resubmitting.",
@@ -5151,8 +5061,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 214,
-          "url": "/code/pallets/derivatives/src/lib.rs#L214",
+          "line": 218,
+          "url": "/code/pallets/derivatives/src/lib.rs#L218",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5225,8 +5135,7 @@
       "docs_url": "/docs/errors/chain/SwapReturnedZero",
       "markdown_url": "/llms.mdx/docs/errors/chain/SwapReturnedZero/content.md",
       "pallets": [
-        "LimitOrders",
-        "Derivatives"
+        "LimitOrders"
       ],
       "sources": [
         {
@@ -5235,13 +5144,6 @@
           "line": 419,
           "url": "/code/pallets/limit-orders/src/lib.rs#L419",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
-        },
-        {
-          "pallet": "Derivatives",
-          "path": "pallets/derivatives/src/lib.rs",
-          "line": 231,
-          "url": "/code/pallets/derivatives/src/lib.rs#L231",
-          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -6104,7 +6006,7 @@
     },
     "ZeroExposure": {
       "code": "invalid_argument",
-      "description": "Leverage times the cushion rounds to nothing against the pool reserve. Check the deposit is well above `min_deposit_tao` relative to the pool size.",
+      "description": "Leverage times the deposit rounds to nothing against the pool reserve, or the pool would swap the lifted slice for nothing. Use a larger deposit relative to the pool.",
       "docs_url": "/docs/errors/chain/ZeroExposure",
       "markdown_url": "/llms.mdx/docs/errors/chain/ZeroExposure/content.md",
       "pallets": [
@@ -6114,8 +6016,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 225,
-          "url": "/code/pallets/derivatives/src/lib.rs#L225",
+          "line": 227,
+          "url": "/code/pallets/derivatives/src/lib.rs#L227",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]

@@ -1,20 +1,21 @@
 //! Long and short positions on subnet alpha, borrowed from the subnet's own liquidity pool.
 //!
 //! One position per `(owner, netuid)`, built with one call: `add(side, deposit, leverage)`.
-//! The deposit is TAO, or alpha staked on the subnet where root allows it. Adding on the
-//! position's own side lifts a further slice `phi` of both pool reserves without moving price,
-//! swaps one half into the other token, and folds the result into the position. Adding on the
-//! other side settles that much of it at the current price, and flips through zero if there is
-//! more. `close` settles everything. At settlement the swap is reversed, the borrowed slice
-//! plus the rent go back to the pool, and whatever is left of the owner's cushion and
-//! proceeds is paid out in kind. Nothing is minted or burned: the pool only ever gets its own
-//! liquidity back.
+//! The deposit is TAO. Adding on the position's own side lifts a further slice `phi` of both
+//! pool reserves without moving price, swaps one half into the other token, and folds the
+//! result into the position. Adding on the other side settles that much of it at the current
+//! price, and flips through zero if there is more. `close` settles everything. At settlement
+//! the swap is reversed, the borrowed slice plus the interest go back to the pool, and whatever is
+//! left of the owner's cushion and proceeds is paid out. Nothing is minted or burned: the pool
+//! only ever gets its own liquidity back.
 //!
-//! The pool rents out at most `max_pool_share` of itself per side, at `rate_per_year` of
-//! exposure, the same for both sides, fixed per tranche when it is added and accruing per
-//! block. Those two numbers are the design. A position has no term: it lives until its owner
-//! closes it or it can no longer cover one more day of rent, after which anyone may close it
-//! and is paid the rent owed for doing so. The chain runs no sweep of its own.
+//! Two root-set numbers are the design: the pool lends out at most `pool_share` of itself per
+//! side, at `interest_rate` on exposure, the same for both sides, fixed per tranche when it is
+//! added and accruing per block. Once a week, on its own block, each position's interest is
+//! collected out of its cushion and spent buying alpha from the pool, which is then recycled:
+//! the interest reaches the pool as buy pressure, on either side. A position has no term: it
+//! lives until its owner closes it, or until its cushion can no longer pay and the chain
+//! forfeits it to the pool. Nobody else can touch it.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -37,14 +38,16 @@ use subtensor_runtime_common::{
 };
 use subtensor_swap_interface::{DerivativesPoolInterface, OrderSwapInterface, Perquintill};
 
-/// Who triggered a settlement.
-#[derive(Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, PartialEq, Eq, RuntimeDebug)]
-pub enum Closer<AccountId> {
-    /// The owner closed or reduced it.
+/// Why a position closed.
+#[derive(
+    Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, Copy, PartialEq, Eq, RuntimeDebug,
+)]
+pub enum Closer {
+    /// The owner closed it.
     Owner,
-    /// The position could no longer cover a day of rent and this account closed it. The rent
-    /// owed, and anything left after the pool is repaid, went to them.
-    Liquidator(AccountId),
+    /// Its cushion could no longer pay its interest; the chain forfeited everything it held to
+    /// the pool, with no swap.
+    Starved,
     /// The subnet was dissolved; the position was cash-settled at the dissolution price.
     Dissolution,
 }
@@ -68,6 +71,21 @@ pub mod pallet {
         #[pallet::constant]
         type PalletId: Get<PalletId>;
 
+        /// Highest leverage a short may choose, in percent: `100` is 1x. A short at leverage
+        /// `L` costs the pool once the price rises by `1 / L`.
+        #[pallet::constant]
+        type MaxShortLeverage: Get<u16>;
+
+        /// Highest leverage a long may choose, in percent: `200` is 2x. A long at leverage `L`
+        /// costs the pool once the price falls by `1 / L`. At 1x a long can never lose the pool
+        /// anything, and is nothing a spot buy does not do better.
+        #[pallet::constant]
+        type MaxLongLeverage: Get<u16>;
+
+        /// Smallest deposit one `add` may put up, and the smallest surplus a flip will open.
+        #[pallet::constant]
+        type MinDeposit: Get<TaoBalance>;
+
         type WeightInfo: WeightInfo;
     }
 
@@ -87,7 +105,7 @@ pub mod pallet {
         T::AccountId,
         Identity,
         NetUid,
-        Position<T::AccountId, BlockNumberFor<T>>,
+        Position<BlockNumberFor<T>>,
         OptionQuery,
     >;
 
@@ -96,16 +114,29 @@ pub mod pallet {
     pub type OpenByNetuid<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
+    /// The interest queue: positions by the block their next collection falls on. A position is
+    /// listed under its `due` block from the moment it opens until it closes; each collection
+    /// moves it one [`INTEREST_PERIOD`] ahead.
+    #[pallet::storage]
+    pub type Due<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        BlockNumberFor<T>,
+        Blake2_128Concat,
+        (T::AccountId, NetUid),
+        (),
+        OptionQuery,
+    >;
+
+    /// The first block whose [`Due`] slot has not been fully collected. Trails the current block
+    /// only while a slot holds more positions than one block may collect, or after a stall.
+    #[pallet::storage]
+    pub type NextDue<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
+
     /// Sum of [`Legs::footprint`] over open positions, in the lent token (TAO for shorts, alpha
-    /// for longs). Compared against `max_pool_share` of the lent reserve at open.
+    /// for longs). Compared against `pool_share` of the lent reserve at open.
     #[pallet::storage]
     pub type Footprint<T: Config> =
-        StorageDoubleMap<_, Identity, NetUid, Identity, Side, u64, ValueQuery>;
-
-    /// Sum of [`Legs::alpha_to_settle`] over open positions: alpha every short owes, alpha every
-    /// long holds. At dissolution the two are netted into one swap.
-    #[pallet::storage]
-    pub type AlphaToSettle<T: Config> =
         StorageDoubleMap<_, Identity, NetUid, Identity, Side, u64, ValueQuery>;
 
     /// Hotkey owned by the pallet account; all alpha the pallet holds is staked here. Chosen
@@ -114,15 +145,8 @@ pub mod pallet {
     #[pallet::storage]
     pub type PalletHotkey<T: Config> = StorageValue<_, T::AccountId, OptionQuery>;
 
-    /// Per-subnet pause switches and cap, replacing the global ones where set. Root-settable
-    /// with [`Pallet::sudo_set_subnet_override`]; the lever for one misbehaving pool.
-    #[pallet::storage]
-    pub type SubnetOverrides<T: Config> =
-        StorageMap<_, Identity, NetUid, SubnetOverride, OptionQuery>;
-
-    /// `(tao, alpha)` of the one net swap that closes every position on a dissolving subnet;
-    /// their ratio is the price each of them settles at. Fixed before the first one is settled
-    /// and removed once the last one is.
+    /// The spot price, as `(tao, alpha)`, that every position on a dissolving subnet settles
+    /// at. Fixed before the first one is settled and removed once the last one is.
     #[pallet::storage]
     pub type DissolutionPrice<T: Config> =
         StorageMap<_, Identity, NetUid, (TaoBalance, AlphaBalance), OptionQuery>;
@@ -136,15 +160,13 @@ pub mod pallet {
             owner: T::AccountId,
             netuid: NetUid,
             side: Side,
-            /// What the owner put up for this tranche, TAO or alpha.
-            cushion_added: Deposit<T::AccountId>,
-            /// Exposure as a percentage of the cushion, as the owner chose it for this tranche.
+            /// TAO the owner put up for this tranche.
+            deposit: TaoBalance,
+            /// Exposure as a percentage of the deposit, as the owner chose it for this tranche.
             leverage_percent: u16,
             /// Proceeds held, debt owed, escrow kept by this tranche, each in its own token.
-            legs_added: Legs,
+            legs: Legs,
             exposure_added: TaoBalance,
-            /// Rent per day this tranche adds, fixed for as long as it is held.
-            fee_per_day_added: TaoBalance,
             /// The position's exposure after this add.
             exposure_tao: TaoBalance,
         },
@@ -155,11 +177,10 @@ pub mod pallet {
             side: Side,
             /// Share of the position that was unwound.
             fraction: Perquintill,
-            tao_to_owner: TaoBalance,
-            /// Cushion alpha staked back to the owner's hotkey.
-            alpha_to_owner: AlphaBalance,
-            /// Fee paid on the whole position, brought up to date at this block.
-            fee_paid: TaoBalance,
+            /// TAO paid to the owner.
+            payout: TaoBalance,
+            /// Interest paid on the whole position, brought up to date at this block.
+            interest_paid: TaoBalance,
             /// Debt the settled part could not repay, in the lent token.
             shortfall: Lent,
             /// The position's exposure after this reduction.
@@ -169,35 +190,23 @@ pub mod pallet {
             owner: T::AccountId,
             netuid: NetUid,
             side: Side,
-            closed_by: Closer<T::AccountId>,
-            tao_to_owner: TaoBalance,
-            /// Cushion alpha staked back to the owner's hotkey. Alpha that could not go back
-            /// in kind was sold and is part of `tao_to_owner`.
-            alpha_to_owner: AlphaBalance,
-            /// Fee collected: paid to the pool, or to the liquidator when one closed it.
-            fee_paid: TaoBalance,
-            /// Debt the position could not repay, in the lent token.
+            closed_by: Closer,
+            /// TAO paid to the owner.
+            payout: TaoBalance,
+            /// Interest paid at this settlement: spent buying alpha that was recycled. A starved
+            /// position pays what is left of its cushion, in kind, to the pool instead.
+            interest_paid: TaoBalance,
+            /// Debt the position could not repay, in the lent token. Zero for a starved
+            /// position: nothing is swapped, so the pool takes what it lent back in kind.
             shortfall: Lent,
-            /// TAO the closer was paid when it was not the owner: the rent owed, whatever was
-            /// left after the pool was repaid, and any top-up from the pool to reach one day of
-            /// rent.
-            bounty: TaoBalance,
         },
         ParamsSet {
             params: DerivativesParams,
         },
-        /// `None` means the subnet is back on the global parameters.
-        SubnetOverrideSet {
-            netuid: NetUid,
-            override_: Option<SubnetOverride>,
-        },
-        /// A dissolving subnet's positions are about to be settled as one net swap: the alpha
-        /// shorts owe against the alpha longs hold, the difference quoted against the pool.
-        /// Every position is then valued at `tao / alpha` TAO per alpha.
+        /// A dissolving subnet's positions are about to be cash-settled at its spot price,
+        /// `tao / alpha` TAO per alpha, with no swap.
         DissolutionPriced {
             netuid: NetUid,
-            alpha_owed: AlphaBalance,
-            alpha_held: AlphaBalance,
             tao: TaoBalance,
             alpha: AlphaBalance,
         },
@@ -205,135 +214,93 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
-        /// Opening this side is switched off, globally or on this subnet.
-        SideDisabled,
-        /// This side does not accept alpha as cushion (`alpha_cushion_shorts` /
-        /// `alpha_cushion_longs`); put up TAO instead.
-        AlphaCushionDisabled,
         /// The subnet does not exist, is not AMM-priced, or has its subtoken disabled.
         SubnetNotDynamic,
         /// No such position.
         NoPosition,
-        /// The tranche's cushion is worth less than `min_deposit_tao`.
+        /// The deposit is below `MinDeposit`.
         DepositTooLow,
-        /// Leverage is zero or above the side's maximum (`max_short_leverage_percent` or
-        /// `max_long_leverage_percent`).
+        /// Leverage is zero or above the side's maximum (`MaxShortLeverage` or
+        /// `MaxLongLeverage`).
         LeverageOutOfRange,
-        /// Leverage times deposit would take the whole reserve.
-        ExposureTooLarge,
-        /// Leverage times deposit rounds to nothing.
+        /// Leverage times deposit rounds to nothing, or the pool would swap it for nothing.
         ZeroExposure,
-        /// Open positions of this side would exceed `max_pool_share` of the lent reserve.
+        /// Open positions of this side would exceed `pool_share` of the lent reserve. A
+        /// `pool_share` of zero means adds are paused.
         PoolCapExceeded,
-        /// The position still covers a day of rent; only its owner may close it.
-        OwnerOnly,
-        /// The pool swap returned nothing for a non-zero input.
-        SwapReturnedZero,
-        /// A maximum leverage, `max_pool_share`, or `rate_per_year` is zero.
-        InvalidParams,
         /// The pallet has not claimed its hotkey yet; no position can be opened.
         PalletHotkeyUnset,
     }
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        /// Claim the pallet hotkey before any extrinsic can. One read once it is set.
+        /// Claim the pallet hotkey before any extrinsic can, and start the interest queue at
+        /// this block. One read once it is set.
         fn on_runtime_upgrade() -> Weight {
             if PalletHotkey::<T>::exists() {
                 return T::DbWeight::get().reads(1);
             }
             Self::claim_hotkey();
-            T::DbWeight::get().reads_writes(4, 4)
+            NextDue::<T>::put(frame_system::Pallet::<T>::block_number());
+            T::DbWeight::get().reads_writes(4, 5)
+        }
+
+        /// Collect the interest of every position due by this block, up to
+        /// [`COLLECTIONS_PER_BLOCK`] of them.
+        fn on_initialize(now: BlockNumberFor<T>) -> Weight {
+            Self::collect_due(now)
         }
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Add `side` exposure on `netuid`: `leverage_percent / 100` times the TAO value of
-        /// `deposit`, measured against the pool's TAO reserve. One call covers open, add, reduce,
-        /// and flip.
+        /// Add `side` exposure on `netuid`: `leverage_percent / 100` times `deposit`, measured
+        /// against the pool's TAO reserve. One call covers open, add, reduce, and flip.
         ///
-        /// `deposit` is TAO from the caller's free balance, or alpha the caller has staked at a
-        /// hotkey on this subnet, valued at spot. Alpha is accepted only where
-        /// `alpha_cushion_shorts` / `alpha_cushion_longs` allow it, and goes back to that hotkey
-        /// at close.
-        ///
-        /// With no position, or one on the same side, the deposit becomes cushion and a tranche
-        /// is lifted from the pool and folded into the position. One day of the tranche's rent
-        /// is booked up front. There is no term to extend: the position runs while it pays.
+        /// With no position, or one on the same side, `deposit` is taken from the caller's free
+        /// balance as cushion, and a tranche is lifted from the pool and folded into the
+        /// position. There is no term: the position runs while its cushion pays the weekly
+        /// interest.
         ///
         /// With a position on the other side, this settles the matching share of it at the
-        /// current price and pays that share of the cushion, less fee and any loss, to the
+        /// current price and pays that share of the cushion, less interest and any loss, to the
         /// caller. If the exposure asked for is larger than the position, the whole position is
-        /// closed and the rest, if it reaches `min_deposit_tao`, opens on the new side. Only the
+        /// closed and the rest, if it reaches `MinDeposit`, opens on the new side. Only the
         /// deposit for that rest is taken from the caller.
         ///
-        /// The leverage must be above zero and at most the side's maximum
-        /// (`max_short_leverage_percent` or `max_long_leverage_percent`).
+        /// The leverage must be above zero and at most the side's maximum (`MaxShortLeverage`
+        /// or `MaxLongLeverage`).
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::add())]
         pub fn add(
             origin: OriginFor<T>,
             netuid: NetUid,
             side: Side,
-            deposit: Deposit<T::AccountId>,
+            deposit: TaoBalance,
             leverage_percent: u16,
         ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
             Self::do_add(owner, netuid, side, deposit, leverage_percent)
         }
 
-        /// Settle `owner`'s position on `netuid` in full. The owner may close at any time.
-        /// Anyone else may close it once it is unhealthy: its equity at the current quotes no
-        /// longer covers one day of rent. That liquidator is paid the rent owed and whatever is
-        /// left after the pool is repaid, topped up by the pool to one day of rent if that is
-        /// less, and the owner is paid nothing.
+        /// Settle the caller's position on `netuid` in full, at the current price. Only the
+        /// owner can close a position; the chain forfeits one that can no longer pay its
+        /// interest.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::close())]
-        pub fn close(origin: OriginFor<T>, owner: T::AccountId, netuid: NetUid) -> DispatchResult {
-            let caller = ensure_signed(origin)?;
-            let closer = if caller == owner {
-                Closer::Owner
-            } else {
-                let position = Positions::<T>::get(&owner, netuid).ok_or(Error::<T>::NoPosition)?;
-                ensure!(!Self::is_healthy(&position, netuid), Error::<T>::OwnerOnly);
-                Closer::Liquidator(caller)
-            };
-            Self::do_settle(&owner, netuid, Perquintill::one(), closer).map(|_| ())
+        pub fn close(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+            Self::do_settle(&owner, netuid, Perquintill::one())
         }
 
-        /// Replace every parameter at once. Root only. Rejects a zero maximum leverage,
-        /// `max_pool_share`, or `rate_per_year`. Open positions keep the rent they were added
-        /// with; a later add is checked against the new values.
+        /// Set the two parameters. Root only. A `pool_share` of zero pauses new adds; open
+        /// positions keep the rate they were added with and settle as usual.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::sudo_set_params())]
         pub fn sudo_set_params(origin: OriginFor<T>, params: DerivativesParams) -> DispatchResult {
             ensure_root(origin)?;
-            ensure!(params.is_valid(), Error::<T>::InvalidParams);
-            Params::<T>::put(params.clone());
+            Params::<T>::put(params);
             Self::deposit_event(Event::ParamsSet { params });
-            Ok(())
-        }
-
-        /// Pause a side, or change the pool-share cap or the rent, on one subnet. Root only.
-        /// `None` removes the override. Affects adds only; positions already open settle as
-        /// usual.
-        #[pallet::call_index(4)]
-        #[pallet::weight(T::WeightInfo::sudo_set_subnet_override())]
-        pub fn sudo_set_subnet_override(
-            origin: OriginFor<T>,
-            netuid: NetUid,
-            override_: Option<SubnetOverride>,
-        ) -> DispatchResult {
-            ensure_root(origin)?;
-            match override_ {
-                Some(value) => {
-                    ensure!(value.is_valid(), Error::<T>::InvalidParams);
-                    SubnetOverrides::<T>::insert(netuid, value);
-                }
-                None => SubnetOverrides::<T>::remove(netuid),
-            }
-            Self::deposit_event(Event::SubnetOverrideSet { netuid, override_ });
             Ok(())
         }
     }
@@ -384,46 +351,24 @@ pub mod pallet {
             T::AccountId::decode(&mut TrailingZeroInput::new(seed.as_ref())).ok()
         }
 
-        /// What closing `position` right now would move through the pool: the TAO to buy back a
-        /// short's debt or that a long's proceeds sell for, and what the cushion's alpha sells
-        /// for. Exact, fee-free, read-only.
-        pub fn quotes(
-            position: &Position<T::AccountId, BlockNumberFor<T>>,
-            netuid: NetUid,
-        ) -> Quotes {
-            let legs = match position.legs {
-                Legs::Short { debt, .. } => T::Pool::quote_buy_alpha(netuid, debt),
-                Legs::Long { proceeds, .. } => T::Pool::quote_sell_alpha(netuid, proceeds),
+        /// Whether an owner may open `side` at `leverage_percent`: above zero and at most the
+        /// side's maximum.
+        pub fn leverage_allowed(side: Side, leverage_percent: u16) -> bool {
+            let max = match side {
+                Side::Short => T::MaxShortLeverage::get(),
+                Side::Long => T::MaxLongLeverage::get(),
             };
-            let cushion_alpha = if position.cushion.alpha.is_zero() {
-                TaoBalance::ZERO
-            } else {
-                T::Pool::quote_sell_alpha(netuid, position.cushion.alpha)
-            };
-            Quotes {
-                legs,
-                cushion_alpha,
-            }
-        }
-
-        /// Whether `position` still covers one more day of rent at the current quotes. Healthy
-        /// positions are owner-only; unhealthy ones may be closed by anyone.
-        pub fn is_healthy(
-            position: &Position<T::AccountId, BlockNumberFor<T>>,
-            netuid: NetUid,
-        ) -> bool {
-            let now = frame_system::Pallet::<T>::block_number();
-            position.is_healthy(now, Self::quotes(position, netuid))
+            leverage_percent > 0 && leverage_percent <= max
         }
     }
 
     impl<T: Config> SubnetDissolveHook for Pallet<T> {
-        /// Close every position on `netuid` as one atomic swap, ahead of the stake payout: the
-        /// alpha shorts owe is netted against the alpha longs hold and only the difference is
-        /// priced against the pool, exactly as its swap would. That price is fixed once, before
-        /// the first position is settled, and every position settles at it. The swap is quoted
-        /// rather than executed: the subnet's TAO is already out of `TotalStake` and its stake
-        /// maps are about to be converted, but the balancer is still in storage.
+        /// Cash-settle every position on `netuid` at the spot price of the block dissolution
+        /// began, ahead of the stake payout. The price is fixed once, before the first position
+        /// is settled, and every position settles at it with no swap: a short is charged its
+        /// alpha debt at that price, a long is credited its alpha at it. A short that moved the
+        /// price down keeps that move; nothing climbs the curve back. The balancer is still in
+        /// storage at this point, so the price is the one the pool last showed.
         fn on_subnet_dissolve(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             let per_position = T::WeightInfo::close();
             if !meter.can_consume(per_position) {
@@ -431,14 +376,10 @@ pub mod pallet {
             }
             let price = DissolutionPrice::<T>::get(netuid).unwrap_or_else(|| {
                 meter.consume(per_position);
-                let alpha_owed = AlphaBalance::from(AlphaToSettle::<T>::get(netuid, Side::Short));
-                let alpha_held = AlphaBalance::from(AlphaToSettle::<T>::get(netuid, Side::Long));
-                let price = T::Pool::dissolution_price(netuid, alpha_owed, alpha_held);
+                let price = T::Pool::spot_price(netuid);
                 DissolutionPrice::<T>::insert(netuid, price);
                 Self::deposit_event(Event::DissolutionPriced {
                     netuid,
-                    alpha_owed,
-                    alpha_held,
                     tao: price.0,
                     alpha: price.1,
                 });

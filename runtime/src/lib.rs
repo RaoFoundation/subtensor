@@ -1370,11 +1370,20 @@ impl pallet_limit_orders::Config for Runtime {
 // Derivatives
 parameter_types! {
     pub const DerivativesPalletId: PalletId = PalletId(*b"bt/deriv");
+    /// 1x. A short at leverage `L` costs the pool once the price rises by `1 / L`.
+    pub const DerivativesMaxShortLeverage: u16 = 100;
+    /// 2x. A long at leverage `L` costs the pool once the price falls by `1 / L`.
+    pub const DerivativesMaxLongLeverage: u16 = 200;
+    /// 0.1 TAO.
+    pub const DerivativesMinDeposit: TaoBalance = TaoBalance::new(100_000_000);
 }
 
 impl pallet_derivatives::Config for Runtime {
     type Pool = SubtensorModule;
     type PalletId = DerivativesPalletId;
+    type MaxShortLeverage = DerivativesMaxShortLeverage;
+    type MaxLongLeverage = DerivativesMaxLongLeverage;
+    type MinDeposit = DerivativesMinDeposit;
     type WeightInfo = pallet_derivatives::weights::SubstrateWeight<Runtime>;
 }
 

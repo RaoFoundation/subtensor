@@ -68,9 +68,9 @@
         "container": "SwapRuntimeApi",
         "name": "current_alpha_price_all",
         "path": "runtime/src/lib.rs",
-        "line": 2541,
-        "end_line": 2551,
-        "url": "/code/runtime/src/lib.rs#L2541-L2551",
+        "line": 2550,
+        "end_line": 2560,
+        "url": "/code/runtime/src/lib.rs#L2550-L2560",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -752,7 +752,7 @@
   {
     "name": "derivative_position",
     "summary": "A coldkey's open position on a subnet, or None. There is at most one.",
-    "description": "A coldkey's open position on a subnet, or None. There is at most one.\n\n`side` is the direction of its net exposure. `cushion` is the TAO the owner\nhas put up and `cushion_alpha` the alpha, returned to `cushion_alpha_hotkey`;\n`cushion_value_tao` prices both in TAO and `leverage` is `exposure_tao`\nover that, the blend of every tranche added. `proceeds`, `debt`, and\n`escrow` are the position's `legs`, each already in its own token: a short\nholds TAO proceeds and TAO escrow and owes alpha; a long holds alpha\nproceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed\nrent of its tranches; `accrued_fee_tao` is what would be charged if settled\nnow. There is no expiry: a position runs while it pays.\n\n`equity_tao` is an estimate of what a close now would pay the owner:\ncushion value plus proceeds, less debt priced on a constant-product curve,\nless the rent owed. Negative means underwater. `healthy` is whether that\nequity still covers one more day of rent; when it does not, anyone may\nclose the position with `close_derivative` and is paid the rent for it.\nThe chain's own quote decides; this is a preview.",
+    "description": "A coldkey's open position on a subnet, or None. There is at most one.\n\n`side` is the direction of its net exposure. `cushion` is the TAO the owner\nhas put up and `leverage` is `exposure_tao` over it, the blend of every\ntranche added. `proceeds`, `debt`, and `escrow` are the position's `legs`,\neach already in its own token: a short holds TAO proceeds and TAO escrow\nand owes alpha; a long holds alpha proceeds and alpha escrow and owes TAO.\n`interest_per_year_tao` is the summed interest of its tranches;\n`interest_due_tao` is what has accrued since the chain last collected, at\nblock `since`; `due` is the block it collects next, one week after the last\ntime. `runway_days` is how long the cushion keeps paying at this rate; at a\ncollection it cannot pay, the chain forfeits the position to the pool and\nthe owner gets nothing. Add cushion to extend it. There is no expiry, and\nonly the owner can close.\n\n`equity_tao` is an estimate of what a close now would pay the owner:\ncushion plus proceeds, less debt priced on a constant-product curve, less\nthe interest due. The chain's own quote decides; this is a preview.",
     "params": {
       "coldkey_ss58": "string",
       "netuid": "integer"
@@ -771,8 +771,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 84,
-        "url": "/code/pallets/derivatives/src/lib.rs#L84",
+        "line": 102,
+        "url": "/code/pallets/derivatives/src/lib.rs#L102",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -797,16 +797,16 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 84,
-        "url": "/code/pallets/derivatives/src/lib.rs#L84",
+        "line": 102,
+        "url": "/code/pallets/derivatives/src/lib.rs#L102",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
   {
     "name": "derivative_positions_on_subnet",
-    "summary": "Every open position on a subnet, whoever owns it. Same fields as",
-    "description": "Every open position on a subnet, whoever owns it. Same fields as\n`derivative_position`.\n\nThe list a liquidator works from: filter on `healthy` being False and call\n`close_derivative` with that `coldkey` as `owner_ss58`.",
+    "summary": "Every open position on a subnet, whoever owns it, largest exposure first.",
+    "description": "Every open position on a subnet, whoever owns it, largest exposure first.\nSame fields as `derivative_position`.",
     "params": {
       "netuid": "integer"
     },
@@ -823,8 +823,8 @@
         "container": "Derivatives",
         "name": "OpenByNetuid",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 96,
-        "url": "/code/pallets/derivatives/src/lib.rs#L96",
+        "line": 114,
+        "url": "/code/pallets/derivatives/src/lib.rs#L114",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       },
       {
@@ -832,16 +832,16 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 84,
-        "url": "/code/pallets/derivatives/src/lib.rs#L84",
+        "line": 102,
+        "url": "/code/pallets/derivatives/src/lib.rs#L102",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
   {
     "name": "derivatives_params",
-    "summary": "The derivatives pallet's root-set global parameters.",
-    "description": "The derivatives pallet's root-set global parameters.\n\n`max_short_leverage_percent` and `max_long_leverage_percent` bound the\nleverage an owner may choose per side (`100` = 1x), and `max_pool_share`\ncaps how much of a pool's reserve may be lent per side.\n`alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side\naccepts an alpha cushion; TAO is always accepted. The rent is one rate for\nboth sides, `rate_per_year` of a tranche's TAO exposure, fixed when the\ntranche is added: one day is booked at the add, the rest accrues per block\nand is paid at each settlement. There is no term. A position runs until its\nowner closes it or its equity drops below one day of rent, after which\nanyone may close it. A subnet may override the switches, the cap, and the\nrate; see `derivatives_subnet_override`.",
+    "summary": "The derivatives pallet's two root-set parameters, plus its constants.",
+    "description": "The derivatives pallet's two root-set parameters, plus its constants.\n\n`pool_share` is the largest share of a pool's reserve that all open\npositions of one side may borrow together; zero means root has paused new\npositions. `interest_rate` is the interest, as a fraction of a tranche's TAO\nexposure per year, the same for both sides, fixed when the tranche is\nadded and accrued per block; once a week, on the position's own block, the\nchain takes it from the cushion, buys alpha with it, and recycles the alpha.\nBoth are fractions (`0.25` = 25%).\n\nThe rest are fixed by the runtime: `max_short_leverage` and\n`max_long_leverage` bound the leverage an owner may choose per side (`1.0`\n= 1x), and `min_deposit_tao` is the smallest deposit one add may put up.",
     "params": {},
     "param_docs": {},
     "category": "Prices & swaps",
@@ -854,35 +854,24 @@
         "container": "Derivatives",
         "name": "Params",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 80,
-        "url": "/code/pallets/derivatives/src/lib.rs#L80",
+        "line": 98,
+        "url": "/code/pallets/derivatives/src/lib.rs#L98",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
-      }
-    ]
-  },
-  {
-    "name": "derivatives_subnet_override",
-    "summary": "Root-set per-subnet overrides of the derivatives parameters, or None.",
-    "description": "Root-set per-subnet overrides of the derivatives parameters, or None.\n\nNone means the subnet runs on the global `derivatives_params`. When set,\n`shorts_enabled` and `longs_enabled` replace the global switches for adds\non this subnet, and `max_pool_share` and `rate_per_year` replace the global\ncap and rent when they are not None. Open positions are unaffected: a\npaused side can still be reduced and closed.",
-    "params": {
-      "netuid": "integer"
-    },
-    "param_docs": {
-      "netuid": "Subnet to look up."
-    },
-    "category": "Prices & swaps",
-    "docs_url": "/docs/query/derivatives-subnet-override",
-    "markdown_url": "/llms.mdx/docs/query/derivatives-subnet-override/content.md",
-    "python": "sub.prices.derivatives_subnet_override(...)",
-    "hits": [
+      },
       {
-        "kind": "storage",
+        "kind": "constant",
         "container": "Derivatives",
-        "name": "SubnetOverrides",
-        "path": "pallets/derivatives/src/lib.rs",
-        "line": 120,
-        "url": "/code/pallets/derivatives/src/lib.rs#L120",
-        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        "name": "MaxShortLeverage"
+      },
+      {
+        "kind": "constant",
+        "container": "Derivatives",
+        "name": "MaxLongLeverage"
+      },
+      {
+        "kind": "constant",
+        "container": "Derivatives",
+        "name": "MinDeposit"
       }
     ]
   },
@@ -1028,9 +1017,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_hotkey_conviction",
         "path": "runtime/src/lib.rs",
-        "line": 2402,
-        "end_line": 2404,
-        "url": "/code/runtime/src/lib.rs#L2402-L2404",
+        "line": 2411,
+        "end_line": 2413,
+        "url": "/code/runtime/src/lib.rs#L2411-L2413",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1490,9 +1479,9 @@
         "container": "StakeInfoRuntimeApi",
         "name": "get_most_convicted_hotkey_on_subnet",
         "path": "runtime/src/lib.rs",
-        "line": 2406,
-        "end_line": 2408,
-        "url": "/code/runtime/src/lib.rs#L2406-L2408",
+        "line": 2415,
+        "end_line": 2417,
+        "url": "/code/runtime/src/lib.rs#L2415-L2417",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1743,9 +1732,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_tao_for_alpha",
         "path": "runtime/src/lib.rs",
-        "line": 2553,
-        "end_line": 2581,
-        "url": "/code/runtime/src/lib.rs#L2553-L2581",
+        "line": 2562,
+        "end_line": 2590,
+        "url": "/code/runtime/src/lib.rs#L2562-L2590",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1772,9 +1761,9 @@
         "container": "SwapRuntimeApi",
         "name": "sim_swap_alpha_for_tao",
         "path": "runtime/src/lib.rs",
-        "line": 2583,
-        "end_line": 2611,
-        "url": "/code/runtime/src/lib.rs#L2583-L2611",
+        "line": 2592,
+        "end_line": 2620,
+        "url": "/code/runtime/src/lib.rs#L2592-L2620",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1853,9 +1842,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_owed",
         "path": "runtime/src/lib.rs",
-        "line": 2419,
-        "end_line": 2421,
-        "url": "/code/runtime/src/lib.rs#L2419-L2421",
+        "line": 2428,
+        "end_line": 2430,
+        "url": "/code/runtime/src/lib.rs#L2428-L2430",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -1918,9 +1907,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_root_basket_total_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2431,
-        "end_line": 2433,
-        "url": "/code/runtime/src/lib.rs#L2431-L2433",
+        "line": 2440,
+        "end_line": 2442,
+        "url": "/code/runtime/src/lib.rs#L2440-L2442",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2490,9 +2479,9 @@
         "container": "SubnetRegistrationRuntimeApi",
         "name": "get_network_registration_cost",
         "path": "runtime/src/lib.rs",
-        "line": 2412,
-        "end_line": 2414,
-        "url": "/code/runtime/src/lib.rs#L2412-L2414",
+        "line": 2421,
+        "end_line": 2423,
+        "url": "/code/runtime/src/lib.rs#L2421-L2423",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2787,9 +2776,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_basket_nav",
         "path": "runtime/src/lib.rs",
-        "line": 2425,
-        "end_line": 2427,
-        "url": "/code/runtime/src/lib.rs#L2425-L2427",
+        "line": 2434,
+        "end_line": 2436,
+        "url": "/code/runtime/src/lib.rs#L2434-L2436",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]
@@ -2850,9 +2839,9 @@
         "container": "BetaBasketRuntimeApi",
         "name": "get_validator_weights",
         "path": "runtime/src/lib.rs",
-        "line": 2434,
-        "end_line": 2436,
-        "url": "/code/runtime/src/lib.rs#L2434-L2436",
+        "line": 2443,
+        "end_line": 2445,
+        "url": "/code/runtime/src/lib.rs#L2443-L2445",
         "raw_url": "/code/raw/runtime/src/lib.rs"
       }
     ]

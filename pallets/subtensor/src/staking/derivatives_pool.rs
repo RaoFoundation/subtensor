@@ -85,6 +85,28 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         (SubnetTAO::<T>::get(netuid), SubnetAlphaIn::<T>::get(netuid))
     }
 
+    /// With `k = tao * alpha` and the moving price `p`, the constant-product reserves at that
+    /// price are `tao = sqrt(k * p)` and `alpha = sqrt(k / p)`. Computed as
+    /// `sqrt(k) * sqrt(p)` in 64.64 fixed point so nothing overflows. A subnet with no moving
+    /// price yet is taken at its live reserves.
+    fn smoothed_reserves(netuid: NetUid) -> (TaoBalance, AlphaBalance) {
+        let (tao, alpha) = (SubnetTAO::<T>::get(netuid), SubnetAlphaIn::<T>::get(netuid));
+        let price_bits = Self::get_moving_alpha_price(netuid).to_bits();
+        if price_bits == 0 || tao.is_zero() || alpha.is_zero() {
+            return (tao, alpha);
+        }
+        let k = u128::from(tao.to_u64()).saturating_mul(u128::from(alpha.to_u64()));
+        let sqrt_k = k.isqrt();
+        // `sqrt(p)` in 32.32 fixed point: `sqrt(p * 2^64) = sqrt(p) * 2^32`.
+        let sqrt_price = price_bits.isqrt();
+        let smoothed_tao = sqrt_k.saturating_mul(sqrt_price) >> 32;
+        let smoothed_alpha = (sqrt_k << 32).checked_div(sqrt_price).unwrap_or(0);
+        (
+            TaoBalance::from(u64::try_from(smoothed_tao).unwrap_or(u64::MAX)),
+            AlphaBalance::from(u64::try_from(smoothed_alpha).unwrap_or(u64::MAX)),
+        )
+    }
+
     #[transactional]
     fn lift_liquidity(
         netuid: NetUid,
@@ -256,71 +278,29 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         )
     }
 
-    #[transactional]
-    fn sell_alpha_for(
+    fn recycle_alpha(
         coldkey: &T::AccountId,
         hotkey: &T::AccountId,
         netuid: NetUid,
-        want: TaoBalance,
-        budget: AlphaBalance,
-    ) -> Result<(AlphaBalance, TaoBalance), DispatchError> {
-        swap_until(
-            want,
-            budget,
-            |gap| T::SwapInterface::alpha_needed_for_tao(netuid, gap),
-            |alpha| {
-                <Self as DerivativesPoolInterface<T::AccountId>>::sell_alpha_internal(
-                    coldkey, hotkey, netuid, alpha,
-                )
-            },
-        )
-    }
-
-    fn transfer_stake_internal(
-        from_coldkey: &T::AccountId,
-        from_hotkey: &T::AccountId,
-        to_coldkey: &T::AccountId,
-        to_hotkey: &T::AccountId,
-        netuid: NetUid,
-        amount: AlphaBalance,
+        alpha: AlphaBalance,
     ) -> DispatchResult {
-        ensure!(
-            Self::derivatives_pool_present(netuid),
-            Error::<T>::SubnetNotExists
-        );
-        // Stake on a hotkey with no owner cannot be moved out again by anyone.
-        ensure!(
-            Self::hotkey_account_exists(to_hotkey),
-            Error::<T>::HotKeyAccountNotExists
-        );
-        if amount.is_zero() {
+        ensure!(Self::if_subnet_exist(netuid), Error::<T>::SubnetNotExists);
+        if alpha.is_zero() {
             return Ok(());
         }
-        let held =
-            Self::get_stake_for_hotkey_and_coldkey_on_subnet(from_hotkey, from_coldkey, netuid);
-        ensure!(held >= amount, Error::<T>::NotEnoughStakeToWithdraw);
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
-            from_hotkey,
-            from_coldkey,
-            netuid,
-            amount,
+        let held = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid);
+        ensure!(held >= alpha, Error::<T>::NotEnoughStakeToWithdraw);
+        ensure!(
+            SubnetAlphaOut::<T>::get(netuid) >= alpha,
+            Error::<T>::InsufficientLiquidity
         );
-        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            to_hotkey, to_coldkey, netuid, amount,
-        );
+        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, coldkey, netuid, alpha);
+        Self::recycle_subnet_alpha(netuid, alpha);
         Ok(())
     }
 
     fn hotkey_exists(hotkey: &T::AccountId) -> bool {
         Self::hotkey_account_exists(hotkey)
-    }
-
-    fn quote_buy_alpha(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance {
-        T::SwapInterface::tao_needed_for_alpha(netuid, alpha)
-    }
-
-    fn quote_sell_alpha(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance {
-        T::SwapInterface::tao_out_for_alpha(netuid, alpha)
     }
 
     #[transactional]
@@ -343,22 +323,14 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
         Self::transfer_tao_from_subnet(netuid, to_coldkey, tao)
     }
 
-    /// Quoted, not executed: the balancer is still in storage while the subnet dissolves, and
-    /// these are the exact fee-free amounts its swap would move.
-    fn dissolution_price(
-        netuid: NetUid,
-        alpha_owed: AlphaBalance,
-        alpha_held: AlphaBalance,
-    ) -> (TaoBalance, AlphaBalance) {
-        if alpha_owed > alpha_held {
-            let buy = alpha_owed.saturating_sub(alpha_held);
-            (T::SwapInterface::tao_needed_for_alpha(netuid, buy), buy)
-        } else if alpha_held > alpha_owed {
-            let sell = alpha_held.saturating_sub(alpha_owed);
-            (T::SwapInterface::tao_out_for_alpha(netuid, sell), sell)
-        } else {
-            <Self as DerivativesPoolInterface<T::AccountId>>::reserves(netuid)
-        }
+    /// The balancer's spot price, as `(tao, alpha)` in 32.32 fixed point: `price * 2^32` TAO
+    /// per `2^32` alpha. The balancer is still in storage while the subnet dissolves.
+    fn spot_price(netuid: NetUid) -> (TaoBalance, AlphaBalance) {
+        let bits = T::SwapInterface::current_alpha_price(netuid).to_bits();
+        (
+            TaoBalance::from(u64::try_from(bits >> 32).unwrap_or(u64::MAX)),
+            AlphaBalance::from(1u64 << 32),
+        )
     }
 
     #[cfg(feature = "runtime-benchmarks")]

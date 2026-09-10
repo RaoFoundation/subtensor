@@ -189,3 +189,6 @@ class LimitOrders:
 
 class Derivatives:
     PalletId = Item('Derivatives', 'PalletId')
+    MaxShortLeverage = Item('Derivatives', 'MaxShortLeverage')
+    MaxLongLeverage = Item('Derivatives', 'MaxLongLeverage')
+    MinDeposit = Item('Derivatives', 'MinDeposit')

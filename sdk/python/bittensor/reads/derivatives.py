@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .._generated import constants
 from .._generated import storage as st
 from ..balance import Balance
 from .base import read
 
-# Mirrors `BLOCKS_PER_DAY` in the pallet: the rent is set per year, carried per
-# day, and accrues per block on top of the day each add books up front.
-_BLOCKS_PER_DAY = 7_200
-_PERBILL = 1_000_000_000
+# Mirrors `BLOCKS_PER_YEAR` in the pallet: the interest is a yearly rate accrued per block.
+_BLOCKS_PER_YEAR = 365 * 7_200
 _PERCENT = 100
 
 
@@ -22,9 +21,9 @@ def _variant(value: Any) -> str:
     return str(value)
 
 
-def _fee_owed_rao(fee_accrued_rao: int, fee_per_day_rao: int, blocks_since_touch: int) -> int:
-    """Mirrors the pallet's `Position::fee_owed`: the booked balance plus the rate since."""
-    return fee_accrued_rao + fee_per_day_rao * max(0, blocks_since_touch) // _BLOCKS_PER_DAY
+def _interest_due_rao(interest_owed: int, interest_per_year: int, blocks_since: int) -> int:
+    """Mirrors the pallet's `Position::interest_due`: the carried balance plus the rate since."""
+    return interest_owed + interest_per_year * max(0, blocks_since) // _BLOCKS_PER_YEAR
 
 
 def _settle_quote_rao(side: str, alpha_rao: int, tao_reserve: int, alpha_reserve: int) -> int:
@@ -41,14 +40,13 @@ def _settle_quote_rao(side: str, alpha_rao: int, tao_reserve: int, alpha_reserve
     return tao_reserve * alpha_rao // (alpha_reserve + alpha_rao)
 
 
-def _equity_rao(cushion: int, side: str, proceeds: int, debt: int, quote: int, fee: int) -> int:
-    """Mirrors `Position::equity`: what a full close would leave the owner, in TAO rao.
-
-    `cushion` is the cushion's TAO value: its TAO plus what its alpha would sell for.
-    """
+def _equity_rao(
+    cushion: int, side: str, proceeds: int, debt: int, quote: int, interest: int
+) -> int:
+    """Mirrors `Position::equity`: what a full close would leave the owner, in TAO rao."""
     if side == "Short":
-        return cushion + proceeds - quote - fee
-    return cushion + quote - debt - fee
+        return cushion + proceeds - quote - interest
+    return cushion + quote - debt - interest
 
 
 def _legs(view, legs: Any, netuid: int) -> dict:
@@ -78,17 +76,6 @@ def _legs(view, legs: Any, netuid: int) -> dict:
     }
 
 
-def _cushion(view, cushion: Any, netuid: int) -> dict:
-    """The `Cushion` struct: TAO, alpha, and the hotkey the alpha goes back to."""
-    cushion = cushion if isinstance(cushion, dict) else {}
-    hotkey = cushion.get("alpha_hotkey")
-    return {
-        "tao": Balance.from_rao(int(cushion.get("tao") or 0)),
-        "alpha": view.balance(int(cushion.get("alpha") or 0), netuid),
-        "alpha_hotkey": None if hotkey is None else str(hotkey),
-    }
-
-
 async def _reserves(view, netuid: int) -> tuple[int, int]:
     tao = await view.query(st.SubtensorModule.SubnetTAO, [netuid])
     alpha = await view.query(st.SubtensorModule.SubnetAlphaIn, [netuid])
@@ -100,61 +87,38 @@ def _position_record(
 ) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
-    cushion = _cushion(view, raw.get("cushion"), netuid)
+    cushion = int(raw.get("cushion") or 0)
     exposure = int(raw.get("exposure_tao") or 0)
-    fee_per_day = int(raw.get("fee_per_day") or 0)
-    fee_accrued = int(raw.get("fee_accrued") or 0)
-    last_touch = int(raw.get("last_touch") or 0)
-    opened_at = int(raw.get("opened_at") or 0)
+    interest_per_year = int(raw.get("interest_per_year") or 0)
+    interest_owed = int(raw.get("interest_owed") or 0)
+    since = int(raw.get("since") or 0)
+    due = int(raw.get("due") or 0)
     legs = _legs(view, raw.get("legs"), netuid)
     side = legs["side"]
-    fee_owed = _fee_owed_rao(fee_accrued, fee_per_day, now - last_touch)
+    interest_due = _interest_due_rao(interest_owed, interest_per_year, now - since)
     # What changes hands in alpha: a short buys its debt back, a long sells its proceeds.
     alpha_to_settle = legs["debt"].rao if side == "Short" else legs["proceeds"].rao
     quote = _settle_quote_rao(side, alpha_to_settle, *reserves)
-    # An alpha cushion is worth what it would sell for now.
-    cushion_alpha_tao = (
-        _settle_quote_rao("Long", cushion["alpha"].rao, *reserves) if cushion["alpha"].rao else 0
-    )
-    cushion_value = cushion["tao"].rao + cushion_alpha_tao
-    equity = _equity_rao(
-        cushion_value, side, legs["proceeds"].rao, legs["debt"].rao, quote, fee_owed
-    )
+    equity = _equity_rao(cushion, side, legs["proceeds"].rao, legs["debt"].rao, quote, interest_due)
+    # How long the cushion keeps paying at this rate before the chain forfeits the position.
+    left = cushion - interest_due
+    runway_days = left / interest_per_year * 365 if interest_per_year else None
     return {
         "coldkey": coldkey,
         "netuid": netuid,
         "side": side,
-        "leverage": exposure / cushion_value if cushion_value else 0.0,
-        "cushion": cushion["tao"],
-        "cushion_alpha": cushion["alpha"],
-        "cushion_alpha_hotkey": cushion["alpha_hotkey"],
-        "cushion_value_tao": Balance.from_rao(cushion_value),
+        "leverage": exposure / cushion if cushion else 0.0,
+        "cushion": Balance.from_rao(cushion),
         "proceeds": legs["proceeds"],
         "debt": legs["debt"],
         "escrow": legs["escrow"],
         "exposure_tao": Balance.from_rao(exposure),
-        "fee_per_day_tao": Balance.from_rao(fee_per_day),
-        "opened_at": opened_at,
-        "last_touch": last_touch,
-        "blocks_open": max(0, now - opened_at),
-        "accrued_fee_tao": Balance.from_rao(fee_owed),
+        "interest_per_year_tao": Balance.from_rao(interest_per_year),
+        "interest_due_tao": Balance.from_rao(interest_due),
+        "since": since,
+        "due": due,
+        "runway_days": runway_days,
         "equity_tao": Balance.from_rao(equity),
-        "healthy": equity >= fee_per_day,
-    }
-
-
-def _params_record(raw: Any) -> dict:
-    raw = raw if isinstance(raw, dict) else {}
-    return {
-        "shorts_enabled": bool(raw.get("shorts_enabled", False)),
-        "longs_enabled": bool(raw.get("longs_enabled", False)),
-        "max_short_leverage_percent": int(raw.get("max_short_leverage_percent") or 0),
-        "max_long_leverage_percent": int(raw.get("max_long_leverage_percent") or 0),
-        "alpha_cushion_shorts": bool(raw.get("alpha_cushion_shorts", False)),
-        "alpha_cushion_longs": bool(raw.get("alpha_cushion_longs", False)),
-        "max_pool_share": int(raw.get("max_pool_share") or 0) / _PERCENT,
-        "rate_per_year": int(raw.get("rate_per_year") or 0) / _PERBILL,
-        "min_deposit_tao": Balance.from_rao(int(raw.get("min_deposit_tao") or 0)),
     }
 
 
@@ -164,52 +128,34 @@ def _params_record(raw: Any) -> dict:
     category="Prices & swaps",
 )
 async def derivatives_params(view) -> dict:
-    """The derivatives pallet's root-set global parameters.
+    """The derivatives pallet's two root-set parameters, plus its constants.
 
-    `max_short_leverage_percent` and `max_long_leverage_percent` bound the
-    leverage an owner may choose per side (`100` = 1x), and `max_pool_share`
-    caps how much of a pool's reserve may be lent per side.
-    `alpha_cushion_shorts` and `alpha_cushion_longs` say whether that side
-    accepts an alpha cushion; TAO is always accepted. The rent is one rate for
-    both sides, `rate_per_year` of a tranche's TAO exposure, fixed when the
-    tranche is added: one day is booked at the add, the rest accrues per block
-    and is paid at each settlement. There is no term. A position runs until its
-    owner closes it or its equity drops below one day of rent, after which
-    anyone may close it. A subnet may override the switches, the cap, and the
-    rate; see `derivatives_subnet_override`.
+    `pool_share` is the largest share of a pool's reserve that all open
+    positions of one side may borrow together; zero means root has paused new
+    positions. `interest_rate` is the interest, as a fraction of a tranche's TAO
+    exposure per year, the same for both sides, fixed when the tranche is
+    added and accrued per block; once a week, on the position's own block, the
+    chain takes it from the cushion, buys alpha with it, and recycles the alpha.
+    Both are fractions (`0.25` = 25%).
+
+    The rest are fixed by the runtime: `max_short_leverage` and
+    `max_long_leverage` bound the leverage an owner may choose per side (`1.0`
+    = 1x), and `min_deposit_tao` is the smallest deposit one add may put up.
     """
-    return _params_record(await view.query(st.Derivatives.Params))
-
-
-def _override_record(raw: Any) -> Optional[dict]:
-    if not isinstance(raw, dict):
-        return None
-    share = raw.get("max_pool_share")
-    rate = raw.get("rate_per_year")
+    view = await view.at()
+    raw = await view.query(st.Derivatives.Params)
+    raw = raw if isinstance(raw, dict) else {}
     return {
-        "shorts_enabled": bool(raw.get("shorts_enabled", False)),
-        "longs_enabled": bool(raw.get("longs_enabled", False)),
-        "max_pool_share": None if share is None else int(share) / _PERCENT,
-        "rate_per_year": None if rate is None else int(rate) / _PERBILL,
+        "pool_share": int(raw.get("pool_share") or 0) / _PERCENT,
+        "interest_rate": int(raw.get("interest_rate") or 0) / _PERCENT,
+        "max_short_leverage": int(await view.constant(constants.Derivatives.MaxShortLeverage))
+        / _PERCENT,
+        "max_long_leverage": int(await view.constant(constants.Derivatives.MaxLongLeverage))
+        / _PERCENT,
+        "min_deposit_tao": Balance.from_rao(
+            int(await view.constant(constants.Derivatives.MinDeposit))
+        ),
     }
-
-
-@read(
-    "derivatives_subnet_override",
-    {"netuid": "integer"},
-    category="Prices & swaps",
-    param_docs={"netuid": "Subnet to look up."},
-)
-async def derivatives_subnet_override(view, netuid: int) -> Optional[dict]:
-    """Root-set per-subnet overrides of the derivatives parameters, or None.
-
-    None means the subnet runs on the global `derivatives_params`. When set,
-    `shorts_enabled` and `longs_enabled` replace the global switches for adds
-    on this subnet, and `max_pool_share` and `rate_per_year` replace the global
-    cap and rent when they are not None. Open positions are unaffected: a
-    paused side can still be reduced and closed.
-    """
-    return _override_record(await view.query(st.Derivatives.SubnetOverrides, [netuid]))
 
 
 @read(
@@ -225,21 +171,21 @@ async def derivative_position(view, coldkey_ss58: str, netuid: int) -> Optional[
     """A coldkey's open position on a subnet, or None. There is at most one.
 
     `side` is the direction of its net exposure. `cushion` is the TAO the owner
-    has put up and `cushion_alpha` the alpha, returned to `cushion_alpha_hotkey`;
-    `cushion_value_tao` prices both in TAO and `leverage` is `exposure_tao`
-    over that, the blend of every tranche added. `proceeds`, `debt`, and
-    `escrow` are the position's `legs`, each already in its own token: a short
-    holds TAO proceeds and TAO escrow and owes alpha; a long holds alpha
-    proceeds and alpha escrow and owes TAO. `fee_per_day_tao` is the summed
-    rent of its tranches; `accrued_fee_tao` is what would be charged if settled
-    now. There is no expiry: a position runs while it pays.
+    has put up and `leverage` is `exposure_tao` over it, the blend of every
+    tranche added. `proceeds`, `debt`, and `escrow` are the position's `legs`,
+    each already in its own token: a short holds TAO proceeds and TAO escrow
+    and owes alpha; a long holds alpha proceeds and alpha escrow and owes TAO.
+    `interest_per_year_tao` is the summed interest of its tranches;
+    `interest_due_tao` is what has accrued since the chain last collected, at
+    block `since`; `due` is the block it collects next, one week after the last
+    time. `runway_days` is how long the cushion keeps paying at this rate; at a
+    collection it cannot pay, the chain forfeits the position to the pool and
+    the owner gets nothing. Add cushion to extend it. There is no expiry, and
+    only the owner can close.
 
     `equity_tao` is an estimate of what a close now would pay the owner:
-    cushion value plus proceeds, less debt priced on a constant-product curve,
-    less the rent owed. Negative means underwater. `healthy` is whether that
-    equity still covers one more day of rent; when it does not, anyone may
-    close the position with `close_derivative` and is paid the rent for it.
-    The chain's own quote decides; this is a preview.
+    cushion plus proceeds, less debt priced on a constant-product curve, less
+    the interest due. The chain's own quote decides; this is a preview.
     """
     view = await view.at()
     raw = await view.query(st.Derivatives.Positions, [coldkey_ss58, netuid])
@@ -281,12 +227,8 @@ async def derivative_positions(view, coldkey_ss58: str) -> list[dict]:
     param_docs={"netuid": "Subnet whose open positions to list."},
 )
 async def derivative_positions_on_subnet(view, netuid: int) -> list[dict]:
-    """Every open position on a subnet, whoever owns it. Same fields as
-    `derivative_position`.
-
-    The list a liquidator works from: filter on `healthy` being False and call
-    `close_derivative` with that `coldkey` as `owner_ss58`.
-    """
+    """Every open position on a subnet, whoever owns it, largest exposure first.
+    Same fields as `derivative_position`."""
     view = await view.at()
     owners = await view.query_map(st.Derivatives.OpenByNetuid, [netuid])
     reserves = await _reserves(view, netuid)
@@ -297,5 +239,5 @@ async def derivative_positions_on_subnet(view, netuid: int) -> list[dict]:
         record = _position_record(view, coldkey, netuid, raw, view.block, reserves)
         if record:
             records.append(record)
-    records.sort(key=lambda r: r["equity_tao"].rao)
+    records.sort(key=lambda r: -r["exposure_tao"].rao)
     return records
