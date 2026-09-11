@@ -106,6 +106,14 @@ DESCRIPTIONS: dict[str, str] = {
         "liquidity. Trade a smaller amount, or pick a deeper pool; query `validator_basket` "
         "for the current holding and `subnet` for the pool's alpha reserve."
     ),
+    "BasketMinOutNotMet": (
+        "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set "
+        "(destination alpha, or TAO when the destination is netuid 0), so the whole trade "
+        "rolled back; nothing moved. The pool moved between your quote and execution, or "
+        "the floor was set above what the trade could ever yield. Re-quote and retry, or "
+        "widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 "
+        "disables this check; the 2% protocol band still applies."
+    ),
     "BasketSameSubnet": (
         "`swap_basket` was called with the same origin and destination netuid. A basket "
         "trade sells one holding to buy another; pick two different subnets (netuid 0 is "
