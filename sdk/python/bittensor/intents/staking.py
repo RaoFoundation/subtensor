@@ -1714,7 +1714,8 @@ class SwapBasket(Intent):
 
     Guardrails enforced on chain: each AMM leg must fill fully within 2% of
     the subnet's moving price (``SlippageTooHigh`` otherwise); the TAO through
-    the middle is charged against the fund's daily turnover budget
+    the middle is taken from the fund's turnover bucket, which holds
+    ``BasketDailyTurnoverCap`` of NAV and refills over 7200 blocks
     (``BasketTurnoverBudgetExceeded``); the destination holding may not end
     above the ``BasketLiquidityCap`` share of the destination pool's alpha
     reserve (``BasketLiquidityCapExceeded``) nor above the ``RootWeightsCap``

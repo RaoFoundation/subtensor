@@ -46,7 +46,7 @@ impl<T: Config> Pallet<T> {
     /// Guardrails (see the storage docs on [`crate::BasketDailyTurnoverCap`]):
     /// * each AMM leg must fill fully within [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of
     ///   both the subnet's moving (EMA) price and its spot price;
-    /// * the TAO through the middle is charged against the fund's per-window turnover budget;
+    /// * the TAO through the middle is taken from the fund's turnover bucket;
     /// * the destination holding may not end above [`crate::BasketLiquidityCap`] of the
     ///   destination pool's alpha reserve;
     /// * the destination holding may not end above [`crate::RootWeightsCap`] of fund NAV.
@@ -270,22 +270,21 @@ impl<T: Config> Pallet<T> {
         Ok(limit.saturating_to_num::<u64>().into())
     }
 
-    /// Charge `tao_mid` against the fund's per-window turnover budget
-    /// (`nav_before × BasketDailyTurnoverCap / u16::MAX`), rolling the window when
-    /// [`crate::BASKET_TRADE_WINDOW_BLOCKS`] have passed since it opened.
+    /// Take `tao_mid` out of the fund's turnover bucket after refilling it for the blocks
+    /// elapsed (capacity `nav_before × BasketDailyTurnoverCap / u16::MAX`, full refill over
+    /// [`crate::BASKET_TRADE_REFILL_BLOCKS`]).
     fn consume_basket_trade_budget(
         hotkey: &T::AccountId,
         nav_before: u64,
         tao_mid: u64,
     ) -> DispatchResult {
         let now = Self::get_current_block_as_u64();
-        let (window_start, tao_used) = Self::basket_trade_window_at(hotkey, now);
         let budget = Self::basket_trade_budget_tao(nav_before);
-        let new_used = tao_used
-            .checked_add(tao_mid)
+        let available = Self::basket_trade_bucket_at(hotkey, now, budget);
+        let remaining = available
+            .checked_sub(tao_mid)
             .ok_or(Error::<T>::BasketTurnoverBudgetExceeded)?;
-        ensure!(new_used <= budget, Error::<T>::BasketTurnoverBudgetExceeded);
-        BasketTradeWindow::<T>::insert(hotkey, (window_start, new_used));
+        BasketTradeBucket::<T>::insert(hotkey, (remaining, now));
         Ok(())
     }
 

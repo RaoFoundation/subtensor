@@ -20,8 +20,8 @@ use crate::tests::claim_root::{
 };
 use crate::tests::mock::*;
 use crate::{
-    BASKET_TRADE_WINDOW_BLOCKS, BasketClaimed, BasketDailyTurnoverCap, BasketLiquidityCap,
-    BasketRate, BasketShares, BasketTradeWindow, BasketTradingEnabled, BasketTradingFrozen,
+    BASKET_TRADE_REFILL_BLOCKS, BasketClaimed, BasketDailyTurnoverCap, BasketLiquidityCap,
+    BasketRate, BasketShares, BasketTradeBucket, BasketTradingEnabled, BasketTradingFrozen,
     ColdkeySwapAnnouncements, DEFAULT_BASKET_DAILY_TURNOVER_CAP, DefaultMinStake, Error, Event,
     NetworksAdded, RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice,
     SubnetProtocolFlow, SubnetTAO, SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
@@ -139,10 +139,10 @@ fn author_balance() -> u64 {
     SubtensorModule::get_coldkey_balance(&U256::from(MOCK_BLOCK_BUILDER)).to_u64()
 }
 
-/// Forget the fund's turnover window so consecutive whole-holding trades in one test are
+/// Refill the fund's turnover bucket so consecutive whole-holding trades in one test are
 /// not limited by the budget (budget behaviour has its own tests).
-fn reset_turnover_window(hotkey: &U256) {
-    BasketTradeWindow::<Test>::remove(hotkey);
+fn refill_turnover_bucket(hotkey: &U256) {
+    BasketTradeBucket::<Test>::remove(hotkey);
 }
 
 /// `(alpha_sold, tao_mid, alpha_bought)` of the most recent `BasketSwapped` event.
@@ -290,7 +290,7 @@ fn test_swap_basket_root_to_alpha_debits_reserves_in_lockstep() {
         ));
         let cash = escrow_alpha(&fund.hotkey, NetUid::ROOT);
         assert!(cash > 0);
-        reset_turnover_window(&fund.hotkey);
+        refill_turnover_bucket(&fund.hotkey);
 
         let before = entitlements(&fund);
         let nav_before = nav(&fund.hotkey);
@@ -704,7 +704,7 @@ fn test_swap_basket_fills_just_inside_band() {
 }
 
 /// A `swap_basket` refusal after the sell leg has already executed rolls the whole trade
-/// back: holdings, reserves, TotalStake, author fee, and the turnover window are untouched.
+/// back: holdings, reserves, TotalStake, author fee, and the turnover bucket are untouched.
 #[test]
 fn test_swap_basket_failed_second_leg_leaves_no_partial_state() {
     new_test_ext(1).execute_with(|| {
@@ -718,7 +718,7 @@ fn test_swap_basket_failed_second_leg_leaves_no_partial_state() {
         let alpha_in_a = SubnetAlphaIn::<Test>::get(fund.netuid_a);
         let ts = TotalStake::<Test>::get();
         let author = author_balance();
-        let window = BasketTradeWindow::<Test>::get(fund.hotkey);
+        let bucket = BasketTradeBucket::<Test>::get(fund.hotkey);
         let flow_a = SubnetProtocolFlow::<Test>::get(fund.netuid_a);
         let before = entitlements(&fund);
 
@@ -734,7 +734,7 @@ fn test_swap_basket_failed_second_leg_leaves_no_partial_state() {
             author,
             "rolled-back fee must not reach the author"
         );
-        assert_eq!(BasketTradeWindow::<Test>::get(fund.hotkey), window);
+        assert_eq!(BasketTradeBucket::<Test>::get(fund.hotkey), bucket);
         assert_eq!(SubnetProtocolFlow::<Test>::get(fund.netuid_a), flow_a);
         assert_eq!(entitlements(&fund), before);
         assert!(!System::events().iter().any(|e| matches!(
@@ -748,10 +748,11 @@ fn test_swap_basket_failed_second_leg_leaves_no_partial_state() {
 // Guardrail: turnover budget
 // =============================================================================
 
-/// The TAO through the middle accumulates in the window, refuses at the cap, and the
-/// window rolls after `BASKET_TRADE_WINDOW_BLOCKS`.
+/// The TAO through the middle drains the turnover bucket, refuses when the bucket cannot
+/// cover a trade, refills continuously at `budget / BASKET_TRADE_REFILL_BLOCKS` per block,
+/// and clamps at one full budget.
 #[test]
-fn test_swap_basket_turnover_budget_accumulates_refuses_and_rolls() {
+fn test_swap_basket_turnover_bucket_drains_refuses_and_refills() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         BasketDailyTurnoverCap::<Test>::put(DEFAULT_BASKET_DAILY_TURNOVER_CAP);
@@ -762,51 +763,69 @@ fn test_swap_basket_turnover_budget_accumulates_refuses_and_rolls() {
             "budget = {budget}"
         );
         let start = System::block_number();
-        assert!(
-            start > 0,
-            "the first trade must open the window at the current block"
-        );
-        assert_eq!(BasketTradeWindow::<Test>::get(fund.hotkey), (0, 0));
-        assert_eq!(
-            SubtensorModule::get_basket_trading_status(&fund.hotkey).window_start_block,
-            start
-        );
+
+        // A fund that has never traded has a full bucket and no stored row.
+        assert_eq!(BasketTradeBucket::<Test>::get(fund.hotkey), None);
+        let status = SubtensorModule::get_basket_trading_status(&fund.hotkey);
+        assert_eq!(status.tao_available.to_u64(), budget);
+        assert_eq!(status.budget_tao.to_u64(), budget);
+        assert_eq!(status.refill_blocks, BASKET_TRADE_REFILL_BLOCKS);
 
         assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
         let (_, mid_1, _) = last_swap_event();
-        assert_eq!(BasketTradeWindow::<Test>::get(fund.hotkey), (start, mid_1));
+        assert_eq!(
+            BasketTradeBucket::<Test>::get(fund.hotkey),
+            Some((budget - mid_1, start))
+        );
 
         assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
         let (_, mid_2, _) = last_swap_event();
         assert_eq!(
-            BasketTradeWindow::<Test>::get(fund.hotkey),
-            (start, mid_1 + mid_2),
-            "tao_used is the sum of tao_mid across the window"
+            BasketTradeBucket::<Test>::get(fund.hotkey),
+            Some((budget - mid_1 - mid_2, start)),
+            "each trade takes its tao_mid out of the bucket"
         );
 
         assert_noop!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
-        // The view agrees with what a trade would be charged against.
+        // The view agrees with what a trade would be allowed right now.
         let status = SubtensorModule::get_basket_trading_status(&fund.hotkey);
-        assert_eq!(status.window_start_block, start);
-        assert_eq!(status.tao_used.to_u64(), mid_1 + mid_2);
+        assert_eq!(status.tao_available.to_u64(), budget - mid_1 - mid_2);
         assert!(status.enabled && !status.frozen);
 
-        // One block short of the roll: still refused.
-        System::set_block_number(start + BASKET_TRADE_WINDOW_BLOCKS - 1);
+        // Half a refill period later the bucket has gained ~half a budget: one more trade
+        // fits, the next does not.
+        System::set_block_number(start + BASKET_TRADE_REFILL_BLOCKS / 2);
+        let status = SubtensorModule::get_basket_trading_status(&fund.hotkey);
+        let expected = budget - mid_1 - mid_2 + budget / 2;
+        assert!(
+            status.tao_available.to_u64().abs_diff(expected) <= budget / 1_000,
+            "available {} vs expected {expected}",
+            status.tao_available
+        );
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
         assert_noop!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
 
-        // At the roll a fresh window opens, charged only with this trade.
-        let rolled = start + BASKET_TRADE_WINDOW_BLOCKS;
-        System::set_block_number(rolled);
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
-        let (_, mid_3, _) = last_swap_event();
-        assert_eq!(BasketTradeWindow::<Test>::get(fund.hotkey), (rolled, mid_3));
+        // A full refill period after the last trade the bucket is full again — and no
+        // fuller: the level clamps at one budget.
+        System::set_block_number(
+            start + BASKET_TRADE_REFILL_BLOCKS / 2 + BASKET_TRADE_REFILL_BLOCKS,
+        );
+        let budget_now = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        let status = SubtensorModule::get_basket_trading_status(&fund.hotkey);
+        assert_eq!(status.tao_available.to_u64(), budget_now);
+        System::set_block_number(start + 10 * BASKET_TRADE_REFILL_BLOCKS);
+        let status = SubtensorModule::get_basket_trading_status(&fund.hotkey);
+        assert_eq!(
+            status.tao_available.to_u64(),
+            budget_now,
+            "clamped at one budget"
+        );
     });
 }
 
@@ -817,10 +836,14 @@ fn test_swap_basket_turnover_charges_root_origin_at_face() {
         let fund = setup_fund();
         assert_ok!(swap(&fund, fund.netuid_a, NetUid::ROOT, 3 * TRADE));
         let start = System::block_number();
-        BasketTradeWindow::<Test>::remove(fund.hotkey);
+        refill_turnover_bucket(&fund.hotkey);
+        let budget = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
 
         assert_ok!(swap(&fund, NetUid::ROOT, fund.netuid_b, TRADE));
-        assert_eq!(BasketTradeWindow::<Test>::get(fund.hotkey), (start, TRADE));
+        assert_eq!(
+            BasketTradeBucket::<Test>::get(fund.hotkey),
+            Some((budget - TRADE, start))
+        );
     });
 }
 
@@ -873,7 +896,7 @@ fn test_swap_basket_allows_selling_out_of_over_cap_position() {
             escrow_alpha(&fund.hotkey, fund.netuid_a)
         ));
         assert_eq!(escrow_alpha(&fund.hotkey, fund.netuid_a), 0);
-        reset_turnover_window(&fund.hotkey);
+        refill_turnover_bucket(&fund.hotkey);
         RootWeightsCap::<Test>::insert(NetUid::ROOT, u16::MAX / 2);
         let held_b = escrow_alpha(&fund.hotkey, fund.netuid_b);
 
@@ -910,7 +933,7 @@ fn test_swap_basket_concentration_cap_skipped_on_young_chain() {
 // =============================================================================
 
 #[test]
-fn test_swap_basket_freeze_and_window_follow_hotkey_swap() {
+fn test_swap_basket_freeze_and_bucket_follow_hotkey_swap() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
         let new_hotkey = U256::from(10030);
@@ -919,8 +942,7 @@ fn test_swap_basket_freeze_and_window_follow_hotkey_swap() {
         let _ = SubtensorModule::create_account_if_non_existent(&fund.coldkey, &new_hotkey);
 
         assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
-        let window = BasketTradeWindow::<Test>::get(fund.hotkey);
-        assert!(window.1 > 0);
+        let bucket = BasketTradeBucket::<Test>::get(fund.hotkey).expect("trade stores the bucket");
         BasketTradingFrozen::<Test>::insert(fund.hotkey, ());
 
         let mut weight = Weight::zero();
@@ -932,11 +954,11 @@ fn test_swap_basket_freeze_and_window_follow_hotkey_swap() {
             false,
         ));
 
-        // The freeze is copied (the old key stays frozen too), the window moves.
+        // The freeze is copied (the old key stays frozen too), the bucket moves.
         assert!(BasketTradingFrozen::<Test>::contains_key(new_hotkey));
         assert!(BasketTradingFrozen::<Test>::contains_key(fund.hotkey));
-        assert_eq!(BasketTradeWindow::<Test>::get(new_hotkey), window);
-        assert_eq!(BasketTradeWindow::<Test>::get(fund.hotkey), (0, 0));
+        assert_eq!(BasketTradeBucket::<Test>::get(new_hotkey), Some(bucket));
+        assert_eq!(BasketTradeBucket::<Test>::get(fund.hotkey), None);
 
         // `register_on_root` only writes `Uids` (no `Keys` row), so the subnet-scoped swap
         // above cannot carry the root seat over; give the new hotkey its seat directly.
@@ -952,8 +974,14 @@ fn test_swap_basket_freeze_and_window_follow_hotkey_swap() {
             Error::<Test>::BasketTradingFrozen
         );
         BasketTradingFrozen::<Test>::remove(new_hotkey);
-        // And the moved window is what the next trade is charged against.
+        // And the moved bucket is what the next trade draws from: tightening the cap clamps
+        // the carried level to the new (smaller) budget, then the trade takes its tao_mid.
         BasketDailyTurnoverCap::<Test>::put(DEFAULT_BASKET_DAILY_TURNOVER_CAP);
+        let budget = SubtensorModule::basket_trade_budget_tao(nav(&new_hotkey));
+        assert!(
+            bucket.0 > budget,
+            "carried level exceeds the tightened budget"
+        );
         let held_b = escrow_alpha(&new_hotkey, new_fund.netuid_b);
         assert_ok!(swap(
             &new_fund,
@@ -963,8 +991,8 @@ fn test_swap_basket_freeze_and_window_follow_hotkey_swap() {
         ));
         let (_, mid, _) = last_swap_event();
         assert_eq!(
-            BasketTradeWindow::<Test>::get(new_hotkey),
-            (window.0, window.1 + mid)
+            BasketTradeBucket::<Test>::get(new_hotkey),
+            Some((budget - mid, System::block_number()))
         );
     });
 }
@@ -1169,57 +1197,65 @@ fn finding_2_1_thin_pool_drain_is_stopped_by_liquidity_cap() {
     });
 }
 
-/// Finding §2.2 (Medium): the turnover window is a fixed interval with a lazy reset, so a
-/// trader can spend one full budget at block `start + 7199` and another at `start + 7200`
-/// — 2× the daily cap in two adjacent blocks. Documents current behaviour; flip when a
-/// token-bucket budget (§5.2) lands.
+/// Finding §2.2 (Medium), fixed by the token bucket (§5.2): a fixed window with a lazy
+/// reset let a trader spend one full budget at block `start + 7199` and another at
+/// `start + 7200`. With the bucket, spending the budget empties it, the very next block
+/// refills only `budget / 7200`, and two adjacent blocks can never move more than one
+/// budget (plus one block of refill).
 #[test]
-fn finding_2_2_window_boundary_lets_two_budgets_through_in_adjacent_blocks() {
+fn finding_2_2_bucket_denies_a_second_budget_in_the_adjacent_block() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        // The window mechanics do not depend on the cap value; a 50% cap keeps the
-        // window-opening trade (which must clear `DefaultMinStake`) small next to the budget.
         BasketDailyTurnoverCap::<Test>::put(u16::MAX / 2);
         let budget = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
-
-        // Open the window with one minimal trade at `start`; it is not part of the burst.
         let start = System::block_number();
-        let opener = DefaultMinStake::<Test>::get().to_u64() * 101 / 100;
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, opener));
-        let (_, opening) = BasketTradeWindow::<Test>::get(fund.hotkey);
-        assert!(opening > 0 && opening < budget / 10);
 
-        // Penultimate block of the window: spend everything that is left of the budget.
-        // Two slices sized from the remaining budget fit (tao_mid trails alpha by the fee).
-        System::set_block_number(start + BASKET_TRADE_WINDOW_BLOCKS - 1);
-        let remaining = budget - opening;
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, remaining / 2));
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, remaining / 2));
-        let (_, used_first) = BasketTradeWindow::<Test>::get(fund.hotkey);
+        // Spend the whole bucket in this block (two slices; tao_mid trails alpha by the fee).
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, budget / 2));
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, budget / 2));
+        let (level, block) = BasketTradeBucket::<Test>::get(fund.hotkey).expect("bucket stored");
+        assert_eq!(block, start);
         assert!(
-            used_first > budget * 99 / 100,
-            "first window used {used_first} of {budget}"
+            level < budget / 100,
+            "bucket nearly empty: {level} of {budget}"
         );
         assert_noop!(
             swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
-        let burst_first_block = used_first - opening;
+        let moved_first_block = budget - level;
 
-        // Very next block: the window rolls and a whole new budget is available.
-        System::set_block_number(start + BASKET_TRADE_WINDOW_BLOCKS);
-        let budget_2 = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, budget_2 / 2));
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, budget_2 / 2));
-        let (_, burst_second_block) = BasketTradeWindow::<Test>::get(fund.hotkey);
-        assert!(burst_second_block > budget_2 * 99 / 100);
-
-        // Two adjacent blocks moved ~2x the daily cap.
-        let moved_in_two_adjacent_blocks = burst_first_block + burst_second_block;
-        assert!(
-            moved_in_two_adjacent_blocks > budget * 19 / 10,
-            "moved {moved_in_two_adjacent_blocks} across the boundary vs one budget {budget}"
+        // Very next block: only one block's refill is available, far below a second budget.
+        System::set_block_number(start + 1);
+        let per_block = budget / BASKET_TRADE_REFILL_BLOCKS;
+        let status = SubtensorModule::get_basket_trading_status(&fund.hotkey);
+        assert!(status.tao_available.to_u64() <= level + per_block + 1);
+        assert_noop!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, budget / 2),
+            Error::<Test>::BasketTurnoverBudgetExceeded
         );
+        assert_noop!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
+            Error::<Test>::BasketTurnoverBudgetExceeded
+        );
+
+        // Across the two adjacent blocks at most one budget (+ one refill step) moved.
+        assert!(moved_first_block <= budget);
+        assert!(
+            status.tao_available.to_u64() + moved_first_block <= budget + per_block + 1,
+            "two adjacent blocks must not exceed one budget"
+        );
+
+        // A full refill period later the bucket is whole again.
+        System::set_block_number(start + BASKET_TRADE_REFILL_BLOCKS);
+        let budget_now = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        assert_eq!(
+            SubtensorModule::get_basket_trading_status(&fund.hotkey)
+                .tao_available
+                .to_u64(),
+            budget_now
+        );
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, budget_now / 2));
     });
 }
 

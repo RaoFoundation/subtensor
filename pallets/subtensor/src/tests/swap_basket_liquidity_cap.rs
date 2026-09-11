@@ -13,9 +13,9 @@ use crate::tests::claim_root::{
 };
 use crate::tests::mock::*;
 use crate::{
-    BasketDailyTurnoverCap, BasketLiquidityCap, BasketTradingEnabled, Error, Owner,
-    PendingBasketDeposits, RootClaimableThreshold, RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut,
-    SubnetMovingPrice, SubnetTAO, TotalStake,
+    BASKET_TRADE_REFILL_BLOCKS, BasketDailyTurnoverCap, BasketLiquidityCap, BasketTradeBucket,
+    BasketTradingEnabled, Error, Owner, PendingBasketDeposits, RootClaimableThreshold,
+    RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice, SubnetTAO, TotalStake,
 };
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::pallet_prelude::Weight;
@@ -622,7 +622,7 @@ fn test_profit_taking_after_run_up_is_not_blocked_by_band() {
         assert!(legs >= 30, "only {legs} legs");
         assert!(sold > 200_000 * TAO, "sold {sold}");
         // Stopped at the EMA floor, not at the run-up price.
-        assert!(p1 < 1.02 && p1 >= 0.97, "price {p1}");
+        assert!((0.97..1.02).contains(&p1), "price {p1}");
         assert!(escrow_alpha(&hotkey, NetUid::ROOT) > 100 * TAO);
     });
 }
@@ -716,5 +716,67 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
             actual.all_lt(declared_two),
             "actual must refund below declared"
         );
+    });
+}
+
+// ---------------------------------------------------------------------------------------
+// Turnover bucket: clamping and the hotkey-swap carry.
+// ---------------------------------------------------------------------------------------
+
+/// The bucket level is clamped to one *current* budget, so a NAV drop cannot leave a fund
+/// with more spendable turnover than its shrunken budget; a hotkey swap onto a hotkey that
+/// already has a bucket keeps the lower level and the later refill block.
+#[test]
+fn test_turnover_bucket_clamps_to_current_budget_and_carries_conservatively() {
+    new_test_ext(1).execute_with(|| {
+        let hotkey = U256::from(2);
+        let other = U256::from(4);
+        let now = 1_000u64;
+
+        // Never traded: full, whatever the budget.
+        assert_eq!(
+            SubtensorModule::basket_trade_bucket_at(&hotkey, now, 500),
+            500
+        );
+
+        // Stored level above a (shrunken) budget clamps; refill accrues pro rata and clamps.
+        BasketTradeBucket::<Test>::insert(hotkey, (800u64, now));
+        assert_eq!(
+            SubtensorModule::basket_trade_bucket_at(&hotkey, now, 500),
+            500
+        );
+        BasketTradeBucket::<Test>::insert(hotkey, (100u64, now));
+        let quarter = BASKET_TRADE_REFILL_BLOCKS / 4;
+        assert_eq!(
+            SubtensorModule::basket_trade_bucket_at(&hotkey, now + quarter, 1_000),
+            100 + 250
+        );
+        assert_eq!(
+            SubtensorModule::basket_trade_bucket_at(
+                &hotkey,
+                now + BASKET_TRADE_REFILL_BLOCKS,
+                1_000
+            ),
+            1_000
+        );
+        assert_eq!(
+            SubtensorModule::basket_trade_bucket_at(
+                &hotkey,
+                now + 10 * BASKET_TRADE_REFILL_BLOCKS,
+                1_000
+            ),
+            1_000
+        );
+
+        // Carry on hotkey swap: min level, max refill block; the old row is removed.
+        BasketTradeBucket::<Test>::insert(hotkey, (100u64, now + 50));
+        BasketTradeBucket::<Test>::insert(other, (40u64, now + 10));
+        SubtensorModule::transfer_basket_for_new_hotkey(&hotkey, &other);
+        assert_eq!(BasketTradeBucket::<Test>::get(other), Some((40, now + 50)));
+        assert_eq!(BasketTradeBucket::<Test>::get(hotkey), None);
+
+        // A full (unstored) source leaves the destination's bucket as it is.
+        SubtensorModule::transfer_basket_for_new_hotkey(&hotkey, &other);
+        assert_eq!(BasketTradeBucket::<Test>::get(other), Some((40, now + 50)));
     });
 }
