@@ -49,14 +49,14 @@ type SubnetLeaseAllowed = (
     SubnetManagementCalls,
 );
 
-/// `NonTransfer`: excludes liquid value movement, coldkey swaps, and EVM,
-/// Contracts, and Crowdloan calls that can move value indirectly.
+/// `NonTransfer`: excludes liquid value movement, coldkey swaps, EVM,
+/// Contracts, and Crowdloan calls that can move value indirectly, and basket
+/// trading (which needs the explicit `BasketTrading` grant).
 type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
     SudoCalls,
     StakeManagementCalls,
-    BasketTradingCalls,
     PowRegistrationCalls,
     BurnedRegistrationCalls,
     FaucetCalls,
@@ -86,7 +86,8 @@ type NonFungibleAllowed = (
 );
 
 /// `NonCritical`: day-to-day operations including value movement, but no sudo,
-/// network dissolution, root/burned registration, or coldkey swaps.
+/// network dissolution, root/burned registration, coldkey swaps, or basket
+/// trading (which needs the explicit `BasketTrading` grant).
 type NonCriticalAllowed = (
     InfraCommonCalls,
     EvmCalls,
@@ -96,7 +97,6 @@ type NonCriticalAllowed = (
     BalanceTransferCalls,
     BalanceMaintenanceCalls,
     StakeManagementCalls,
-    BasketTradingCalls,
     StakeTransferCalls,
     PowRegistrationCalls,
     FaucetCalls,
@@ -159,8 +159,7 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::SudoUncheckedSetCode
                 | ProxyType::SwapHotkey
                 | ProxyType::SubnetLeaseBeneficiary
-                | ProxyType::RootClaim
-                | ProxyType::BasketTrading,
+                | ProxyType::RootClaim,
             ) => true,
             (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
             _ => false,
@@ -316,6 +315,7 @@ mod tests {
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
+        let denied = &denied | &group_calls::<BasketTradingCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -343,6 +343,7 @@ mod tests {
         let denied = &(&(&group_calls::<SudoCalls>() | &group_calls::<BurnedRegistrationCalls>())
             | &(&group_calls::<RootRegistrationCalls>() | &group_calls::<CriticalNetworkCalls>()))
             | &group_calls::<ColdkeySwapCalls>();
+        let denied = &denied | &group_calls::<BasketTradingCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonCritical),
             &all_runtime_calls() - &denied
@@ -486,7 +487,6 @@ mod tests {
             ProxyType::SwapHotkey,
             ProxyType::SubnetLeaseBeneficiary,
             ProxyType::RootClaim,
-            ProxyType::BasketTrading,
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
@@ -773,35 +773,29 @@ mod tests {
             );
         }
 
-        // `Any` may trade; `NonFungible` (no value movement) may not. The broad
-        // `NonTransfer` / `NonCritical` grants are pinned separately below.
+        // Only `Any` may trade among the broad proxies; `NonFungible` (no value movement)
+        // may not. `NonTransfer` / `NonCritical` are pinned separately below.
         assert!(proxy_type_filter(&ProxyType::Any, &swap_basket));
         assert!(!proxy_type_filter(&ProxyType::NonFungible, &swap_basket));
 
-        // Superset relation: only `Any` and `NonTransfer` cover the trading grant.
+        // Superset relation: only `Any` covers the trading grant.
         let supersets = all_proxy_types()
             .into_iter()
             .filter(|proxy_type| proxy_type.is_superset(&ProxyType::BasketTrading))
             .collect::<BTreeSet<_>>();
         assert_eq!(
             supersets,
-            [
-                ProxyType::Any,
-                ProxyType::NonTransfer,
-                ProxyType::BasketTrading
-            ]
-            .into_iter()
-            .collect::<BTreeSet<_>>()
+            [ProxyType::Any, ProxyType::BasketTrading]
+                .into_iter()
+                .collect::<BTreeSet<_>>()
         );
     }
 
-    /// Documents current behaviour (PR #3150 calibration pass, §3 / §5.6): every existing
-    /// `NonTransfer` and `NonCritical` delegate gains `swap_basket` at upgrade without
-    /// opting in, because `BasketTradingCalls` is included in both allow lists. Expected to
-    /// pass today; flip this test when `swap_basket` is restricted to the explicit
-    /// `BasketTrading` grant.
+    /// `swap_basket` needs the explicit `BasketTrading` grant: the broad `NonTransfer`
+    /// and `NonCritical` delegations do not admit it (PR #3150 calibration pass §5.6),
+    /// so an existing delegate does not gain trading power at upgrade without opting in.
     #[test]
-    fn broad_proxies_currently_admit_swap_basket_without_opt_in() {
+    fn broad_proxies_do_not_admit_swap_basket_without_explicit_grant() {
         use pallet_subtensor::Call as SubtensorCall;
         use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid};
 
@@ -811,10 +805,14 @@ mod tests {
             destination_netuid: NetUid::from(2),
             amount: AlphaBalance::from(1),
         });
-        assert!(proxy_type_filter(&ProxyType::NonTransfer, &swap_basket));
-        assert!(proxy_type_filter(&ProxyType::NonCritical, &swap_basket));
-        assert!(allowed_calls(ProxyType::NonTransfer).contains("SubtensorModule::swap_basket"));
-        assert!(allowed_calls(ProxyType::NonCritical).contains("SubtensorModule::swap_basket"));
+        for broad in [ProxyType::NonTransfer, ProxyType::NonCritical] {
+            assert!(
+                !proxy_type_filter(&broad, &swap_basket),
+                "{broad:?} must not admit swap_basket"
+            );
+            assert!(!allowed_calls(broad).contains("SubtensorModule::swap_basket"));
+        }
+        assert!(proxy_type_filter(&ProxyType::BasketTrading, &swap_basket));
     }
 
     #[test]
