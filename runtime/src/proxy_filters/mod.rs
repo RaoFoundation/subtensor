@@ -720,6 +720,83 @@ mod tests {
         ));
     }
 
+    /// `BasketTrading` is a single-call grant: it admits `swap_basket` and nothing else,
+    /// no other narrow proxy admits `swap_basket`, and the broad proxies include it only
+    /// where value-moving stake calls are allowed.
+    #[test]
+    fn basket_trading_proxy_grants_exactly_swap_basket() {
+        use frame_system::Call as SystemCall;
+        use pallet_subtensor::Call as SubtensorCall;
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid, TaoBalance};
+
+        let hotkey = AccountId::new([7u8; 32]);
+        let swap_basket = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: hotkey.clone(),
+            origin_netuid: NetUid::from(1),
+            destination_netuid: NetUid::from(2),
+            amount: AlphaBalance::from(1),
+        });
+        let stake_into_basket = RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket {
+            hotkey: hotkey.clone(),
+            amount_staked: TaoBalance::from(1),
+        });
+        let set_root_weights = RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights {
+            dests: vec![1],
+            weights: vec![1],
+        });
+        let claim = RuntimeCall::SubtensorModule(SubtensorCall::claim_root_with_hotkey { hotkey });
+        let remark = RuntimeCall::System(SystemCall::remark { remark: vec![] });
+
+        // The trading proxy admits the trade and nothing adjacent to it.
+        assert!(proxy_type_filter(&ProxyType::BasketTrading, &swap_basket));
+        for denied in [&stake_into_basket, &set_root_weights, &claim, &remark] {
+            assert!(!proxy_type_filter(&ProxyType::BasketTrading, denied));
+        }
+
+        // No other narrow proxy can be used to trade the basket.
+        for narrow in [
+            ProxyType::Owner,
+            ProxyType::Staking,
+            ProxyType::Registration,
+            ProxyType::Transfer,
+            ProxyType::SmallTransfer,
+            ProxyType::RootClaim,
+            ProxyType::ChildKeys,
+            ProxyType::SwapHotkey,
+            ProxyType::SubnetLeaseBeneficiary,
+            ProxyType::SudoUncheckedSetCode,
+            ProxyType::RootWeights,
+        ] {
+            assert!(
+                !proxy_type_filter(&narrow, &swap_basket),
+                "{narrow:?} must not admit swap_basket"
+            );
+        }
+
+        // Broad proxies: `Any`, `NonTransfer`, and `NonCritical` may trade; `NonFungible`
+        // (no value movement) may not.
+        assert!(proxy_type_filter(&ProxyType::Any, &swap_basket));
+        assert!(proxy_type_filter(&ProxyType::NonTransfer, &swap_basket));
+        assert!(proxy_type_filter(&ProxyType::NonCritical, &swap_basket));
+        assert!(!proxy_type_filter(&ProxyType::NonFungible, &swap_basket));
+
+        // Superset relation: only `Any` and `NonTransfer` cover the trading grant.
+        let supersets = all_proxy_types()
+            .into_iter()
+            .filter(|proxy_type| proxy_type.is_superset(&ProxyType::BasketTrading))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            supersets,
+            [
+                ProxyType::Any,
+                ProxyType::NonTransfer,
+                ProxyType::BasketTrading
+            ]
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+        );
+    }
+
     #[test]
     fn sudo_unchecked_set_code_only_matches_set_code() {
         use alloc::boxed::Box;

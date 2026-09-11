@@ -3533,3 +3533,146 @@ fn test_sudo_set_root_weights_cap() {
         ));
     });
 }
+
+#[test]
+fn test_sudo_set_basket_trading_enabled() {
+    new_test_ext().execute_with(|| {
+        // Launch default: trading is off.
+        assert!(!pallet_subtensor::BasketTradingEnabled::<Test>::get());
+
+        // Only root may flip the switch.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trading_enabled(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+        assert!(!pallet_subtensor::BasketTradingEnabled::<Test>::get());
+
+        assert_ok!(AdminUtils::sudo_set_basket_trading_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            true
+        ));
+        assert!(pallet_subtensor::BasketTradingEnabled::<Test>::get());
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradingToggled { enabled: true },
+        ));
+
+        assert_ok!(AdminUtils::sudo_set_basket_trading_enabled(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            false
+        ));
+        assert!(!pallet_subtensor::BasketTradingEnabled::<Test>::get());
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradingToggled { enabled: false },
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_trading_frozen() {
+    new_test_ext().execute_with(|| {
+        let hotkey = U256::from(42);
+        let other = U256::from(43);
+        assert!(!pallet_subtensor::BasketTradingFrozen::<Test>::contains_key(hotkey));
+
+        // Only root may freeze.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_trading_frozen(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                hotkey,
+                true
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // Freeze one hotkey: only that hotkey is marked.
+        assert_ok!(AdminUtils::sudo_set_basket_trading_frozen(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            hotkey,
+            true
+        ));
+        assert!(pallet_subtensor::BasketTradingFrozen::<Test>::contains_key(
+            hotkey
+        ));
+        assert!(!pallet_subtensor::BasketTradingFrozen::<Test>::contains_key(other));
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradingFrozenSet {
+                hotkey,
+                frozen: true,
+            },
+        ));
+
+        // Freezing twice is idempotent; unfreezing removes the row and emits.
+        assert_ok!(AdminUtils::sudo_set_basket_trading_frozen(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            hotkey,
+            true
+        ));
+        assert_ok!(AdminUtils::sudo_set_basket_trading_frozen(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            hotkey,
+            false
+        ));
+        assert!(!pallet_subtensor::BasketTradingFrozen::<Test>::contains_key(hotkey));
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketTradingFrozenSet {
+                hotkey,
+                frozen: false,
+            },
+        ));
+        // Unfreezing a never-frozen hotkey is a harmless no-op.
+        assert_ok!(AdminUtils::sudo_set_basket_trading_frozen(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            other,
+            false
+        ));
+    });
+}
+
+#[test]
+fn test_sudo_set_basket_daily_turnover_cap() {
+    new_test_ext().execute_with(|| {
+        // Launch default: 10% of fund NAV per window.
+        assert_eq!(
+            pallet_subtensor::BasketDailyTurnoverCap::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_DAILY_TURNOVER_CAP
+        );
+
+        // Only root may set the cap.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_daily_turnover_cap(
+                <<Test as Config>::RuntimeOrigin>::signed(U256::from(1)),
+                1000
+            ),
+            DispatchError::BadOrigin
+        );
+
+        // Zero would refuse every trade; rejected.
+        assert_noop!(
+            AdminUtils::sudo_set_basket_daily_turnover_cap(
+                <<Test as Config>::RuntimeOrigin>::root(),
+                0
+            ),
+            Error::<Test>::ValueNotInBounds
+        );
+        assert_eq!(
+            pallet_subtensor::BasketDailyTurnoverCap::<Test>::get(),
+            pallet_subtensor::DEFAULT_BASKET_DAILY_TURNOVER_CAP
+        );
+
+        // Root sets a new cap (100%) and the storage + event reflect it.
+        assert_ok!(AdminUtils::sudo_set_basket_daily_turnover_cap(
+            <<Test as Config>::RuntimeOrigin>::root(),
+            u16::MAX
+        ));
+        assert_eq!(
+            pallet_subtensor::BasketDailyTurnoverCap::<Test>::get(),
+            u16::MAX
+        );
+        frame_system::Pallet::<Test>::assert_last_event(RuntimeEvent::AdminUtils(
+            crate::Event::BasketDailyTurnoverCapSet { cap: u16::MAX },
+        ));
+    });
+}
