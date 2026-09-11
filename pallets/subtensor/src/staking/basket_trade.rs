@@ -95,8 +95,9 @@ impl<T: Config> Pallet<T> {
         ensure!(amount > 0, Error::<T>::AmountTooLow);
 
         // Settle queued dividend credits first so the budget and the cap are measured
-        // against the fund's full, current NAV.
-        Self::flush_basket_deposits_for_hotkey(&hotkey);
+        // against the fund's full, current NAV. The flush work is priced into the
+        // post-dispatch weight.
+        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
 
         let escrow = Self::get_beta_escrow_account_id();
         let held =
@@ -121,7 +122,8 @@ impl<T: Config> Pallet<T> {
             alpha_bought: outcome.alpha_bought.into(),
         });
 
-        Ok(Self::swap_basket_weight(outcome.holdings))
+        Ok(Self::swap_basket_weight(outcome.holdings)
+            .saturating_add(Self::basket_flush_weight(flush_work)))
     }
 
     /// Transactional body of [`Self::do_swap_basket`]; any error rolls the whole trade back.
@@ -331,5 +333,37 @@ impl<T: Config> Pallet<T> {
         Weight::from_parts(60_000_000, 8000)
             .saturating_add(T::DbWeight::get().reads_writes(24_u64, 16_u64))
             .saturating_add(Self::basket_nav_sweep_weight(num_holdings).saturating_mul(2))
+    }
+
+    /// Weight of settling `flush_work` units of queued dividend credits ahead of a trade.
+    /// `flush_basket_deposits_for_hotkey` reports its work in quote units (one sim-swap
+    /// valuation each), so they are priced like NAV-sweep rows, as `claim_root` does. Zero
+    /// when nothing was queued.
+    pub(crate) fn basket_flush_weight(flush_work: u64) -> Weight {
+        if flush_work == 0 {
+            Weight::zero()
+        } else {
+            Self::basket_nav_sweep_weight(flush_work)
+        }
+    }
+
+    /// Pre-dispatch weight of `swap_basket` for `hotkey`: the 256-holding trade cap plus the
+    /// flush work its pending-deposit queue implies. Refunded to actual post-dispatch.
+    pub(crate) fn swap_basket_declared_weight(hotkey: &T::AccountId) -> Weight {
+        Self::swap_basket_weight(256).saturating_add(Self::basket_flush_weight(
+            Self::swap_basket_flush_estimate(hotkey),
+        ))
+    }
+
+    /// Upper estimate of the flush work a trade will do: nothing when the queue is empty,
+    /// else one unit per queued credit plus the deposit's own sweeps (`holdings × 3 +
+    /// destinations`, both bounded by the 256-row cap the trade weight already assumes).
+    fn swap_basket_flush_estimate(hotkey: &T::AccountId) -> u64 {
+        let credits = PendingBasketDeposits::<T>::iter_prefix(hotkey).count() as u64;
+        if credits == 0 {
+            0
+        } else {
+            credits.saturating_add(4 * 256)
+        }
     }
 }

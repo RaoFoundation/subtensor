@@ -14,9 +14,11 @@ use crate::tests::claim_root::{
 use crate::tests::mock::*;
 use crate::{
     BasketDailyTurnoverCap, BasketLiquidityCap, BasketTradingEnabled, Error, Owner,
-    RootClaimableThreshold, RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice,
-    SubnetTAO, TotalStake,
+    PendingBasketDeposits, RootClaimableThreshold, RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut,
+    SubnetMovingPrice, SubnetTAO, TotalStake,
 };
+use frame_support::dispatch::GetDispatchInfo;
+use frame_support::pallet_prelude::Weight;
 use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
 use sp_runtime::Saturating;
@@ -622,5 +624,97 @@ fn test_profit_taking_after_run_up_is_not_blocked_by_band() {
         // Stopped at the EMA floor, not at the run-up price.
         assert!(p1 < 1.02 && p1 >= 0.97, "price {p1}");
         assert!(escrow_alpha(&hotkey, NetUid::ROOT) > 100 * TAO);
+    });
+}
+
+// ---------------------------------------------------------------------------------------
+// Weight: the pending-deposit flush a trade performs is charged, not free.
+// ---------------------------------------------------------------------------------------
+
+fn declared_swap_weight(
+    coldkey: U256,
+    hotkey: U256,
+    from: NetUid,
+    to: NetUid,
+    amount: u64,
+) -> Weight {
+    let _ = coldkey;
+    RuntimeCall::SubtensorModule(crate::Call::swap_basket {
+        hotkey,
+        origin_netuid: from,
+        destination_netuid: to,
+        amount: amount.into(),
+    })
+    .get_dispatch_info()
+    .call_weight
+}
+
+/// The declared weight grows with the number of queued dividend credits, the actual weight
+/// includes the flush work actually done, and it refunds below the declared cap. With an
+/// empty queue the trade costs exactly its holding-count weight.
+#[test]
+fn test_swap_basket_weight_charges_pending_deposit_flush() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let alice = U256::from(3);
+        let (a, b) = winner_env(coldkey, hotkey);
+        set_root_weights_direct(&hotkey, 0, &[(a, u16::MAX / 2), (b, u16::MAX / 2)]);
+        zero_claim_threshold();
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            (2 * TAO).into(),
+        );
+        pin_ema_to_spot(a);
+        pin_ema_to_spot(b);
+
+        // Empty queue: declared is the bare 256-row cap (plus whatever fixed extension
+        // weight the runtime adds to every call), actual is the bare row weight.
+        let bare_declared = declared_swap_weight(coldkey, hotkey, a, b, TAO);
+        assert!(bare_declared.all_gte(SubtensorModule::swap_basket_weight(256)));
+        let bare_actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO).unwrap();
+        assert_eq!(bare_actual, SubtensorModule::swap_basket_weight(3));
+
+        // One queued origin raises the declared weight by the flush estimate; a second
+        // origin raises it by one more unit.
+        SubtensorModule::enqueue_basket_deposit(&hotkey, b, (5 * TAO).into());
+        let declared_one = declared_swap_weight(coldkey, hotkey, a, b, TAO);
+        assert_eq!(
+            declared_one.saturating_sub(bare_declared),
+            SubtensorModule::basket_flush_weight(1 + 4 * 256)
+        );
+        SubtensorModule::enqueue_basket_deposit(&hotkey, a, (5 * TAO).into());
+        let declared_two = declared_swap_weight(coldkey, hotkey, a, b, TAO);
+        assert_eq!(
+            declared_two.saturating_sub(declared_one),
+            SubtensorModule::basket_flush_weight(1)
+        );
+
+        // Learn the flush work this exact queue implies, then restore the queue: the trade
+        // must charge precisely that on top of its row weight, and refund below declared.
+        let (flush_work, _, _) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
+        assert!(flush_work > 0);
+        SubtensorModule::enqueue_basket_deposit(&hotkey, b, (5 * TAO).into());
+        SubtensorModule::enqueue_basket_deposit(&hotkey, a, (5 * TAO).into());
+        pin_ema_to_spot(a);
+        pin_ema_to_spot(b);
+        let actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO).unwrap();
+        assert!(
+            PendingBasketDeposits::<Test>::iter_prefix(hotkey)
+                .next()
+                .is_none()
+        );
+        assert_eq!(
+            actual,
+            SubtensorModule::swap_basket_weight(3)
+                .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
+        );
+        assert!(actual.all_gt(bare_actual), "flush work must be charged");
+        assert!(
+            actual.all_lt(declared_two),
+            "actual must refund below declared"
+        );
     });
 }
