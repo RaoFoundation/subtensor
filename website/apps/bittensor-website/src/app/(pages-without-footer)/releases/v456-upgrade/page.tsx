@@ -57,6 +57,8 @@ const page = () => {
             <code>swap_basket</code> fails with <code>BasketTradingDisabled</code> until
             governance flips <code>BasketTradingEnabled</code> on. Everything else in this
             release (proxy type, budgets, caps, reads, btcli) is live from the upgrade block.
+            The operator walkthrough is the{' '}
+            <DocLink href='/docs/guides/basket-trading'>Basket trading guide</DocLink>.
           </p>
         </section>
 
@@ -346,6 +348,8 @@ async with bt.Subtensor("finney") as client:
             </DocLink>
             ,{' '}
             <DocLink href='/docs/hyperparameters'>hyperparameters</DocLink>. Guides:{' '}
+            <DocLink href='/docs/guides/basket-trading'>Basket trading</DocLink> (the
+            operator walkthrough for this release),{' '}
             <DocLink href='/docs/guides/root-reborn'>Root Reborn</DocLink>,{' '}
             <DocLink href='/docs/guides/proxies'>Proxies</DocLink>.
           </p>
