@@ -28,6 +28,7 @@
     "BalanceWithdrawalError",
     "BasketDepositPending",
     "BasketHasNoWeights",
+    "BasketLiquidityCapExceeded",
     "BasketSameSubnet",
     "BasketTradingDisabled",
     "BasketTradingFrozen",
