@@ -176,10 +176,13 @@ impl<T: Config> Pallet<T> {
     }
 
     /// The fund's `swap_basket` turnover window as seen at block `now`: the stored window
-    /// if still open, otherwise a fresh one starting at `now` with nothing used.
+    /// if still open and charged, otherwise a fresh one starting at `now` with nothing used.
+    /// A fund that has never traded (the `(0, 0)` default) opens its first window at its
+    /// first trade rather than at block 0, so a young chain does not hand every fund a
+    /// shared window ending at block `BASKET_TRADE_WINDOW_BLOCKS`.
     pub fn basket_trade_window_at(hotkey: &T::AccountId, now: u64) -> (u64, u64) {
         let (window_start, tao_used) = BasketTradeWindow::<T>::get(hotkey);
-        if now.saturating_sub(window_start) >= crate::BASKET_TRADE_WINDOW_BLOCKS {
+        if tao_used == 0 || now.saturating_sub(window_start) >= crate::BASKET_TRADE_WINDOW_BLOCKS {
             (now, 0)
         } else {
             (window_start, tao_used)
