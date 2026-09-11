@@ -444,6 +444,17 @@ class Staking(_ReadNamespace):
         staker holds no beta there.
         """
 
+    async def basket_trading_status(self, hotkey_ss58: str, *, block: Optional[int] = None) -> dict:
+        """A validator's `swap_basket` trading status: gates and the daily turnover budget.
+
+        `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
+        The window is the one a trade at the current block would be charged to
+        (7200 blocks; already rolled if the stored one expired). `budget_tao` is the
+        window's full allowance at current NAV (`BasketDailyTurnoverCap` share of
+        NAV), `used_tao` what this window has already consumed, and
+        `remaining_tao` the difference.
+        """
+
     async def root_basket_owed(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Balance:
         """Total TAO a coldkey would realize by claiming its root dividends now.
 

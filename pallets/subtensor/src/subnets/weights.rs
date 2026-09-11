@@ -872,6 +872,23 @@ impl<T: Config> Pallet<T> {
         Self::internal_set_weights(origin, netuid, MechId::MAIN, uids, values, version_key)
     }
 
+    /// The root basket concentration cap (`RootWeightsCap[ROOT]`, u16-normalized) when it is
+    /// enforceable with `available` destinations, else `None`. A cap of 1/16 needs at least
+    /// 16 destinations to be satisfiable, so the rule is skipped while the chain has fewer
+    /// (young chains, tests). Shared by `set_root_weights` and `swap_basket`.
+    pub(crate) fn binding_root_weights_cap(available: u64) -> Option<u64> {
+        let cap = RootWeightsCap::<T>::get(NetUid::ROOT) as u64;
+        let min_dests_for_cap = (u16::MAX as u64).div_ceil(cap.max(1));
+        (available >= min_dests_for_cap).then_some(cap)
+    }
+
+    /// `part / whole <= cap / u16::MAX`, computed in u128 so chain-scale TAO values cannot
+    /// overflow. `whole == 0` (empty vector or empty fund) trivially passes.
+    pub(crate) fn share_within_root_cap(part: u64, whole: u64, cap: u64) -> bool {
+        u128::from(part).saturating_mul(u128::from(u16::MAX))
+            <= u128::from(cap).saturating_mul(u128::from(whole))
+    }
+
     /// Sets a root validator's basket distribution vector `w` on the root subnet (netuid 0).
     ///
     /// Unlike normal subnet weights, the `dests` here are interpreted as *subnet netuids* and the
@@ -959,15 +976,12 @@ impl<T: Config> Pallet<T> {
         // above — the check is skipped while the chain has fewer destinations than the cap
         // demands (young chains, tests). Checked on the raw values so the cap is
         // independent of the max-upscale that follows.
-        let cap = RootWeightsCap::<T>::get(NetUid::ROOT) as u64;
-        let min_dests_for_cap = (u16::MAX as u64).div_ceil(cap.max(1));
-        if available as u64 >= min_dests_for_cap {
+        if let Some(cap) = Self::binding_root_weights_cap(available as u64) {
             let sum: u64 = values.iter().map(|w| *w as u64).sum();
             ensure!(
                 values
                     .iter()
-                    .all(|w| (*w as u64).saturating_mul(u16::MAX as u64)
-                        <= cap.saturating_mul(sum)),
+                    .all(|w| Self::share_within_root_cap(*w as u64, sum, cap)),
                 Error::<T>::RootWeightCapExceeded
             );
         }

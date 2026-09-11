@@ -90,6 +90,9 @@ _FALLBACK_AMOUNT_UNITS: dict[tuple[str, str, str], str] = {
     ("SubtensorModule", "add_stake", "amount_staked"): "TAO",
     ("SubtensorModule", "add_stake_limit", "amount_staked"): "TAO",
     ("SubtensorModule", "stake_into_basket", "amount_staked"): "TAO",
+    # Origin-subnet alpha; on a root origin (netuid 0) alpha is TAO 1:1, so the
+    # netuid-0 tag `call_amount` derives is the right unit there too.
+    ("SubtensorModule", "swap_basket", "amount"): "ALPHA",
     ("SubtensorModule", "add_stake_limit", "limit_price"): "TAO",
     ("SubtensorModule", "remove_stake", "amount_unstaked"): "ALPHA",
     ("SubtensorModule", "remove_stake_limit", "amount_unstaked"): "ALPHA",

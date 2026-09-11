@@ -375,5 +375,16 @@ mod errors {
         /// A queued root-dividend deposit could not be settled. Operations which change
         /// the hotkey's root claimant base must retry after the deposit becomes executable.
         BasketDepositPending,
+        /// `swap_basket` is disabled network-wide ([`crate::BasketTradingEnabled`] is false).
+        BasketTradingDisabled,
+        /// Basket trading is frozen for this validator hotkey by governance
+        /// ([`crate::BasketTradingFrozen`]).
+        BasketTradingFrozen,
+        /// The trade would push more TAO through the fund in the current window than
+        /// [`crate::BasketDailyTurnoverCap`] allows (as a share of fund NAV). Wait for the
+        /// window to roll or trade a smaller amount.
+        BasketTurnoverBudgetExceeded,
+        /// `swap_basket` origin and destination are the same subnet.
+        BasketSameSubnet,
     }
 }

@@ -57,6 +57,7 @@ type NonTransferAllowed = (
     InfraCommonCalls,
     AdminAll,
     StakeManagementCalls,
+    BasketTradingCalls,
     PowRegistrationCalls,
     BurnedRegistrationCalls,
     FaucetCalls,
@@ -97,6 +98,7 @@ type NonCriticalAllowed = (
     BalanceTransferCalls,
     BalanceMaintenanceCalls,
     StakeManagementCalls,
+    BasketTradingCalls,
     StakeTransferCalls,
     PowRegistrationCalls,
     FaucetCalls,
@@ -124,6 +126,7 @@ pub(crate) fn proxy_type_filter(proxy_type: &ProxyType, call: &RuntimeCall) -> b
         ProxyType::SwapHotkey => HotkeySwapCalls::contains(call),
         ProxyType::SubnetLeaseBeneficiary => SubnetLeaseAllowed::contains(call),
         ProxyType::RootClaim => RootClaimCalls::contains(call),
+        ProxyType::BasketTrading => BasketTradingCalls::contains(call),
         ProxyType::SudoUncheckedSetCode => SudoSetCodeCalls::contains(call),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -159,7 +162,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                 | ProxyType::ChildKeys
                 | ProxyType::SwapHotkey
                 | ProxyType::SubnetLeaseBeneficiary
-                | ProxyType::RootClaim,
+                | ProxyType::RootClaim
+                | ProxyType::BasketTrading,
             ) => true,
             (ProxyType::Transfer, ProxyType::SmallTransfer) => true,
             _ => false,
@@ -190,6 +194,7 @@ fn proxy_filter_mode(proxy_type: ProxyType) -> FilterMode {
         ProxyType::SwapHotkey => FilterMode::Allow(HotkeySwapCalls::call_infos()),
         ProxyType::SubnetLeaseBeneficiary => FilterMode::Allow(SubnetLeaseAllowed::call_infos()),
         ProxyType::RootClaim => FilterMode::Allow(RootClaimCalls::call_infos()),
+        ProxyType::BasketTrading => FilterMode::Allow(BasketTradingCalls::call_infos()),
         ProxyType::SudoUncheckedSetCode => FilterMode::Allow(SudoSetCodeCalls::call_infos()),
         ProxyType::Triumvirate
         | ProxyType::Senate
@@ -331,6 +336,7 @@ mod tests {
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
         let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
         let denied = &denied | &group_calls::<(SubtensorValueCalls, SudoCalls)>();
+        let denied = &denied | &group_calls::<BasketTradingCalls>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied
@@ -625,6 +631,7 @@ mod tests {
             ProxyType::SwapHotkey,
             ProxyType::SubnetLeaseBeneficiary,
             ProxyType::RootClaim,
+            ProxyType::BasketTrading,
         ]
         .into_iter()
         .collect::<BTreeSet<_>>();
@@ -740,6 +747,10 @@ mod tests {
                 "SubtensorModule::claim_root",
                 "SubtensorModule::claim_root_with_hotkey",
             ])
+        );
+        assert_eq!(
+            allowed_calls(ProxyType::BasketTrading),
+            expected(&["SubtensorModule::swap_basket"])
         );
         assert_eq!(
             allowed_calls(ProxyType::SudoUncheckedSetCode),

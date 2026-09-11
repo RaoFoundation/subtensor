@@ -80,6 +80,7 @@
     "stake-burn",
     "stake-into-basket",
     "start-call",
+    "swap-basket",
     "swap-coldkey-announced",
     "swap-hotkey",
     "swap-stake",

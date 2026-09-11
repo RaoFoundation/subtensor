@@ -20,7 +20,7 @@ small fee headroom.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2063-L2079) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.stake_into_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2063-L2078) |
 
 ## Parameters
 
@@ -72,14 +72,13 @@ result = sub.execute_tool("stake_into_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2071`](/code/pallets/subtensor/src/macros/dispatches.rs#L2063-L2079):
+`SubtensorModule.stake_into_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2070`](/code/pallets/subtensor/src/macros/dispatches.rs#L2063-L2078):
 
 ```rust
 #[pallet::call_index(147)]
 // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
 // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
-// sim-swap valuations plus a quantity-coverage lookup); the actual weight is computed
-// in `do_stake_into_basket`
+// sim-swap valuations); the actual weight is computed in `do_stake_into_basket`
 // from the real slot and holding counts and refunded post-dispatch, mirroring
 // `claim_root`.
 #[pallet::weight((Pallet::<T>::stake_into_basket_weight(128, 256), DispatchClass::Normal, Pays::Yes))]
@@ -94,6 +93,6 @@ pub fn stake_into_basket(
 }
 ```
 
-Delegates to [`do_stake_into_basket`](/code/pallets/subtensor/src/staking/claim_root.rs#L386).
+Delegates to [`do_stake_into_basket`](/code/pallets/subtensor/src/staking/claim_root.rs#L385).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

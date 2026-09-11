@@ -81,7 +81,7 @@ pub fn unstake_all(origin: OriginFor<T>, hotkey: T::AccountId) -> DispatchResult
 }
 ```
 
-Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L113).
+Delegates to [`do_unstake_all`](/code/pallets/subtensor/src/staking/remove_stake.rs#L111).
 
 `SubtensorModule.claim_root_with_hotkey` — [`pallets/subtensor/src/macros/dispatches.rs#L2016`](/code/pallets/subtensor/src/macros/dispatches.rs#L2012-L2031):
 
@@ -108,7 +108,7 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L986), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L1035), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L1064).
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L936), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L985), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L1014).
 
 `Utility.batch_all` — [`pallets/utility/src/lib.rs#L314`](/code/pallets/utility/src/lib.rs#L308-L362):
 
