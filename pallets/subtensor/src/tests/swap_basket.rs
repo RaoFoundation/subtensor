@@ -5,7 +5,12 @@
 //! stay in lockstep; the block author receives the AMM fee; both legs are booked as
 //! protocol flow. Every gate, guardrail, and rollback path is pinned here.
 
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::unwrap_used
+)]
 
 use crate::CheckColdkeySwap;
 use crate::migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2;
