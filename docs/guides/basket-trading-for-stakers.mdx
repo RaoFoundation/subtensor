@@ -1,0 +1,125 @@
+---
+title: Basket trading for stakers
+description: What runtime v456 basket trading means if you stake on root — nothing to do, what stays the same, how to see what your validator holds and trades, what the guardrails protect, and how to move if you disagree.
+---
+
+If you stake TAO on root (netuid 0), your validator runs a **basket**: a fund
+of subnet alpha built from its root dividends, in which you hold **beta**, a
+share of the whole fund ([Root Reborn](/docs/guides/root-reborn)). Runtime
+v456 lets the validator actively trade that basket with
+[`swap-basket`](/docs/tx/swap-basket). This page is what that means for you.
+The operator's side is [Basket trading](/docs/guides/basket-trading); the
+governance side is [Basket trading for governance](/docs/guides/basket-trading-governance).
+
+## Nothing to do
+
+A trade changes **what the fund holds**, not what you own. Your beta count,
+your entitlement (your fraction of the fund), your root stake, your dividend
+accrual, and the claim path are exactly as before. There is no opt-in, no
+migration, and no new command you need to run.
+
+What does change over time is the fund's NAV — its realizable TAO value —
+and therefore what your beta is worth when you claim. Before v456 the NAV
+moved with subnet prices and the validator's weight vector; now it also
+moves with the validator's trades. Good trading raises it; bad trading
+lowers it. That is the same bet you already make when you pick a validator.
+
+Trading launches **off** network-wide. Until governance enables it, no fund
+can trade.
+
+## See what your validator holds and trades
+
+```bash
+btcli root list                                  # every fund: NAV, price vs the index
+btcli root list 5F...validator                   # one fund: weights, holdings, NAV, your position
+btcli root list --mine                           # your positions: staked and accrued τ per validator
+btcli query validator-basket --hotkey 5F...validator          # holdings: (netuid, alpha, TAO value)
+btcli query validator-basket-summary --hotkey 5F...validator  # NAV, shares, weights, lifetime return
+btcli query basket-trading-status --hotkey 5F...validator     # is the fund trading, and how much budget is left
+```
+
+`validator-basket` is the fund's composition right now. Netuid 0 in that
+list is the fund's TAO cash slot. Two reads a day apart show you whether the
+validator is trading and where it is moving.
+
+Every trade emits a `BasketSwapped` event with the validator `hotkey`,
+`origin_netuid`, `destination_netuid`, `alpha_sold`, `tao_mid` (the TAO that
+passed through the middle), and `alpha_bought`. Explorers list them per
+block; in the SDK, read a block's events and filter:
+
+```python
+import bittensor as bt
+
+async with bt.Subtensor("finney") as client:
+    events = await client.query(bt.storage.System.Events, block=BLOCK)
+    trades = [e for e in events if e["event"]["module_id"] == "SubtensorModule"
+              and e["event"]["event_id"] == "BasketSwapped"]
+
+    holdings = await client.read("validator_basket", hotkey_ss58=HOTKEY)
+    position = await client.read("basket_position", hotkey_ss58=HOTKEY, coldkey_ss58=MY_COLDKEY)
+    portfolio = await client.read("root_basket_portfolio", coldkey_ss58=MY_COLDKEY)
+```
+
+[`basket-position`](/docs/query/basket-position) is your beta and its value
+on one validator; [`root-basket-portfolio`](/docs/query/root-basket-portfolio)
+is the same across every validator you stake on;
+[`root-basket-owed`](/docs/query/root-basket-owed) is the TAO a claim would
+pay you right now.
+
+## What the guardrails protect
+
+The validator cannot trade freely. Every trade must pass these checks, and a
+trade that fails any of them does nothing at all:
+
+- **Each leg fills within 2% of the subnet's moving and spot price.** The
+  fund cannot be sold into a crash or bought into a spike, and one trade
+  cannot move a pool's price by more than about 2%.
+- **A turnover budget of 10% of NAV.** The fund holds a bucket of that size;
+  each trade drains it by the TAO it moves, and it refills over one day. At
+  most one budget can be spent at any instant, and about one per day.
+- **No position above 1/16 of NAV.** The same concentration rule as the
+  weight vector; the cash slot counts too.
+- **No position above 10% of a pool's alpha.** Stops the fund from being
+  used to pump a thin subnet and left holding alpha it cannot sell for
+  what it paid.
+- **Only a dedicated key can trade.** The validator's coldkey, or a proxy of
+  exactly the `BasketTrading` type, which can call `swap_basket` and nothing
+  else. A stolen trader key cannot touch your stake, your claims, or the
+  validator's other keys.
+- **Governance can freeze a fund** or switch trading off network-wide at
+  any time. A frozen fund still accrues dividends and pays claims.
+
+Together these bound what a stolen trader key working with a counterparty
+could extract at about 1.3% of the fund's NAV per day until it is frozen —
+and honest trading costs only the pool fees on the legs it runs.
+
+## If you dislike a validator's trading
+
+You are never locked in. Your root stake and your accrued beta are yours to
+move, on your schedule:
+
+```bash
+btcli root claim --hotkey 5F...old                # realize accrued β into root stake on that validator
+btcli root move --from 5F...old --to 5F...new     # claim there, then move all root stake to another validator
+btcli stake remove --netuid 0 --hotkey 5F...old --amount all --claim   # claim, then unstake to free balance
+```
+
+`btcli root move` claims any accrued yield on the source (it folds into
+root stake there) and moves the whole position — principal plus that yield
+— onto the destination; the value never passes through your free balance.
+Future dividends accrue in the destination's basket. Compare funds first
+with `btcli root list`: price versus the index and lifetime return are the
+same numbers every explorer shows.
+
+## Reference
+
+- Guides: [Basket trading](/docs/guides/basket-trading),
+  [Basket trading for governance](/docs/guides/basket-trading-governance),
+  [Root Reborn](/docs/guides/root-reborn), [Staking](/docs/guides/staking)
+- Reads: [`validator-basket`](/docs/query/validator-basket),
+  [`validator-basket-summary`](/docs/query/validator-basket-summary),
+  [`basket-trading-status`](/docs/query/basket-trading-status),
+  [`basket-position`](/docs/query/basket-position),
+  [`root-basket-portfolio`](/docs/query/root-basket-portfolio),
+  [`root-basket-owed`](/docs/query/root-basket-owed)
+- Release: [v456 — Basket Trading](/releases/v456-upgrade)

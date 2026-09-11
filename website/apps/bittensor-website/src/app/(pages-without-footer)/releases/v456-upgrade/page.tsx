@@ -350,6 +350,14 @@ async with bt.Subtensor("finney") as client:
             <DocLink href='/docs/hyperparameters'>hyperparameters</DocLink>. Guides:{' '}
             <DocLink href='/docs/guides/basket-trading'>Basket trading</DocLink> (the
             operator walkthrough for this release),{' '}
+            <DocLink href='/docs/guides/basket-trading-governance'>
+              Basket trading for governance
+            </DocLink>{' '}
+            (enable, freeze, tune, and the rogue-key playbook),{' '}
+            <DocLink href='/docs/guides/basket-trading-for-stakers'>
+              Basket trading for stakers
+            </DocLink>{' '}
+            (nothing to do, and how to watch),{' '}
             <DocLink href='/docs/guides/root-reborn'>Root Reborn</DocLink>,{' '}
             <DocLink href='/docs/guides/proxies'>Proxies</DocLink>.
           </p>
