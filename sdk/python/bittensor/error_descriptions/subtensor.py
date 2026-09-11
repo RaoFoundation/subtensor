@@ -93,6 +93,13 @@ DESCRIPTIONS: dict[str, str] = {
         "coldkey-wide claim by validator where that fits, and investigate or consolidate an "
         "individually oversized basket."
     ),
+    "BasketLiquidityCapExceeded": (
+        "The trade would leave the fund holding more of the destination subnet than "
+        "`BasketLiquidityCap` allows as a share of that subnet's alpha reserve "
+        "(u16-normalized, default 10%). This bounds the fund's exposure to any one pool's "
+        "liquidity. Trade a smaller amount, or pick a deeper pool; query `validator_basket` "
+        "for the current holding and `subnet` for the pool's alpha reserve."
+    ),
     "BasketSameSubnet": (
         "`swap_basket` was called with the same origin and destination netuid. A basket "
         "trade sells one holding to buy another; pick two different subnets (netuid 0 is "

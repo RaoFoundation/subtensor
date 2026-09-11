@@ -18,6 +18,7 @@ use sp_runtime::PerU16;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{MechId, NetUid, TaoBalance, Token};
 pub mod mock;
+mod swap_basket_liquidity_cap;
 use mock::*;
 
 #[test]

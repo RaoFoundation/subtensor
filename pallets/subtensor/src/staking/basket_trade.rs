@@ -47,6 +47,8 @@ impl<T: Config> Pallet<T> {
     /// * each AMM leg must fill fully within [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of
     ///   both the subnet's moving (EMA) price and its spot price;
     /// * the TAO through the middle is charged against the fund's per-window turnover budget;
+    /// * the destination holding may not end above [`crate::BasketLiquidityCap`] of the
+    ///   destination pool's alpha reserve;
     /// * the destination holding may not end above [`crate::RootWeightsCap`] of fund NAV.
     ///
     /// AMM fees are charged like any user swap; the block-author fee is settled through the
@@ -165,6 +167,10 @@ impl<T: Config> Pallet<T> {
             alpha_bought,
         );
 
+        // --- 4b. Liquidity rule: the fund may not hold more of the destination than
+        // `BasketLiquidityCap` of the pool's alpha reserve.
+        Self::ensure_within_liquidity_cap(hotkey, escrow, destination_netuid)?;
+
         // --- 5. Shape rule on the post-trade fund: one valuation sweep gives the NAV, the
         // destination's value, and the row count.
         let after = Self::try_valued_basket_holdings(hotkey)?;
@@ -278,6 +284,30 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::BasketTurnoverBudgetExceeded)?;
         ensure!(new_used <= budget, Error::<T>::BasketTurnoverBudgetExceeded);
         BasketTradeWindow::<T>::insert(hotkey, (window_start, new_used));
+        Ok(())
+    }
+
+    /// Post-buy liquidity check: the fund's holding on `netuid` may not exceed
+    /// [`crate::BasketLiquidityCap`] of the pool's alpha reserve. Root is the fund's cash
+    /// slot with no pool and is exempt. Realizable value (the concentration cap's measure)
+    /// is bounded by the pool's TAO reserve, so it cannot see a fund accumulating a thin
+    /// pool's supply while counterparties sell into its price support; this rule can.
+    fn ensure_within_liquidity_cap(
+        hotkey: &T::AccountId,
+        escrow: &T::AccountId,
+        netuid: NetUid,
+    ) -> DispatchResult {
+        if netuid.is_root() {
+            return Ok(());
+        }
+        let held =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid).to_u64();
+        let reserve = SubnetAlphaIn::<T>::get(netuid).to_u64();
+        let cap = BasketLiquidityCap::<T>::get() as u64;
+        ensure!(
+            Self::share_within_root_cap(held, reserve, cap),
+            Error::<T>::BasketLiquidityCapExceeded
+        );
         Ok(())
     }
 

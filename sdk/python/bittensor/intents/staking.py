@@ -1715,8 +1715,10 @@ class SwapBasket(Intent):
     Guardrails enforced on chain: each AMM leg must fill fully within 2% of
     the subnet's moving price (``SlippageTooHigh`` otherwise); the TAO through
     the middle is charged against the fund's daily turnover budget
-    (``BasketTurnoverBudgetExceeded``); the destination may not end above the
-    ``RootWeightsCap`` share of fund NAV (``RootWeightCapExceeded``). Trading
+    (``BasketTurnoverBudgetExceeded``); the destination holding may not end
+    above the ``BasketLiquidityCap`` share of the destination pool's alpha
+    reserve (``BasketLiquidityCapExceeded``) nor above the ``RootWeightsCap``
+    share of fund NAV (``RootWeightCapExceeded``). Trading
     must be enabled network-wide and not frozen for the hotkey. Query
     ``basket_trading_status`` for the remaining budget and
     ``validator_basket`` for current holdings before trading. Pass ``all``

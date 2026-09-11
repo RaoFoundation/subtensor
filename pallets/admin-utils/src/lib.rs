@@ -169,6 +169,13 @@ pub mod pallet {
             /// (`u16::MAX` = 100%).
             cap: u16,
         },
+
+        /// The basket liquidity cap (`BasketLiquidityCap`) was set.
+        BasketLiquidityCapSet {
+            /// Max u16-normalized share of a subnet's alpha reserve a fund may hold on that
+            /// subnet after a `swap_basket` buy (`u16::MAX` = 100%).
+            cap: u16,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2579,6 +2586,23 @@ pub mod pallet {
             pallet_subtensor::BasketDailyTurnoverCap::<T>::put(cap);
             Self::deposit_event(Event::BasketDailyTurnoverCapSet { cap });
             log::debug!("BasketDailyTurnoverCapSet( cap: {cap:?} )");
+            Ok(())
+        }
+
+        /// Sets the basket liquidity cap ([`pallet_subtensor::BasketLiquidityCap`]): the
+        /// largest u16-normalized share of a subnet's alpha reserve (`u16::MAX` = 100%) a fund
+        /// may hold on that subnet after a `swap_basket` buy. Bounds the fund's exposure to
+        /// any one pool's liquidity: with cap `L` the value at risk on a pool with TAO
+        /// reserve `R` is about `R × L² / (1 + L)`. Root-only. One storage write; reuses the
+        /// `sudo_set_root_weights_cap` weight.
+        #[pallet::call_index(109)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
+        pub fn sudo_set_basket_liquidity_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(cap > 0, Error::<T>::ValueNotInBounds);
+            pallet_subtensor::BasketLiquidityCap::<T>::put(cap);
+            Self::deposit_event(Event::BasketLiquidityCapSet { cap });
+            log::debug!("BasketLiquidityCapSet( cap: {cap:?} )");
             Ok(())
         }
 
