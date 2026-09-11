@@ -327,11 +327,11 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Weight of one basket trade over `num_holdings` escrow rows: two AMM legs with fee
-    /// settlement plus two realizable-NAV sweeps (before and after).
+    /// settlement plus two realizable-NAV sweeps (before and after), as benchmarked.
     pub(crate) fn swap_basket_weight(num_holdings: u64) -> Weight {
-        Weight::from_parts(60_000_000, 8000)
-            .saturating_add(T::DbWeight::get().reads_writes(24_u64, 16_u64))
-            .saturating_add(Self::basket_nav_sweep_weight(num_holdings).saturating_mul(2))
+        <T as crate::pallet::Config>::WeightInfo::swap_basket(
+            u32::try_from(num_holdings).unwrap_or(u32::MAX),
+        )
     }
 
     /// Weight of settling `flush_work` units of queued dividend credits ahead of a trade.

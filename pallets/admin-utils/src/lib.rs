@@ -2532,10 +2532,9 @@ pub mod pallet {
 
         /// Enables or disables validator basket trading (`swap_basket`) network-wide.
         /// Defaults OFF. Gates only the trade path: deposits, claims, dividend deployment,
-        /// and reads are unaffected. Root-only. Same storage shape as
-        /// `sudo_set_root_weights_cap` (one write), so it reuses that measured weight.
+        /// and reads are unaffected. Root-only.
         #[pallet::call_index(106)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_trading_enabled())]
         pub fn sudo_set_basket_trading_enabled(
             origin: OriginFor<T>,
             enabled: bool,
@@ -2550,9 +2549,8 @@ pub mod pallet {
         /// Freezes or unfreezes basket trading for one validator hotkey
         /// ([`pallet_subtensor::BasketTradingFrozen`]), e.g. after a suspected key
         /// compromise. A frozen fund still accepts deposits and pays claims. Root-only.
-        /// One storage write; reuses the `sudo_set_root_weights_cap` weight.
         #[pallet::call_index(107)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_trading_frozen())]
         pub fn sudo_set_basket_trading_frozen(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -2573,9 +2571,8 @@ pub mod pallet {
         /// the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share
         /// of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one
         /// capacity can be traded at any instant and about one per day sustained. Root-only.
-        /// One storage write; reuses the `sudo_set_root_weights_cap` weight.
         #[pallet::call_index(108)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_daily_turnover_cap())]
         pub fn sudo_set_basket_daily_turnover_cap(
             origin: OriginFor<T>,
             cap: u16,
@@ -2592,10 +2589,9 @@ pub mod pallet {
         /// largest u16-normalized share of a subnet's alpha reserve (`u16::MAX` = 100%) a fund
         /// may hold on that subnet after a `swap_basket` buy. Bounds the fund's exposure to
         /// any one pool's liquidity: with cap `L` the value at risk on a pool with TAO
-        /// reserve `R` is about `R × L² / (1 + L)`. Root-only. One storage write; reuses the
-        /// `sudo_set_root_weights_cap` weight.
+        /// reserve `R` is about `R × L² / (1 + L)`. Root-only.
         #[pallet::call_index(109)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_liquidity_cap())]
         pub fn sudo_set_basket_liquidity_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
             ensure_root(origin)?;
             ensure!(cap > 0, Error::<T>::ValueNotInBounds);
