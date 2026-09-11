@@ -7,8 +7,8 @@ Claiming sells that β and folds the TAO into root stake (assets out).
 whole root position (principal + that yield) onto a destination validator.
 ``list`` is the fund leaderboard (one fund in detail with a validator
 argument, your own positions with ``--mine``), ``register`` joins the root
-network, and the ``weights`` sub-group curates a validator's dividend
-basket.
+network, ``trade`` rebalances a validator's basket between subnets, and the
+``weights`` sub-group curates a validator's dividend basket.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ from ..root_helpers import (
     resolve_validator_selector,
 )
 from ..tx import resolve_all_amount
-from . import root_move, root_weights
+from . import root_move, root_trade, root_weights
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -680,6 +680,8 @@ def root_allocate(
 
 
 app.command("move")(root_move.root_move)
+
+app.command("trade")(root_trade.root_trade)
 
 
 @app.command("register")

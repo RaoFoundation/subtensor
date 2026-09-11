@@ -529,6 +529,25 @@ mod events {
             tao: TaoBalance,
         },
 
+        /// A validator rebalanced its beta basket: `alpha_sold` of `origin_netuid` was sold
+        /// for `tao_mid` TAO, which bought `alpha_bought` of `destination_netuid`. Fund
+        /// shares and staker entitlements are unaffected; only the fund's composition changed.
+        BasketSwapped {
+            /// Validator hotkey whose basket was rebalanced.
+            hotkey: T::AccountId,
+            /// Subnet sold out of (root = the fund's TAO slot).
+            origin_netuid: NetUid,
+            /// Subnet bought into (root = the fund's TAO slot).
+            destination_netuid: NetUid,
+            /// Alpha (or TAO when origin is root) removed from the origin holding.
+            alpha_sold: AlphaBalance,
+            /// TAO that passed through the middle of the swap; counted against the fund's
+            /// daily turnover budget.
+            tao_mid: TaoBalance,
+            /// Alpha (or TAO when destination is root) added to the destination holding.
+            alpha_bought: AlphaBalance,
+        },
+
         /// Voting power tracking has been enabled for a subnet.
         VotingPowerTrackingEnabled {
             /// The subnet ID

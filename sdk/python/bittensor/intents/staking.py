@@ -1698,3 +1698,100 @@ class StakeIntoBasket(Intent):
         if self.amount_tao == ALL:
             return UNBOUNDED
         return self.amount_tao
+
+
+@register
+@dataclass
+class SwapBasket(Intent):
+    """Rebalance a root validator's basket: sell one holding to buy another.
+
+    Sells ``amount`` of the fund's ``origin_netuid`` holding for TAO and buys
+    ``dest_netuid`` with it. Either side may be netuid 0, the fund's TAO cash
+    slot. Fund shares and staker entitlements do not change; only the fund's
+    composition moves. Signed by the coldkey that owns ``hotkey_ss58`` or by
+    a ``BasketTrading`` proxy of it (the intended setup for a trader
+    multisig).
+
+    Guardrails enforced on chain: each AMM leg must fill fully within 2% of
+    the subnet's moving price (``SlippageTooHigh`` otherwise); the TAO through
+    the middle is charged against the fund's daily turnover budget
+    (``BasketTurnoverBudgetExceeded``); the destination may not end above the
+    ``RootWeightsCap`` share of fund NAV (``RootWeightCapExceeded``). Trading
+    must be enabled network-wide and not frozen for the hotkey. Query
+    ``basket_trading_status`` for the remaining budget and
+    ``validator_basket`` for current holdings before trading. Pass ``all``
+    to sell the fund's whole origin holding (e.g. to clear a small balance).
+    """
+
+    op = "swap_basket"
+    signer = "coldkey"
+    wraps = (("SubtensorModule", "swap_basket"),)
+    mev_shield_default = True
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount",)
+
+    hotkey_ss58: str = field(
+        metadata={"help": "Root-registered validator whose basket to rebalance."}
+    )
+    origin_netuid: int = field(
+        metadata={"help": "Subnet to sell out of (0 = the fund's TAO cash slot)."}
+    )
+    dest_netuid: int = field(
+        metadata={"help": "Subnet to buy into (0 = the fund's TAO cash slot)."}
+    )
+    amount: Money = field(
+        metadata={
+            "help": "How much of the origin holding to sell, in the origin subnet's alpha "
+            "(TAO when the origin is netuid 0), or `all` for the whole holding."
+        }
+    )
+
+    def __post_init__(self):
+        if int(self.origin_netuid) == int(self.dest_netuid):
+            raise BittensorError("swap_basket: origin and destination netuid must differ")
+        self.amount = call_amount(
+            self.amount, self.wraps[0], "amount", netuid=self.origin_netuid, allow_all=True
+        )
+
+    async def _origin_holding_rao(self, substrate) -> int:
+        rows = await substrate.runtime_call(
+            *BetaBasketRuntimeApi.get_validator_basket, [self.hotkey_ss58]
+        )
+        for netuid, alpha, _tao in rows or []:
+            if int(netuid) == int(self.origin_netuid):
+                return int(alpha)
+        return 0
+
+    def touches_netuids(self) -> list[int]:
+        return [self.origin_netuid, self.dest_netuid]
+
+    async def build(self, substrate, wallet: Any):
+        if self.amount == ALL:
+            rao = await self._origin_holding_rao(substrate)
+            if rao <= 0:
+                raise BittensorError(
+                    f"nothing to sell: {self.hotkey_ss58}'s basket holds nothing on "
+                    f"netuid {self.origin_netuid}"
+                )
+        else:
+            rao = cast(Balance, self.amount).rao
+        # TODO(codegen): switch to `calls.SubtensorModule.swap_basket(...)` once the call
+        # registry is regenerated against a spec that includes this extrinsic.
+        return await substrate.compose(
+            calls.Call(
+                "SubtensorModule",
+                "swap_basket",
+                {
+                    "hotkey": self.hotkey_ss58,
+                    "origin_netuid": self.origin_netuid,
+                    "destination_netuid": self.dest_netuid,
+                    "amount": rao,
+                },
+            )
+        )
+
+    def summary(self) -> str:
+        amount = "the whole holding" if self.amount == ALL else str(self.amount)
+        return (
+            f"rebalance {self.hotkey_ss58}'s basket: sell {amount} on netuid "
+            f"{self.origin_netuid} to buy netuid {self.dest_netuid}"
+        )

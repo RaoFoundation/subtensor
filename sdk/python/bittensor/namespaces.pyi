@@ -427,6 +427,17 @@ class Staking(_ReadNamespace):
         staker holds no beta there.
         """
 
+    async def basket_trading_status(self, hotkey_ss58: str, *, block: Optional[int] = None) -> dict:
+        """A validator's `swap_basket` trading status: gates and the daily turnover budget.
+
+        `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
+        The window is the one a trade at the current block would be charged to
+        (7200 blocks; already rolled if the stored one expired). `budget_tao` is the
+        window's full allowance at current NAV (`BasketDailyTurnoverCap` share of
+        NAV), `used_tao` what this window has already consumed, and
+        `remaining_tao` the difference.
+        """
+
     async def root_basket_owed(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Balance:
         """Total TAO a coldkey would realize by claiming its root dividends now.
 
@@ -468,8 +479,11 @@ class Staking(_ReadNamespace):
         """Basket summaries for every validator with an active basket.
 
         The network-wide leaderboard: one `validator_basket_summary` record per
-        validator with an active fund, sorted by NAV descending. Compare
-        `lifetime_return` across validators to rank basket performance.
+        validator with an active fund, sorted by NAV descending, each including
+        its `basket_rate` (the cumulative entitlement accumulator: β raw units
+        minted per rao of root stake, migration-seeded history included).
+        Compare `lifetime_return` across validators to rank basket performance;
+        for staker returns use `chain_pricing` (`staker_twr` / `stake_price`).
         """
 
     async def root_claim_threshold(self, *, block: Optional[int] = None) -> Balance:
@@ -555,9 +569,12 @@ class Staking(_ReadNamespace):
 
         Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
         and the lifetime return multiple `(nav + redeemed) / deposited`, the
-        validator's root weight vector, and the per-subnet alpha holdings each
-        valued at spot and at realizable depth. All figures are TAO (or alpha
-        for the holdings themselves).
+        validator's root weight vector, the per-subnet alpha holdings each
+        valued at spot and at realizable depth, and `basket_rate` — the
+        cumulative β raw units minted per rao of root stake (a lifetime
+        accumulator that includes migration-seeded history). For staker returns
+        use `chain_pricing` (`staker_twr` / `stake_price` ratios), not rate
+        deltas. All figures are TAO (or alpha for the holdings themselves).
         """
 
     async def validator_root_weights(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:

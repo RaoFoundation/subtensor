@@ -39,6 +39,10 @@ _GET_ROOT_BASKET_PORTFOLIO = Method("BetaBasketRuntimeApi", "get_root_basket_por
 _GET_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_beta_pricing")
 _GET_ALL_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_all_beta_pricing")
 
+# TODO(codegen): switch to `api.BetaBasketRuntimeApi.get_basket_trading_status` once
+# the runtime-API registry is regenerated against a spec that includes this v4 method.
+_GET_BASKET_TRADING_STATUS = Method("BetaBasketRuntimeApi", "get_basket_trading_status")
+
 _ROOT_NETUID = 0
 
 # Raw chain units per beta token. Chain units mint at par (1 per rao of TAO
@@ -390,6 +394,35 @@ async def validator_basket_nav(view, hotkey_ss58: str) -> Balance:
     """A validator's basket net asset value in TAO (realizable quote)."""
     value = await view.runtime(api.BetaBasketRuntimeApi.get_validator_basket_nav, [hotkey_ss58])
     return view.balance(int(value or 0), _ROOT_NETUID)
+
+
+@read(
+    "basket_trading_status",
+    {"hotkey_ss58": "string"},
+    category="Staking",
+    param_docs={"hotkey_ss58": "Validator hotkey whose basket trading status to read."},
+)
+async def basket_trading_status(view, hotkey_ss58: str) -> dict:
+    """A validator's `swap_basket` trading status: gates and the daily turnover budget.
+
+    `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
+    The window is the one a trade at the current block would be charged to
+    (7200 blocks; already rolled if the stored one expired). `budget_tao` is the
+    window's full allowance at current NAV (`BasketDailyTurnoverCap` share of
+    NAV), `used_tao` what this window has already consumed, and
+    `remaining_tao` the difference.
+    """
+    row = await view.runtime(_GET_BASKET_TRADING_STATUS, [hotkey_ss58]) or {}
+    used_rao = int(row.get("tao_used") or 0)
+    budget_rao = int(row.get("budget_tao") or 0)
+    return {
+        "enabled": bool(row.get("enabled", False)),
+        "frozen": bool(row.get("frozen", False)),
+        "window_start_block": int(row.get("window_start_block") or 0),
+        "used_tao": view.balance(used_rao, _ROOT_NETUID),
+        "budget_tao": view.balance(budget_rao, _ROOT_NETUID),
+        "remaining_tao": view.balance(max(budget_rao - used_rao, 0), _ROOT_NETUID),
+    }
 
 
 @read(

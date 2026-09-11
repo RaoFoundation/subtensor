@@ -498,6 +498,34 @@
         }
       ]
     },
+    "BasketSameSubnet": {
+      "code": "invalid_argument",
+      "description": "`swap_basket` was called with the same origin and destination netuid. A basket trade sells one holding to buy another; pick two different subnets (netuid 0 is the fund's TAO cash slot).",
+      "docs_url": "/docs/errors/chain/BasketSameSubnet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketSameSubnet/content.md",
+      "pallets": []
+    },
+    "BasketTradingDisabled": {
+      "code": "disabled",
+      "description": "`swap_basket` is switched off network-wide (`BasketTradingEnabled` is false). Governance opens it with `AdminUtils.sudo_set_basket_trading_enabled`. Deposits, claims, and dividend deployment are unaffected.",
+      "docs_url": "/docs/errors/chain/BasketTradingDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketTradingDisabled/content.md",
+      "pallets": []
+    },
+    "BasketTradingFrozen": {
+      "code": "disabled",
+      "description": "Governance froze basket trading for this validator hotkey (`BasketTradingFrozen[hotkey]`), typically after a suspected key compromise. The fund still accepts deposits and pays claims; only `swap_basket` is refused until `AdminUtils.sudo_set_basket_trading_frozen(hotkey, false)`.",
+      "docs_url": "/docs/errors/chain/BasketTradingFrozen",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketTradingFrozen/content.md",
+      "pallets": []
+    },
+    "BasketTurnoverBudgetExceeded": {
+      "code": "rate_limited",
+      "description": "The trade would push more TAO through the fund than its daily turnover budget allows: `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%) per 7200-block window, counted on the TAO through the middle of each swap. Query `basket_trading_status` for the window's start block, TAO already used, and full budget; trade a smaller amount or wait for the window to roll.",
+      "docs_url": "/docs/errors/chain/BasketTurnoverBudgetExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketTurnoverBudgetExceeded/content.md",
+      "pallets": []
+    },
     "BeneficiaryDoesNotOwnHotkey": {
       "code": "not_authorized",
       "description": "When ending a subnet lease, the hotkey passed for the ownership handover is not owned by the lease's beneficiary coldkey. Check the `Owner` storage for that hotkey and pass a hotkey the beneficiary coldkey actually owns.",
@@ -582,8 +610,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 163,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L163",
+          "line": 184,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L184",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1077,8 +1105,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 187,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L187",
+          "line": 208,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L208",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1095,8 +1123,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 185,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L185",
+          "line": 206,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L206",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1410,8 +1438,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 183,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L183",
+          "line": 204,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L204",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1822,8 +1850,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 189,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L189",
+          "line": 210,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L210",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2650,8 +2678,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 177,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L177",
+          "line": 198,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L198",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2992,8 +3020,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 161,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L161",
+          "line": 182,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L182",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3010,8 +3038,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 175,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L175",
+          "line": 196,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L196",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3028,8 +3056,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 173,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L173",
+          "line": 194,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L194",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3100,8 +3128,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 159,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L159",
+          "line": 180,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L180",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3198,8 +3226,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 169,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L169",
+          "line": 190,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L190",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3216,8 +3244,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 171,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L171",
+          "line": 192,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L192",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3315,8 +3343,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 165,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L165",
+          "line": 186,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L186",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3875,8 +3903,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 179,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L179",
+          "line": 200,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L200",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4117,8 +4145,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 181,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L181",
+          "line": 202,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L202",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4521,7 +4549,7 @@
     },
     "RootClaimTooHeavy": {
       "code": "limit_exceeded",
-      "description": "A root claim would walk more work than the fixed pre-dispatch weight envelope can admit. For coldkey-wide `claim_root`, hotkeys times existing networks or total basket rows can exceed `MAX_ROOT_CLAIM_WORK`; a single validator basket with too many rows can also make `claim_root_with_hotkey` fail. Split a coldkey-wide claim by validator where that fits, and investigate or consolidate an individually oversized basket.",
+      "description": "A root claim would process more than the fixed 256-unit admission envelope. Only root-relevant validator hotkeys and their stored basket rows count as claim work; classifying the staking-hotkey relationship vector is separately capped at 256. Unrelated subnet stakes are not multiplied by the total network count. Split a coldkey-wide claim by validator where that fits, and investigate or consolidate an individually oversized basket.",
       "docs_url": "/docs/errors/chain/RootClaimTooHeavy",
       "markdown_url": "/llms.mdx/docs/errors/chain/RootClaimTooHeavy/content.md",
       "pallets": [
@@ -4927,8 +4955,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 157,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L157",
+          "line": 178,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L178",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5729,8 +5757,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 167,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L167",
+          "line": 188,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L188",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]

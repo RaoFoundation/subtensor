@@ -513,12 +513,16 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().reads(6_u64))
             .saturating_add(T::DbWeight::get().writes(5_u64))
             .saturating_mul(num_slots.max(1))
-            .saturating_add(
-                Weight::from_parts(10_000_000, 1000)
-                    .saturating_add(T::DbWeight::get().reads(4_u64))
-                    .saturating_mul(num_holdings.max(1)),
-            )
+            .saturating_add(Self::basket_nav_sweep_weight(num_holdings))
             .saturating_add(T::DbWeight::get().reads_writes(8_u64, 6_u64))
+    }
+
+    /// Weight of one realizable-NAV sweep over `num_holdings` escrow rows: one sim-swap
+    /// valuation plus reads per row. Shared by every basket path that values the fund.
+    pub(crate) fn basket_nav_sweep_weight(num_holdings: u64) -> Weight {
+        Weight::from_parts(10_000_000, 1000)
+            .saturating_add(T::DbWeight::get().reads(4_u64))
+            .saturating_mul(num_holdings.max(1))
     }
 
     /// A staker's gross *fund-share* entitlement on a validator: `BasketRate * root_stake`.
@@ -1189,6 +1193,20 @@ impl<T: Config> Pallet<T> {
             );
         }
 
+        // Trading guardrails follow the fund so a hotkey swap can neither escape a
+        // governance freeze nor reset the turnover window. The freeze is copied, not
+        // moved: a later swap back onto the old hotkey must still find it frozen.
+        if BasketTradingFrozen::<T>::contains_key(old_hotkey) {
+            BasketTradingFrozen::<T>::insert(new_hotkey, ());
+        }
+        let (window_start, tao_used) = BasketTradeWindow::<T>::take(old_hotkey);
+        if tao_used != 0 {
+            BasketTradeWindow::<T>::mutate(new_hotkey, |(start, used)| {
+                *start = (*start).max(window_start);
+                *used = used.saturating_add(tao_used);
+            });
+        }
+
         moved_rows
     }
 
@@ -1501,11 +1519,21 @@ impl<T: Config> Pallet<T> {
     /// Credit `amount` TAO onto the root pool's reserves. Root has no AMM pool, so whenever TAO is
     /// placed on root these three storages must be moved in lockstep by hand (subnets get this for
     /// free inside `swap_tao_for_alpha`). Single source of truth for that invariant.
-    fn credit_root_reserves(amount: TaoBalance) {
+    pub(super) fn credit_root_reserves(amount: TaoBalance) {
         SubnetTAO::<T>::mutate(NetUid::ROOT, |total| *total = total.saturating_add(amount));
         SubnetAlphaOut::<T>::mutate(NetUid::ROOT, |total| {
             *total = total.saturating_add(u64::from(amount).into())
         });
         TotalStake::<T>::mutate(|total| *total = total.saturating_add(amount));
+    }
+
+    /// Exact inverse of [`Self::credit_root_reserves`]: TAO leaving the root slot (e.g. a
+    /// basket trade selling out of the fund's cash position) unwinds the same three storages.
+    pub(super) fn debit_root_reserves(amount: TaoBalance) {
+        SubnetTAO::<T>::mutate(NetUid::ROOT, |total| *total = total.saturating_sub(amount));
+        SubnetAlphaOut::<T>::mutate(NetUid::ROOT, |total| {
+            *total = total.saturating_sub(u64::from(amount).into())
+        });
+        TotalStake::<T>::mutate(|total| *total = total.saturating_sub(amount));
     }
 }

@@ -93,6 +93,29 @@ DESCRIPTIONS: dict[str, str] = {
         "coldkey-wide claim by validator where that fits, and investigate or consolidate an "
         "individually oversized basket."
     ),
+    "BasketSameSubnet": (
+        "`swap_basket` was called with the same origin and destination netuid. A basket "
+        "trade sells one holding to buy another; pick two different subnets (netuid 0 is "
+        "the fund's TAO cash slot)."
+    ),
+    "BasketTradingDisabled": (
+        "`swap_basket` is switched off network-wide (`BasketTradingEnabled` is false). "
+        "Governance opens it with `AdminUtils.sudo_set_basket_trading_enabled`. Deposits, "
+        "claims, and dividend deployment are unaffected."
+    ),
+    "BasketTradingFrozen": (
+        "Governance froze basket trading for this validator hotkey "
+        "(`BasketTradingFrozen[hotkey]`), typically after a suspected key compromise. The "
+        "fund still accepts deposits and pays claims; only `swap_basket` is refused until "
+        "`AdminUtils.sudo_set_basket_trading_frozen(hotkey, false)`."
+    ),
+    "BasketTurnoverBudgetExceeded": (
+        "The trade would push more TAO through the fund than its daily turnover budget "
+        "allows: `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%) "
+        "per 7200-block window, counted on the TAO through the middle of each swap. Query "
+        "`basket_trading_status` for the window's start block, TAO already used, and full "
+        "budget; trade a smaller amount or wait for the window to roll."
+    ),
     "BetaBasketSeedInProgress": (
         "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "
         "inside the upgrade block, so this only appears if that run was interrupted). Basket "

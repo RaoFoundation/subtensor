@@ -85,6 +85,19 @@ pub const MIN_ROOT_BASKET_WEIGHTS: u16 = 8;
 /// admits a 16-way equal split, so a fund must curate at least 16 destinations.
 pub const DEFAULT_ROOT_WEIGHTS_CAP: u16 = u16::MAX / 16 + 1;
 
+/// Default [`BasketDailyTurnoverCap`]: 10% of fund NAV per trade window (u16-normalized).
+pub const DEFAULT_BASKET_DAILY_TURNOVER_CAP: u16 = u16::MAX / 10;
+
+/// Length of one `swap_basket` turnover window in blocks (one day at 12s blocks).
+pub const BASKET_TRADE_WINDOW_BLOCKS: u64 = 7200;
+
+/// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
+/// points (2%). The reference is the *stricter* of the subnet's moving (EMA) price and its
+/// spot price: the EMA anchor defeats a pre-trade pump, the spot anchor caps the trade's own
+/// price impact. Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM
+/// `price_limit`; a leg that cannot fill fully within the bound fails.
+pub const BASKET_TRADE_MAX_SLIPPAGE_BPS: u64 = 200;
+
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
     for SubtensorDustRemoval<T>
@@ -2934,6 +2947,48 @@ pub mod pallet {
     /// all read paths are unaffected.
     #[pallet::storage]
     pub type RootWeightSettingEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    /// Master switch for `swap_basket` (validator-directed basket rebalancing). Defaults to
+    /// OFF. Flipped on via `AdminUtils::sudo_set_basket_trading_enabled`. Gates only the
+    /// trade path: deposits, claims, dividend deployment, and all read paths are unaffected.
+    #[pallet::storage]
+    pub type BasketTradingEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    /// --- SET ( validator_hotkey ) --> basket trading frozen for this fund.
+    ///
+    /// Per-fund kill switch set by governance (`AdminUtils::sudo_set_basket_trading_frozen`),
+    /// e.g. after a suspected key compromise. A frozen fund still accepts deposits and pays
+    /// claims; only `swap_basket` is refused. Follows the fund on hotkey swap.
+    #[pallet::storage]
+    pub type BasketTradingFrozen<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
+    #[pallet::type_value]
+    /// Default daily turnover budget for basket trading: 10% of fund NAV per window
+    /// (u16-normalized; 6553/65535).
+    pub fn DefaultBasketDailyTurnoverCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_DAILY_TURNOVER_CAP
+    }
+
+    /// --- ITEM --> max TAO a fund may push through `swap_basket` per
+    /// [`crate::BASKET_TRADE_WINDOW_BLOCKS`], as a u16-normalized share of the fund's NAV
+    /// (`u16::MAX` = 100%). Each leg is also bounded to
+    /// [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of *both* the moving price and the spot
+    /// price, so the worst-case daily value a rogue trader can move against the fund is
+    /// `cap × (2 × slippage + fees)` of NAV. Set via
+    /// `AdminUtils::sudo_set_basket_daily_turnover_cap`.
+    #[pallet::storage]
+    pub type BasketDailyTurnoverCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> `(window_start_block, tao_used)` for the fund's current
+    /// basket-trade turnover window. A window is [`crate::BASKET_TRADE_WINDOW_BLOCKS`] long
+    /// and resets lazily on the first trade after it expires. `tao_used` is the TAO that
+    /// passed through the middle of each swap (sell leg out / buy leg in). Follows the fund
+    /// on hotkey swap.
+    #[pallet::storage]
+    pub type BasketTradeWindow<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), ValueQuery>;
 
     #[pallet::type_value]
     /// Default share cap for a single root basket destination: 1/16 of the vector
