@@ -279,20 +279,22 @@ impl<T: Config> Pallet<T> {
 }
 
 /// One fund's `swap_basket` trading status as a trade at the current block would see it.
-/// `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze. The window
-/// is the one a trade now would be charged to (already rolled if the stored one expired);
-/// `budget_tao` is that window's full allowance at current NAV.
-#[freeze_struct("89f0b89d928a6ac1")]
+/// `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze. The
+/// turnover budget is a token bucket: `tao_available` is what a trade now could push
+/// through the fund, `budget_tao` the bucket's capacity at current NAV, and it refills at
+/// `budget_tao / refill_blocks` per block.
+#[freeze_struct("9ae6f8b94367d627")]
 #[derive(Decode, Encode, PartialEq, Eq, Clone, Debug, TypeInfo)]
 pub struct BasketTradingStatus {
     /// `BasketTradingEnabled`: the network-wide gate.
     pub enabled: bool,
     /// `BasketTradingFrozen[hotkey]`: governance froze this fund's trading.
     pub frozen: bool,
-    /// First block of the turnover window a trade now would be charged to.
-    pub window_start_block: u64,
-    /// TAO already pushed through the fund in that window.
-    pub tao_used: TaoBalance,
-    /// The window's full allowance: `BasketDailyTurnoverCap` share of current NAV.
+    /// Blocks for an empty bucket to refill completely (`BASKET_TRADE_REFILL_BLOCKS`); the
+    /// refill rate is `budget_tao / refill_blocks` per block.
+    pub refill_blocks: u64,
+    /// TAO the bucket holds right now: the most a trade at this block could push through.
+    pub tao_available: TaoBalance,
+    /// The bucket's capacity: `BasketDailyTurnoverCap` share of current NAV.
     pub budget_tao: TaoBalance,
 }

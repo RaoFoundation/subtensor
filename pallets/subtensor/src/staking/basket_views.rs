@@ -175,21 +175,23 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
-    /// The fund's `swap_basket` turnover window as seen at block `now`: the stored window
-    /// if still open and charged, otherwise a fresh one starting at `now` with nothing used.
-    /// A fund that has never traded (the `(0, 0)` default) opens its first window at its
-    /// first trade rather than at block 0, so a young chain does not hand every fund a
-    /// shared window ending at block `BASKET_TRADE_WINDOW_BLOCKS`.
-    pub fn basket_trade_window_at(hotkey: &T::AccountId, now: u64) -> (u64, u64) {
-        let (window_start, tao_used) = BasketTradeWindow::<T>::get(hotkey);
-        if tao_used == 0 || now.saturating_sub(window_start) >= crate::BASKET_TRADE_WINDOW_BLOCKS {
-            (now, 0)
-        } else {
-            (window_start, tao_used)
+    /// TAO the fund's `swap_basket` turnover bucket holds at block `now` given a bucket
+    /// capacity of `budget`: the stored level plus `budget / BASKET_TRADE_REFILL_BLOCKS` per
+    /// block elapsed since the last refill, clamped to `budget`. A fund with no stored
+    /// bucket (never traded) is full. Clamping also absorbs a NAV drop: the level can never
+    /// exceed one current budget.
+    pub fn basket_trade_bucket_at(hotkey: &T::AccountId, now: u64, budget: u64) -> u64 {
+        match BasketTradeBucket::<T>::get(hotkey) {
+            None => budget,
+            Some((level, last_refill_block)) => {
+                let elapsed = now.saturating_sub(last_refill_block);
+                let refill = Self::mul_div_u64(budget, elapsed, crate::BASKET_TRADE_REFILL_BLOCKS);
+                level.saturating_add(refill).min(budget)
+            }
         }
     }
 
-    /// TAO a fund with `nav` may push through `swap_basket` per window
+    /// Capacity of a fund's `swap_basket` turnover bucket at `nav`
     /// (`nav × BasketDailyTurnoverCap / u16::MAX`).
     pub fn basket_trade_budget_tao(nav: u64) -> u64 {
         Self::mul_div_u64(
@@ -203,14 +205,14 @@ impl<T: Config> Pallet<T> {
     /// block would see it.
     pub fn get_basket_trading_status(hotkey: &T::AccountId) -> BasketTradingStatus {
         let now = Self::get_current_block_as_u64();
-        let (window_start_block, tao_used) = Self::basket_trade_window_at(hotkey, now);
         let nav = Self::get_validator_basket_nav_tao(hotkey).to_u64();
+        let budget = Self::basket_trade_budget_tao(nav);
         BasketTradingStatus {
             enabled: BasketTradingEnabled::<T>::get(),
             frozen: BasketTradingFrozen::<T>::contains_key(hotkey),
-            window_start_block,
-            tao_used: tao_used.into(),
-            budget_tao: Self::basket_trade_budget_tao(nav).into(),
+            refill_blocks: crate::BASKET_TRADE_REFILL_BLOCKS,
+            tao_available: Self::basket_trade_bucket_at(hotkey, now, budget).into(),
+            budget_tao: budget.into(),
         }
     }
 

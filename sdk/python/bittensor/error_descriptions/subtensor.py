@@ -117,11 +117,12 @@ DESCRIPTIONS: dict[str, str] = {
         "`AdminUtils.sudo_set_basket_trading_frozen(hotkey, false)`."
     ),
     "BasketTurnoverBudgetExceeded": (
-        "The trade would push more TAO through the fund than its daily turnover budget "
-        "allows: `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%) "
-        "per 7200-block window, counted on the TAO through the middle of each swap. Query "
-        "`basket_trading_status` for the window's start block, TAO already used, and full "
-        "budget; trade a smaller amount or wait for the window to roll."
+        "The trade would push more TAO through the fund than its turnover bucket holds. "
+        "The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund "
+        "NAV, default 10%); it refills continuously over 7200 blocks and each swap takes "
+        "the TAO through its middle out of it, so at most one capacity can be traded at "
+        "any instant. Query `basket_trading_status` for the remaining budget, the capacity, "
+        "and the refill rate; trade a smaller amount or wait for the bucket to refill."
     ),
     "BetaBasketSeedInProgress": (
         "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "

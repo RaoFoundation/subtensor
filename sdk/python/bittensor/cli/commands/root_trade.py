@@ -44,8 +44,9 @@ def _trade_review(
     if status is not None:
         rows.append(
             (
-                "daily budget",
-                f"{status['remaining_tao']} of {status['budget_tao']} left this window",
+                "turnover budget",
+                f"{status['remaining_tao']} of {status['budget_tao']} available "
+                f"(refills {status['refill_per_block_tao']} per block)",
             )
         )
         if not status["enabled"]:

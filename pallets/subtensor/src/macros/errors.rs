@@ -380,9 +380,10 @@ mod errors {
         /// Basket trading is frozen for this validator hotkey by governance
         /// ([`crate::BasketTradingFrozen`]).
         BasketTradingFrozen,
-        /// The trade would push more TAO through the fund in the current window than
-        /// [`crate::BasketDailyTurnoverCap`] allows (as a share of fund NAV). Wait for the
-        /// window to roll or trade a smaller amount.
+        /// The trade would push more TAO through the fund than its turnover bucket holds
+        /// ([`crate::BasketDailyTurnoverCap`] of fund NAV, refilling over
+        /// [`crate::BASKET_TRADE_REFILL_BLOCKS`]). Wait for the bucket to refill or trade
+        /// a smaller amount.
         BasketTurnoverBudgetExceeded,
         /// `swap_basket` origin and destination are the same subnet.
         BasketSameSubnet,

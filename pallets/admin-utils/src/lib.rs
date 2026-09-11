@@ -165,7 +165,7 @@ pub mod pallet {
 
         /// The basket daily turnover budget (`BasketDailyTurnoverCap`) was set.
         BasketDailyTurnoverCapSet {
-            /// Max u16-normalized share of fund NAV a fund may trade per window
+            /// Turnover bucket capacity as a u16-normalized share of fund NAV
             /// (`u16::MAX` = 100%).
             cap: u16,
         },
@@ -2570,11 +2570,10 @@ pub mod pallet {
         }
 
         /// Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]):
-        /// the largest u16-normalized share of fund NAV (`u16::MAX` = 100%) a fund may push
-        /// through `swap_basket` per 7200-block window. With each leg bounded to 2% of both
-        /// the moving and the spot price, the worst-case daily value a rogue trader can move
-        /// against the fund is `cap × (2 × 2% + fees)` of NAV. Root-only. One
-        /// storage write; reuses the `sudo_set_root_weights_cap` weight.
+        /// the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share
+        /// of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one
+        /// capacity can be traded at any instant and about one per day sustained. Root-only.
+        /// One storage write; reuses the `sudo_set_root_weights_cap` weight.
         #[pallet::call_index(108)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
         pub fn sudo_set_basket_daily_turnover_cap(

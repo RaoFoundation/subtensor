@@ -1194,17 +1194,20 @@ impl<T: Config> Pallet<T> {
         }
 
         // Trading guardrails follow the fund so a hotkey swap can neither escape a
-        // governance freeze nor reset the turnover window. The freeze is copied, not
-        // moved: a later swap back onto the old hotkey must still find it frozen.
+        // governance freeze nor refill the turnover bucket. The freeze is copied, not
+        // moved: a later swap back onto the old hotkey must still find it frozen. The
+        // bucket is carried conservatively: the lower level and the later refill block.
         if BasketTradingFrozen::<T>::contains_key(old_hotkey) {
             BasketTradingFrozen::<T>::insert(new_hotkey, ());
         }
-        let (window_start, tao_used) = BasketTradeWindow::<T>::take(old_hotkey);
-        if tao_used != 0 {
-            BasketTradeWindow::<T>::mutate(new_hotkey, |(start, used)| {
-                *start = (*start).max(window_start);
-                *used = used.saturating_add(tao_used);
-            });
+        if let Some((old_level, old_block)) = BasketTradeBucket::<T>::take(old_hotkey) {
+            let carried = match BasketTradeBucket::<T>::get(new_hotkey) {
+                Some((new_level, new_block)) => {
+                    (old_level.min(new_level), old_block.max(new_block))
+                }
+                None => (old_level, old_block),
+            };
+            BasketTradeBucket::<T>::insert(new_hotkey, carried);
         }
 
         moved_rows

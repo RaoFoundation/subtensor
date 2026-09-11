@@ -403,25 +403,28 @@ async def validator_basket_nav(view, hotkey_ss58: str) -> Balance:
     param_docs={"hotkey_ss58": "Validator hotkey whose basket trading status to read."},
 )
 async def basket_trading_status(view, hotkey_ss58: str) -> dict:
-    """A validator's `swap_basket` trading status: gates and the daily turnover budget.
+    """A validator's `swap_basket` trading status: gates and the turnover bucket.
 
     `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
-    The window is the one a trade at the current block would be charged to
-    (7200 blocks; already rolled if the stored one expired). `budget_tao` is the
-    window's full allowance at current NAV (`BasketDailyTurnoverCap` share of
-    NAV), `used_tao` what this window has already consumed, and
-    `remaining_tao` the difference.
+    The turnover budget is a token bucket: `budget_tao` is its capacity at current
+    NAV (`BasketDailyTurnoverCap` share of NAV), `remaining_tao` what a trade right
+    now could push through the fund, `used_tao` the difference, and the bucket
+    refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
+    a full refill over `refill_blocks` = 7200 blocks).
     """
     row = await view.runtime(_GET_BASKET_TRADING_STATUS, [hotkey_ss58]) or {}
-    used_rao = int(row.get("tao_used") or 0)
+    available_rao = int(row.get("tao_available") or 0)
     budget_rao = int(row.get("budget_tao") or 0)
+    refill_blocks = int(row.get("refill_blocks") or 0)
+    per_block_rao = budget_rao // refill_blocks if refill_blocks else 0
     return {
         "enabled": bool(row.get("enabled", False)),
         "frozen": bool(row.get("frozen", False)),
-        "window_start_block": int(row.get("window_start_block") or 0),
-        "used_tao": view.balance(used_rao, _ROOT_NETUID),
+        "refill_blocks": refill_blocks,
+        "refill_per_block_tao": view.balance(per_block_rao, _ROOT_NETUID),
+        "used_tao": view.balance(max(budget_rao - available_rao, 0), _ROOT_NETUID),
         "budget_tao": view.balance(budget_rao, _ROOT_NETUID),
-        "remaining_tao": view.balance(max(budget_rao - used_rao, 0), _ROOT_NETUID),
+        "remaining_tao": view.balance(min(available_rao, budget_rao), _ROOT_NETUID),
     }
 
 

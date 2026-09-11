@@ -85,11 +85,14 @@ pub const MIN_ROOT_BASKET_WEIGHTS: u16 = 8;
 /// admits a 16-way equal split, so a fund must curate at least 16 destinations.
 pub const DEFAULT_ROOT_WEIGHTS_CAP: u16 = u16::MAX / 16 + 1;
 
-/// Default [`BasketDailyTurnoverCap`]: 10% of fund NAV per trade window (u16-normalized).
+/// Default [`BasketDailyTurnoverCap`]: the `swap_basket` turnover bucket holds 10% of fund
+/// NAV (u16-normalized).
 pub const DEFAULT_BASKET_DAILY_TURNOVER_CAP: u16 = u16::MAX / 10;
 
-/// Length of one `swap_basket` turnover window in blocks (one day at 12s blocks).
-pub const BASKET_TRADE_WINDOW_BLOCKS: u64 = 7200;
+/// Blocks for an empty `swap_basket` turnover bucket to refill completely (one day at 12s
+/// blocks). The bucket refills continuously at `budget / BASKET_TRADE_REFILL_BLOCKS` per
+/// block, so at any instant at most one full budget can be spent.
+pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
 
 /// Default [`BasketLiquidityCap`]: a fund's holding on a subnet may not exceed 10% of that
 /// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
@@ -2968,19 +2971,18 @@ pub mod pallet {
         StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
     #[pallet::type_value]
-    /// Default daily turnover budget for basket trading: 10% of fund NAV per window
-    /// (u16-normalized; 6553/65535).
+    /// Default daily turnover budget for basket trading: a bucket of 10% of fund NAV that
+    /// refills over one day (u16-normalized; 6553/65535).
     pub fn DefaultBasketDailyTurnoverCap<T: Config>() -> u16 {
         crate::DEFAULT_BASKET_DAILY_TURNOVER_CAP
     }
 
-    /// --- ITEM --> max TAO a fund may push through `swap_basket` per
-    /// [`crate::BASKET_TRADE_WINDOW_BLOCKS`], as a u16-normalized share of the fund's NAV
-    /// (`u16::MAX` = 100%). Each leg is also bounded to
-    /// [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of *both* the moving price and the spot
-    /// price, so the worst-case daily value a rogue trader can move against the fund is
-    /// `cap × (2 × slippage + fees)` of NAV. Set via
-    /// `AdminUtils::sudo_set_basket_daily_turnover_cap`.
+    /// --- ITEM --> capacity of a fund's `swap_basket` turnover bucket as a u16-normalized
+    /// share of the fund's NAV (`u16::MAX` = 100%). The bucket refills at
+    /// `capacity / BASKET_TRADE_REFILL_BLOCKS` per block, so at most one capacity can be
+    /// pushed through the fund at any instant and about one per day sustained. Each leg is
+    /// also bounded to [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of *both* the moving price
+    /// and the spot price. Set via `AdminUtils::sudo_set_basket_daily_turnover_cap`.
     #[pallet::storage]
     pub type BasketDailyTurnoverCap<T: Config> =
         StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
@@ -3005,14 +3007,15 @@ pub mod pallet {
     pub type BasketLiquidityCap<T: Config> =
         StorageValue<_, u16, ValueQuery, DefaultBasketLiquidityCap<T>>;
 
-    /// --- MAP ( validator_hotkey ) --> `(window_start_block, tao_used)` for the fund's current
-    /// basket-trade turnover window. A window is [`crate::BASKET_TRADE_WINDOW_BLOCKS`] long
-    /// and resets lazily on the first trade after it expires. `tao_used` is the TAO that
-    /// passed through the middle of each swap (sell leg out / buy leg in). Follows the fund
-    /// on hotkey swap.
+    /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
+    /// `swap_basket` turnover bucket. A missing row is a full bucket (a new fund starts full).
+    /// On each trade the bucket is refilled for the blocks elapsed since `last_refill_block`
+    /// at `budget / BASKET_TRADE_REFILL_BLOCKS` per block, clamped to one budget (NAV at
+    /// that moment), then the TAO through the middle of the swap is taken out. Follows the
+    /// fund on hotkey swap (lower level, later refill block).
     #[pallet::storage]
-    pub type BasketTradeWindow<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), ValueQuery>;
+    pub type BasketTradeBucket<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
 
     #[pallet::type_value]
     /// Default share cap for a single root basket destination: 1/16 of the vector

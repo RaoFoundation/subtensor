@@ -428,14 +428,14 @@ class Staking(_ReadNamespace):
         """
 
     async def basket_trading_status(self, hotkey_ss58: str, *, block: Optional[int] = None) -> dict:
-        """A validator's `swap_basket` trading status: gates and the daily turnover budget.
+        """A validator's `swap_basket` trading status: gates and the turnover bucket.
 
         `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
-        The window is the one a trade at the current block would be charged to
-        (7200 blocks; already rolled if the stored one expired). `budget_tao` is the
-        window's full allowance at current NAV (`BasketDailyTurnoverCap` share of
-        NAV), `used_tao` what this window has already consumed, and
-        `remaining_tao` the difference.
+        The turnover budget is a token bucket: `budget_tao` is its capacity at current
+        NAV (`BasketDailyTurnoverCap` share of NAV), `remaining_tao` what a trade right
+        now could push through the fund, `used_tao` the difference, and the bucket
+        refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
+        a full refill over `refill_blocks` = 7200 blocks).
         """
 
     async def root_basket_owed(self, coldkey_ss58: str, *, block: Optional[int] = None) -> Balance:

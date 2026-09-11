@@ -2083,8 +2083,8 @@ mod dispatches {
         /// entitlements are unchanged; only the fund's composition moves.
         ///
         /// Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price;
-        /// the TAO through the middle is charged against the fund's daily turnover budget
-        /// (`BasketDailyTurnoverCap` of NAV per 7200 blocks); the destination holding may not
+        /// the TAO through the middle is taken from the fund's turnover bucket
+        /// (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not
         /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
         /// `RootWeightsCap` of NAV. Trading must be enabled network-wide and not frozen for
         /// the hotkey by governance.
@@ -2106,7 +2106,7 @@ mod dispatches {
         /// * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root.
         /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
         /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
-        /// * `BasketTurnoverBudgetExceeded`: The trade exceeds the fund's daily budget.
+        /// * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds.
         /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.
         /// * `RootWeightCapExceeded`: The destination would exceed the concentration cap.
         #[pallet::call_index(150)]
