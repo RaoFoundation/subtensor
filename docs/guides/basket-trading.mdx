@@ -148,10 +148,10 @@ trade *right now*. The trade below moves roughly 250 α × price of netuid 8,
 so check that it fits. See [How to read the budget](#how-to-read-the-budget)
 for what the other fields mean.
 
-### 2. Trade with btcli
+### 2. Swap with btcli
 
 ```bash
-btcli root trade --from 8 --to 64 --amount 250 --hotkey 5F...val \
+btcli root swap --from 8 --to 64 --amount 250 --hotkey 5F...val \
   -w desk --proxy-for 5F...validator_coldkey
 ```
 
@@ -164,11 +164,11 @@ frozen). Confirm, and the call is proxied, shielded, and submitted. Pass
 Other shapes of the same command:
 
 ```bash
-btcli root trade --from 3 --to 0 --amount all --hotkey 5F...val ...   # exit netuid 3 to cash
-btcli root trade --from 0 --to 21 --amount 500 --hotkey 5F...val ...  # spend 500 τ of cash on netuid 21
+btcli root swap --from 3 --to 0 --amount all --hotkey 5F...val ...   # exit netuid 3 to cash
+btcli root swap --from 0 --to 21 --amount 500 --hotkey 5F...val ...  # spend 500 τ of cash on netuid 21
 ```
 
-### 3. Trade with the Python SDK
+### 3. Swap with the Python SDK
 
 ```python
 import bittensor as bt

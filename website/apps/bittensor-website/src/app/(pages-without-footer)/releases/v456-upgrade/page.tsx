@@ -84,11 +84,11 @@ const page = () => {
 btcli proxy add --delegate <desk multisig> --proxy-type BasketTrading -w validator_cold
 
 # the desk: sell 250 α of netuid 8 and buy netuid 64 in the validator's fund
-btcli root trade --from 8 --to 64 --amount 250 --hotkey <validator hotkey> \\
+btcli root swap --from 8 --to 64 --amount 250 --hotkey <validator hotkey> \\
   -w desk --proxy-for <validator coldkey>
 
 # move part of the fund's netuid 3 position into cash (netuid 0)
-btcli root trade --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
+btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
   -w desk --proxy-for <validator coldkey>`}
           </pre>
         </section>
@@ -318,7 +318,7 @@ btcli root trade --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
             <code>remaining_tao</code>, <code>used_tao</code>,{' '}
             <code>refill_per_block_tao</code>, <code>refill_blocks</code>), the{' '}
             <code>BasketTrading</code> proxy type, and descriptions for every new error.{' '}
-            <code>btcli root trade --from --to --amount [--hotkey] [--proxy-for]</code> is the
+            <code>btcli root swap --from --to --amount [--hotkey] [--proxy-for]</code> is the
             CLI surface; its review card shows the origin and destination holdings and how much
             of the bucket is left before you sign.
           </p>

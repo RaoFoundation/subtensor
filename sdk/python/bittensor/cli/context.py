@@ -87,7 +87,7 @@ _REVIEW_TITLES = {
     "claim_root": "Claim",
     "claim_root_with_hotkey": "Claim",
     "stake_into_basket": "Allocate",
-    "swap_basket": "Trade",
+    "swap_basket": "Swap",
     "add_stake": "Stake",
     "add_stake_limit": "Stake",
     "remove_stake": "Unstake",

@@ -1,4 +1,4 @@
-"""``btcli root trade``: rebalance a validator's basket between subnets."""
+"""``btcli root swap``: rebalance a validator's basket between subnets."""
 
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ from ..globals import with_tx_globals
 from ..prompt import confirm_wallet
 
 
-def _trade_review(
+def _swap_review(
     app_ctx: AppContext,
     intent: SwapBasket,
     *,
     holdings: list[dict],
     status: Optional[dict],
 ) -> tuple[str, list[tuple]]:
-    """Confirm line and the Trade stage of the review card: the origin holding
+    """Confirm line and the Swap stage of the review card: the origin holding
     being sold, the destination, and how much of the fund's daily turnover
     budget is left."""
     by_netuid = {int(row["netuid"]): row for row in holdings}
@@ -65,7 +65,7 @@ def _trade_review(
 
 
 @with_tx_globals
-def root_trade(
+def root_swap(
     ctx: typer.Context,
     hotkey_ss58: Optional[str] = typer.Option(
         None,
@@ -115,7 +115,7 @@ def root_trade(
         with app_ctx.output.activity("quoting the fund…"):
             holdings, status = app_ctx.run(_fund_context)
     except Exception:
-        # Display-only context; a quoting hiccup (or a pre-v4 node) must not block the trade.
+        # Display-only context; a quoting hiccup (or a pre-v4 node) must not block the swap.
         holdings, status = [], None
-    summary, rows = _trade_review(app_ctx, intent, holdings=holdings, status=status)
-    app_ctx.submit(intent, summary=summary, card_sections=[("Trade", rows)])
+    summary, rows = _swap_review(app_ctx, intent, holdings=holdings, status=status)
+    app_ctx.submit(intent, summary=summary, card_sections=[("Swap", rows)])
