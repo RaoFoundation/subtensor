@@ -534,6 +534,24 @@
         }
       ]
     },
+    "BasketMinOutNotMet": {
+      "code": "insufficient_liquidity",
+      "description": "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the 2% protocol band still applies.",
+      "docs_url": "/docs/errors/chain/BasketMinOutNotMet",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketMinOutNotMet/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 397,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L397",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "BasketSameSubnet": {
       "code": "invalid_argument",
       "description": "`swap_basket` was called with the same origin and destination netuid. A basket trade sells one holding to buy another; pick two different subnets (netuid 0 is the fund's TAO cash slot).",

@@ -25,9 +25,15 @@ must be enabled network-wide and not frozen for the hotkey. Query
 `validator_basket` for current holdings before trading. Pass `all`
 to sell the fund's whole origin holding (e.g. to clear a small balance).
 
+`min_amount_out` is your own floor on top of the protocol band: the
+buy leg must credit at least this much destination alpha (TAO when the
+destination is netuid 0), after fees, or the whole trade rolls back with
+`BasketMinOutNotMet`. The default `0` sets no floor. `btcli root
+swap` derives it from a quote and `--max-slippage`.
+
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2112-L2135) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2117-L2142) |
 
 ## Parameters
 
@@ -37,6 +43,7 @@ to sell the fund's whole origin holding (e.g. to clear a small balance).
 | `origin_netuid` | integer | yes | Subnet to sell out of (0 = the fund's TAO cash slot). |
 | `dest_netuid` | integer | yes | Subnet to buy into (0 = the fund's TAO cash slot). |
 | `amount` | number \| `"all"` | yes | How much of the origin holding to sell, in the origin subnet's alpha (TAO when the origin is netuid 0), or `all` for the whole holding. |
+| `min_amount_out` | number \| `"all"` | no | Least amount the buy leg must credit, in the destination subnet's alpha (TAO when the destination is netuid 0), after fees; the trade rolls back with `BasketMinOutNotMet` below it. 0 (default) sets no floor. The 2% protocol band applies regardless. |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -85,7 +92,7 @@ result = sub.execute_tool("swap_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2119`](/code/pallets/subtensor/src/macros/dispatches.rs#L2112-L2135):
+`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2124`](/code/pallets/subtensor/src/macros/dispatches.rs#L2117-L2142):
 
 ```rust
 #[pallet::call_index(150)]
@@ -101,6 +108,7 @@ pub fn swap_basket(
     origin_netuid: NetUid,
     destination_netuid: NetUid,
     amount: AlphaBalance,
+    min_amount_out: u64,
 ) -> DispatchResultWithPostInfo {
     let coldkey: T::AccountId = ensure_signed(origin)?;
     let weight = Self::do_swap_basket(
@@ -109,11 +117,12 @@ pub fn swap_basket(
         origin_netuid,
         destination_netuid,
         amount.to_u64(),
+        min_amount_out,
     )?;
     Ok((Some(weight), Pays::Yes).into())
 }
 ```
 
-Delegates to [`do_swap_basket`](/code/pallets/subtensor/src/staking/basket_trade.rs#L58).
+Delegates to [`do_swap_basket`](/code/pallets/subtensor/src/staking/basket_trade.rs#L62).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
