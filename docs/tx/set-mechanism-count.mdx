@@ -16,7 +16,7 @@ end-of-epoch admin freeze window.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_mechanism_count`](/code/pallets/admin-utils/src/lib.rs#L1944-L1966) |
+| `coldkey` | subnet owner | AdminUtils | [`AdminUtils.sudo_set_mechanism_count`](/code/pallets/admin-utils/src/lib.rs#L1951-L1973) |
 
 ## Parameters
 
@@ -68,7 +68,7 @@ result = sub.execute_tool("set_mechanism_count", {...}, wallet)
 
 ## On-chain implementation
 
-`AdminUtils.sudo_set_mechanism_count` — [`pallets/admin-utils/src/lib.rs#L1946`](/code/pallets/admin-utils/src/lib.rs#L1944-L1966):
+`AdminUtils.sudo_set_mechanism_count` — [`pallets/admin-utils/src/lib.rs#L1953`](/code/pallets/admin-utils/src/lib.rs#L1951-L1973):
 
 ```rust
 #[pallet::call_index(76)]

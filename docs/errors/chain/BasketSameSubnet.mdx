@@ -7,7 +7,9 @@ description: "Check the argument values against the operation schema"
 
 `swap_basket` was called with the same origin and destination netuid. A basket trade sells one holding to buy another; pick two different subnets (netuid 0 is the fund's TAO cash slot).
 
-It classifies to the semantic code [`invalid_argument`](/docs/errors/invalid-argument).
+Declared by the `SubtensorModule` pallet; it classifies to the semantic code [`invalid_argument`](/docs/errors/invalid-argument).
+
+Declared at [`pallets/subtensor/src/macros/errors.rs#L389`](/code/pallets/subtensor/src/macros/errors.rs#L389).
 
 ## Remediation
 

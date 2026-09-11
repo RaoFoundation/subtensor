@@ -480,6 +480,24 @@
         }
       ]
     },
+    "BasketDepositPending": {
+      "code": "too_early",
+      "description": "A queued root-dividend deposit on this validator could not be settled yet, so an operation that changes the hotkey's root claimant base was refused. No current dispatch raises it; if it appears, wait for the pending deposit to flush (the next claim or basket operation on the hotkey settles it) and retry.",
+      "docs_url": "/docs/errors/chain/BasketDepositPending",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketDepositPending/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 377,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L377",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "BasketHasNoWeights": {
       "code": "invalid_argument",
       "description": "Retired on current runtimes: a basket deposit into a validator with no usable root weight vector is now held as the fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain is running an older runtime \u2014 have the validator set root weights with `btcli root weights set` (or `set_root_weights`) first.",
@@ -498,33 +516,95 @@
         }
       ]
     },
+    "BasketLiquidityCapExceeded": {
+      "code": "limit_exceeded",
+      "description": "The trade would leave the fund holding more of the destination subnet than `BasketLiquidityCap` allows as a share of that subnet's alpha reserve (u16-normalized, default 10%). This bounds the fund's exposure to any one pool's liquidity. Trade a smaller amount, or pick a deeper pool; query `validator_basket` for the current holding and `subnet` for the pool's alpha reserve.",
+      "docs_url": "/docs/errors/chain/BasketLiquidityCapExceeded",
+      "markdown_url": "/llms.mdx/docs/errors/chain/BasketLiquidityCapExceeded/content.md",
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 393,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L393",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
     "BasketSameSubnet": {
       "code": "invalid_argument",
       "description": "`swap_basket` was called with the same origin and destination netuid. A basket trade sells one holding to buy another; pick two different subnets (netuid 0 is the fund's TAO cash slot).",
       "docs_url": "/docs/errors/chain/BasketSameSubnet",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketSameSubnet/content.md",
-      "pallets": []
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 389,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L389",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
     },
     "BasketTradingDisabled": {
       "code": "disabled",
       "description": "`swap_basket` is switched off network-wide (`BasketTradingEnabled` is false). Governance opens it with `AdminUtils.sudo_set_basket_trading_enabled`. Deposits, claims, and dividend deployment are unaffected.",
       "docs_url": "/docs/errors/chain/BasketTradingDisabled",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketTradingDisabled/content.md",
-      "pallets": []
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 379,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L379",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
     },
     "BasketTradingFrozen": {
       "code": "disabled",
       "description": "Governance froze basket trading for this validator hotkey (`BasketTradingFrozen[hotkey]`), typically after a suspected key compromise. The fund still accepts deposits and pays claims; only `swap_basket` is refused until `AdminUtils.sudo_set_basket_trading_frozen(hotkey, false)`.",
       "docs_url": "/docs/errors/chain/BasketTradingFrozen",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketTradingFrozen/content.md",
-      "pallets": []
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 382,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L382",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
     },
     "BasketTurnoverBudgetExceeded": {
       "code": "rate_limited",
-      "description": "The trade would push more TAO through the fund than its daily turnover budget allows: `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%) per 7200-block window, counted on the TAO through the middle of each swap. Query `basket_trading_status` for the window's start block, TAO already used, and full budget; trade a smaller amount or wait for the window to roll.",
+      "description": "The trade would push more TAO through the fund than its turnover bucket holds. The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund NAV, default 10%); it refills continuously over 7200 blocks and each swap takes the TAO through its middle out of it, so at most one capacity can be traded at any instant. Query `basket_trading_status` for the remaining budget, the capacity, and the refill rate; trade a smaller amount or wait for the bucket to refill.",
       "docs_url": "/docs/errors/chain/BasketTurnoverBudgetExceeded",
       "markdown_url": "/llms.mdx/docs/errors/chain/BasketTurnoverBudgetExceeded/content.md",
-      "pallets": []
+      "pallets": [
+        "SubtensorModule"
+      ],
+      "sources": [
+        {
+          "pallet": "SubtensorModule",
+          "path": "pallets/subtensor/src/macros/errors.rs",
+          "line": 387,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L387",
+          "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
     },
     "BeneficiaryDoesNotOwnHotkey": {
       "code": "not_authorized",
@@ -610,8 +690,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 184,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L184",
+          "line": 191,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L191",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1105,8 +1185,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 208,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L208",
+          "line": 215,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L215",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1123,8 +1203,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 206,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L206",
+          "line": 213,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L213",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -1438,8 +1518,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 204,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L204",
+          "line": 211,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L211",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         },
         {
@@ -1850,8 +1930,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 210,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L210",
+          "line": 217,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L217",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -2678,8 +2758,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 198,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L198",
+          "line": 205,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L205",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3020,8 +3100,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 182,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L182",
+          "line": 189,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L189",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3038,8 +3118,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 196,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L196",
+          "line": 203,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L203",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3056,8 +3136,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 194,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L194",
+          "line": 201,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L201",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3128,8 +3208,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 180,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L180",
+          "line": 187,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L187",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3226,8 +3306,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 190,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L190",
+          "line": 197,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L197",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3244,8 +3324,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 192,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L192",
+          "line": 199,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L199",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3343,8 +3423,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 186,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L186",
+          "line": 193,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L193",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -3903,8 +3983,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 200,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L200",
+          "line": 207,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L207",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4145,8 +4225,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 202,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L202",
+          "line": 209,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L209",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -4955,8 +5035,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 178,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L178",
+          "line": 185,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L185",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
@@ -5757,8 +5837,8 @@
         {
           "pallet": "AdminUtils",
           "path": "pallets/admin-utils/src/lib.rs",
-          "line": 188,
-          "url": "/code/pallets/admin-utils/src/lib.rs#L188",
+          "line": 195,
+          "url": "/code/pallets/admin-utils/src/lib.rs#L195",
           "raw_url": "/code/raw/pallets/admin-utils/src/lib.rs"
         }
       ]
