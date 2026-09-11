@@ -76,13 +76,14 @@ from .staking import (
     RemoveStakeLimit,
     SetAutoStake,
     StakeIntoBasket,
+    SwapBasketAlpha,
     SwapStake,
     TransferStake,
     UnstakeAll,
     UnstakeAllAlpha,
 )
 from .transfer import Transfer, TransferAll
-from .weights import CommitWeights, RevealWeights, SetRootWeights, SetWeights, normalize
+from .weights import CommitWeights, RevealWeights, SetWeights, normalize
 
 __all__ = [
     "ALL",
@@ -153,7 +154,6 @@ __all__ = [
     "SetPerpetualLock",
     "SetRejectLockedAlpha",
     "SetRootClaimThreshold",
-    "SetRootWeights",
     "SetSubnetEmissionEnabled",
     "SetSubnetIdentity",
     "SetTake",
@@ -162,6 +162,7 @@ __all__ = [
     "StakeBurn",
     "StakeIntoBasket",
     "StartCall",
+    "SwapBasketAlpha",
     "SwapColdkeyAnnounced",
     "SwapHotkey",
     "SwapStake",

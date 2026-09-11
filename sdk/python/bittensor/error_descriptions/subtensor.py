@@ -75,10 +75,9 @@ DESCRIPTIONS: dict[str, str] = {
         "the coldkey's balance with `btcli wallet balance` and reduce the amount or top up."
     ),
     "BasketHasNoWeights": (
-        "Retired on current runtimes: a basket deposit into a validator with no usable root "
-        "weight vector is now held as the fund's root (TAO cash) slot instead of erroring. "
-        "Seeing this error means the chain is running an older runtime — have the validator "
-        "set root weights with `btcli root weights set` (or `set_root_weights`) first."
+        "Retired on current runtimes: a basket deposit into an empty fund is now held as the "
+        "fund's root (TAO cash) slot instead of erroring. Seeing this error means the chain "
+        "is running an older runtime; upgrade the node or wait for the runtime upgrade."
     ),
     "BeneficiaryDoesNotOwnHotkey": (
         "When ending a subnet lease, the hotkey passed for the ownership handover is not owned "
@@ -107,8 +106,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     "CanNotSetRootNetworkWeights": (
         "`set_weights` was called with netuid 0, the root network, where normal weight setting "
-        "is not allowed. Use a non-root `netuid` argument; root weights are handled by a "
-        "separate mechanism."
+        "is not allowed. Use a non-root `netuid` argument; root validators manage their "
+        "dividend basket with `swap_basket_alpha` instead."
     ),
     "CannotAffordLockCost": (
         "The coldkey's free balance cannot cover the current dynamic subnet-creation lock cost. "
@@ -645,19 +644,16 @@ DESCRIPTIONS: dict[str, str] = {
         "in `NetworksAdded`."
     ),
     "RootWeightCapExceeded": (
-        "One destination in the `set_root_weights` vector takes a larger share of the basket "
-        "than the `RootWeightsCap` hyperparameter allows (share = weight / sum of weights; "
-        "the cap is u16-normalized, so 4096 means 1/16). Spread the vector across more "
-        "destinations — at the launch cap of 1/16 a basket needs at least 16 — or lower the "
-        "largest entries. Query `RootWeightsCap[0]` for the live cap. Not enforced while "
-        "the chain has fewer subnets than the cap demands."
+        "Retired on current runtimes: the `set_root_weights` extrinsic and its concentration "
+        "cap were removed. Validators rebalance their basket directly with "
+        "`swap_basket_alpha` (`btcli tx swap-basket-alpha`). Seeing this error means the "
+        "chain is running an older runtime."
     ),
     "RootWeightSettingDisabled": (
-        "`set_root_weights` is disabled network-wide (`RootWeightSettingEnabled` is false). "
-        "Root Reborn launched gated and runtime 449 opened the gate, so on current mainnet "
-        "this only appears if governance has switched weight setting back off. Funds then "
-        "run the null strategy (dividends accumulate in place on their origin subnet) until "
-        "it is re-enabled; dividends keep accruing meanwhile."
+        "Retired on current runtimes: the `set_root_weights` extrinsic and its network-wide "
+        "gate were removed. Validators rebalance their basket directly with "
+        "`swap_basket_alpha` (`btcli tx swap-basket-alpha`). Seeing this error means the "
+        "chain is running an older runtime."
     ),
     "RootStakeLocked": (
         "A root (netuid 0) exit was attempted before `RootStakeUnlockInterval` blocks "

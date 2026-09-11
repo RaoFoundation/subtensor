@@ -11,7 +11,6 @@ import {
     generateKeyringPair,
     getBasketRate,
     getBasketShares,
-    setRootWeights,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -20,16 +19,15 @@ import {
     sudoSetSubnetMovingAlpha,
     sudoSetSubtokenEnabled,
     sudoSetTempo,
-    sudoSetWeightsSetRateLimit,
     tao,
     waitForBlocks,
 } from "../../utils";
 import { rootRegister } from "../../utils/subnet.ts";
 import { swapHotkey } from "../../utils/swap.ts";
 
-// Shared setup: creates two subnets, registers oldHotkey on both (and on root), points its
-// basket weight vector at the subnets, stakes on ROOT and both subnets, then waits for the
-// unified basket fund (BasketRate / BasketShares) to accumulate.
+// Shared setup: creates two subnets, registers oldHotkey on both (and on root), stakes on
+// ROOT and both subnets, then waits for the unified basket fund (BasketRate / BasketShares)
+// to accumulate from root dividends landing in place on each subnet.
 async function setupTwoSubnetsWithBasket(
     api: TypedApi<typeof subtensor>,
     ROOT_NETUID: number,
@@ -96,13 +94,10 @@ async function setupTwoSubnetsWithBasket(
     await addStake(api, owner1Coldkey, owner1Hotkey.address, netuid1, tao(50));
     await addStake(api, owner2Coldkey, owner2Hotkey.address, netuid2, tao(50));
 
-    // Register oldHotkey on the root subnet and point its basket weight vector at both
-    // subnets: without weights, root dividends are recycled and no fund accrues.
+    // Register oldHotkey on the root subnet: root dividends from both subnets accumulate in
+    // place in its basket fund.
     await rootRegister(api, oldHotkeyColdkey, oldHotkey.address);
     log("oldHotkey registered on root");
-    await sudoSetWeightsSetRateLimit(api, ROOT_NETUID, 0);
-    await setRootWeights(api, oldHotkey, [netuid1, netuid2], [32768, 32768]);
-    log("Set oldHotkey root weights: 50/50 across netuid1/netuid2");
 
     log("Waiting 30 blocks for the basket fund to accumulate...");
     await waitForBlocks(api, 30);

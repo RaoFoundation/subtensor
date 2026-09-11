@@ -20,7 +20,6 @@ import {
     getTotalHotkeyAlpha,
     isSubtokenEnabled,
     rootRegister,
-    setRootWeights,
     startCall,
     sudoSetAdminFreezeWindow,
     sudoSetEmaPriceHalvingPeriod,
@@ -133,11 +132,6 @@ describeSuite({
                 const rootStake = await getStake(api, owner1HotkeyAddress, stakerColdkeyAddress, ROOT_NETUID);
                 log(`Root stake: ${rootStake}`);
                 expect(rootStake, "Should have stake on root subnet").toBeGreaterThan(0n);
-
-                // The validator must set its basket weight vector for dividends to be deposited
-                // into the fund (otherwise they are recycled). Route them into subnet 1.
-                await setRootWeights(api, owner1Hotkey, [netuid1], [65535]);
-                log("Set root weights: 100% to netuid1");
 
                 // Add stake to both dynamic subnets (owner stake to enable emissions flow)
                 const subnetStakeAmount = tao(50);
@@ -296,10 +290,6 @@ describeSuite({
                 // Get initial ROOT stake
                 const rootStakeBefore = await getStake(api, owner1HotkeyAddress, stakerColdkeyAddress, ROOT_NETUID);
                 log(`Root stake before: ${rootStakeBefore}`);
-
-                // Route the validator's basket into subnet 1 so dividends are deposited.
-                await setRootWeights(api, owner1Hotkey, [netuid1], [65535]);
-                log("Set root weights: 100% to netuid1");
 
                 // Add stake to both dynamic subnets (owner stake to enable emissions flow)
                 const subnetStakeAmount = tao(50);

@@ -163,8 +163,8 @@ Quick reference:
 
 Stake on the root network earns dividends from across subnets through
 **baskets**: each root validator runs an escrowed index fund of subnet alpha,
-allocated per its root weights, and root stakers accrue an entitlement to that fund
-in proportion to their root stake.
+which it manages by trading holdings, and root stakers accrue an entitlement
+to that fund in proportion to their root stake.
 
 Unlike subnet staking, moving TAO in and out of root is not a pool swap: no
 swap fee, no slippage, no MEV exposure — you add and remove root stake at
@@ -207,7 +207,7 @@ wait out the configured interval, then unstake separately.
 Per-validator payouts below the claim threshold (default 500,000 rao) are
 skipped and keep accruing — there is no deadline. See
 [Root Reborn](/docs/guides/root-reborn) for the full basket model, the
-validator-side curation commands, and migration notes from the retired
+validator-side rebalancing command, and migration notes from the retired
 per-subnet claim system. [Beta tokens](/docs/concepts/beta-tokens) is the
 share unit itself.
 

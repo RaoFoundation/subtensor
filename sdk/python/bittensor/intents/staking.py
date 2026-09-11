@@ -1638,11 +1638,10 @@ class StakeIntoBasket(Intent):
 
     Deploys TAO from the signing coldkey across the validator's basket and
     credits beta immediately. The hotkey must already hold a root seat
-    (``HotKeyNotRegisteredInSubNet``). A curated fund follows its root
-    weight vector; an uncurated fund mirrors current holdings by
-    realizable value; an empty uncurated fund holds the deposit as the
-    fund's root (TAO cash) slot. The share mint is priced on the
-    realizable NAV the deposit added, so the depositor bears their own
+    (``HotKeyNotRegisteredInSubNet``). The deposit mirrors the fund's
+    current holdings by realizable value; a deposit into an empty fund is
+    held as the fund's root (TAO cash) slot. The share mint is priced on
+    the realizable NAV the deposit added, so the depositor bears their own
     entry slippage and swap fees. The shares do not require or change
     root stake, and they do not change anyone's dividend accrual.
     Redeem them later with ``claim_root_with_hotkey``. Pass ``all`` to
@@ -1698,3 +1697,97 @@ class StakeIntoBasket(Intent):
         if self.amount_tao == ALL:
             return UNBOUNDED
         return self.amount_tao
+
+
+@register
+@dataclass
+class SwapBasketAlpha(Intent):
+    """Rebalance your validator basket: sell one holding, buy another.
+
+    The validator-side control over the beta basket its root stakers are
+    entitled to. Sells ``amount_alpha`` of the fund's ``origin_netuid``
+    holding and buys ``dest_netuid`` alpha with the proceeds, all inside the
+    fund's escrow; netuid 0 on either side is the fund's TAO cash slot, so
+    ``origin_netuid=0`` buys alpha with cash and ``dest_netuid=0`` sells a
+    holding into cash. Signed by the hotkey, which must be registered on the
+    root network (``HotKeyNotRegisteredInSubNet``); origin and destination
+    must differ (``SameNetuid``), both must be netuid 0 or an existing subnet
+    (``SubnetNotExists``), and the fund must hold at least the amount on the
+    origin (``NotEnoughStakeToWithdraw``). Only composition changes: fund
+    shares and every staker's entitlement are untouched, and the fund's NAV
+    moves only by the trade's slippage, borne by all share holders. Both legs
+    run fee-free through the basket's protocol swap and are booked as protocol
+    flow, so validator trading cannot steer a subnet's TAO-flow emission
+    metric. Dividends land in place on the subnet they arrive on; this call is
+    how a validator moves them anywhere else. Pass ``all`` to trade the whole
+    origin holding. Read the resulting composition back with the
+    ``validator_basket`` read.
+    """
+
+    op = "swap_basket_alpha"
+    signer = "hotkey"
+    wraps = (("SubtensorModule", "swap_basket_alpha"),)
+    all_amount_fields: ClassVar[tuple[str, ...]] = ("amount_alpha",)
+
+    origin_netuid: int = field(
+        metadata={"help": "Holding to sell from (0 = the fund's TAO cash slot)."}
+    )
+    dest_netuid: int = field(metadata={"help": "Subnet to buy into (0 = hold as TAO cash)."})
+    amount_alpha: Money = field(
+        metadata={
+            "help": "How much of the origin holding to trade (alpha, or TAO for netuid 0), "
+            "or ``all`` for the whole holding."
+        }
+    )
+
+    def __post_init__(self):
+        self.amount_alpha = call_amount(
+            self.amount_alpha,
+            self.wraps[0],
+            "alpha_amount",
+            netuid=self.origin_netuid,
+            allow_all=True,
+        )
+
+    async def _origin_holding_rao(self, substrate, hotkey_ss58: str) -> int:
+        rows = await substrate.runtime_call(
+            *BetaBasketRuntimeApi.get_validator_basket, [hotkey_ss58]
+        )
+        for netuid, alpha, _tao in rows or []:
+            if int(netuid) == self.origin_netuid:
+                return int(alpha)
+        return 0
+
+    async def build(self, substrate, wallet: Any):
+        hotkey = self.hotkey_address(wallet)
+        if self.amount_alpha == ALL:
+            rao = await self._origin_holding_rao(substrate, hotkey)
+            if rao == 0:
+                raise BittensorError(
+                    f"{hotkey}'s basket holds nothing on netuid {self.origin_netuid}."
+                )
+        else:
+            rao = self.amount_alpha.rao
+        return await substrate.compose(
+            calls.SubtensorModule.swap_basket_alpha(
+                origin_netuid=self.origin_netuid,
+                destination_netuid=self.dest_netuid,
+                alpha_amount=rao,
+            )
+        )
+
+    def summary(self) -> str:
+        amount = "the whole holding" if self.amount_alpha == ALL else str(self.amount_alpha)
+        return (
+            f"rebalance basket: sell {amount} on netuid {self.origin_netuid} "
+            f"and buy netuid {self.dest_netuid}"
+        )
+
+    async def warnings(self, substrate, signer_address: str) -> list[str]:
+        out = ["fund NAV moves by the trade's slippage, borne by every share holder"]
+        if self.amount_alpha == ALL:
+            out.append(f"sells the fund's entire netuid {self.origin_netuid} holding")
+        return out
+
+    def touches_netuids(self) -> list[int]:
+        return [self.origin_netuid, self.dest_netuid]

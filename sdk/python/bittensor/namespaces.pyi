@@ -555,20 +555,12 @@ class Staking(_ReadNamespace):
 
         Valuation (realizable NAV and spot NAV), lifetime deposited/redeemed TAO
         and the lifetime return multiple `(nav + redeemed) / deposited`, the
-        validator's root weight vector, and the per-subnet alpha holdings each
-        valued at spot and at realizable depth. All figures are TAO (or alpha
-        for the holdings themselves).
-        """
-
-    async def validator_root_weights(self, hotkey_ss58: str, *, block: Optional[int] = None) -> list[dict]:
-        """A validator's root dividend distribution vector (basket weights).
-
-        The `(netuid, weight)` pairs its root dividends are deployed into each
-        epoch, exactly as stored (u16, max-upscaled), plus each destination's
-        normalized `share` of the total.     Netuid 0 means "hold as TAO / root
-        stake". An empty list means no custom weights are set; the fund is
-        uncurated and each subnet's dividend accumulates in place on that
-        subnet, trade-free (no sell, no redeploy).
+        per-subnet alpha holdings each valued at spot and at realizable depth,
+        and `basket_rate` — the cumulative β raw units minted per rao of root
+        stake (a lifetime accumulator that includes migration-seeded history).
+        For staker returns use `chain_pricing` (`staker_twr` / `stake_price`
+        ratios), not rate deltas. All figures are TAO (or alpha for the holdings
+        themselves).
         """
 
 class Subnets(_ReadNamespace):

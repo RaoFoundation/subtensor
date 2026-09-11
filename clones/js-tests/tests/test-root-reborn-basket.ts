@@ -55,8 +55,7 @@ async function main() {
 
     const netuid = await registerSubnet();
     await setupBasketFixture(netuid);
-    await setRootWeights(netuid);
-    await assertRootWeightValidation(netuid);
+    await assertSwapBasketAlphaValidation(netuid);
 
     const before = await readBasketState(netuid);
     console.log("basket before emission:", formatBasketState(before));
@@ -72,6 +71,8 @@ async function main() {
     assert.ok(accrued.ownerOwed > 0n, "staker owed RPC returned zero after basket accrual");
     assert.ok(accrued.basket.length > 0, "validator basket RPC returned no rows");
     assert.equal(accrued.basket[0].netuid, netuid, "validator basket RPC used unexpected netuid");
+
+    await swapBasketAlphaIntoRoot(netuid, accrued.escrowAlpha / 2n, accrued.escrowAlpha);
 
     await assertClaimReducesOwnerOwed(netuid, accrued.ownerOwed, accrued.principal);
     await createSecondAccrualForDissolve(netuid);
@@ -99,7 +100,7 @@ function assertMetadataAvailable() {
     ["SubtensorModule.rootRegister", api.tx.subtensorModule?.rootRegister],
     ["SubtensorModule.addStakeLimit", api.tx.subtensorModule?.addStakeLimit],
     ["SubtensorModule.claimRoot", api.tx.subtensorModule?.claimRoot],
-    ["SubtensorModule.setRootWeights", api.tx.subtensorModule?.setRootWeights],
+    ["SubtensorModule.swapBasketAlpha", api.tx.subtensorModule?.swapBasketAlpha],
     ["SubtensorModule.rootDissolveNetwork", api.tx.subtensorModule?.rootDissolveNetwork],
     ["SubtensorModule.sudoSetNumRootClaims", api.tx.subtensorModule?.sudoSetNumRootClaims],
     ["SubtensorModule.BasketPrincipal", api.query.subtensorModule?.basketPrincipal],
@@ -221,34 +222,35 @@ async function setupBasketFixture(netuid) {
   );
 }
 
-async function setRootWeights(netuid) {
+async function swapBasketAlphaIntoRoot(netuid, alphaAmount, escrowAlphaBefore) {
+  // The validator rebalances part of the accrued holding into the fund's TAO cash slot.
   await submitAndWait(
     validatorHotkey,
-    api.tx.subtensorModule.setRootWeights([netuid], [65_535]),
-    "set_root_weights"
+    api.tx.subtensorModule.swapBasketAlpha(netuid, 0, alphaAmount),
+    "swap_basket_alpha"
   );
-  const uid = (await api.query.subtensorModule.uids(0, validatorHotkey.address)).unwrap().toNumber();
-  const weights = await api.query.subtensorModule.weights(0, uid);
-  console.log("root weights stored:", `uid=${uid}`, weights.toString());
-  assert.match(weights.toString(), new RegExp(`\\b${netuid}\\b`));
+  const state = await readBasketState(netuid);
+  console.log("basket after rebalance:", formatBasketState(state));
+  // Dividends may keep landing in place between blocks, so only require a net decrease.
+  assert.ok(state.escrowAlpha < escrowAlphaBefore, "swap_basket_alpha did not reduce the origin holding");
 }
 
-async function assertRootWeightValidation(netuid) {
+async function assertSwapBasketAlphaValidation(netuid) {
   await assert.rejects(
-    async () => submitAndWait(validatorHotkey, api.tx.subtensorModule.setRootWeights([0], [65_535]), "set invalid root weight"),
+    async () => submitAndWait(validatorHotkey, api.tx.subtensorModule.swapBasketAlpha(netuid, netuid, 1), "swap same netuid"),
     (error: any) => {
-      assert.match(error.message, /\bUidVecContainInvalidOne\b/);
+      assert.match(error.message, /\bSameNetuid\b/);
       return true;
     }
   );
   await assert.rejects(
-    async () => submitAndWait(validatorHotkey, api.tx.subtensorModule.setRootWeights([netuid, netuid], [1, 2]), "set duplicate root weight"),
+    async () => submitAndWait(validatorHotkey, api.tx.subtensorModule.swapBasketAlpha(netuid, 4095, 1), "swap into missing subnet"),
     (error: any) => {
-      assert.match(error.message, /\bDuplicateUids\b/);
+      assert.match(error.message, /\bSubnetNotExists\b/);
       return true;
     }
   );
-  console.log("root weight validation rejects root destination and duplicates");
+  console.log("swap_basket_alpha validation rejects same-netuid and missing-subnet trades");
 }
 
 async function waitForBasketPrincipal(netuid, previousPrincipal) {
