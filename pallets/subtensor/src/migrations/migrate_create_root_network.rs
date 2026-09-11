@@ -61,9 +61,6 @@ pub fn migrate_create_root_network<T: Config>() -> Weight {
     // Set the maximum number of validators to all members
     MaxAllowedValidators::<T>::insert(NetUid::ROOT, 64);
 
-    // Basket curation floor for `set_root_weights` (softened when fewer destinations exist).
-    MinAllowedWeights::<T>::insert(NetUid::ROOT, crate::MIN_ROOT_BASKET_WEIGHTS);
-
     // Set default root tempo
     Tempo::<T>::insert(NetUid::ROOT, 100);
 
@@ -74,11 +71,11 @@ pub fn migrate_create_root_network<T: Config>() -> Weight {
     TargetRegistrationsPerInterval::<T>::insert(NetUid::ROOT, 1);
 
     // WeightsSetRateLimit for root was never set here; mainnet later pinned it to
-    // u64::MAX when legacy root weights were frozen. `migrate_enable_root_weight_setting`
-    // replaces it with a usable limit when root basket curation launches.
+    // u64::MAX when legacy root weights were frozen. Root has no weight setting any more
+    // (validators rebalance their basket with `swap_basket_alpha`), so it stays frozen.
 
     // Accrue weight for database writes
-    weight.saturating_accrue(T::DbWeight::get().writes(7));
+    weight.saturating_accrue(T::DbWeight::get().writes(6));
 
     // Remove all existing triumvirate votes and senate members
     remove_prefix::<T>("Triumvirate", "Votes", &mut weight);

@@ -42,7 +42,9 @@ mod events {
         ),
         /// a caller successfully sets their weights on a subnetwork.
         WeightsSet(NetUidStorageIndex, u16),
-        /// a root validator set its beta-basket distribution vector (uid on the root subnet).
+        /// Retired (kept for SCALE index stability): root validators no longer declare a
+        /// beta-basket weight vector; they rebalance the fund with `swap_basket_alpha`
+        /// (see `BasketAlphaSwapped`). Never emitted.
         RootWeightsSet(u16),
         /// a new neuron account has been registered to the chain.
         NeuronRegistered(NetUid, u16, T::AccountId),
@@ -475,9 +477,9 @@ mod events {
             tao: TaoBalance,
         },
 
-        /// A validator's beta basket (fund) received a dividend deposit: the dividend was
-        /// deployed across subnets per the validator's weight vector, adding `tao` of
-        /// realizable NAV to the fund and minting `shares` fund shares at the pre-deposit NAV.
+        /// A validator's beta basket (fund) received a dividend deposit: the dividend alpha
+        /// was credited in place on the subnet it arrived on, adding `tao` of realizable NAV
+        /// to the fund and minting `shares` fund shares at the pre-deposit NAV.
         BasketDeposited {
             /// Validator hotkey whose basket received the deposit.
             hotkey: T::AccountId,
@@ -489,9 +491,8 @@ mod events {
         },
 
         /// A staker deposited TAO from their balance directly into a validator's beta
-        /// basket: the TAO was deployed across subnets per the validator's weight vector
-        /// and `shares` fund shares were credited to the staker via their claimed
-        /// watermark.
+        /// basket: the TAO was deployed pro-rata across the fund's current holdings and
+        /// `shares` fund shares were credited to the staker via their claimed watermark.
         BasketStakedIn {
             /// Validator hotkey whose basket received the deposit.
             hotkey: T::AccountId,
@@ -516,6 +517,26 @@ mod events {
             coldkey: T::AccountId,
             /// TAO realized and staked on root for the staker.
             tao: TaoBalance,
+        },
+
+        /// A root validator rebalanced its beta basket: `alpha_in` of the fund's
+        /// `origin_netuid` holding was sold for `tao` and redeployed as `alpha_out` on
+        /// `destination_netuid`, all inside the escrow. Netuid 0 on either side is the
+        /// fund's root (TAO cash) slot, where alpha and TAO are the same 1:1 figure. Fund
+        /// shares and staker entitlements are unaffected.
+        BasketAlphaSwapped {
+            /// Validator hotkey whose basket was rebalanced.
+            hotkey: T::AccountId,
+            /// Holding sold from.
+            origin_netuid: NetUid,
+            /// Holding bought into.
+            destination_netuid: NetUid,
+            /// Alpha removed from the origin holding.
+            alpha_in: AlphaBalance,
+            /// TAO realized by the sell leg and spent on the buy leg.
+            tao: TaoBalance,
+            /// Alpha added to the destination holding.
+            alpha_out: AlphaBalance,
         },
 
         /// A validator's basket holding on a dissolving subnet was converted into the fund's

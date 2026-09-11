@@ -8,7 +8,6 @@
 use super::*;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use sp_runtime::DispatchError;
-use subtensor_runtime_common::NetUidStorageIndex;
 use subtensor_swap_interface::{Order, SwapHandler};
 
 impl<T: Config> Pallet<T> {
@@ -174,17 +173,5 @@ impl<T: Config> Pallet<T> {
             ));
         }
         u64::try_from(nav).unwrap_or(u64::MAX).into()
-    }
-
-    /// A validator's beta basket weight vector `w`: the `(subnet, weight)` pairs it deploys its
-    /// root dividends into (its curation strategy), exactly as stored.
-    pub fn get_validator_root_weights(hotkey: &T::AccountId) -> Vec<(NetUid, u16)> {
-        Uids::<T>::try_get(NetUid::ROOT, hotkey)
-            .ok()
-            .map(|uid| Weights::<T>::get(NetUidStorageIndex::ROOT, uid))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(dest, weight)| (NetUid::from(dest), weight))
-            .collect()
     }
 }

@@ -70,6 +70,7 @@ pub trait WeightInfo {
 	fn add_collateral() -> Weight;
 	fn set_min_collateral() -> Weight;
 	fn swap_stake() -> Weight;
+	fn swap_basket_alpha() -> Weight;
 	fn batch_commit_weights() -> Weight;
 	fn batch_set_weights() -> Weight;
 	fn decrease_take() -> Weight;
@@ -1925,6 +1926,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (r:0 w:1)
 	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn swap_stake() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `2505`
+		//  Estimated: `10920`
+		// Minimum execution time: 371_000_000 picoseconds.
+		Weight::from_parts(388_000_000, 10920)
+			.saturating_add(T::DbWeight::get().reads(49_u64))
+			.saturating_add(T::DbWeight::get().writes(24_u64))
+	}
+	/// Interim: seeded from the measured `swap_stake` figures (same shape — one sell, one
+	/// buy, stake reads/writes on two subnets) until the reference benchmark run replaces it.
+	fn swap_basket_alpha() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2505`
 		//  Estimated: `10920`
@@ -5553,6 +5565,17 @@ impl WeightInfo for () {
 	/// Storage: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (r:0 w:1)
 	/// Proof: `SubtensorModule::LastColdkeyHotkeyStakeBlock` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn swap_stake() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `2505`
+		//  Estimated: `10920`
+		// Minimum execution time: 371_000_000 picoseconds.
+		Weight::from_parts(388_000_000, 10920)
+			.saturating_add(RocksDbWeight::get().reads(49_u64))
+			.saturating_add(RocksDbWeight::get().writes(24_u64))
+	}
+	/// Interim: seeded from the measured `swap_stake` figures (same shape — one sell, one
+	/// buy, stake reads/writes on two subnets) until the reference benchmark run replaces it.
+	fn swap_basket_alpha() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2505`
 		//  Estimated: `10920`

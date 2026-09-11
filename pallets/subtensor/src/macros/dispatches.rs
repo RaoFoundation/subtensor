@@ -78,27 +78,10 @@ mod dispatches {
             }
         }
 
-        /// --- Sets a root validator's basket distribution vector `w` on the root subnet
-        /// (netuid 0). `dests` are subnet netuids and `weights` are the proportions of the
-        /// validator's root dividends to deploy into each subnet's alpha basket.
-        /// Requires at least [`crate::MIN_ROOT_BASKET_WEIGHTS`] positive destinations
-        /// (softened when fewer networks exist), and no destination may take a larger
-        /// share of the vector than [`crate::RootWeightsCap`] (skipped while fewer
-        /// destinations exist than the cap demands).
-        ///
-        /// # Args:
-        /// * `origin`: the root validator hotkey.
-        /// * `dests` (Vec<u16>): destination subnet netuids.
-        /// * `weights` (Vec<u16>): per-subnet weights (normalized on use).
-        #[pallet::call_index(146)]
-        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::set_weights(), DispatchClass::Normal, Pays::No))]
-        pub fn set_root_weights(
-            origin: OriginFor<T>,
-            dests: Vec<u16>,
-            weights: Vec<u16>,
-        ) -> DispatchResult {
-            Self::do_set_root_weights(origin, dests, weights)
-        }
+        // Call index 146 (`set_root_weights`) is retired: validators no longer declare a
+        // target weight vector for their basket. Dividends always accumulate in place on
+        // the subnet they arrive on, and validators rebalance the fund directly with
+        // [`Pallet::swap_basket_alpha`]. Do not reuse this index.
 
         /// Sets the caller weights for the incentive mechanism for mechanisms. The call
         /// can be made from the hotkey account so is potentially insecure, however, the damage
@@ -2032,18 +2015,16 @@ mod dispatches {
 
         /// Stakes TAO from the caller's balance directly into a validator's basket.
         ///
-        /// The TAO is deployed across subnets per the validator's root weight vector
-        /// (exactly like a dividend deposit) and the caller is credited a fund
-        /// entitlement at the fund's pre-buy realizable NAV, priced against the
-        /// realizable value the deposit added — the depositor bears their own entry
-        /// slippage and swap fees. An uncurated fund (no usable weight vector) is
-        /// mirrored instead: the deposit deploys pro-rata across the fund's current
-        /// holdings by realizable value, keeping deposits symmetric with claims (which
-        /// redeem pro-rata of every holding); a deposit into an empty uncurated fund is
-        /// held as the fund's root (TAO cash) slot. The credited entitlement is
-        /// redeemable through [`Pallet::claim_root_with_hotkey`] (or coldkey-wide
-        /// [`Pallet::claim_root`]); it does not require or affect root stake, and it
-        /// does not change any staker's dividend accrual.
+        /// The deposit *mirrors the fund*: the TAO is deployed pro-rata across the fund's
+        /// current holdings by realizable value, keeping deposits symmetric with claims
+        /// (which redeem pro-rata of every holding); a deposit into an empty fund is held
+        /// as the fund's root (TAO cash) slot. The caller is credited a fund entitlement
+        /// at the fund's pre-buy realizable NAV, priced against the realizable value the
+        /// deposit added — the depositor bears their own entry slippage and swap fees.
+        /// The credited entitlement is redeemable through
+        /// [`Pallet::claim_root_with_hotkey`] (or coldkey-wide [`Pallet::claim_root`]);
+        /// it does not require or affect root stake, and it does not change any staker's
+        /// dividend accrual.
         ///
         /// # Arguments
         /// * `origin`: The signature of the caller's coldkey.
@@ -2061,7 +2042,7 @@ mod dispatches {
         ///   rounds to zero entitlement.
         /// * `NotEnoughBalanceToStake`: The caller cannot cover `amount_staked`.
         #[pallet::call_index(147)]
-        // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
+        // Declared weight is a cap sized for a 128-slot mirror vector over 256 holdings
         // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
         // sim-swap valuations); the actual weight is computed in `do_stake_into_basket`
         // from the real slot and holding counts and refunded post-dispatch, mirroring
@@ -2075,6 +2056,51 @@ mod dispatches {
             let coldkey: T::AccountId = ensure_signed(origin)?;
             let weight = Self::do_stake_into_basket(coldkey, hotkey, amount_staked)?;
             Ok((Some(weight), Pays::Yes).into())
+        }
+
+        /// Rebalances a root validator's basket: sells `alpha_amount` of the fund's holding
+        /// on `origin_netuid` and buys `destination_netuid` alpha with the proceeds, all
+        /// inside the fund's escrow. This is how a validator actively manages the basket
+        /// its root stakers are entitled to. One call covers every trade shape:
+        ///
+        /// * subnet -> subnet: swap one alpha for another (a two-leg trade through TAO);
+        /// * subnet -> root (netuid 0): sell alpha and hold the TAO as the fund's cash slot;
+        /// * root -> subnet: buy alpha with the fund's TAO cash.
+        ///
+        /// Only composition changes. Outstanding fund shares, every staker's entitlement,
+        /// and the per-validator claimable rate are untouched: the fund's NAV moves only by
+        /// the trade's slippage, which every share holder bears pro-rata. Both legs run
+        /// fee-free through the same protocol swap the basket uses for dividend deposits
+        /// and redemptions, and are booked as protocol flow (not user flow) so a validator
+        /// cannot steer a subnet's TAO-flow emission metric by trading fund assets.
+        ///
+        /// # Arguments
+        /// * `origin`: The signature of the root-registered validator hotkey.
+        /// * `origin_netuid`: The holding to sell from (netuid 0 = the fund's TAO cash slot).
+        /// * `destination_netuid`: The subnet to buy into (netuid 0 = hold as TAO cash).
+        /// * `alpha_amount`: Alpha (or TAO for netuid 0) to move out of `origin_netuid`.
+        ///
+        /// # Events
+        /// * `BasketAlphaSwapped`: On success, with the alpha sold, the TAO realized, and
+        ///   the alpha bought.
+        ///
+        /// # Errors
+        /// * `HotKeyNotRegisteredInSubNet`: The hotkey is not registered on root.
+        /// * `SameNetuid`: Origin and destination are the same subnet.
+        /// * `SubnetNotExists`: Origin or destination is neither root nor an existing subnet.
+        /// * `NotEnoughStakeToWithdraw`: The fund holds less than `alpha_amount` on origin.
+        /// * `AmountTooLow`: The amount is zero, or either leg rounds to zero output.
+        /// * `BetaBasketSeedInProgress`: The basket seed migration has not completed.
+        #[pallet::call_index(150)]
+        #[pallet::weight((<T as crate::pallet::Config>::WeightInfo::swap_basket_alpha(), DispatchClass::Normal, Pays::Yes))]
+        pub fn swap_basket_alpha(
+            origin: OriginFor<T>,
+            origin_netuid: NetUid,
+            destination_netuid: NetUid,
+            alpha_amount: AlphaBalance,
+        ) -> DispatchResult {
+            let hotkey: T::AccountId = ensure_signed(origin)?;
+            Self::do_swap_basket_alpha(hotkey, origin_netuid, destination_netuid, alpha_amount)
         }
 
         // Call indices 122 (`set_root_claim_type`) and 123 (`sudo_set_num_root_claims`) are

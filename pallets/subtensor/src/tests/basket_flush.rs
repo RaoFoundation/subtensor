@@ -8,8 +8,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use crate::tests::claim_root::{
-    escrow_alpha, fund_pool, fund_shares, register_on_root, set_root_weights_direct,
-    zero_claim_threshold,
+    escrow_alpha, fund_pool, fund_shares, register_on_root, zero_claim_threshold,
 };
 use crate::tests::mock::*;
 use crate::{
@@ -45,7 +44,7 @@ fn queue_credit(hotkey: &U256, netuid: NetUid, alpha: u64) {
     SubtensorModule::enqueue_basket_deposit(hotkey, netuid, alpha.into());
 }
 
-/// Root-registered uncurated validator with stake, ready to receive queued credits.
+/// Root-registered validator with stake, ready to receive queued credits.
 fn setup_root_validator(hotkey: U256, coldkey: U256, uid: u16) -> NetUid {
     let owner = U256::from(u64::from(uid).saturating_add(9_000));
     let owner_hot = U256::from(u64::from(uid).saturating_add(9_100));
@@ -103,7 +102,7 @@ fn test_flush_drain_one_hotkey_per_block_advances_cursor() {
         );
         // One hotkey's pending rows removed + one cursor write.
         assert_eq!(basket_write_ops(), 2);
-        // Uncurated accumulate: no swaps.
+        // Accumulate-in-place: no swaps.
         assert_eq!(basket_swap_ops(), 0);
 
         SubtensorModule::flush_pending_basket_deposits_block();
@@ -252,7 +251,7 @@ fn test_flush_root_eviction_deposits_pending_credits() {
         );
         assert!(
             escrow_alpha(&hot, netuid) > 0,
-            "uncurated deposit must credit the origin holding"
+            "deposit must credit the origin holding"
         );
         // Accumulate-in-place keeps SubnetAlphaOut (alpha was already issued).
         assert_eq!(SubnetAlphaOut::<Test>::get(netuid), alpha_out_before);
@@ -314,10 +313,10 @@ fn test_flush_root_eviction_recycles_dust_after_membership_drop() {
     });
 }
 
-/// Happy path: a curated multi-origin flush does one batch of swaps/quotes/writes, not one
-/// per origin deposit storm. Bounds match the deposit work formula.
+/// Happy path: a multi-origin flush does one batch of quotes/writes and zero swaps, not one
+/// deposit storm per origin. Bounds match the deposit work formula.
 #[test]
-fn test_flush_happy_path_ops_bounded_for_curated_batch() {
+fn test_flush_happy_path_ops_bounded_for_multi_origin_batch() {
     new_test_ext(1).execute_with(|| {
         SubtensorModule::set_tao_weight(u64::MAX);
         zero_claim_threshold();
@@ -325,20 +324,15 @@ fn test_flush_happy_path_ops_bounded_for_curated_batch() {
         let owner = U256::from(1001);
         let hotkey = U256::from(1002);
         let coldkey = U256::from(1003);
-        let dest_owner = U256::from(1004);
-        let dest_hot = U256::from(1005);
 
         let origin_a = add_dynamic_network(&hotkey, &owner);
         let origin_b_hot = U256::from(1006);
         let origin_b_owner = U256::from(1007);
         let origin_b = add_dynamic_network(&origin_b_hot, &origin_b_owner);
-        let dest = add_dynamic_network(&dest_hot, &dest_owner);
         remove_owner_registration_stake(origin_a);
         remove_owner_registration_stake(origin_b);
-        remove_owner_registration_stake(dest);
         fund_pool(origin_a);
         fund_pool(origin_b);
-        fund_pool(dest);
 
         register_on_root(&hotkey, 0);
         mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -347,7 +341,6 @@ fn test_flush_happy_path_ops_bounded_for_curated_batch() {
             NetUid::ROOT,
             2_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(dest, u16::MAX)]);
 
         let credits = 2u64;
         let credit_alpha = 1_000_000u64;
@@ -359,7 +352,8 @@ fn test_flush_happy_path_ops_bounded_for_curated_batch() {
 
         assert!(completed);
         assert!(fund_shares(&hotkey) > 0);
-        assert!(escrow_alpha(&hotkey, dest) > 0);
+        assert!(escrow_alpha(&hotkey, origin_a) > 0);
+        assert!(escrow_alpha(&hotkey, origin_b) > 0);
         assert!(!PendingBasketDeposits::<Test>::contains_key(
             hotkey, origin_a
         ));
@@ -367,16 +361,14 @@ fn test_flush_happy_path_ops_bounded_for_curated_batch() {
             hotkey, origin_b
         ));
 
-        // Scan (credits) + curated deposit work with empty holdings:
-        // holdings*3 + weights(1) + credits → 1 + credits; total = 2*credits + 1.
-        let expected_work = credits.saturating_mul(2).saturating_add(1);
+        // Scan (credits) + accumulate work with empty holdings: holdings + 2*credits.
+        let expected_work = credits.saturating_mul(3);
         assert_eq!(work, expected_work);
 
-        // One sell per origin + one buy on the sole destination.
-        assert_eq!(basket_swap_ops(), credits + 1);
-        // Spot checks on each origin + NAV quotes during deploy (nav_before + per-origin
-        // valuation on the empty fund collapses to the deploy quotes). Bound, don't pin
-        // every internal quote helper call: O(credits + holdings + weights).
+        // Accumulate-in-place never trades.
+        assert_eq!(basket_swap_ops(), 0);
+        // Spot checks on each origin + one realizable quote per origin holding. Bound,
+        // don't pin every internal quote helper call: O(credits + holdings).
         assert!(
             basket_quote_ops() <= 16,
             "quotes must stay single-batch bounded, got {}",
@@ -423,7 +415,7 @@ fn test_flush_failure_path_requeues_and_splits() {
             NetUid::ROOT,
             10_000_000_000_000_000u64.into(),
         );
-        // Uncurated: accumulate-in-place (no swaps), so failure is purely the dust mint.
+        // Accumulate-in-place (no swaps), so failure is purely the dust mint.
         let origins = [origin_a, origin_b, origin_c];
         let credits = origins.len() as u64;
         let credit_alpha = 1_000u64;
@@ -458,7 +450,7 @@ fn test_flush_failure_path_requeues_and_splits() {
         let singleton_work = credits.saturating_mul(2); // holdings=0, one credit each
         let expected_work = credits + batch_work + singleton_work;
         assert_eq!(work, expected_work);
-        assert_eq!(basket_swap_ops(), 0, "uncurated failure does no swaps");
+        assert_eq!(basket_swap_ops(), 0, "a failed deposit does no swaps");
         // Spot quotes per origin on the scan, plus quotes inside the batch attempt and each
         // singleton retry — keep this O(credits), not quadratic.
         assert!(
@@ -524,7 +516,7 @@ fn test_flush_drain_ops_bounded_to_one_hotkey() {
 
         let flushed = hotkeys.iter().filter(|h| fund_shares(h) > 0).count();
         assert_eq!(flushed, 1, "drain must flush exactly one hotkey");
-        // Uncurated single-credit: 1 spot quote + accumulate quotes, 1 pending remove + cursor.
+        // Single-credit: 1 spot quote + accumulate quotes, 1 pending remove + cursor.
         assert_eq!(basket_swap_ops(), 0);
         assert!(
             basket_quote_ops() <= 8,

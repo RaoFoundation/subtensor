@@ -21,6 +21,7 @@ use frame_support::{
 };
 use safe_math::SafeDiv;
 
+use crate::migrations::migrate_clear_root_basket_weights::deprecated as root_weights_deprecated;
 use crate::migrations::migrate_coldkey_swap_scheduled_to_announcements::deprecated as coldkey_swap_deprecated;
 use crate::migrations::migrate_storage;
 use frame_support::traits::Bounded;
@@ -2873,7 +2874,7 @@ fn test_migrate_kappa_map_to_default() {
 #[test]
 fn test_migrate_clear_root_basket_weights() {
     new_test_ext(1).execute_with(|| {
-        const MIG_NAME: &[u8] = b"clear_root_basket_weights_v2";
+        const MIG_NAME: &[u8] = b"clear_root_basket_weights_v3";
         let root = NetUidStorageIndex::ROOT;
         let subnet_idx = NetUidStorageIndex::from(NetUid::from(1u16));
 
@@ -2902,14 +2903,19 @@ fn test_migrate_clear_root_basket_weights() {
         // Non-root subnet weights must be left alone.
         Weights::<Test>::insert(subnet_idx, 0u16, vec![(1u16, 1000)]);
 
+        // The retired `set_root_weights` gate and cap, as left on chain by the enabling
+        // upgrade — must be deleted.
+        root_weights_deprecated::RootWeightSettingEnabled::<Test>::put(true);
+        root_weights_deprecated::RootWeightsCap::<Test>::insert(NetUid::ROOT, 4096u16);
+
         assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
 
         let w = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
         assert!(!w.is_zero());
         assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
 
-        // Clear-only: no vector is seeded in place of the wiped ones — an empty stored
-        // vector means the fund is uncurated and dividends accumulate in place.
+        // Clear-only: no vector is seeded in place of the wiped ones — nothing reads
+        // `Weights[ROOT]` any more; dividends accumulate in place.
         assert!(Weights::<Test>::get(root, uid_a).is_empty());
         assert!(Weights::<Test>::get(root, uid_b).is_empty());
         assert_eq!(
@@ -2917,56 +2923,15 @@ fn test_migrate_clear_root_basket_weights() {
             vec![(1u16, 1000)],
             "subnet weights must be untouched"
         );
+        assert!(!root_weights_deprecated::RootWeightSettingEnabled::<Test>::exists());
+        assert!(!root_weights_deprecated::RootWeightsCap::<Test>::contains_key(NetUid::ROOT));
 
-        // Idempotent: a vector set after the migration ran survives a re-run.
-        let curated = vec![(u16::from(netuid_a), u16::MAX)];
-        Weights::<Test>::insert(root, uid_a, curated.clone());
+        // Idempotent: a vector written after the migration ran survives a re-run.
+        let stale = vec![(u16::from(netuid_a), u16::MAX)];
+        Weights::<Test>::insert(root, uid_a, stale.clone());
         let w2 = crate::migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<Test>();
-        assert_eq!(Weights::<Test>::get(root, uid_a), curated);
+        assert_eq!(Weights::<Test>::get(root, uid_a), stale);
         assert!(w2.ref_time() <= w.ref_time());
-    });
-}
-
-#[test]
-fn test_migrate_enable_root_weight_setting() {
-    new_test_ext(1).execute_with(|| {
-        const MIG_NAME: &[u8] = b"enable_root_weight_setting_v1";
-
-        // Launch state: gate closed, cap at its default, and — as on mainnet — the
-        // netuid-0 rate limit frozen at u64::MAX, under which set_root_weights can
-        // never pass its rate-limit check once LastUpdateForUid is stamped.
-        crate::WeightsSetRateLimit::<Test>::insert(NetUid::ROOT, u64::MAX);
-        assert!(!crate::RootWeightSettingEnabled::<Test>::get());
-        assert!(!HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
-
-        let w = crate::migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<Test>();
-        assert!(!w.is_zero());
-        assert!(HasMigrationRun::<Test>::get(MIG_NAME.to_vec()));
-
-        // Gate open, cap pinned to 1/16 explicitly in storage, and the frozen rate
-        // limit replaced with a usable one.
-        assert!(crate::RootWeightSettingEnabled::<Test>::get());
-        assert_eq!(
-            crate::RootWeightsCap::<Test>::get(NetUid::ROOT),
-            crate::DEFAULT_ROOT_WEIGHTS_CAP
-        );
-        assert_eq!(
-            crate::WeightsSetRateLimit::<Test>::get(NetUid::ROOT),
-            crate::migrations::migrate_enable_root_weight_setting::ROOT_WEIGHTS_SET_RATE_LIMIT
-        );
-
-        // A re-run must not clobber later governance changes.
-        crate::RootWeightsCap::<Test>::insert(NetUid::ROOT, 1234u16);
-        crate::RootWeightSettingEnabled::<Test>::put(false);
-        crate::WeightsSetRateLimit::<Test>::insert(NetUid::ROOT, 555u64);
-        let w2 = crate::migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<Test>();
-        assert!(w2.ref_time() <= w.ref_time());
-        assert_eq!(crate::RootWeightsCap::<Test>::get(NetUid::ROOT), 1234u16);
-        assert!(!crate::RootWeightSettingEnabled::<Test>::get());
-        assert_eq!(
-            crate::WeightsSetRateLimit::<Test>::get(NetUid::ROOT),
-            555u64
-        );
     });
 }
 

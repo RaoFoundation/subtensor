@@ -96,10 +96,8 @@ sp_api::decl_runtime_apis! {
         fn get_validator_basket(hotkey: AccountId32) -> Vec<(NetUid, AlphaBalance, TaoBalance)>;
         /// Network-wide total beta basket NAV across all validators, in TAO (marked).
         fn get_root_basket_total_nav() -> TaoBalance;
-        /// A validator's basket weight vector `w`: (subnet, weight) it deploys dividends into.
-        fn get_validator_weights(hotkey: AccountId32) -> Vec<(NetUid, u16)>;
         /// Full explorer-facing summary of one validator's basket: NAV (realizable and spot),
-        /// shares, lifetime deposit/redemption counters, weights, and per-subnet holdings.
+        /// shares, lifetime deposit/redemption counters, and per-subnet holdings.
         fn get_validator_basket_summary(hotkey: AccountId32) -> BasketSummary<AccountId32>;
         /// Summaries for every validator with an active basket (network-wide leaderboard).
         fn get_all_validator_baskets() -> Vec<BasketSummary<AccountId32>>;

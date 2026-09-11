@@ -2416,9 +2416,6 @@ impl_runtime_apis! {
         fn get_root_basket_total_nav() -> TaoBalance {
             SubtensorModule::get_root_basket_total_nav_tao()
         }
-        fn get_validator_weights(hotkey: AccountId32) -> Vec<(NetUid, u16)> {
-            SubtensorModule::get_validator_root_weights(&hotkey)
-        }
         fn get_validator_basket_summary(hotkey: AccountId32) -> pallet_subtensor::rpc_info::basket_info::BasketSummary<AccountId32> {
             SubtensorModule::get_validator_basket_summary(&hotkey)
         }

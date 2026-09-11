@@ -3,7 +3,7 @@
 
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, register_on_root, root_stake_of,
-    set_root_weights_direct, zero_claim_threshold,
+    swap_all_basket_alpha, zero_claim_threshold,
 };
 use crate::tests::mock::*;
 use crate::{
@@ -55,13 +55,13 @@ fn assert_shares_fully_owed(hotkey: &U256, coldkeys: &[U256], epsilon: u64) {
 }
 
 /// A direct deposit followed by a claim is symmetric: the staker recovers ~their TAO
-/// (minus real swap fees), the fund drains, and the watermark returns to exactly zero.
-/// Nobody needs root stake for any of it.
+/// (minus real swap fees and slippage), the fund drains, and the watermark returns to
+/// exactly zero. Nobody needs root stake for any of it. The validator trades the fund into
+/// subnet alpha in between, so the claim exercises the real sell path.
 #[test]
 fn test_stake_into_basket_round_trip_symmetric() {
     new_test_ext(1).execute_with(|| {
         let (_owner, hotkey, netuid) = setup_stake_in_env();
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         let bob = U256::from(2001);
         let amount = 10_000_000u64;
@@ -86,6 +86,11 @@ fn test_stake_into_basket_round_trip_symmetric() {
             minted
         );
         assert!(StakingHotkeys::<Test>::get(bob).contains(&hotkey));
+
+        // The validator deploys the fund's cash into subnet alpha; shares are untouched.
+        swap_all_basket_alpha(&hotkey, NetUid::ROOT, netuid);
+        assert_eq!(fund_shares(&hotkey), minted);
+        assert!(escrow_alpha(&hotkey, netuid) > 0);
 
         // Claim it all back. The proceeds are staked on root for bob.
         assert_ok!(SubtensorModule::claim_root_with_hotkey(
@@ -112,12 +117,12 @@ fn test_stake_into_basket_round_trip_symmetric() {
 /// Par mint invariant on an empty fund: the first deposit mints exactly one share per TAO of
 /// realizable value added, so `BasketShares == realizable NAV` to the rao. This is the ΔNAV
 /// property in its purest form — the mint is priced at what the fund can actually redeem,
-/// not at the TAO deployed.
+/// not at the TAO deployed. A validator trade afterwards changes NAV only by slippage and
+/// never touches the share supply.
 #[test]
 fn test_stake_into_basket_empty_fund_par_mint_equals_nav() {
     new_test_ext(1).execute_with(|| {
         let (_owner, hotkey, netuid) = setup_stake_in_env();
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         let bob = U256::from(2001);
         let amount = 10_000_000u64;
@@ -143,6 +148,18 @@ fn test_stake_into_basket_empty_fund_par_mint_equals_nav() {
             shares >= amount * (100 - FEE_TOLERANCE_PCT) / 100,
             "entry cost should be fees-only"
         );
+
+        // The validator deploys the cash into subnet alpha: NAV can only move by the trade's
+        // slippage, and the share supply is untouched.
+        swap_all_basket_alpha(&hotkey, NetUid::ROOT, netuid);
+        let nav_after = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        assert_eq!(
+            fund_shares(&hotkey),
+            shares,
+            "a trade must not mint or burn shares"
+        );
+        assert!(nav_after <= nav, "a trade cannot create value");
+        assert_abs_diff_eq!(nav_after, nav, epsilon = nav / SLIPPAGE_EPS_DENOM);
     });
 }
 
@@ -169,7 +186,6 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         // Alice accrues via a dividend.
         SubtensorModule::distribute_emission(
@@ -232,7 +248,6 @@ fn test_stake_into_basket_does_not_dilute_existing_holders() {
 fn test_stake_into_basket_claim_retains_concavity_surplus_for_existing_holders() {
     new_test_ext(1).execute_with(|| {
         let (_owner, hotkey, netuid) = setup_stake_in_env();
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         // Make the pool deliberately thin so the old raw-alpha-fraction redemption
         // overpayment is large and this test is sensitive to the exploit.
@@ -246,11 +261,14 @@ fn test_stake_into_basket_claim_retains_concavity_surplus_for_existing_holders()
         add_balance_to_coldkey_account(&alice, TaoBalance::from(2 * alice_deposit));
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * bob_deposit));
 
+        // Alice's deposit into the empty fund lands as cash; the validator deploys it into
+        // the thin pool, so Bob's deposit mirrors an alpha holding.
         assert_ok!(SubtensorModule::do_stake_into_basket(
             alice,
             hotkey,
             alice_deposit.into(),
         ));
+        swap_all_basket_alpha(&hotkey, NetUid::ROOT, netuid);
         assert_ok!(SubtensorModule::do_stake_into_basket(
             bob,
             hotkey,
@@ -302,7 +320,6 @@ fn test_stake_into_basket_claim_retains_concavity_surplus_for_existing_holders()
 fn test_retained_concavity_cash_balances_with_new_root_entitlement() {
     new_test_ext(1).execute_with(|| {
         let (owner, hotkey, netuid) = setup_stake_in_env();
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         // A thin pool makes Bob's partial alpha sale realize a measurable concavity surplus.
         SubnetTAO::<Test>::insert(netuid, TaoBalance::from(100_000_000u64));
@@ -325,6 +342,8 @@ fn test_retained_concavity_cash_balances_with_new_root_entitlement() {
             hotkey,
             alice_deposit.into(),
         ));
+        // The validator deploys the fund's cash into the thin pool before Bob mirrors it.
+        swap_all_basket_alpha(&hotkey, NetUid::ROOT, netuid);
         assert_ok!(SubtensorModule::do_stake_into_basket(
             bob,
             hotkey,
@@ -452,10 +471,8 @@ fn test_stake_into_basket_rejections() {
             Error::<Test>::NotEnoughBalanceToStake
         );
 
-        // Explicit weights that filter to nothing (nonexistent subnet): the fund is treated
-        // as uncurated instead of erroring. With no holdings yet there is nothing to
-        // mirror, so the deposit is held as the fund's root (TAO cash) slot at NAV.
-        set_root_weights_direct(&hotkey, 0, &[(NetUid::from(99u16), u16::MAX)]);
+        // Empty fund: there are no holdings to mirror, so the deposit is held as the fund's
+        // root (TAO cash) slot at NAV.
         let escrow = SubtensorModule::get_beta_escrow_account_id();
         let deposit = 10_000_000u64;
         assert_ok!(SubtensorModule::do_stake_into_basket(
@@ -474,10 +491,10 @@ fn test_stake_into_basket_rejections() {
         assert_eq!(
             root_slot(&hotkey),
             deposit,
-            "deposit into an empty uncurated fund must land in the root (TAO cash) slot 1:1"
+            "deposit into an empty fund must land in the root (TAO cash) slot 1:1"
         );
 
-        // Once the uncurated fund holds something, a deposit mirrors it: with the root slot
+        // Once the fund holds something, a deposit mirrors it: with the root slot
         // and an equally-valued alpha holding (price ~1, deep pool), a new deposit must
         // split ~50/50 between them instead of piling into cash.
         SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
@@ -530,7 +547,6 @@ fn test_stake_into_basket_credit_survives_stake_changes() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         // A dividend so the fund has a non-zero rate (the rebase path is live).
         SubtensorModule::distribute_emission(
@@ -627,7 +643,6 @@ fn test_stake_into_basket_gets_no_dividend_accrual() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         let amount = 10_000_000u64;
         add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * amount));
@@ -668,11 +683,12 @@ fn test_stake_into_basket_gets_no_dividend_accrual() {
     });
 }
 
-/// ΔNAV minting on a thin destination pool: the mint is priced at the realizable value the
-/// deposit added (bounded by the TAO deployed), never above it, and the par-mint identity
-/// `shares == NAV` holds exactly even when the buys move the pool by ~20%.
+/// A validator trade into a thin destination pool: the shares minted for the dividend are
+/// untouched by the trade, the fund's realizable NAV survives the ~20% price move (the
+/// fee-free buy retraces on the realizable quote, so only rounding is lost), and the sole
+/// staker's claim still realizes ~that NAV.
 #[test]
-fn test_basket_deposit_mints_delta_nav_on_thin_pool() {
+fn test_basket_swap_into_thin_pool_keeps_shares_and_nav() {
     new_test_ext(1).execute_with(|| {
         let owner_coldkey = U256::from(1001);
         let hotkey = U256::from(1002);
@@ -703,8 +719,7 @@ fn test_basket_deposit_mints_delta_nav_on_thin_pool() {
             origin_netuid,
             10_000_000u64.into(),
         );
-        // Route the whole basket into the thin pool.
-        set_root_weights_direct(&hotkey, 0, &[(dest_netuid, u16::MAX)]);
+        register_on_root(&hotkey, 0);
 
         let dividend = 2_000_000u64;
         SubtensorModule::distribute_emission(
@@ -717,16 +732,31 @@ fn test_basket_deposit_mints_delta_nav_on_thin_pool() {
         flush_baskets();
 
         let shares = fund_shares(&hotkey);
-        let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        let nav_before = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
         assert!(shares > 0);
         // Par mint: shares == post-deposit realizable NAV, to the rao.
-        assert_eq!(shares, nav, "first deposit must mint exactly the ΔNAV");
-        // The realizable delta can never exceed the TAO the dividend produced (~dividend at
-        // the deep origin pool's ~1.0 price).
+        assert_eq!(
+            shares, nav_before,
+            "first deposit must mint exactly the ΔNAV"
+        );
         assert!(
             shares <= dividend,
-            "mint value must be bounded by the TAO deployed: {shares} > {dividend}"
+            "mint value must be bounded by the alpha deposited: {shares} > {dividend}"
         );
+
+        // The validator moves the whole holding into the thin pool.
+        swap_all_basket_alpha(&hotkey, origin_netuid, dest_netuid);
+        assert_eq!(escrow_alpha(&hotkey, origin_netuid), 0);
+        assert!(escrow_alpha(&hotkey, dest_netuid) > 0);
+
+        let nav = SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        assert_eq!(
+            fund_shares(&hotkey),
+            shares,
+            "a trade must not touch shares"
+        );
+        assert!(nav <= nav_before, "a trade cannot create value");
+        assert_abs_diff_eq!(nav, nav_before, epsilon = nav_before / SLIPPAGE_EPS_DENOM);
         // And the sole staker's claim realizes ~that value (the resell retraces the curve).
         let payout = SubtensorModule::get_basket_payout_tao(&hotkey, &coldkey);
         assert_abs_diff_eq!(payout, nav, epsilon = nav / SLIPPAGE_EPS_DENOM);
@@ -758,11 +788,9 @@ fn test_root_slot_yield_accrues_to_share_holders() {
             netuid,
             10_000_000u64.into(),
         );
-        // All-cash basket: every deposit is held as root stake (1:1, no swaps on the way
-        // in), which makes the arithmetic exact.
-        set_root_weights_direct(&hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
-
-        // Dividend 1: the escrow root slot is empty, so the full value mints (par).
+        // Dividend 1: the escrow root slot is empty, so the full value mints (par). The
+        // validator then parks the whole holding as root cash: the fee-free sale realizes
+        // exactly the realizable value the mint was priced at, so the arithmetic is exact.
         SubtensorModule::distribute_emission(
             netuid,
             AlphaBalance::ZERO,
@@ -771,6 +799,7 @@ fn test_root_slot_yield_accrues_to_share_holders() {
             AlphaBalance::ZERO,
         );
         flush_baskets();
+        swap_all_basket_alpha(&hotkey, netuid, NetUid::ROOT);
         let e1 = escrow_alpha(&hotkey, NetUid::ROOT);
         assert!(e1 > 0);
         assert_eq!(fund_shares(&hotkey), e1, "first deposit mints at par");
@@ -783,9 +812,9 @@ fn test_root_slot_yield_accrues_to_share_holders() {
         let bob_payout_before = SubtensorModule::get_basket_payout_tao(&hotkey, &bob);
         assert_eq!(bob_payout_before, b, "N/P = 1: payout == shares == TAO in");
 
-        // Dividend 2: the escrow root slot now holds e1 + b of the validator's root stake,
-        // so only alice_root / (alice_root + e1 + b) of the value mints shares; the rest
-        // raises N/P for every share holder.
+        // Dividend 2 (landing in place on the subnet): the escrow root slot now holds e1 + b
+        // of the validator's root stake, so only alice_root / (alice_root + e1 + b) of the
+        // value mints shares; the rest raises N/P for every share holder.
         let escrow_root = escrow_alpha(&hotkey, NetUid::ROOT);
         assert_eq!(escrow_root, e1 + b);
         let shares_before = fund_shares(&hotkey);
@@ -859,7 +888,6 @@ fn test_stake_into_basket_cannot_skim_compounding() {
             netuid,
             10_000_000u64.into(),
         );
-        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
 
         SubtensorModule::distribute_emission(
             netuid,

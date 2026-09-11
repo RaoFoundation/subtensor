@@ -344,7 +344,7 @@ mod errors {
         /// ([`crate::MAX_COLDKEY_COLLATERAL_HOTKEYS`]).
         ColdkeyCollateralPositionsFull,
         /// Retired (kept for SCALE index stability): direct basket deposits into an
-        /// uncurated fund are now held as the fund's root (TAO cash) slot instead of
+        /// empty fund are now held as the fund's root (TAO cash) slot instead of
         /// erroring.
         BasketHasNoWeights,
         /// Root (netuid 0) stake is still within its `RootStakeUnlockInterval` hold window
@@ -356,21 +356,16 @@ mod errors {
         /// paused until it finishes so snapshotted conversion cannot desync from live stake
         /// (`Σ owed == BasketShares`).
         BetaBasketSeedInProgress,
-        /// `set_root_weights` is disabled network-wide ([`crate::RootWeightSettingEnabled`]
-        /// is false). Root Reborn launches gated: every fund runs the null strategy
-        /// (dividends accumulate in place) until weight setting is switched on by
-        /// governance or a later upgrade.
+        /// Retired (kept for SCALE index stability): `set_root_weights` and its network-wide
+        /// gate were removed. Validators rebalance their basket with `swap_basket_alpha`.
         RootWeightSettingDisabled,
         /// A root claim would process more root hotkeys and basket rows than the
         /// fixed admission envelope. Use
         /// `claim_root_with_hotkey` per validator so admission weight matches
         /// the holdings actually walked.
         RootClaimTooHeavy,
-        /// A single destination in a `set_root_weights` vector takes a larger share of the
-        /// basket than [`crate::RootWeightsCap`] allows (share = value / sum of values).
-        /// With the cap at 1/16 a validator must spread its basket across at least 16
-        /// destinations. Not enforced while the chain has fewer destinations than the cap
-        /// demands.
+        /// Retired (kept for SCALE index stability): the `set_root_weights` concentration
+        /// cap was removed together with the extrinsic.
         RootWeightCapExceeded,
         /// A queued root-dividend deposit could not be settled. Operations which change
         /// the hotkey's root claimant base must retry after the deposit becomes executable.

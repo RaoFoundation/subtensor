@@ -197,15 +197,10 @@ mod hooks {
                 // so ORU stays idempotent for try-runtime). Fresh key so chains that ran the
                 // superseded per-slot v1 seed still convert.
                 .saturating_add(migrations::migrate_seed_beta_basket::kickoff_seed_beta_basket_v2::<T>())
-                // Drop legacy root weight vectors (no reseed: an empty vector means the
-                // fund is uncurated and dividends accumulate in place on their origin
-                // subnet, trade-free).
+                // Drop every stored root basket weight vector and the retired
+                // `set_root_weights` gate/cap storage: dividends accumulate in place on
+                // their origin subnet and validators rebalance with `swap_basket_alpha`.
                 .saturating_add(migrations::migrate_clear_root_basket_weights::migrate_clear_root_basket_weights::<T>())
-                // Floor root basket curation at MIN_ROOT_BASKET_WEIGHTS destinations.
-                .saturating_add(migrations::migrate_set_root_min_allowed_weights::migrate_set_root_min_allowed_weights::<T>())
-                // Open root basket curation: enable set_root_weights and pin the
-                // concentration cap at 1/16 (>= 16 destinations per basket).
-                .saturating_add(migrations::migrate_enable_root_weight_setting::migrate_enable_root_weight_setting::<T>())
                 // Root admission: 1 reg/block, 2/interval, 7200-block immunity,
                 // 1 TAO burn floor. Prune in `do_root_register` skips immune UIDs.
                 .saturating_add(migrations::migrate_tune_root_registration::migrate_tune_root_registration::<T>())

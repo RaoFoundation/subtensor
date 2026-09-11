@@ -1426,6 +1426,64 @@ mod pallet_benchmarks {
     }
 
     #[benchmark]
+    fn swap_basket_alpha() {
+        // Subnet -> subnet rebalance: the heaviest shape (a sell on the origin pool, two
+        // TAO transfers through the root pot, and a buy on the destination pool).
+        let hotkey: T::AccountId = whitelisted_caller();
+        let origin_netuid = NetUid::from(1);
+        let destination_netuid = NetUid::from(2);
+        let reserve = TaoBalance::from(100_000_000_000_000_u64);
+
+        for netuid in [origin_netuid, destination_netuid] {
+            SubtokenEnabled::<T>::insert(netuid, true);
+            Subtensor::<T>::init_new_network(netuid, 1);
+            SubnetMechanism::<T>::insert(netuid, 1);
+            set_reserves::<T>(netuid, reserve, AlphaBalance::from(reserve.to_u64()));
+            // The sell leg physically moves TAO off the origin pot: fund it like a live pool.
+            if let Some(subnet_account) = Subtensor::<T>::get_subnet_account_id(netuid) {
+                add_balance_to_coldkey_account::<T>(&subnet_account, reserve);
+            }
+        }
+        TotalStake::<T>::set(reserve.saturating_mul(2.into()));
+
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+        let holding_alpha = AlphaBalance::from(1_000_000_000_u64);
+        Uids::<T>::insert(NetUid::ROOT, &hotkey, 0u16);
+        Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            origin_netuid,
+            holding_alpha,
+        );
+        BasketShares::<T>::insert(&hotkey, 1_000_000_000_u64);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(hotkey.clone()),
+            origin_netuid,
+            destination_netuid,
+            holding_alpha,
+        );
+
+        assert!(
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                origin_netuid
+            )
+            .is_zero()
+        );
+        assert!(
+            !Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                destination_netuid
+            )
+            .is_zero()
+        );
+    }
+
+    #[benchmark]
     fn batch_commit_weights() {
         let hotkey: T::AccountId = whitelisted_caller();
         let netuid = NetUid::from(1);

@@ -434,14 +434,14 @@ call_filter_group!(
 );
 
 // Residual pallet-subtensor calls that no proxy needs to grant on their own:
-// weights, serving, delegate-take, alpha lock/burn/preferences, network
+// weights, basket rebalancing, serving, delegate-take, alpha lock/burn/preferences, network
 // registration, childkey admin, account association, tempo control, voting
 // power, root-claim admin, and lease teardown.
 call_filter_group!(
     SubtensorCommonCalls,
     [
         RuntimeCall::SubtensorModule(SubtensorCall::set_weights),
-        RuntimeCall::SubtensorModule(SubtensorCall::set_root_weights),
+        RuntimeCall::SubtensorModule(SubtensorCall::swap_basket_alpha),
         RuntimeCall::SubtensorModule(SubtensorCall::set_mechanism_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::batch_set_weights),
         RuntimeCall::SubtensorModule(SubtensorCall::commit_weights),
@@ -591,8 +591,6 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_coldkey_swap_reannouncement_delay),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_subnet_emission_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_epochs_per_block),
-        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weight_setting_enabled),
-        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weights_cap),
     ]
 );
 

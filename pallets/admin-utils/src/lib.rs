@@ -135,17 +135,17 @@ pub mod pallet {
             drain_ratio: U64F64,
         },
 
-        /// Root basket weight setting (`set_root_weights`) was enabled or disabled
-        /// network-wide.
+        /// Retired (kept for SCALE index stability): `set_root_weights` and its
+        /// network-wide gate were removed. Never emitted.
         RootWeightSettingToggled {
-            /// Whether validators can now set root basket weights.
+            /// Unused.
             enabled: bool,
         },
 
-        /// The root basket concentration cap (`RootWeightsCap`) was set.
+        /// Retired (kept for SCALE index stability): the `set_root_weights` concentration
+        /// cap was removed. Never emitted.
         RootWeightsCapSet {
-            /// Max u16-normalized share of a basket vector one destination may take
-            /// (`u16::MAX` = 100%).
+            /// Unused.
             cap: u16,
         },
     }
@@ -2468,39 +2468,9 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Enables or disables root basket weight setting (`set_root_weights`)
-        /// network-wide. Root Reborn launches with this OFF so every fund runs the
-        /// null (accumulate in place) strategy as the observable baseline; flip it on
-        /// later to open basket curation. Gates only the setter — existing vectors,
-        /// dividend deployment, and reads are unaffected. Root-only.
-        #[pallet::call_index(103)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_commit_reveal_weights_enabled())]
-        pub fn sudo_set_root_weight_setting_enabled(
-            origin: OriginFor<T>,
-            enabled: bool,
-        ) -> DispatchResult {
-            ensure_root(origin)?;
-            pallet_subtensor::RootWeightSettingEnabled::<T>::put(enabled);
-            Self::deposit_event(Event::RootWeightSettingToggled { enabled });
-            log::debug!("RootWeightSettingToggled( enabled: {enabled:?} )");
-            Ok(())
-        }
-
-        /// Sets the root basket concentration cap ([`pallet_subtensor::RootWeightsCap`]):
-        /// the largest u16-normalized share (`u16::MAX` = 100%) any single destination may
-        /// take of a `set_root_weights` vector. A cap of `u16::MAX / 16 + 1` forces funds
-        /// to spread across at least 16 destinations. The check softens to an equal split
-        /// when fewer destinations exist on chain. Root-only.
-        #[pallet::call_index(105)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_root_weights_cap())]
-        pub fn sudo_set_root_weights_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
-            ensure_root(origin)?;
-            ensure!(cap > 0, Error::<T>::ValueNotInBounds);
-            pallet_subtensor::RootWeightsCap::<T>::insert(NetUid::ROOT, cap);
-            Self::deposit_event(Event::RootWeightsCapSet { cap });
-            log::debug!("RootWeightsCapSet( cap: {cap:?} )");
-            Ok(())
-        }
+        // Call indices 103 (`sudo_set_root_weight_setting_enabled`) and 105
+        // (`sudo_set_root_weights_cap`) are retired together with
+        // `SubtensorModule::set_root_weights`. Do not reuse these indices.
 
         /// Sets the per-block cap on subnet epochs (dynamic tempo throttle).
         #[pallet::call_index(96)]
