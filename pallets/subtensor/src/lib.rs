@@ -91,6 +91,10 @@ pub const DEFAULT_BASKET_DAILY_TURNOVER_CAP: u16 = u16::MAX / 10;
 /// Length of one `swap_basket` turnover window in blocks (one day at 12s blocks).
 pub const BASKET_TRADE_WINDOW_BLOCKS: u64 = 7200;
 
+/// Default [`BasketLiquidityCap`]: a fund's holding on a subnet may not exceed 10% of that
+/// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
+pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
+
 /// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
 /// points (2%). The reference is the *stricter* of the subnet's moving (EMA) price and its
 /// spot price: the EMA anchor defeats a pre-trade pump, the spot anchor caps the trade's own
@@ -2980,6 +2984,26 @@ pub mod pallet {
     #[pallet::storage]
     pub type BasketDailyTurnoverCap<T: Config> =
         StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
+
+    #[pallet::type_value]
+    /// Default liquidity cap for basket trading: a holding may not exceed 10% of the
+    /// destination pool's alpha reserve (u16-normalized; 6553/65535).
+    pub fn DefaultBasketLiquidityCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_LIQUIDITY_CAP
+    }
+
+    /// --- ITEM --> max share of a subnet's alpha reserve (`SubnetAlphaIn`) a fund may hold
+    /// on that subnet after a `swap_basket` buy (u16-normalized, `u16::MAX` = 100%).
+    ///
+    /// The concentration cap ([`RootWeightsCap`]) marks holdings at realizable value, which
+    /// is bounded by the pool's TAO reserve, so on a thin pool a fund could keep buying while
+    /// counterparties sell back into its own price support and the realizable share never
+    /// grows. This cap bounds the fund's exposure to any one pool's liquidity instead: with
+    /// cap `L` the value at risk on a pool with TAO reserve `R` is about `R × L² / (1 + L)`
+    /// (≈ 1% of `R` at 10%). Set via `AdminUtils::sudo_set_basket_liquidity_cap`.
+    #[pallet::storage]
+    pub type BasketLiquidityCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketLiquidityCap<T>>;
 
     /// --- MAP ( validator_hotkey ) --> `(window_start_block, tao_used)` for the fund's current
     /// basket-trade turnover window. A window is [`crate::BASKET_TRADE_WINDOW_BLOCKS`] long

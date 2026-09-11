@@ -20,11 +20,11 @@ use crate::tests::claim_root::{
 };
 use crate::tests::mock::*;
 use crate::{
-    BASKET_TRADE_WINDOW_BLOCKS, BasketClaimed, BasketDailyTurnoverCap, BasketRate, BasketShares,
-    BasketTradeWindow, BasketTradingEnabled, BasketTradingFrozen, ColdkeySwapAnnouncements,
-    DEFAULT_BASKET_DAILY_TURNOVER_CAP, DefaultMinStake, Error, Event, NetworksAdded,
-    RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice, SubnetProtocolFlow,
-    SubnetTAO, SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
+    BASKET_TRADE_WINDOW_BLOCKS, BasketClaimed, BasketDailyTurnoverCap, BasketLiquidityCap,
+    BasketRate, BasketShares, BasketTradeWindow, BasketTradingEnabled, BasketTradingFrozen,
+    ColdkeySwapAnnouncements, DEFAULT_BASKET_DAILY_TURNOVER_CAP, DefaultMinStake, Error, Event,
+    NetworksAdded, RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice,
+    SubnetProtocolFlow, SubnetTAO, SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
 use frame_support::dispatch::DispatchResultWithPostInfo;
@@ -1113,19 +1113,19 @@ fn counterparty_sells_back_to(netuid: NetUid, target_price: f64) {
     ));
 }
 
-/// Finding §2.1 (High): sliced buys into a thin pool, each answered by a counterparty
-/// sell-back to the EMA, pass every guardrail on every trade and drain the fund by ~8% of
-/// NAV inside one turnover window. The concentration cap never fires because it measures
-/// *realizable* value, which is bounded by the pool's TAO reserve. Documents current
-/// behaviour; flip when a liquidity-relative destination cap (§5.1) lands.
+/// Finding §2.1 (High), fixed by the liquidity-relative destination cap (§5.1): sliced buys
+/// into a thin pool, each answered by a counterparty sell-back to the EMA, used to pass
+/// every guardrail and drain ~8% of NAV inside one turnover window, because the
+/// concentration cap measures *realizable* value (bounded by the pool's TAO reserve). Now
+/// the loop stops as soon as the fund holds `BasketLiquidityCap` of the pool's alpha
+/// reserve, long before the turnover budget, and the loss is a sliver of the pool.
 #[test]
-fn finding_2_1_thin_pool_drain_passes_every_guardrail() {
+fn finding_2_1_thin_pool_drain_is_stopped_by_liquidity_cap() {
     new_test_ext(1).execute_with(|| {
         let (fund, netuid_c) = setup_cash_fund_with_thin_pool();
         let nav_before = nav(&fund.hotkey);
         assert_eq!(nav_before, CASH_NAV);
         let budget = SubtensorModule::basket_trade_budget_tao(nav_before);
-        let counterparty_before = SubtensorModule::get_coldkey_balance(&U256::from(9_999)).to_u64();
 
         let mut trades = 0u32;
         let mut spent = 0u64;
@@ -1140,55 +1140,32 @@ fn finding_2_1_thin_pool_drain_passes_every_guardrail() {
             }
         };
 
-        // Only the turnover budget ever stops the loop, and only after it is spent.
+        // The liquidity cap, not the turnover budget, stops the loop — early.
         assert_eq!(
             refused_with,
-            Error::<Test>::BasketTurnoverBudgetExceeded.into()
+            Error::<Test>::BasketLiquidityCapExceeded.into()
         );
-        assert!(trades > 500, "trades = {trades}");
-        assert!(spent > budget * 9 / 10, "spent {spent} of budget {budget}");
+        assert!(trades < 50, "trades = {trades}");
+        assert!(spent < budget / 5, "spent {spent} of budget {budget}");
 
-        // The fund now holds several times the pool's whole alpha reserve, realizable for
-        // roughly the pool's TAO reserve; the counterparty walked away with ~all the TAO.
+        // The fund holds at most the cap's share of the pool's alpha reserve.
         let holding = escrow_alpha(&fund.hotkey, netuid_c);
-        assert!(
-            holding > 5 * THIN_POOL_ALPHA,
-            "holding {holding} vs reserve {THIN_POOL_ALPHA}"
-        );
-        let realizable = SubtensorModule::realizable_tao_for_alpha(netuid_c, holding);
-        assert!(realizable <= THIN_POOL_TAO);
-        let received =
-            SubtensorModule::get_coldkey_balance(&U256::from(9_999)).to_u64() - counterparty_before;
-        assert!(
-            received > spent * 95 / 100,
-            "counterparty took {received} of {spent}"
-        );
+        let reserve = SubnetAlphaIn::<Test>::get(netuid_c).to_u64();
+        assert!(SubtensorModule::share_within_root_cap(
+            holding,
+            reserve,
+            BasketLiquidityCap::<Test>::get() as u64
+        ));
 
-        // Loss: > 5% of NAV in one window (calibration run: 8.3%), i.e. ~90% of the TAO
-        // traded — far above the PR's stated worst case of cap × (2 × 2% + fees).
+        // Loss is bounded by ~R × L² / (1 + L) of the pool's TAO reserve (≈ 1% at 10%),
+        // plus fees — not by the turnover budget.
         let nav_after = nav(&fund.hotkey);
         let loss = nav_before - nav_after;
         assert!(
-            loss > nav_before * 5 / 100,
-            "loss {loss} ({}%) must exceed 5% of NAV to reproduce the finding",
-            loss * 100 / nav_before
+            loss < THIN_POOL_TAO * 3 / 100,
+            "loss {loss} must be a sliver of the {THIN_POOL_TAO} pool"
         );
-        assert!(loss > spent * 3 / 4, "loss {loss} vs spent {spent}");
-
-        // The concentration cap passes because the destination is measured realizable.
-        let cap = SubtensorModule::binding_root_weights_cap(
-            SubtensorModule::get_all_subnet_netuids().len() as u64,
-        )
-        .expect("cap binds");
-        assert!(SubtensorModule::share_within_root_cap(
-            realizable, nav_after, cap
-        ));
-        // ...while the same holding marked at spot is several multiples of the cap share.
-        let spot_value = SubtensorModule::spot_tao_for_alpha(netuid_c, holding);
-        assert!(!SubtensorModule::share_within_root_cap(
-            spot_value, nav_after, cap
-        ));
-        assert!(spot_value > 5 * realizable);
+        assert!(loss < nav_before / 1_000, "loss {loss} vs NAV {nav_before}");
     });
 }
 
@@ -1254,6 +1231,9 @@ fn finding_2_2_window_boundary_lets_two_budgets_through_in_adjacent_blocks() {
 fn finding_2_3_chained_legs_in_one_block_walk_price_to_ema_ceiling() {
     new_test_ext(1).execute_with(|| {
         let (fund, netuid_c) = setup_cash_fund_with_thin_pool();
+        // Isolate the band: the walk accumulates well over 10% of the thin pool's alpha
+        // reserve, which the liquidity cap would otherwise stop first.
+        BasketLiquidityCap::<Test>::put(u16::MAX);
         // Spot 0.01 sits 20% below a 0.0125 EMA.
         let ema = 0.0125f64;
         SubnetMovingPrice::<Test>::insert(netuid_c, I96F32::from_num(ema));

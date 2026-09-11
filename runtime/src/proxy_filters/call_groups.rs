@@ -603,6 +603,7 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trading_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trading_frozen),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_daily_turnover_cap),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_liquidity_cap),
     ]
 );
 

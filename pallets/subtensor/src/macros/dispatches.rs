@@ -2085,8 +2085,9 @@ mod dispatches {
         /// Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price;
         /// the TAO through the middle is charged against the fund's daily turnover budget
         /// (`BasketDailyTurnoverCap` of NAV per 7200 blocks); the destination holding may not
-        /// end above `RootWeightsCap` of NAV. Trading must be enabled network-wide and not
-        /// frozen for the hotkey by governance.
+        /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
+        /// `RootWeightsCap` of NAV. Trading must be enabled network-wide and not frozen for
+        /// the hotkey by governance.
         ///
         /// # Arguments
         /// * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy).
@@ -2106,6 +2107,7 @@ mod dispatches {
         /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
         /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
         /// * `BasketTurnoverBudgetExceeded`: The trade exceeds the fund's daily budget.
+        /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.
         /// * `RootWeightCapExceeded`: The destination would exceed the concentration cap.
         #[pallet::call_index(150)]
         // Declared weight is a cap sized for 256 holdings (three NAV sim-swap sweeps plus

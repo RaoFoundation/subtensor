@@ -38,6 +38,7 @@ mod subnet;
 mod subnet_emissions;
 mod subnet_info;
 mod swap_basket;
+mod swap_basket_liquidity_cap;
 mod swap_coldkey;
 mod swap_hotkey;
 mod swap_hotkey_with_subnet;

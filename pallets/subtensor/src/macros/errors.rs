@@ -386,5 +386,9 @@ mod errors {
         BasketTurnoverBudgetExceeded,
         /// `swap_basket` origin and destination are the same subnet.
         BasketSameSubnet,
+        /// The trade would leave the fund holding more of the destination subnet than
+        /// [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve.
+        /// Trade a smaller amount or pick a deeper pool.
+        BasketLiquidityCapExceeded,
     }
 }
