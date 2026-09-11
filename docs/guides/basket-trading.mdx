@@ -48,7 +48,7 @@ Three facts make trading safe to add on top:
 ## What `swap_basket` does
 
 ```text
-swap_basket(hotkey, origin_netuid, destination_netuid, amount)
+swap_basket(hotkey, origin_netuid, destination_netuid, amount, min_amount_out)
 ```
 
 | Argument | Meaning |
@@ -57,6 +57,7 @@ swap_basket(hotkey, origin_netuid, destination_netuid, amount)
 | `origin_netuid` | The subnet to **sell out of**. `0` is the fund's TAO cash slot. |
 | `destination_netuid` | The subnet to **buy into**. `0` is the fund's TAO cash slot. |
 | `amount` | How much of the origin holding to sell, in the origin subnet's alpha (TAO when the origin is `0`). `all` sells the whole holding. |
+| `min_amount_out` | Your floor on the fill: the least the buy leg must credit to the destination holding, after fees, in the destination subnet's alpha (TAO when the destination is `0`). `0` sets no floor. Below it the trade fails with `BasketMinOutNotMet` and nothing moves. |
 
 The trade has two legs. The **sell leg** turns `amount` of origin alpha into
 TAO on that subnet's pool. The **buy leg** spends that TAO on the
@@ -152,20 +153,29 @@ for what the other fields mean.
 
 ```bash
 btcli root swap --from 8 --to 64 --amount 250 --hotkey 5F...val \
-  -w desk --proxy-for 5F...validator_coldkey
+  --max-slippage 1 -w desk --proxy-for 5F...validator_coldkey
 ```
 
-btcli quotes the fund first and shows a review card before you sign: the
-origin holding being sold, the destination holding, and how much of the
+btcli quotes the fund and the trade first, then shows a review card before
+you sign: the origin holding being sold, the destination holding, the
+**expected out** (what the buy leg would credit at current pool prices,
+after fees), the **minimum out** it will insist on, and how much of the
 bucket is left (with a red warning if trading is disabled or the fund is
 frozen). Confirm, and the call is proxied, shielded, and submitted. Pass
 `--dry-run` to see the card and the fee without submitting.
+
+`--max-slippage` is a percentage (default `1.0`). btcli sets
+`min_amount_out = expected out × (1 − max_slippage / 100)`. If the quote
+fails (an unreachable read, an older node), the card shows a yellow
+warning row and `min_amount_out` is `0`: the trade then has only the
+chain's own band. See [Your floor and the protocol band](#your-floor-and-the-protocol-band).
 
 Other shapes of the same command:
 
 ```bash
 btcli root swap --from 3 --to 0 --amount all --hotkey 5F...val ...   # exit netuid 3 to cash
 btcli root swap --from 0 --to 21 --amount 500 --hotkey 5F...val ...  # spend 500 τ of cash on netuid 21
+btcli root swap --from 8 --to 64 --amount 250 --max-slippage 0.5 ...  # tighter floor: fill within 0.5% of the quote
 ```
 
 ### 3. Swap with the Python SDK
@@ -183,11 +193,17 @@ async with bt.Subtensor("finney") as client:
     if not status["enabled"] or status["frozen"]:
         raise SystemExit("trading is off for this fund")
 
+    # Quote the trade yourself: sell leg on netuid 8, buy leg on netuid 64.
+    tao_mid = (await client.read("quote_unstake", netuid=8, amount_alpha=250)).tao
+    expected = (await client.read("quote_stake", netuid=64, amount_tao=tao_mid.tao)).alpha
+    floor = bt.Balance.from_rao(expected.rao * 99 // 100, 64)   # 1% under the quote
+
     intent = bt.SwapBasket(
         hotkey_ss58=HOTKEY,
         origin_netuid=8,
         dest_netuid=64,
         amount=250,          # α of netuid 8; "all" sells the whole holding
+        min_amount_out=floor,   # α of netuid 64; 0 (the default) sets no floor
     )
     result = await client.execute(intent, desk, proxy_for=VALIDATOR_COLDKEY)
     if not result.success:
@@ -196,8 +212,36 @@ async with bt.Subtensor("finney") as client:
 
 `SwapBasket` is an ordinary intent: `client.plan(intent, desk)` previews the fee
 and the guardrail preflight, and `client.execute` submits. The intent
-shields by default. On success the chain emits `BasketSwapped` with the
-exact amounts on both legs.
+shields by default. `min_amount_out` is denominated like the destination:
+alpha of `dest_netuid`, or TAO when `dest_netuid` is `0`. On success the
+chain emits `BasketSwapped` with the exact amounts on both legs.
+
+## Your floor and the protocol band
+
+Two separate rules bound the price a trade can fill at. They protect
+against different things, and you control only one of them.
+
+| | Protocol band (`SlippageTooHigh`) | Your floor (`BasketMinOutNotMet`) |
+|---|---|---|
+| Who sets it | The runtime: a 2% constant, per leg. | You: `min_amount_out`, per trade. |
+| What it measures | Each leg's fill **price** against the subnet's moving and spot price. | The **amount** the buy leg credits, after fees, against your number. |
+| What it protects | The fund from a stolen key or a pumped pool: a leg can never fill far from the reference price. | You from a fill that is worse than the quote you signed on, because the pool moved between quote and execution. |
+| Can it be switched off | No. | Yes: `min_amount_out = 0` (btcli: `--max-slippage 100`). |
+
+The band is a price rule on each leg. It does not know what you were
+quoted. A trade whose two legs each move 1.5% passes the band while
+delivering about 3% less than the quote; a trade that happens to land in
+the same block as a large opposite trade can pass the band and still fill
+below your quote. Your floor catches those cases. The band is still
+checked first, inside each leg: a leg that misses it fails with
+`SlippageTooHigh` whatever floor you set.
+
+Pick `--max-slippage` from the quote, not from the band. Both legs pay the
+AMM fee and their own price impact, and the quote already includes those,
+so 1% (the default) is room for the pool to move against you, not for the
+trade's own cost. A floor tighter than the movement you expect between
+signing and inclusion (a block or two) fails often; a floor looser than 2%
+per leg adds nothing the band does not already give.
 
 ## The guardrails
 
@@ -296,6 +340,7 @@ at the 10% default. The cash slot has no pool and is exempt. Refusal is
 | `NonAssociatedColdKey` | The signer (or the `--proxy-for` account) does not own the hotkey. |
 | `HotKeyNotRegisteredInSubNet` | The hotkey is not registered on root. |
 | `NotEnoughStakeToWithdraw` | The fund holds less than `amount` on the origin. |
+| `BasketMinOutNotMet` | The buy leg credited less than your `min_amount_out`. Re-quote and retry, or loosen the floor. |
 | `AmountTooLow` | `amount` is zero, or the sell leg yields less than the minimum stake. |
 | `SubnetNotExists`, `SubtokenDisabled` | A side does not exist, or the destination's token is not enabled. |
 | `BetaBasketSeedInProgress` | The basket seed migration is still running. |
@@ -362,6 +407,10 @@ defaults, the most a stolen trader key and a willing counterparty can
 extract is about 13% of the TAO traded — 9% through a thin pool and 4% at
 the edges of the band, plus fees — which is about 1.3% of NAV per full
 bucket, and about that much per day until governance freezes the fund.
+This bound assumes pools near the 0.5 balancer-weight equilibrium; if a
+pool's balancer weights skew far from equilibrium, the price-impact
+estimate behind the 9% figure, and so the daily figure, becomes less
+accurate, while the 2% band and the turnover bucket still hold exactly.
 
 ## Reference
 
@@ -372,6 +421,7 @@ bucket, and about that much per day until governance freezes the fund.
   [`BasketTradingFrozen`](/docs/errors/chain/BasketTradingFrozen),
   [`BasketTurnoverBudgetExceeded`](/docs/errors/chain/BasketTurnoverBudgetExceeded),
   [`BasketLiquidityCapExceeded`](/docs/errors/chain/BasketLiquidityCapExceeded),
+  [`BasketMinOutNotMet`](/docs/errors/chain/BasketMinOutNotMet),
   [`BasketSameSubnet`](/docs/errors/chain/BasketSameSubnet)
 - Guides: [Basket trading for governance](/docs/guides/basket-trading-governance),
   [Basket trading for stakers](/docs/guides/basket-trading-for-stakers),
