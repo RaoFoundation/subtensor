@@ -1195,34 +1195,48 @@ fn finding_2_1_thin_pool_drain_passes_every_guardrail() {
 fn finding_2_2_window_boundary_lets_two_budgets_through_in_adjacent_blocks() {
     new_test_ext(1).execute_with(|| {
         let fund = setup_fund();
-        BasketDailyTurnoverCap::<Test>::put(DEFAULT_BASKET_DAILY_TURNOVER_CAP);
+        // The window mechanics do not depend on the cap value; a 50% cap keeps the
+        // window-opening trade (which must clear `DefaultMinStake`) small next to the budget.
+        BasketDailyTurnoverCap::<Test>::put(u16::MAX / 2);
         let budget = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
-        // Two half-budget trades fit inside one window (tao_mid trails alpha by the fee).
-        let half = budget / 2;
 
+        // Open the window with one minimal trade at `start`; it is not part of the burst.
         let start = System::block_number();
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, half));
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, half));
-        let (_, used_in_first_window) = BasketTradeWindow::<Test>::get(fund.hotkey);
-        assert!(used_in_first_window > budget * 99 / 100);
+        let opener = DefaultMinStake::<Test>::get().to_u64() * 101 / 100;
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, opener));
+        let (_, opening) = BasketTradeWindow::<Test>::get(fund.hotkey);
+        assert!(opening > 0 && opening < budget / 10);
 
-        // Last block of the window: the budget is spent.
+        // Penultimate block of the window: spend everything that is left of the budget.
+        // Two slices sized from the remaining budget fit (tao_mid trails alpha by the fee).
         System::set_block_number(start + BASKET_TRADE_WINDOW_BLOCKS - 1);
+        let remaining = budget - opening;
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, remaining / 2));
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, remaining / 2));
+        let (_, used_first) = BasketTradeWindow::<Test>::get(fund.hotkey);
+        assert!(
+            used_first > budget * 99 / 100,
+            "first window used {used_first} of {budget}"
+        );
         assert_noop!(
-            swap(&fund, fund.netuid_a, fund.netuid_b, half),
+            swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
             Error::<Test>::BasketTurnoverBudgetExceeded
         );
+        let burst_first_block = used_first - opening;
 
-        // Very next block: a whole new budget is available.
+        // Very next block: the window rolls and a whole new budget is available.
         System::set_block_number(start + BASKET_TRADE_WINDOW_BLOCKS);
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, half));
-        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, half));
-        let (_, used_in_second_window) = BasketTradeWindow::<Test>::get(fund.hotkey);
+        let budget_2 = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, budget_2 / 2));
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, budget_2 / 2));
+        let (_, burst_second_block) = BasketTradeWindow::<Test>::get(fund.hotkey);
+        assert!(burst_second_block > budget_2 * 99 / 100);
 
-        let moved_in_two_blocks = used_in_first_window + used_in_second_window;
+        // Two adjacent blocks moved ~2x the daily cap.
+        let moved_in_two_adjacent_blocks = burst_first_block + burst_second_block;
         assert!(
-            moved_in_two_blocks > budget * 19 / 10,
-            "moved {moved_in_two_blocks} vs one budget {budget}"
+            moved_in_two_adjacent_blocks > budget * 19 / 10,
+            "moved {moved_in_two_adjacent_blocks} across the boundary vs one budget {budget}"
         );
     });
 }
