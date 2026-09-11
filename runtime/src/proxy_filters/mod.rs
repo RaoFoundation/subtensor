@@ -773,11 +773,9 @@ mod tests {
             );
         }
 
-        // Broad proxies: `Any`, `NonTransfer`, and `NonCritical` may trade; `NonFungible`
-        // (no value movement) may not.
+        // `Any` may trade; `NonFungible` (no value movement) may not. The broad
+        // `NonTransfer` / `NonCritical` grants are pinned separately below.
         assert!(proxy_type_filter(&ProxyType::Any, &swap_basket));
-        assert!(proxy_type_filter(&ProxyType::NonTransfer, &swap_basket));
-        assert!(proxy_type_filter(&ProxyType::NonCritical, &swap_basket));
         assert!(!proxy_type_filter(&ProxyType::NonFungible, &swap_basket));
 
         // Superset relation: only `Any` and `NonTransfer` cover the trading grant.
@@ -795,6 +793,28 @@ mod tests {
             .into_iter()
             .collect::<BTreeSet<_>>()
         );
+    }
+
+    /// Documents current behaviour (PR #3150 calibration pass, §3 / §5.6): every existing
+    /// `NonTransfer` and `NonCritical` delegate gains `swap_basket` at upgrade without
+    /// opting in, because `BasketTradingCalls` is included in both allow lists. Expected to
+    /// pass today; flip this test when `swap_basket` is restricted to the explicit
+    /// `BasketTrading` grant.
+    #[test]
+    fn broad_proxies_currently_admit_swap_basket_without_opt_in() {
+        use pallet_subtensor::Call as SubtensorCall;
+        use subtensor_runtime_common::{AccountId, AlphaBalance, NetUid};
+
+        let swap_basket = RuntimeCall::SubtensorModule(SubtensorCall::swap_basket {
+            hotkey: AccountId::new([7u8; 32]),
+            origin_netuid: NetUid::from(1),
+            destination_netuid: NetUid::from(2),
+            amount: AlphaBalance::from(1),
+        });
+        assert!(proxy_type_filter(&ProxyType::NonTransfer, &swap_basket));
+        assert!(proxy_type_filter(&ProxyType::NonCritical, &swap_basket));
+        assert!(allowed_calls(ProxyType::NonTransfer).contains("SubtensorModule::swap_basket"));
+        assert!(allowed_calls(ProxyType::NonCritical).contains("SubtensorModule::swap_basket"));
     }
 
     #[test]
