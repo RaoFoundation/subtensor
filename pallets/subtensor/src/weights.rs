@@ -2768,8 +2768,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_mul(h.into())
 	}
-	/// Hand estimate pending a measured run: two AMM legs with fee settlement and
-	/// two realizable-NAV sweeps (one `sim_swap` valuation plus reads per escrow row `h`).
+	/// Hand estimate pending a measured run: two AMM legs with fee settlement, one
+	/// realizable-NAV sweep (one `sim_swap` valuation plus reads per escrow row `h`), and
+	/// two post-trade re-quotes (origin and destination).
 	fn swap_basket(h: u32, ) -> Weight {
 		Weight::from_parts(60_000_000, 8000)
 			.saturating_add(Weight::from_parts(20_000_000, 0).saturating_mul(h.into()))
@@ -6406,8 +6407,9 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
 			.saturating_mul(h.into())
 	}
-	/// Hand estimate pending a measured run: two AMM legs with fee settlement and
-	/// two realizable-NAV sweeps (one `sim_swap` valuation plus reads per escrow row `h`).
+	/// Hand estimate pending a measured run: two AMM legs with fee settlement, one
+	/// realizable-NAV sweep (one `sim_swap` valuation plus reads per escrow row `h`), and
+	/// two post-trade re-quotes (origin and destination).
 	fn swap_basket(h: u32, ) -> Weight {
 		Weight::from_parts(60_000_000, 8000)
 			.saturating_add(Weight::from_parts(20_000_000, 0).saturating_mul(h.into()))

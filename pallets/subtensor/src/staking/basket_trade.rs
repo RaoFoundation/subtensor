@@ -34,7 +34,8 @@ struct BasketTradeOutcome {
     tao_mid: u64,
     /// Alpha (or TAO for a root destination) credited to the destination holding.
     alpha_bought: u64,
-    /// Escrow holding rows valued by the two NAV sweeps (the larger of before / after).
+    /// Escrow holding rows valued: the pre-trade sweep, plus the destination row when the
+    /// trade opens it.
     holdings: u64,
 }
 
@@ -139,6 +140,15 @@ impl<T: Config> Pallet<T> {
         let nav_before: u64 = before
             .iter()
             .fold(0u64, |nav, (_, _, value)| nav.saturating_add(*value));
+        let value_before = |netuid: NetUid| -> Option<u64> {
+            before
+                .iter()
+                .find(|(row, _, _)| *row == netuid)
+                .map(|(_, _, value)| *value)
+        };
+        let origin_before = value_before(origin_netuid).unwrap_or(0);
+        let destination_before = value_before(destination_netuid);
+
         // --- 1. Sell leg: origin holding -> free TAO on the origin pot.
         let tao_mid: u64 = Self::sell_basket_leg(hotkey, escrow, origin_netuid, amount.into())?;
         ensure!(
@@ -162,23 +172,36 @@ impl<T: Config> Pallet<T> {
         // `BasketLiquidityCap` of the pool's alpha reserve.
         Self::ensure_within_liquidity_cap(hotkey, escrow, destination_netuid)?;
 
-        // --- 5. Shape rule on the post-trade fund: one valuation sweep gives the NAV, the
-        // destination's value, and the row count.
-        let after = Self::try_valued_basket_holdings(hotkey)?;
-        let nav_after: u64 = after
-            .iter()
-            .fold(0u64, |nav, (_, _, value)| nav.saturating_add(*value));
-        let destination_value: u64 = after
-            .iter()
-            .find(|(netuid, _, _)| *netuid == destination_netuid)
-            .map_or(0, |(_, _, value)| *value);
+        // --- 5. Shape rule on the post-trade fund. The trade moved only the origin and
+        // destination pools (root is 1:1), so every other row's quote is unchanged and the
+        // full re-valuation collapses to re-quoting those two holdings.
+        let origin_after = Self::realizable_basket_holding_value(hotkey, escrow, origin_netuid)?;
+        let destination_value =
+            Self::realizable_basket_holding_value(hotkey, escrow, destination_netuid)?;
+        let nav_after: u64 = nav_before
+            .saturating_sub(origin_before)
+            .saturating_sub(destination_before.unwrap_or(0))
+            .saturating_add(origin_after)
+            .saturating_add(destination_value);
         Self::ensure_within_root_cap(destination_value, nav_after)?;
 
         Ok(BasketTradeOutcome {
             tao_mid,
             alpha_bought: alpha_bought.to_u64(),
-            holdings: (before.len() as u64).max(after.len() as u64),
+            holdings: (before.len() as u64).saturating_add(u64::from(destination_before.is_none())),
         })
+    }
+
+    /// Realizable TAO value of the fund's current holding on `netuid`, priced like a row of
+    /// [`Self::try_valued_basket_holdings`] (terminal garbage is zero).
+    fn realizable_basket_holding_value(
+        hotkey: &T::AccountId,
+        escrow: &T::AccountId,
+        netuid: NetUid,
+    ) -> Result<u64, DispatchError> {
+        let held =
+            Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid).to_u64();
+        Ok(Self::try_realizable_tao_for_alpha(netuid, held)?.unwrap_or(0))
     }
 
     /// Sell `alpha` of the fund's `netuid` holding for TAO, leaving the TAO on the subnet's
@@ -333,7 +356,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Weight of one basket trade over `num_holdings` escrow rows: two AMM legs with fee
-    /// settlement plus two realizable-NAV sweeps (before and after), as benchmarked.
+    /// settlement plus the pre-trade realizable-NAV sweep and the two post-trade re-quotes
+    /// (origin and destination), as benchmarked.
     pub(crate) fn swap_basket_weight(num_holdings: u64) -> Weight {
         <T as crate::pallet::Config>::WeightInfo::swap_basket(
             u32::try_from(num_holdings).unwrap_or(u32::MAX),

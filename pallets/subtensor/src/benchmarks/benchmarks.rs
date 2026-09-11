@@ -2186,8 +2186,9 @@ mod pallet_benchmarks {
     #[benchmark]
     fn swap_basket(h: Linear<1, 256>) {
         // A fund holding `h` dynamic-subnet rows sells part of one into a subnet it does
-        // not hold yet, so both AMM legs execute with fee settlement and the two
-        // realizable-NAV sweeps value `h` (before) and `h + 1` (after) escrow rows.
+        // not hold yet, so both AMM legs execute with fee settlement, the pre-trade
+        // realizable-NAV sweep values `h` escrow rows, and the origin and destination
+        // holdings are re-quoted after the trade.
         let coldkey: T::AccountId = whitelisted_caller();
         let hotkey: T::AccountId = account("swap_basket_hot", 0, 1);
         let escrow = Subtensor::<T>::get_beta_escrow_account_id();

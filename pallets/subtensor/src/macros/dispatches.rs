@@ -2110,8 +2110,9 @@ mod dispatches {
         /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.
         /// * `RootWeightCapExceeded`: The destination would exceed the concentration cap.
         #[pallet::call_index(150)]
-        // Declared weight is a cap sized for 256 holdings (two NAV sim-swap sweeps plus two
-        // AMM legs) plus the pending-deposit flush the hotkey's queue implies; the actual
+        // Declared weight is a cap sized for 256 holdings (one NAV sim-swap sweep, two
+        // post-trade re-quotes, and two AMM legs) plus the pending-deposit flush the
+        // hotkey's queue implies; the actual
         // weight is computed in `do_swap_basket` from the real holding count and flush work
         // and refunded post-dispatch, mirroring `stake_into_basket` / `claim_root`.
         #[pallet::weight((Pallet::<T>::swap_basket_declared_weight(hotkey), DispatchClass::Normal, Pays::Yes))]
