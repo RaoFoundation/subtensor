@@ -83,9 +83,10 @@ const page = () => {
             {`# validator coldkey: delegate trading to the desk multisig
 btcli proxy add --delegate <desk multisig> --proxy-type BasketTrading -w validator_cold
 
-# the desk: sell 250 α of netuid 8 and buy netuid 64 in the validator's fund
+# the desk: sell 250 α of netuid 8 and buy netuid 64 in the validator's fund,
+# insisting on at least 99% of the quoted fill (--max-slippage defaults to 1)
 btcli root swap --from 8 --to 64 --amount 250 --hotkey <validator hotkey> \\
-  -w desk --proxy-for <validator coldkey>
+  --max-slippage 1 -w desk --proxy-for <validator coldkey>
 
 # move part of the fund's netuid 3 position into cash (netuid 0)
 btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
@@ -99,7 +100,8 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
             A trading key is a new way for a fund to lose value, so every trade must pass six
             checks. Two are price rules, one is a budget, two are shape rules, and the last is
             a set of switches. All numbers below are the launch defaults; the caps and budget
-            are hyperparameters governance can move.
+            are hyperparameters governance can move. On top of them the caller sets its own
+            floor on the fill.
           </p>
           <ul className={styles.list}>
             <li>
@@ -110,6 +112,17 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
               <code>0.98 × max(EMA, spot)</code>. The EMA anchor defeats a pre-trade pump
               or dump; the spot anchor caps the trade&apos;s own price impact. Any miss is{' '}
               <code>SlippageTooHigh</code>, and the whole trade rolls back.
+            </li>
+            <li>
+              <strong>Caller floor: <code>min_amount_out</code>.</strong> The last argument
+              of <code>swap_basket</code> is the least the buy leg must credit to the
+              destination holding, after fees, in the destination subnet&apos;s alpha (TAO when
+              the destination is netuid 0). Below it the trade fails with{' '}
+              <code>BasketMinOutNotMet</code> and rolls back. <code>0</code> sets no floor.
+              This is the caller&apos;s protection against a fill worse than the quote it signed
+              on; the band is the protocol&apos;s protection of the fund, is a price rule per
+              leg, and applies regardless. <code>btcli root swap</code> derives the floor from a
+              quote and <code>--max-slippage</code> (percent, default 1).
             </li>
             <li>
               <strong>Turnover budget: a token bucket of 10% of NAV.</strong> Every fund has a
@@ -233,7 +246,10 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
             <li>
               <strong>Call</strong>{' '}
               <DocLink href='/docs/tx/swap-basket'>
-                <code>SubtensorModule::swap_basket(hotkey, origin_netuid, destination_netuid, amount)</code>
+                <code>
+                  SubtensorModule::swap_basket(hotkey, origin_netuid, destination_netuid,
+                  amount, min_amount_out)
+                </code>
               </DocLink>{' '}
               (call index 150). Declared weight is a cap sized for 256 holdings plus any
               pending-deposit flush work; the actual weight is computed from the real holding
@@ -264,6 +280,10 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
               ,{' '}
               <DocLink href='/docs/errors/chain/BasketLiquidityCapExceeded'>
                 <code>BasketLiquidityCapExceeded</code>
+              </DocLink>
+              ,{' '}
+              <DocLink href='/docs/errors/chain/BasketMinOutNotMet'>
+                <code>BasketMinOutNotMet</code>
               </DocLink>
               . <code>SlippageTooHigh</code> and <code>RootWeightCapExceeded</code> are reused
               for the band and the concentration cap.
@@ -317,10 +337,17 @@ btcli root swap --from 3 --to 0 --amount 1200 --hotkey <validator hotkey> \\
             read (<code>enabled</code>, <code>frozen</code>, <code>budget_tao</code>,{' '}
             <code>remaining_tao</code>, <code>used_tao</code>,{' '}
             <code>refill_per_block_tao</code>, <code>refill_blocks</code>), the{' '}
-            <code>BasketTrading</code> proxy type, and descriptions for every new error.{' '}
-            <code>btcli root swap --from --to --amount [--hotkey] [--proxy-for]</code> is the
-            CLI surface; its review card shows the origin and destination holdings and how much
-            of the bucket is left before you sign.
+            <code>BasketTrading</code> proxy type, and descriptions for every new error. The
+            intent takes <code>min_amount_out</code> (destination alpha, or TAO for netuid 0;
+            default 0, no floor).{' '}
+            <code>
+              btcli root swap --from --to --amount [--max-slippage] [--hotkey] [--proxy-for]
+            </code>{' '}
+            is the CLI surface; it quotes both legs, sets the floor to the quote less{' '}
+            <code>--max-slippage</code> percent (default 1), and its review card shows the
+            origin and destination holdings, the expected and minimum output, and how much of
+            the bucket is left before you sign. If the quote is unavailable the floor is 0 and
+            the card says so.
           </p>
           <pre className={styles.code_block}>
             {`import bittensor as bt
@@ -332,7 +359,13 @@ async with bt.Subtensor("finney") as client:
     status = await client.read("basket_trading_status", hotkey_ss58=HOTKEY)
     # {'enabled': True, 'frozen': False, 'budget_tao': τ1,250, 'remaining_tao': τ980, ...}
 
-    intent = bt.SwapBasket(hotkey_ss58=HOTKEY, origin_netuid=8, dest_netuid=64, amount=250)
+    tao_mid = (await client.read("quote_unstake", netuid=8, amount_alpha=250)).tao
+    expected = (await client.read("quote_stake", netuid=64, amount_tao=tao_mid.tao)).alpha
+    floor = bt.Balance.from_rao(expected.rao * 99 // 100, 64)   # 1% under the quote
+
+    intent = bt.SwapBasket(
+        hotkey_ss58=HOTKEY, origin_netuid=8, dest_netuid=64, amount=250, min_amount_out=floor
+    )
     result = await client.execute(intent, desk, proxy_for=VALIDATOR_COLDKEY)
     if not result.success:
         print(result.error.code, result.error.remediation)`}
