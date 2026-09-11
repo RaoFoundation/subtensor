@@ -29,6 +29,7 @@
     "BasketDepositPending",
     "BasketHasNoWeights",
     "BasketLiquidityCapExceeded",
+    "BasketMinOutNotMet",
     "BasketSameSubnet",
     "BasketTradingDisabled",
     "BasketTradingFrozen",
