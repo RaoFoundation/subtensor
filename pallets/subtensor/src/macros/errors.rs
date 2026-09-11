@@ -391,5 +391,9 @@ mod errors {
         /// [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve.
         /// Trade a smaller amount or pick a deeper pool.
         BasketLiquidityCapExceeded,
+        /// The `swap_basket` buy leg credited less than the caller's `min_amount_out`
+        /// (destination alpha, or TAO when the destination is root). The trade rolled
+        /// back. Re-quote and retry, or lower the floor.
+        BasketMinOutNotMet,
     }
 }

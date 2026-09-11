@@ -121,13 +121,25 @@ fn setup_fund() -> Fund {
     }
 }
 
+/// A trade with no caller floor (`min_amount_out = 0`): the protocol band alone decides.
 fn swap(fund: &Fund, origin: NetUid, dest: NetUid, amount: u64) -> DispatchResultWithPostInfo {
+    swap_with_min(fund, origin, dest, amount, 0)
+}
+
+fn swap_with_min(
+    fund: &Fund,
+    origin: NetUid,
+    dest: NetUid,
+    amount: u64,
+    min_amount_out: u64,
+) -> DispatchResultWithPostInfo {
     SubtensorModule::swap_basket(
         RuntimeOrigin::signed(fund.coldkey),
         fund.hotkey,
         origin,
         dest,
         amount.into(),
+        min_amount_out,
     )
 }
 
@@ -466,6 +478,7 @@ fn test_swap_basket_rejects_non_owner_coldkey() {
                 fund.netuid_a,
                 fund.netuid_b,
                 TRADE.into(),
+                0,
             ),
             Error::<Test>::NonAssociatedColdKey
         );
@@ -477,6 +490,7 @@ fn test_swap_basket_rejects_non_owner_coldkey() {
                 fund.netuid_a,
                 fund.netuid_b,
                 TRADE.into(),
+                0,
             ),
             Error::<Test>::NonAssociatedColdKey
         );
@@ -518,6 +532,7 @@ fn test_swap_basket_rejects_while_coldkey_swap_announced() {
             origin_netuid: fund.netuid_a,
             destination_netuid: fund.netuid_b,
             amount: TRADE.into(),
+            min_amount_out: 0,
         });
         let dispatch = |call: RuntimeCall| {
             <CheckColdkeySwap<Test> as ExtendedDispatchable<RuntimeCall>>::dispatch_with_extension(
@@ -741,6 +756,189 @@ fn test_swap_basket_failed_second_leg_leaves_no_partial_state() {
             e.event,
             RuntimeEvent::SubtensorModule(Event::BasketSwapped { .. })
         )));
+    });
+}
+
+// =============================================================================
+// Caller floor: `min_amount_out`
+// =============================================================================
+
+/// What one `amount` trade `origin -> dest` credits in the standard playground, learned
+/// on a throwaway copy of the state so the test's own externalities stay pristine. The
+/// mock is deterministic, so the same trade in the test yields exactly this.
+fn quote_alpha_out(origin_is_root: bool, dest_is_root: bool, amount: u64) -> u64 {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let origin = if origin_is_root {
+            NetUid::ROOT
+        } else {
+            fund.netuid_a
+        };
+        let dest = if dest_is_root {
+            NetUid::ROOT
+        } else {
+            fund.netuid_b
+        };
+        assert_ok!(swap(&fund, origin, dest, amount));
+        last_swap_event().2
+    })
+}
+
+/// A floor at or below what the buy leg credits passes; the credited amount is the
+/// post-fee alpha of the destination, exactly what the event reports.
+#[test]
+fn test_swap_basket_min_out_met_passes() {
+    let quoted = quote_alpha_out(false, false, TRADE);
+    assert!(quoted > 0 && quoted < TRADE, "quoted = {quoted}");
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        // Exactly at the boundary: the floor is inclusive.
+        assert_ok!(swap_with_min(
+            &fund,
+            fund.netuid_a,
+            fund.netuid_b,
+            TRADE,
+            quoted
+        ));
+        let (_, _, alpha_bought) = last_swap_event();
+        assert_eq!(alpha_bought, quoted);
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuid_b), quoted);
+
+        // A looser floor on a second trade passes too (the pools moved a little against
+        // the fund, so the second fill is no larger than the first).
+        refill_turnover_bucket(&fund.hotkey);
+        assert_ok!(swap_with_min(
+            &fund,
+            fund.netuid_a,
+            fund.netuid_b,
+            TRADE,
+            quoted * 9 / 10
+        ));
+        let (_, _, second) = last_swap_event();
+        assert!(second <= quoted && second >= quoted * 9 / 10);
+    });
+}
+
+/// A floor one rao above what the buy leg credits fails with `BasketMinOutNotMet` after
+/// both legs have executed, and the whole trade rolls back: holdings, reserves,
+/// TotalStake, author fee, turnover bucket, protocol flow, entitlements, and no event.
+/// The protocol band is unchanged: a leg that misses the band still fails with
+/// `SlippageTooHigh` whatever the floor.
+#[test]
+fn test_swap_basket_min_out_not_met_fails_and_rolls_back() {
+    let quoted = quote_alpha_out(false, false, TRADE);
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        let held = escrow_alpha(&fund.hotkey, fund.netuid_a);
+        let tao_a = SubnetTAO::<Test>::get(fund.netuid_a);
+        let alpha_in_a = SubnetAlphaIn::<Test>::get(fund.netuid_a);
+        let tao_b = SubnetTAO::<Test>::get(fund.netuid_b);
+        let alpha_in_b = SubnetAlphaIn::<Test>::get(fund.netuid_b);
+        let ts = TotalStake::<Test>::get();
+        let author = author_balance();
+        let bucket = BasketTradeBucket::<Test>::get(fund.hotkey);
+        let flow_a = SubnetProtocolFlow::<Test>::get(fund.netuid_a);
+        let flow_b = SubnetProtocolFlow::<Test>::get(fund.netuid_b);
+        let before = entitlements(&fund);
+
+        assert_noop!(
+            swap_with_min(&fund, fund.netuid_a, fund.netuid_b, TRADE, quoted + 1),
+            Error::<Test>::BasketMinOutNotMet
+        );
+        assert_noop!(
+            swap_with_min(&fund, fund.netuid_a, fund.netuid_b, TRADE, u64::MAX),
+            Error::<Test>::BasketMinOutNotMet
+        );
+
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuid_a), held);
+        assert_eq!(escrow_alpha(&fund.hotkey, fund.netuid_b), 0);
+        assert_eq!(SubnetTAO::<Test>::get(fund.netuid_a), tao_a);
+        assert_eq!(SubnetAlphaIn::<Test>::get(fund.netuid_a), alpha_in_a);
+        assert_eq!(SubnetTAO::<Test>::get(fund.netuid_b), tao_b);
+        assert_eq!(SubnetAlphaIn::<Test>::get(fund.netuid_b), alpha_in_b);
+        assert_eq!(TotalStake::<Test>::get(), ts);
+        assert_eq!(
+            author_balance(),
+            author,
+            "rolled-back fees must not reach the author"
+        );
+        assert_eq!(BasketTradeBucket::<Test>::get(fund.hotkey), bucket);
+        assert_eq!(SubnetProtocolFlow::<Test>::get(fund.netuid_a), flow_a);
+        assert_eq!(SubnetProtocolFlow::<Test>::get(fund.netuid_b), flow_b);
+        assert_eq!(entitlements(&fund), before);
+        assert!(!System::events().iter().any(|e| matches!(
+            e.event,
+            RuntimeEvent::SubtensorModule(Event::BasketSwapped { .. })
+        )));
+
+        // The band is checked inside the leg, before the floor: a thin destination pool
+        // is still refused as `SlippageTooHigh`, not as a missed floor.
+        SubnetTAO::<Test>::insert(fund.netuid_b, TaoBalance::from(10_000_000u64));
+        SubnetAlphaIn::<Test>::insert(fund.netuid_b, AlphaBalance::from(10_000_000u64));
+        assert_noop!(
+            swap_with_min(&fund, fund.netuid_a, fund.netuid_b, TRADE, u64::MAX),
+            Error::<Test>::SlippageTooHigh
+        );
+
+        // Zero is "no floor": the same trade passes once the pool is deep again.
+        SubnetTAO::<Test>::insert(fund.netuid_b, tao_b);
+        SubnetAlphaIn::<Test>::insert(fund.netuid_b, alpha_in_b);
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, TRADE));
+        assert_eq!(last_swap_event().2, quoted);
+    });
+}
+
+/// With the cash slot as destination the credited amount is TAO (rao) at 1:1 with
+/// `tao_mid`, so the floor is compared in TAO units: `tao_mid` passes, `tao_mid + 1`
+/// fails. With the cash slot as origin the floor is in destination alpha as usual.
+#[test]
+fn test_swap_basket_min_out_on_cash_slot_uses_tao_units() {
+    let tao_out = quote_alpha_out(false, true, TRADE);
+    assert!(tao_out > 0 && tao_out < TRADE, "tao_out = {tao_out}");
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+
+        // Alpha -> cash: a floor of `TRADE` alpha-equivalents cannot be met (the sell leg
+        // pays fees and slippage), one rao above the true TAO proceeds cannot either.
+        assert_noop!(
+            swap_with_min(&fund, fund.netuid_a, NetUid::ROOT, TRADE, tao_out + 1),
+            Error::<Test>::BasketMinOutNotMet
+        );
+        assert_ok!(swap_with_min(
+            &fund,
+            fund.netuid_a,
+            NetUid::ROOT,
+            TRADE,
+            tao_out
+        ));
+        let (_, tao_mid, alpha_bought) = last_swap_event();
+        assert_eq!(tao_mid, tao_out);
+        assert_eq!(alpha_bought, tao_out, "root cash is TAO 1:1");
+        assert_eq!(escrow_alpha(&fund.hotkey, NetUid::ROOT), tao_out);
+
+        // Cash -> alpha: the floor is destination alpha. Selling cash is fee-free and 1:1,
+        // so the buy leg alone decides; `tao_out` TAO buys a little less than `tao_out`
+        // alpha at price 1, and asking for exactly `tao_out` alpha is refused.
+        refill_turnover_bucket(&fund.hotkey);
+        assert_noop!(
+            swap_with_min(&fund, NetUid::ROOT, fund.netuid_b, tao_out, tao_out),
+            Error::<Test>::BasketMinOutNotMet
+        );
+        assert_ok!(swap_with_min(
+            &fund,
+            NetUid::ROOT,
+            fund.netuid_b,
+            tao_out,
+            tao_out * 9 / 10
+        ));
+        let (sold, mid, bought) = last_swap_event();
+        assert_eq!(sold, tao_out);
+        assert_eq!(mid, tao_out);
+        assert!(
+            bought < tao_out && bought >= tao_out * 9 / 10,
+            "bought = {bought}"
+        );
+        assert_eq!(escrow_alpha(&fund.hotkey, NetUid::ROOT), 0);
     });
 }
 

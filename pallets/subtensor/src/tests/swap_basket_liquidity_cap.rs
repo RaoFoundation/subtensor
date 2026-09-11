@@ -105,7 +105,7 @@ fn test_liquidity_cap_stops_thin_pool_drain() {
         let mut spent = 0u64;
         let mut refused = None;
         for _ in 0..2_000 {
-            match SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, thin, slice) {
+            match SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, thin, slice, 0) {
                 Ok(_) => spent += slice,
                 Err(err) => {
                     refused = Some(err);
@@ -162,7 +162,7 @@ fn buy_slices_until_refused(
         SubnetMovingPrice::<Test>::insert(netuid, I96F32::from_num(spot.to_num::<f64>()));
         let slice = SubnetTAO::<Test>::get(netuid).to_u64() * 9 / 1000;
         if let Err(err) =
-            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, netuid, slice)
+            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, netuid, slice, 0)
         {
             return (slice, err);
         }
@@ -202,7 +202,7 @@ fn test_liquidity_cap_boundary() {
         // The refused slice rolled back: nothing moved.
         let cash_before = escrow_alpha(&hotkey, NetUid::ROOT);
         assert_noop!(
-            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, sn, slice),
+            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, sn, slice, 0),
             Error::<Test>::BasketLiquidityCapExceeded
         );
         assert_eq!(escrow_alpha(&hotkey, sn), held);
@@ -216,7 +216,8 @@ fn test_liquidity_cap_boundary() {
             hotkey,
             sn,
             NetUid::ROOT,
-            sell
+            sell,
+            0
         ));
         assert_eq!(escrow_alpha(&hotkey, sn), held - sell);
     });
@@ -256,7 +257,8 @@ fn test_liquidity_cap_follows_storage() {
             hotkey,
             NetUid::ROOT,
             sn,
-            slice
+            slice,
+            0
         ));
         let (_, err) = buy_slices_until_refused(coldkey, hotkey, sn);
         assert_eq!(err, Error::<Test>::BasketLiquidityCapExceeded.into());
@@ -353,11 +355,11 @@ fn test_over_cap_winner_only_blocks_further_buys() {
 
         // Refused: topping up the winner.
         assert_noop!(
-            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, a, 10 * TAO),
+            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, a, 10 * TAO, 0),
             Error::<Test>::RootWeightCapExceeded
         );
         assert_noop!(
-            SubtensorModule::do_swap_basket(coldkey, hotkey, b, a, 10 * TAO),
+            SubtensorModule::do_swap_basket(coldkey, hotkey, b, a, 10 * TAO, 0),
             Error::<Test>::RootWeightCapExceeded
         );
         assert_eq!(escrow_alpha(&hotkey, a), winner);
@@ -368,14 +370,16 @@ fn test_over_cap_winner_only_blocks_further_buys() {
             hotkey,
             a,
             b,
-            100 * TAO
+            100 * TAO,
+            0
         ));
         assert_ok!(SubtensorModule::do_swap_basket(
             coldkey,
             hotkey,
             a,
             NetUid::ROOT,
-            100 * TAO
+            100 * TAO,
+            0
         ));
         assert_eq!(escrow_alpha(&hotkey, a), winner - 200 * TAO);
         assert!(nav_share_bps(&hotkey, a) > 5_000, "still over cap");
@@ -387,7 +391,8 @@ fn test_over_cap_winner_only_blocks_further_buys() {
             hotkey,
             NetUid::ROOT,
             b,
-            50 * TAO
+            50 * TAO,
+            0
         ));
         pin_ema_to_spot(b);
         assert_ok!(SubtensorModule::do_swap_basket(
@@ -395,7 +400,8 @@ fn test_over_cap_winner_only_blocks_further_buys() {
             hotkey,
             b,
             NetUid::ROOT,
-            10 * TAO
+            10 * TAO,
+            0
         ));
         assert_eq!(escrow_alpha(&hotkey, a), winner - 200 * TAO);
     });
@@ -527,11 +533,11 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
 
         // Refused: any further buy, even a tiny one.
         assert_noop!(
-            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, thin, TAO),
+            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, thin, TAO, 0),
             Error::<Test>::BasketLiquidityCapExceeded
         );
         assert_noop!(
-            SubtensorModule::do_swap_basket(coldkey, hotkey, deep, thin, TAO),
+            SubtensorModule::do_swap_basket(coldkey, hotkey, deep, thin, TAO, 0),
             Error::<Test>::BasketLiquidityCapExceeded
         );
 
@@ -542,7 +548,8 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
             hotkey,
             thin,
             NetUid::ROOT,
-            slice
+            slice,
+            0
         ));
         assert_eq!(escrow_alpha(&hotkey, thin), winner - slice);
         assert!(held_share_bps(&hotkey, thin) > 1_000, "still over the cap");
@@ -551,7 +558,8 @@ fn test_over_liquidity_cap_winner_only_blocks_further_buys() {
             hotkey,
             NetUid::ROOT,
             deep,
-            100 * TAO
+            100 * TAO,
+            0
         ));
 
         // Allowed: dividends deployed into it by the weight vector.
@@ -597,7 +605,7 @@ fn test_profit_taking_after_run_up_is_not_blocked_by_band() {
 
         // Buying the runaway subnet is refused by the band (spot > 1.02 × EMA).
         assert_noop!(
-            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, a, TAO),
+            SubtensorModule::do_swap_basket(coldkey, hotkey, NetUid::ROOT, a, TAO, 0),
             Error::<Test>::SlippageTooHigh
         );
 
@@ -606,7 +614,7 @@ fn test_profit_taking_after_run_up_is_not_blocked_by_band() {
         let mut sold = 0u64;
         loop {
             let slice = SubnetAlphaIn::<Test>::get(a).to_u64() * 9 / 1000;
-            match SubtensorModule::do_swap_basket(coldkey, hotkey, a, NetUid::ROOT, slice) {
+            match SubtensorModule::do_swap_basket(coldkey, hotkey, a, NetUid::ROOT, slice, 0) {
                 Ok(_) => {
                     legs += 1;
                     sold += slice;
@@ -644,6 +652,7 @@ fn declared_swap_weight(
         origin_netuid: from,
         destination_netuid: to,
         amount: amount.into(),
+        min_amount_out: 0,
     })
     .get_dispatch_info()
     .call_weight
@@ -674,7 +683,7 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         // weight the runtime adds to every call), actual is the bare row weight.
         let bare_declared = declared_swap_weight(coldkey, hotkey, a, b, TAO);
         assert!(bare_declared.all_gte(SubtensorModule::swap_basket_weight(256)));
-        let bare_actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO).unwrap();
+        let bare_actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
         assert_eq!(bare_actual, SubtensorModule::swap_basket_weight(3));
 
         // One queued origin raises the declared weight by the flush estimate; a second
@@ -700,7 +709,7 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         SubtensorModule::enqueue_basket_deposit(&hotkey, a, (5 * TAO).into());
         pin_ema_to_spot(a);
         pin_ema_to_spot(b);
-        let actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO).unwrap();
+        let actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
         assert!(
             PendingBasketDeposits::<Test>::iter_prefix(hotkey)
                 .next()
