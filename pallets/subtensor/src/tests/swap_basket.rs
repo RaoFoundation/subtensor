@@ -15,11 +15,11 @@ use crate::tests::claim_root::{
 };
 use crate::tests::mock::*;
 use crate::{
-    BASKET_TRADE_WINDOW_BLOCKS, BasketClaimed, BasketDailyTurnoverCap, BasketRate,
+    BASKET_TRADE_WINDOW_BLOCKS, BasketClaimed, BasketDailyTurnoverCap, BasketRate, BasketShares,
     BasketTradeWindow, BasketTradingEnabled, BasketTradingFrozen, ColdkeySwapAnnouncements,
-    DEFAULT_BASKET_DAILY_TURNOVER_CAP, DefaultMinStake, Error, Event, RootWeightsCap,
-    SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice, SubnetProtocolFlow, SubnetTAO, SubnetTaoFlow,
-    SubtokenEnabled, TotalStake, Uids,
+    DEFAULT_BASKET_DAILY_TURNOVER_CAP, DefaultMinStake, Error, Event, NetworksAdded,
+    RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice, SubnetProtocolFlow,
+    SubnetTAO, SubnetTaoFlow, SubtokenEnabled, TotalStake, Uids,
 };
 use codec::Encode;
 use frame_support::dispatch::DispatchResultWithPostInfo;
@@ -30,6 +30,7 @@ use sp_core::U256;
 use sp_runtime::traits::Hash;
 use substrate_fixed::types::I96F32;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
+use subtensor_swap_interface::SwapHandler;
 
 type HashingOf<T> = <T as frame_system::Config>::Hashing;
 
@@ -988,4 +989,336 @@ fn regression_basket_swapped_event_index_is_appended() {
     .encode();
     assert_eq!(prior_tail[0], 148);
     assert_eq!(swapped[0], 149);
+}
+
+// =============================================================================
+// Documented weaknesses (calibration pass on PR #3150)
+//
+// These tests pin *current* behaviour so the weaknesses are visible in CI. Each is
+// expected to PASS today; when a fix for the referenced finding lands, the assertion it
+// names will flip and the test must be inverted or removed together with the fix.
+// Finding numbers refer to `docs/pr-3150-swap-basket-exploit-calibration.md` (§2.x, §4).
+// =============================================================================
+
+/// Deep-cash fund plus one thin subnet C (1 000 τ / 100 000 α, price 0.01, EMA = spot),
+/// with enough networks on chain for the 1/16 concentration cap to bind.
+fn setup_cash_fund_with_thin_pool() -> (Fund, NetUid) {
+    let coldkey = U256::from(1001);
+    let hotkey = U256::from(1002);
+    let staker = U256::from(1003);
+    let owner_c = U256::from(3001);
+    let hotkey_c = U256::from(3002);
+
+    let netuid_a = add_dynamic_network(&hotkey, &coldkey);
+    let netuid_c = add_dynamic_network(&hotkey_c, &owner_c);
+    remove_owner_registration_stake(netuid_a);
+    remove_owner_registration_stake(netuid_c);
+    fund_pool(netuid_a);
+    SubnetMovingPrice::<Test>::insert(netuid_a, I96F32::from_num(1));
+    // Thin pool: 1 000 τ against 100 000 α.
+    SubnetTAO::<Test>::insert(netuid_c, TaoBalance::from(THIN_POOL_TAO));
+    SubnetAlphaIn::<Test>::insert(netuid_c, AlphaBalance::from(THIN_POOL_ALPHA));
+    SubnetMovingPrice::<Test>::insert(netuid_c, I96F32::from_num(0.01));
+
+    SubtensorModule::set_tao_weight(u64::MAX);
+    zero_claim_threshold();
+    register_on_root(&hotkey, 0);
+    NetworksAdded::<Test>::insert(NetUid::ROOT, true);
+    // 16 destinations on chain so `RootWeightsCap` (1/16) is enforced.
+    for raw in 100u16..113 {
+        NetworksAdded::<Test>::insert(NetUid::from(raw), true);
+    }
+    assert!(
+        SubtensorModule::binding_root_weights_cap(
+            SubtensorModule::get_all_subnet_netuids().len() as u64
+        )
+        .is_some()
+    );
+
+    // The fund holds 100 000 τ of cash in the root slot, backed by balance on the root pot
+    // and counted in the root reserves; shares are outstanding so NAV/share is 1.
+    let escrow = SubtensorModule::get_beta_escrow_account_id();
+    let root_account = SubtensorModule::get_subnet_account_id(NetUid::ROOT).unwrap();
+    add_balance_to_coldkey_account(&root_account, TaoBalance::from(CASH_NAV));
+    SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &hotkey,
+        &escrow,
+        NetUid::ROOT,
+        CASH_NAV.into(),
+    );
+    SubnetTAO::<Test>::mutate(NetUid::ROOT, |t| *t = t.saturating_add(CASH_NAV.into()));
+    SubnetAlphaOut::<Test>::mutate(NetUid::ROOT, |t| *t = t.saturating_add(CASH_NAV.into()));
+    TotalStake::<Test>::mutate(|t| *t = t.saturating_add(CASH_NAV.into()));
+    BasketShares::<Test>::insert(hotkey, CASH_NAV);
+    mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+        &hotkey,
+        &staker,
+        NetUid::ROOT,
+        2_000_000u64.into(),
+    );
+
+    BasketTradingEnabled::<Test>::put(true);
+    (
+        Fund {
+            coldkey,
+            hotkey,
+            staker,
+            netuid_a,
+            netuid_b: netuid_c,
+        },
+        netuid_c,
+    )
+}
+
+/// 100 000 τ of fund cash.
+const CASH_NAV: u64 = 100_000_000_000_000;
+/// Thin pool reserves: 1 000 τ and 100 000 α (price 0.01).
+const THIN_POOL_TAO: u64 = 1_000_000_000_000;
+const THIN_POOL_ALPHA: u64 = 100_000_000_000_000;
+/// One buy slice of 9 τ: < 1% of the thin pool's TAO, so its own price impact is < 2%.
+const SLICE: u64 = 9_000_000_000;
+
+fn spot(netuid: NetUid) -> f64 {
+    <Test as crate::Config>::SwapInterface::current_alpha_price(netuid.into()).to_num::<f64>()
+}
+
+/// A counterparty sells (fee-free) exactly enough alpha into `netuid` to bring spot back
+/// down to `target_price`, pulling the fund's TAO out of the pool.
+fn counterparty_sells_back_to(netuid: NetUid, target_price: f64) {
+    let tao = SubnetTAO::<Test>::get(netuid).to_u64() as f64;
+    let alpha_in = SubnetAlphaIn::<Test>::get(netuid).to_u64() as f64;
+    // Constant product: k = tao * alpha; at the target price alpha' = sqrt(k / p).
+    let target_alpha = (tao * alpha_in / target_price).sqrt();
+    let sell = target_alpha - alpha_in;
+    if sell < 1.0 {
+        return;
+    }
+    let out = SubtensorModule::swap_alpha_for_tao(
+        netuid,
+        AlphaBalance::from(sell as u64),
+        <Test as crate::Config>::SwapInterface::min_price::<TaoBalance>(),
+        true,
+    )
+    .expect("counterparty sale fills");
+    // The counterparty walks away with the TAO (leaves the pot).
+    assert_ok!(SubtensorModule::transfer_tao_from_subnet(
+        netuid,
+        &U256::from(9_999),
+        out.amount_paid_out.into(),
+    ));
+}
+
+/// Finding §2.1 (High): sliced buys into a thin pool, each answered by a counterparty
+/// sell-back to the EMA, pass every guardrail on every trade and drain the fund by ~8% of
+/// NAV inside one turnover window. The concentration cap never fires because it measures
+/// *realizable* value, which is bounded by the pool's TAO reserve. Documents current
+/// behaviour; flip when a liquidity-relative destination cap (§5.1) lands.
+#[test]
+fn finding_2_1_thin_pool_drain_passes_every_guardrail() {
+    new_test_ext(1).execute_with(|| {
+        let (fund, netuid_c) = setup_cash_fund_with_thin_pool();
+        let nav_before = nav(&fund.hotkey);
+        assert_eq!(nav_before, CASH_NAV);
+        let budget = SubtensorModule::basket_trade_budget_tao(nav_before);
+        let counterparty_before = SubtensorModule::get_coldkey_balance(&U256::from(9_999)).to_u64();
+
+        let mut trades = 0u32;
+        let mut spent = 0u64;
+        let refused_with = loop {
+            match swap(&fund, NetUid::ROOT, netuid_c, SLICE) {
+                Ok(_) => {
+                    trades += 1;
+                    spent += SLICE;
+                    counterparty_sells_back_to(netuid_c, 0.01);
+                }
+                Err(err) => break err.error,
+            }
+        };
+
+        // Only the turnover budget ever stops the loop, and only after it is spent.
+        assert_eq!(
+            refused_with,
+            Error::<Test>::BasketTurnoverBudgetExceeded.into()
+        );
+        assert!(trades > 500, "trades = {trades}");
+        assert!(spent > budget * 9 / 10, "spent {spent} of budget {budget}");
+
+        // The fund now holds several times the pool's whole alpha reserve, realizable for
+        // roughly the pool's TAO reserve; the counterparty walked away with ~all the TAO.
+        let holding = escrow_alpha(&fund.hotkey, netuid_c);
+        assert!(
+            holding > 5 * THIN_POOL_ALPHA,
+            "holding {holding} vs reserve {THIN_POOL_ALPHA}"
+        );
+        let realizable = SubtensorModule::realizable_tao_for_alpha(netuid_c, holding);
+        assert!(realizable <= THIN_POOL_TAO);
+        let received =
+            SubtensorModule::get_coldkey_balance(&U256::from(9_999)).to_u64() - counterparty_before;
+        assert!(
+            received > spent * 95 / 100,
+            "counterparty took {received} of {spent}"
+        );
+
+        // Loss: > 5% of NAV in one window (calibration run: 8.3%), i.e. ~90% of the TAO
+        // traded — far above the PR's stated worst case of cap × (2 × 2% + fees).
+        let nav_after = nav(&fund.hotkey);
+        let loss = nav_before - nav_after;
+        assert!(
+            loss > nav_before * 5 / 100,
+            "loss {loss} ({}%) must exceed 5% of NAV to reproduce the finding",
+            loss * 100 / nav_before
+        );
+        assert!(loss > spent * 3 / 4, "loss {loss} vs spent {spent}");
+
+        // The concentration cap passes because the destination is measured realizable.
+        let cap = SubtensorModule::binding_root_weights_cap(
+            SubtensorModule::get_all_subnet_netuids().len() as u64,
+        )
+        .expect("cap binds");
+        assert!(SubtensorModule::share_within_root_cap(
+            realizable, nav_after, cap
+        ));
+        // ...while the same holding marked at spot is several multiples of the cap share.
+        let spot_value = SubtensorModule::spot_tao_for_alpha(netuid_c, holding);
+        assert!(!SubtensorModule::share_within_root_cap(
+            spot_value, nav_after, cap
+        ));
+        assert!(spot_value > 5 * realizable);
+    });
+}
+
+/// Finding §2.2 (Medium): the turnover window is a fixed interval with a lazy reset, so a
+/// trader can spend one full budget at block `start + 7199` and another at `start + 7200`
+/// — 2× the daily cap in two adjacent blocks. Documents current behaviour; flip when a
+/// token-bucket budget (§5.2) lands.
+#[test]
+fn finding_2_2_window_boundary_lets_two_budgets_through_in_adjacent_blocks() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        BasketDailyTurnoverCap::<Test>::put(DEFAULT_BASKET_DAILY_TURNOVER_CAP);
+        let budget = SubtensorModule::basket_trade_budget_tao(nav(&fund.hotkey));
+        // Two half-budget trades fit inside one window (tao_mid trails alpha by the fee).
+        let half = budget / 2;
+
+        let start = System::block_number();
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, half));
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, half));
+        let (_, used_in_first_window) = BasketTradeWindow::<Test>::get(fund.hotkey);
+        assert!(used_in_first_window > budget * 99 / 100);
+
+        // Last block of the window: the budget is spent.
+        System::set_block_number(start + BASKET_TRADE_WINDOW_BLOCKS - 1);
+        assert_noop!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, half),
+            Error::<Test>::BasketTurnoverBudgetExceeded
+        );
+
+        // Very next block: a whole new budget is available.
+        System::set_block_number(start + BASKET_TRADE_WINDOW_BLOCKS);
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, half));
+        assert_ok!(swap(&fund, fund.netuid_a, fund.netuid_b, half));
+        let (_, used_in_second_window) = BasketTradeWindow::<Test>::get(fund.hotkey);
+
+        let moved_in_two_blocks = used_in_first_window + used_in_second_window;
+        assert!(
+            moved_in_two_blocks > budget * 19 / 10,
+            "moved {moved_in_two_blocks} vs one budget {budget}"
+        );
+    });
+}
+
+/// Finding §2.3 (Low): the 2% band is per leg, not per block. With spot below the EMA,
+/// chained buy legs in one block each pass (`ceiling = 1.02 × min(EMA, spot)`) and walk
+/// the price up to 1.02 × EMA — here +20% or more in a single block. Documents current
+/// behaviour; flip if a per-block price or rate bound is added.
+#[test]
+fn finding_2_3_chained_legs_in_one_block_walk_price_to_ema_ceiling() {
+    new_test_ext(1).execute_with(|| {
+        let (fund, netuid_c) = setup_cash_fund_with_thin_pool();
+        // Spot 0.01 sits 20% below a 0.0125 EMA.
+        let ema = 0.0125f64;
+        SubnetMovingPrice::<Test>::insert(netuid_c, I96F32::from_num(ema));
+        let spot_before = spot(netuid_c);
+        let block = System::block_number();
+
+        let mut legs = 0u32;
+        let refused_with = loop {
+            match swap(&fund, NetUid::ROOT, netuid_c, SLICE) {
+                Ok(_) => legs += 1,
+                Err(err) => break err.error,
+            }
+        };
+        assert_eq!(System::block_number(), block, "all legs ran in one block");
+        assert_eq!(refused_with, Error::<Test>::SlippageTooHigh.into());
+
+        let spot_after = spot(netuid_c);
+        assert!(legs >= 10, "legs = {legs}");
+        assert!(
+            spot_after / spot_before > 1.20,
+            "price moved {spot_before} -> {spot_after} in one block"
+        );
+        // Stopped only by the EMA ceiling, not by any per-block rule.
+        assert!(spot_after <= ema * 1.02 * 1.001);
+        assert!(spot_after > ema);
+    });
+}
+
+/// Finding §4 "crash lock": once spot sits 5% below the EMA a fund cannot sell even one
+/// unit of the holding (no stop-loss), and 5% above it cannot buy. Documents current
+/// behaviour; flip when a wider sell-side tolerance (§5.3) lands.
+#[test]
+fn finding_crash_lock_blocks_selling_a_falling_holding() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        // Spot is 1.0 on both pools. A's EMA is 5% above spot: the fund holds A and cannot
+        // sell any of it — into another subnet or into cash.
+        SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1.0 / 0.95));
+        assert_noop!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
+            Error::<Test>::SlippageTooHigh
+        );
+        assert_noop!(
+            swap(&fund, fund.netuid_a, NetUid::ROOT, TRADE),
+            Error::<Test>::SlippageTooHigh
+        );
+        SubnetMovingPrice::<Test>::insert(fund.netuid_a, I96F32::from_num(1));
+
+        // B's EMA is 5% below spot: the fund cannot buy B.
+        SubnetMovingPrice::<Test>::insert(fund.netuid_b, I96F32::from_num(0.95));
+        assert_noop!(
+            swap(&fund, fund.netuid_a, fund.netuid_b, TRADE),
+            Error::<Test>::SlippageTooHigh
+        );
+    });
+}
+
+/// Finding §4 "cash slot": root is a capped destination like any subnet, so with the cap
+/// binding a fund cannot hold more than `RootWeightsCap` (1/16) of NAV as TAO — it cannot
+/// de-risk into cash. Documents current behaviour; flip when a separate cash cap (§5.4)
+/// lands.
+#[test]
+fn finding_cash_slot_is_capped_at_root_weights_cap() {
+    new_test_ext(1).execute_with(|| {
+        let fund = setup_fund();
+        // Root + A + B + 13 placeholders = 16 destinations: the default 1/16 cap binds.
+        for raw in 100u16..113 {
+            NetworksAdded::<Test>::insert(NetUid::from(raw), true);
+        }
+        let available = SubtensorModule::get_all_subnet_netuids().len() as u64;
+        assert_eq!(available, 16);
+        assert_eq!(
+            SubtensorModule::binding_root_weights_cap(available),
+            Some(u64::from(RootWeightsCap::<Test>::get(NetUid::ROOT)))
+        );
+
+        let held = escrow_alpha(&fund.hotkey, fund.netuid_a);
+        // 10% of the fund into cash: refused.
+        assert_noop!(
+            swap(&fund, fund.netuid_a, NetUid::ROOT, held / 10),
+            Error::<Test>::RootWeightCapExceeded
+        );
+        // 6% (just under 1/16): allowed.
+        assert_ok!(swap(&fund, fund.netuid_a, NetUid::ROOT, held * 6 / 100));
+        assert!(escrow_alpha(&fund.hotkey, NetUid::ROOT) > 0);
+    });
 }
