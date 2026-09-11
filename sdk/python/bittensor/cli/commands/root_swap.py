@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Optional
 
 import typer
 
+from ...balance import Balance
 from ...intents import ALL, SwapBasket
 from ..context import AppContext, address_cli_name, ctx_of
 from ..globals import with_tx_globals
 from ..prompt import confirm_wallet
+
+DEFAULT_MAX_SLIPPAGE_PCT = 1.0
+
+
+def _min_amount_out(expected: Balance, max_slippage_pct: float) -> Balance:
+    """The user floor: ``expected × (1 - max_slippage / 100)``, floored to whole rao."""
+    factor = Decimal(1) - Decimal(str(max_slippage_pct)) / Decimal(100)
+    rao = int(Decimal(expected.rao) * factor)
+    return Balance.from_rao(max(rao, 0), expected.netuid)
 
 
 def _swap_review(
@@ -18,10 +29,12 @@ def _swap_review(
     *,
     holdings: list[dict],
     status: Optional[dict],
+    expected_out: Optional[Balance],
+    max_slippage_pct: float,
 ) -> tuple[str, list[tuple]]:
     """Confirm line and the Swap stage of the review card: the origin holding
-    being sold, the destination, and how much of the fund's daily turnover
-    budget is left."""
+    being sold, the destination, the quoted and minimum output, and how much
+    of the fund's daily turnover budget is left."""
     by_netuid = {int(row["netuid"]): row for row in holdings}
     origin = by_netuid.get(int(intent.origin_netuid))
     dest = by_netuid.get(int(intent.dest_netuid))
@@ -41,6 +54,24 @@ def _swap_review(
     rows.append(("buy", f"netuid {intent.dest_netuid}"))
     if dest is not None:
         rows.append(("dest holding", f"{dest['alpha']} worth {dest['value_tao']}"))
+    if expected_out is not None:
+        rows.append(("expected out", f"~{expected_out} (quoted now, after fees)"))
+        rows.append(
+            (
+                "minimum out",
+                f"{intent.min_amount_out} (expected less {max_slippage_pct:g}% max slippage; "
+                "the trade rolls back below this)",
+            )
+        )
+    else:
+        rows.append(
+            (
+                "warning",
+                "no quote available: minimum out is 0, so only the 2% protocol band "
+                "bounds this trade",
+                "yellow",
+            )
+        )
     if status is not None:
         rows.append(
             (
@@ -84,6 +115,16 @@ def root_swap(
         help="How much of the origin holding to sell, in the origin subnet's alpha "
         "(TAO when `--from 0`), or `all` for the whole holding.",
     ),
+    max_slippage: float = typer.Option(
+        DEFAULT_MAX_SLIPPAGE_PCT,
+        "--max-slippage",
+        min=0.0,
+        max=100.0,
+        help="Your floor on the fill, in percent of the quoted output: the trade rolls "
+        "back (`BasketMinOutNotMet`) if the buy leg credits less than "
+        "`quote × (1 - max_slippage/100)`. This is on top of the chain's 2% per-leg band. "
+        "100 disables the floor.",
+    ),
 ):
     """Rebalance a validator's basket: sell one holding to buy another.
 
@@ -95,10 +136,17 @@ def root_swap(
     spot price, the TAO through the middle counts against the fund's daily
     turnover budget, and the destination may not end above the
     concentration cap.
+
+    btcli quotes the trade first and sets `min_amount_out` to the quoted
+    output less `--max-slippage` (default 1%), so a pool that moves against
+    you between the quote and execution rolls the trade back instead of
+    filling worse. If the quote is unavailable the floor is 0 (chain band only).
     """
     app_ctx: AppContext = ctx_of(ctx)
     confirm_wallet(app_ctx, help_text="Wallet whose coldkey signs this transaction.")
     hotkey = app_ctx.resolve_address("hotkey_ss58", hotkey_ss58)
+    # Validate and normalize the inputs first (same-subnet check, amount units);
+    # the floor is filled in once the trade has been quoted.
     intent = SwapBasket(
         hotkey_ss58=hotkey,
         origin_netuid=origin_netuid,
@@ -106,16 +154,68 @@ def root_swap(
         amount=amount,
     )
 
-    async def _fund_context(client) -> tuple[list[dict], Optional[dict]]:
+    def _origin_amount(holdings: list[dict]) -> Optional[Balance]:
+        if intent.amount != ALL:
+            return intent.amount
+        for row in holdings:
+            if int(row["netuid"]) == int(origin_netuid):
+                return row["alpha"]
+        return None
+
+    async def _quote_out(client, sell: Balance) -> Balance:
+        """Expected destination credit: the sell leg's TAO through the origin pool,
+        then the buy leg through the destination pool. Root legs are TAO 1:1."""
+        if origin_netuid == 0:
+            tao_mid = sell
+        else:
+            leg = await client.read(
+                "quote_unstake", netuid=origin_netuid, amount_alpha=sell.amount
+            )
+            tao_mid = leg.tao
+        if dest_netuid == 0:
+            return tao_mid
+        leg = await client.read("quote_stake", netuid=dest_netuid, amount_tao=tao_mid.tao)
+        return leg.alpha
+
+    async def _fund_context(
+        client,
+    ) -> tuple[list[dict], Optional[dict], Optional[Balance]]:
         holdings = await client.read("validator_basket", hotkey_ss58=hotkey)
         status = await client.read("basket_trading_status", hotkey_ss58=hotkey)
-        return holdings, status
+        expected: Optional[Balance] = None
+        sell = _origin_amount(holdings)
+        if sell is not None and sell.rao > 0:
+            try:
+                expected = await _quote_out(client, sell)
+            except Exception:
+                # The floor is a convenience on top of the chain band: no quote, no floor.
+                expected = None
+        return holdings, status, expected
 
     try:
         with app_ctx.output.activity("quoting the fund…"):
-            holdings, status = app_ctx.run(_fund_context)
+            holdings, status, expected_out = app_ctx.run(_fund_context)
     except Exception:
         # Display-only context; a quoting hiccup (or a pre-v4 node) must not block the swap.
-        holdings, status = [], None
-    summary, rows = _swap_review(app_ctx, intent, holdings=holdings, status=status)
+        holdings, status, expected_out = [], None, None
+
+    if expected_out is not None and expected_out.rao > 0:
+        intent = SwapBasket(
+            hotkey_ss58=hotkey,
+            origin_netuid=origin_netuid,
+            dest_netuid=dest_netuid,
+            amount=amount,
+            min_amount_out=_min_amount_out(expected_out, max_slippage),
+        )
+    else:
+        expected_out = None
+
+    summary, rows = _swap_review(
+        app_ctx,
+        intent,
+        holdings=holdings,
+        status=status,
+        expected_out=expected_out,
+        max_slippage_pct=max_slippage,
+    )
     app_ctx.submit(intent, summary=summary, card_sections=[("Swap", rows)])

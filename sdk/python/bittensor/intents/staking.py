@@ -1724,6 +1724,12 @@ class SwapBasket(Intent):
     ``basket_trading_status`` for the remaining budget and
     ``validator_basket`` for current holdings before trading. Pass ``all``
     to sell the fund's whole origin holding (e.g. to clear a small balance).
+
+    ``min_amount_out`` is your own floor on top of the protocol band: the
+    buy leg must credit at least this much destination alpha (TAO when the
+    destination is netuid 0), after fees, or the whole trade rolls back with
+    ``BasketMinOutNotMet``. The default ``0`` sets no floor. ``btcli root
+    swap`` derives it from a quote and ``--max-slippage``.
     """
 
     op = "swap_basket"
@@ -1747,12 +1753,24 @@ class SwapBasket(Intent):
             "(TAO when the origin is netuid 0), or `all` for the whole holding."
         }
     )
+    min_amount_out: Money = field(
+        default=0,
+        metadata={
+            "help": "Least amount the buy leg must credit, in the destination subnet's "
+            "alpha (TAO when the destination is netuid 0), after fees; the trade rolls "
+            "back with `BasketMinOutNotMet` below it. 0 (default) sets no floor. The 2% "
+            "protocol band applies regardless."
+        },
+    )
 
     def __post_init__(self):
         if int(self.origin_netuid) == int(self.dest_netuid):
             raise BittensorError("swap_basket: origin and destination netuid must differ")
         self.amount = call_amount(
             self.amount, self.wraps[0], "amount", netuid=self.origin_netuid, allow_all=True
+        )
+        self.min_amount_out = call_amount(
+            self.min_amount_out, self.wraps[0], "min_amount_out", netuid=self.dest_netuid
         )
 
     async def _origin_holding_rao(self, substrate) -> int:
@@ -1777,24 +1795,21 @@ class SwapBasket(Intent):
                 )
         else:
             rao = cast(Balance, self.amount).rao
-        # TODO(codegen): switch to `calls.SubtensorModule.swap_basket(...)` once the call
-        # registry is regenerated against a spec that includes this extrinsic.
         return await substrate.compose(
-            calls.Call(
-                "SubtensorModule",
-                "swap_basket",
-                {
-                    "hotkey": self.hotkey_ss58,
-                    "origin_netuid": self.origin_netuid,
-                    "destination_netuid": self.dest_netuid,
-                    "amount": rao,
-                },
+            calls.SubtensorModule.swap_basket(
+                hotkey=self.hotkey_ss58,
+                origin_netuid=self.origin_netuid,
+                destination_netuid=self.dest_netuid,
+                amount=rao,
+                min_amount_out=cast(Balance, self.min_amount_out).rao,
             )
         )
 
     def summary(self) -> str:
         amount = "the whole holding" if self.amount == ALL else str(self.amount)
+        floor = cast(Balance, self.min_amount_out)
+        note = f" (at least {floor} out)" if floor.rao > 0 else ""
         return (
             f"rebalance {self.hotkey_ss58}'s basket: sell {amount} on netuid "
-            f"{self.origin_netuid} to buy netuid {self.dest_netuid}"
+            f"{self.origin_netuid} to buy netuid {self.dest_netuid}{note}"
         )
