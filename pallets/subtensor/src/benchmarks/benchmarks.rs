@@ -2240,6 +2240,7 @@ mod pallet_benchmarks {
             origin_netuid,
             destination_netuid,
             amount,
+            0u64,
         );
 
         assert!(

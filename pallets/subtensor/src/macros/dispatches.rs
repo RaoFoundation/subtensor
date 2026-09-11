@@ -2087,7 +2087,8 @@ mod dispatches {
         /// (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not
         /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
         /// `RootWeightsCap` of NAV. Trading must be enabled network-wide and not frozen for
-        /// the hotkey by governance.
+        /// the hotkey by governance. On top of the protocol band the caller may set its own
+        /// floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.
         ///
         /// # Arguments
         /// * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy).
@@ -2095,6 +2096,9 @@ mod dispatches {
         /// * `origin_netuid`: Subnet to sell out of (root = the TAO slot).
         /// * `destination_netuid`: Subnet to buy into (root = the TAO slot).
         /// * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root).
+        /// * `min_amount_out`: Least amount the buy leg must credit to the destination
+        ///   holding, in `destination_netuid` alpha (rao of TAO when the destination is
+        ///   root), after fees. `0` sets no floor; the 2% protocol band still applies.
         ///
         /// # Events
         /// * `BasketSwapped`: On success, with the amounts on both legs.
@@ -2106,6 +2110,7 @@ mod dispatches {
         /// * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root.
         /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
         /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
+        /// * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`.
         /// * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds.
         /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.
         /// * `RootWeightCapExceeded`: The destination would exceed the concentration cap.
@@ -2122,6 +2127,7 @@ mod dispatches {
             origin_netuid: NetUid,
             destination_netuid: NetUid,
             amount: AlphaBalance,
+            min_amount_out: u64,
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
             let weight = Self::do_swap_basket(
@@ -2130,6 +2136,7 @@ mod dispatches {
                 origin_netuid,
                 destination_netuid,
                 amount.to_u64(),
+                min_amount_out,
             )?;
             Ok((Some(weight), Pays::Yes).into())
         }

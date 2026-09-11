@@ -55,12 +55,17 @@ impl<T: Config> Pallet<T> {
     ///
     /// AMM fees are charged like any user swap; the block-author fee is settled through the
     /// same helpers `stake_into_subnet` / `unstake_from_subnet` use.
+    ///
+    /// `min_amount_out` is the caller's own floor on what the buy leg credits (destination
+    /// alpha, or TAO when the destination is root); `0` means none. It sits on top of the
+    /// protocol band, which is unchanged.
     pub fn do_swap_basket(
         coldkey: T::AccountId,
         hotkey: T::AccountId,
         origin_netuid: NetUid,
         destination_netuid: NetUid,
         amount: u64,
+        min_amount_out: u64,
     ) -> Result<Weight, DispatchError> {
         ensure!(
             BasketTradingEnabled::<T>::get(),
@@ -108,8 +113,14 @@ impl<T: Config> Pallet<T> {
         ensure!(amount <= held, Error::<T>::NotEnoughStakeToWithdraw);
 
         let outcome = with_transaction(|| {
-            match Self::try_swap_basket(&hotkey, &escrow, origin_netuid, destination_netuid, amount)
-            {
+            match Self::try_swap_basket(
+                &hotkey,
+                &escrow,
+                origin_netuid,
+                destination_netuid,
+                amount,
+                min_amount_out,
+            ) {
                 Ok(outcome) => TransactionOutcome::Commit(Ok(outcome)),
                 Err(err) => TransactionOutcome::Rollback(Err(err)),
             }
@@ -135,6 +146,7 @@ impl<T: Config> Pallet<T> {
         origin_netuid: NetUid,
         destination_netuid: NetUid,
         amount: u64,
+        min_amount_out: u64,
     ) -> Result<BasketTradeOutcome, DispatchError> {
         let before = Self::try_valued_basket_holdings(hotkey)?;
         let nav_before: u64 = before
@@ -167,6 +179,13 @@ impl<T: Config> Pallet<T> {
         // --- 4. Buy leg: TAO -> destination holding.
         let alpha_bought =
             Self::buy_basket_leg(hotkey, escrow, destination_netuid, tao_mid.into())?;
+
+        // --- 4a. Caller's floor on the credited amount (fees already settled in the leg).
+        // The unit follows the destination: alpha, or rao of TAO for the root cash slot.
+        ensure!(
+            alpha_bought.to_u64() >= min_amount_out,
+            Error::<T>::BasketMinOutNotMet
+        );
 
         // --- 4b. Liquidity rule: the fund may not hold more of the destination than
         // `BasketLiquidityCap` of the pool's alpha reserve.

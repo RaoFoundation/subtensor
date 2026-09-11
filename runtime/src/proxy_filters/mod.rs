@@ -735,6 +735,7 @@ mod tests {
             origin_netuid: NetUid::from(1),
             destination_netuid: NetUid::from(2),
             amount: AlphaBalance::from(1),
+            min_amount_out: 0,
         });
         let stake_into_basket = RuntimeCall::SubtensorModule(SubtensorCall::stake_into_basket {
             hotkey: hotkey.clone(),
@@ -804,6 +805,7 @@ mod tests {
             origin_netuid: NetUid::from(1),
             destination_netuid: NetUid::from(2),
             amount: AlphaBalance::from(1),
+            min_amount_out: 0,
         });
         for broad in [ProxyType::NonTransfer, ProxyType::NonCritical] {
             assert!(
