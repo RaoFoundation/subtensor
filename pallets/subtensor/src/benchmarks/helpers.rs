@@ -200,6 +200,37 @@ pub(super) fn add_lock<T: Config>(coldkey: &T::AccountId, netuid: NetUid) {
     );
 }
 
+/// Give the block an author so the fee paths that pay the block author (`settle_alpha_fee_to_author`,
+/// `settle_tao_fee_to_author`) take their `Some` branch and are measured.
+///
+/// The runtime's `AuthorshipProvider` is `BlockAuthorFromAura`: it reads the slot from the Aura
+/// pre-runtime digest and indexes `Aura::Authorities` with it. Both are seeded here through
+/// `frame_system` and the pallet's well-known storage key rather than a `pallet_aura::Config`
+/// bound, because the pallet mock has no Aura pallet (its provider returns a fixed author).
+/// The digest goes through `System::initialize`, which survives the benchmark framework's
+/// `commit_db` where `deposit_log` does not. Returns the resolved author, funded above the
+/// existential deposit so a fee transfer to it cannot fail on account creation.
+pub(super) fn seed_block_author<T: Config>() -> T::AccountId {
+    let authority: [u8; 32] = [7u8; 32];
+    let authorities_key: Vec<u8> = [
+        sp_io::hashing::twox_128(b"Aura"),
+        sp_io::hashing::twox_128(b"Authorities"),
+    ]
+    .concat();
+    frame_support::storage::unhashed::put(&authorities_key, &vec![authority]);
+
+    let digest = sp_runtime::Digest {
+        logs: vec![sp_runtime::DigestItem::PreRuntime(*b"aura", 0u64.encode())],
+    };
+    let block_number: BlockNumberFor<T> = frame_system::Pallet::<T>::block_number();
+    frame_system::Pallet::<T>::initialize(&block_number, &Default::default(), &digest);
+
+    let author = T::AuthorshipProvider::author()
+        .expect("benchmark block author must resolve after seeding the Aura digest");
+    add_balance_to_coldkey_account::<T>(&author, TaoBalance::from(1_000_000_000_u64));
+    author
+}
+
 pub(super) fn set_benchmark_block_number<T: Config>(block_number: u64) {
     let block_number: BlockNumberFor<T> = match block_number.try_into() {
         Ok(block_number) => block_number,

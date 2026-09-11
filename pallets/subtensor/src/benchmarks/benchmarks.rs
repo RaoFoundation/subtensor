@@ -28,7 +28,9 @@ use sp_runtime::{
 use sp_std::collections::vec_deque::VecDeque;
 use sp_std::vec;
 use substrate_fixed::types::{I96F32, U64F64};
-use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{
+    AlphaBalance, AuthorshipInfo, NetUid, NetUidStorageIndex, TaoBalance,
+};
 use subtensor_swap_interface::SwapHandler;
 
 mod helpers;
@@ -2190,6 +2192,11 @@ mod pallet_benchmarks {
         let hotkey: T::AccountId = account("swap_basket_hot", 0, 1);
         let escrow = Subtensor::<T>::get_beta_escrow_account_id();
 
+        // Both legs pay the block author a fee; without an author those paths burn instead
+        // and the measurement would miss a swap and a transfer per leg.
+        let author = seed_block_author::<T>();
+        let author_balance_before = Subtensor::<T>::get_coldkey_balance(&author);
+
         BasketTradingEnabled::<T>::put(true);
         Subtensor::<T>::init_new_network(NetUid::ROOT, 1);
         Uids::<T>::insert(NetUid::ROOT, &hotkey, 0u16);
@@ -2240,6 +2247,10 @@ mod pallet_benchmarks {
                 &escrow,
                 destination_netuid
             ) > AlphaBalance::ZERO
+        );
+        assert!(
+            Subtensor::<T>::get_coldkey_balance(&author) > author_balance_before,
+            "block author must receive the fees from both legs"
         );
     }
 
