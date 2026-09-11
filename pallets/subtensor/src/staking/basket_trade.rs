@@ -2,6 +2,7 @@
 //! Read-only views (`get_basket_trading_status`, budget arithmetic) live in `basket_views.rs`.
 
 use super::*;
+use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
 use safe_math::*;
