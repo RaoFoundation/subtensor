@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 460
+Spec version: 456
 
 Runtime API method descriptors: unpack into substrate.runtime_call.
 """
@@ -47,6 +47,7 @@ class BetaBasketRuntimeApi:
     get_beta_index = Method('BetaBasketRuntimeApi', 'get_beta_index')
     get_beta_position = Method('BetaBasketRuntimeApi', 'get_beta_position')
     get_beta_portfolio = Method('BetaBasketRuntimeApi', 'get_beta_portfolio')
+    get_basket_trading_status = Method('BetaBasketRuntimeApi', 'get_basket_trading_status')
 
 class BlockBuilder:
     apply_extrinsic = Method('BlockBuilder', 'apply_extrinsic')

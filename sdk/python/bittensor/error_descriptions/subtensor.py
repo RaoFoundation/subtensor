@@ -74,6 +74,12 @@ DESCRIPTIONS: dict[str, str] = {
         "due to insufficient funds, the existential deposit, or frozen/reserved balance. Check "
         "the coldkey's balance with `btcli wallet balance` and reduce the amount or top up."
     ),
+    "BasketDepositPending": (
+        "A queued root-dividend deposit on this validator could not be settled yet, so an "
+        "operation that changes the hotkey's root claimant base was refused. No current "
+        "dispatch raises it; if it appears, wait for the pending deposit to flush (the next "
+        "claim or basket operation on the hotkey settles it) and retry."
+    ),
     "BasketHasNoWeights": (
         "Retired on current runtimes: a basket deposit into a validator with no usable root "
         "weight vector is now held as the fund's root (TAO cash) slot instead of erroring. "

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 460
+Spec version: 456
 """
 from dataclasses import dataclass
 
@@ -84,7 +84,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 40): ErrorInfo('SubtensorModule', 'FaucetDisabled', 'Faucet is disabled.'),
     (7, 41): ErrorInfo('SubtensorModule', 'NotSubnetOwner', 'Not a subnet owner.'),
     (7, 42): ErrorInfo('SubtensorModule', 'RegistrationNotPermittedOnRootSubnet', 'Operation is not permitted on the root subnet.'),
-    (7, 43): ErrorInfo('SubtensorModule', 'StakeTooLowForRoot', 'A root registrant must hold at least as much root stake as the seat it would evict.'),
+    (7, 43): ErrorInfo('SubtensorModule', 'StakeTooLowForRoot', 'Retired: root admission is burn-based and no longer stake-gated. Kept so later error variants keep their metadata indices.'),
     (7, 44): ErrorInfo('SubtensorModule', 'AllNetworksInImmunity', 'All subnets are in the immunity period.'),
     (7, 45): ErrorInfo('SubtensorModule', 'NotEnoughBalanceToPaySwapHotKey', 'Not enough balance to pay swapping hotkey.'),
     (7, 46): ErrorInfo('SubtensorModule', 'NotRootSubnet', 'Netuid does not match for setting root network weights.'),
@@ -203,6 +203,11 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (7, 159): ErrorInfo('SubtensorModule', 'RootClaimTooHeavy', 'A root claim would process more root hotkeys and basket rows than the fixed admission envelope. Use `claim_root_with_hotkey` per validator so admission weight matches the holdings actually walked.'),
     (7, 160): ErrorInfo('SubtensorModule', 'RootWeightCapExceeded', 'A single destination in a `set_root_weights` vector takes a larger share of the basket than [`crate::RootWeightsCap`] allows (share = value / sum of values). With the cap at 1/16 a validator must spread its basket across at least 16 destinations. Not enforced while the chain has fewer destinations than the cap demands.'),
     (7, 161): ErrorInfo('SubtensorModule', 'BasketDepositPending', "A queued root-dividend deposit could not be settled. Operations which change the hotkey's root claimant base must retry after the deposit becomes executable."),
+    (7, 162): ErrorInfo('SubtensorModule', 'BasketTradingDisabled', '`swap_basket` is disabled network-wide ([`crate::BasketTradingEnabled`] is false).'),
+    (7, 163): ErrorInfo('SubtensorModule', 'BasketTradingFrozen', 'Basket trading is frozen for this validator hotkey by governance ([`crate::BasketTradingFrozen`]).'),
+    (7, 164): ErrorInfo('SubtensorModule', 'BasketTurnoverBudgetExceeded', 'The trade would push more TAO through the fund than its turnover bucket holds ([`crate::BasketDailyTurnoverCap`] of fund NAV, refilling over [`crate::BASKET_TRADE_REFILL_BLOCKS`]). Wait for the bucket to refill or trade a smaller amount.'),
+    (7, 165): ErrorInfo('SubtensorModule', 'BasketSameSubnet', '`swap_basket` origin and destination are the same subnet.'),
+    (7, 166): ErrorInfo('SubtensorModule', 'BasketLiquidityCapExceeded', "The trade would leave the fund holding more of the destination subnet than [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve. Trade a smaller amount or pick a deeper pool."),
     (11, 0): ErrorInfo('Utility', 'TooManyCalls', 'Too many calls batched.'),
     (11, 1): ErrorInfo('Utility', 'InvalidDerivedAccount', 'Bad input data for derived account ID'),
     (12, 0): ErrorInfo('Sudo', 'RequireSudo', 'Sender must be the Sudo account.'),
@@ -322,7 +327,6 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (27, 24): ErrorInfo('Crowdloan', 'MaxContributionReached', 'The contributor has already reached the maximum contribution.'),
     (27, 25): ErrorInfo('Crowdloan', 'MaximumContributionTooLow', 'The maximum contribution is too low.'),
     (27, 26): ErrorInfo('Crowdloan', 'MinimumContributionTooHigh', 'The minimum contribution is too high.'),
-    (27, 27): ErrorInfo('Crowdloan', 'FundsNotSettled', 'The finalization call did not spend the full amount raised.'),
     (28, 0): ErrorInfo('Swap', 'FeeRateTooHigh', 'The fee rate is too high'),
     (28, 1): ErrorInfo('Swap', 'InsufficientInputAmount', 'The provided amount is insufficient for the swap.'),
     (28, 2): ErrorInfo('Swap', 'InsufficientLiquidity', 'The provided liquidity is insufficient for the operation.'),
@@ -404,5 +408,4 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 24): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForLinkedAmount', 'Partial fill submitted against a linked (consuming) order.'),
     (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
     (32, 26): ErrorInfo('LimitOrders', 'LinkedOutputNotPrunable', '`prune_linked_output` called by a non-signer on an unexpired record.'),
-    (32, 27): ErrorInfo('LimitOrders', 'OrderSignerFrozen', 'The order owner is temporarily prohibited from moving funds.'),
 }
