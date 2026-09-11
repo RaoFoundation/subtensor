@@ -294,14 +294,7 @@ impl<T: Config> Pallet<T> {
             }
 
             if dest_netuid.is_root() {
-                // Root slot: held as root stake (TAO at 1:1), no pool to buy from.
-                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey,
-                    &escrow,
-                    NetUid::ROOT,
-                    tao_s.into(),
-                );
-                Self::credit_root_reserves(tao_s.into());
+                Self::credit_root_slot(hotkey, &escrow, tao_s.into());
             } else {
                 let drop_fees = matches!(funding, BasketFunding::Protocol { .. });
                 let bought = match Self::swap_basket_tao_for_alpha_chunks(
@@ -320,13 +313,7 @@ impl<T: Config> Pallet<T> {
                         let root_account = Self::get_subnet_account_id(NetUid::ROOT)
                             .ok_or(Error::<T>::RootNetworkDoesNotExist)?;
                         Self::transfer_tao_from_subnet(*dest_netuid, &root_account, tao_s.into())?;
-                        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                            hotkey,
-                            &escrow,
-                            NetUid::ROOT,
-                            tao_s.into(),
-                        );
-                        Self::credit_root_reserves(tao_s.into());
+                        Self::credit_root_slot(hotkey, &escrow, tao_s.into());
                         continue;
                     }
                     Err(err) => return Err(err),
@@ -760,21 +747,15 @@ impl<T: Config> Pallet<T> {
             }
 
             // The sale surplus still belongs to the fund. It already landed in the root
-            // subnet account, so represent it as escrow-owned root stake before burning the
+            // subnet account, so book it into the fund's root cash slot before burning the
             // claimant's shares. Together, the remaining alpha and this cash retain the
             // unclaimed fraction of the pre-sale liquidation NAV (modulo integer floors).
             if retained_swapped_tao > 0 {
-                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey,
-                    &escrow,
-                    NetUid::ROOT,
-                    retained_swapped_tao.into(),
-                );
+                Self::credit_root_slot(hotkey, &escrow, retained_swapped_tao.into());
             }
 
             // Stake the redeemed TAO on root for the staker. Only sold TAO is new on root;
-            // the root-slot portion was already counted in the root reserves. Credit both
-            // the claimant payout and the surplus retained by the fund.
+            // the root-slot portion was already counted in the root reserves.
             if total_tao > 0 {
                 Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     hotkey,
@@ -783,9 +764,8 @@ impl<T: Config> Pallet<T> {
                     total_tao.into(),
                 );
             }
-            let total_swapped_tao = claimant_swapped_tao.saturating_add(retained_swapped_tao);
-            if total_swapped_tao > 0 {
-                Self::credit_root_reserves(total_swapped_tao.into());
+            if claimant_swapped_tao > 0 {
+                Self::credit_root_reserves(claimant_swapped_tao.into());
             }
 
             // Claimed root stake must start (or refresh) the unlock hold, same as a
@@ -1318,13 +1298,7 @@ impl<T: Config> Pallet<T> {
             };
 
             // Hold the realized TAO as the fund's root-slot (cash) position.
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                hotkey,
-                escrow,
-                NetUid::ROOT,
-                tao.to_u64().into(),
-            );
-            Self::credit_root_reserves(tao);
+            Self::credit_root_slot(hotkey, escrow, tao);
 
             Self::deposit_event(Event::BasketHoldingConverted {
                 hotkey: hotkey.clone(),
@@ -1538,5 +1512,29 @@ impl<T: Config> Pallet<T> {
             *total = total.saturating_sub(u64::from(amount).into())
         });
         TotalStake::<T>::mutate(|total| *total = total.saturating_sub(amount));
+    }
+
+    /// Place `tao` into the fund's root cash slot: the escrow's root stake row (TAO at 1:1,
+    /// there is no pool to buy from) and the root reserves move together.
+    pub(super) fn credit_root_slot(hotkey: &T::AccountId, escrow: &T::AccountId, tao: TaoBalance) {
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            escrow,
+            NetUid::ROOT,
+            tao.to_u64().into(),
+        );
+        Self::credit_root_reserves(tao);
+    }
+
+    /// Exact inverse of [`Self::credit_root_slot`]: take `tao` out of the fund's root cash
+    /// slot, moving the escrow's root stake row and the root reserves together.
+    pub(super) fn debit_root_slot(hotkey: &T::AccountId, escrow: &T::AccountId, tao: TaoBalance) {
+        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            escrow,
+            NetUid::ROOT,
+            tao.to_u64().into(),
+        );
+        Self::debit_root_reserves(tao);
     }
 }
