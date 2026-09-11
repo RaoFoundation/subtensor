@@ -139,15 +139,8 @@ impl<T: Config> Pallet<T> {
         let nav_before: u64 = before
             .iter()
             .fold(0u64, |nav, (_, _, value)| nav.saturating_add(*value));
-
         // --- 1. Sell leg: origin holding -> free TAO on the origin pot.
-        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
-            hotkey,
-            escrow,
-            origin_netuid,
-            amount.into(),
-        );
-        let tao_mid: u64 = Self::sell_basket_leg(origin_netuid, amount.into())?;
+        let tao_mid: u64 = Self::sell_basket_leg(hotkey, escrow, origin_netuid, amount.into())?;
         ensure!(
             TaoBalance::from(tao_mid) >= DefaultMinStake::<T>::get(),
             Error::<T>::AmountTooLow
@@ -162,13 +155,8 @@ impl<T: Config> Pallet<T> {
         Self::transfer_tao_from_subnet(origin_netuid, &destination_account, tao_mid.into())?;
 
         // --- 4. Buy leg: TAO -> destination holding.
-        let alpha_bought = Self::buy_basket_leg(destination_netuid, tao_mid.into())?;
-        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-            hotkey,
-            escrow,
-            destination_netuid,
-            alpha_bought,
-        );
+        let alpha_bought =
+            Self::buy_basket_leg(hotkey, escrow, destination_netuid, tao_mid.into())?;
 
         // --- 4b. Liquidity rule: the fund may not hold more of the destination than
         // `BasketLiquidityCap` of the pool's alpha reserve.
@@ -193,14 +181,20 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Sell `alpha` on `netuid` for TAO, leaving the TAO on the subnet's pot for the caller
-    /// to move on. Root is the fund's cash slot: TAO 1:1, no pool, reserves unwound by
-    /// hand. A dynamic subnet must fill fully at or above the price floor.
-    fn sell_basket_leg(netuid: NetUid, alpha: AlphaBalance) -> Result<u64, DispatchError> {
+    /// Sell `alpha` of the fund's `netuid` holding for TAO, leaving the TAO on the subnet's
+    /// pot for the caller to move on. Root is the fund's cash slot: TAO 1:1, no pool. A
+    /// dynamic subnet must fill fully at or above the price floor.
+    fn sell_basket_leg(
+        hotkey: &T::AccountId,
+        escrow: &T::AccountId,
+        netuid: NetUid,
+        alpha: AlphaBalance,
+    ) -> Result<u64, DispatchError> {
         if netuid.is_root() {
-            Self::debit_root_reserves(alpha.to_u64().into());
+            Self::debit_root_slot(hotkey, escrow, alpha.to_u64().into());
             return Ok(alpha.to_u64());
         }
+        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, escrow, netuid, alpha);
         let floor = Self::basket_trade_price_limit(netuid, Leg::Sell)?;
         let out = Self::swap_alpha_for_tao(netuid, alpha, floor, false)?;
         let consumed = out.amount_paid_in.saturating_add(out.fee_paid);
@@ -212,12 +206,17 @@ impl<T: Config> Pallet<T> {
         Ok(out.amount_paid_out.to_u64())
     }
 
-    /// Buy alpha on `netuid` with `tao` already sitting on the subnet's pot. Root is the
-    /// fund's cash slot: TAO 1:1, no pool, reserves credited by hand. A dynamic subnet must
-    /// fill fully at or below the price ceiling.
-    fn buy_basket_leg(netuid: NetUid, tao: TaoBalance) -> Result<AlphaBalance, DispatchError> {
+    /// Buy alpha on `netuid` with `tao` already sitting on the subnet's pot and credit it to
+    /// the fund's holding. Root is the fund's cash slot: TAO 1:1, no pool. A dynamic subnet
+    /// must fill fully at or below the price ceiling.
+    fn buy_basket_leg(
+        hotkey: &T::AccountId,
+        escrow: &T::AccountId,
+        netuid: NetUid,
+        tao: TaoBalance,
+    ) -> Result<AlphaBalance, DispatchError> {
         if netuid.is_root() {
-            Self::credit_root_reserves(tao);
+            Self::credit_root_slot(hotkey, escrow, tao);
             return Ok(tao.to_u64().into());
         }
         let ceiling = Self::basket_trade_price_limit(netuid, Leg::Buy)?;
@@ -229,6 +228,12 @@ impl<T: Config> Pallet<T> {
         Self::settle_tao_fee_to_author(netuid, out.fee_to_block_author)?;
         // Same basis as `stake_into_subnet`: what entered the pool, fee excluded.
         Self::record_protocol_inflow(netuid, out.amount_paid_in);
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            escrow,
+            netuid,
+            out.amount_paid_out,
+        );
         Ok(out.amount_paid_out)
     }
 
