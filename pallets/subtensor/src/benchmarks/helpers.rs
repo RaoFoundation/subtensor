@@ -222,7 +222,10 @@ pub(super) fn seed_block_author<T: Config>() -> T::AccountId {
     let digest = sp_runtime::Digest {
         logs: vec![sp_runtime::DigestItem::PreRuntime(*b"aura", 0u64.encode())],
     };
-    let block_number: BlockNumberFor<T> = frame_system::Pallet::<T>::block_number();
+    // `initialize` records `BlockHash[number - 1]`, which underflows at block 0. The mock and
+    // the `cargo test` benchmark harness start there; real block production never does.
+    let block_number: BlockNumberFor<T> =
+        frame_system::Pallet::<T>::block_number().max(1u32.into());
     frame_system::Pallet::<T>::initialize(&block_number, &Default::default(), &digest);
 
     let author = T::AuthorshipProvider::author()
