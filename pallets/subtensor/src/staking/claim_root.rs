@@ -1,3 +1,4 @@
+use super::basket_flush::MAX_BASKET_ROWS;
 use super::*;
 use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
@@ -42,6 +43,9 @@ pub struct RootClaimOutcome {
     pub realized: u32,
     /// Dust holdings consolidated into the root slot (one swap each).
     pub swept: u32,
+    /// Quote units spent flushing the hotkey's pending dividend credits before redeeming
+    /// (priced by `basket_flush_weight`, the model every flushing extrinsic shares).
+    pub flush: u64,
 }
 
 impl RootClaimOutcome {
@@ -50,6 +54,7 @@ impl RootClaimOutcome {
         self.rows = self.rows.saturating_add(other.rows);
         self.realized = self.realized.saturating_add(other.realized);
         self.swept = self.swept.saturating_add(other.swept);
+        self.flush = self.flush.saturating_add(other.flush);
     }
 }
 
@@ -387,8 +392,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::HotKeyNotRegisteredInSubNet
         );
         // Deposit queued dividend credits first so the share mint below prices against
-        // the fund's full, current NAV.
-        Self::flush_basket_deposits_for_hotkey(&hotkey);
+        // the fund's full, current NAV. The flush work is priced into the post-dispatch
+        // weight; the declared weight carries its flat allowance.
+        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         ensure!(tao >= DefaultMinStake::<T>::get(), Error::<T>::AmountTooLow);
         ensure!(
             Self::can_remove_balance_from_coldkey_account(&coldkey, tao.into()),
@@ -432,7 +438,8 @@ impl<T: Config> Pallet<T> {
         Ok(Self::stake_into_basket_weight(
             valid.len() as u64,
             num_holdings.saturating_add(stamp_work),
-        ))
+        )
+        .saturating_add(Self::basket_flush_weight(flush_work)))
     }
 
     /// Transactional body of [`Self::do_stake_into_basket`]; any error rolls the whole
@@ -504,6 +511,15 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().reads_writes(8_u64, 6_u64))
     }
 
+    /// Pre-dispatch weight of `stake_into_basket`: a cap sized for a 128-slot weight vector
+    /// over the row cap of holdings, plus the flat pending-deposit flush allowance
+    /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes. Refunded
+    /// to actual post-dispatch.
+    pub(crate) fn stake_into_basket_declared_weight() -> Weight {
+        Self::stake_into_basket_weight(128, MAX_BASKET_ROWS)
+            .saturating_add(Self::basket_flush_weight_bound())
+    }
+
     /// Weight of one realizable-NAV sweep over `num_holdings` escrow rows: one sim-swap
     /// valuation plus reads per row. Shared by every basket path that values the fund.
     pub(crate) fn basket_nav_sweep_weight(num_holdings: u64) -> Weight {
@@ -569,11 +585,9 @@ impl<T: Config> Pallet<T> {
         let mut outcome = RootClaimOutcome::default();
 
         // Deposit any queued dividend credits first so the claim redeems against the
-        // fund's full, current state. The flush work is scan-priced into the outcome.
+        // fund's full, current state. The flush work is priced into the outcome.
         let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
-        outcome.rows = outcome
-            .rows
-            .saturating_add(u32::try_from(flush_work).unwrap_or(u32::MAX));
+        outcome.flush = flush_work;
 
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {
@@ -884,13 +898,16 @@ impl<T: Config> Pallet<T> {
         crate::MAX_ROOT_CLAIM_WORK
     }
 
-    /// Pre-dispatch weight for both independently bounded dimensions: full claim work and
-    /// scan-only work.
+    /// Pre-dispatch weight for every independently bounded dimension: full claim work,
+    /// scan-only work, and the flat pending-deposit flush allowance
+    /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes.
     pub(crate) fn root_claim_declared_weight() -> Weight {
         let limit = Self::root_claim_declared_work();
-        <T as crate::pallet::Config>::WeightInfo::claim_root(limit).saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(limit),
-        )
+        <T as crate::pallet::Config>::WeightInfo::claim_root(limit)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                limit,
+            ))
+            .saturating_add(Self::basket_flush_weight_bound())
     }
 
     /// Hotkeys relevant to a coldkey-wide root claim. Ordinary subnet-only staking hotkeys
@@ -911,8 +928,10 @@ impl<T: Config> Pallet<T> {
     }
 
     /// True when the hotkeys plus the basket storage rows the claim will scan fit the fixed
-    /// admission envelope. Count raw Alpha/AlphaV2 rows so legacy duplicates and malformed
-    /// zero rows are charged conservatively, and stop as soon as the bound is exceeded.
+    /// admission envelope, and the pending-deposit flushes the claim runs first fit the flat
+    /// flush allowance ([`Self::basket_flush_fits_declared_budget`]). Count raw Alpha/AlphaV2
+    /// rows so legacy duplicates and malformed zero rows are charged conservatively, and stop
+    /// as soon as a bound is exceeded.
     pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
         let budget = Self::root_claim_declared_work();
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
@@ -935,7 +954,7 @@ impl<T: Config> Pallet<T> {
                 }
             }
         }
-        true
+        Self::basket_flush_fits_declared_budget(hotkeys)
     }
 
     /// Actual post-dispatch weight of a root claim: full benchmark units for relationships
@@ -957,9 +976,11 @@ impl<T: Config> Pallet<T> {
             .max(selection_scanned)
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
-        <T as crate::pallet::Config>::WeightInfo::claim_root(active).saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(scanned),
-        )
+        <T as crate::pallet::Config>::WeightInfo::claim_root(active)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                scanned,
+            ))
+            .saturating_add(Self::basket_flush_weight(outcome.flush))
     }
 
     pub fn do_root_claim(

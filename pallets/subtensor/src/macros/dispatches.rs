@@ -2063,10 +2063,11 @@ mod dispatches {
         #[pallet::call_index(147)]
         // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
         // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
-        // sim-swap valuations); the actual weight is computed in `do_stake_into_basket`
-        // from the real slot and holding counts and refunded post-dispatch, mirroring
-        // `claim_root`.
-        #[pallet::weight((Pallet::<T>::stake_into_basket_weight(128, 256), DispatchClass::Normal, Pays::Yes))]
+        // sim-swap valuations) plus the flat pending-deposit flush allowance every
+        // flushing extrinsic declares; the actual weight is computed in
+        // `do_stake_into_basket` from the real slot, holding, and flush counts and
+        // refunded post-dispatch, mirroring `claim_root`.
+        #[pallet::weight((Pallet::<T>::stake_into_basket_declared_weight(), DispatchClass::Normal, Pays::Yes))]
         pub fn stake_into_basket(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -2116,11 +2117,11 @@ mod dispatches {
         /// * `RootWeightCapExceeded`: The destination would exceed the concentration cap.
         #[pallet::call_index(150)]
         // Declared weight is a cap sized for 256 holdings (one NAV sim-swap sweep, two
-        // post-trade re-quotes, and two AMM legs) plus the pending-deposit flush the
-        // hotkey's queue implies; the actual weight is computed in `do_swap_basket` from
-        // the real holding count and flush work and refunded post-dispatch, mirroring
-        // `stake_into_basket` / `claim_root`.
-        #[pallet::weight((Pallet::<T>::swap_basket_declared_weight(hotkey), DispatchClass::Normal, Pays::Yes))]
+        // post-trade re-quotes, and two AMM legs) plus the flat pending-deposit flush
+        // allowance every flushing extrinsic declares; the actual weight is computed in
+        // `do_swap_basket` from the real holding count and flush work and refunded
+        // post-dispatch, mirroring `stake_into_basket` / `claim_root`.
+        #[pallet::weight((Pallet::<T>::swap_basket_declared_weight(), DispatchClass::Normal, Pays::Yes))]
         pub fn swap_basket(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
