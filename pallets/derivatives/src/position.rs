@@ -21,6 +21,93 @@ pub const INTEREST_PERIOD: u32 = 7 * 7_200;
 /// more positions due than this is finished over the following blocks.
 pub const COLLECTIONS_PER_BLOCK: u32 = 20;
 
+/// How far, in percent, the spot price may sit from the moving price for liquidity a
+/// settlement hands back to rejoin the pool at once. Further out, the pair is parked in the
+/// pallet and released by `on_idle` once the spot is back within this band.
+///
+/// A pool that re-adds liquidity at a price someone just pushed is a liquidity provider at a
+/// manipulated price: whoever pushed it sells back into the deeper pool and keeps the
+/// difference. Five percent is wide enough for an honest close on a quiet pool to pass
+/// untouched and narrow enough that the pushed price a sandwich needs never does.
+pub const PARK_THRESHOLD_PERCENT: u64 = 5;
+
+/// The two prices a dissolving subnet's positions are cash-settled at, each a `(tao, alpha)`
+/// pair whose ratio is TAO per alpha. Both are the pool's spot price or its moving price,
+/// whichever is worse for the position: a short that pushed the spot down cannot be charged
+/// the price it made, and a long that pushed it up cannot be credited it.
+#[freeze_struct("f3d06bf61b1427c6")]
+#[derive(
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    RuntimeDebug,
+)]
+pub struct DissolutionPrices {
+    /// A short's alpha debt is charged at this: the higher of spot and moving.
+    pub short: (TaoBalance, AlphaBalance),
+    /// A long's alpha is credited at this: the lower of spot and moving.
+    pub long: (TaoBalance, AlphaBalance),
+}
+
+/// `a > b` for two `(tao, alpha)` prices, compared as rationals.
+fn price_gt(a: (TaoBalance, AlphaBalance), b: (TaoBalance, AlphaBalance)) -> bool {
+    u128::from(a.0.to_u64()).saturating_mul(u128::from(b.1.to_u64()))
+        > u128::from(b.0.to_u64()).saturating_mul(u128::from(a.1.to_u64()))
+}
+
+impl DissolutionPrices {
+    /// Pick the worse of `spot` and `moving` for each side. A subnet with no moving price yet
+    /// (`moving.0 == 0`) settles both sides at spot.
+    pub fn from_spot_and_moving(
+        spot: (TaoBalance, AlphaBalance),
+        moving: (TaoBalance, AlphaBalance),
+    ) -> Self {
+        if moving.0.is_zero() {
+            return Self {
+                short: spot,
+                long: spot,
+            };
+        }
+        let (higher, lower) = if price_gt(moving, spot) {
+            (moving, spot)
+        } else {
+            (spot, moving)
+        };
+        Self {
+            short: higher,
+            long: lower,
+        }
+    }
+}
+
+/// Whether `spot` is more than [`PARK_THRESHOLD_PERCENT`] away from `moving`, either way. A
+/// subnet with no moving price yet (`moving.0 == 0`) is never off.
+pub fn spot_is_off_moving(
+    spot: (TaoBalance, AlphaBalance),
+    moving: (TaoBalance, AlphaBalance),
+) -> bool {
+    if moving.0.is_zero() {
+        return false;
+    }
+    // Both prices as rationals: spot is off iff
+    //   spot.tao * moving.alpha * 100 > moving.tao * spot.alpha * (100 + t), or
+    //   spot.tao * moving.alpha * 100 < moving.tao * spot.alpha * (100 - t).
+    let spot_side = u128::from(spot.0.to_u64())
+        .saturating_mul(u128::from(moving.1.to_u64()))
+        .saturating_mul(100);
+    let moving_side = u128::from(moving.0.to_u64()).saturating_mul(u128::from(spot.1.to_u64()));
+    spot_side
+        > moving_side.saturating_mul(u128::from(100u64.saturating_add(PARK_THRESHOLD_PERCENT)))
+        || spot_side
+            < moving_side.saturating_mul(u128::from(100u64.saturating_sub(PARK_THRESHOLD_PERCENT)))
+}
+
 /// Direction of a position.
 ///
 /// * `Short`: the pool lends alpha; the user owes alpha back and holds the TAO it sold for.
@@ -418,16 +505,6 @@ pub fn pool_fraction(
     by_tao.min(by_alpha)
 }
 
-/// Projected footprint of a new tranche in the lent reserve: `phi * (2 - phi) * reserve`.
-/// The lifted half is `phi * R`; swapping the other half back into the shrunken pool yields
-/// about `phi * (1 - phi) * R` more.
-pub fn projected_footprint(phi: Perquintill, lent_reserve: u64) -> u64 {
-    let lifted = phi.mul_floor(lent_reserve);
-    lifted
-        .saturating_mul(2)
-        .saturating_sub(phi.mul_floor(lifted))
-}
-
 /// Interest that `blocks` blocks accrue at `interest_per_year`, pro rata.
 pub fn interest_for_blocks(interest_per_year: TaoBalance, blocks: u64) -> TaoBalance {
     let interest = (interest_per_year.to_u64() as u128)
@@ -472,11 +549,43 @@ mod tests {
         assert!(phi.mul_floor(2_667u64) < 40);
     }
 
+    fn pair(tao: u64) -> (TaoBalance, AlphaBalance) {
+        (TaoBalance::from(tao), AlphaBalance::from(1u64 << 32))
+    }
+
     #[test]
-    fn footprint_is_phi_two_minus_phi() {
-        let phi = Perquintill::from_percent(10);
-        // 0.1 * 1.9 * 1000 = 190
-        assert_eq!(projected_footprint(phi, 1_000), 190);
+    fn spot_is_off_the_moving_price_past_five_percent_either_way() {
+        let moving = pair(1_000_000);
+        assert!(!spot_is_off_moving(pair(1_000_000), moving));
+        assert!(!spot_is_off_moving(pair(1_050_000), moving));
+        assert!(!spot_is_off_moving(pair(950_000), moving));
+        assert!(spot_is_off_moving(pair(1_050_001), moving));
+        assert!(spot_is_off_moving(pair(949_999), moving));
+        // The scale of the pair does not matter: same price, different denominators.
+        assert!(!spot_is_off_moving(
+            (TaoBalance::from(21), AlphaBalance::from(20)),
+            (TaoBalance::from(1), AlphaBalance::from(1))
+        ));
+        assert!(spot_is_off_moving(
+            (TaoBalance::from(22), AlphaBalance::from(20)),
+            (TaoBalance::from(1), AlphaBalance::from(1))
+        ));
+        // No moving price yet: never off.
+        assert!(!spot_is_off_moving(pair(1), pair(0)));
+    }
+
+    #[test]
+    fn dissolution_prices_take_the_worse_side_of_spot_and_moving() {
+        let spot = pair(800);
+        let moving = pair(1_000);
+        let prices = DissolutionPrices::from_spot_and_moving(spot, moving);
+        assert_eq!(prices.short, moving);
+        assert_eq!(prices.long, spot);
+        let prices = DissolutionPrices::from_spot_and_moving(moving, spot);
+        assert_eq!(prices.short, moving);
+        assert_eq!(prices.long, spot);
+        let prices = DissolutionPrices::from_spot_and_moving(spot, pair(0));
+        assert_eq!((prices.short, prices.long), (spot, spot));
     }
 
     #[test]

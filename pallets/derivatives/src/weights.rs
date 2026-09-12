@@ -20,6 +20,9 @@ pub trait WeightInfo {
     fn sudo_set_params() -> Weight;
     /// One collection from the interest queue: worst case a forfeit.
     fn collect_interest() -> Weight;
+    /// One attempt at releasing a subnet's parked liquidity: two price reads and, if the spot
+    /// is back, one price-neutral liquidity return.
+    fn release_parked() -> Weight;
 }
 
 /// Weights for `pallet_derivatives` using the Substrate node and recommended hardware.
@@ -48,6 +51,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().reads(12_u64))
             .saturating_add(T::DbWeight::get().writes(10_u64))
     }
+    /// Spot and moving price reads plus one price-neutral liquidity return.
+    fn release_parked() -> Weight {
+        Weight::from_parts(120_000_000, 6_000)
+            .saturating_add(T::DbWeight::get().reads(12_u64))
+            .saturating_add(T::DbWeight::get().writes(8_u64))
+    }
 }
 
 // For backwards compatibility and tests.
@@ -71,5 +80,10 @@ impl WeightInfo for () {
         Weight::from_parts(150_000_000, 6_000)
             .saturating_add(RocksDbWeight::get().reads(12_u64))
             .saturating_add(RocksDbWeight::get().writes(10_u64))
+    }
+    fn release_parked() -> Weight {
+        Weight::from_parts(120_000_000, 6_000)
+            .saturating_add(RocksDbWeight::get().reads(12_u64))
+            .saturating_add(RocksDbWeight::get().writes(8_u64))
     }
 }

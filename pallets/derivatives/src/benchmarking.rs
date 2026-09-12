@@ -116,6 +116,31 @@ mod benchmarks {
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
     }
 
+    /// One release attempt on a subnet with a parked pair whose spot is back within the band:
+    /// both price reads and the liquidity return.
+    #[benchmark]
+    fn release_parked() {
+        let (_, netuid) = setup::<T>();
+        // Park a slice the pallet really holds: lifted straight out of the pool.
+        let pallet_account = Pallet::<T>::pallet_account();
+        let pallet_hotkey = Pallet::<T>::pallet_hotkey().unwrap();
+        let (tao, alpha) = T::Pool::lift_liquidity(
+            netuid,
+            Perquintill::from_percent(1),
+            &pallet_account,
+            &pallet_hotkey,
+        )
+        .unwrap();
+        Parked::<T>::insert(netuid, (tao, alpha));
+
+        #[block]
+        {
+            Pallet::<T>::release_parked_within(Weight::MAX);
+        }
+
+        assert!(!Parked::<T>::contains_key(netuid));
+    }
+
     #[benchmark]
     fn sudo_set_params() {
         let params = DerivativesParams {

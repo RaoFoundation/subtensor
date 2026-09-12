@@ -1372,8 +1372,10 @@ parameter_types! {
     pub const DerivativesPalletId: PalletId = PalletId(*b"bt/deriv");
     /// 1x. A short at leverage `L` costs the pool once the price rises by `1 / L`.
     pub const DerivativesMaxShortLeverage: u16 = 100;
-    /// 2x. A long at leverage `L` costs the pool once the price falls by `1 / L`.
-    pub const DerivativesMaxLongLeverage: u16 = 200;
+    /// 1.5x. A long at leverage `L` costs the pool once the price falls by `1 / L`. Must stay
+    /// below `1 + sqrt(1 - pool_share)` (1.87x at 25%), or the largest long the cap admits
+    /// can profit from dumping into its own lifted price and abandoning the debt.
+    pub const DerivativesMaxLongLeverage: u16 = 150;
     /// 0.1 TAO.
     pub const DerivativesMinDeposit: TaoBalance = TaoBalance::new(100_000_000);
 }

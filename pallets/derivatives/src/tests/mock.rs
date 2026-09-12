@@ -449,7 +449,7 @@ where
 parameter_types! {
     pub const DerivativesPalletId: PalletId = PalletId(*b"bt/deriv");
     pub const DerivativesMaxShortLeverage: u16 = 100;
-    pub const DerivativesMaxLongLeverage: u16 = 200;
+    pub const DerivativesMaxLongLeverage: u16 = 150;
     pub const DerivativesMinDeposit: TaoBalance = TaoBalance::new(100_000_000);
 }
 
@@ -508,14 +508,21 @@ pub fn add_dynamic_network(netuid: NetUid, tao: u64, alpha: u64) {
 }
 
 /// Pin the subnet's moving-average price to its current spot price, as a long-settled market
-/// would have it.
+/// would have it. Reads the balancer's own price, so it is right for any weights.
 pub fn settle_moving_price(netuid: NetUid) {
-    let (tao, alpha) = reserves(netuid);
+    let spot = price(netuid);
     pallet_subtensor::SubnetMovingPrice::<Test>::insert(
         netuid,
-        substrate_fixed::types::I96F32::from_num(tao)
-            / substrate_fixed::types::I96F32::from_num(alpha),
+        substrate_fixed::types::I96F32::from_bits((spot.to_bits() >> 32) as i128),
     );
+}
+
+/// Give the balancer a TAO weight other than the default half, keeping the reserves. The
+/// spot price moves with the weights: `w_alpha * tao / (w_tao * alpha)`.
+pub fn set_tao_weight(netuid: NetUid, tao_weight: subtensor_swap_interface::Perquintill) {
+    let mut balancer = pallet_subtensor_swap::SwapBalancer::<Test>::get(netuid);
+    balancer.set_quote_weight(tao_weight).unwrap();
+    pallet_subtensor_swap::SwapBalancer::<Test>::insert(netuid, balancer);
 }
 
 pub fn add_balance(who: &AccountId, tao: u64) {
