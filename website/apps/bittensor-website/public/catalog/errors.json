@@ -492,8 +492,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 377,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L377",
+          "line": 378,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L378",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -528,8 +528,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 393,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L393",
+          "line": 394,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L394",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -546,8 +546,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 397,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L397",
+          "line": 398,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L398",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -564,8 +564,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 389,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L389",
+          "line": 390,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L390",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -582,8 +582,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 379,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L379",
+          "line": 380,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L380",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -600,8 +600,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 382,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L382",
+          "line": 383,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L383",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -618,8 +618,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 387,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L387",
+          "line": 388,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L388",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4647,7 +4647,7 @@
     },
     "RootClaimTooHeavy": {
       "code": "limit_exceeded",
-      "description": "A root claim would process more than the fixed 256-unit admission envelope. Only root-relevant validator hotkeys and their stored basket rows count as claim work; classifying the staking-hotkey relationship vector is separately capped at 256. Unrelated subnet stakes are not multiplied by the total network count. Split a coldkey-wide claim by validator where that fits, and investigate or consolidate an individually oversized basket.",
+      "description": "A root claim would process more than the fixed 256-unit admission envelope. Only root-relevant validator hotkeys and their stored basket rows count as claim work; classifying the staking-hotkey relationship vector is separately capped at 256, and the queued dividend credits plus weight-vector destinations the claim would flush first are capped at 512 across all validators claimed (one validator always fits). Unrelated subnet stakes are not multiplied by the total network count. Split a coldkey-wide claim by validator where that fits, and investigate or consolidate an individually oversized basket.",
       "docs_url": "/docs/errors/chain/RootClaimTooHeavy",
       "markdown_url": "/llms.mdx/docs/errors/chain/RootClaimTooHeavy/content.md",
       "pallets": [
@@ -4657,8 +4657,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 368,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L368",
+          "line": 369,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L369",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]
@@ -4729,8 +4729,8 @@
         {
           "pallet": "SubtensorModule",
           "path": "pallets/subtensor/src/macros/errors.rs",
-          "line": 374,
-          "url": "/code/pallets/subtensor/src/macros/errors.rs#L374",
+          "line": 375,
+          "url": "/code/pallets/subtensor/src/macros/errors.rs#L375",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
         }
       ]

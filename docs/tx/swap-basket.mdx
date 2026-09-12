@@ -33,7 +33,7 @@ swap` derives it from a quote and `--max-slippage`.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2117-L2142) |
+| `coldkey` | signed account (pallet role may apply) | SubtensorModule | [`SubtensorModule.swap_basket`](/code/pallets/subtensor/src/macros/dispatches.rs#L2118-L2143) |
 
 ## Parameters
 
@@ -92,16 +92,16 @@ result = sub.execute_tool("swap_basket", {...}, wallet)
 
 ## On-chain implementation
 
-`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2124`](/code/pallets/subtensor/src/macros/dispatches.rs#L2117-L2142):
+`SubtensorModule.swap_basket` — [`pallets/subtensor/src/macros/dispatches.rs#L2125`](/code/pallets/subtensor/src/macros/dispatches.rs#L2118-L2143):
 
 ```rust
 #[pallet::call_index(150)]
 // Declared weight is a cap sized for 256 holdings (one NAV sim-swap sweep, two
-// post-trade re-quotes, and two AMM legs) plus the pending-deposit flush the
-// hotkey's queue implies; the actual weight is computed in `do_swap_basket` from
-// the real holding count and flush work and refunded post-dispatch, mirroring
-// `stake_into_basket` / `claim_root`.
-#[pallet::weight((Pallet::<T>::swap_basket_declared_weight(hotkey), DispatchClass::Normal, Pays::Yes))]
+// post-trade re-quotes, and two AMM legs) plus the flat pending-deposit flush
+// allowance every flushing extrinsic declares; the actual weight is computed in
+// `do_swap_basket` from the real holding count and flush work and refunded
+// post-dispatch, mirroring `stake_into_basket` / `claim_root`.
+#[pallet::weight((Pallet::<T>::swap_basket_declared_weight(), DispatchClass::Normal, Pays::Yes))]
 pub fn swap_basket(
     origin: OriginFor<T>,
     hotkey: T::AccountId,
@@ -123,6 +123,6 @@ pub fn swap_basket(
 }
 ```
 
-Delegates to [`do_swap_basket`](/code/pallets/subtensor/src/staking/basket_trade.rs#L62).
+Delegates to [`do_swap_basket`](/code/pallets/subtensor/src/staking/basket_trade.rs#L63).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

@@ -17,8 +17,10 @@ consolidated into the fund's root (TAO) slot as a side effect, so the
 per-holding claim fee shrinks over time; curated positions are left to
 compound. The transaction fee is charged by work actually done:
 holdings redeemed pay full weight, holdings merely scanned pay a small
-per-row cost. The chain reserves a fixed 256-unit declared-work envelope,
-counts only root-relevant hotkeys and their basket rows for admission, and
+per-row cost. The chain reserves a fixed 256-unit declared-work envelope
+plus a flat allowance for settling the validator's queued dividend credits
+first (the same allowance every basket call that flushes declares), counts
+only root-relevant hotkeys and their basket rows for admission, and
 separately caps classification of the staking-hotkey vector at 256. It
 refunds the unused part after.
 `plan` and `btcli root claim --dry-run` show reserved versus spent,
@@ -102,6 +104,6 @@ pub fn claim_root_with_hotkey(
 }
 ```
 
-Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L916), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L965), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L994).
+Delegates to [`root_claim_fits_declared_budget`](/code/pallets/subtensor/src/staking/claim_root.rs#L935), [`do_root_claim`](/code/pallets/subtensor/src/staking/claim_root.rs#L986), [`maybe_add_coldkey_index`](/code/pallets/subtensor/src/staking/claim_root.rs#L1015).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).
