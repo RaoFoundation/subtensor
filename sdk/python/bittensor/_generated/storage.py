@@ -464,4 +464,5 @@ class Derivatives:
     NextDue = Item('Derivatives', 'NextDue', 'u32')
     Footprint = Item('Derivatives', 'Footprint', 'u64')
     PalletHotkey = Item('Derivatives', 'PalletHotkey', 'AccountId32')
-    DissolutionPrice = Item('Derivatives', 'DissolutionPrice', '(TaoBalance, AlphaBalance)')
+    DissolutionPrice = Item('Derivatives', 'DissolutionPrice', 'DissolutionPrices')
+    Parked = Item('Derivatives', 'Parked', '(TaoBalance, AlphaBalance)')

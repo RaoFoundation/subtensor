@@ -1671,7 +1671,7 @@ class Derivatives:
 
     @staticmethod
     def close(netuid: 'NetUid') -> Call:
-        "Settle the caller's position on `netuid` in full, at the current price. Only the owner can close a position; the chain forfeits one that can no longer pay its interest."
+        "Settle the caller's position on `netuid` in full, at the current price. Only the owner can close a position; the chain forfeits one that can no longer pay its interest. A position the pool's quote says is underwater is not traded: everything held for it goes to the pool in kind and the caller is paid nothing."
         return Call('Derivatives', 'close', {'netuid': netuid})
 
     @staticmethod
