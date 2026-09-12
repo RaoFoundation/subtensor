@@ -362,7 +362,8 @@ mod errors {
         /// governance or a later upgrade.
         RootWeightSettingDisabled,
         /// A root claim would process more root hotkeys and basket rows than the
-        /// fixed admission envelope. Use
+        /// fixed admission envelope, or would flush more queued dividend credits
+        /// and weight-vector destinations than the flat flush allowance. Use
         /// `claim_root_with_hotkey` per validator so admission weight matches
         /// the holdings actually walked.
         RootClaimTooHeavy,
