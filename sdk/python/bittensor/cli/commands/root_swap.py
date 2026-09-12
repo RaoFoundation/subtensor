@@ -168,9 +168,7 @@ def root_swap(
         if origin_netuid == 0:
             tao_mid = sell
         else:
-            leg = await client.read(
-                "quote_unstake", netuid=origin_netuid, amount_alpha=sell.amount
-            )
+            leg = await client.read("quote_unstake", netuid=origin_netuid, amount_alpha=sell.amount)
             tao_mid = leg.tao
         if dest_netuid == 0:
             return tao_mid
