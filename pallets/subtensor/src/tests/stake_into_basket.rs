@@ -7,9 +7,11 @@ use crate::tests::claim_root::{
 };
 use crate::tests::mock::*;
 use crate::{
-    BasketClaimed, DefaultMinStake, Error, StakingHotkeys, SubnetAlphaIn, SubnetTAO, TotalStake,
+    BasketClaimed, DefaultMinStake, Error, PendingBasketDeposits, StakingHotkeys, SubnetAlphaIn,
+    SubnetAlphaOut, SubnetTAO, TotalStake,
 };
 use approx::assert_abs_diff_eq;
+use frame_support::dispatch::GetDispatchInfo;
 use frame_support::traits::Get;
 use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
@@ -106,6 +108,71 @@ fn test_stake_into_basket_round_trip_symmetric() {
         assert!(fund_shares(&hotkey) <= 10, "fund should be drained");
         assert_eq!(BasketClaimed::<Test>::get(hotkey, bob), 0);
         assert_eq!(SubtensorModule::get_basket_owed_shares(&hotkey, &bob), 0);
+    });
+}
+
+/// A direct deposit first flushes the validator's queued dividend credits; that work is
+/// charged into the post-dispatch weight through the same `basket_flush_weight` model as
+/// `swap_basket` and `claim_root`, the declared weight carries the flat flush allowance,
+/// and the actual weight refunds below it.
+#[test]
+fn test_stake_into_basket_declared_weight_covers_flush_and_refunds() {
+    new_test_ext(1).execute_with(|| {
+        let (_owner, hotkey, netuid) = setup_stake_in_env();
+        set_root_weights_direct(&hotkey, 0, &[(netuid, u16::MAX)]);
+        let alice = U256::from(2002);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            10_000_000_000u64.into(),
+        );
+
+        let bob = U256::from(2001);
+        let amount = 10_000_000u64;
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(4 * amount));
+
+        let declared = RuntimeCall::SubtensorModule(crate::Call::stake_into_basket {
+            hotkey,
+            amount_staked: amount.into(),
+        })
+        .get_dispatch_info()
+        .call_weight;
+        assert!(declared.all_gte(SubtensorModule::stake_into_basket_declared_weight()));
+
+        // Empty queue: the bare deposit weight (one slot, the one holding it opens), no
+        // flush term.
+        let Ok(bare) = SubtensorModule::do_stake_into_basket(bob, hotkey, amount.into()) else {
+            panic!("bare deposit succeeds");
+        };
+        assert_eq!(bare, SubtensorModule::stake_into_basket_weight(1, 1));
+
+        // Queue a credit on the fund's own destination: the next deposit flushes it first.
+        // Scan 1 + curated attempt over the one holding: 3*1 + 2*1 destinations + 1 credit.
+        let credit = 1_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
+        SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
+        let holdings = SubtensorModule::get_basket_holdings(&hotkey).len() as u64;
+        assert_eq!(holdings, 1);
+        let expected_flush_work = 1 + (3 * holdings + 2 + 1);
+
+        let Ok(charged) = SubtensorModule::do_stake_into_basket(bob, hotkey, amount.into()) else {
+            panic!("deposit after flush succeeds");
+        };
+        assert!(
+            !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
+            "the deposit flushed the queued credit"
+        );
+        // One slot over the existing holding plus the slot it may open, plus the flush.
+        assert_eq!(
+            charged,
+            SubtensorModule::stake_into_basket_weight(1, 2)
+                .saturating_add(SubtensorModule::basket_flush_weight(expected_flush_work))
+        );
+        assert!(
+            charged.all_lt(declared),
+            "actual {charged:?} must refund below declared {declared:?}"
+        );
     });
 }
 

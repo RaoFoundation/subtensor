@@ -7,8 +7,8 @@ use crate::{
     DefaultMinRootClaimAmount, Error, Keys, MAX_ROOT_CLAIM_THRESHOLD, MAX_ROOT_CLAIM_WORK,
     NetworksAdded, NumStakingColdkeys, PendingBasketDeposits, RootAlphaDividendsPerSubnet,
     RootClaimableThreshold, StakingColdkeys, StakingColdkeysByIndex, StakingHotkeys, SubnetAlphaIn,
-    SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO, SubnetworkN, Tempo,
-    TotalStake, Uids, Weights,
+    SubnetAlphaOut, SubnetMovingPrice, SubnetOwnerHotkey, SubnetProtocolFlow, SubnetTAO,
+    SubnetworkN, Tempo, TotalStake, Uids, Weights,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::dispatch::{DispatchClass, GetDispatchInfo, RawOrigin};
@@ -235,10 +235,13 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
             SubtensorModule::root_claim_declared_work(),
             MAX_ROOT_CLAIM_WORK
         );
+        // Claim envelope plus the flat pending-deposit flush allowance every flushing
+        // extrinsic declares.
         let envelope = <Test as crate::Config>::WeightInfo::claim_root(MAX_ROOT_CLAIM_WORK)
             .saturating_add(<Test as crate::Config>::WeightInfo::claim_root_scan(
                 MAX_ROOT_CLAIM_WORK,
-            ));
+            ))
+            .saturating_add(SubtensorModule::basket_flush_weight_bound());
         assert!(
             declared_weight.all_gte(envelope),
             "declared {declared_weight:?} must cover the {envelope:?} admission envelope"
@@ -262,6 +265,68 @@ fn test_claim_root_declared_weight_covers_bounded_work() {
         assert!(
             declared_weight.all_lte(max_extrinsic),
             "declared weight {declared_weight:?} exceeds max extrinsic {max_extrinsic:?}"
+        );
+    });
+}
+
+/// A claim first flushes the validator's queued dividend credits; that work is charged into
+/// the post-dispatch weight through the same `basket_flush_weight` model as `swap_basket`
+/// and `stake_into_basket`, and the total refunds below the flat declared cap.
+#[test]
+fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
+    new_test_ext(1).execute_with(|| {
+        SubtensorModule::set_tao_weight(u64::MAX);
+        zero_claim_threshold();
+        let coldkey = U256::from(1001);
+        let hotkey = U256::from(1002);
+        let owner = U256::from(1003);
+        let owner_hot = U256::from(1004);
+        let netuid = add_dynamic_network(&owner_hot, &owner);
+        remove_owner_registration_stake(netuid);
+        fund_pool(netuid);
+        register_on_root(&hotkey, 0);
+        mock_increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &coldkey,
+            NetUid::ROOT,
+            10_000_000_000u64.into(),
+        );
+        // Queue one uncurated credit; the claim's flush deposits it (scan 1 + attempt on
+        // an empty fund: 0 holdings + 2 quotes).
+        let credit = 1_000_000u64;
+        SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
+        SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
+        let expected_flush_work = 1 + 2;
+
+        let declared = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey })
+            .get_dispatch_info()
+            .call_weight;
+
+        let outcome =
+            SubtensorModule::root_claim_for_hotkey(&hotkey, &coldkey, false).expect("claim runs");
+        assert_eq!(outcome.flush, expected_flush_work);
+        assert!(
+            !PendingBasketDeposits::<Test>::contains_key(hotkey, netuid),
+            "the claim flushed the queued credit"
+        );
+        assert!(outcome.tao > 0, "the flushed dividend was redeemed");
+
+        let actual = SubtensorModule::root_claim_actual_weight(1, 0, &outcome);
+        let without_flush = SubtensorModule::root_claim_actual_weight(
+            1,
+            0,
+            &crate::staking::RootClaimOutcome {
+                flush: 0,
+                ..outcome
+            },
+        );
+        assert_eq!(
+            actual,
+            without_flush.saturating_add(SubtensorModule::basket_flush_weight(expected_flush_work))
+        );
+        assert!(
+            actual.all_lt(declared),
+            "actual {actual:?} must refund below declared {declared:?}"
         );
     });
 }

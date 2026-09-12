@@ -15,7 +15,8 @@ use crate::tests::mock::*;
 use crate::{
     BASKET_TRADE_REFILL_BLOCKS, BasketDailyTurnoverCap, BasketLiquidityCap, BasketTradeBucket,
     BasketTradingEnabled, Error, Owner, PendingBasketDeposits, RootClaimableThreshold,
-    RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMovingPrice, SubnetTAO, TotalStake,
+    RootWeightsCap, SubnetAlphaIn, SubnetAlphaOut, SubnetMechanism, SubnetMovingPrice, SubnetTAO,
+    SubtokenEnabled, TotalStake,
 };
 use frame_support::dispatch::GetDispatchInfo;
 use frame_support::pallet_prelude::Weight;
@@ -658,9 +659,9 @@ fn declared_swap_weight(
     .call_weight
 }
 
-/// The declared weight grows with the number of queued dividend credits, the actual weight
-/// includes the flush work actually done, and it refunds below the declared cap. With an
-/// empty queue the trade costs exactly its holding-count weight.
+/// The declared weight is flat (row cap plus the shared flush allowance) whatever the queue
+/// holds, the actual weight includes the flush work actually done, and it refunds below
+/// the declared cap. With an empty queue the trade costs exactly its holding-count weight.
 #[test]
 fn test_swap_basket_weight_charges_pending_deposit_flush() {
     new_test_ext(1).execute_with(|| {
@@ -679,27 +680,26 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         pin_ema_to_spot(a);
         pin_ema_to_spot(b);
 
-        // Empty queue: declared is the bare 256-row cap (plus whatever fixed extension
-        // weight the runtime adds to every call), actual is the bare row weight.
+        // Empty queue: declared is the row cap plus the flat flush allowance (plus whatever
+        // fixed extension weight the runtime adds to every call), actual is the bare row
+        // weight.
         let bare_declared = declared_swap_weight(coldkey, hotkey, a, b, TAO);
-        assert!(bare_declared.all_gte(SubtensorModule::swap_basket_weight(256)));
+        assert!(bare_declared.all_gte(SubtensorModule::swap_basket_declared_weight()));
+        assert!(
+            bare_declared.all_gte(
+                SubtensorModule::swap_basket_weight(256)
+                    .saturating_add(SubtensorModule::basket_flush_weight_bound())
+            )
+        );
         let bare_actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
         assert_eq!(bare_actual, SubtensorModule::swap_basket_weight(3));
 
-        // One queued origin raises the declared weight by the flush estimate; a second
-        // origin raises it by one more unit.
+        // Queued origins do not move the declared weight: the allowance is flat, and the
+        // weight function reads no storage.
         SubtensorModule::enqueue_basket_deposit(&hotkey, b, (5 * TAO).into());
-        let declared_one = declared_swap_weight(coldkey, hotkey, a, b, TAO);
-        assert_eq!(
-            declared_one.saturating_sub(bare_declared),
-            SubtensorModule::basket_flush_weight(1 + 4 * 256)
-        );
         SubtensorModule::enqueue_basket_deposit(&hotkey, a, (5 * TAO).into());
         let declared_two = declared_swap_weight(coldkey, hotkey, a, b, TAO);
-        assert_eq!(
-            declared_two.saturating_sub(declared_one),
-            SubtensorModule::basket_flush_weight(1)
-        );
+        assert_eq!(declared_two, bare_declared);
 
         // Learn the flush work this exact queue implies, then restore the queue: the trade
         // must charge precisely that on top of its row weight, and refund below declared.
@@ -724,6 +724,76 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         assert!(
             actual.all_lt(declared_two),
             "actual must refund below declared"
+        );
+    });
+}
+
+/// A multi-credit flush whose batch deposit fails in a shared phase (the mint rounds to
+/// dust against an enormous claimant base) re-queues every credit after one attempt. The
+/// trade still charges that flush work, the actual weight stays under the flat declared
+/// cap, and the flush work itself never exceeds the allowance the cap was derived from.
+#[test]
+fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
+    new_test_ext(1).execute_with(|| {
+        let coldkey = U256::from(1);
+        let hotkey = U256::from(2);
+        let alice = U256::from(3);
+        let (a, b) = winner_env(coldkey, hotkey);
+        set_root_weights_direct(&hotkey, 0, &[(a, u16::MAX / 2), (b, u16::MAX / 2)]);
+        zero_claim_threshold();
+        // Enormous claimant base: the per-stake rate increment rounds to zero, so the
+        // batch mint is dust and the whole deposit rolls back.
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &alice,
+            NetUid::ROOT,
+            10_000_000_000_000_000u64.into(),
+        );
+        // Several more origins so the batch is wide; each queues a small credit. Built
+        // directly (no registration lock cost) the way the benchmark seeds pools.
+        let mut origins = vec![a, b];
+        for i in 0..6u16 {
+            let netuid = NetUid::from(50 + i);
+            SubtensorModule::init_new_network(netuid, 1);
+            SubnetMechanism::<Test>::insert(netuid, 1);
+            SubtokenEnabled::<Test>::insert(netuid, true);
+            SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000 * TAO));
+            SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000 * TAO));
+            let account = SubtensorModule::get_subnet_account_id(netuid).unwrap();
+            add_balance_to_coldkey_account(&account, TaoBalance::from(1_000 * TAO));
+            origins.push(netuid);
+        }
+        for netuid in &origins {
+            SubnetAlphaOut::<Test>::mutate(*netuid, |t| *t = t.saturating_add(1_000u64.into()));
+            SubtensorModule::enqueue_basket_deposit(&hotkey, *netuid, 1_000u64.into());
+        }
+        pin_ema_to_spot(a);
+        pin_ema_to_spot(b);
+
+        let declared = declared_swap_weight(coldkey, hotkey, a, b, TAO);
+        let holdings_before = SubtensorModule::get_basket_holdings(&hotkey).len() as u64;
+        let actual = SubtensorModule::do_swap_basket(coldkey, hotkey, a, b, TAO, 0).unwrap();
+
+        // Every credit is back on the queue after exactly one batch attempt.
+        for netuid in &origins {
+            assert_eq!(
+                PendingBasketDeposits::<Test>::get(hotkey, *netuid).to_u64(),
+                1_000
+            );
+        }
+        // Scan (one per credit) + one curated attempt: 3 sweeps over the holdings, two
+        // per destination, one sell per credit. No per-credit retry term.
+        let credits = origins.len() as u64;
+        let flush_work = credits + 3 * holdings_before + 2 * 2 + credits;
+        assert!(flush_work <= SubtensorModule::basket_flush_work_bound());
+        assert_eq!(
+            actual,
+            SubtensorModule::swap_basket_weight(holdings_before)
+                .saturating_add(SubtensorModule::basket_flush_weight(flush_work))
+        );
+        assert!(
+            actual.all_lt(declared),
+            "actual {actual:?} must stay under declared {declared:?}"
         );
     });
 }
