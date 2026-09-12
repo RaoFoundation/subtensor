@@ -109,7 +109,7 @@
         },
         "leverage": {
           "type": "number",
-          "description": "Exposure as a multiple of `amount`: 1, 1.5, 2. At most the side's maximum: 1x for shorts, 2x for longs (`max_short_leverage` / `max_long_leverage` in `btcli deriv params`)."
+          "description": "Exposure as a multiple of `amount`: 1, 1.2, 1.5. At most the side's maximum: 1x for shorts, 1.5x for longs (`max_short_leverage` / `max_long_leverage` in `btcli deriv params`)."
         }
       },
       "required": [
@@ -127,9 +127,9 @@
         "pallet": "Derivatives",
         "call": "add",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 286,
-        "end_line": 295,
-        "url": "/code/pallets/derivatives/src/lib.rs#L284-L295",
+        "line": 337,
+        "end_line": 346,
+        "url": "/code/pallets/derivatives/src/lib.rs#L335-L346",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -730,9 +730,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 302,
-        "end_line": 305,
-        "url": "/code/pallets/derivatives/src/lib.rs#L300-L305",
+        "line": 354,
+        "end_line": 357,
+        "url": "/code/pallets/derivatives/src/lib.rs#L352-L357",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

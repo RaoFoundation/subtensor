@@ -63,7 +63,7 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("Balances", "ExistentialDeposit"): 500,
     ("SubtensorModule", "InitialStartCallDelay"): 100,
     ("Derivatives", "MaxShortLeverage"): 100,
-    ("Derivatives", "MaxLongLeverage"): 200,
+    ("Derivatives", "MaxLongLeverage"): 150,
     ("Derivatives", "MinDeposit"): 100_000_000,
 }
 

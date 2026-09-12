@@ -16,7 +16,7 @@ and opens the rest on the new side, taking only that rest's cushion.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L284-L295) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L335-L346) |
 
 ## Parameters
 
@@ -25,7 +25,7 @@ and opens the rest on the new side, taking only that rest's cushion.
 | `netuid` | integer | yes | Subnet whose alpha the position is on. |
 | `side` | string | yes | Direction to add: `Short` or `Long`. |
 | `amount` | number \| `"all"` | yes | TAO the tranche is sized by. Exposure is `leverage` times it, measured against the pool's TAO reserve. Deposited as cushion when it adds to your position; only sizes the reduction when it goes against it. |
-| `leverage` | number | no | Exposure as a multiple of `amount`: 1, 1.5, 2. At most the side's maximum: 1x for shorts, 2x for longs (`max_short_leverage` / `max_long_leverage` in `btcli deriv params`). |
+| `leverage` | number | no | Exposure as a multiple of `amount`: 1, 1.2, 1.5. At most the side's maximum: 1x for shorts, 1.5x for longs (`max_short_leverage` / `max_long_leverage` in `btcli deriv params`). |
 
 Address parameters (`--hotkey`, `--coldkey`, `--dest`, ...) accept a raw ss58
 address, an address-book or proxy-book name, or a local wallet/hotkey name.
@@ -72,7 +72,7 @@ result = sub.execute_tool("add_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L286`](/code/pallets/derivatives/src/lib.rs#L284-L295):
+`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L337`](/code/pallets/derivatives/src/lib.rs#L335-L346):
 
 ```rust
 #[pallet::call_index(0)]

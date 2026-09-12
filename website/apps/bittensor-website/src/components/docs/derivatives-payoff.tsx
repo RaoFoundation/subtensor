@@ -50,11 +50,11 @@ export function DerivativesPayoff() {
   return (
     <ExplainerPanel
       title="What you get back"
-      tag={side === 'short' ? '100 τ cushion · 1x' : '100 τ cushion · 2x'}
+      tag={side === 'short' ? '100 τ cushion · 1x' : '100 τ cushion · 1.5x'}
       caption={
         side === 'short'
           ? 'Put in 100 τ. If alpha falls you get more back; if alpha rises you get less. Near a doubling the cushion is gone and the line hits zero.'
-          : 'Put in 100 τ. If alpha rises you get more back, twice as fast; if alpha falls you lose twice as fast. Near a halving the cushion is gone and the line hits zero.'
+          : 'Put in 100 τ. If alpha rises you get more back, half again as fast; if alpha falls you lose half again as fast. Near a fall of two thirds the cushion is gone and the line hits zero.'
       }
     >
       <div className="mb-5">
@@ -136,12 +136,12 @@ export function DerivativesPayoff() {
       </svg>
       <p className="mt-3 text-[0.6875rem] leading-relaxed text-mute">
         The slope is the leverage you choose at open, up to the ceiling per side. Shown at the
-        ceilings: a short at 1x moves one-for-one against alpha; a long at 2x moves two-for-one with it. Past
+        ceilings: a short at 1x moves one-for-one against alpha; a long at 1.5x moves one-and-a-half-for-one with it. Past
         the point where the cushion is gone the position is underwater: settlement pays you nothing,
         gives the pool whatever is left, and the pool carries the shortfall — which is why the pool lends at
         most 25% of itself per side. Example pool: 10,000 τ / 200,000 α, closed in the opening block, so
-        no interest is paid; held, the short would pay 25 τ a year on its 100 τ of exposure and the 2x long
-        50 τ on its 200 τ.
+        no interest is paid; held, the short would pay 25 τ a year on its 100 τ of exposure and the 1.5x long
+        37.5 τ on its 150 τ.
       </p>
     </ExplainerPanel>
   );

@@ -1,9 +1,9 @@
 /**
  * The worked example every derivatives figure uses: a 100 τ cushion on a
  * 10,000 τ / 200,000 α pool (0.05 τ/α). Each side is shown at its leverage
- * ceiling: the short at 1x lifts 1% of the pool, the long at 2x lifts 2%. Both
+ * ceiling: the short at 1x lifts 1% of the pool, the long at 1.5x lifts 1.5%. Both
  * pay the same interest: `interest_rate` (25%) of their TAO exposure per year,
- * accrued per block, so the 2x long pays twice the 1x short. There is no term.
+ * accrued per block, so the 1.5x long pays half again the 1x short. There is no term.
  *
  * `simulate` mirrors `pallet-derivatives`: lift `phi` of both reserves, trade one
  * half through the constant-product pool, let the market move, reverse the trade
@@ -21,7 +21,7 @@ export const CUSHION = 100;
  * `MaxShortLeverage` / `MaxLongLeverage`, as multipliers. An owner may open at
  * anything from 0.01x up to these.
  */
-export const LEVERAGE: Record<Side, number> = {short: 1, long: 2};
+export const LEVERAGE: Record<Side, number> = {short: 1, long: 1.5};
 /** Fraction of TAO exposure either side pays per year (`interest_rate`). */
 export const INTEREST_RATE = 0.25;
 export const OPEN_PRICE = POOL_TAO / POOL_ALPHA;

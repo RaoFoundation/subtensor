@@ -86,8 +86,8 @@ class AddPosition(Intent):
         default=1.0,
         metadata={
             "help": (
-                "Exposure as a multiple of `amount`: 1, 1.5, 2. At most the side's maximum: 1x "
-                "for shorts, 2x for longs (`max_short_leverage` / `max_long_leverage` in "
+                "Exposure as a multiple of `amount`: 1, 1.2, 1.5. At most the side's maximum: 1x "
+                "for shorts, 1.5x for longs (`max_short_leverage` / `max_long_leverage` in "
                 "`btcli deriv params`)."
             )
         },
