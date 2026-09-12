@@ -28,6 +28,7 @@ from .crowdloan import (
     UpdateCrowdloanMinContribution,
     WithdrawCrowdloan,
 )
+from .derivatives import SIDES, AddPosition, ClosePosition
 from .evm import EvmWithdraw, FundEvmKey
 from .governance import (
     SetMechanismCount,
@@ -89,8 +90,10 @@ __all__ = [
     "OWNER_HYPERPARAMETERS",
     "PROXY_TYPES",
     "REGISTRY",
+    "SIDES",
     "UNBOUNDED",
     "AddCollateral",
+    "AddPosition",
     "AddProxy",
     "AddStake",
     "AddStakeLimit",
@@ -102,6 +105,7 @@ __all__ = [
     "ClaimRoot",
     "ClaimRootWithHotkey",
     "ClearColdkeySwapAnnouncement",
+    "ClosePosition",
     "CommitWeights",
     "ContributeCrowdloan",
     "CreateCrowdloan",

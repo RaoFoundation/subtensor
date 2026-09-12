@@ -96,6 +96,7 @@ type NonCriticalAllowed = (
     BalanceMaintenanceCalls,
     StakeManagementCalls,
     StakeTransferCalls,
+    DerivativesCalls,
     PowRegistrationCalls,
     FaucetCalls,
     HotkeySwapCalls,
@@ -310,7 +311,8 @@ mod tests {
         let denied = &(&group_calls::<BalanceTransferCalls>()
             | &group_calls::<BalanceMaintenanceCalls>())
             | &(&group_calls::<StakeTransferCalls>() | &group_calls::<ColdkeySwapCalls>());
-        let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
+        let denied = &denied
+            | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls, DerivativesCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonTransfer),
             &all_runtime_calls() - &denied
@@ -325,7 +327,8 @@ mod tests {
             | &(&(&group_calls::<BurnedRegistrationCalls>()
                 | &group_calls::<RootRegistrationCalls>())
                 | &(&group_calls::<HotkeySwapCalls>() | &group_calls::<ColdkeySwapCalls>()));
-        let denied = &denied | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls)>();
+        let denied = &denied
+            | &group_calls::<(EvmCalls, ContractsCalls, CrowdloanCalls, DerivativesCalls)>();
         assert_eq!(
             allowed_calls(ProxyType::NonFungible),
             &all_runtime_calls() - &denied

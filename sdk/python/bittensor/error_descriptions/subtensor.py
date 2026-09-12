@@ -697,6 +697,11 @@ DESCRIPTIONS: dict[str, str] = {
         "is now burn-based (the coldkey pays the root burn price), so this error is no longer "
         "raised."
     ),
+    "BasketDepositPending": (
+        "The validator has a queued root-dividend deposit that could not be settled yet, and "
+        "the call would change the hotkey's root claimant base before it does. Check the "
+        "pending basket deposits for the hotkey and retry once the deposit becomes executable."
+    ),
     "StakeUnavailable": (
         "An unstake or same-subnet stake transfer would dip into stake that is still reserved: "
         "the requested alpha exceeds the coldkey's free balance on that subnet after subtracting "

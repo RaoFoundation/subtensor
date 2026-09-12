@@ -38,7 +38,7 @@ use sp_std::{
 };
 use sp_tracing::tracing_subscriber;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, TaoBalance};
+use subtensor_runtime_common::{AuthorshipInfo, ConstTao, NetUid, SubnetDissolveHook, TaoBalance};
 use subtensor_swap_interface::{Order, SwapHandler};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -400,6 +400,7 @@ impl crate::Config for Test {
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
     type CommitmentsInterface = CommitmentsI;
     type AlphaAssets = AlphaAssets;
+    type Derivatives = ();
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
     type SubtensorPalletId = SubtensorPalletId;
@@ -451,14 +452,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface<AccountId> for CommitmentsI {
-    fn purge_netuid(
+impl SubnetDissolveHook for CommitmentsI {
+    fn on_subnet_dissolve(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         CommitmentsPallet::<Test>::purge_netuid(netuid, weight_meter)
     }
-
+}
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_neuron(netuid: NetUid, account: &AccountId) {
         CommitmentsPallet::<Test>::purge_neuron(netuid, account);
     }

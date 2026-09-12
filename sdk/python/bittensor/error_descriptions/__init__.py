@@ -17,6 +17,7 @@ from .balances import DESCRIPTIONS as _BALANCES
 from .commitments import DESCRIPTIONS as _COMMITMENTS
 from .contracts import DESCRIPTIONS as _CONTRACTS
 from .crowdloan import DESCRIPTIONS as _CROWDLOAN
+from .derivatives import DESCRIPTIONS as _DERIVATIVES
 from .drand import DESCRIPTIONS as _DRAND
 from .ethereum import DESCRIPTIONS as _ETHEREUM
 from .evm import DESCRIPTIONS as _EVM
@@ -41,6 +42,7 @@ for _part in (
     _COMMITMENTS,
     _CONTRACTS,
     _CROWDLOAN,
+    _DERIVATIVES,
     _DRAND,
     _EVM,
     _ETHEREUM,

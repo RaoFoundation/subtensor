@@ -26,7 +26,7 @@ use sp_runtime::{
 };
 use sp_std::{cell::RefCell, cmp::Ordering, sync::OnceLock};
 use sp_tracing::tracing_subscriber;
-use subtensor_runtime_common::{AuthorshipInfo, NetUid, TaoBalance};
+use subtensor_runtime_common::{AuthorshipInfo, NetUid, SubnetDissolveHook, TaoBalance};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 pub type Block = frame_system::mocking::MockBlock<Test>;
 pub use api_mocks::MockApi;
@@ -339,6 +339,7 @@ impl pallet_subtensor::Config for Test {
     type InitialMaxEpochsPerBlock = MaxEpochsPerBlock;
     type WeightInfo = ();
     type AlphaAssets = AlphaAssets;
+    type Derivatives = ();
 }
 
 // Swap-related parameter types
@@ -370,14 +371,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface<AccountId> for CommitmentsI {
-    fn purge_netuid(
+impl SubnetDissolveHook for CommitmentsI {
+    fn on_subnet_dissolve(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
-
+}
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 

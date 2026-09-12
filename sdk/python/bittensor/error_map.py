@@ -160,6 +160,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidIdentity": _C.INVALID_ARGUMENT,
     "MechanismDoesNotExist": _C.SUBNET_NOT_EXISTS,  # also Swap
     "StakeUnavailable": _C.INSUFFICIENT_BALANCE,
+    "BasketDepositPending": _C.TOO_EARLY,
     "SubnetNotExists": _C.SUBNET_NOT_EXISTS,
     "TooManyUnrevealedCommits": _C.LIMIT_EXCEEDED,
     "ExpiredWeightCommit": _C.EXPIRED,
@@ -354,7 +355,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "InvalidRoundNumber": _C.INVALID_ARGUMENT,
     "PulseVerificationError": _C.INVALID_ARGUMENT,
     # ── Crowdloan ───────────────────────────────────────────────────────
-    "DepositTooLow": _C.INVALID_ARGUMENT,
+    "DepositTooLow": _C.INVALID_ARGUMENT,  # also Derivatives
     "CapTooLow": _C.INVALID_ARGUMENT,
     "MinimumContributionTooLow": _C.INVALID_ARGUMENT,
     "CannotEndInPast": _C.INVALID_ARGUMENT,
@@ -457,6 +458,13 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PartialFillNotSupportedForLinkedAmount": _C.INVALID_ARGUMENT,
     "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
     "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
+    # ── Derivatives ─────────────────────────────────────────────────────
+    "SubnetNotDynamic": _C.SUBTOKEN_DISABLED,
+    "NoPosition": _C.NOT_FOUND,
+    "LeverageOutOfRange": _C.INVALID_ARGUMENT,
+    "ZeroExposure": _C.INVALID_ARGUMENT,
+    "PoolCapExceeded": _C.LIMIT_EXCEEDED,
+    "PalletHotkeyUnset": _C.TOO_EARLY,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

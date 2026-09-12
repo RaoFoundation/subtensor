@@ -24,7 +24,7 @@ use sp_runtime::{
 use sp_std::{cmp::Ordering, sync::OnceLock};
 use sp_tracing::tracing_subscriber;
 use substrate_fixed::types::U64F64;
-use subtensor_runtime_common::{AuthorshipInfo, NetUid, TaoBalance};
+use subtensor_runtime_common::{AuthorshipInfo, NetUid, SubnetDissolveHook, TaoBalance};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -306,6 +306,7 @@ impl crate::Config for Test {
     type MaxImmuneUidsPercentage = MaxImmuneUidsPercentage;
     type CommitmentsInterface = CommitmentsI;
     type AlphaAssets = AlphaAssets;
+    type Derivatives = ();
     type EvmKeyAssociateRateLimit = EvmKeyAssociateRateLimit;
     type AuthorshipProvider = MockAuthorshipProvider;
     type SubtensorPalletId = SubtensorPalletId;
@@ -345,14 +346,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface<AccountId> for CommitmentsI {
-    fn purge_netuid(
+impl SubnetDissolveHook for CommitmentsI {
+    fn on_subnet_dissolve(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
-
+}
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 

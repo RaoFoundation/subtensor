@@ -235,7 +235,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // This value is set to 100 to notify Polkadot-JS App (https://polkadot.js.org/apps) to use
     //   the compatible custom types.
-    spec_version: 455,
+    spec_version: 456,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -625,14 +625,15 @@ impl ProxyInterface<AccountId> for Proxier {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface<AccountId> for CommitmentsI {
-    fn purge_netuid(
+impl SubnetDissolveHook for CommitmentsI {
+    fn on_subnet_dissolve(
         netuid: NetUid,
         weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         pallet_commitments::Pallet::<Runtime>::purge_netuid(netuid, weight_meter)
     }
-
+}
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_neuron(netuid: NetUid, account: &AccountId) {
         pallet_commitments::Pallet::<Runtime>::purge_neuron(netuid, account);
     }
@@ -966,6 +967,7 @@ impl pallet_subtensor::Config for Runtime {
     type BurnAccountId = BurnAccountId;
     type InitialMaxEpochsPerBlock = SubtensorMaxEpochsPerBlock;
     type WeightInfo = pallet_subtensor::weights::SubstrateWeight<Runtime>;
+    type Derivatives = Derivatives;
 }
 
 parameter_types! {
@@ -1365,6 +1367,28 @@ impl pallet_limit_orders::Config for Runtime {
     type LinkedOutputTtl = LimitOrdersLinkedOutputTtl;
 }
 
+// Derivatives
+parameter_types! {
+    pub const DerivativesPalletId: PalletId = PalletId(*b"bt/deriv");
+    /// 1x. A short at leverage `L` costs the pool once the price rises by `1 / L`.
+    pub const DerivativesMaxShortLeverage: u16 = 100;
+    /// 1.5x. A long at leverage `L` costs the pool once the price falls by `1 / L`. Must stay
+    /// below `1 + sqrt(1 - pool_share)` (1.87x at 25%), or the largest long the cap admits
+    /// can profit from dumping into its own lifted price and abandoning the debt.
+    pub const DerivativesMaxLongLeverage: u16 = 150;
+    /// 0.1 TAO.
+    pub const DerivativesMinDeposit: TaoBalance = TaoBalance::new(100_000_000);
+}
+
+impl pallet_derivatives::Config for Runtime {
+    type Pool = SubtensorModule;
+    type PalletId = DerivativesPalletId;
+    type MaxShortLeverage = DerivativesMaxShortLeverage;
+    type MaxLongLeverage = DerivativesMaxLongLeverage;
+    type MinDeposit = DerivativesMinDeposit;
+    type WeightInfo = pallet_derivatives::weights::SubstrateWeight<Runtime>;
+}
+
 fn contracts_schedule<T: pallet_contracts::Config>() -> pallet_contracts::Schedule<T> {
     pallet_contracts::Schedule {
         limits: pallet_contracts::Limits {
@@ -1498,6 +1522,7 @@ construct_runtime!(
         MevShield: pallet_shield = 30,
         AlphaAssets: pallet_alpha_assets = 31,
         LimitOrders: pallet_limit_orders = 32,
+        Derivatives: pallet_derivatives = 33,
     }
 );
 
@@ -1589,6 +1614,7 @@ mod benches {
         [pallet_subtensor_proxy, Proxy]
         [pallet_subtensor_utility, Utility]
         [pallet_limit_orders, LimitOrders]
+        [pallet_derivatives, Derivatives]
     );
 }
 

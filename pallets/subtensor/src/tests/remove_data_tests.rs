@@ -303,11 +303,13 @@ fn test_purge_netuid() {
         // Test the purge function
         let w = Weight::from_parts(u64::MAX, u64::MAX);
         let mut weight_meter = frame_support::weights::WeightMeter::with_limit(w);
-        let result =
-            <Test as crate::Config>::CommitmentsInterface::purge_netuid(netuid, &mut weight_meter);
+        let result = <<Test as crate::Config>::CommitmentsInterface as SubnetDissolveHook>::on_subnet_dissolve(
+            netuid,
+            &mut weight_meter,
+        );
         assert!(
             result,
-            "purge_netuid should return true when it successfully purges data"
+            "on_subnet_dissolve should return true when it successfully purges data"
         );
 
         // Verify commitment was purged

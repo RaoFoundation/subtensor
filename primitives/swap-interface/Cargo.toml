@@ -8,6 +8,7 @@ edition.workspace = true
 codec = { workspace = true, features = ["derive"] }
 frame-support.workspace = true
 scale-info.workspace = true
+sp-arithmetic.workspace = true
 substrate-fixed.workspace = true
 subtensor-runtime-common.workspace = true
 subtensor-macros.workspace = true
@@ -25,6 +26,7 @@ std = [
 	"codec/std",
 	"frame-support/std",
 	"scale-info/std",
+	"sp-arithmetic/std",
 	"substrate-fixed/std",
 	"subtensor-runtime-common/std",
 ]

@@ -26,7 +26,9 @@ use sp_runtime::{
     traits::{BlakeTwo256, Convert, IdentityLookup},
 };
 use sp_std::{cell::RefCell, cmp::Ordering, sync::OnceLock};
-use subtensor_runtime_common::{AlphaBalance, AuthorshipInfo, NetUid, Saturating, TaoBalance};
+use subtensor_runtime_common::{
+    AlphaBalance, AuthorshipInfo, NetUid, Saturating, SubnetDissolveHook, TaoBalance,
+};
 
 type Block = frame_system::mocking::MockBlock<Test>;
 
@@ -425,6 +427,7 @@ impl pallet_subtensor::Config for Test {
     type Yuma3On = InitialYuma3On;
     type Preimages = Preimage;
     type AlphaAssets = AlphaAssets;
+    type Derivatives = ();
     type InitialColdkeySwapAnnouncementDelay = InitialColdkeySwapAnnouncementDelay;
     type InitialColdkeySwapReannouncementDelay = InitialColdkeySwapReannouncementDelay;
     type InitialDissolveNetworkScheduleDuration = InitialDissolveNetworkScheduleDuration;
@@ -478,14 +481,15 @@ impl PrivilegeCmp<OriginCaller> for OriginPrivilegeCmp {
 }
 
 pub struct CommitmentsI;
-impl CommitmentsInterface<AccountId> for CommitmentsI {
-    fn purge_netuid(
+impl SubnetDissolveHook for CommitmentsI {
+    fn on_subnet_dissolve(
         _netuid: NetUid,
         _weight_meter: &mut frame_support::weights::WeightMeter,
     ) -> bool {
         true
     }
-
+}
+impl CommitmentsInterface<AccountId> for CommitmentsI {
     fn purge_neuron(_netuid: NetUid, _account: &AccountId) {}
 }
 

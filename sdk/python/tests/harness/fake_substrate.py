@@ -62,6 +62,9 @@ DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {
     ("Aura", "SlotDuration"): 12_000,
     ("Balances", "ExistentialDeposit"): 500,
     ("SubtensorModule", "InitialStartCallDelay"): 100,
+    ("Derivatives", "MaxShortLeverage"): 100,
+    ("Derivatives", "MaxLongLeverage"): 150,
+    ("Derivatives", "MinDeposit"): 100_000_000,
 }
 
 # Runtime-API results answered when the test seeds nothing. Chosen so intent
