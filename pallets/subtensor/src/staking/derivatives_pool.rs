@@ -1,6 +1,5 @@
 use super::*;
 use frame_support::transactional;
-#[cfg(feature = "runtime-benchmarks")]
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::{DerivativesPoolInterface, Perquintill, SwapHandler};
@@ -49,6 +48,16 @@ impl<T: Config> Pallet<T> {
     /// (its sub-account and reserves survive until the `ProtocolLiquidity` phase).
     fn derivatives_pool_present(netuid: NetUid) -> bool {
         !netuid.is_root() && Self::get_subnet_account_id(netuid).is_some()
+    }
+
+    /// A 64.64 price as `(tao, alpha)` in 32.32 fixed point: `price * 2^32` TAO per `2^32`
+    /// alpha. The pair is what `pallet-derivatives` compares and settles at.
+    fn price_pair(price: U64F64) -> (TaoBalance, AlphaBalance) {
+        let bits = price.to_bits();
+        (
+            TaoBalance::from(u64::try_from(bits >> 32).unwrap_or(u64::MAX)),
+            AlphaBalance::from(1u64 << 32),
+        )
     }
 
     /// `TotalStake` mirrors `SubnetTAO` only for live subnets; `do_dissolve_network` already
@@ -326,11 +335,45 @@ impl<T: Config> DerivativesPoolInterface<T::AccountId> for Pallet<T> {
     /// The balancer's spot price, as `(tao, alpha)` in 32.32 fixed point: `price * 2^32` TAO
     /// per `2^32` alpha. The balancer is still in storage while the subnet dissolves.
     fn spot_price(netuid: NetUid) -> (TaoBalance, AlphaBalance) {
-        let bits = T::SwapInterface::current_alpha_price(netuid).to_bits();
-        (
-            TaoBalance::from(u64::try_from(bits >> 32).unwrap_or(u64::MAX)),
-            AlphaBalance::from(1u64 << 32),
-        )
+        Self::price_pair(T::SwapInterface::current_alpha_price(netuid))
+    }
+
+    /// `SubnetMovingPrice` on the same 32.32 scale as [`Self::spot_price`]. Zero until the
+    /// first `update_moving_price` after the subnet starts.
+    fn moving_price(netuid: NetUid) -> (TaoBalance, AlphaBalance) {
+        Self::price_pair(Self::get_moving_alpha_price(netuid))
+    }
+
+    fn quote_buy(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance {
+        T::SwapInterface::tao_needed_for_alpha(netuid, alpha)
+    }
+
+    fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance {
+        T::SwapInterface::tao_out_for_alpha(netuid, alpha)
+    }
+
+    /// Plain stake bookkeeping: the alpha stays on the subnet and at the same hotkey, only the
+    /// coldkey changes. No swap, no fee, no `SubnetTaoFlow`, no rate-limit flag.
+    #[transactional]
+    fn hand_alpha(
+        netuid: NetUid,
+        from_coldkey: &T::AccountId,
+        hotkey: &T::AccountId,
+        to_coldkey: &T::AccountId,
+        alpha: AlphaBalance,
+    ) -> DispatchResult {
+        ensure!(
+            Self::derivatives_pool_present(netuid),
+            Error::<T>::SubnetNotExists
+        );
+        if alpha.is_zero() {
+            return Ok(());
+        }
+        let held = Self::get_stake_for_hotkey_and_coldkey_on_subnet(hotkey, from_coldkey, netuid);
+        ensure!(held >= alpha, Error::<T>::NotEnoughStakeToWithdraw);
+        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(hotkey, from_coldkey, netuid, alpha);
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(hotkey, to_coldkey, netuid, alpha);
+        Ok(())
     }
 
     #[cfg(feature = "runtime-benchmarks")]

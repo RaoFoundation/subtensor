@@ -319,8 +319,32 @@ pub trait DerivativesPoolInterface<AccountId> {
     fn draw_tao(netuid: NetUid, to_coldkey: &AccountId, tao: TaoBalance) -> DispatchResult;
 
     /// The pool's spot price right now, as a `(tao, alpha)` pair whose ratio is the price.
-    /// Every position on a dissolving subnet is cash-settled at this, with no swap.
+    /// Read at dissolution to fix the price positions are cash-settled at, and after every
+    /// settlement to decide whether returned liquidity may rejoin the pool.
     fn spot_price(netuid: NetUid) -> (TaoBalance, AlphaBalance);
+
+    /// The subnet's moving-average price, as a `(tao, alpha)` pair on the same scale as
+    /// [`Self::spot_price`]. A zero `tao` means the subnet has no moving price yet. This is the
+    /// price emission follows; a same-block trade moves the spot, not this.
+    fn moving_price(netuid: NetUid) -> (TaoBalance, AlphaBalance);
+
+    /// TAO the pool would charge right now for exactly `alpha`, with no swap made.
+    /// `TaoBalance::MAX` when the pool cannot supply that much alpha at any price.
+    fn quote_buy(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance;
+
+    /// TAO the pool would pay right now for `alpha` sold into it, with no swap made.
+    fn quote_sell(netuid: NetUid, alpha: AlphaBalance) -> TaoBalance;
+
+    /// Move `alpha` staked at `(hotkey, from_coldkey)` to `(hotkey, to_coldkey)` with no swap
+    /// and no user-facing checks. Also works while the subnet is dissolving, so a settlement
+    /// can leave alpha with its owner to be paid out with every other stake.
+    fn hand_alpha(
+        netuid: NetUid,
+        from_coldkey: &AccountId,
+        hotkey: &AccountId,
+        to_coldkey: &AccountId,
+        alpha: AlphaBalance,
+    ) -> DispatchResult;
 
     /// Make `netuid` a live dynamic subnet with a funded, price-initialised pool that
     /// [`Self::is_dynamic`] accepts. `OrderSwapInterface::set_up_netuid_for_benchmark` only
