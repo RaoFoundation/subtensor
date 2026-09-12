@@ -1,6 +1,7 @@
 //! Beta basket: direct deposits (`stake_into_basket`), ΔNAV minting, and root-slot yield
 //! attribution.
 
+use crate::staking::BasketFlushWork;
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, register_on_root, root_stake_of,
     set_root_weights_direct, zero_claim_threshold,
@@ -148,13 +149,14 @@ fn test_stake_into_basket_declared_weight_covers_flush_and_refunds() {
         assert_eq!(bare, SubtensorModule::stake_into_basket_weight(1, 1));
 
         // Queue a credit on the fund's own destination: the next deposit flushes it first.
-        // Scan 1 + curated attempt over the one holding: 3*1 + 2*1 destinations + 1 credit.
+        // Quotes: scan 1 + curated sweeps over the one holding (3*1) + the post-buy sweep's
+        // 1 destination row. Rows: 1 sell + 1 buy.
         let credit = 1_000_000u64;
         SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
         SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
         let holdings = SubtensorModule::get_basket_holdings(&hotkey).len() as u64;
         assert_eq!(holdings, 1);
-        let expected_flush_work = 1 + (3 * holdings + 2 + 1);
+        let expected_flush_work = BasketFlushWork::new(1 + 3 * holdings + 1, 1 + 1);
 
         let Ok(charged) = SubtensorModule::do_stake_into_basket(bob, hotkey, amount.into()) else {
             panic!("deposit after flush succeeds");

@@ -7,7 +7,7 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use crate::staking::{MAX_BASKET_FLUSH_ROWS, MAX_BASKET_ROWS};
+use crate::staking::{BasketFlushWork, MAX_BASKET_FLUSH_ROWS, MAX_BASKET_ROWS};
 use crate::tests::claim_root::{
     escrow_alpha, fund_pool, fund_shares, register_on_root, set_root_weights_direct,
     zero_claim_threshold,
@@ -369,10 +369,9 @@ fn test_flush_happy_path_ops_bounded_for_curated_batch() {
             hotkey, origin_b
         ));
 
-        // Scan (credits) + curated deposit work with empty holdings:
-        // holdings*3 + 2*weights(1) + credits → 2 + credits; total = 2*credits + 2.
-        let expected_work = credits.saturating_mul(2).saturating_add(2);
-        assert_eq!(work, expected_work);
+        // Quotes: scan (credits) + curated sweeps over empty holdings (3*0) + the post-buy
+        // sweep's one destination row. Rows: one sell per credit + one buy.
+        assert_eq!(work, BasketFlushWork::new(credits + 1, credits + 1));
 
         // One sell per origin + one buy on the sole destination.
         assert_eq!(basket_swap_ops(), credits + 1);
@@ -455,12 +454,13 @@ fn test_flush_shared_failure_requeues_batch_without_retry() {
             assert_eq!(SubnetAlphaOut::<Test>::get(*netuid), *before);
         }
 
-        // Scan + exactly one batch attempt (holdings=0, two quotes per credit). A
-        // per-credit retry would add another `credits * 2` here.
-        let batch_work = credits.saturating_mul(2);
-        let expected_work = credits + batch_work;
-        assert_eq!(work, expected_work);
-        assert!(work <= SubtensorModule::basket_flush_work_bound());
+        // Scan + exactly one batch attempt (holdings=0, two quotes and one in-place row per
+        // credit). A per-credit retry would add another `credits * 2` quotes here.
+        assert_eq!(
+            work,
+            BasketFlushWork::new(credits + credits.saturating_mul(2), credits)
+        );
+        assert!(work.total() <= SubtensorModule::basket_flush_work_bound().total());
         assert_eq!(basket_swap_ops(), 0, "uncurated failure does no swaps");
         // Spot quotes per origin on the scan, plus quotes inside the single batch attempt —
         // O(credits), not quadratic.
@@ -547,9 +547,10 @@ fn test_flush_isolates_failing_credit_and_deposits_the_rest() {
             "the isolated sell rolled back"
         );
 
-        // Scan (3) + one curated attempt on an empty fund: 3*0 + 2*1 + 3 credits.
-        assert_eq!(work, 3 + 5);
-        assert!(work <= SubtensorModule::basket_flush_work_bound());
+        // Quotes: scan (3) + curated sweeps over an empty fund (3*0) + the post-buy sweep's
+        // one destination row. Rows: 3 sells (the isolated one still executed) + 1 buy.
+        assert_eq!(work, BasketFlushWork::new(3 + 1, 3 + 1));
+        assert!(work.total() <= SubtensorModule::basket_flush_work_bound().total());
         // Sells on A, B (rolled back, still executed) and C, plus one buy on the destination.
         assert_eq!(basket_swap_ops(), 4);
         // Three pending-row removes + one in-batch re-queue.
@@ -607,11 +608,15 @@ fn test_flush_work_stays_within_declared_bound_for_failing_wide_batch() {
         for netuid in origins {
             assert_eq!(pending_credit(&hotkey, netuid), 1_000);
         }
-        // Scan + one uncurated attempt: `holdings + 2 * credits`. Linear, not
-        // `credits * holdings`.
-        assert_eq!(work, count + holdings + 2 * count);
-        assert!(work < count * holdings);
-        assert!(work <= SubtensorModule::basket_flush_work_bound());
+        // Scan + one uncurated attempt: `holdings + 2 * credits` quotes and one in-place row
+        // per credit. Linear, not `credits * holdings`.
+        assert_eq!(
+            work,
+            BasketFlushWork::new(count + holdings + 2 * count, count)
+        );
+        assert!(work.total() < count * holdings);
+        let bound = SubtensorModule::basket_flush_work_bound();
+        assert!(work.quotes <= bound.quotes && work.rows <= bound.rows);
     });
 }
 

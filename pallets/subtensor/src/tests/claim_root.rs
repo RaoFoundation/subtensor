@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use crate::staking::BasketFlushWork;
 use crate::tests::mock::*;
 use crate::weights::WeightInfo;
 use crate::{
@@ -292,11 +293,11 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
             10_000_000_000u64.into(),
         );
         // Queue one uncurated credit; the claim's flush deposits it (scan 1 + attempt on
-        // an empty fund: 0 holdings + 2 quotes).
+        // an empty fund: 0 holdings + 2 quotes, and one in-place row).
         let credit = 1_000_000u64;
         SubnetAlphaOut::<Test>::mutate(netuid, |t| *t = t.saturating_add(credit.into()));
         SubtensorModule::enqueue_basket_deposit(&hotkey, netuid, credit.into());
-        let expected_flush_work = 1 + 2;
+        let expected_flush_work = BasketFlushWork::new(1 + 2, 1);
 
         let declared = RuntimeCall::SubtensorModule(crate::Call::claim_root_with_hotkey { hotkey })
             .get_dispatch_info()
@@ -316,7 +317,7 @@ fn test_claim_root_charges_flush_work_and_refunds_below_declared() {
             1,
             0,
             &crate::staking::RootClaimOutcome {
-                flush: 0,
+                flush: BasketFlushWork::default(),
                 ..outcome
             },
         );
