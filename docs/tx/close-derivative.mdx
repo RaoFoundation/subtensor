@@ -12,7 +12,7 @@ back.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L289-L294) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L300-L305) |
 
 ## Parameters
 
@@ -61,7 +61,7 @@ result = sub.execute_tool("close_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L291`](/code/pallets/derivatives/src/lib.rs#L289-L294):
+`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L302`](/code/pallets/derivatives/src/lib.rs#L300-L305):
 
 ```rust
 #[pallet::call_index(1)]

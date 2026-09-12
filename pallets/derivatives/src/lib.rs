@@ -48,7 +48,9 @@ pub enum Closer {
     /// Its cushion could no longer pay its interest; the chain forfeited everything it held to
     /// the pool, with no swap.
     Starved,
-    /// The subnet was dissolved; the position was cash-settled at the dissolution price.
+    /// The subnet was dissolved. The position was cash-settled, with no swap, at the one spot
+    /// price fixed for the whole subnet in [`DissolutionPrice`]; see
+    /// [`Pallet::settle_at_dissolution`].
     Dissolution,
 }
 
@@ -147,6 +149,13 @@ pub mod pallet {
 
     /// The spot price, as `(tao, alpha)`, that every position on a dissolving subnet settles
     /// at. Fixed before the first one is settled and removed once the last one is.
+    ///
+    /// Stored rather than re-read because settlement may span several blocks: the pool's
+    /// price could drift between them, and the order positions happen to be visited in must
+    /// not change what any of them is paid. One price for all also keeps the settlement
+    /// independent of position count; there is no netting of shorts against longs and no
+    /// swap, so a subnet with thousands of positions costs one read per position and nothing
+    /// more.
     #[pallet::storage]
     pub type DissolutionPrice<T: Config> =
         StorageMap<_, Identity, NetUid, (TaoBalance, AlphaBalance), OptionQuery>;
@@ -204,7 +213,9 @@ pub mod pallet {
             params: DerivativesParams,
         },
         /// A dissolving subnet's positions are about to be cash-settled at its spot price,
-        /// `tao / alpha` TAO per alpha, with no swap.
+        /// `tao / alpha` TAO per alpha, with no swap. Emitted once per dissolving subnet, in
+        /// the block the first position is settled; every `PositionClosed` with
+        /// `closed_by: Dissolution` that follows used this pair.
         DissolutionPriced {
             netuid: NetUid,
             tao: TaoBalance,
@@ -363,12 +374,24 @@ pub mod pallet {
     }
 
     impl<T: Config> SubnetDissolveHook for Pallet<T> {
-        /// Cash-settle every position on `netuid` at the spot price of the block dissolution
-        /// began, ahead of the stake payout. The price is fixed once, before the first position
-        /// is settled, and every position settles at it with no swap: a short is charged its
-        /// alpha debt at that price, a long is credited its alpha at it. A short that moved the
+        /// Cash-settle every position on `netuid` ahead of the stake payout. This is the first
+        /// cleanup phase of a dissolution, run while the pool and the stake maps still exist.
+        ///
+        /// **One price, no swaps.** On first entry the pool's spot price is read once, stored
+        /// in [`DissolutionPrice`], and announced in `DissolutionPriced`. Every position is
+        /// then settled on its own at that pair by [`Pallet::settle_at_dissolution`]: a short is
+        /// charged its alpha debt at it, a long is credited its alpha at it. Nothing is netted
+        /// between positions and nothing is traded, so the settlement cannot move the price,
+        /// cannot fail for lack of liquidity, and pays each owner the same whatever order the
+        /// positions are visited in and however many blocks it takes. A short that moved the
         /// price down keeps that move; nothing climbs the curve back. The balancer is still in
         /// storage at this point, so the price is the one the pool last showed.
+        ///
+        /// **Resume contract.** Returns `true` once no position is left, `false` when the
+        /// meter ran out first; the caller keeps the phase and calls again next block. Work is
+        /// paced at `WeightInfo::close()` per position, plus one unit the first time to fix the
+        /// price. There is no cap on positions: a subnet with more than a block can hold is
+        /// settled over as many blocks as it takes, and nothing here can block the dissolution.
         fn on_subnet_dissolve(netuid: NetUid, meter: &mut WeightMeter) -> bool {
             let per_position = T::WeightInfo::close();
             if !meter.can_consume(per_position) {

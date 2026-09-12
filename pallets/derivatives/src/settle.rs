@@ -539,10 +539,23 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Dissolution path: cash settlement at `price`, the pool's spot at dissolution. The pool
-    /// takes back what it lent, alpha valued at that price, plus the interest owed; the owner is paid
-    /// the rest in TAO, or nothing if the position is underwater at that price, as at any other
-    /// settlement. Never fails; anything that cannot reach the owner stays with the pool.
+    /// Dissolution path: cash settlement at `price`, the pool's spot at dissolution, with no
+    /// swap. The pool takes back what it lent, alpha valued at that price, plus the interest
+    /// owed; the owner is paid the rest in TAO, or nothing if the position is underwater at
+    /// that price, as at any other settlement. Everything returned lands in the reserves the
+    /// stakers are paid from in the later phases.
+    ///
+    /// **Rounding favours the pool.** A short's alpha debt is converted to TAO rounding up; a
+    /// long's alpha is credited in TAO rounding down. The pool is the party being wound up and
+    /// cannot come back for a missing rao; the owner's loss is at most one.
+    ///
+    /// **Never fails, never blocks.** The position is removed from every index first, so a
+    /// failure further down cannot leave it to be visited again and paid twice, and the
+    /// caller's loop always terminates. The pool paying out a long's credit and the final
+    /// return of liquidity can only fail in a pool that is already broken; a failure there is
+    /// logged and the settlement carries on, because one position's mishap must not stop the
+    /// subnet from being cleaned up or the stakers from being paid. Whatever cannot reach the
+    /// owner stays with the pool.
     pub(crate) fn settle_at_dissolution(
         owner: &T::AccountId,
         netuid: NetUid,
@@ -558,6 +571,8 @@ impl<T: Config> Pallet<T> {
             return;
         };
         let side = position.side();
+        // Out of the book before any transfer: the caller iterates `OpenByNetuid` until it is
+        // empty, so a position must leave it whether or not what follows succeeds.
         Self::remove(owner, netuid, &position);
 
         let pallet_account = Self::pallet_account();
@@ -566,7 +581,9 @@ impl<T: Config> Pallet<T> {
         let mut pot = position.cushion;
 
         // Alpha the pallet holds is handed to the pool and credited at the price; alpha it owes
-        // is charged at it. Both round in the pool's favour.
+        // is charged at it. Both round in the pool's favour. A long's alpha is not sold: it
+        // goes back in kind and the pool pays its value in TAO from its own reserve, so no
+        // position's settlement moves the price another one is settled at.
         let (credit, owed, mut tao_to_pool, alpha_to_pool) = match position.legs {
             Legs::Short {
                 proceeds,
@@ -594,6 +611,8 @@ impl<T: Config> Pallet<T> {
         };
 
         if !credit.is_zero() {
+            // A reserve that cannot pay the credit is a pool already short of what its own
+            // price says it holds; the owner loses the credit, the cleanup goes on.
             match T::Pool::draw_tao(netuid, &pallet_account, credit) {
                 Ok(()) => pot = pot.saturating_add(credit),
                 Err(error) => log::error!(
@@ -602,6 +621,9 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // Debt first, then interest, then the underwater rule, as at any settlement. The
+        // interest is plain TAO here rather than buy pressure: there is no pool left to buy
+        // from, and the reserves it joins are what the stakers are paid.
         let repaid = take(&mut pot, owed);
         let interest_paid = take(&mut pot, interest_due);
         tao_to_pool = tao_to_pool

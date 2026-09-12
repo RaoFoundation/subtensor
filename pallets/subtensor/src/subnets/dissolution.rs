@@ -74,8 +74,17 @@ pub enum DissolveCleanupPhase {
     NetworkAlphaAssetCounters,
     /// Phase -1: Settle every open derivative position on this subnet while the pool and the
     /// stake maps are still live, so borrowed liquidity returns to the pool and cushions return
-    /// to their owners before stakes are converted. Appended so in-flight cleanup
-    /// discriminants stay stable; new dissolves start here via [`Default`].
+    /// to their owners before stakes are converted. It must run first: every later phase
+    /// values or moves the reserves, and the reserves are only whole once the slices lent to
+    /// positions are back in them.
+    ///
+    /// The hook cash-settles at one spot price, read once and stored by the derivatives
+    /// pallet, with no swap, so this phase cannot move the price the stakers are paid at and
+    /// cannot fail for lack of liquidity. It is metered like every other phase: `false` means
+    /// the weight ran out with positions left, and the phase is re-entered next block until it
+    /// reports done. It is never skipped and never errors; a position whose transfers fail is
+    /// logged and dropped from the book so the cleanup always finishes. Appended so in-flight
+    /// cleanup discriminants stay stable; new dissolves start here via [`Default`].
     DerivativesSettle,
 }
 
