@@ -8,6 +8,7 @@
 //! turnover it spent. The liquidity cap stops that accumulation.
 #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 
+use crate::staking::BasketFlushWork;
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, register_on_root, set_root_weights_direct, zero_claim_threshold,
 };
@@ -704,7 +705,7 @@ fn test_swap_basket_weight_charges_pending_deposit_flush() {
         // Learn the flush work this exact queue implies, then restore the queue: the trade
         // must charge precisely that on top of its row weight, and refund below declared.
         let (flush_work, _, _) = SubtensorModule::flush_basket_deposits_for_hotkey(&hotkey);
-        assert!(flush_work > 0);
+        assert!(flush_work.total() > 0);
         SubtensorModule::enqueue_basket_deposit(&hotkey, b, (5 * TAO).into());
         SubtensorModule::enqueue_basket_deposit(&hotkey, a, (5 * TAO).into());
         pin_ema_to_spot(a);
@@ -781,11 +782,13 @@ fn test_swap_basket_declared_weight_covers_failing_multi_credit_flush() {
                 1_000
             );
         }
-        // Scan (one per credit) + one curated attempt: 3 sweeps over the holdings, two
-        // per destination, one sell per credit. No per-credit retry term.
+        // Quotes: scan (one per credit) + one curated attempt's 3 sweeps over the holdings
+        // + the post-buy sweep's 2 destination rows. Rows: one sell per credit + 2 buys. No
+        // per-credit retry term.
         let credits = origins.len() as u64;
-        let flush_work = credits + 3 * holdings_before + 2 * 2 + credits;
-        assert!(flush_work <= SubtensorModule::basket_flush_work_bound());
+        let flush_work = BasketFlushWork::new(credits + 3 * holdings_before + 2, credits + 2);
+        let bound = SubtensorModule::basket_flush_work_bound();
+        assert!(flush_work.quotes <= bound.quotes && flush_work.rows <= bound.rows);
         assert_eq!(
             actual,
             SubtensorModule::swap_basket_weight(holdings_before)

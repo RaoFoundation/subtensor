@@ -1,4 +1,4 @@
-use super::basket_flush::MAX_BASKET_ROWS;
+use super::basket_flush::{BasketFlushWork, MAX_BASKET_ROWS};
 use super::*;
 use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
@@ -43,9 +43,9 @@ pub struct RootClaimOutcome {
     pub realized: u32,
     /// Dust holdings consolidated into the root slot (one swap each).
     pub swept: u32,
-    /// Quote units spent flushing the hotkey's pending dividend credits before redeeming
-    /// (priced by `basket_flush_weight`, the model every flushing extrinsic shares).
-    pub flush: u64,
+    /// Work spent flushing the hotkey's pending dividend credits before redeeming (priced
+    /// by `basket_flush_weight`, the model every flushing extrinsic shares).
+    pub flush: BasketFlushWork,
 }
 
 impl RootClaimOutcome {

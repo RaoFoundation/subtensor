@@ -14,6 +14,7 @@
 
 use super::claim_root::BasketFunding;
 use super::*;
+use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
 use frame_support::weights::Weight;
 use pallet_alpha_assets::AlphaAssetsInterface;
@@ -35,47 +36,86 @@ pub(crate) const MAX_BASKET_ROWS: u64 = crate::MAX_ROOT_CLAIM_WORK as u64;
 /// flush more than this must claim per hotkey instead.
 pub(crate) const MAX_BASKET_FLUSH_ROWS: u64 = 2 * MAX_BASKET_ROWS;
 
+/// Work counters of one pending-deposit flush, in the two units the flush weight prices
+/// separately: read-only AMM `quotes` (NAV sweeps and the scan's spot reads — one sim-swap
+/// valuation plus reads each) and executed `rows` (one origin sell or in-place credit per
+/// credit, one buy per destination — each a swap plus stake, reserve, and queue writes).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BasketFlushWork {
+    pub quotes: u64,
+    pub rows: u64,
+}
+
+impl BasketFlushWork {
+    pub(crate) const fn new(quotes: u64, rows: u64) -> Self {
+        Self { quotes, rows }
+    }
+
+    pub(crate) fn saturating_add(self, other: Self) -> Self {
+        Self {
+            quotes: self.quotes.saturating_add(other.quotes),
+            rows: self.rows.saturating_add(other.rows),
+        }
+    }
+
+    /// Quote and row counters folded into one figure, for bound comparisons in tests.
+    pub fn total(self) -> u64 {
+        self.quotes.saturating_add(self.rows)
+    }
+}
+
 impl<T: Config> Pallet<T> {
-    /// Worst-case quote work of one [`Self::flush_basket_deposits_for_hotkey`] call, or of
-    /// the flushes a coldkey-wide claim admitted by [`Self::basket_flush_fits_declared_budget`]
+    /// Worst-case work of one [`Self::flush_basket_deposits_for_hotkey`] call, or of the
+    /// flushes a coldkey-wide claim admitted by [`Self::basket_flush_fits_declared_budget`]
     /// performs in total. This is the flat pre-dispatch allowance every extrinsic that flushes
     /// declares; the actual work is refunded post-dispatch.
     ///
     /// Let `Q` be the queued rows scanned, `H` the holdings before the deposit, `D` the
     /// weight-vector destinations, and `C <= Q` the credits deposited. One flush is:
-    /// * the scan: one unit per queued row, `Q`;
+    /// * the scan: one quote per queued row, `Q`;
     /// * one deposit attempt ([`Self::deposit_root_alpha_batch`]). Curated: the pre-sale NAV
-    ///   sweep `H`, one sell per credit `C`, and the deployment's pre-buy sweep `H`, `D`
-    ///   buys, and post-buy sweep over at most `H + D` rows — `3H + 2D + C`. Uncurated:
-    ///   `H + 2C`, which is smaller;
-    /// * the baseline stamp on success, one sweep over at most `H + D` rows.
+    ///   sweep `H`, the deployment's pre-buy sweep `H` and post-buy sweep over at most
+    ///   `H + D` holdings — `3H + D` quotes — plus `C` sells and `D` buys — `C + D` rows.
+    ///   Uncurated: `H + 2C` quotes and `C` rows, which is smaller;
+    /// * the baseline stamp on success, one sweep over at most `H + D` rows — `H + D` quotes.
     ///
     /// Per-credit failures are isolated inside the attempt (the failing credit is re-queued
     /// and the batch continues), and a shared-phase failure re-queues the whole batch, so
     /// there is exactly one attempt: no per-credit retry can multiply the sweeps. Total:
-    /// `Q + 4H + 3D + C <= 2Q + 4H + 3D`.
+    /// `Q + 4H + 2D` quotes and `C + D <= Q + D` rows.
     ///
-    /// One hotkey has `Q, H, D <= MAX_BASKET_ROWS`, giving `9 * MAX_BASKET_ROWS`. A coldkey-wide
-    /// claim over several hotkeys is admitted with `sum(H) <= MAX_BASKET_ROWS` (escrow rows,
-    /// `root_claim_fits_declared_budget`) and `sum(Q + D) <= MAX_BASKET_FLUSH_ROWS`, giving
-    /// `3 * sum(Q + D) + 4 * sum(H) <= 10 * MAX_BASKET_ROWS`. The larger figure is the single
-    /// allowance used everywhere.
-    pub(crate) fn basket_flush_work_bound() -> u64 {
-        MAX_BASKET_ROWS.saturating_mul(10)
+    /// One hotkey has `Q, H, D <= MAX_BASKET_ROWS`: `7 * MAX_BASKET_ROWS` quotes and
+    /// `2 * MAX_BASKET_ROWS` rows. A coldkey-wide claim over several hotkeys is admitted with
+    /// `sum(H) <= MAX_BASKET_ROWS` (escrow rows, `root_claim_fits_declared_budget`) and
+    /// `sum(Q + D) <= MAX_BASKET_FLUSH_ROWS`: `2 * sum(Q + D) + 4 * sum(H) <= 8 *
+    /// MAX_BASKET_ROWS` quotes and `sum(Q + D) <= 2 * MAX_BASKET_ROWS` rows. The larger
+    /// figures are the single allowance used everywhere.
+    pub(crate) fn basket_flush_work_bound() -> BasketFlushWork {
+        BasketFlushWork::new(MAX_BASKET_ROWS.saturating_mul(8), MAX_BASKET_FLUSH_ROWS)
     }
 
-    /// Weight of `flush_work` quote units reported by [`Self::flush_basket_deposits_for_hotkey`]
-    /// (one sim-swap valuation each), priced like NAV-sweep rows. Zero when nothing was queued.
-    pub(crate) fn basket_flush_weight(flush_work: u64) -> Weight {
-        if flush_work == 0 {
+    /// Weight of the work reported by [`Self::flush_basket_deposits_for_hotkey`]: quotes are
+    /// priced like NAV-sweep rows (read-only sim-swap valuations); executed rows — a swap with
+    /// stake, reserve, and queue writes each — are priced like redeemed `claim_root` rows, the
+    /// benchmarked figure for one swap-and-write row. Zero when nothing was queued.
+    pub(crate) fn basket_flush_weight(work: BasketFlushWork) -> Weight {
+        let quotes = if work.quotes == 0 {
             Weight::zero()
         } else {
-            Self::basket_nav_sweep_weight(flush_work)
-        }
+            Self::basket_nav_sweep_weight(work.quotes)
+        };
+        let rows = if work.rows == 0 {
+            Weight::zero()
+        } else {
+            <T as crate::pallet::Config>::WeightInfo::claim_root(
+                u32::try_from(work.rows).unwrap_or(u32::MAX),
+            )
+        };
+        quotes.saturating_add(rows)
     }
 
     /// Flat pre-dispatch flush allowance: [`Self::basket_flush_work_bound`] priced as weight.
-    pub(crate) fn basket_flush_weight_bound() -> Weight {
+    pub fn basket_flush_weight_bound() -> Weight {
         Self::basket_flush_weight(Self::basket_flush_work_bound())
     }
 
@@ -144,25 +184,25 @@ impl<T: Config> Pallet<T> {
     /// alpha only — basket holdings are untouched). Root replacement calls this after
     /// dropping membership so churn cannot leave permanent straggler rows.
     ///
-    /// Returns `(work, last_key, completed)`: the approximate quote work done (never above
-    /// [`Self::basket_flush_work_bound`]; priced by [`Self::basket_flush_weight`] into the
-    /// post-dispatch weight of every extrinsic that flushes), the raw storage key of the
-    /// hotkey's last queue entry, and whether every credit selected for this flush was
-    /// settled. The drain stores `last_key` as its cursor so a hotkey whose credits are all
+    /// Returns `(work, last_key, completed)`: the approximate work done (quotes and executed
+    /// rows, never above [`Self::basket_flush_work_bound`]; priced by
+    /// [`Self::basket_flush_weight`] into the post-dispatch weight of every extrinsic that
+    /// flushes), the raw storage key of the hotkey's last queue entry, and whether every
+    /// credit selected for this flush was settled. The drain stores `last_key` as its cursor so a hotkey whose credits are all
     /// deferred dust still gets skipped past instead of pinning the queue head.
     pub(crate) fn flush_basket_deposits_for_hotkey(
         hotkey: &T::AccountId,
-    ) -> (u64, Option<Vec<u8>>, bool) {
+    ) -> (BasketFlushWork, Option<Vec<u8>>, bool) {
         let threshold: u64 =
             RootClaimableThreshold::<T>::get(NetUid::ROOT).saturating_to_num::<u64>();
         let on_root = Self::is_hotkey_registered_on_network(NetUid::ROOT, hotkey);
 
-        let mut work: u64 = 0;
+        let mut work = BasketFlushWork::default();
         let mut last_netuid: Option<NetUid> = None;
         let mut batch: Vec<(NetUid, AlphaBalance)> = Vec::new();
         for (netuid, alpha) in PendingBasketDeposits::<T>::iter_prefix(hotkey) {
             last_netuid = Some(netuid);
-            work = work.saturating_add(1);
+            work.quotes = work.quotes.saturating_add(1);
             if !Self::if_subnet_exist(netuid) {
                 Self::drop_pending_basket_deposit(hotkey, netuid, alpha);
                 continue;
@@ -326,15 +366,15 @@ impl<T: Config> Pallet<T> {
     /// Credits are recycled when demonstrably unapportionable (no root stake), terminally
     /// untradeable, or when the seed migration owns the basket maps.
     ///
-    /// Returns the approximate quote work performed (holdings valued plus origin quotes),
-    /// priced by [`Self::basket_flush_weight`] in the post-dispatch weight of callers that
-    /// flush inside an extrinsic.
+    /// Returns the approximate work performed (holdings valued as quotes, sells, buys, and
+    /// in-place credits as executed rows), priced by [`Self::basket_flush_weight`] in the
+    /// post-dispatch weight of callers that flush inside an extrinsic.
     pub(crate) fn deposit_root_alpha_batch(
         hotkey: &T::AccountId,
         batch: &[(NetUid, AlphaBalance)],
-    ) -> u64 {
+    ) -> BasketFlushWork {
         if batch.iter().all(|(_, alpha)| alpha.is_zero()) {
-            return 0;
+            return BasketFlushWork::default();
         }
 
         // Seed migration still converting legacy claim state. Coinbase only queues its
@@ -342,7 +382,7 @@ impl<T: Config> Pallet<T> {
         // than writing BasketRate/Shares that a later pass would overwrite.
         if crate::migrations::migrate_seed_beta_basket::seed_beta_basket_v2_in_progress::<T>() {
             Self::recycle_basket_deposit_batch(batch);
-            return 0;
+            return BasketFlushWork::default();
         }
 
         let valid = Self::get_valid_basket_weights(hotkey);
@@ -361,23 +401,25 @@ impl<T: Config> Pallet<T> {
         // No root stake to apportion against: recycle.
         if total_root.is_zero() {
             Self::recycle_basket_deposit_batch(batch);
-            return 0;
+            return BasketFlushWork::default();
         }
 
-        // Approximate quote units executed, charged whether the deposit commits or rolls
-        // back (the quotes ran either way). Uncurated: one NAV sweep plus two quotes per
-        // origin. Curated: pre-sale NAV, the deployment's pre-buy sweep, one buy per
-        // destination, its post-buy sweep (which may now include every destination as a new
-        // row), plus one sell per origin.
+        // Approximate work executed, charged whether the deposit commits or rolls back (the
+        // quotes and swaps ran either way). Uncurated: one NAV sweep plus two quotes per
+        // origin, and one in-place credit row per origin. Curated: pre-sale NAV, the
+        // deployment's pre-buy sweep, and its post-buy sweep (which may now include every
+        // destination as a new row) as quotes; one sell per origin and one buy per
+        // destination as executed rows.
         let holdings = Self::get_basket_holdings(hotkey).len() as u64;
         let credits = batch.len() as u64;
+        let destinations = valid.len() as u64;
         let work = if valid.is_empty() {
-            holdings.saturating_add(credits.saturating_mul(2))
+            BasketFlushWork::new(holdings.saturating_add(credits.saturating_mul(2)), credits)
         } else {
-            holdings
-                .saturating_mul(3)
-                .saturating_add((valid.len() as u64).saturating_mul(2))
-                .saturating_add(credits)
+            BasketFlushWork::new(
+                holdings.saturating_mul(3).saturating_add(destinations),
+                credits.saturating_add(destinations),
+            )
         };
 
         let outcome = with_transaction(|| {
@@ -406,7 +448,10 @@ impl<T: Config> Pallet<T> {
         if outcome.is_ok() {
             // A fund's very first successful mint stamps its frozen display baseline
             // (index splice). No-op (one read) for every later deposit.
-            return work.saturating_add(Self::stamp_beta_baseline_if_new(hotkey));
+            return work.saturating_add(BasketFlushWork::new(
+                Self::stamp_beta_baseline_if_new(hotkey),
+                0,
+            ));
         }
 
         // Soft failure in a shared phase (NAV sweep, deployment, dust mint): re-queue every
