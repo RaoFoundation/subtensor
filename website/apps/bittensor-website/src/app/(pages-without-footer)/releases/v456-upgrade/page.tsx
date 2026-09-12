@@ -460,15 +460,23 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to
             pool itself use the real reserves; only the emission weight is adjusted.
           </p>
           <p>
-            <strong>Dissolution.</strong> If a subnet is dissolved with positions open, settling
-            them is the first cleanup phase, before any staker is paid. Every position is
-            cash-settled at the pool&apos;s spot price in the block dissolution began, with no
-            swap. That price is fixed before the first position settles and every position
-            settles at it. A short&apos;s alpha debt is charged at that price, a long&apos;s alpha
-            is credited at it, the interest is paid, and the rest is yours. A short that is in
-            the money is paid its gain first. Because nothing is bought back, a short&apos;s own
-            price impact is not reversed at dissolution: a short that drove the price down and
-            then saw the subnet die is charged at the price the pool last showed.
+            <strong>When the subnet is deregistered: cash settlement at one price.</strong> If a
+            subnet is dissolved with positions open, settling them is the first cleanup phase,
+            before stakes are converted or any staker is paid. The chain reads the pool&apos;s
+            spot price once, stores it, and emits <code>DissolutionPriced</code>; every position
+            on the subnet then settles at that same price, with no swap and no netting of one
+            position against another. A short&apos;s alpha debt is converted to TAO at that
+            price, rounded up; a long&apos;s alpha is handed to the pool and credited in TAO at
+            that price, rounded down; both roundings favour the pool. The debt is repaid from
+            the cushion plus proceeds, the interest owed is taken, and the rest is paid to you in
+            TAO. An underwater position pays you nothing and its remainder goes to the pool.
+            Everything the pool is owed returns to its reserves, which is what the stakers are
+            paid from next. Settlement never blocks dissolution: each block settles as many
+            positions as its weight budget allows and resumes in the next, with no cap on how
+            many positions a subnet may have; a transfer that fails is logged and the cleanup
+            moves on. Because nothing is bought back, a short&apos;s own price impact is not
+            reversed: a short that drove the price down and then saw the subnet die is charged
+            at the price the pool last showed.
           </p>
         </section>
 

@@ -455,45 +455,70 @@ emission follows it. Spot price, swaps, and the price-neutral injection of
 emission into the pool all still use the real reserves; only the emission
 weight uses the adjusted price.
 
-## Subnet dissolution
+## What happens when the subnet is deregistered
 
-**Dissolution** is the removal of a subnet. The chain cleans up its state
-over the blocks that follow. If positions are open, settling them is the
-**first** cleanup phase
-([`DerivativesSettle`](/code/pallets/subtensor/src/subnets/dissolution.rs)).
-It runs before any staker is paid, while the pool still exists.
+**Deregistration**, or **dissolution**, is the removal of a subnet. The
+chain cleans up the subnet's state over the blocks that follow, in phases.
+Your position does not survive it. It is turned into TAO, by the chain, at
+one price, and paid to you.
 
-Dissolution is a **cash settlement**: every position is converted to TAO at
-one fixed price. Nothing is swapped and nothing is netted against anything
-else.
+This is a **cash settlement**. Nothing is swapped through the pool. Nothing
+is netted between one position and another. Each position is priced alone.
 
-**One price.** Before the first position is settled, the chain reads the
-pool's **spot price** once, stores it, and reports it in `DissolutionPriced`
-as a `tao / alpha` pair
-([`spot_price`](/code/pallets/subtensor/src/staking/derivatives_pool.rs)).
-Every position on the subnet settles at that same price, whatever block it
-is reached in.
+The steps, in order:
 
-Each position is then settled on its own
+1. **Derivatives settle first.** The settlement of positions is the first
+   cleanup phase
+   ([`DerivativesSettle`](/code/pallets/subtensor/src/subnets/dissolution.rs)).
+   It runs before stakes are converted and before any staker is paid, while
+   the pool and the stake records still exist.
+2. **One price is fixed.** Before the first position is settled, the chain
+   reads the pool's **spot price** once and stores it
+   ([`spot_price`](/code/pallets/subtensor/src/staking/derivatives_pool.rs)).
+   It emits `DissolutionPriced` with that price as a `tao / alpha` pair.
+   Every position on the subnet settles at this same price, whatever block it
+   is reached in.
+3. **A short's debt is converted, rounded up.** The alpha a short owes
+   becomes a TAO amount at the fixed price. The rounding goes up, in the
+   pool's favour. The short's pot is its cushion plus its proceeds.
+4. **A long's alpha is credited, rounded down.** The alpha a long holds is
+   handed to the pool, and its TAO value at the fixed price is added to the
+   long's pot. The rounding goes down, in the pool's favour. The long's TAO
+   debt is already TAO.
+5. **The debt is repaid from the pot.** Then the interest owed up to this
+   block is taken from what is left.
+6. **Underwater pays nothing.** If the pot could not cover the debt, the rest
+   of the pot goes to the pool and you are paid nothing.
+7. **The remainder is paid to you in TAO.**
+8. **Everything else goes back to the reserves.** The repaid debt, the
+   interest, the escrow, and any alpha handed back all land in the pool's
+   reserves. The stakers are paid from those reserves in the later phases.
+
+Three guarantees around those steps
 ([`settle_at_dissolution`](/code/pallets/derivatives/src/settle.rs)):
 
-1. The interest owed up to this block is worked out.
-2. The debt is priced. A short's alpha debt becomes a TAO amount at the fixed
-   price, rounded **up**. A long's debt is already TAO.
-3. The alpha held is priced. A long's proceeds alpha is credited to its pot
-   in TAO at the fixed price, rounded **down**, and the alpha itself goes to
-   the pool. A short holds no alpha; its escrow TAO goes to the pool. Both
-   roundings favour the pool.
-4. The debt is repaid from the pot, then the interest is taken.
-5. If the pot could not cover the debt, the position is underwater. The rest
-   of the pot goes to the pool and you are paid nothing.
-6. What is left of the pot is paid to you in TAO.
-7. Everything the pool is owed goes back into its reserves. The stakers are
-   paid from those reserves in the later cleanup phases.
+- **It never blocks dissolution.** Each block settles as many positions as
+  its weight budget allows, then the phase resumes in the next block until no
+  position is left. A transfer that cannot go through is logged, the position
+  is dropped from the book, and the cleanup moves on.
+- **There is no cap on positions.** A subnet with more positions than one
+  block can settle is settled over as many blocks as it takes.
+- **Order does not matter.** Because the price is fixed once and nothing is
+  swapped, the payout of a position does not depend on which positions were
+  settled before it.
 
-Settlement never blocks dissolution. Each block settles as many positions as
-its weight budget allows and continues in the next block. A transfer that
-cannot go through is logged, and the cleanup moves on.
+A small example, at a fixed price of 1 τ per α, with 1 τ of interest owed on
+each position:
+
+| Position | Owes | Holds | Pot | Paid to owner | Back to the pool |
+|----------|------|-------|-----|---------------|------------------|
+| Short A | 60 α | 160 τ (cushion + proceeds) | 160 τ | 160 − 60 − 1 = **99 τ** | 61 τ + its escrow TAO |
+| Short B | 40 α | 140 τ (cushion + proceeds) | 140 τ | 140 − 40 − 1 = **99 τ** | 41 τ + its escrow TAO |
+| Long C | 60 τ | 60 τ cushion + 60 α | 60 + 60 = 120 τ | 120 − 60 − 1 = **59 τ** | 61 τ, plus its 60 α and its escrow alpha |
+
+The chain does **not** net the 100 α the shorts owe against the 60 α the
+long holds and trade the 40 α difference against the pool. It settles the
+three positions one at a time at the same price.
 
 Because nothing is bought back, a short's own price impact is not reversed.
 A short that sold its slice down the curve and then saw the subnet dissolve
@@ -570,5 +595,8 @@ and `DissolutionPrice` while a subnet's positions are being settled.
   position's leverage is the blend.
 - A long moves the spot price but not the price emission is weighted by. A
   short moves both.
+- If the subnet is deregistered, your position is cash-settled for you at one
+  fixed spot price, with no swap, before any staker is paid. You get the
+  remainder in TAO; an underwater position gets nothing.
 
 For the pool mechanics underneath, see [Staking pools](/docs/concepts/staking-pools).
