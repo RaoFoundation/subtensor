@@ -79,6 +79,7 @@
     "auto-stake",
     "auto-stake-all",
     "basket-position",
+    "basket-trading-status",
     "root-basket-owed",
     "root-basket-owed-breakdown",
     "root-basket-portfolio",

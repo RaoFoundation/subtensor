@@ -24,6 +24,17 @@ type Release = {
 const releases: Release[] = [
   {
     tag: 'next',
+    date: 'September 2026',
+    title: 'Basket Trading',
+    summary:
+      'V456 adds swap_basket: root validators trade one basket holding for another through a ' +
+      'dedicated BasketTrading proxy, boxed in by a 2% per-leg price band, a token-bucket ' +
+      'turnover budget of 10% of NAV per day, a 10% per-pool liquidity cap, the 1/16 ' +
+      'concentration cap, and governance freeze switches. Launches gated off.',
+    href: '/releases/v456-upgrade',
+  },
+  {
+    tag: 'v450',
     date: 'August 2026',
     title: 'Curated Beta',
     summary:

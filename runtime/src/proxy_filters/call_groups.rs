@@ -418,6 +418,13 @@ call_filter_group!(
     ]
 );
 
+// Rebalancing a validator's own beta basket. Kept out of `StakeManagementCalls`
+// so a trader multisig can be granted this alone via `ProxyType::BasketTrading`.
+call_filter_group!(
+    BasketTradingCalls,
+    [RuntimeCall::SubtensorModule(SubtensorCall::swap_basket)]
+);
+
 // A subnet's public identity and token symbol.
 call_filter_group!(
     SubnetIdentityCalls,
@@ -593,6 +600,10 @@ call_filter_group!(
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_max_epochs_per_block),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weight_setting_enabled),
         RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_root_weights_cap),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trading_enabled),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_trading_frozen),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_daily_turnover_cap),
+        RuntimeCall::AdminUtils(AdminUtilsCall::sudo_set_basket_liquidity_cap),
     ]
 );
 
@@ -694,6 +705,7 @@ type SubtensorSplitCalls = (
     CriticalNetworkCalls,
     ChildKeyCalls,
     RootClaimCalls,
+    BasketTradingCalls,
     SubnetIdentityCalls,
     SubnetActivationCalls,
     SubtensorCommonCalls,

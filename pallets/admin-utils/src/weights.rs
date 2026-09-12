@@ -124,6 +124,10 @@ pub trait WeightInfo {
 	fn sudo_set_collateral_lock_share() -> Weight;
 	fn sudo_set_collateral_drain_ratio() -> Weight;
 	fn sudo_set_root_weights_cap() -> Weight;
+	fn sudo_set_basket_trading_enabled() -> Weight;
+	fn sudo_set_basket_trading_frozen() -> Weight;
+	fn sudo_set_basket_daily_turnover_cap() -> Weight;
+	fn sudo_set_basket_liquidity_cap() -> Weight;
 }
 
 /// Weights for `pallet_admin_utils` using the Substrate node and recommended hardware.
@@ -1471,6 +1475,30 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	fn sudo_set_root_weights_cap() -> Weight {
 		// Measured on the reference Benchmarking runner (validate-benchmarks,
 		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Same single storage write as `sudo_set_root_weights_cap`; that measured
+	/// value is reused pending a measured run.
+	fn sudo_set_basket_trading_enabled() -> Weight {
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Same single storage write as `sudo_set_root_weights_cap`; that measured
+	/// value is reused pending a measured run.
+	fn sudo_set_basket_trading_frozen() -> Weight {
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Same single storage write as `sudo_set_root_weights_cap`; that measured
+	/// value is reused pending a measured run.
+	fn sudo_set_basket_daily_turnover_cap() -> Weight {
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Same single storage write as `sudo_set_root_weights_cap`; that measured
+	/// value is reused pending a measured run.
+	fn sudo_set_basket_liquidity_cap() -> Weight {
 		Weight::from_parts(4_916_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
@@ -2866,6 +2894,30 @@ impl WeightInfo for () {
 	fn sudo_set_root_weights_cap() -> Weight {
 		// Measured on the reference Benchmarking runner (validate-benchmarks,
 		// steps 50 / repeat 20): weight 4_916_000, io r 0 w 1.
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Same single storage write as `sudo_set_root_weights_cap`; that measured
+	/// value is reused pending a measured run.
+	fn sudo_set_basket_trading_enabled() -> Weight {
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Same single storage write as `sudo_set_root_weights_cap`; that measured
+	/// value is reused pending a measured run.
+	fn sudo_set_basket_trading_frozen() -> Weight {
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Same single storage write as `sudo_set_root_weights_cap`; that measured
+	/// value is reused pending a measured run.
+	fn sudo_set_basket_daily_turnover_cap() -> Weight {
+		Weight::from_parts(4_916_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Same single storage write as `sudo_set_root_weights_cap`; that measured
+	/// value is reused pending a measured run.
+	fn sudo_set_basket_liquidity_cap() -> Weight {
 		Weight::from_parts(4_916_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}

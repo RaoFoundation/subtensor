@@ -28,7 +28,9 @@ use sp_runtime::{
 use sp_std::collections::vec_deque::VecDeque;
 use sp_std::vec;
 use substrate_fixed::types::{I96F32, U64F64};
-use subtensor_runtime_common::{AlphaBalance, NetUid, NetUidStorageIndex, TaoBalance};
+use subtensor_runtime_common::{
+    AlphaBalance, AuthorshipInfo, NetUid, NetUidStorageIndex, TaoBalance,
+};
 use subtensor_swap_interface::SwapHandler;
 
 mod helpers;
@@ -2179,6 +2181,79 @@ mod pallet_benchmarks {
     fn sudo_set_root_claim_threshold() {
         #[extrinsic_call]
         _(RawOrigin::Root, NetUid::ROOT, 100);
+    }
+
+    #[benchmark]
+    fn swap_basket(h: Linear<1, 256>) {
+        // A fund holding `h` dynamic-subnet rows sells part of one into a subnet it does
+        // not hold yet, so both AMM legs execute with fee settlement, the pre-trade
+        // realizable-NAV sweep values `h` escrow rows, and the origin and destination
+        // holdings are re-quoted after the trade.
+        let coldkey: T::AccountId = whitelisted_caller();
+        let hotkey: T::AccountId = account("swap_basket_hot", 0, 1);
+        let escrow = Subtensor::<T>::get_beta_escrow_account_id();
+
+        // Both legs pay the block author a fee; without an author those paths burn instead
+        // and the measurement would miss a swap and a transfer per leg.
+        let author = seed_block_author::<T>();
+        let author_balance_before = Subtensor::<T>::get_coldkey_balance(&author);
+
+        BasketTradingEnabled::<T>::put(true);
+        Subtensor::<T>::init_new_network(NetUid::ROOT, 1);
+        Uids::<T>::insert(NetUid::ROOT, &hotkey, 0u16);
+        Owner::<T>::insert(&hotkey, &coldkey);
+
+        // Every pool is 100,000 τ against 100,000 α (spot 1.0) with its moving price
+        // pinned to spot, so a 100 α leg moves each pool by ~0.1%, well inside the 2%
+        // band. The fund holds 5,000 α on each of the `h` origin-side subnets: 1/20 of a
+        // pool, under the 10% liquidity cap, and enough NAV that the turnover budget
+        // (10% of NAV) clears the ~100 τ through the middle.
+        let reserve_tao = TaoBalance::from(100_000_000_000_000_u64);
+        let reserve_alpha = AlphaBalance::from(100_000_000_000_000_u64);
+        let holding = AlphaBalance::from(5_000_000_000_000_u64);
+        for i in 0..=h {
+            let netuid = NetUid::from((i + 1) as u16);
+            Subtensor::<T>::init_new_network(netuid, 1);
+            SubnetMechanism::<T>::insert(netuid, 1);
+            SubtokenEnabled::<T>::insert(netuid, true);
+            set_reserves::<T>(netuid, reserve_tao, reserve_alpha);
+            SubnetMovingPrice::<T>::insert(netuid, I96F32::from_num(1));
+            if i < h {
+                Subtensor::<T>::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                    &hotkey, &escrow, netuid, holding,
+                );
+            }
+        }
+
+        let origin_netuid = NetUid::from(1);
+        let destination_netuid = NetUid::from((h + 1) as u16);
+        // The sell leg's TAO is moved from the origin pot to the destination pot, so the
+        // origin subnet account must hold it.
+        let origin_account = Subtensor::<T>::get_subnet_account_id(origin_netuid).unwrap();
+        add_balance_to_coldkey_account::<T>(&origin_account, reserve_tao);
+        let amount = AlphaBalance::from(100_000_000_000_u64);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(coldkey),
+            hotkey.clone(),
+            origin_netuid,
+            destination_netuid,
+            amount,
+            0u64,
+        );
+
+        assert!(
+            Subtensor::<T>::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &escrow,
+                destination_netuid
+            ) > AlphaBalance::ZERO
+        );
+        assert!(
+            Subtensor::<T>::get_coldkey_balance(&author) > author_balance_before,
+            "block author must receive the fees from both legs"
+        );
     }
 
     #[benchmark]

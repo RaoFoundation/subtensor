@@ -422,8 +422,10 @@ class ClaimRootWithHotkey(_RootClaimIntent):
     per-holding claim fee shrinks over time; curated positions are left to
     compound. The transaction fee is charged by work actually done:
     holdings redeemed pay full weight, holdings merely scanned pay a small
-    per-row cost. The chain reserves a fixed 256-unit declared-work envelope,
-    counts only root-relevant hotkeys and their basket rows for admission, and
+    per-row cost. The chain reserves a fixed 256-unit declared-work envelope
+    plus a flat allowance for settling the validator's queued dividend credits
+    first (the same allowance every basket call that flushes declares), counts
+    only root-relevant hotkeys and their basket rows for admission, and
     separately caps classification of the staking-hotkey vector at 256. It
     refunds the unused part after.
     ``plan`` and ``btcli root claim --dry-run`` show reserved versus spent,

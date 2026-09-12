@@ -85,6 +85,26 @@ pub const MIN_ROOT_BASKET_WEIGHTS: u16 = 8;
 /// admits a 16-way equal split, so a fund must curate at least 16 destinations.
 pub const DEFAULT_ROOT_WEIGHTS_CAP: u16 = u16::MAX / 16 + 1;
 
+/// Default [`BasketDailyTurnoverCap`]: the `swap_basket` turnover bucket holds 10% of fund
+/// NAV (u16-normalized).
+pub const DEFAULT_BASKET_DAILY_TURNOVER_CAP: u16 = u16::MAX / 10;
+
+/// Blocks for an empty `swap_basket` turnover bucket to refill completely (one day at 12s
+/// blocks). The bucket refills continuously at `budget / BASKET_TRADE_REFILL_BLOCKS` per
+/// block, so at any instant at most one full budget can be spent.
+pub const BASKET_TRADE_REFILL_BLOCKS: u64 = 7200;
+
+/// Default [`BasketLiquidityCap`]: a fund's holding on a subnet may not exceed 10% of that
+/// subnet's alpha reserve after a `swap_basket` buy (u16-normalized).
+pub const DEFAULT_BASKET_LIQUIDITY_CAP: u16 = u16::MAX / 10;
+
+/// Max deviation of a `swap_basket` leg's execution price from its reference, in basis
+/// points (2%). The reference is the *stricter* of the subnet's moving (EMA) price and its
+/// spot price: the EMA anchor defeats a pre-trade pump, the spot anchor caps the trade's own
+/// price impact. Applied to the sell leg as a floor and the buy leg as a ceiling via the AMM
+/// `price_limit`; a leg that cannot fill fully within the bound fails.
+pub const BASKET_TRADE_MAX_SLIPPAGE_BPS: u64 = 200;
+
 pub struct SubtensorDustRemoval<T>(PhantomData<T>);
 impl<T> frame_support::traits::OnUnbalanced<pallet_balances::CreditOf<T, ()>>
     for SubtensorDustRemoval<T>
@@ -2934,6 +2954,68 @@ pub mod pallet {
     /// all read paths are unaffected.
     #[pallet::storage]
     pub type RootWeightSettingEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    /// Master switch for `swap_basket` (validator-directed basket rebalancing). Defaults to
+    /// OFF. Flipped on via `AdminUtils::sudo_set_basket_trading_enabled`. Gates only the
+    /// trade path: deposits, claims, dividend deployment, and all read paths are unaffected.
+    #[pallet::storage]
+    pub type BasketTradingEnabled<T> = StorageValue<_, bool, ValueQuery>;
+
+    /// --- SET ( validator_hotkey ) --> basket trading frozen for this fund.
+    ///
+    /// Per-fund kill switch set by governance (`AdminUtils::sudo_set_basket_trading_frozen`),
+    /// e.g. after a suspected key compromise. A frozen fund still accepts deposits and pays
+    /// claims; only `swap_basket` is refused. Follows the fund on hotkey swap.
+    #[pallet::storage]
+    pub type BasketTradingFrozen<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
+    #[pallet::type_value]
+    /// Default daily turnover budget for basket trading: a bucket of 10% of fund NAV that
+    /// refills over one day (u16-normalized; 6553/65535).
+    pub fn DefaultBasketDailyTurnoverCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_DAILY_TURNOVER_CAP
+    }
+
+    /// --- ITEM --> capacity of a fund's `swap_basket` turnover bucket as a u16-normalized
+    /// share of the fund's NAV (`u16::MAX` = 100%). The bucket refills at
+    /// `capacity / BASKET_TRADE_REFILL_BLOCKS` per block, so at most one capacity can be
+    /// pushed through the fund at any instant and about one per day sustained. Each leg is
+    /// also bounded to [`crate::BASKET_TRADE_MAX_SLIPPAGE_BPS`] of *both* the moving price
+    /// and the spot price. Set via `AdminUtils::sudo_set_basket_daily_turnover_cap`.
+    #[pallet::storage]
+    pub type BasketDailyTurnoverCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketDailyTurnoverCap<T>>;
+
+    #[pallet::type_value]
+    /// Default liquidity cap for basket trading: a holding may not exceed 10% of the
+    /// destination pool's alpha reserve (u16-normalized; 6553/65535).
+    pub fn DefaultBasketLiquidityCap<T: Config>() -> u16 {
+        crate::DEFAULT_BASKET_LIQUIDITY_CAP
+    }
+
+    /// --- ITEM --> max share of a subnet's alpha reserve (`SubnetAlphaIn`) a fund may hold
+    /// on that subnet after a `swap_basket` buy (u16-normalized, `u16::MAX` = 100%).
+    ///
+    /// The concentration cap ([`RootWeightsCap`]) marks holdings at realizable value, which
+    /// is bounded by the pool's TAO reserve, so on a thin pool a fund could keep buying while
+    /// counterparties sell back into its own price support and the realizable share never
+    /// grows. This cap bounds the fund's exposure to any one pool's liquidity instead: with
+    /// cap `L` the value at risk on a pool with TAO reserve `R` is about `R × L² / (1 + L)`
+    /// (≈ 1% of `R` at 10%). Set via `AdminUtils::sudo_set_basket_liquidity_cap`.
+    #[pallet::storage]
+    pub type BasketLiquidityCap<T: Config> =
+        StorageValue<_, u16, ValueQuery, DefaultBasketLiquidityCap<T>>;
+
+    /// --- MAP ( validator_hotkey ) --> `(tao_available, last_refill_block)` of the fund's
+    /// `swap_basket` turnover bucket. A missing row is a full bucket (a new fund starts full).
+    /// On each trade the bucket is refilled for the blocks elapsed since `last_refill_block`
+    /// at `budget / BASKET_TRADE_REFILL_BLOCKS` per block, clamped to one budget (NAV at
+    /// that moment), then the TAO through the middle of the swap is taken out. Follows the
+    /// fund on hotkey swap (lower level, later refill block).
+    #[pallet::storage]
+    pub type BasketTradeBucket<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (u64, u64), OptionQuery>;
 
     #[pallet::type_value]
     /// Default share cap for a single root basket destination: 1/16 of the vector

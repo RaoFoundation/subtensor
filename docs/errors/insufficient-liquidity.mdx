@@ -21,6 +21,7 @@ The exact chain error names (from the extrinsic receipt) that classify to `insuf
 
 | Chain error | Description |
 | --- | --- |
+| [`BasketMinOutNotMet`](/docs/errors/chain/BasketMinOutNotMet) | The `swap_basket` buy leg credited less than the `min_amount_out` floor you set (destination alpha, or TAO when the destination is netuid 0), so the whole trade rolled back; nothing moved. The pool moved between your quote and execution, or the floor was set above what the trade could ever yield. Re-quote and retry, or widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 disables this check; the 2% protocol band still applies. |
 | [`InsufficientLiquidity`](/docs/errors/chain/InsufficientLiquidity) | The pool cannot absorb the operation: the swap simulation failed, reserves are smaller than the payout, or the amount exceeds the pool's supported input. Check the subnet pool reserves `SubnetTAO`, `SubnetAlphaIn` and `SubnetAlphaOut` against the amount. |
 | [`NotEnoughAlphaOutToRecycle`](/docs/errors/chain/NotEnoughAlphaOutToRecycle) | A recycle or burn of alpha requested more than the subnet's outstanding alpha supply. Compare the amount against the `SubnetAlphaOut` storage value for the netuid and reduce the recycle amount. |
 | [`PriceLimitExceeded`](/docs/errors/chain/PriceLimitExceeded) | The `limit_price` given to a swap is not beyond the current pool price in the trade's direction, so the swap would immediately breach it. Compare the limit price argument against the subnet's current alpha price before submitting. |

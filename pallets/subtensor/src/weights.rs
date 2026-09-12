@@ -91,6 +91,7 @@ pub trait WeightInfo {
 	fn set_root_claim_type() -> Weight;
 	fn claim_root(h: u32, ) -> Weight;
 	fn claim_root_scan(h: u32, ) -> Weight;
+	fn swap_basket(h: u32, ) -> Weight;
 	fn sudo_set_num_root_claims() -> Weight;
 	fn sudo_set_root_claim_threshold() -> Weight;
 	fn set_auto_parent_delegation_enabled() -> Weight;
@@ -2766,6 +2767,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(6_000_000, 1000)
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_mul(h.into())
+	}
+	/// Hand estimate pending a measured run: two AMM legs with fee settlement, one
+	/// realizable-NAV sweep (one `sim_swap` valuation plus reads per escrow row `h`), and
+	/// two post-trade re-quotes (origin and destination).
+	fn swap_basket(h: u32, ) -> Weight {
+		Weight::from_parts(60_000_000, 8000)
+			.saturating_add(Weight::from_parts(20_000_000, 0).saturating_mul(h.into()))
+			.saturating_add(T::DbWeight::get().reads(24_u64))
+			.saturating_add(T::DbWeight::get().reads((8_u64).saturating_mul(h.into())))
+			.saturating_add(T::DbWeight::get().writes(16_u64))
+			.saturating_add(Weight::from_parts(0, 2000).saturating_mul(h.into()))
 	}
 	/// Storage: `SubtensorModule::NumRootClaim` (r:0 w:1)
 	/// Proof: `SubtensorModule::NumRootClaim` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -6394,6 +6406,17 @@ impl WeightInfo for () {
 		Weight::from_parts(6_000_000, 1000)
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
 			.saturating_mul(h.into())
+	}
+	/// Hand estimate pending a measured run: two AMM legs with fee settlement, one
+	/// realizable-NAV sweep (one `sim_swap` valuation plus reads per escrow row `h`), and
+	/// two post-trade re-quotes (origin and destination).
+	fn swap_basket(h: u32, ) -> Weight {
+		Weight::from_parts(60_000_000, 8000)
+			.saturating_add(Weight::from_parts(20_000_000, 0).saturating_mul(h.into()))
+			.saturating_add(RocksDbWeight::get().reads(24_u64))
+			.saturating_add(RocksDbWeight::get().reads((8_u64).saturating_mul(h.into())))
+			.saturating_add(RocksDbWeight::get().writes(16_u64))
+			.saturating_add(Weight::from_parts(0, 2000).saturating_mul(h.into()))
 	}
 	/// Storage: `SubtensorModule::NumRootClaim` (r:0 w:1)
 	/// Proof: `SubtensorModule::NumRootClaim` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)

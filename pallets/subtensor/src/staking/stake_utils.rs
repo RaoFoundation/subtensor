@@ -802,6 +802,50 @@ impl<T: Config> Pallet<T> {
         LastColdkeyHotkeyStakeBlock::<T>::insert(to_coldkey, to_hotkey, from_last.max(to_last));
     }
 
+    /// Settle the AMM's block-author fee taken in alpha: swap it fee-free for TAO and pay
+    /// the block author, or burn the alpha when no author is known. Returns the TAO that left
+    /// the pool (zero on the burn path). Single source of truth for every alpha-selling path.
+    pub(crate) fn settle_alpha_fee_to_author(
+        netuid: NetUid,
+        fee: AlphaBalance,
+    ) -> Result<TaoBalance, DispatchError> {
+        match T::AuthorshipProvider::author() {
+            Some(block_author) => {
+                let fee_swap = Self::swap_alpha_for_tao(
+                    netuid,
+                    fee,
+                    T::SwapInterface::min_price::<TaoBalance>(),
+                    true,
+                )?;
+                Self::transfer_tao_from_subnet(
+                    netuid,
+                    &block_author,
+                    fee_swap.amount_paid_out.into(),
+                )?;
+                Ok(fee_swap.amount_paid_out)
+            }
+            None => {
+                Self::burn_subnet_alpha(netuid, fee);
+                Ok(TaoBalance::ZERO)
+            }
+        }
+    }
+
+    /// Settle the AMM's block-author fee taken in TAO, which is already sitting on the
+    /// subnet's pot: pay the block author, or burn it when no author is known. Single source
+    /// of truth for every TAO-buying path.
+    pub(crate) fn settle_tao_fee_to_author(netuid: NetUid, fee: TaoBalance) -> DispatchResult {
+        match T::AuthorshipProvider::author() {
+            Some(block_author) => Self::transfer_tao_from_subnet(netuid, &block_author, fee.into()),
+            None => {
+                if let Some(subnet_account) = Self::get_subnet_account_id(netuid) {
+                    let _ = Self::burn_tao(&subnet_account, fee.into());
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Unstakes alpha from a subnet for a given hotkey and coldkey pair.
     ///
     /// We update the pools associated with a subnet as well as update hotkey alpha shares.
@@ -857,25 +901,8 @@ impl<T: Config> Pallet<T> {
         Self::transfer_tao_from_subnet(netuid, beneficiary, swap_result.amount_paid_out.into())?;
 
         // Swap (in a fee-less way) the block builder alpha fee
-        let mut fee_outflow = 0_u64;
-        let maybe_block_author_coldkey = T::AuthorshipProvider::author();
-        if let Some(block_author_coldkey) = maybe_block_author_coldkey {
-            let bb_swap_result = Self::swap_alpha_for_tao(
-                netuid,
-                swap_result.fee_to_block_author,
-                T::SwapInterface::min_price::<TaoBalance>(),
-                true,
-            )?;
-            Self::transfer_tao_from_subnet(
-                netuid,
-                &block_author_coldkey,
-                bb_swap_result.amount_paid_out.into(),
-            )?;
-            fee_outflow = bb_swap_result.amount_paid_out.into();
-        } else {
-            // block author is not found, burn this alpha
-            Self::burn_subnet_alpha(netuid, swap_result.fee_to_block_author);
-        }
+        let fee_outflow: u64 =
+            Self::settle_alpha_fee_to_author(netuid, swap_result.fee_to_block_author)?.into();
 
         // If this is a root-stake
         if netuid == NetUid::ROOT {
@@ -983,24 +1010,9 @@ impl<T: Config> Pallet<T> {
             StakingHotkeys::<T>::insert(coldkey, staking_hotkeys.clone());
         }
 
-        // Increase the balance of the block author
-        let maybe_block_author_coldkey = T::AuthorshipProvider::author();
-        if let Some(block_author_coldkey) = maybe_block_author_coldkey {
-            // TAO was transferred to subnet account in the beginning of this fn
-            // swap_tao_for_alpha guarantees that input amount of TAO was split into
-            // reserve delta + fee_to_block_author.
-            // Now transfer the fee from subnet account to block builder.
-            Self::transfer_tao_from_subnet(
-                netuid,
-                &block_author_coldkey,
-                swap_result.fee_to_block_author.into(),
-            )?;
-        } else {
-            // Block author is not found - burn this TAO
-            if let Some(subnet_account_id) = Self::get_subnet_account_id(netuid) {
-                let _ = Self::burn_tao(&subnet_account_id, swap_result.fee_to_block_author.into());
-            }
-        }
+        // TAO was transferred to the subnet account at the start of this fn;
+        // `swap_tao_for_alpha` split it into reserve delta + fee_to_block_author.
+        Self::settle_tao_fee_to_author(netuid, swap_result.fee_to_block_author)?;
 
         // Refund the TAO the AMM could not consume (e.g. when the user-supplied
         // price limit is hit before the full `tao_staked` is swapped). Without

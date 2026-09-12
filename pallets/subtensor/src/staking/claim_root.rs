@@ -1,3 +1,4 @@
+use super::basket_flush::{BasketFlushWork, MAX_BASKET_ROWS};
 use super::*;
 use crate::weights::WeightInfo;
 use frame_support::storage::{TransactionOutcome, with_transaction};
@@ -42,6 +43,9 @@ pub struct RootClaimOutcome {
     pub realized: u32,
     /// Dust holdings consolidated into the root slot (one swap each).
     pub swept: u32,
+    /// Work spent flushing the hotkey's pending dividend credits before redeeming (priced
+    /// by `basket_flush_weight`, the model every flushing extrinsic shares).
+    pub flush: BasketFlushWork,
 }
 
 impl RootClaimOutcome {
@@ -50,6 +54,7 @@ impl RootClaimOutcome {
         self.rows = self.rows.saturating_add(other.rows);
         self.realized = self.realized.saturating_add(other.realized);
         self.swept = self.swept.saturating_add(other.swept);
+        self.flush = self.flush.saturating_add(other.flush);
     }
 }
 
@@ -294,14 +299,7 @@ impl<T: Config> Pallet<T> {
             }
 
             if dest_netuid.is_root() {
-                // Root slot: held as root stake (TAO at 1:1), no pool to buy from.
-                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey,
-                    &escrow,
-                    NetUid::ROOT,
-                    tao_s.into(),
-                );
-                Self::credit_root_reserves(tao_s.into());
+                Self::credit_root_slot(hotkey, &escrow, tao_s.into());
             } else {
                 let drop_fees = matches!(funding, BasketFunding::Protocol { .. });
                 let bought = match Self::swap_basket_tao_for_alpha_chunks(
@@ -320,13 +318,7 @@ impl<T: Config> Pallet<T> {
                         let root_account = Self::get_subnet_account_id(NetUid::ROOT)
                             .ok_or(Error::<T>::RootNetworkDoesNotExist)?;
                         Self::transfer_tao_from_subnet(*dest_netuid, &root_account, tao_s.into())?;
-                        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                            hotkey,
-                            &escrow,
-                            NetUid::ROOT,
-                            tao_s.into(),
-                        );
-                        Self::credit_root_reserves(tao_s.into());
+                        Self::credit_root_slot(hotkey, &escrow, tao_s.into());
                         continue;
                     }
                     Err(err) => return Err(err),
@@ -400,8 +392,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::HotKeyNotRegisteredInSubNet
         );
         // Deposit queued dividend credits first so the share mint below prices against
-        // the fund's full, current NAV.
-        Self::flush_basket_deposits_for_hotkey(&hotkey);
+        // the fund's full, current NAV. The flush work is priced into the post-dispatch
+        // weight; the declared weight carries its flat allowance.
+        let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(&hotkey);
         ensure!(tao >= DefaultMinStake::<T>::get(), Error::<T>::AmountTooLow);
         ensure!(
             Self::can_remove_balance_from_coldkey_account(&coldkey, tao.into()),
@@ -445,7 +438,8 @@ impl<T: Config> Pallet<T> {
         Ok(Self::stake_into_basket_weight(
             valid.len() as u64,
             num_holdings.saturating_add(stamp_work),
-        ))
+        )
+        .saturating_add(Self::basket_flush_weight(flush_work)))
     }
 
     /// Transactional body of [`Self::do_stake_into_basket`]; any error rolls the whole
@@ -513,12 +507,25 @@ impl<T: Config> Pallet<T> {
             .saturating_add(T::DbWeight::get().reads(6_u64))
             .saturating_add(T::DbWeight::get().writes(5_u64))
             .saturating_mul(num_slots.max(1))
-            .saturating_add(
-                Weight::from_parts(10_000_000, 1000)
-                    .saturating_add(T::DbWeight::get().reads(4_u64))
-                    .saturating_mul(num_holdings.max(1)),
-            )
+            .saturating_add(Self::basket_nav_sweep_weight(num_holdings))
             .saturating_add(T::DbWeight::get().reads_writes(8_u64, 6_u64))
+    }
+
+    /// Pre-dispatch weight of `stake_into_basket`: a cap sized for a 128-slot weight vector
+    /// over the row cap of holdings, plus the flat pending-deposit flush allowance
+    /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes. Refunded
+    /// to actual post-dispatch.
+    pub(crate) fn stake_into_basket_declared_weight() -> Weight {
+        Self::stake_into_basket_weight(128, MAX_BASKET_ROWS)
+            .saturating_add(Self::basket_flush_weight_bound())
+    }
+
+    /// Weight of one realizable-NAV sweep over `num_holdings` escrow rows: one sim-swap
+    /// valuation plus reads per row. Shared by every basket path that values the fund.
+    pub(crate) fn basket_nav_sweep_weight(num_holdings: u64) -> Weight {
+        Weight::from_parts(10_000_000, 1000)
+            .saturating_add(T::DbWeight::get().reads(4_u64))
+            .saturating_mul(num_holdings.max(1))
     }
 
     /// A staker's gross *fund-share* entitlement on a validator: `BasketRate * root_stake`.
@@ -578,11 +585,9 @@ impl<T: Config> Pallet<T> {
         let mut outcome = RootClaimOutcome::default();
 
         // Deposit any queued dividend credits first so the claim redeems against the
-        // fund's full, current state. The flush work is scan-priced into the outcome.
+        // fund's full, current state. The flush work is priced into the outcome.
         let (flush_work, _, _) = Self::flush_basket_deposits_for_hotkey(hotkey);
-        outcome.rows = outcome
-            .rows
-            .saturating_add(u32::try_from(flush_work).unwrap_or(u32::MAX));
+        outcome.flush = flush_work;
 
         let owed_shares: u64 = Self::get_basket_owed_shares(hotkey, coldkey);
         if owed_shares == 0 {
@@ -756,21 +761,15 @@ impl<T: Config> Pallet<T> {
             }
 
             // The sale surplus still belongs to the fund. It already landed in the root
-            // subnet account, so represent it as escrow-owned root stake before burning the
+            // subnet account, so book it into the fund's root cash slot before burning the
             // claimant's shares. Together, the remaining alpha and this cash retain the
             // unclaimed fraction of the pre-sale liquidation NAV (modulo integer floors).
             if retained_swapped_tao > 0 {
-                Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                    hotkey,
-                    &escrow,
-                    NetUid::ROOT,
-                    retained_swapped_tao.into(),
-                );
+                Self::credit_root_slot(hotkey, &escrow, retained_swapped_tao.into());
             }
 
             // Stake the redeemed TAO on root for the staker. Only sold TAO is new on root;
-            // the root-slot portion was already counted in the root reserves. Credit both
-            // the claimant payout and the surplus retained by the fund.
+            // the root-slot portion was already counted in the root reserves.
             if total_tao > 0 {
                 Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
                     hotkey,
@@ -779,9 +778,8 @@ impl<T: Config> Pallet<T> {
                     total_tao.into(),
                 );
             }
-            let total_swapped_tao = claimant_swapped_tao.saturating_add(retained_swapped_tao);
-            if total_swapped_tao > 0 {
-                Self::credit_root_reserves(total_swapped_tao.into());
+            if claimant_swapped_tao > 0 {
+                Self::credit_root_reserves(claimant_swapped_tao.into());
             }
 
             // Claimed root stake must start (or refresh) the unlock hold, same as a
@@ -900,13 +898,16 @@ impl<T: Config> Pallet<T> {
         crate::MAX_ROOT_CLAIM_WORK
     }
 
-    /// Pre-dispatch weight for both independently bounded dimensions: full claim work and
-    /// scan-only work.
+    /// Pre-dispatch weight for every independently bounded dimension: full claim work,
+    /// scan-only work, and the flat pending-deposit flush allowance
+    /// ([`Self::basket_flush_weight_bound`]) shared by every extrinsic that flushes.
     pub(crate) fn root_claim_declared_weight() -> Weight {
         let limit = Self::root_claim_declared_work();
-        <T as crate::pallet::Config>::WeightInfo::claim_root(limit).saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(limit),
-        )
+        <T as crate::pallet::Config>::WeightInfo::claim_root(limit)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                limit,
+            ))
+            .saturating_add(Self::basket_flush_weight_bound())
     }
 
     /// Hotkeys relevant to a coldkey-wide root claim. Ordinary subnet-only staking hotkeys
@@ -927,8 +928,10 @@ impl<T: Config> Pallet<T> {
     }
 
     /// True when the hotkeys plus the basket storage rows the claim will scan fit the fixed
-    /// admission envelope. Count raw Alpha/AlphaV2 rows so legacy duplicates and malformed
-    /// zero rows are charged conservatively, and stop as soon as the bound is exceeded.
+    /// admission envelope, and the pending-deposit flushes the claim runs first fit the flat
+    /// flush allowance ([`Self::basket_flush_fits_declared_budget`]). Count raw Alpha/AlphaV2
+    /// rows so legacy duplicates and malformed zero rows are charged conservatively, and stop
+    /// as soon as a bound is exceeded.
     pub(crate) fn root_claim_fits_declared_budget(hotkeys: &[T::AccountId]) -> bool {
         let budget = Self::root_claim_declared_work();
         let mut work = u32::try_from(hotkeys.len()).unwrap_or(u32::MAX);
@@ -951,7 +954,7 @@ impl<T: Config> Pallet<T> {
                 }
             }
         }
-        true
+        Self::basket_flush_fits_declared_budget(hotkeys)
     }
 
     /// Actual post-dispatch weight of a root claim: full benchmark units for relationships
@@ -973,9 +976,11 @@ impl<T: Config> Pallet<T> {
             .max(selection_scanned)
             .max(1);
         let scanned = outcome.rows.saturating_sub(outcome.realized);
-        <T as crate::pallet::Config>::WeightInfo::claim_root(active).saturating_add(
-            <T as crate::pallet::Config>::WeightInfo::claim_root_scan(scanned),
-        )
+        <T as crate::pallet::Config>::WeightInfo::claim_root(active)
+            .saturating_add(<T as crate::pallet::Config>::WeightInfo::claim_root_scan(
+                scanned,
+            ))
+            .saturating_add(Self::basket_flush_weight(outcome.flush))
     }
 
     pub fn do_root_claim(
@@ -1189,6 +1194,23 @@ impl<T: Config> Pallet<T> {
             );
         }
 
+        // Trading guardrails follow the fund so a hotkey swap can neither escape a
+        // governance freeze nor refill the turnover bucket. The freeze is copied, not
+        // moved: a later swap back onto the old hotkey must still find it frozen. The
+        // bucket is carried conservatively: the lower level and the later refill block.
+        if BasketTradingFrozen::<T>::contains_key(old_hotkey) {
+            BasketTradingFrozen::<T>::insert(new_hotkey, ());
+        }
+        if let Some((old_level, old_block)) = BasketTradeBucket::<T>::take(old_hotkey) {
+            let carried = match BasketTradeBucket::<T>::get(new_hotkey) {
+                Some((new_level, new_block)) => {
+                    (old_level.min(new_level), old_block.max(new_block))
+                }
+                None => (old_level, old_block),
+            };
+            BasketTradeBucket::<T>::insert(new_hotkey, carried);
+        }
+
         moved_rows
     }
 
@@ -1297,13 +1319,7 @@ impl<T: Config> Pallet<T> {
             };
 
             // Hold the realized TAO as the fund's root-slot (cash) position.
-            Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                hotkey,
-                escrow,
-                NetUid::ROOT,
-                tao.to_u64().into(),
-            );
-            Self::credit_root_reserves(tao);
+            Self::credit_root_slot(hotkey, escrow, tao);
 
             Self::deposit_event(Event::BasketHoldingConverted {
                 hotkey: hotkey.clone(),
@@ -1501,11 +1517,45 @@ impl<T: Config> Pallet<T> {
     /// Credit `amount` TAO onto the root pool's reserves. Root has no AMM pool, so whenever TAO is
     /// placed on root these three storages must be moved in lockstep by hand (subnets get this for
     /// free inside `swap_tao_for_alpha`). Single source of truth for that invariant.
-    fn credit_root_reserves(amount: TaoBalance) {
+    pub(super) fn credit_root_reserves(amount: TaoBalance) {
         SubnetTAO::<T>::mutate(NetUid::ROOT, |total| *total = total.saturating_add(amount));
         SubnetAlphaOut::<T>::mutate(NetUid::ROOT, |total| {
             *total = total.saturating_add(u64::from(amount).into())
         });
         TotalStake::<T>::mutate(|total| *total = total.saturating_add(amount));
+    }
+
+    /// Exact inverse of [`Self::credit_root_reserves`]: TAO leaving the root slot (e.g. a
+    /// basket trade selling out of the fund's cash position) unwinds the same three storages.
+    pub(super) fn debit_root_reserves(amount: TaoBalance) {
+        SubnetTAO::<T>::mutate(NetUid::ROOT, |total| *total = total.saturating_sub(amount));
+        SubnetAlphaOut::<T>::mutate(NetUid::ROOT, |total| {
+            *total = total.saturating_sub(u64::from(amount).into())
+        });
+        TotalStake::<T>::mutate(|total| *total = total.saturating_sub(amount));
+    }
+
+    /// Place `tao` into the fund's root cash slot: the escrow's root stake row (TAO at 1:1,
+    /// there is no pool to buy from) and the root reserves move together.
+    pub(super) fn credit_root_slot(hotkey: &T::AccountId, escrow: &T::AccountId, tao: TaoBalance) {
+        Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            escrow,
+            NetUid::ROOT,
+            tao.to_u64().into(),
+        );
+        Self::credit_root_reserves(tao);
+    }
+
+    /// Exact inverse of [`Self::credit_root_slot`]: take `tao` out of the fund's root cash
+    /// slot, moving the escrow's root stake row and the root reserves together.
+    pub(super) fn debit_root_slot(hotkey: &T::AccountId, escrow: &T::AccountId, tao: TaoBalance) {
+        Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            hotkey,
+            escrow,
+            NetUid::ROOT,
+            tao.to_u64().into(),
+        );
+        Self::debit_root_reserves(tao);
     }
 }

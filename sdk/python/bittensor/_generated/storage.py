@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 449
+Spec version: 456
 
 Storage item descriptors: unpack into substrate.query/query_map. Each carries its VALUE's type identity (value_type_ident) so normalization can key on the runtime's own type names without a node round-trip.
 """
@@ -102,7 +102,6 @@ class SubtensorModule:
     ParentKeys = Item('SubtensorModule', 'ParentKeys', 'Vec<(u64, AccountId32)>')
     AlphaDividendsPerSubnet = Item('SubtensorModule', 'AlphaDividendsPerSubnet', 'AlphaBalance')
     RootAlphaDividendsPerSubnet = Item('SubtensorModule', 'RootAlphaDividendsPerSubnet', 'AlphaBalance')
-    DeferredRootAlphaDividends = Item('SubtensorModule', 'DeferredRootAlphaDividends', 'AlphaBalance')
     PendingBasketDeposits = Item('SubtensorModule', 'PendingBasketDeposits', 'AlphaBalance')
     PendingBasketFlushCursor = Item('SubtensorModule', 'PendingBasketFlushCursor', 'Vec<u8>')
     BlockEmission = Item('SubtensorModule', 'BlockEmission', 'u64')
@@ -293,12 +292,22 @@ class SubtensorModule:
     LastColdkeyHotkeyStakeBlock = Item('SubtensorModule', 'LastColdkeyHotkeyStakeBlock', 'u64')
     RootStakeUnlockInterval = Item('SubtensorModule', 'RootStakeUnlockInterval', 'u64')
     RootWeightSettingEnabled = Item('SubtensorModule', 'RootWeightSettingEnabled', 'bool')
+    BasketTradingEnabled = Item('SubtensorModule', 'BasketTradingEnabled', 'bool')
+    BasketTradingFrozen = Item('SubtensorModule', 'BasketTradingFrozen', '()')
+    BasketDailyTurnoverCap = Item('SubtensorModule', 'BasketDailyTurnoverCap', 'u16')
+    BasketLiquidityCap = Item('SubtensorModule', 'BasketLiquidityCap', 'u16')
+    BasketTradeBucket = Item('SubtensorModule', 'BasketTradeBucket', '(u64, u64)')
     RootWeightsCap = Item('SubtensorModule', 'RootWeightsCap', 'u16')
     RootClaimableThreshold = Item('SubtensorModule', 'RootClaimableThreshold', 'FixedI128')
     RootClaimable = Item('SubtensorModule', 'RootClaimable', 'BTreeMap')
     RootClaimed = Item('SubtensorModule', 'RootClaimed', 'u128')
     BasketShares = Item('SubtensorModule', 'BasketShares', 'u64')
     BasketRate = Item('SubtensorModule', 'BasketRate', 'FixedI128')
+    BetaBaseline = Item('SubtensorModule', 'BetaBaseline', 'BetaBaselineOf')
+    BasketTwr = Item('SubtensorModule', 'BasketTwr', 'FixedU128')
+    BetaIndexSnapshot = Item('SubtensorModule', 'BetaIndexSnapshot', 'BetaIndexSnapshotOf')
+    BetaIndexSweep = Item('SubtensorModule', 'BetaIndexSweep', 'BetaIndexSweepOf')
+    BetaIndexFundSample = Item('SubtensorModule', 'BetaIndexFundSample', 'BetaIndexFundSampleOf')
     BasketClaimed = Item('SubtensorModule', 'BasketClaimed', 'i128')
     BasketDepositedTao = Item('SubtensorModule', 'BasketDepositedTao', 'TaoBalance')
     BasketRedeemedTao = Item('SubtensorModule', 'BasketRedeemedTao', 'TaoBalance')

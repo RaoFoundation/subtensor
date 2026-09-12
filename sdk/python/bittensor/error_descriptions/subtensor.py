@@ -74,6 +74,12 @@ DESCRIPTIONS: dict[str, str] = {
         "due to insufficient funds, the existential deposit, or frozen/reserved balance. Check "
         "the coldkey's balance with `btcli wallet balance` and reduce the amount or top up."
     ),
+    "BasketDepositPending": (
+        "A queued root-dividend deposit on this validator could not be settled yet, so an "
+        "operation that changes the hotkey's root claimant base was refused. No current "
+        "dispatch raises it; if it appears, wait for the pending deposit to flush (the next "
+        "claim or basket operation on the hotkey settles it) and retry."
+    ),
     "BasketHasNoWeights": (
         "Retired on current runtimes: a basket deposit into a validator with no usable root "
         "weight vector is now held as the fund's root (TAO cash) slot instead of erroring. "
@@ -88,10 +94,51 @@ DESCRIPTIONS: dict[str, str] = {
     "RootClaimTooHeavy": (
         "A root claim would process more than the fixed 256-unit admission envelope. Only "
         "root-relevant validator hotkeys and their stored basket rows count as claim work; "
-        "classifying the staking-hotkey relationship vector is separately capped at 256. "
+        "classifying the staking-hotkey relationship vector is separately capped at 256, and "
+        "the queued dividend credits plus weight-vector destinations the claim would flush "
+        "first are capped at 512 across all validators claimed (one validator always fits). "
         "Unrelated subnet stakes are not multiplied by the total network count. Split a "
         "coldkey-wide claim by validator where that fits, and investigate or consolidate an "
         "individually oversized basket."
+    ),
+    "BasketLiquidityCapExceeded": (
+        "The trade would leave the fund holding more of the destination subnet than "
+        "`BasketLiquidityCap` allows as a share of that subnet's alpha reserve "
+        "(u16-normalized, default 10%). This bounds the fund's exposure to any one pool's "
+        "liquidity. Trade a smaller amount, or pick a deeper pool; query `validator_basket` "
+        "for the current holding and `subnet` for the pool's alpha reserve."
+    ),
+    "BasketMinOutNotMet": (
+        "The `swap_basket` buy leg credited less than the `min_amount_out` floor you set "
+        "(destination alpha, or TAO when the destination is netuid 0), so the whole trade "
+        "rolled back; nothing moved. The pool moved between your quote and execution, or "
+        "the floor was set above what the trade could ever yield. Re-quote and retry, or "
+        "widen `--max-slippage` (btcli) / lower `min_amount_out` (SDK). A floor of 0 "
+        "disables this check; the 2% protocol band still applies."
+    ),
+    "BasketSameSubnet": (
+        "`swap_basket` was called with the same origin and destination netuid. A basket "
+        "trade sells one holding to buy another; pick two different subnets (netuid 0 is "
+        "the fund's TAO cash slot)."
+    ),
+    "BasketTradingDisabled": (
+        "`swap_basket` is switched off network-wide (`BasketTradingEnabled` is false). "
+        "Governance opens it with `AdminUtils.sudo_set_basket_trading_enabled`. Deposits, "
+        "claims, and dividend deployment are unaffected."
+    ),
+    "BasketTradingFrozen": (
+        "Governance froze basket trading for this validator hotkey "
+        "(`BasketTradingFrozen[hotkey]`), typically after a suspected key compromise. The "
+        "fund still accepts deposits and pays claims; only `swap_basket` is refused until "
+        "`AdminUtils.sudo_set_basket_trading_frozen(hotkey, false)`."
+    ),
+    "BasketTurnoverBudgetExceeded": (
+        "The trade would push more TAO through the fund than its turnover bucket holds. "
+        "The bucket's capacity is `BasketDailyTurnoverCap` (u16-normalized share of fund "
+        "NAV, default 10%); it refills continuously over 7200 blocks and each swap takes "
+        "the TAO through its middle out of it, so at most one capacity can be traded at "
+        "any instant. Query `basket_trading_status` for the remaining budget, the capacity, "
+        "and the refill rate; trade a smaller amount or wait for the bucket to refill."
     ),
     "BetaBasketSeedInProgress": (
         "The `migrate_seed_beta_basket_v2` seed has not completed (it normally finishes "

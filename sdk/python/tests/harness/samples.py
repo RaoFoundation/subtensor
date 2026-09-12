@@ -141,6 +141,7 @@ INTENT_SAMPLES: dict[str, dict] = {
     "set_perpetual_lock": {"netuid": 1, "enabled": True},
     "set_reject_locked_alpha": {"enabled": True},
     "stake_into_basket": {"hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
+    "swap_basket": {"hotkey_ss58": BOB_HOT, "origin_netuid": 1, "dest_netuid": 0, "amount": 1.0},
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
     "create_crowdloan": {
@@ -288,6 +289,7 @@ READ_SAMPLES: dict[str, dict] = {
     "total_alpha_staked": {"netuid": 1},
     "tx_rate_limit": {},
     "uid": {"hotkey_ss58": ALICE_HOT, "netuid": 1},
+    "basket_trading_status": {"hotkey_ss58": ALICE_HOT},
     "validator_basket": {"hotkey_ss58": ALICE_HOT},
     "validator_basket_nav": {"hotkey_ss58": ALICE_HOT},
     "validator_basket_summary": {"hotkey_ss58": ALICE_HOT},
