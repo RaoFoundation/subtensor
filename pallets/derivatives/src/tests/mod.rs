@@ -5,6 +5,7 @@
 )]
 
 pub(crate) mod mock;
+mod safety;
 
 use frame_support::{assert_err, assert_ok};
 use sp_core::U256;
@@ -43,11 +44,11 @@ fn setup() {
     let _ = SubtensorModule::create_account_if_non_existent(&alice(), &alice_hotkey());
 }
 
-/// Add at the side's maximum leverage: 1x for shorts, 2x for longs.
+/// Add at the side's maximum leverage: 1x for shorts, 1.5x for longs.
 fn add(who: U256, side: Side, amount: u64) -> sp_runtime::DispatchResult {
     let leverage = match side {
         Side::Short => 100,
-        Side::Long => 200,
+        Side::Long => 150,
     };
     add_at(who, side, amount, leverage)
 }
@@ -282,10 +283,10 @@ fn open_long_lifts_and_buys() {
         let pos = position(&alice(), netuid()).unwrap();
         let (proceeds, debt, escrow) = legs(&pos);
         assert!(matches!(pos.legs, Legs::Long { .. }));
-        // Longs run at 2x: a 10 TAO cushion lifts 2% of the 1000 TAO pool.
-        assert_eq!(debt, POOL_TAO / 50);
-        assert_eq!(escrow, POOL_ALPHA / 50);
-        assert!(proceeds > 0 && proceeds < POOL_ALPHA / 50);
+        // Longs run at 1.5x: a 10 TAO cushion lifts 1.5% of the 1000 TAO pool.
+        assert_eq!(debt, POOL_TAO * 15 / 1_000);
+        assert_eq!(escrow, POOL_ALPHA * 15 / 1_000);
+        assert!(proceeds > 0 && proceeds < POOL_ALPHA * 15 / 1_000);
 
         // Pallet holds the deposit in TAO and escrow + proceeds as stake.
         assert_eq!(balance(&pallet_account()), DEPOSIT);
@@ -336,8 +337,13 @@ fn owner_chooses_leverage_up_to_the_side_maximum() {
             add_at(alice(), Side::Short, DEPOSIT, 101),
             Error::<Test>::LeverageOutOfRange
         );
+        // The long ceiling is 1.5x: 2x, which was the ceiling once, is refused.
         assert_err!(
-            add_at(alice(), Side::Long, DEPOSIT, 201),
+            add_at(alice(), Side::Long, DEPOSIT, 151),
+            Error::<Test>::LeverageOutOfRange
+        );
+        assert_err!(
+            add_at(alice(), Side::Long, DEPOSIT, 200),
             Error::<Test>::LeverageOutOfRange
         );
 
@@ -347,12 +353,12 @@ fn owner_chooses_leverage_up_to_the_side_maximum() {
         assert_eq!(leverage_of(&short), 0.5);
         assert_eq!(u64::from(short.exposure_tao), POOL_TAO / 200);
 
-        // 1.5x on a long, below the 2x maximum.
-        assert_ok!(add_at(bob(), Side::Long, DEPOSIT, 150));
+        // 1.2x on a long, below the 1.5x maximum.
+        assert_ok!(add_at(bob(), Side::Long, DEPOSIT, 120));
         let long = position(&bob(), netuid()).unwrap();
-        assert_close((leverage_of(&long) * 1000.0) as u64, 1500, 1);
+        assert_close((leverage_of(&long) * 1000.0) as u64, 1200, 1);
         let (_, debt, _) = legs(&long);
-        assert_close(debt, POOL_TAO * 15 / 1000, 1);
+        assert_close(debt, POOL_TAO * 12 / 1000, 1);
     });
 }
 
@@ -410,6 +416,7 @@ fn a_spot_move_in_the_same_block_buys_no_bigger_slice_and_no_more_room() {
     let honest_debt = new_test_ext().execute_with(|| {
         setup();
         settle_moving_price(netuid());
+        add_balance(&bob(), 100 * TAO);
         assert_err!(
             add(bob(), Side::Short, 140 * TAO),
             Error::<Test>::PoolCapExceeded
@@ -451,6 +458,7 @@ fn a_spot_move_in_the_same_block_buys_no_bigger_slice_and_no_more_room() {
             (500 * TAO).into()
         ));
         assert!(reserves(netuid()).0 > POOL_TAO * 14 / 10);
+        add_balance(&alice(), 100 * TAO);
         assert_err!(
             add(alice(), Side::Short, 140 * TAO),
             Error::<Test>::PoolCapExceeded
@@ -467,7 +475,7 @@ fn interest_is_the_rate_on_exposure_and_frozen_at_open() {
         assert_ok!(add(bob(), Side::Long, DEPOSIT));
 
         // One rate, both sides: 25%/year of exposure. The short's exposure is its 10 TAO
-        // deposit at 1x; the long's is 20 TAO at 2x, so it pays twice.
+        // deposit at 1x; the long's is 15 TAO at 1.5x, so it pays half again as much.
         let short = position(&alice(), netuid()).unwrap();
         let long = position(&bob(), netuid()).unwrap();
         assert_eq!(
@@ -479,7 +487,7 @@ fn interest_is_the_rate_on_exposure_and_frozen_at_open() {
             long.interest_per_year,
             params.interest_for(long.exposure_tao)
         );
-        assert_close(u64::from(long.interest_per_year), 2 * DEPOSIT / 4, 1);
+        assert_close(u64::from(long.interest_per_year), 3 * DEPOSIT / 8, 1);
 
         // Changing the rate after the open does not reprice a running position.
         set_interest(Percent::from_percent(50));
@@ -608,11 +616,12 @@ fn short_profits_when_price_falls_and_loses_when_it_rises() {
 }
 
 #[test]
-fn underwater_short_settles_with_shortfall_and_pool_is_never_short() {
+fn underwater_short_is_forfeited_in_kind_with_no_swap() {
     new_test_ext().execute_with(|| {
         setup();
         let (t0, _) = reserves(netuid());
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let (proceeds, debt, escrow) = legs(&position(&alice(), netuid()).unwrap());
         // Price triples: alpha is now far more expensive than N + P can buy.
         let whale = U256::from(7);
         add_balance(&whale, 5_000 * TAO);
@@ -622,20 +631,35 @@ fn underwater_short_settles_with_shortfall_and_pool_is_never_short() {
             netuid(),
             (2_000 * TAO).into()
         ));
+        let (t1, a1) = reserves(netuid());
+        let p1 = price(netuid());
         assert_ok!(close(alice()));
+        // The quote said the pot could not buy the debt back, so nothing was bought: the whole
+        // debt is the shortfall, the owner gets nothing, and the pool has the cushion, the
+        // proceeds, and the escrow in TAO. No alpha moved and the price did not move.
+        assert_eq!(last_closer(), Closer::Underwater);
         let (payout, interest_paid, shortfall) = last_closed_event();
         assert_eq!(payout, 0);
         assert_eq!(interest_paid, 0);
-        assert!(shortfall > 0);
-        // Everything the pallet held for the position went back to the pool.
+        assert_eq!(shortfall, debt);
         assert_eq!(balance(&pallet_account()), 0);
-        assert!(reserves(netuid()).0 > t0);
+        let (t2, a2) = reserves(netuid());
+        assert_eq!(a2, a1);
+        assert_eq!(t2, t1 + DEPOSIT + proceeds + escrow);
+        assert!(t2 > t0);
+        // The re-add is price-neutral to fixed-point rounding.
+        assert_close(
+            price(netuid()).to_bits() as u64,
+            p1.to_bits() as u64,
+            (p1.to_bits() as u64) >> 40,
+        );
         assert!(position(&alice(), netuid()).is_none());
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
     });
 }
 
 #[test]
-fn long_at_two_x_survives_a_moderate_drop_and_the_pool_is_whole() {
+fn long_at_the_ceiling_survives_a_moderate_drop_and_the_pool_is_whole() {
     new_test_ext().execute_with(|| {
         setup();
         assert_ok!(add(alice(), Side::Long, DEPOSIT));
@@ -650,6 +674,7 @@ fn long_at_two_x_survives_a_moderate_drop_and_the_pool_is_whole() {
         ));
         System::set_block_number(1 + DAY);
         assert_ok!(close(alice()));
+        assert_eq!(last_closer(), Closer::Owner);
         let (payout, interest_paid, shortfall) = last_closed_event();
         assert_eq!(shortfall, 0);
         assert!(interest_paid > 0);
@@ -660,12 +685,14 @@ fn long_at_two_x_survives_a_moderate_drop_and_the_pool_is_whole() {
 }
 
 #[test]
-fn long_at_two_x_is_underwater_once_the_price_halves() {
+fn long_at_the_ceiling_is_underwater_once_the_price_falls_by_two_thirds() {
     new_test_ext().execute_with(|| {
         setup();
         assert_ok!(add(alice(), Side::Long, DEPOSIT));
-        // At 2x the cushion is D / 2, so a collapse past a halving leaves a shortfall. Alice
-        // gets nothing, the pool takes everything the pallet still holds.
+        let (proceeds, debt, escrow) = legs(&position(&alice(), netuid()).unwrap());
+        // At 1.5x the cushion is two thirds of D, so a collapse past that leaves a shortfall.
+        // Alice gets nothing, and the pool takes everything the pallet holds in kind: the
+        // alpha is handed back, not sold into the crashed pool.
         give_stake(&bob(), &alice_hotkey(), netuid(), 20_000 * TAO);
         assert_ok!(SubtensorModule::remove_stake(
             RuntimeOrigin::signed(bob()),
@@ -673,13 +700,18 @@ fn long_at_two_x_is_underwater_once_the_price_halves() {
             netuid(),
             (20_000 * TAO).into()
         ));
+        let (t1, a1) = reserves(netuid());
         assert_ok!(close(alice()));
+        assert_eq!(last_closer(), Closer::Underwater);
         let (payout, interest_paid, shortfall) = last_closed_event();
         assert_eq!(payout, 0);
         assert_eq!(interest_paid, 0);
-        assert!(shortfall > 0);
+        assert_eq!(shortfall, debt);
         assert_eq!(balance(&pallet_account()), 0);
         assert_eq!(stake(&pallet_account(), &pallet_hotkey(), netuid()), 0);
+        let (t2, a2) = reserves(netuid());
+        assert_eq!(t2, t1 + DEPOSIT);
+        assert_eq!(a2, a1 + proceeds + escrow);
         assert!(position(&alice(), netuid()).is_none());
     });
 }
@@ -844,15 +876,16 @@ fn adding_more_than_the_position_closes_it_and_opens_the_rest_on_the_other_side(
         let wallet = balance(&alice());
         System::set_block_number(50);
 
-        // A 2x long of 15 TAO asks for 30 TAO of exposure against a 10 TAO short: the short
-        // closes, and the 20 TAO that remain open a long with a 10 TAO cushion at 2x. Alice is
-        // only charged that 10 TAO, plus gets the short's payout.
-        assert_ok!(add(alice(), Side::Long, 15 * TAO));
+        // A 1.5x long of 20 TAO asks for 30 TAO of exposure against a 10 TAO short: the short
+        // closes, and the 20 TAO that remain open a long with a 13.33 TAO cushion at 1.5x.
+        // Alice is only charged that 13.33 TAO, plus gets the short's payout.
+        assert_ok!(add(alice(), Side::Long, 20 * TAO));
 
         let long = position(&alice(), netuid()).unwrap();
         assert_eq!(long.side(), Side::Long);
-        assert_close(u64::from(long.cushion), DEPOSIT, 1);
-        assert_close((leverage_of(&long) * 100.0).round() as u64, 200, 1);
+        let rest_deposit = 20 * TAO * 2 / 3;
+        assert_close(u64::from(long.cushion), rest_deposit, 1);
+        assert_close((leverage_of(&long) * 100.0).round() as u64, 150, 1);
         assert_eq!(long.since, 50);
         assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
         assert_eq!(
@@ -865,7 +898,7 @@ fn adding_more_than_the_position_closes_it_and_opens_the_rest_on_the_other_side(
         // Forty-nine blocks of interest on the short.
         assert_eq!(interest_paid, u64::from(short.interest_due(50)));
         assert!(interest_paid > 0);
-        assert_close(balance(&alice()), wallet + payout - DEPOSIT, 1);
+        assert_close(balance(&alice()), wallet + payout - rest_deposit, 1);
     });
 }
 
@@ -906,23 +939,31 @@ fn reducing_an_underwater_position_forfeits_that_share_to_the_pool() {
         ));
         System::set_block_number(1 + DAY);
         let wallet = balance(&alice());
-        let (t0, _) = reserves(netuid());
+        let (t0, a0) = reserves(netuid());
+        let (proceeds, debt, escrow) = legs(&before);
 
         assert_ok!(add_at(alice(), Side::Long, DEPOSIT / 2, 100));
 
         // Half is gone: Alice got nothing for it, the pool got everything the pallet held for
-        // that half, and the other half is still open (and just as underwater). The interest, which
-        // the forfeited half could not pay, came off the cushion that stays.
+        // that half in kind, with no swap, and the other half is still open (and just as
+        // underwater). The interest, which the forfeited half could not pay, came off the
+        // cushion that stays, as plain TAO.
         assert_eq!(balance(&alice()), wallet);
-        assert!(reserves(netuid()).0 > t0);
         let rest = position(&alice(), netuid()).unwrap();
         let interest = u64::from(before.interest_due(1 + DAY));
         assert!(interest > 0);
         assert_close(u64::from(rest.cushion), DEPOSIT / 2 - interest, 1);
         assert_eq!(rest.interest_owed, TaoBalance::ZERO);
+        let (t1, a1) = reserves(netuid());
+        assert_eq!(a1, a0);
+        assert_close(
+            t1,
+            t0 + DEPOSIT / 2 + proceeds / 2 + escrow / 2 + interest,
+            2,
+        );
         let (_, payout, shortfall, _) = last_reduced_event();
         assert_eq!(payout, 0);
-        assert!(shortfall > 0);
+        assert_close(shortfall, debt / 2, 1);
     });
 }
 
@@ -965,7 +1006,8 @@ fn a_new_position_is_queued_a_week_out_and_collected_on_its_block() {
         run_to(1 + WEEK);
         let short_week = u64::from(interest_for_blocks(short.interest_per_year, WEEK));
         let long_week = u64::from(interest_for_blocks(long.interest_per_year, WEEK));
-        assert!(short_week > 0 && long_week == 2 * short_week);
+        assert!(short_week > 0);
+        assert_close(long_week, short_week * 3 / 2, 2);
         let short1 = position(&alice(), netuid()).unwrap();
         let long1 = position(&bob(), netuid()).unwrap();
         assert_eq!(u64::from(short1.cushion), DEPOSIT - short_week);
@@ -1145,13 +1187,14 @@ fn a_starved_long_is_forfeited_in_kind_too() {
         assert_ok!(add(alice(), Side::Long, DEPOSIT));
         let long = position(&alice(), netuid()).unwrap();
 
-        // A 2x long pays 20 TAO a year on a 10 TAO cushion: starved in about half a year.
+        // A 1.5x long pays 15 TAO a year on a 10 TAO cushion: starved in about two thirds of
+        // a year.
         let mut week = 1;
         while position(&alice(), netuid()).is_some() {
             run_to(1 + week * WEEK);
             week += 1;
         }
-        assert!(week > 25 && week < 29, "starved in week {week}");
+        assert!(week > 33 && week < 37, "starved in week {week}");
 
         // The pool has the long's alpha back in kind, TAO it never lost, and the cushion on
         // top, minus the alpha the interest bought and recycled.
@@ -1241,6 +1284,7 @@ fn a_failed_add_leaves_the_position_untouched() {
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         let before = position(&alice(), netuid()).unwrap();
         let footprint = Footprint::<Test>::get(netuid(), Side::Short);
+        add_balance(&alice(), 200 * TAO);
         let balance_before = balance(&alice());
         let pool_before = reserves(netuid());
 
@@ -1269,25 +1313,34 @@ fn tao_at_floor(alpha: u64, (tao, alpha_total): (u64, u64)) -> u64 {
     ((alpha as u128 * tao as u128) / alpha_total as u128) as u64
 }
 
-/// `(tao, alpha)` of the latest `DissolutionPriced`.
-fn dissolution_price_event() -> (u64, u64) {
+/// `(short, long)` prices of the latest `DissolutionPriced`, each as `(tao, alpha)`.
+fn dissolution_price_event() -> ((u64, u64), (u64, u64)) {
     System::events()
         .into_iter()
         .rev()
         .find_map(|record| match record.event {
-            RuntimeEvent::Derivatives(Event::DissolutionPriced { tao, alpha, .. }) => {
-                Some((tao.into(), alpha.into()))
-            }
+            RuntimeEvent::Derivatives(Event::DissolutionPriced { short, long, .. }) => Some((
+                (short.0.into(), short.1.into()),
+                (long.0.into(), long.1.into()),
+            )),
             _ => None,
         })
         .expect("DissolutionPriced")
 }
 
-/// The pool's spot price as the pallet will fix it, as `(tao, alpha)`.
+/// The pool's spot price as the pallet reads it, as `(tao, alpha)`.
 fn spot_pair() -> (u64, u64) {
     let (tao, alpha) = <SubtensorModule as subtensor_swap_interface::DerivativesPoolInterface<
         AccountId,
     >>::spot_price(netuid());
+    (tao.into(), alpha.into())
+}
+
+/// The subnet's moving price as the pallet reads it, as `(tao, alpha)`.
+fn moving_pair() -> (u64, u64) {
+    let (tao, alpha) = <SubtensorModule as subtensor_swap_interface::DerivativesPoolInterface<
+        AccountId,
+    >>::moving_price(netuid());
     (tao.into(), alpha.into())
 }
 
@@ -1317,19 +1370,23 @@ fn dissolution_settles_every_position_at_the_spot_price_with_no_swap() {
         System::set_block_number(1 + DAY);
         let now = System::block_number();
 
-        // Dissolve: the subnet is no longer "added" but its account and pool still exist. The
-        // price every position settles at is the spot price at that moment.
+        // Dissolve: the subnet is no longer "added" but its account and pool still exist. This
+        // subnet has no moving price yet, so both sides settle at the spot price at that
+        // moment.
         assert_ok!(SubtensorModule::do_dissolve_network(netuid()));
         let spot = price(netuid());
         let price = spot_pair();
         assert_close(price.0, (spot * U64F64::from_num(1u64 << 32)).to_num(), 2);
+        assert_eq!(moving_pair().0, 0);
         settle_all_for_dissolution(netuid());
-        assert_eq!(dissolution_price_event(), price);
+        assert_eq!(dissolution_price_event(), (price, price));
         assert!(crate::DissolutionPrice::<Test>::get(netuid()).is_none());
 
         // Short: cushion plus proceeds, less the debt at the price and the interest. Long:
         // cushion plus the alpha held at the price, less the TAO debt and the interest. Either
-        // owner gets nothing when that is negative.
+        // owner gets nothing when that is negative. The long is paid in two rounding steps
+        // (its debt in alpha rounded up, its surplus alpha in TAO rounded down), so it may be
+        // a rao or two short of the one-step figure.
         let short_owed = tao_at_ceil(short_debt, price);
         let long_credit = tao_at_floor(long_proceeds, price);
         let short_value = (DEPOSIT + short_proceeds)
@@ -1341,7 +1398,8 @@ fn dissolution_settles_every_position_at_the_spot_price_with_no_swap() {
         let alice_payout = balance(&alice()) - (100 * TAO - DEPOSIT);
         let bob_payout = balance(&bob()) - (100 * TAO - DEPOSIT);
         assert_eq!(alice_payout, short_value);
-        assert_eq!(bob_payout, long_value);
+        assert_close(bob_payout, long_value, 2);
+        assert!(bob_payout <= long_value);
         // The short pressed the price down, the long lifted it back; at one shared spot price
         // the short is a little down and the long a little up, both less a day of interest.
         assert!(alice_payout < DEPOSIT && alice_payout > DEPOSIT * 9 / 10);
@@ -1382,10 +1440,13 @@ fn dissolution_settles_every_position_at_the_spot_price_with_no_swap() {
 }
 
 #[test]
-fn a_lone_short_that_moved_the_price_keeps_that_move_at_dissolution() {
+fn a_lone_short_that_moved_the_price_keeps_that_move_only_where_there_is_no_moving_price() {
     // A short sells its slice down the curve. Closing by hand climbs the same curve back, so
-    // its own impact nets to nothing. Dissolution charges the debt at the spot price the pool
-    // last showed, so the short keeps what its sale did to the price.
+    // its own impact nets to nothing. Dissolution charges the debt at the higher of the spot
+    // and the moving price. On a subnet with no moving price yet that is the spot the pool
+    // last showed, so the short keeps what its sale did to the price; with a moving price, it
+    // is charged the price it could not push, and loses (see
+    // `dissolution_charges_a_self_impacting_short_at_the_moving_price`).
     let by_close = new_test_ext().execute_with(|| {
         setup();
         assert_ok!(add(alice(), Side::Short, 100 * TAO));
@@ -1394,6 +1455,7 @@ fn a_lone_short_that_moved_the_price_keeps_that_move_at_dissolution() {
     });
     new_test_ext().execute_with(|| {
         setup();
+        assert_eq!(moving_pair().0, 0);
         assert_ok!(add(alice(), Side::Short, 100 * TAO));
         let (proceeds, debt, _) = legs(&position(&alice(), netuid()).unwrap());
         assert_ok!(SubtensorModule::do_dissolve_network(netuid()));
@@ -1427,8 +1489,8 @@ fn dissolution_pays_a_short_the_decline_and_charges_a_long_for_it() {
             match side {
                 Side::Short => assert!(payout > DEPOSIT, "short should profit: {payout}"),
                 Side::Long => assert!(
-                    payout < DEPOSIT * 7 / 10 && payout > DEPOSIT / 2,
-                    "2x long should lose about 2 x 10% of its exposure: {payout}"
+                    payout < DEPOSIT * 9 / 10 && payout > DEPOSIT * 7 / 10,
+                    "1.5x long should lose about 1.5 x 10% of its exposure: {payout}"
                 ),
             }
         });
@@ -1444,6 +1506,10 @@ fn dissolution_price_is_fixed_before_the_first_settlement() {
         assert_ok!(SubtensorModule::do_dissolve_network(netuid()));
         let price = spot_pair();
         let price = (TaoBalance::from(price.0), AlphaBalance::from(price.1));
+        let price = DissolutionPrices {
+            short: price,
+            long: price,
+        };
 
         // One position's worth of weight: the price is fixed and stored, nothing settles yet.
         let mut meter = frame_support::weights::WeightMeter::with_limit(
