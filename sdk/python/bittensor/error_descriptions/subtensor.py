@@ -94,7 +94,9 @@ DESCRIPTIONS: dict[str, str] = {
     "RootClaimTooHeavy": (
         "A root claim would process more than the fixed 256-unit admission envelope. Only "
         "root-relevant validator hotkeys and their stored basket rows count as claim work; "
-        "classifying the staking-hotkey relationship vector is separately capped at 256. "
+        "classifying the staking-hotkey relationship vector is separately capped at 256, and "
+        "the queued dividend credits plus weight-vector destinations the claim would flush "
+        "first are capped at 512 across all validators claimed (one validator always fits). "
         "Unrelated subnet stakes are not multiplied by the total network count. Split a "
         "coldkey-wide claim by validator where that fits, and investigate or consolidate an "
         "individually oversized basket."
