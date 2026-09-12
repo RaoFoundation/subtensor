@@ -232,9 +232,9 @@ const page = () => {
             You hold one position per subnet, and you move it with one call. Add on the side you
             hold and it grows. Add on the other side and that much comes off, paid out at
             today&apos;s price. Add more than you hold and it flips. There is no expiry to watch
-            and nobody can close you out: the chain takes the interest from your cushion as it
-            goes, and only an empty cushion ends a position. <code>close</code> settles all of
-            it.
+            and nobody can close you out: the chain collects the interest from your cushion
+            once a week, and only an empty cushion ends a position. <code>close</code> settles
+            all of it.
           </p>
           <p>
             There are no synthetic tokens and no order book. Every position is built from the
@@ -415,8 +415,8 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to
             would invite a squeeze — pump the price, close the shorts, sell into the buybacks the
             closes force — so there is no such door. A price move never takes your position. What
             keeps a slice from being held out of the pool for good is the interest: every block
-            open costs the same, the chain takes it from your cushion as it goes, and a cushion
-            that runs dry ends the position. That is the design: the pool lends out at most{' '}
+            open costs the same, the chain collects it from your cushion once a week, and a
+            cushion that runs dry ends the position. That is the design: the pool lends out at most{' '}
             <code>pool_share</code> of itself, at <code>interest_rate</code>. Root picks those two
             numbers, and that is all.
           </p>
@@ -470,6 +470,82 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to
             price impact is not reversed at dissolution: a short that drove the price down and
             then saw the subnet die is charged at the price the pool last showed.
           </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2 className={styles.subtitle}>How positions close and how interest works, in short</h2>
+          <p className={styles.graph_caption}>
+            The same rules as above, reduced to the facts a holder needs. The full steps are in
+            the <DocLink href='/docs/guides/derivatives#how-a-position-closes'>guide</DocLink>.
+          </p>
+
+          <div className={styles.step}>
+            <p className={styles.step_title}>Who can close</p>
+            <p>
+              Only you. <code>close</code> settles the position of the account that signs it and
+              no other. There is no liquidator, no expiry date, and no price that forces a
+              close. A position ends in one of three ways, named in the{' '}
+              <code>PositionClosed</code> event: <code>Owner</code> (you closed it),{' '}
+              <code>Starved</code> (its cushion could not pay a weekly interest collection), or{' '}
+              <code>Dissolution</code> (the subnet was removed). A price move against you never
+              ends the position on its own; the pool carries that exposure until you close or the
+              cushion runs dry.
+            </p>
+          </div>
+
+          <div className={styles.step}>
+            <p className={styles.step_title}>Closing a short</p>
+            <p>
+              The pot is your cushion plus the TAO the borrowed alpha was sold for. The pot buys
+              back exactly the alpha owed. Interest comes out of what is left. If the pot could
+              not buy back all the alpha, the position is underwater: the rest of the pot goes to
+              the pool and you are paid nothing. Otherwise the rest is yours, in TAO.
+            </p>
+          </div>
+
+          <div className={styles.step}>
+            <p className={styles.step_title}>Closing a long</p>
+            <p>
+              The mirror. The pot is your cushion plus the TAO the held alpha sells for. The pot
+              repays the TAO owed. Interest comes out of what is left. If the pot could not repay
+              all of it, the position is underwater: the rest goes to the pool and you are paid
+              nothing. Otherwise the rest is yours, in TAO.
+            </p>
+          </div>
+
+          <div className={styles.step}>
+            <p className={styles.step_title}>Closing part of it</p>
+            <p>
+              Add on the other side. Less than you hold settles that fraction and pays it out;
+              nothing is deposited. Your whole position or more closes all of it, and any deposit
+              past the flip point of at least 0.1 τ opens the other side.
+            </p>
+          </div>
+
+          <div className={styles.step}>
+            <p className={styles.step_title}>Weekly interest</p>
+            <p>
+              Two root-set numbers: <code>pool_share</code> (25%), the most one side of one
+              subnet may borrow; and <code>interest_rate</code> (25% a year), charged on each
+              slice&apos;s TAO exposure, the same for shorts and longs, fixed when the slice is
+              added. What you owe grows every block. The chain collects it every 50,400 blocks,
+              about 7 days, at the start of a block, up to twenty positions per block, and books
+              the next collection a week later. Adding on your own side does not reset that
+              clock. The collected TAO buys alpha from the pool and the alpha is recycled, so the
+              interest reaches the pool as buy pressure: the pool keeps the TAO, the alpha leaves
+              circulation, and the price ticks up.
+            </p>
+          </div>
+
+          <div className={styles.step}>
+            <p className={styles.step_title}>When the cushion runs dry</p>
+            <p>
+              The check happens only at a weekly collection. A cushion that cannot cover the
+              interest owed then is starved: everything the pallet holds for the position goes
+              back to the pool as it is, with no swap, you are paid nothing, and no price moves.
+              To keep a position alive, add cushion on your own side.
+            </p>
+          </div>
         </section>
 
         <section className={styles.section}>
