@@ -39,6 +39,10 @@ _GET_ROOT_BASKET_PORTFOLIO = Method("BetaBasketRuntimeApi", "get_root_basket_por
 _GET_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_beta_pricing")
 _GET_ALL_BETA_PRICING = Method("BetaBasketRuntimeApi", "get_all_beta_pricing")
 
+# TODO(codegen): switch to `api.BetaBasketRuntimeApi.get_basket_trading_status` once
+# the runtime-API registry is regenerated against a spec that includes this v4 method.
+_GET_BASKET_TRADING_STATUS = Method("BetaBasketRuntimeApi", "get_basket_trading_status")
+
 _ROOT_NETUID = 0
 
 # Raw chain units per beta token. Chain units mint at par (1 per rao of TAO
@@ -390,6 +394,38 @@ async def validator_basket_nav(view, hotkey_ss58: str) -> Balance:
     """A validator's basket net asset value in TAO (realizable quote)."""
     value = await view.runtime(api.BetaBasketRuntimeApi.get_validator_basket_nav, [hotkey_ss58])
     return view.balance(int(value or 0), _ROOT_NETUID)
+
+
+@read(
+    "basket_trading_status",
+    {"hotkey_ss58": "string"},
+    category="Staking",
+    param_docs={"hotkey_ss58": "Validator hotkey whose basket trading status to read."},
+)
+async def basket_trading_status(view, hotkey_ss58: str) -> dict:
+    """A validator's `swap_basket` trading status: gates and the turnover bucket.
+
+    `enabled` is the network-wide gate, `frozen` the per-hotkey governance freeze.
+    The turnover budget is a token bucket: `budget_tao` is its capacity at current
+    NAV (`BasketDailyTurnoverCap` share of NAV), `remaining_tao` what a trade right
+    now could push through the fund, `used_tao` the difference, and the bucket
+    refills by `refill_per_block_tao` every block (`budget_tao / refill_blocks`,
+    a full refill over `refill_blocks` = 7200 blocks).
+    """
+    row = await view.runtime(_GET_BASKET_TRADING_STATUS, [hotkey_ss58]) or {}
+    available_rao = int(row.get("tao_available") or 0)
+    budget_rao = int(row.get("budget_tao") or 0)
+    refill_blocks = int(row.get("refill_blocks") or 0)
+    per_block_rao = budget_rao // refill_blocks if refill_blocks else 0
+    return {
+        "enabled": bool(row.get("enabled", False)),
+        "frozen": bool(row.get("frozen", False)),
+        "refill_blocks": refill_blocks,
+        "refill_per_block_tao": view.balance(per_block_rao, _ROOT_NETUID),
+        "used_tao": view.balance(max(budget_rao - available_rao, 0), _ROOT_NETUID),
+        "budget_tao": view.balance(budget_rao, _ROOT_NETUID),
+        "remaining_tao": view.balance(min(available_rao, budget_rao), _ROOT_NETUID),
+    }
 
 
 @read(

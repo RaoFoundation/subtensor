@@ -148,6 +148,34 @@ pub mod pallet {
             /// (`u16::MAX` = 100%).
             cap: u16,
         },
+
+        /// Validator basket trading (`swap_basket`) was enabled or disabled network-wide.
+        BasketTradingToggled {
+            /// Whether validators can now rebalance their baskets.
+            enabled: bool,
+        },
+
+        /// Basket trading was frozen or unfrozen for one validator hotkey.
+        BasketTradingFrozenSet {
+            /// Validator hotkey whose fund is affected.
+            hotkey: T::AccountId,
+            /// Whether `swap_basket` is now refused for this hotkey.
+            frozen: bool,
+        },
+
+        /// The basket daily turnover budget (`BasketDailyTurnoverCap`) was set.
+        BasketDailyTurnoverCapSet {
+            /// Turnover bucket capacity as a u16-normalized share of fund NAV
+            /// (`u16::MAX` = 100%).
+            cap: u16,
+        },
+
+        /// The basket liquidity cap (`BasketLiquidityCap`) was set.
+        BasketLiquidityCapSet {
+            /// Max u16-normalized share of a subnet's alpha reserve a fund may hold on that
+            /// subnet after a `swap_basket` buy (`u16::MAX` = 100%).
+            cap: u16,
+        },
     }
 
     // Errors inform users that something went wrong.
@@ -2499,6 +2527,77 @@ pub mod pallet {
             pallet_subtensor::RootWeightsCap::<T>::insert(NetUid::ROOT, cap);
             Self::deposit_event(Event::RootWeightsCapSet { cap });
             log::debug!("RootWeightsCapSet( cap: {cap:?} )");
+            Ok(())
+        }
+
+        /// Enables or disables validator basket trading (`swap_basket`) network-wide.
+        /// Defaults OFF. Gates only the trade path: deposits, claims, dividend deployment,
+        /// and reads are unaffected. Root-only.
+        #[pallet::call_index(106)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_trading_enabled())]
+        pub fn sudo_set_basket_trading_enabled(
+            origin: OriginFor<T>,
+            enabled: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            pallet_subtensor::BasketTradingEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::BasketTradingToggled { enabled });
+            log::debug!("BasketTradingToggled( enabled: {enabled:?} )");
+            Ok(())
+        }
+
+        /// Freezes or unfreezes basket trading for one validator hotkey
+        /// ([`pallet_subtensor::BasketTradingFrozen`]), e.g. after a suspected key
+        /// compromise. A frozen fund still accepts deposits and pays claims. Root-only.
+        #[pallet::call_index(107)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_trading_frozen())]
+        pub fn sudo_set_basket_trading_frozen(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            frozen: bool,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            if frozen {
+                pallet_subtensor::BasketTradingFrozen::<T>::insert(&hotkey, ());
+            } else {
+                pallet_subtensor::BasketTradingFrozen::<T>::remove(&hotkey);
+            }
+            log::debug!("BasketTradingFrozenSet( hotkey: {hotkey:?}, frozen: {frozen:?} )");
+            Self::deposit_event(Event::BasketTradingFrozenSet { hotkey, frozen });
+            Ok(())
+        }
+
+        /// Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]):
+        /// the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share
+        /// of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one
+        /// capacity can be traded at any instant and about one per day sustained. Root-only.
+        #[pallet::call_index(108)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_daily_turnover_cap())]
+        pub fn sudo_set_basket_daily_turnover_cap(
+            origin: OriginFor<T>,
+            cap: u16,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(cap > 0, Error::<T>::ValueNotInBounds);
+            pallet_subtensor::BasketDailyTurnoverCap::<T>::put(cap);
+            Self::deposit_event(Event::BasketDailyTurnoverCapSet { cap });
+            log::debug!("BasketDailyTurnoverCapSet( cap: {cap:?} )");
+            Ok(())
+        }
+
+        /// Sets the basket liquidity cap ([`pallet_subtensor::BasketLiquidityCap`]): the
+        /// largest u16-normalized share of a subnet's alpha reserve (`u16::MAX` = 100%) a fund
+        /// may hold on that subnet after a `swap_basket` buy. Bounds the fund's exposure to
+        /// any one pool's liquidity: with cap `L` the value at risk on a pool with TAO
+        /// reserve `R` is about `R × L² / (1 + L)`. Root-only.
+        #[pallet::call_index(109)]
+        #[pallet::weight(<T as pallet::Config>::WeightInfo::sudo_set_basket_liquidity_cap())]
+        pub fn sudo_set_basket_liquidity_cap(origin: OriginFor<T>, cap: u16) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(cap > 0, Error::<T>::ValueNotInBounds);
+            pallet_subtensor::BasketLiquidityCap::<T>::put(cap);
+            Self::deposit_event(Event::BasketLiquidityCapSet { cap });
+            log::debug!("BasketLiquidityCapSet( cap: {cap:?} )");
             Ok(())
         }
 

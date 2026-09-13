@@ -25,12 +25,12 @@ const releases: Release[] = [
   {
     tag: 'next',
     date: 'September 2026',
-    title: 'Longs and Shorts',
+    title: 'Basket Trading',
     summary:
-      'V456 adds pallet-derivatives: longs and shorts on any subnet’s alpha, borrowed from the ' +
-      'subnet’s own pool. No synthetic tokens, nothing minted or burned, no expiry: the pool lends ' +
-      'out at most 25% of itself, at 52% a year on shorts and 26% on longs, fixed at open and paid to the pool. btcli deriv ' +
-      'short, long, list, and close are the working surface. Launches switched off.',
+      'V456 adds swap_basket: root validators trade one basket holding for another through a ' +
+      'dedicated BasketTrading proxy, boxed in by a 2% per-leg price band, a token-bucket ' +
+      'turnover budget of 10% of NAV per day, a 10% per-pool liquidity cap, the 1/16 ' +
+      'concentration cap, and governance freeze switches. Launches gated off.',
     href: '/releases/v456-upgrade',
   },
   {

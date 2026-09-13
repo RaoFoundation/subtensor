@@ -4,7 +4,10 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use codec::Compact;
 use pallet_subtensor::rpc_info::{
-    basket_info::{BasketPosition, BasketSummary, BetaPosition, BetaPricing, BetaPricingPage},
+    basket_info::{
+        BasketPosition, BasketSummary, BasketTradingStatus, BetaPosition, BetaPricing,
+        BetaPricingPage,
+    },
     delegate_info::DelegateInfo,
     dynamic_info::DynamicInfo,
     metagraph::{Metagraph, SelectiveMetagraph},
@@ -143,5 +146,9 @@ sp_api::decl_runtime_apis! {
         /// with owed β, all marked against the same published index snapshot.
         #[api_version(3)]
         fn get_beta_portfolio(coldkey: AccountId32) -> Vec<BetaPosition<AccountId32>>;
+        /// One fund's `swap_basket` trading status: the network-wide and per-hotkey gates
+        /// plus the turnover window a trade at the current block would be charged to.
+        #[api_version(4)]
+        fn get_basket_trading_status(hotkey: AccountId32) -> BasketTradingStatus;
     }
 }

@@ -375,5 +375,25 @@ mod errors {
         /// A queued root-dividend deposit could not be settled. Operations which change
         /// the hotkey's root claimant base must retry after the deposit becomes executable.
         BasketDepositPending,
+        /// `swap_basket` is disabled network-wide ([`crate::BasketTradingEnabled`] is false).
+        BasketTradingDisabled,
+        /// Basket trading is frozen for this validator hotkey by governance
+        /// ([`crate::BasketTradingFrozen`]).
+        BasketTradingFrozen,
+        /// The trade would push more TAO through the fund than its turnover bucket holds
+        /// ([`crate::BasketDailyTurnoverCap`] of fund NAV, refilling over
+        /// [`crate::BASKET_TRADE_REFILL_BLOCKS`]). Wait for the bucket to refill or trade
+        /// a smaller amount.
+        BasketTurnoverBudgetExceeded,
+        /// `swap_basket` origin and destination are the same subnet.
+        BasketSameSubnet,
+        /// The trade would leave the fund holding more of the destination subnet than
+        /// [`crate::BasketLiquidityCap`] allows as a share of that subnet's alpha reserve.
+        /// Trade a smaller amount or pick a deeper pool.
+        BasketLiquidityCapExceeded,
+        /// The `swap_basket` buy leg credited less than the caller's `min_amount_out`
+        /// (destination alpha, or TAO when the destination is root). The trade rolled
+        /// back. Re-quote and retry, or lower the floor.
+        BasketMinOutNotMet,
     }
 }

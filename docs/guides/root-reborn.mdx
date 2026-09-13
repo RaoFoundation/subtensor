@@ -173,6 +173,12 @@ netuid 0 or an existing subnet, and a share above the cap fails with
 fund with [`validator-basket`](/docs/query/validator-basket) and
 [`validator-basket-nav`](/docs/query/validator-basket-nav).
 
+Weights steer where *new* dividends go. Since runtime v456 a validator can
+also rebalance positions already in the fund with
+[`swap-basket`](/docs/tx/swap-basket), through a dedicated `BasketTrading`
+proxy and under a set of price, budget, and concentration guardrails; see
+[Basket trading](/docs/guides/basket-trading).
+
 ## For stakers: accrue and claim
 
 Two ways in. `btcli stake add --netuid 0` puts principal on a validator;

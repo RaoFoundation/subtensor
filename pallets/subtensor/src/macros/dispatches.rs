@@ -2063,10 +2063,11 @@ mod dispatches {
         #[pallet::call_index(147)]
         // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
         // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
-        // sim-swap valuations); the actual weight is computed in `do_stake_into_basket`
-        // from the real slot and holding counts and refunded post-dispatch, mirroring
-        // `claim_root`.
-        #[pallet::weight((Pallet::<T>::stake_into_basket_weight(128, 256), DispatchClass::Normal, Pays::Yes))]
+        // sim-swap valuations) plus the flat pending-deposit flush allowance every
+        // flushing extrinsic declares; the actual weight is computed in
+        // `do_stake_into_basket` from the real slot, holding, and flush counts and
+        // refunded post-dispatch, mirroring `claim_root`.
+        #[pallet::weight((Pallet::<T>::stake_into_basket_declared_weight(), DispatchClass::Normal, Pays::Yes))]
         pub fn stake_into_basket(
             origin: OriginFor<T>,
             hotkey: T::AccountId,
@@ -2074,6 +2075,70 @@ mod dispatches {
         ) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
             let weight = Self::do_stake_into_basket(coldkey, hotkey, amount_staked)?;
+            Ok((Some(weight), Pays::Yes).into())
+        }
+
+        /// --- Rebalances a root validator's beta basket: sells `amount` of the fund's
+        /// `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either
+        /// side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker
+        /// entitlements are unchanged; only the fund's composition moves.
+        ///
+        /// Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price;
+        /// the TAO through the middle is taken from the fund's turnover bucket
+        /// (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not
+        /// end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above
+        /// `RootWeightsCap` of NAV. Trading must be enabled network-wide and not frozen for
+        /// the hotkey by governance. On top of the protocol band the caller may set its own
+        /// floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.
+        ///
+        /// # Arguments
+        /// * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy).
+        /// * `hotkey`: The root-registered validator whose basket to rebalance.
+        /// * `origin_netuid`: Subnet to sell out of (root = the TAO slot).
+        /// * `destination_netuid`: Subnet to buy into (root = the TAO slot).
+        /// * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root).
+        /// * `min_amount_out`: Least amount the buy leg must credit to the destination
+        ///   holding, in `destination_netuid` alpha (rao of TAO when the destination is
+        ///   root), after fees. `0` sets no floor; the 2% protocol band still applies.
+        ///
+        /// # Events
+        /// * `BasketSwapped`: On success, with the amounts on both legs.
+        ///
+        /// # Errors
+        /// * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off.
+        /// * `BasketSameSubnet`: Origin equals destination.
+        /// * `NonAssociatedColdKey`: Caller does not own `hotkey`.
+        /// * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root.
+        /// * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin.
+        /// * `SlippageTooHigh`: A leg could not fill within 2% of the moving price.
+        /// * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`.
+        /// * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds.
+        /// * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap.
+        /// * `RootWeightCapExceeded`: The destination would exceed the concentration cap.
+        #[pallet::call_index(150)]
+        // Declared weight is a cap sized for 256 holdings (one NAV sim-swap sweep, two
+        // post-trade re-quotes, and two AMM legs) plus the flat pending-deposit flush
+        // allowance every flushing extrinsic declares; the actual weight is computed in
+        // `do_swap_basket` from the real holding count and flush work and refunded
+        // post-dispatch, mirroring `stake_into_basket` / `claim_root`.
+        #[pallet::weight((Pallet::<T>::swap_basket_declared_weight(), DispatchClass::Normal, Pays::Yes))]
+        pub fn swap_basket(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            origin_netuid: NetUid,
+            destination_netuid: NetUid,
+            amount: AlphaBalance,
+            min_amount_out: u64,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey: T::AccountId = ensure_signed(origin)?;
+            let weight = Self::do_swap_basket(
+                coldkey,
+                hotkey,
+                origin_netuid,
+                destination_netuid,
+                amount.to_u64(),
+                min_amount_out,
+            )?;
             Ok((Some(weight), Pays::Yes).into())
         }
 

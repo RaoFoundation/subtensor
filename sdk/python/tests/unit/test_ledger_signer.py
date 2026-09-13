@@ -26,9 +26,9 @@ pytest.importorskip("bittensor_core")
 
 pytestmark = pytest.mark.skipif(not GOLDEN_FIXTURE.exists(), reason="golden fixture not recorded")
 
-# The digest for the golden metadata with node-subtensor/449 (ss58 42, 9-dp TAO).
+# The digest for the golden metadata with node-subtensor/456 (ss58 42, 9-dp TAO).
 # Re-record it whenever the committed golden metadata is deliberately upgraded.
-EXPECTED_DIGEST = "8fae3c8fec8eb9487cbf8bfed255082223b82ec9f27de90d698a21443fa88f97"
+EXPECTED_DIGEST = "ace88a002b68774f76251a90e65cdc6c99eaa525506575c5aca22c945be48a9c"
 
 
 class FakeDevice:
@@ -119,7 +119,7 @@ def test_sign_unsigned_extrinsic_ships_payload_and_proof(signer):
     # The proof ends with the SCALE-encoded ExtraInfo tail: spec_version LE,
     # then spec_name / prefix / decimals / symbol.
     assert proof.endswith(
-        (449).to_bytes(4, "little")
+        (456).to_bytes(4, "little")
         + bytes([0x38])  # compact len("node-subtensor")
         + b"node-subtensor"
         + (42).to_bytes(2, "little")

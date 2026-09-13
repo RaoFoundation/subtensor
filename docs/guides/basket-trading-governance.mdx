@@ -1,0 +1,188 @@
+---
+title: Basket trading for governance
+description: How the root key enables, freezes, and tunes validator basket trading — what each knob bounds, the worst-case loss formula, how to read a fund's trading status, and the playbook for a suspected rogue trader key.
+---
+
+This guide is for whoever holds the chain's root (sudo) key or sits on its
+multisig. It covers the four `AdminUtils` calls that control
+[basket trading](/docs/guides/basket-trading) (runtime v456), what each one
+bounds, and what to do when a validator's trader key looks compromised. The
+staker view is in [Basket trading for stakers](/docs/guides/basket-trading-for-stakers);
+the on-chain surface is in the [v456 release notes](/releases/v456-upgrade).
+
+All four calls are root-only. Submit them as the sudo key with
+`btcli call ... --sudo`, or through the sudo multisig with `--multisig`
+(see "Any call, including sudo" in [Multisig](/docs/guides/multisig)).
+The `--dry-run` tx-global shows the composed call and fee without submitting.
+
+## The knobs
+
+| Call | Storage it writes | Default | Bounds |
+|---|---|---|---|
+| `sudo_set_basket_trading_enabled(enabled)` | `BasketTradingEnabled` | `false` | Whether any fund may trade at all. |
+| `sudo_set_basket_trading_frozen(hotkey, frozen)` | `BasketTradingFrozen[hotkey]` | not frozen | Whether one fund may trade. |
+| `sudo_set_basket_daily_turnover_cap(cap)` | `BasketDailyTurnoverCap` | `6553` (10%) | TAO a fund can push through per burst and per day. |
+| `sudo_set_basket_liquidity_cap(cap)` | `BasketLiquidityCap` | `6553` (10%) | How much of any one pool a fund may hold. |
+
+`cap` values are u16-normalized: `65535` is 100%, `6553` is 10%, `16383` is
+25%. Zero is rejected with `ValueNotInBounds`. Each call emits an event
+(`BasketTradingToggled`, `BasketTradingFrozenSet`,
+`BasketDailyTurnoverCapSet`, `BasketLiquidityCapSet`).
+
+### Enable trading
+
+Trading launches off. Turning it on is a one-line network-wide switch:
+
+```bash
+btcli call AdminUtils.sudo_set_basket_trading_enabled --args '{"enabled": true}' \
+  --sudo -w sudo_key
+```
+
+While it is off, every `swap_basket` fails with `BasketTradingDisabled`.
+Deposits, claims, dividend deployment, and `set_root_weights` are not
+affected by this switch in either direction.
+
+### Freeze one fund
+
+```bash
+btcli call AdminUtils.sudo_set_basket_trading_frozen \
+  --args '{"hotkey": "5F...validator", "frozen": true}' --sudo -w sudo_key
+```
+
+A frozen fund keeps accruing dividends, accepting deposits, and paying
+claims; only `swap_basket` is refused, with `BasketTradingFrozen`. The
+freeze follows the fund if the validator swaps its hotkey. Unfreeze with
+`"frozen": false`.
+
+### Tune the turnover cap
+
+`BasketDailyTurnoverCap` is the capacity of each fund's turnover **bucket**
+as a share of its NAV. Every trade takes the TAO through its middle out of
+the bucket; the bucket refills at `capacity / 7200` per block, so it is full
+again one day after being emptied, and its level is clamped to one capacity.
+The cap therefore bounds two things at once: the most a fund can move **in a
+burst** (one capacity, at any instant) and the most it can move **per day
+sustained** (about one capacity).
+
+```bash
+btcli call AdminUtils.sudo_set_basket_daily_turnover_cap --args '{"cap": 6553}' \
+  --sudo -w sudo_key
+```
+
+A change applies to every fund's next trade: the bucket's capacity is
+recomputed from the new cap and current NAV, and the stored level is clamped
+down if it now exceeds it.
+
+### Tune the liquidity cap
+
+`BasketLiquidityCap` is the largest share of a subnet's alpha reserve a fund
+may hold after a buy. It is the rule that bounds the thin-pool drain:
+buying a small pool in band-sized slices while a counterparty sells alpha
+back between slices passes the price band, the turnover budget, and the 1/16
+concentration cap, yet the fund's NAV falls by roughly the TAO it spends,
+because realizable value is capped by the pool's TAO reserve no matter how
+much of the pool the fund owns.
+
+```bash
+btcli call AdminUtils.sudo_set_basket_liquidity_cap --args '{"cap": 6553}' \
+  --sudo -w sudo_key
+```
+
+Raise it if funds legitimately need larger positions in mid-depth pools
+(today's largest funds, about 12,500 τ, are barely constrained: 10% of a
+median mainnet pool is about 700 τ, about one 1/16 slice). Lower it to
+tighten the per-pool value at risk.
+
+## What the knobs bound
+
+Think of a stolen trader key with a willing counterparty. With liquidity cap
+`L` and turnover cap `C` (both as fractions), and the fixed 2% price band:
+
+- **Per pool.** The most a drain can extract from a pool with TAO reserve
+  `R` is about `R × L² / (1 + L)`. At `L = 10%` that is about 0.9% of `R`, or
+  about 9% of the TAO the fund spent on that pool.
+- **Per unit of turnover.** About `L / (1 + L)` (drain) plus 4% (two legs at
+  the edge of the band) plus fees: roughly 13% of the TAO traded at the
+  defaults.
+- **Per burst and per day.** The bucket holds one capacity, so the most
+  that can be traded at any instant is `C` of NAV, and about `C` per day
+  sustained. Worst case at the defaults: about **1.3% of NAV in a burst and
+  about 1.3% of NAV per day** until the fund is frozen.
+
+Lowering `L` shrinks the first term almost quadratically; lowering `C`
+shrinks the daily total linearly. These are bounds for a stolen key, not
+costs of honest trading, which pays only AMM fees and its own price impact.
+
+## Reading a fund's status
+
+[`basket-trading-status`](/docs/query/basket-trading-status) shows the gates
+and the bucket for one validator, as a trade at the current block would see
+them:
+
+```bash
+btcli query basket-trading-status --hotkey 5F...validator
+```
+
+| Field | Meaning |
+|---|---|
+| `enabled` | The network-wide gate. |
+| `frozen` | Whether this fund is frozen. |
+| `budget_tao` | Bucket capacity: `BasketDailyTurnoverCap` of current NAV. |
+| `remaining_tao` | What the bucket holds now — the largest trade this block would accept. |
+| `used_tao` | `budget_tao − remaining_tao`. |
+| `refill_per_block_tao` | `budget_tao / refill_blocks`. |
+| `refill_blocks` | Blocks for an empty bucket to fill (7200). |
+
+The raw storage is readable too: `BasketTradeBucket[hotkey]` is
+`(tao_available, last_refill_block)`, and a missing row means a full bucket.
+Holdings are in [`validator-basket`](/docs/query/validator-basket); the
+fund's trades are `BasketSwapped` events (`hotkey`, `origin_netuid`,
+`destination_netuid`, `alpha_sold`, `tao_mid`, `alpha_bought`).
+
+```python
+import bittensor as bt
+
+async with bt.Subtensor("finney") as client:
+    status = await client.read("basket_trading_status", hotkey_ss58=HOTKEY)
+    enabled = await client.query(bt.storage.SubtensorModule.BasketTradingEnabled)
+    bucket = await client.query(bt.storage.SubtensorModule.BasketTradeBucket, [HOTKEY])
+    events = await client.query(bt.storage.System.Events, block=BLOCK)  # look for BasketSwapped
+```
+
+## Playbook: a suspected rogue trader key
+
+Freeze first, investigate second. A freeze costs the validator nothing but
+the ability to trade, and it stops the clock on every bound above.
+
+1. **Freeze the hotkey.** `sudo_set_basket_trading_frozen(hotkey, true)`.
+   Confirm with `basket-trading-status` (`frozen: True`).
+2. **Read what happened.** Pull the fund's `BasketSwapped` events for the
+   window in question and its holdings before and after
+   (`validator-basket`, [`validator-basket-summary`](/docs/query/validator-basket-summary)).
+   Signs of a drain: many small buys into one thin subnet, each near the
+   band, with the fund's holding on that subnet approaching
+   `BasketLiquidityCap` of the pool's alpha reserve.
+3. **Check the scope.** If several funds show the same pattern, or the
+   pattern is a new one the caps do not stop, flip the network-wide switch
+   off: `sudo_set_basket_trading_enabled(false)`. Then tighten
+   `BasketLiquidityCap` or `BasketDailyTurnoverCap` before turning it back
+   on.
+4. **Tell the validator.** The fix on their side is to revoke the
+   `BasketTrading` proxy from the coldkey (`btcli proxy remove ... --proxy-type BasketTrading`)
+   and grant a fresh trader key. The coldkey itself was never at risk from
+   the trader key: a `BasketTrading` delegate can only call `swap_basket`.
+5. **Unfreeze** once the grant is rotated:
+   `sudo_set_basket_trading_frozen(hotkey, false)`.
+
+Stakers who dislike what they see do not need governance: they can move
+their root stake to another validator at any time
+([Basket trading for stakers](/docs/guides/basket-trading-for-stakers)).
+
+## Reference
+
+- Guides: [Basket trading](/docs/guides/basket-trading),
+  [Basket trading for stakers](/docs/guides/basket-trading-for-stakers)
+- Calls: `AdminUtils.sudo_set_basket_trading_enabled` (106),
+  `sudo_set_basket_trading_frozen` (107), `sudo_set_basket_daily_turnover_cap` (108),
+  `sudo_set_basket_liquidity_cap` (109); the 1/16 cap is `sudo_set_root_weights_cap`
+- Release: [v456 — Basket Trading](/releases/v456-upgrade)

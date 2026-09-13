@@ -1,0 +1,430 @@
+---
+title: Basket trading
+description: How a root validator rebalances its beta basket with swap_basket — the trader proxy, the btcli and SDK flow, every guardrail with its default and error, and what governance can change.
+---
+
+**Basket trading** (runtime v456) lets a root validator actively manage the
+basket its root dividends built. Until now the only lever was the weight
+vector: [`set_root_weights`](/docs/tx/set-root-weights) decides where *new*
+yield goes, but positions already in the fund stay where they landed. The
+[`swap-basket`](/docs/tx/swap-basket) call sells part of one holding for TAO
+and buys another holding with it, in one transaction.
+
+This guide is for the operator of a root validator. It assumes you know the
+fund model from [Root Reborn](/docs/guides/root-reborn): one escrowed fund
+per validator, stakers hold **beta** (a share of the fund), and the fund's
+value is its **NAV** — what selling every holding would fetch right now.
+For what changed on chain in v456, see the
+[release notes](/releases/v456-upgrade). Two companion pages cover the other
+seats at the table: [Basket trading for governance](/docs/guides/basket-trading-governance)
+(enable, freeze, tune) and [Basket trading for stakers](/docs/guides/basket-trading-for-stakers)
+(what changes for the people whose beta you manage: nothing to do, and how
+to watch).
+
+<Callout type="note">
+Trading launches **gated off** network-wide. Until governance enables it,
+every `swap_basket` fails with `BasketTradingDisabled`. Everything else in
+this guide (the proxy type, the reads, btcli) works from the upgrade block.
+</Callout>
+
+## What a beta basket is
+
+Every root validator runs one fund. Its root dividends arrive as subnet
+alpha and are held in a chain-owned **escrow** account, as ordinary stake
+on the validator's hotkey. Stakers on that validator accrue **beta**: a
+share of the whole fund, never of any particular position. A claim pays a
+staker their fraction of NAV as TAO.
+
+Three facts make trading safe to add on top:
+
+- **A trade changes what the fund holds, not who owns it.** Shares, each
+  staker's entitlement, and the fund's dividend accrual do not move.
+- **NAV is realizable.** The fund is valued at the TAO its holdings would
+  actually fetch at current pool depth, so a trade cannot inflate the
+  fund's book value by pumping a thin pool.
+- **The escrow cannot act on its own.** Only the validator's coldkey, or a
+  proxy it has granted, can trade.
+
+## What `swap_basket` does
+
+```text
+swap_basket(hotkey, origin_netuid, destination_netuid, amount, min_amount_out)
+```
+
+| Argument | Meaning |
+|---|---|
+| `hotkey` | The root-registered validator whose fund to rebalance. |
+| `origin_netuid` | The subnet to **sell out of**. `0` is the fund's TAO cash slot. |
+| `destination_netuid` | The subnet to **buy into**. `0` is the fund's TAO cash slot. |
+| `amount` | How much of the origin holding to sell, in the origin subnet's alpha (TAO when the origin is `0`). `all` sells the whole holding. |
+| `min_amount_out` | Your floor on the fill: the least the buy leg must credit to the destination holding, after fees, in the destination subnet's alpha (TAO when the destination is `0`). `0` sets no floor. Below it the trade fails with `BasketMinOutNotMet` and nothing moves. |
+
+The trade has two legs. The **sell leg** turns `amount` of origin alpha into
+TAO on that subnet's pool. The **buy leg** spends that TAO on the
+destination pool. Both legs run inside one transaction: if anything fails —
+a guardrail, a price limit, a rollback in the pool — nothing moves.
+
+The TAO that passes between the legs is called `tao_mid`. It is what the
+turnover budget (below) counts, and it is reported in the `BasketSwapped`
+event together with `alpha_sold` and `alpha_bought`.
+
+### The TAO cash slot (netuid 0)
+
+Netuid 0 is the root network. A fund's holding there is plain TAO, held as
+root stake, worth exactly its face value. Use it on either side of a trade:
+
+- `--from 3 --to 0` sells netuid 3 and parks the TAO as cash.
+- `--from 0 --to 64` spends cash on netuid 64.
+
+The cash slot has no pool, so a leg on netuid 0 has no price band, no fee,
+and no slippage. The cash slot **is** a capped destination: it counts
+against the 1/16 concentration cap like any other holding, so a fund cannot
+move more than 1/16 of NAV into cash in one trade.
+
+## Setting up the trader key
+
+The intended setup is that the validator's coldkey stays offline and a
+separate **trader key** (usually a multisig) does the trading through a
+proxy. Runtime v456 adds a proxy type for exactly this:
+
+- **`BasketTrading`** (proxy type index 18) admits one call:
+  `swap_basket`. A `BasketTrading` delegate cannot stake, unstake,
+  transfer, set weights, claim, or change keys.
+- No existing proxy gains trading rights at the upgrade. `NonTransfer`,
+  `NonCritical`, `Staking`, and `NonFungible` delegates are all refused
+  `swap_basket`. Only `Any` and `BasketTrading` admit it.
+
+Grant it once from the coldkey ([Proxy accounts](/docs/guides/proxies)
+covers delays and the proxy book):
+
+```bash
+# validator coldkey: delegate trading to the desk key or multisig
+btcli proxy add --delegate <desk address> --proxy-type BasketTrading -w validator_cold
+
+# check the grant
+btcli proxy list --coldkey <validator coldkey>
+```
+
+From then on the desk signs with its own wallet and names the validator's
+coldkey with `--proxy-for` (SDK: `proxy_for=`). Revoke with
+`btcli proxy remove --delegate <desk address> --proxy-type BasketTrading`.
+
+### The MEV shield
+
+A pending trade tells everyone in the block which pool it is about to buy.
+The **MEV shield** encrypts the call so that block builders and other
+traders cannot front-run it. Trading commands shield by default
+(`SwapBasket` sets `mev_shield_default = True`), so you do not need to pass
+anything. Use `--no-mev-shield` only if you must submit in the clear, for
+example against a node without shield support. The shield wraps the
+already-proxied call; the two compose.
+
+## Worked example
+
+The desk wants to sell 250 α of netuid 8 out of validator `5F...val`'s fund
+and buy netuid 64 with the proceeds.
+
+### 1. Look at the fund and the budget
+
+```bash
+btcli root list 5F...val                                 # holdings, NAV, weights
+btcli query validator-basket --hotkey 5F...val           # (netuid, alpha, TAO value) rows
+btcli query basket-trading-status --hotkey 5F...val      # gates and the turnover bucket
+```
+
+A status read looks like this:
+
+```text
+enabled               True
+frozen                False
+budget_tao            τ1,250.000
+remaining_tao         τ980.000
+used_tao              τ270.000
+refill_per_block_tao  τ0.1736
+refill_blocks         7200
+```
+
+`remaining_tao` is the most TAO this fund can push through the middle of a
+trade *right now*. The trade below moves roughly 250 α × price of netuid 8,
+so check that it fits. See [How to read the budget](#how-to-read-the-budget)
+for what the other fields mean.
+
+### 2. Swap with btcli
+
+```bash
+btcli root swap --from 8 --to 64 --amount 250 --hotkey 5F...val \
+  --max-slippage 1 -w desk --proxy-for 5F...validator_coldkey
+```
+
+btcli quotes the fund and the trade first, then shows a review card before
+you sign: the origin holding being sold, the destination holding, the
+**expected out** (what the buy leg would credit at current pool prices,
+after fees), the **minimum out** it will insist on, and how much of the
+bucket is left (with a red warning if trading is disabled or the fund is
+frozen). Confirm, and the call is proxied, shielded, and submitted. Pass
+`--dry-run` to see the card and the fee without submitting.
+
+`--max-slippage` is a percentage (default `1.0`). btcli sets
+`min_amount_out = expected out × (1 − max_slippage / 100)`. If the quote
+fails (an unreachable read, an older node), the card shows a yellow
+warning row and `min_amount_out` is `0`: the trade then has only the
+chain's own band. See [Your floor and the protocol band](#your-floor-and-the-protocol-band).
+
+Other shapes of the same command:
+
+```bash
+btcli root swap --from 3 --to 0 --amount all --hotkey 5F...val ...   # exit netuid 3 to cash
+btcli root swap --from 0 --to 21 --amount 500 --hotkey 5F...val ...  # spend 500 τ of cash on netuid 21
+btcli root swap --from 8 --to 64 --amount 250 --max-slippage 0.5 ...  # tighter floor: fill within 0.5% of the quote
+```
+
+### 3. Swap with the Python SDK
+
+```python
+import bittensor as bt
+from bittensor.wallet import Wallet
+
+HOTKEY = "5F...val"
+VALIDATOR_COLDKEY = "5F...validator_coldkey"
+desk = Wallet(name="desk")
+
+async with bt.Subtensor("finney") as client:
+    status = await client.read("basket_trading_status", hotkey_ss58=HOTKEY)
+    if not status["enabled"] or status["frozen"]:
+        raise SystemExit("trading is off for this fund")
+
+    # Quote the trade yourself: sell leg on netuid 8, buy leg on netuid 64.
+    tao_mid = (await client.read("quote_unstake", netuid=8, amount_alpha=250)).tao
+    expected = (await client.read("quote_stake", netuid=64, amount_tao=tao_mid.tao)).alpha
+    floor = bt.Balance.from_rao(expected.rao * 99 // 100, 64)   # 1% under the quote
+
+    intent = bt.SwapBasket(
+        hotkey_ss58=HOTKEY,
+        origin_netuid=8,
+        dest_netuid=64,
+        amount=250,          # α of netuid 8; "all" sells the whole holding
+        min_amount_out=floor,   # α of netuid 64; 0 (the default) sets no floor
+    )
+    result = await client.execute(intent, desk, proxy_for=VALIDATOR_COLDKEY)
+    if not result.success:
+        print(result.error.code, result.error.remediation)
+```
+
+`SwapBasket` is an ordinary intent: `client.plan(intent, desk)` previews the fee
+and the guardrail preflight, and `client.execute` submits. The intent
+shields by default. `min_amount_out` is denominated like the destination:
+alpha of `dest_netuid`, or TAO when `dest_netuid` is `0`. On success the
+chain emits `BasketSwapped` with the exact amounts on both legs.
+
+## Your floor and the protocol band
+
+Two separate rules bound the price a trade can fill at. They protect
+against different things, and you control only one of them.
+
+| | Protocol band (`SlippageTooHigh`) | Your floor (`BasketMinOutNotMet`) |
+|---|---|---|
+| Who sets it | The runtime: a 2% constant, per leg. | You: `min_amount_out`, per trade. |
+| What it measures | Each leg's fill **price** against the subnet's moving and spot price. | The **amount** the buy leg credits, after fees, against your number. |
+| What it protects | The fund from a stolen key or a pumped pool: a leg can never fill far from the reference price. | You from a fill that is worse than the quote you signed on, because the pool moved between quote and execution. |
+| Can it be switched off | No. | Yes: `min_amount_out = 0` (btcli: `--max-slippage 100`). |
+
+The band is a price rule on each leg. It does not know what you were
+quoted. A trade whose two legs each move 1.5% passes the band while
+delivering about 3% less than the quote; a trade that happens to land in
+the same block as a large opposite trade can pass the band and still fill
+below your quote. Your floor catches those cases. The band is still
+checked first, inside each leg: a leg that misses it fails with
+`SlippageTooHigh` whatever floor you set.
+
+Pick `--max-slippage` from the quote, not from the band. Both legs pay the
+AMM fee and their own price impact, and the quote already includes those,
+so 1% (the default) is room for the pool to move against you, not for the
+trade's own cost. A floor tighter than the movement you expect between
+signing and inclusion (a block or two) fails often; a floor looser than 2%
+per leg adds nothing the band does not already give.
+
+## The guardrails
+
+A trading key is a new way for a fund to lose value, so every trade must
+pass every check below. The numbers are the launch defaults;
+[governance](#governance-knobs) can move the caps and the budget. Each
+check names the exact error you see when it refuses the trade.
+
+### 2% price band per leg → `SlippageTooHigh`
+
+Each leg must fill **completely** within 2% of the stricter of two
+reference prices: the subnet's **moving price** (an on-chain exponential
+moving average, about eight hours' half-life on mainnet) and its **spot
+price**.
+
+- A buy may not fill above `1.02 × min(moving, spot)`.
+- A sell may not fill below `0.98 × max(moving, spot)`.
+
+The moving-price anchor stops a trade at a price someone just pumped or
+dumped. The spot anchor caps the trade's own price impact. If either leg
+would cross its bound, the trade fails with `SlippageTooHigh` and nothing
+moves. Practical consequences:
+
+- **Size legs to the pool.** On a constant-product pool a buy of about 1% of
+  the TAO reserve moves the price about 2%. Split larger positions into
+  slices and let the pool settle between them.
+- **You cannot chase a move.** A holding whose spot has fallen more than 2%
+  below its moving price cannot be sold until the average catches up
+  (roughly ten hours after a 5% drop). The same holds for buying after a
+  spike. Stop-losses are not possible by design.
+- A subnet with no moving price yet (before `start_call`) cannot be
+  traded. The moving price is capped at 1 τ per α, so a subnet trading
+  above that cannot be bought within the band.
+
+### Turnover budget: a token bucket of 10% of NAV per day → `BasketTurnoverBudgetExceeded`
+
+Each fund has a **bucket** whose capacity is `BasketDailyTurnoverCap` of
+its current NAV — default 10%. Every trade takes `tao_mid` out of the
+bucket. The bucket refills continuously at `capacity / 7200` per block, so
+an empty bucket is full again after one day (7200 blocks at 12 seconds).
+
+Two properties follow:
+
+- **At most one budget at any instant.** The level is clamped to one
+  capacity, so a fund can never move more than 10% of NAV through the
+  middle in a burst, no matter how long it waited.
+- **About one budget per day sustained.** A fund trading continuously can
+  turn over 10% of NAV per day; a full rotation of the fund takes about ten
+  days.
+
+A trade whose `tao_mid` is larger than the bucket's current level fails with
+`BasketTurnoverBudgetExceeded`. A fund that has never traded starts with a
+full bucket. The bucket follows the fund through a hotkey swap.
+
+### 1/16 concentration cap → `RootWeightCapExceeded`
+
+After the trade, the destination holding's realizable value may not exceed
+`RootWeightsCap` of fund NAV — default 1/16, the same cap that applies to
+`set_root_weights`. Topping up a holding that is already at the cap is
+refused, and so is moving more than 1/16 of NAV into the cash slot. On a
+chain with fewer than 16 subnets the check is skipped. Refusal is
+`RootWeightCapExceeded`.
+
+### 10% per-pool liquidity cap → `BasketLiquidityCapExceeded`
+
+After the buy leg, the fund may not hold more than `BasketLiquidityCap` of
+the destination subnet's **alpha reserve** — default 10% of the alpha in
+the pool. This is a different question from the concentration cap: not
+"how big is this position in my fund?" but "how big is my fund in this
+pool?".
+
+It exists because realizable value is bounded by a pool's TAO reserve. A
+fund could otherwise keep buying a thin subnet in band-sized slices while
+a counterparty sells alpha back to it between slices; every slice passes
+the band, the budget, and the concentration cap, yet the fund's NAV falls
+by roughly the TAO it spends. With the liquidity cap the value at risk on a
+pool with TAO reserve `R` is about `R × L² / (1 + L)` — about 0.9% of `R`
+at the 10% default. The cash slot has no pool and is exempt. Refusal is
+`BasketLiquidityCapExceeded`.
+
+### Enable and freeze switches → `BasketTradingDisabled` / `BasketTradingFrozen`
+
+- `BasketTradingEnabled` is the network-wide gate, **off** at launch. While
+  it is off every trade fails with `BasketTradingDisabled`.
+- `BasketTradingFrozen[hotkey]` lets governance freeze one fund's trading,
+  for example after a suspected key compromise. A frozen fund still accepts
+  deposits, pays claims, and accrues dividends; only `swap_basket` fails,
+  with `BasketTradingFrozen`. The freeze follows the fund through a hotkey
+  swap.
+
+### Other refusals
+
+| Error | Cause |
+|---|---|
+| `BasketSameSubnet` | Origin and destination are the same netuid. |
+| `NonAssociatedColdKey` | The signer (or the `--proxy-for` account) does not own the hotkey. |
+| `HotKeyNotRegisteredInSubNet` | The hotkey is not registered on root. |
+| `NotEnoughStakeToWithdraw` | The fund holds less than `amount` on the origin. |
+| `BasketMinOutNotMet` | The buy leg credited less than your `min_amount_out`. Re-quote and retry, or loosen the floor. |
+| `AmountTooLow` | `amount` is zero, or the sell leg yields less than the minimum stake. |
+| `SubnetNotExists`, `SubtokenDisabled` | A side does not exist, or the destination's token is not enabled. |
+| `BetaBasketSeedInProgress` | The basket seed migration is still running. |
+| `ColdkeySwapAnnounced` | A coldkey swap is announced for the signer. |
+
+## How to read the budget
+
+[`basket-trading-status`](/docs/query/basket-trading-status) returns the
+gates and the bucket for one validator:
+
+| Field | Meaning |
+|---|---|
+| `enabled` | The network-wide gate. |
+| `frozen` | Whether governance froze this fund. |
+| `budget_tao` | The bucket's capacity: 10% of current NAV. It moves with NAV. |
+| `remaining_tao` | What is in the bucket now — the largest `tao_mid` a trade at this block could push through. |
+| `used_tao` | `budget_tao − remaining_tao`. |
+| `refill_per_block_tao` | How much the bucket gains every block: `budget_tao / refill_blocks`. |
+| `refill_blocks` | Blocks for an empty bucket to fill completely (7200). |
+
+To size a trade: estimate `tao_mid` as the origin amount times the origin
+subnet's price (or the TAO amount itself when selling cash), and keep it
+under `remaining_tao`. To plan a series: after a trade of `X` TAO, the
+bucket is back to full after `X / refill_per_block_tao` blocks. NAV changes
+move `budget_tao`, and the level is clamped to the new capacity, so a
+falling NAV can lower `remaining_tao` without any trade.
+
+## What is not restricted
+
+- **Selling is never capped.** The concentration and liquidity caps apply to
+  the destination only. You can always sell out of a position that has
+  grown past either cap, and a sell into the cash slot is bounded only by
+  the band, the bucket, and the 1/16 cash rule.
+- **Winners run.** A holding that appreciates past 1/16 of NAV or past 10%
+  of its pool is not clipped. The caps stop you from *buying* more of it,
+  not from holding it.
+- **Dividends keep flowing.** Root dividends deploy into the fund exactly as
+  before, by the weight vector or in place, whether trading is enabled,
+  disabled, or frozen. Deposits, claims, and `set_root_weights` are not
+  touched by any trading gate.
+- **Stakers are unaffected by the mechanics.** A trade does not change
+  shares, entitlements, or the claim path. What changes is the fund's
+  composition — and, over time, its NAV.
+
+## Governance knobs
+
+All four setters are root-only calls on `AdminUtils`:
+
+| Call | Effect | Default |
+|---|---|---|
+| `sudo_set_basket_trading_enabled(enabled)` | Network-wide on/off switch. | off |
+| `sudo_set_basket_trading_frozen(hotkey, frozen)` | Freeze or unfreeze one fund. | not frozen |
+| `sudo_set_basket_daily_turnover_cap(cap)` | Bucket capacity as a u16 share of NAV (`65535` = 100%). Zero is rejected. | `6553` (10%) |
+| `sudo_set_basket_liquidity_cap(cap)` | Largest share of a pool's alpha reserve a fund may hold after a buy (`65535` = 100%). Zero is rejected. | `6553` (10%) |
+
+The 1/16 concentration cap is the existing `RootWeightsCap`, set with
+`sudo_set_root_weights_cap`. The 2% band and the 7200-block refill period
+are runtime constants, not hyperparameters.
+
+Raise the liquidity cap if funds legitimately need larger positions in
+mid-depth pools; lower it to tighten the per-pool value at risk. Raise the
+turnover cap only once the liquidity cap is in place: with both at their
+defaults, the most a stolen trader key and a willing counterparty can
+extract is about 13% of the TAO traded — 9% through a thin pool and 4% at
+the edges of the band, plus fees — which is about 1.3% of NAV per full
+bucket, and about that much per day until governance freezes the fund.
+This bound assumes pools near the 0.5 balancer-weight equilibrium; if a
+pool's balancer weights skew far from equilibrium, the price-impact
+estimate behind the 9% figure, and so the daily figure, becomes less
+accurate, while the 2% band and the turnover bucket still hold exactly.
+
+## Reference
+
+- Transaction: [`swap-basket`](/docs/tx/swap-basket)
+- Read: [`basket-trading-status`](/docs/query/basket-trading-status),
+  [`validator-basket`](/docs/query/validator-basket)
+- Errors: [`BasketTradingDisabled`](/docs/errors/chain/BasketTradingDisabled),
+  [`BasketTradingFrozen`](/docs/errors/chain/BasketTradingFrozen),
+  [`BasketTurnoverBudgetExceeded`](/docs/errors/chain/BasketTurnoverBudgetExceeded),
+  [`BasketLiquidityCapExceeded`](/docs/errors/chain/BasketLiquidityCapExceeded),
+  [`BasketMinOutNotMet`](/docs/errors/chain/BasketMinOutNotMet),
+  [`BasketSameSubnet`](/docs/errors/chain/BasketSameSubnet)
+- Guides: [Basket trading for governance](/docs/guides/basket-trading-governance),
+  [Basket trading for stakers](/docs/guides/basket-trading-for-stakers),
+  [Root Reborn](/docs/guides/root-reborn),
+  [Proxy accounts](/docs/guides/proxies), [Multisig](/docs/guides/multisig)
+- Release: [v456 — Basket Trading](/releases/v456-upgrade)

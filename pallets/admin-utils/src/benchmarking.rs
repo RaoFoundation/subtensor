@@ -966,5 +966,35 @@ mod benchmarks {
         _(RawOrigin::Root, 4096u16);
     }
 
+    #[benchmark]
+    fn sudo_set_basket_trading_enabled() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_trading_frozen() {
+        let hotkey: T::AccountId = account("basket_frozen_hot", 0, 1);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, hotkey.clone(), true);
+
+        assert!(pallet_subtensor::BasketTradingFrozen::<T>::contains_key(
+            &hotkey
+        ));
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_daily_turnover_cap() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 6553u16);
+    }
+
+    #[benchmark]
+    fn sudo_set_basket_liquidity_cap() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, 6553u16);
+    }
+
     impl_benchmark_test_suite!(AdminUtils, mock::new_test_ext(), mock::Test);
 }

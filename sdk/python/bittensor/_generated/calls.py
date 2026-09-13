@@ -548,6 +548,11 @@ class SubtensorModule:
         return Call('SubtensorModule', 'sudo_set_voting_power_ema_alpha', {'netuid': netuid, 'alpha': alpha})
 
     @staticmethod
+    def swap_basket(hotkey: 'AccountId32', origin_netuid: 'NetUid', destination_netuid: 'NetUid', amount: 'AlphaBalance', min_amount_out: 'u64') -> Call:
+        "--- Rebalances a root validator's beta basket: sells `amount` of the fund's `origin_netuid` holding for TAO and buys `destination_netuid` with it. Either side may be root (netuid 0), the fund's TAO cash slot. Fund shares and staker entitlements are unchanged; only the fund's composition moves.  Guardrails: each AMM leg must fill fully within 2% of the subnet's moving price; the TAO through the middle is taken from the fund's turnover bucket (`BasketDailyTurnoverCap` of NAV, refilling over 7200 blocks); the destination holding may not end above `BasketLiquidityCap` of the destination pool's alpha reserve, nor above `RootWeightsCap` of NAV. Trading must be enabled network-wide and not frozen for the hotkey by governance. On top of the protocol band the caller may set its own floor: the buy leg must credit at least `min_amount_out` or the trade rolls back.  # Arguments * `origin`: Signed by the coldkey that owns `hotkey` (or its `BasketTrading` proxy). * `hotkey`: The root-registered validator whose basket to rebalance. * `origin_netuid`: Subnet to sell out of (root = the TAO slot). * `destination_netuid`: Subnet to buy into (root = the TAO slot). * `amount`: Alpha of `origin_netuid` to sell (TAO at 1:1 when origin is root). * `min_amount_out`: Least amount the buy leg must credit to the destination holding, in `destination_netuid` alpha (rao of TAO when the destination is root), after fees. `0` sets no floor; the 2% protocol band still applies.  # Events * `BasketSwapped`: On success, with the amounts on both legs.  # Errors * `BasketTradingDisabled`, `BasketTradingFrozen`: Gated off. * `BasketSameSubnet`: Origin equals destination. * `NonAssociatedColdKey`: Caller does not own `hotkey`. * `HotKeyNotRegisteredInSubNet`: `hotkey` is not on root. * `NotEnoughStakeToWithdraw`: The fund holds less than `amount` on origin. * `SlippageTooHigh`: A leg could not fill within 2% of the moving price. * `BasketMinOutNotMet`: The buy leg credited less than `min_amount_out`. * `BasketTurnoverBudgetExceeded`: The trade exceeds what the fund's turnover bucket holds. * `BasketLiquidityCapExceeded`: The destination holding would exceed the liquidity cap. * `RootWeightCapExceeded`: The destination would exceed the concentration cap."
+        return Call('SubtensorModule', 'swap_basket', {'hotkey': hotkey, 'origin_netuid': origin_netuid, 'destination_netuid': destination_netuid, 'amount': amount, 'min_amount_out': min_amount_out})
+
+    @staticmethod
     def swap_coldkey(old_coldkey: 'AccountId32', new_coldkey: 'AccountId32', swap_cost: 'TaoBalance') -> Call:
         "Performs an arbitrary coldkey swap for any coldkey.  Only callable by root as it doesn't require an announcement and can be used to swap any coldkey."
         return Call('SubtensorModule', 'swap_coldkey', {'old_coldkey': old_coldkey, 'new_coldkey': new_coldkey, 'swap_cost': swap_cost})
@@ -923,6 +928,26 @@ class AdminUtils:
     def sudo_set_alpha_values(netuid: 'NetUid', alpha_low: 'u16', alpha_high: 'u16') -> Call:
         'Sets values for liquid alpha'
         return Call('AdminUtils', 'sudo_set_alpha_values', {'netuid': netuid, 'alpha_low': alpha_low, 'alpha_high': alpha_high})
+
+    @staticmethod
+    def sudo_set_basket_daily_turnover_cap(cap: 'u16') -> Call:
+        "Sets the basket daily turnover budget ([`pallet_subtensor::BasketDailyTurnoverCap`]): the capacity of each fund's `swap_basket` turnover bucket as a u16-normalized share of fund NAV (`u16::MAX` = 100%). The bucket refills over 7200 blocks, so at most one capacity can be traded at any instant and about one per day sustained. Root-only."
+        return Call('AdminUtils', 'sudo_set_basket_daily_turnover_cap', {'cap': cap})
+
+    @staticmethod
+    def sudo_set_basket_liquidity_cap(cap: 'u16') -> Call:
+        "Sets the basket liquidity cap ([`pallet_subtensor::BasketLiquidityCap`]): the largest u16-normalized share of a subnet's alpha reserve (`u16::MAX` = 100%) a fund may hold on that subnet after a `swap_basket` buy. Bounds the fund's exposure to any one pool's liquidity: with cap `L` the value at risk on a pool with TAO reserve `R` is about `R × L² / (1 + L)`. Root-only."
+        return Call('AdminUtils', 'sudo_set_basket_liquidity_cap', {'cap': cap})
+
+    @staticmethod
+    def sudo_set_basket_trading_enabled(enabled: 'bool') -> Call:
+        'Enables or disables validator basket trading (`swap_basket`) network-wide. Defaults OFF. Gates only the trade path: deposits, claims, dividend deployment, and reads are unaffected. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trading_enabled', {'enabled': enabled})
+
+    @staticmethod
+    def sudo_set_basket_trading_frozen(hotkey: 'AccountId32', frozen: 'bool') -> Call:
+        'Freezes or unfreezes basket trading for one validator hotkey ([`pallet_subtensor::BasketTradingFrozen`]), e.g. after a suspected key compromise. A frozen fund still accepts deposits and pays claims. Root-only.'
+        return Call('AdminUtils', 'sudo_set_basket_trading_frozen', {'hotkey': hotkey, 'frozen': frozen})
 
     @staticmethod
     def sudo_set_bonds_moving_average(netuid: 'NetUid', bonds_moving_average: 'u64') -> Call:
