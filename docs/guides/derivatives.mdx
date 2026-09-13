@@ -1,6 +1,6 @@
 ---
 title: Longs and shorts
-description: Take a long or short on a subnet's alpha, borrowed from the subnet's own pool — one position per subnet, one call to add to it, take from it, or flip it; two numbers set the whole design; no expiry, no liquidation.
+description: Take a long or short on a subnet's alpha, borrowed from the subnet's own pool — one position per subnet, one call to add to it, take from it, or flip it; three numbers set the whole design; no expiry, no liquidation.
 ---
 
 A **derivative position** lets you bet on the price of a subnet's alpha
@@ -20,9 +20,10 @@ built from the pool's own TAO and alpha. A position has **no expiry**. It
 lives until you close it, or until its cushion can no longer pay its interest
 and the chain hands it back to the pool. Nobody else can touch it.
 
-The whole design is two numbers, and root sets both. The pool lends out at
-most `pool_share` of itself per side (25%), and it charges `interest_rate` on
-what it lends (25%), the same for shorts and longs. Everything else follows.
+The whole design is three numbers, and root sets all three. The pool lends
+out at most `pool_share` of itself per side (25%), and it charges a flat
+yearly interest on what it lends: `short_interest_rate` on shorts (52%) and
+`long_interest_rate` on longs (26%). Everything else follows.
 
 Shipped in the [v456 release](/releases/v456-upgrade). This guide uses the
 same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
@@ -43,7 +44,7 @@ same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
 | **Proceeds** | What the opening trade produced. A short sells the lifted alpha, so its proceeds are TAO. A long buys alpha with the lifted TAO, so its proceeds are alpha. |
 | **Debt** | What must go back to the pool at settlement: the lifted alpha (short) or the lifted TAO (long). |
 | **Escrow** | The other half of the lifted slice. It sits untouched in the pallet and returns to the pool at settlement. |
-| **Interest** | `interest_rate` (25%) of a tranche's TAO exposure per year, the same for both sides, fixed for the tranche when it is added and accrued per block. Once a week the chain takes it out of your cushion, buys alpha with it, and recycles the alpha: interest is buy pressure on the pool. Nothing is charged up front. |
+| **Interest** | A flat yearly rate on a tranche's TAO exposure: `short_interest_rate` (52%) for a short, `long_interest_rate` (26%) for a long, fixed for the tranche when it is added and accrued per block. Once a week the chain takes it out of your cushion, buys alpha with it, and recycles the alpha: interest is buy pressure on the pool. Nothing is charged up front. |
 | **Runway** | How long your cushion keeps paying interest at the current rate. When it cannot, the position is **starved**: the chain forfeits everything it holds for it to the pool, with no swap, and you get nothing. Adding cushion extends the runway. |
 | **Equity** | What a close right now would pay you: cushion + proceeds − debt at the pool's quote − interest owed. An estimate; only you can act on it. |
 | **Underwater** | Equity at or below zero: the pool's own quote says your pot cannot repay the debt plus the interest. An underwater close trades nothing. Everything the pallet holds for you goes to the pool as it is, and you are paid nothing. |
@@ -167,42 +168,66 @@ may always pick less.
 ## Weekly interest
 
 **Interest** is what the pool charges you for lending you its slice. It is
-the only cost besides slippage, and it is one law for both sides.
+the only cost besides slippage. It is one law for both sides, with one
+number for each: a flat yearly rate on the TAO exposure, and shorts pay a
+higher rate than longs.
 
 Two things happen on two different clocks. The interest **accrues** every
 block: the amount you owe grows a little each block. The chain **collects**
 it once a week: it takes the amount owed out of your cushion. Nothing is
 charged up front.
 
-### The two parameters
+### The three parameters
 
-Root sets two numbers with `sudo_set_params`. They are the whole design.
+Root sets three numbers with `sudo_set_params`. They are the whole design.
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `pool_share` | 25% | The most that all open positions on one side of one subnet may borrow together, as a share of the reserve they borrow from. |
-| `interest_rate` | 25% a year | The interest on a tranche's TAO exposure. The same for shorts and longs. |
+| `short_interest_rate` | 52% a year | The interest on a short tranche's TAO exposure. |
+| `long_interest_rate` | 26% a year | The interest on a long tranche's TAO exposure. |
 
-Changing `interest_rate` later does not reprice a running position. Each
-tranche keeps the rate it was added at, and the position carries the sum as
+Both rates are flat: they do not move with how much of the pool is lent, or
+with anything else. Neither may be zero; `sudo_set_params` refuses that with
+`ZeroInterestRate`. The starting values are constants in the pallet
+([`DEFAULT_SHORT_INTEREST_RATE_PERCENT`](/code/pallets/derivatives/src/position.rs)
+and `DEFAULT_LONG_INTEREST_RATE_PERCENT`).
+
+**Why shorts pay more.** A short borrows alpha and owes it back. The price
+it will have to buy that alpha back at has no ceiling, and nobody but the
+owner can close the position. So for as long as a short stays open the pool
+carries an open-ended exposure to it, and the only buy pressure the short
+ever brings is its own interest. A long borrows TAO and buys alpha with it.
+Its cost to the pool is bounded: the worst the price can do is fall to zero.
+And a long is the buy pressure the design wants on a subnet's alpha. The pool
+charges for the risk it carries, so shorts pay twice the rate longs do.
+
+Changing either rate later does not reprice a running position. Each tranche
+keeps the rate it was added at, and the position carries the sum as
 `interest_per_year` in TAO
 ([`interest_due`](/code/pallets/derivatives/src/position.rs)).
 
 ### Accrual: what you owe grows every block
 
-A tranche's interest per year is fixed when you add it: `interest_rate` times
-the tranche's TAO exposure. From that block on it accrues in proportion to
-the blocks it has been open:
+A tranche's interest per year is fixed when you add it: the rate for the
+tranche's side times the tranche's TAO exposure. From that block on it
+accrues in proportion to the blocks it has been open:
 
 $$
-\text{interest} = \text{interest\_rate} \times \text{exposure} \times \frac{\text{blocks open}}{\text{blocks per year}}
+\text{interest} = \text{rate for the side} \times \text{exposure} \times \frac{\text{blocks open}}{\text{blocks per year}}
 $$
 
 A year is 2,628,000 blocks at 12 seconds a block. A 100 τ short at 1x has
-100 τ of exposure, so it owes 25 τ a year: about 0.48 τ a week, or 0.068 τ a
-day. A 100 τ long at 1.5x has 150 τ of exposure and owes half again as much.
-Leverage costs in proportion to what it borrows. Pool size and `pool_share`
-do not enter. Add and close in the same block and you owe nothing.
+100 τ of exposure, so at 52% it owes 52 τ a year: about 1.0 τ a week, or
+0.14 τ a day. A 100 τ long at 1.5x has 150 τ of exposure, so at 26% it owes
+39 τ a year: about 0.75 τ a week, or 0.11 τ a day. Leverage costs in
+proportion to what it borrows, and the side sets the rate. Pool size and
+`pool_share` do not enter. Add and close in the same block and you owe
+nothing.
+
+If you flip a position, the new side's tranche is booked at the new side's
+rate. A short that flips to a long stops paying the short rate on the part
+that was settled and pays the long rate on the part that opened.
 
 ### Collection: the chain takes it once a week
 
@@ -268,9 +293,10 @@ in that window would forfeit a position the settlement was about to pay. The
 interest owed is taken at the settlement instead.
 
 **Runway** is how long your cushion keeps paying at the current rate.
-`btcli deriv list` shows it in days. At 25% a year, a fresh 1x position lasts
-four years and a fresh 1.5x long two years and eight months. To extend the
-runway, add cushion on your own side.
+`btcli deriv list` shows it in days. At the default rates, a fresh 1x short
+lasts about a year and eleven months (52 τ a year on a 100 τ cushion), and a
+fresh 1.5x long about two years and seven months (39 τ a year on the same
+cushion). To extend the runway, add cushion on your own side.
 
 The rate is interest on the pool's liquidity, not an option premium. What
 protects the pool from a position that turns dangerous is the cap and the
@@ -296,7 +322,7 @@ ceiling. When the add is on your position's side (or you have none),
 nothing is deposited: it only sizes how much comes off.
 
 ```bash
-# Check the two parameters and the fixed limits first
+# Check the three parameters and the fixed limits first
 btcli deriv params --json
 
 # Short subnet 7 with a 100 τ cushion at 1x (dry-run, then execute)
@@ -628,14 +654,15 @@ yet is a short charged the spot the pool last showed.
 
 ## Parameters
 
-Two numbers, root-set with `sudo_set_params`, read with
+Three numbers, root-set with `sudo_set_params`, read with
 [`derivatives-params`](/docs/query/derivatives-params). Defaults from
 [`DerivativesParams::defaults`](/code/pallets/derivatives/src/position.rs).
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `pool_share` | `25%` | Largest share of the lent reserve all open positions of one side on one subnet may borrow together. Zero pauses new positions; open ones still reduce and close. |
-| `interest_rate` | `25%` | Interest per year on a tranche's TAO exposure, both sides, accrued per block. Fixed for each tranche when it is added. |
+| `short_interest_rate` | `52%` | Interest per year on a short tranche's TAO exposure, accrued per block. Fixed for each tranche when it is added. Must be above zero. |
+| `long_interest_rate` | `26%` | Interest per year on a long tranche's TAO exposure, accrued per block. Fixed for each tranche when it is added. Must be above zero. |
 
 Three limits are runtime constants, visible in the same read and changed only
 by an upgrade:
@@ -661,7 +688,7 @@ book without reading storage:
 | `PositionAdded` | A tranche was added (or a position opened): owner, subnet, side, the deposit, leverage, legs, exposure added, and the position's exposure after it. |
 | `PositionReduced` | Part of a position was settled: owner, subnet, side, the fraction unwound, the payout, interest paid, any shortfall, and the exposure left. |
 | `PositionClosed` | A position settled in full: why (`Owner`, `Underwater`, `Starved`, or `Dissolution`), the payout to the owner, interest paid, and any shortfall the pool carried. A starved position pays what was left of its cushion as interest and has no shortfall: nothing was swapped. An underwater one reports the whole debt as the shortfall: nothing was bought back, the pool was paid in the other token instead. |
-| `ParamsSet` | Root set the two parameters. |
+| `ParamsSet` | Root set the three parameters. |
 | `DissolutionPriced` | A dissolving subnet's positions are about to be cash-settled: `short` is the `tao / alpha` price shorts are charged at, `long` the one longs are credited at. |
 | `LiquidityParked` | A settlement handed liquidity back while the spot was off the moving price; the pair waits in the pallet. |
 | `LiquidityReleased` | A parked pair rejoined the pool, or went to a dissolving subnet's reserves. |
@@ -691,10 +718,13 @@ and `NextDue` (the first slot not yet collected), `Params`, `PalletHotkey`,
 - You can reduce or close at any block. Nobody else can. There is no expiry
   and no liquidation: a price move never takes your position, only an empty
   cushion does. Watch the runway and add cushion if you must.
-- One interest rate for both sides, on exposure: 25% a year, accrued per
-  block and collected from your cushion by the chain once a week, as a buy of
-  the subnet's alpha. A 1.5x long pays half again what a 1x short of the same
-  cushion pays, because it borrows half again as much.
+- One flat interest rate per side, on exposure: 52% a year on shorts, 26% a
+  year on longs, accrued per block and collected from your cushion by the
+  chain once a week, as a buy of the subnet's alpha. Shorts pay more because
+  the pool carries open-ended exposure to a short nobody can close; longs are
+  the buy pressure the design wants. A 1.5x long borrows half again what a 1x
+  short of the same cushion does, at half the rate, so it pays three quarters
+  of what the short pays.
 - Slippage is real on both legs. Size positions against the pool's depth,
   not against your balance.
 - Profit comes from the pool; loss goes to the pool. The leverage ceilings

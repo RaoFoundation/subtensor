@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ExplainerPanel, ExplainerToggle } from './explainer-panel';
 import { ACCENT, ACCENT_WASH, INK, INK_FAINT } from './chart-theme';
-import { CUSHION, LEVERAGE, OPEN_PRICE, lift, phi, interestFor, simulate, type Outcome as Numbers, type Side } from '@/lib/derivatives-math';
+import { CUSHION, INTEREST_RATE, LEVERAGE, OPEN_PRICE, lift, phi, interestFor, simulate, type Outcome as Numbers, type Side } from '@/lib/derivatives-math';
 
 type Outcome = 'down' | 'up';
 
@@ -15,6 +15,7 @@ const MOVE_PCT = 20;
 const tao = (v: number, d = 2) => `${v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })} τ`;
 const alpha = (v: number) => `${v.toLocaleString('en-US', { maximumFractionDigits: 0 })} α`;
 const price = (v: number) => `${v.toFixed(4)} τ/α`;
+const pct = (v: number) => `${Math.round(v * 100)}%`;
 const signed = (v: number) => `${v >= 0 ? '+' : '−'}${tao(Math.abs(v))}`;
 
 const FONT = { fontFamily: 'FiraCode, monospace', fontSize: 10.5, letterSpacing: 0.4 } as const;
@@ -71,8 +72,8 @@ function slide(phase: Phase, side: Side, outcome: Outcome, n: Numbers): Slide {
       return {
         title: 'Your position is open',
         body: short
-          ? `It holds ${tao(CUSHION + n.proceeds)} (cushion + proceeds) and owes ${alpha(LIFT_ALPHA)} to the pool. The interest meter starts: ${tao(interestFor('short', 1), 3)} per day (25% a year on ${tao(LIFT_TAO, 0)} of exposure), accrued per block. There is no expiry; the position runs while it can pay.`
-          : `It holds your ${tao(CUSHION, 0)} cushion plus ${alpha(n.proceeds)}, and owes ${tao(LIFT_TAO, 0)} to the pool. The interest meter starts: ${tao(interestFor('long', 1), 3)} per day (25% a year on ${tao(LIFT_TAO, 0)} of exposure), accrued per block. There is no expiry; the position runs while it can pay.`,
+          ? `It holds ${tao(CUSHION + n.proceeds)} (cushion + proceeds) and owes ${alpha(LIFT_ALPHA)} to the pool. The interest meter starts: ${tao(interestFor('short', 1), 3)} per day (${pct(INTEREST_RATE.short)} a year on ${tao(LIFT_TAO, 0)} of exposure, the short rate), accrued per block. There is no expiry; the position runs while it can pay.`
+          : `It holds your ${tao(CUSHION, 0)} cushion plus ${alpha(n.proceeds)}, and owes ${tao(LIFT_TAO, 0)} to the pool. The interest meter starts: ${tao(interestFor('long', 1), 3)} per day (${pct(INTEREST_RATE.long)} a year on ${tao(LIFT_TAO, 0)} of exposure, the long rate), accrued per block. There is no expiry; the position runs while it can pay.`,
       };
     case 'move':
       return {

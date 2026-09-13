@@ -1,9 +1,10 @@
 /**
  * The worked example every derivatives figure uses: a 100 τ cushion on a
  * 10,000 τ / 200,000 α pool (0.05 τ/α). Each side is shown at its leverage
- * ceiling: the short at 1x lifts 1% of the pool, the long at 1.5x lifts 1.5%. Both
- * pay the same interest: `interest_rate` (25%) of their TAO exposure per year,
- * accrued per block, so the 1.5x long pays half again the 1x short. There is no term.
+ * ceiling: the short at 1x lifts 1% of the pool, the long at 1.5x lifts 1.5%. Each
+ * side pays its own flat rate on its TAO exposure per year, accrued per block:
+ * `short_interest_rate` (52%) and `long_interest_rate` (26%), so the 1.5x long pays
+ * three quarters of what the 1x short does. There is no term.
  *
  * `simulate` mirrors `pallet-derivatives`: lift `phi` of both reserves, trade one
  * half through the constant-product pool, let the market move, reverse the trade
@@ -22,8 +23,11 @@ export const CUSHION = 100;
  * anything from 0.01x up to these.
  */
 export const LEVERAGE: Record<Side, number> = {short: 1, long: 1.5};
-/** Fraction of TAO exposure either side pays per year (`interest_rate`). */
-export const INTEREST_RATE = 0.25;
+/**
+ * Fraction of TAO exposure each side pays per year: the pallet's
+ * `DEFAULT_SHORT_INTEREST_RATE_PERCENT` and `DEFAULT_LONG_INTEREST_RATE_PERCENT`.
+ */
+export const INTEREST_RATE: Record<Side, number> = {short: 0.52, long: 0.26};
 export const OPEN_PRICE = POOL_TAO / POOL_ALPHA;
 
 /** Share of the pool the position lifts: `L × cushion / T`. */
@@ -59,9 +63,9 @@ export interface Outcome {
   pnl: number;
 }
 
-/** Interest per year, fixed at the add: `interest_rate × exposure`, the same on both sides. */
+/** Interest per year, fixed at the add: the side's rate × exposure. */
 export function interestPerYear(side: Side): number {
-  return INTEREST_RATE * lift(side).tao;
+  return INTEREST_RATE[side] * lift(side).tao;
 }
 
 /** Interest after `days` held, pro rata; nothing is booked up front. */

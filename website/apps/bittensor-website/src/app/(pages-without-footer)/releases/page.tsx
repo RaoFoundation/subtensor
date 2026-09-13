@@ -28,8 +28,8 @@ const releases: Release[] = [
     title: 'Longs and Shorts',
     summary:
       'V456 adds pallet-derivatives: longs and shorts on any subnet’s alpha, borrowed from the ' +
-      'subnet’s own pool. No synthetic tokens, nothing minted or burned, no expiry: the pool interest ' +
-      'out at most 25% of itself at 25% a year, fixed at open and paid to the pool. btcli deriv ' +
+      'subnet’s own pool. No synthetic tokens, nothing minted or burned, no expiry: the pool lends ' +
+      'out at most 25% of itself, at 52% a year on shorts and 26% on longs, fixed at open and paid to the pool. btcli deriv ' +
       'short, long, list, and close are the working surface.',
     href: '/releases/v456-upgrade',
   },

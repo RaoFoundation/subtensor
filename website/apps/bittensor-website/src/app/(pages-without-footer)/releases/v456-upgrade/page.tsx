@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     'V456 adds pallet-derivatives: longs and shorts on any subnet’s alpha, borrowed from the ' +
     'subnet’s own pool. One position per subnet and one call to add to it, take from it, or ' +
     'flip it; no expiry. No synthetic tokens, nothing minted or burned: the pool lends out at ' +
-    'most 25% of itself at 25% a year, the same for both sides, paid to the pool. btcli deriv ' +
+    'most 25% of itself, at 52% a year on shorts and 26% on longs, paid to the pool. btcli deriv ' +
     'short, long, list, and close are the working surface.',
   alternates: {canonical: '/releases/v456-upgrade'},
 };
@@ -241,10 +241,10 @@ const page = () => {
             subnet pool&apos;s own reserves: the chain lifts a slice of the pool sized from your
             deposit (one times it for a short, two times for a long), trades that slice through
             the ordinary staking swap, and reverses the trade when you settle. Nothing is minted,
-            nothing is burned. The pool lends out at most 25% of itself per side, at 25% a year
-            of the slice&apos;s TAO exposure, the same for both sides, fixed for each slice when
-            it is added and accrued per block. Those two numbers are the whole design, and root
-            sets both.
+            nothing is burned. The pool lends out at most 25% of itself per side, at a flat
+            yearly rate on the slice&apos;s TAO exposure: 52% for a short, 26% for a long, fixed
+            for each slice when it is added and accrued per block. Those three numbers are the
+            whole design, and root sets all of them.
           </p>
           <p>
             <code>btcli deriv</code> is the working surface: <code>short</code>,{' '}
@@ -304,8 +304,8 @@ const page = () => {
           <p className={styles.graph_caption}>
             The pool&apos;s view of the same short. Only the two swaps move the price; the lift
             and the return are neutral. With no market move the buyback lands exactly where the
-            sale started, and the pool is about 0.068 τ richer for each day the position was open
-            (25% a year on the 100 τ this short has in play).
+            sale started, and the pool is about 0.14 τ richer for each day the position was open
+            (52% a year, the short rate, on the 100 τ this short has in play).
           </p>
         </section>
 
@@ -321,8 +321,8 @@ const page = () => {
           <div className={styles.step}>
             <p className={styles.step_title}>1 · Read the parameters</p>
             <p>
-              The pool share and the yearly interest, plus the fixed limits: the leverage ceiling
-              per side and the minimum deposit (
+              The pool share and the yearly interest for each side, plus the fixed limits: the
+              leverage ceiling per side and the minimum deposit (
               <DocLink href='/docs/query/derivatives-params'>
                 <code>derivatives-params</code>
               </DocLink>
@@ -436,30 +436,33 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to
             keeps a slice from being held out of the pool for good is the interest: every block
             open costs the same, the chain collects it from your cushion once a week, and a
             cushion that runs dry ends the position. That is the design: the pool lends out at most{' '}
-            <code>pool_share</code> of itself, at <code>interest_rate</code>. Root picks those two
-            numbers, and that is all.
+            <code>pool_share</code> of itself, at <code>short_interest_rate</code> on shorts and{' '}
+            <code>long_interest_rate</code> on longs. Root picks those three numbers, and that is
+            all.
           </p>
           <p>
-            <strong>One interest rate, both sides, collected weekly as buy pressure.</strong>{' '}
-            Each add fixes a yearly interest for its slice, <code>interest_rate</code>, 25%,
-            times the slice&apos;s TAO exposure, and the position&apos;s summed interest accrues
-            per block from then on. Nothing is charged up front. A position is given a due block
+            <strong>One flat rate per side, collected weekly as buy pressure.</strong> Each add
+            fixes a yearly interest for its slice: the rate for its side, 52% on a short and 26%
+            on a long, times the slice&apos;s TAO exposure. The position&apos;s summed interest
+            accrues per block from then on. Shorts pay more because the pool carries an
+            open-ended exposure to a short that nobody but its owner can close, while a long is
+            the buy pressure the design wants; neither rate may be zero. The rates are flat: they
+            do not move with how much of the pool is lent. Nothing is charged up front. A position is given a due block
             one week after it opens and listed in a queue under it; when the chain reaches that
             block it takes the interest accrued out of the cushion, buys alpha from the pool with
             it, and recycles the alpha, the same way a registration burn does. The pool keeps the
             TAO, the alpha leaves circulation, and the price ticks up: interest on a short and on
             a long alike is a buy of the subnet&apos;s alpha. The position is then booked again a
             week later; its trade, leverage, and exposure are not touched. Each block does only
-            the collections that fall on it. A 100 τ short at 1x pays 25 τ a year, about 2.1 τ a
-            month or 0.068 τ a day; a 100 τ long at 1.5x has 150 τ in play and pays half again
-            that.
-            Leverage costs in proportion to what it borrows, and pool size and pool share do not
-            enter.
+            the collections that fall on it. A 100 τ short at 1x pays 52 τ a year, about 4.3 τ a
+            month or 0.14 τ a day; a 100 τ long at 1.5x has 150 τ in play and pays 39 τ a year,
+            about 3.3 τ a month or 0.11 τ a day. Leverage costs in proportion to what it borrows,
+            the side sets the rate, and pool size and pool share do not enter.
           </p>
           <p>
             <strong>Runway and forfeit.</strong> <code>btcli deriv list</code> shows how many
-            days your cushion keeps paying at the current rate: four years for a 1x position,
-            two years and eight months for a 1.5x long. When a collection finds a cushion that
+            days your cushion keeps paying at the current rate: about a year and eleven months
+            for a 1x short, two years and seven months for a 1.5x long. When a collection finds a cushion that
             cannot cover the interest due, the position is starved and forfeited: every TAO and
             every alpha the pallet holds for it goes back to the pool in kind, with no swap. The
             pool gets its slice back plus the cushion; you get nothing; no price moves. A
@@ -565,10 +568,11 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to
           <div className={styles.step}>
             <p className={styles.step_title}>Weekly interest</p>
             <p>
-              Two root-set numbers: <code>pool_share</code> (25%), the most one side of one
-              subnet may borrow; and <code>interest_rate</code> (25% a year), charged on each
-              slice&apos;s TAO exposure, the same for shorts and longs, fixed when the slice is
-              added. What you owe grows every block. The chain collects it every 50,400 blocks,
+              Three root-set numbers: <code>pool_share</code> (25%), the most one side of one
+              subnet may borrow; <code>short_interest_rate</code> (52% a year) and{' '}
+              <code>long_interest_rate</code> (26% a year), each charged on a slice&apos;s TAO
+              exposure and fixed when the slice is added. A 100 τ short at 1x owes about 1.0 τ a
+              week; a 100 τ long at 1.5x about 0.75 τ. What you owe grows every block. The chain collects it every 50,400 blocks,
               about 7 days, at the start of a block, up to twenty positions per block, and books
               the next collection a week later. Adding on your own side does not reset that
               clock. The collected TAO buys alpha from the pool and the alpha is recycled, so the
@@ -594,10 +598,12 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to
             <code>pallet-derivatives</code> is added at index 33 with two user calls —{' '}
             <code>add</code>, which takes a <code>side</code> of short or long, a TAO deposit
             and a <code>leverage_percent</code>, and <code>close</code> — plus one root-only
-            call, <code>sudo_set_params</code>, which sets the two parameters:{' '}
-            <code>pool_share</code> (25%) and <code>interest_rate</code> (25%). Both are dials
-            root can turn later; a position keeps the rate it has, and its next add is checked
-            against the new share. Three limits are runtime constants:{' '}
+            call, <code>sudo_set_params</code>, which sets the three parameters:{' '}
+            <code>pool_share</code> (25%), <code>short_interest_rate</code> (52%), and{' '}
+            <code>long_interest_rate</code> (26%). All three are dials root can turn later; a
+            position keeps the rate it has, and its next add is checked against the new share.
+            A zero rate on either side is refused with <code>ZeroInterestRate</code>. Three limits
+            are runtime constants:{' '}
             <code>MaxShortLeverage</code> 100, <code>MaxLongLeverage</code> 150,{' '}
             <code>MinDeposit</code> 0.1 τ. A position is one record per coldkey and subnet,
             every field a sum over its adds: the TAO cushion, the legs, the exposure, the yearly

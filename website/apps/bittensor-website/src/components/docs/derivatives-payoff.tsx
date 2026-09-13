@@ -140,8 +140,8 @@ export function DerivativesPayoff() {
         the point where the cushion is gone the position is underwater: settlement pays you nothing,
         gives the pool whatever is left, and the pool carries the shortfall — which is why the pool lends at
         most 25% of itself per side. Example pool: 10,000 τ / 200,000 α, closed in the opening block, so
-        no interest is paid; held, the short would pay 25 τ a year on its 100 τ of exposure and the 1.5x long
-        37.5 τ on its 150 τ.
+        no interest is paid; held, the short would pay 52 τ a year on its 100 τ of exposure (the short rate)
+        and the 1.5x long 39 τ on its 150 τ (the long rate).
       </p>
     </ExplainerPanel>
   );
