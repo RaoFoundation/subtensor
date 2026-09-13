@@ -9,7 +9,7 @@ mod safety;
 
 use frame_support::{assert_err, assert_ok};
 use sp_core::U256;
-use sp_runtime::Percent;
+use sp_runtime::{BuildStorage, Percent};
 use substrate_fixed::types::U64F64;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
 use subtensor_swap_interface::Perquintill;
@@ -1822,5 +1822,148 @@ fn flipping_sides_fixes_the_new_tranche_at_the_new_sides_rate() {
             short.interest_per_year,
             Params::<Test>::get().interest_for(Side::Short, short.exposure_tao)
         );
+    });
+}
+
+// ── Network-wide switch ──────────────────────────────────────────────────────
+
+fn set_enabled(enabled: bool) {
+    assert_ok!(Derivatives::sudo_set_derivatives_enabled(
+        RuntimeOrigin::root(),
+        enabled
+    ));
+}
+
+#[test]
+fn the_switch_launches_off_and_only_root_can_flip_it() {
+    let launch = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+    sp_io::TestExternalities::new(launch).execute_with(|| {
+        // The mock turns it on for every other test; the chain itself starts with it off.
+        assert!(!crate::DerivativesEnabled::<Test>::get());
+    });
+
+    new_test_ext().execute_with(|| {
+        assert_err!(
+            Derivatives::sudo_set_derivatives_enabled(RuntimeOrigin::signed(alice()), false),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        assert!(crate::DerivativesEnabled::<Test>::get());
+
+        set_enabled(false);
+        assert!(!crate::DerivativesEnabled::<Test>::get());
+        System::assert_last_event(Event::DerivativesToggled { enabled: false }.into());
+
+        set_enabled(true);
+        assert!(crate::DerivativesEnabled::<Test>::get());
+        System::assert_last_event(Event::DerivativesToggled { enabled: true }.into());
+    });
+}
+
+#[test]
+fn nothing_can_be_added_while_the_switch_is_off() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let before = position(&alice(), netuid()).unwrap();
+        let balance_before = balance(&alice());
+        let pool_before = reserves(netuid());
+
+        set_enabled(false);
+        // Opening, growing, reducing, and flipping are all `add`, and all refused. The switch
+        // is checked before anything else: a bad leverage is not even looked at.
+        assert_err!(
+            add(bob(), Side::Long, DEPOSIT),
+            Error::<Test>::DerivativesDisabled
+        );
+        assert_err!(
+            add(alice(), Side::Short, DEPOSIT),
+            Error::<Test>::DerivativesDisabled
+        );
+        assert_err!(
+            add(alice(), Side::Long, DEPOSIT / 2),
+            Error::<Test>::DerivativesDisabled
+        );
+        assert_err!(
+            add(alice(), Side::Long, 3 * DEPOSIT),
+            Error::<Test>::DerivativesDisabled
+        );
+        assert_err!(
+            add_at(alice(), Side::Short, DEPOSIT, 0),
+            Error::<Test>::DerivativesDisabled
+        );
+        assert_eq!(position(&alice(), netuid()), Some(before));
+        assert!(position(&bob(), netuid()).is_none());
+        assert_eq!(balance(&alice()), balance_before);
+        assert_eq!(reserves(netuid()), pool_before);
+
+        // Back on, the same adds go through.
+        set_enabled(true);
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+    });
+}
+
+#[test]
+fn a_position_can_be_closed_while_the_switch_is_off() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
+        set_enabled(false);
+
+        // The owner exits as on any other day: the trade is reversed, the interest paid, the
+        // slice returned, the cushion paid out.
+        assert_ok!(close(alice()));
+        assert_eq!(last_closer(), Closer::Owner);
+        assert!(position(&alice(), netuid()).is_none());
+        assert!(balance(&alice()) > 100 * TAO - DEPOSIT / 10);
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
+
+        assert_ok!(close(bob()));
+        assert!(position(&bob(), netuid()).is_none());
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Long), 0);
+        assert_eq!(balance(&pallet_account()), 0);
+        assert!(crate::Due::<Test>::iter_keys().next().is_none());
+    });
+}
+
+#[test]
+fn interest_is_still_collected_while_the_switch_is_off() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let short = position(&alice(), netuid()).unwrap();
+        let (t0, _) = reserves(netuid());
+        set_enabled(false);
+
+        // The weekly collection is the chain's work, not an add: the cushion pays its week,
+        // the interest reaches the pool as a buy, and the position is booked for the next week.
+        run_to(1 + WEEK);
+        let week = u64::from(interest_for_blocks(short.interest_per_year, WEEK));
+        assert!(week > 0);
+        let collected = position(&alice(), netuid()).unwrap();
+        assert_eq!(u64::from(collected.cushion), DEPOSIT - week);
+        assert_eq!(collected.interest_owed, TaoBalance::ZERO);
+        assert_eq!(collected.due, 1 + 2 * WEEK);
+        assert_eq!(due_at(1 + 2 * WEEK), vec![alice()]);
+        assert_close(reserves(netuid()).0, t0 + week, 2);
+
+        // And a cushion that cannot pay is still forfeited: the switch does not keep a starved
+        // position on the books.
+        set_interest(Percent::one());
+        assert_ok!(close(alice()));
+        set_enabled(true);
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        set_enabled(false);
+        let opened = System::block_number();
+        let mut week = 1;
+        while position(&alice(), netuid()).is_some() {
+            run_to(opened + week * WEEK);
+            week += 1;
+        }
+        assert!(week > 51 && week < 55, "starved in week {week}");
+        assert_eq!(last_closer(), Closer::Starved);
     });
 }

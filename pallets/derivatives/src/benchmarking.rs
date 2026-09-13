@@ -22,6 +22,7 @@ fn setup<T: Config>() -> (T::AccountId, NetUid) {
     let netuid = NetUid::from(1u16);
     T::Pool::set_up_pool_for_benchmark(netuid);
     Pallet::<T>::claim_hotkey();
+    DerivativesEnabled::<T>::put(true);
 
     let owner: T::AccountId = frame_benchmarking::account("owner", 0, 0);
     T::Pool::set_up_acc_for_benchmark(&owner, &owner);
@@ -153,6 +154,14 @@ mod benchmarks {
         _(RawOrigin::Root, params);
 
         assert_eq!(Params::<T>::get(), params);
+    }
+
+    #[benchmark]
+    fn sudo_set_derivatives_enabled() {
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+
+        assert!(DerivativesEnabled::<T>::get());
     }
 
     impl_benchmark_test_suite!(

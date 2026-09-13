@@ -58,7 +58,9 @@ fn alpha_value(
 
 impl<T: Config> Pallet<T> {
     /// Open, add to, reduce, or flip the caller's position on `netuid`. One storage layer around
-    /// the whole call: whichever branch runs, all of it lands or none of it does.
+    /// the whole call: whichever branch runs, all of it lands or none of it does. The
+    /// network-wide switch is checked first: off, nothing is added, not even a reduction, since
+    /// a reduction past the flip point would open the other side. `close` is the exit.
     pub(crate) fn do_add(
         owner: T::AccountId,
         netuid: NetUid,
@@ -67,6 +69,10 @@ impl<T: Config> Pallet<T> {
         leverage_percent: u16,
     ) -> DispatchResult {
         with_storage_layer(|| {
+            ensure!(
+                DerivativesEnabled::<T>::get(),
+                Error::<T>::DerivativesDisabled
+            );
             ensure!(
                 Self::leverage_allowed(side, leverage_percent),
                 Error::<T>::LeverageOutOfRange

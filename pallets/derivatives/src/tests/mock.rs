@@ -476,6 +476,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         System::set_block_number(1);
         // Claims the pallet hotkey, as the first block after an upgrade does on chain.
         <Derivatives as frame_support::traits::OnRuntimeUpgrade>::on_runtime_upgrade();
+        // The switch launches off on chain; tests of the switch itself flip it back.
+        pallet_derivatives::DerivativesEnabled::<Test>::put(true);
     });
     ext
 }

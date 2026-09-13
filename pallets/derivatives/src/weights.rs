@@ -18,6 +18,7 @@ pub trait WeightInfo {
     fn add() -> Weight;
     fn close() -> Weight;
     fn sudo_set_params() -> Weight;
+    fn sudo_set_derivatives_enabled() -> Weight;
     /// One collection from the interest queue: worst case a forfeit.
     fn collect_interest() -> Weight;
     /// One attempt at releasing a subnet's parked liquidity: two price reads and, if the spot
@@ -43,6 +44,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().writes(25_u64))
     }
     fn sudo_set_params() -> Weight {
+        Weight::from_parts(6_000_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
+    }
+    fn sudo_set_derivatives_enabled() -> Weight {
         Weight::from_parts(6_000_000, 0).saturating_add(T::DbWeight::get().writes(1_u64))
     }
     /// Position, footprint and index bookkeeping plus one price-neutral liquidity return.
@@ -74,6 +78,9 @@ impl WeightInfo for () {
             .saturating_add(RocksDbWeight::get().writes(25_u64))
     }
     fn sudo_set_params() -> Weight {
+        Weight::from_parts(6_000_000, 0).saturating_add(RocksDbWeight::get().writes(1_u64))
+    }
+    fn sudo_set_derivatives_enabled() -> Weight {
         Weight::from_parts(6_000_000, 0).saturating_add(RocksDbWeight::get().writes(1_u64))
     }
     fn collect_interest() -> Weight {

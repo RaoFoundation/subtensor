@@ -18,6 +18,11 @@
 //! or until its cushion can no longer pay and the chain forfeits it to the pool. Nobody else
 //! can touch it.
 //!
+//! One switch, [`DerivativesEnabled`], gates the whole thing and launches off. It stops
+//! `add`, and only `add`: a position can always be closed by its owner, and the chain keeps
+//! collecting interest from, and settling, whatever is open. Nothing already lent to a
+//! position is ever left in limbo by the switch.
+//!
 //! Two rules keep a settlement from being a trade the pool pays for. A position whose pot the
 //! pool's own quote says cannot repay its debt is not swapped at all: everything held for it
 //! goes back in kind, so there is no market order for anyone to trade against. And liquidity
@@ -116,6 +121,15 @@ pub mod pallet {
     /// [`DerivativesParams::defaults`] until root sets them.
     #[pallet::storage]
     pub type Params<T: Config> = StorageValue<_, DerivativesParams, ValueQuery, DefaultParams<T>>;
+
+    /// The network-wide switch, `false` until root turns it on with
+    /// [`Pallet::sudo_set_derivatives_enabled`]. Gates `add` only: while it is off no position
+    /// can be opened, grown, or flipped, and every `add` fails with `DerivativesDisabled`.
+    /// `close` keeps working so owners can always exit, and the chain's own work on open
+    /// positions goes on unchanged: the weekly interest collection, forfeits, parked-liquidity
+    /// releases, and dissolution settlement.
+    #[pallet::storage]
+    pub type DerivativesEnabled<T: Config> = StorageValue<_, bool, ValueQuery>;
 
     /// One position per `(owner, netuid)`; its side is the sign of its exposure.
     #[pallet::storage]
@@ -243,6 +257,9 @@ pub mod pallet {
         },
         /// Root set the three parameters. Open positions keep the rate they were added at.
         ParamsSet { params: DerivativesParams },
+        /// Root turned the network-wide switch on or off. Off refuses every `add`; `close`,
+        /// interest collection, and dissolution settlement are unaffected.
+        DerivativesToggled { enabled: bool },
         /// A dissolving subnet's positions are about to be cash-settled with no swap: shorts
         /// charged at `short`, longs credited at `long`, each `tao / alpha` TAO per alpha and
         /// each the worse for that side of the pool's spot and moving price. Emitted once per
@@ -290,6 +307,9 @@ pub mod pallet {
         /// `sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero.
         /// Both must be above zero; a `pool_share` of zero is the pause instead.
         ZeroInterestRate,
+        /// Derivatives are switched off network-wide ([`DerivativesEnabled`] is `false`), so
+        /// nothing can be added. Open positions can still be closed by their owners.
+        DerivativesDisabled,
     }
 
     #[pallet::hooks]
@@ -337,6 +357,10 @@ pub mod pallet {
         ///
         /// The leverage must be above zero and at most the side's maximum (`MaxShortLeverage`
         /// or `MaxLongLeverage`).
+        ///
+        /// Refused with `DerivativesDisabled` while [`DerivativesEnabled`] is `false`, whichever
+        /// of open, add, reduce, or flip it would have been. Use `close` to exit a position
+        /// while the switch is off.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::add())]
         pub fn add(
@@ -354,6 +378,9 @@ pub mod pallet {
         /// owner can close a position; the chain forfeits one that can no longer pay its
         /// interest. A position the pool's quote says is underwater is not traded: everything
         /// held for it goes to the pool in kind and the caller is paid nothing.
+        ///
+        /// Works whether or not [`DerivativesEnabled`] is set: the switch stops positions from
+        /// being opened or grown, never from being closed.
         #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::close())]
         pub fn close(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
@@ -371,6 +398,20 @@ pub mod pallet {
             ensure!(params.rates_are_set(), Error::<T>::ZeroInterestRate);
             Params::<T>::put(params);
             Self::deposit_event(Event::ParamsSet { params });
+            Ok(())
+        }
+
+        /// Turn derivatives on or off network-wide. Root only. Off, every `add` fails with
+        /// `DerivativesDisabled`; `close` still works, and the weekly interest collection,
+        /// forfeits, parked-liquidity releases, and dissolution settlement of open positions
+        /// carry on. Launches off. Distinct from a `pool_share` of zero, which pauses adds
+        /// but leaves the pallet on.
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::WeightInfo::sudo_set_derivatives_enabled())]
+        pub fn sudo_set_derivatives_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
+            ensure_root(origin)?;
+            DerivativesEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::DerivativesToggled { enabled });
             Ok(())
         }
     }
