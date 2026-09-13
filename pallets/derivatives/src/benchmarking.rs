@@ -1,7 +1,9 @@
 //! Benchmarks for `pallet_derivatives`.
 //!
-//! Shorts are the heavier side to settle: the buyback is an exact-output swap that may take
-//! several passes, so the position benchmarks settle shorts after the price moved against them.
+//! A settlement only trades when the pool's quote says the position is covered; an underwater
+//! one is handed back in kind with no swap, which is the cheap path. So the position benchmarks
+//! settle a short that the price moved against but that is still covered: the exact-output
+//! buyback, the interest swap and recycle, the payout and the liquidity return all run.
 #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
 
 use frame_benchmarking::v2::*;
@@ -14,9 +16,10 @@ use crate::*;
 
 /// The owner's TAO cushion.
 const CUSHION_TAO: u64 = 10_000_000_000;
-/// TAO a whale trades to move the pool price against the position: 900 TAO into a 1000 TAO
-/// pool takes the price ×3.6, so a 1x short's buyback costs well over its pot.
-const WHALE_TAO: u64 = 900_000_000_000;
+/// TAO a whale trades to move the pool price against the position: 300 TAO into a 1000 TAO
+/// pool takes the price to about ×1.7, so a 1x short's buyback digs deep into its cushion but
+/// is still covered, and the settlement trades instead of forfeiting.
+const PUMP_TAO: u64 = 300_000_000_000;
 
 fn setup<T: Config>() -> (T::AccountId, NetUid) {
     let netuid = NetUid::from(1u16);
@@ -29,8 +32,16 @@ fn setup<T: Config>() -> (T::AccountId, NetUid) {
     (owner, netuid)
 }
 
-/// A short for `owner`, then a whale pump big enough to leave it underwater.
-fn underwater_short<T: Config>(owner: &T::AccountId, netuid: NetUid) {
+/// Move the chain `blocks` ahead so interest accrues on every open position.
+fn advance<T: Config>(blocks: u64) {
+    frame_system::Pallet::<T>::set_block_number(
+        frame_system::Pallet::<T>::block_number() + (blocks as u32).into(),
+    );
+}
+
+/// A 1x short for `owner`, a whale pump that moves the price against it, and a week of
+/// interest owed: the most expensive settlement that still trades.
+fn pumped_short<T: Config>(owner: &T::AccountId, netuid: NetUid) {
     let whale: T::AccountId = frame_benchmarking::account("whale", 0, 0);
     T::Pool::set_up_acc_for_benchmark(&whale, &whale);
     Pallet::<T>::do_add(
@@ -41,20 +52,43 @@ fn underwater_short<T: Config>(owner: &T::AccountId, netuid: NetUid) {
         100,
     )
     .unwrap();
-    T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(WHALE_TAO)).unwrap();
+    T::Pool::buy_alpha_internal(&whale, &whale, netuid, TaoBalance::from(PUMP_TAO)).unwrap();
+    advance::<T>(INTEREST_PERIOD.into());
+    assert_short_is_covered::<T>(owner, netuid);
+}
+
+/// The settlement about to run takes the trading path, by the same test `do_settle` applies:
+/// the pool's buyback quote plus the interest owed fits in the pot. The quote must also exceed
+/// the proceeds, so the buyback really dips into the cushion rather than closing at a profit.
+fn assert_short_is_covered<T: Config>(owner: &T::AccountId, netuid: NetUid) {
+    let position = Positions::<T>::get(owner, netuid).unwrap();
+    let Legs::Short { proceeds, debt, .. } = position.legs else {
+        panic!("benchmark setup opened the wrong side");
+    };
+    let quote = T::Pool::quote_buy(netuid, debt);
+    let interest_due = position.interest_due(frame_system::Pallet::<T>::block_number());
+    assert!(
+        !interest_due.is_zero(),
+        "no interest owed: the interest swap would be skipped"
+    );
+    assert!(quote > proceeds, "price did not move against the short");
+    assert!(
+        quote.saturating_add(interest_due) <= position.cushion.saturating_add(proceeds),
+        "short is underwater: the settlement would skip the swap"
+    );
 }
 
 #[benchmarks]
 mod benchmarks {
     use super::*;
 
-    /// Worst case: a flip. The caller's short was pumped underwater, so the settlement runs
-    /// every exact-output pass, spends the whole pot and forfeits the rest; then the surplus
-    /// opens a long.
+    /// Worst case: a flip. The caller's short is settled in full on the trading path (buyback,
+    /// interest swap and recycle, payout, liquidity return), then the surplus lifts a fresh
+    /// tranche and opens a long.
     #[benchmark]
     fn add() {
         let (owner, netuid) = setup::<T>();
-        underwater_short::<T>(&owner, netuid);
+        pumped_short::<T>(&owner, netuid);
 
         #[extrinsic_call]
         _(
@@ -71,12 +105,13 @@ mod benchmarks {
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
     }
 
-    /// Worst case: closing a short pumped underwater. The buyback runs every exact-output pass
-    /// and then spends the whole pot, and the remainder is forfeited to the pool.
+    /// Worst case: closing a covered short after the price moved against it. The exact-output
+    /// buyback runs, the interest owed is swapped and recycled, the owner is paid what is left,
+    /// and the pool takes its slice back through the liquidity return.
     #[benchmark]
     fn close() {
         let (owner, netuid) = setup::<T>();
-        underwater_short::<T>(&owner, netuid);
+        pumped_short::<T>(&owner, netuid);
 
         #[extrinsic_call]
         _(RawOrigin::Signed(owner.clone()), netuid);
@@ -85,8 +120,9 @@ mod benchmarks {
         assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
     }
 
-    /// Worst case for one collection: a starved short is forfeited, which returns both tokens
-    /// and clears every index.
+    /// Worst case for one collection: a position that pays. The interest comes off the cushion,
+    /// is swapped for alpha and recycled, and the position is re-queued. A forfeit trades
+    /// nothing, so it is the cheaper outcome.
     #[benchmark]
     fn collect_interest() {
         let (owner, netuid) = setup::<T>();
@@ -98,23 +134,22 @@ mod benchmarks {
             100,
         )
         .unwrap();
-        // Ten years on, the interest due is far more than the cushion.
-        frame_system::Pallet::<T>::set_block_number(
-            frame_system::Pallet::<T>::block_number() + ((10 * BLOCKS_PER_YEAR) as u32).into(),
-        );
+        // A year of interest on a 1x short is about half the cushion: a large swap, still paid.
+        advance::<T>(BLOCKS_PER_YEAR);
+        let now = frame_system::Pallet::<T>::block_number();
+        let before = Positions::<T>::get(&owner, netuid).unwrap();
+        let due = before.interest_due(now);
+        assert!(!due.is_zero() && due < before.cushion);
 
         #[block]
         {
-            Pallet::<T>::collect_interest(
-                &owner,
-                netuid,
-                frame_system::Pallet::<T>::block_number(),
-            )
-            .unwrap();
+            Pallet::<T>::collect_interest(&owner, netuid, now).unwrap();
         }
 
-        assert!(!Positions::<T>::contains_key(&owner, netuid));
-        assert_eq!(Footprint::<T>::get(netuid, Side::Short), 0);
+        let after = Positions::<T>::get(&owner, netuid).unwrap();
+        assert_eq!(after.cushion, before.cushion.saturating_sub(due));
+        assert_eq!(after.due, now + INTEREST_PERIOD.into());
+        assert!(Due::<T>::contains_key(after.due, (&owner, netuid)));
     }
 
     /// One release attempt on a subnet with a parked pair whose spot is back within the band:
