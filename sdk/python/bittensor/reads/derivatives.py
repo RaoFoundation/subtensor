@@ -128,15 +128,18 @@ def _position_record(
     category="Prices & swaps",
 )
 async def derivatives_params(view) -> dict:
-    """The derivatives pallet's two root-set parameters, plus its constants.
+    """The derivatives pallet's three root-set parameters, plus its constants.
 
     `pool_share` is the largest share of a pool's reserve that all open
     positions of one side may borrow together; zero means root has paused new
-    positions. `interest_rate` is the interest, as a fraction of a tranche's TAO
-    exposure per year, the same for both sides, fixed when the tranche is
-    added and accrued per block; once a week, on the position's own block, the
-    chain takes it from the cushion, buys alpha with it, and recycles the alpha.
-    Both are fractions (`0.25` = 25%).
+    positions. `short_interest_rate` and `long_interest_rate` are the interest
+    a short or a long tranche pays, as a fraction of its TAO exposure per year,
+    flat, fixed when the tranche is added and accrued per block; once a week,
+    on the position's own block, the chain takes it from the cushion, buys
+    alpha with it, and recycles the alpha. Shorts pay more than longs: the pool
+    carries open-ended exposure to a short that is never closed, while a long
+    is the buy pressure the design wants. All three are fractions (`0.52` =
+    52%).
 
     The rest are fixed by the runtime: `max_short_leverage` and
     `max_long_leverage` bound the leverage an owner may choose per side (`1.0`
@@ -147,7 +150,8 @@ async def derivatives_params(view) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     return {
         "pool_share": int(raw.get("pool_share") or 0) / _PERCENT,
-        "interest_rate": int(raw.get("interest_rate") or 0) / _PERCENT,
+        "short_interest_rate": int(raw.get("short_interest_rate") or 0) / _PERCENT,
+        "long_interest_rate": int(raw.get("long_interest_rate") or 0) / _PERCENT,
         "max_short_leverage": int(await view.constant(constants.Derivatives.MaxShortLeverage))
         / _PERCENT,
         "max_long_leverage": int(await view.constant(constants.Derivatives.MaxLongLeverage))

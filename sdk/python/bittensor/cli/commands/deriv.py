@@ -206,7 +206,7 @@ def list_positions(
 @app.command("params")
 @with_globals
 def show_params(ctx: typer.Context):
-    """Show the two parameters, pool share and interest rate, and the fixed limits."""
+    """Show the three parameters (pool share, short and long interest rate) and the fixed limits."""
     app_ctx: AppContext = ctx_of(ctx)
     params = app_ctx.run(lambda client: client.read("derivatives_params"))
     app_ctx.output.detail("derivatives params", params)

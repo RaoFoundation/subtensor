@@ -9,9 +9,10 @@ out at the current price, and flips through zero if there is more. ``close``
 settles everything. At settlement the pool gets its slice plus the interest back;
 the owner gets what is left of the cushion and the trade's profit or loss.
 
-Two root-set numbers are the design: the pool lends out at most ``pool_share``
-of itself per side, at ``interest_rate`` on TAO exposure, the same for both
-sides, fixed per tranche when it is added and accrued per block. Once a week,
+Three root-set numbers are the design: the pool lends out at most
+``pool_share`` of itself per side, at a flat yearly rate on TAO exposure that
+is ``short_interest_rate`` for shorts and ``long_interest_rate`` for longs,
+fixed per tranche when it is added and accrued per block. Once a week,
 on its own block, each position's interest is collected out of its cushion and
 spent buying alpha from the pool, which is then recycled: the interest reaches
 the pool as buy pressure, on either side. There is no term: a position lives
@@ -118,9 +119,9 @@ class AddPosition(Intent):
         return [
             "against an open position of the other side this reduces or flips it at the "
             "current price: that share's loss or profit is realized now",
-            "interest accrues per block at `interest_rate` on exposure for as long as the position "
-            "is open; once a week the chain takes it out of the cushion and buys and recycles "
-            "alpha with it",
+            "interest accrues per block on exposure for as long as the position is open, at the "
+            "side's rate (`short_interest_rate` or `long_interest_rate` in `btcli deriv params`); "
+            "once a week the chain takes it out of the cushion and buys and recycles alpha with it",
             "once the cushion can no longer pay the interest, the chain forfeits the position to "
             "the pool; watch `runway_days` and add cushion or close before that",
         ]

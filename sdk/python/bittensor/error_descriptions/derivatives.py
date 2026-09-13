@@ -31,4 +31,8 @@ DESCRIPTIONS: dict[str, str] = {
         "The pallet has not claimed its custody hotkey yet, so nothing can be added. Check "
         "`Derivatives.PalletHotkey`; it is set by `on_runtime_upgrade` in the upgrade block."
     ),
+    "ZeroInterestRate": (
+        "`sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. "
+        "Both rates must be above zero; to pause new positions set `pool_share` to zero instead."
+    ),
 }

@@ -56,6 +56,12 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "SubnetEmissionEnabled"): True,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
+    # `DerivativesParams::defaults()`: percent points, as the chain stores them.
+    ("Derivatives", "Params"): {
+        "pool_share": 25,
+        "short_interest_rate": 52,
+        "long_interest_rate": 26,
+    },
 }
 
 DEFAULT_CONSTANTS: dict[tuple[str, str], Any] = {

@@ -127,9 +127,9 @@
         "pallet": "Derivatives",
         "call": "add",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 337,
-        "end_line": 346,
-        "url": "/code/pallets/derivatives/src/lib.rs#L335-L346",
+        "line": 344,
+        "end_line": 353,
+        "url": "/code/pallets/derivatives/src/lib.rs#L342-L353",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -730,9 +730,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 354,
-        "end_line": 357,
-        "url": "/code/pallets/derivatives/src/lib.rs#L352-L357",
+        "line": 361,
+        "end_line": 364,
+        "url": "/code/pallets/derivatives/src/lib.rs#L359-L364",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
