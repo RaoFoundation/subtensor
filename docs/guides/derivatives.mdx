@@ -31,6 +31,17 @@ same illustrative pool as the staking guides — **10,000 τ / 200,000 α at
 [`derivatives-params`](/docs/query/derivatives-params) and
 [`derivative-positions`](/docs/query/derivative-positions) before acting.
 
+<Callout type="note">
+**Launch state.** Derivatives launch **switched off** network-wide. Until
+governance turns the switch on with `Derivatives.sudo_set_derivatives_enabled`,
+every `add` (so every `btcli deriv short` and `btcli deriv long`) fails with
+`DerivativesDisabled`. Everything else in this guide works from the upgrade
+block: the reads, `btcli deriv params` (which shows the switch as `enabled`),
+and `close`. The switch only ever stops positions from being opened or grown;
+it never stops one from being closed. See
+[The switch](#the-switch) for what it does and does not gate.
+</Callout>
+
 ## What a position is
 
 | Term | Meaning |
@@ -350,6 +361,7 @@ The call fails if:
 
 | Error | Why |
 |-------|-----|
+| `DerivativesDisabled` | The network-wide switch is off (`enabled: false` in `btcli deriv params`). Nothing can be added until governance turns it on; `close` still works. |
 | `SubnetNotDynamic` | The subnet has no pool (root, or a static subnet). |
 | `DepositTooLow` | The deposit is below the minimum, 0.1 τ. |
 | `LeverageOutOfRange` | `--leverage` is zero or above the side's ceiling. |
@@ -652,11 +664,51 @@ charged the spot it pushed: it is charged the moving price, which one block
 cannot move, and loses its own impact. Only on a subnet with no moving price
 yet is a short charged the spot the pool last showed.
 
+## The switch
+
+One boolean, `DerivativesEnabled`, gates the whole pallet. It is **off at
+launch**. Governance turns it on, or off again, with the root-only call
+`sudo_set_derivatives_enabled(enabled)`, which emits `DerivativesToggled`.
+`btcli deriv params` shows it as `enabled`.
+
+The switch is deliberately one-sided. It stops new risk from being taken on.
+It never traps risk that is already on the books:
+
+| While the switch is off | What happens |
+|-------------------------|--------------|
+| `add` (open, grow, reduce, flip) | Refused with `DerivativesDisabled`, before anything else is checked. A reduction is refused too, because a reduction past the flip point would open the other side. |
+| `close` | Works as on any other day. The owner reverses the trade, pays the interest owed, and gets what is left of the cushion. |
+| Weekly interest collection | Unchanged. The chain keeps taking the interest out of each open cushion and buying alpha with it, and still forfeits a position whose cushion cannot pay. |
+| Parked liquidity | Unchanged. `on_idle` keeps releasing parked pairs once the spot is back within the band. |
+| Subnet dissolution | Unchanged. Every open position is cash-settled and paid out. |
+| Reads and `sudo_set_params` | Unchanged. |
+
+Why not gate `close` as well? A position is a slice of the pool held out of
+it, paying interest every block. If owners could not close while the switch
+was off, that interest would keep draining cushions into forfeits nobody
+could avoid, and the pool would keep lending liquidity nobody could return.
+The one-sided gate means turning the switch off can only shrink the book:
+positions close and starve at their own pace, and no new one opens.
+
+The switch is different from a `pool_share` of zero. A zero share pauses
+adds because the cap is reached at once; the pallet is still on. The switch
+refuses adds outright, with its own error, whatever the share is.
+
+```bash
+# Read the switch with the parameters
+btcli deriv params --json
+
+# Governance: turn derivatives on (root origin)
+btcli call Derivatives.sudo_set_derivatives_enabled --args '{"enabled": true}' \
+  --sudo -w sudo_key
+```
+
 ## Parameters
 
 Three numbers, root-set with `sudo_set_params`, read with
 [`derivatives-params`](/docs/query/derivatives-params). Defaults from
 [`DerivativesParams::defaults`](/code/pallets/derivatives/src/position.rs).
+The same read reports the switch above as `enabled`.
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
@@ -689,6 +741,7 @@ book without reading storage:
 | `PositionReduced` | Part of a position was settled: owner, subnet, side, the fraction unwound, the payout, interest paid, any shortfall, and the exposure left. |
 | `PositionClosed` | A position settled in full: why (`Owner`, `Underwater`, `Starved`, or `Dissolution`), the payout to the owner, interest paid, and any shortfall the pool carried. A starved position pays what was left of its cushion as interest and has no shortfall: nothing was swapped. An underwater one reports the whole debt as the shortfall: nothing was bought back, the pool was paid in the other token instead. |
 | `ParamsSet` | Root set the three parameters. |
+| `DerivativesToggled` | Root turned the network-wide switch on or off. Off refuses every `add`; `close`, interest collection, and dissolution settlement go on. |
 | `DissolutionPriced` | A dissolving subnet's positions are about to be cash-settled: `short` is the `tao / alpha` price shorts are charged at, `long` the one longs are credited at. |
 | `LiquidityParked` | A settlement handed liquidity back while the spot was off the moving price; the pair waits in the pallet. |
 | `LiquidityReleased` | A parked pair rejoined the pool, or went to a dissolving subnet's reserves. |
@@ -696,15 +749,17 @@ book without reading storage:
 The storage behind them is public too: `Positions`, `Footprint` (borrowed per
 side per subnet), `OpenByNetuid` (who holds a position on a subnet),
 `Due` (the interest queue, positions by the block they are next collected)
-and `NextDue` (the first slot not yet collected), `Params`, `PalletHotkey`,
-`Parked` (liquidity waiting to rejoin a pool, per subnet), and
-`DissolutionPrice` while a subnet's positions are being settled.
+and `NextDue` (the first slot not yet collected), `Params`,
+`DerivativesEnabled` (the switch), `PalletHotkey`, `Parked` (liquidity
+waiting to rejoin a pool, per subnet), and `DissolutionPrice` while a
+subnet's positions are being settled.
 
 ## Chain reference
 
 | Item | Where |
 |------|-------|
-| Extrinsics | `add` (with a `side` argument) and `close`, plus root-only `sudo_set_params`. SDK intents: [`add-derivative`](/docs/tx/add-derivative), [`close-derivative`](/docs/tx/close-derivative) |
+| Extrinsics | `add` (with a `side` argument) and `close`, plus root-only `sudo_set_params` and `sudo_set_derivatives_enabled`. SDK intents: [`add-derivative`](/docs/tx/add-derivative), [`close-derivative`](/docs/tx/close-derivative) |
+| Errors | [`DerivativesDisabled`](/docs/errors/chain/DerivativesDisabled) and the add-time errors listed under [Add to a position](#add-to-a-position) |
 | Queries | [`derivative-position`](/docs/query/derivative-position), [`derivative-positions`](/docs/query/derivative-positions), [`derivative-positions-on-subnet`](/docs/query/derivative-positions-on-subnet), [`derivatives-params`](/docs/query/derivatives-params) |
 | Add path | [`do_add`](/code/pallets/derivatives/src/settle.rs) |
 | Pool operations | [`derivatives_pool.rs`](/code/pallets/subtensor/src/staking/derivatives_pool.rs) |
@@ -712,6 +767,9 @@ and `NextDue` (the first slot not yet collected), `Params`, `PalletHotkey`,
 
 ## Rules worth remembering
 
+- Derivatives launch switched off. Until governance turns the switch on,
+  every add fails with `DerivativesDisabled`. The switch never blocks a
+  `close`, and the chain keeps collecting interest on whatever is open.
 - One position per coldkey and subnet. Its side is the sign of what you hold;
   adding the other side takes from it or flips it.
 - Cushions are TAO, and they come back as TAO.

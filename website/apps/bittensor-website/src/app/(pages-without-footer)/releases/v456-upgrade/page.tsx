@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     'subnet’s own pool. One position per subnet and one call to add to it, take from it, or ' +
     'flip it; no expiry. No synthetic tokens, nothing minted or burned: the pool lends out at ' +
     'most 25% of itself, at 52% a year on shorts and 26% on longs, paid to the pool. btcli deriv ' +
-    'short, long, list, and close are the working surface.',
+    'short, long, list, and close are the working surface. Launches switched off.',
   alternates: {canonical: '/releases/v456-upgrade'},
 };
 
@@ -253,6 +253,19 @@ const page = () => {
             The full walk-through, with an animated slide deck of one position from open to
             close, is in the{' '}
             <DocLink href='/docs/guides/derivatives'>Longs and shorts</DocLink> guide.
+          </p>
+          <p>
+            <strong>Derivatives launch switched off network-wide.</strong> After the upgrade
+            every <code>add</code> fails with <code>DerivativesDisabled</code> until governance
+            turns <code>DerivativesEnabled</code> on with the root-only{' '}
+            <code>sudo_set_derivatives_enabled</code>. Everything else in this release (the
+            reads, <code>btcli deriv params</code>, which shows the switch as{' '}
+            <code>enabled</code>, and <code>close</code>) is live from the upgrade block. The
+            switch is one-sided by design: it stops positions from being opened or grown,
+            never from being closed, and the weekly interest collection and dissolution
+            settlement of whatever is open carry on. See{' '}
+            <DocLink href='/docs/guides/derivatives#the-switch'>The switch</DocLink> in the
+            guide.
           </p>
         </section>
 
@@ -597,12 +610,16 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
           <p>
             <code>pallet-derivatives</code> is added at index 33 with two user calls —{' '}
             <code>add</code>, which takes a <code>side</code> of short or long, a TAO deposit
-            and a <code>leverage_percent</code>, and <code>close</code> — plus one root-only
-            call, <code>sudo_set_params</code>, which sets the three parameters:{' '}
+            and a <code>leverage_percent</code>, and <code>close</code> — plus two root-only
+            calls. <code>sudo_set_params</code> sets the three parameters:{' '}
             <code>pool_share</code> (25%), <code>short_interest_rate</code> (52%), and{' '}
             <code>long_interest_rate</code> (26%). All three are dials root can turn later; a
             position keeps the rate it has, and its next add is checked against the new share.
-            A zero rate on either side is refused with <code>ZeroInterestRate</code>. Three limits
+            A zero rate on either side is refused with <code>ZeroInterestRate</code>.{' '}
+            <code>sudo_set_derivatives_enabled</code> flips the network-wide switch{' '}
+            <code>DerivativesEnabled</code>, off at launch, and emits{' '}
+            <code>DerivativesToggled</code>; while it is off <code>add</code> fails with{' '}
+            <code>DerivativesDisabled</code> and nothing else changes. Three limits
             are runtime constants:{' '}
             <code>MaxShortLeverage</code> 100, <code>MaxLongLeverage</code> 150,{' '}
             <code>MinDeposit</code> 0.1 τ. A position is one record per coldkey and subnet,
@@ -614,7 +631,7 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
             stall, and forfeits any whose cushion cannot pay. Its <code>on_idle</code> re-adds
             liquidity parked in <code>Parked</code> once a subnet&apos;s spot price is back
             within 5% of its moving price. Existing positions can always be closed by their
-            owner, whatever the share is set to.
+            owner, whatever the share is set to and whether or not the switch is on.
           </p>
           <p>
             The subtensor pallet gains a small pool interface for the derivatives pallet:
