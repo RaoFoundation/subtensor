@@ -16,7 +16,7 @@ and opens the rest on the new side, taking only that rest's cushion.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L342-L353) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L340-L351) |
 
 ## Parameters
 
@@ -72,7 +72,7 @@ result = sub.execute_tool("add_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L344`](/code/pallets/derivatives/src/lib.rs#L342-L353):
+`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L342`](/code/pallets/derivatives/src/lib.rs#L340-L351):
 
 ```rust
 #[pallet::call_index(0)]

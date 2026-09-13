@@ -162,6 +162,7 @@ The exact chain error names (from the extrinsic receipt) that classify to `inval
 | [`WrongTimepoint`](/docs/errors/chain/WrongTimepoint) | The timepoint supplied does not match the one recorded when this multisig operation was opened. Read the correct `when` height and index from the `Multisigs` entry for the call hash and resubmit with that exact timepoint. |
 | [`XCMDecodeFailed`](/docs/errors/chain/XCMDecodeFailed) | The bytes the contract passed to `xcm_execute` or `xcm_send` could not be decoded as a versioned XCM message. Check the XCM encoding and version the contract produces against what the runtime supports. |
 | [`ZeroExposure`](/docs/errors/chain/ZeroExposure) | Leverage times the deposit rounds to nothing against the pool reserve, or the pool would swap the lifted slice for nothing. Use a larger deposit relative to the pool. |
+| [`ZeroInterestRate`](/docs/errors/chain/ZeroInterestRate) | `sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. Both rates must be above zero; to pause new positions set `pool_share` to zero instead. |
 | [`ZeroShareInBatch`](/docs/errors/chain/ZeroShareInBatch) | An order's pro-rata share of the batch output floored to zero, so the whole batch was rejected rather than consuming that order's input for no payout. Check the order's `amount` relative to the batch totals and retry it in a differently composed batch. |
 
 The same explanation is available in the terminal: `btcli explain invalid_argument` (or `btcli explain <ChainErrorName>` for one exact chain error).

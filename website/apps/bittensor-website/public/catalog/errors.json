@@ -1409,8 +1409,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 281,
-          "url": "/code/pallets/derivatives/src/lib.rs#L281",
+          "line": 279,
+          "url": "/code/pallets/derivatives/src/lib.rs#L279",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -2847,8 +2847,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 284,
-          "url": "/code/pallets/derivatives/src/lib.rs#L284",
+          "line": 282,
+          "url": "/code/pallets/derivatives/src/lib.rs#L282",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3611,8 +3611,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 279,
-          "url": "/code/pallets/derivatives/src/lib.rs#L279",
+          "line": 277,
+          "url": "/code/pallets/derivatives/src/lib.rs#L277",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4215,8 +4215,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 291,
-          "url": "/code/pallets/derivatives/src/lib.rs#L291",
+          "line": 289,
+          "url": "/code/pallets/derivatives/src/lib.rs#L289",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4305,8 +4305,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 289,
-          "url": "/code/pallets/derivatives/src/lib.rs#L289",
+          "line": 287,
+          "url": "/code/pallets/derivatives/src/lib.rs#L287",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5061,8 +5061,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 277,
-          "url": "/code/pallets/derivatives/src/lib.rs#L277",
+          "line": 275,
+          "url": "/code/pallets/derivatives/src/lib.rs#L275",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6016,8 +6016,26 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 286,
-          "url": "/code/pallets/derivatives/src/lib.rs#L286",
+          "line": 284,
+          "url": "/code/pallets/derivatives/src/lib.rs#L284",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+        }
+      ]
+    },
+    "ZeroInterestRate": {
+      "code": "invalid_argument",
+      "description": "`sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. Both rates must be above zero; to pause new positions set `pool_share` to zero instead.",
+      "docs_url": "/docs/errors/chain/ZeroInterestRate",
+      "markdown_url": "/llms.mdx/docs/errors/chain/ZeroInterestRate/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 292,
+          "url": "/code/pallets/derivatives/src/lib.rs#L292",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]

@@ -1676,5 +1676,5 @@ class Derivatives:
 
     @staticmethod
     def sudo_set_params(params: 'DerivativesParams') -> Call:
-        'Set the two parameters. Root only. A `pool_share` of zero pauses new adds; open positions keep the rate they were added with and settle as usual.'
+        'Set the three parameters. Root only. A `pool_share` of zero pauses new adds; open positions keep the rate they were added with and settle as usual. Either interest rate at zero is refused with `ZeroInterestRate`.'
         return Call('Derivatives', 'sudo_set_params', {'params': params})

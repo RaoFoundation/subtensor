@@ -410,4 +410,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 4): ErrorInfo('Derivatives', 'ZeroExposure', 'Leverage times deposit rounds to nothing, or the pool would swap it for nothing.'),
     (33, 5): ErrorInfo('Derivatives', 'PoolCapExceeded', 'Open positions of this side would exceed `pool_share` of the lent reserve. A `pool_share` of zero means adds are paused.'),
     (33, 6): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
+    (33, 7): ErrorInfo('Derivatives', 'ZeroInterestRate', '`sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. Both must be above zero; a `pool_share` of zero is the pause instead.'),
 }
