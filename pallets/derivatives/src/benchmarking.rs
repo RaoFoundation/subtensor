@@ -145,7 +145,8 @@ mod benchmarks {
     fn sudo_set_params() {
         let params = DerivativesParams {
             pool_share: Percent::from_percent(5),
-            interest_rate: Percent::from_percent(50),
+            short_interest_rate: Percent::from_percent(60),
+            long_interest_rate: Percent::from_percent(30),
         };
 
         #[extrinsic_call]

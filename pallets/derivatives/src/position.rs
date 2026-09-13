@@ -21,6 +21,18 @@ pub const INTEREST_PERIOD: u32 = 7 * 7_200;
 /// more positions due than this is finished over the following blocks.
 pub const COLLECTIONS_PER_BLOCK: u32 = 20;
 
+/// Starting `pool_share`, in percent: a quarter of the lent reserve per side.
+pub const DEFAULT_POOL_SHARE_PERCENT: u8 = 25;
+
+/// Starting `short_interest_rate`, in percent per year. Shorts pay twice what longs pay: the
+/// pool carries open-ended exposure to a short that is never liquidated, since the price it
+/// owes alpha at has no ceiling and nobody but the owner can close it.
+pub const DEFAULT_SHORT_INTEREST_RATE_PERCENT: u8 = 52;
+
+/// Starting `long_interest_rate`, in percent per year. A long's cost to the pool is bounded by
+/// the price falling to zero, and a long is the buy pressure the design wants.
+pub const DEFAULT_LONG_INTEREST_RATE_PERCENT: u8 = 26;
+
 /// How far, in percent, the spot price may sit from the moving price for liquidity a
 /// settlement hands back to rejoin the pool at once. Further out, the pair is parked in the
 /// pallet and released by `on_idle` once the spot is back within this band.
@@ -362,8 +374,8 @@ pub struct Position<BlockNumber> {
     /// The TAO value the pool has lent, summed over tranches. The position's leverage is
     /// `exposure_tao / cushion`.
     pub exposure_tao: TaoBalance,
-    /// Interest per year for the whole position: `interest_rate * exposure` of each tranche, fixed
-    /// when it was added, summed.
+    /// Interest per year for the whole position: the side's rate times the exposure of each
+    /// tranche, fixed when it was added, summed.
     pub interest_per_year: TaoBalance,
     /// Interest owed and not yet paid, as of `since`. An add brings it up to date; a collection
     /// and every settlement pay it.
@@ -441,9 +453,9 @@ pub struct Tranche {
     pub interest_per_year: TaoBalance,
 }
 
-/// The two root-set numbers that are the design: how much of a pool may be lent, and at what
-/// interest. Everything else the pallet needs is a constant.
-#[freeze_struct("519138526a63073a")]
+/// The three root-set numbers that are the design: how much of a pool may be lent, and at
+/// what interest on each side. Everything else the pallet needs is a constant.
+#[freeze_struct("d67529d80f62c912")]
 #[derive(
     Encode,
     Decode,
@@ -460,23 +472,43 @@ pub struct DerivativesParams {
     /// `kappa`: the largest share of the lent reserve that all open positions of one side on
     /// one subnet may borrow together. Zero pauses new adds; open positions still settle.
     pub pool_share: Percent,
-    /// The interest per year, as a fraction of a tranche's TAO exposure, the same on both sides.
-    /// Accrued per block; fixed for each tranche when it is added.
-    pub interest_rate: Percent,
+    /// The interest per year on a short tranche, as a fraction of its TAO exposure. Accrued
+    /// per block; fixed for each tranche when it is added. Never zero.
+    pub short_interest_rate: Percent,
+    /// The interest per year on a long tranche, as a fraction of its TAO exposure. Accrued
+    /// per block; fixed for each tranche when it is added. Never zero.
+    pub long_interest_rate: Percent,
 }
 
 impl DerivativesParams {
-    /// Mainnet defaults: up to a quarter of the pool lent, at 25% a year.
+    /// Mainnet defaults: up to a quarter of the pool lent, shorts at
+    /// [`DEFAULT_SHORT_INTEREST_RATE_PERCENT`] and longs at
+    /// [`DEFAULT_LONG_INTEREST_RATE_PERCENT`] a year.
     pub fn defaults() -> Self {
         Self {
-            pool_share: Percent::from_percent(25),
-            interest_rate: Percent::from_percent(25),
+            pool_share: Percent::from_percent(DEFAULT_POOL_SHARE_PERCENT),
+            short_interest_rate: Percent::from_percent(DEFAULT_SHORT_INTEREST_RATE_PERCENT),
+            long_interest_rate: Percent::from_percent(DEFAULT_LONG_INTEREST_RATE_PERCENT),
         }
     }
 
-    /// Interest per year for a new tranche: `interest_rate * exposure`, whichever side.
-    pub fn interest_for(&self, exposure_tao: TaoBalance) -> TaoBalance {
-        TaoBalance::from(self.interest_rate.mul_floor(exposure_tao.to_u64()))
+    /// The yearly rate `side` pays.
+    pub fn interest_rate(&self, side: Side) -> Percent {
+        match side {
+            Side::Short => self.short_interest_rate,
+            Side::Long => self.long_interest_rate,
+        }
+    }
+
+    /// Whether both rates are above zero. A zero rate would let a slice be held out of the
+    /// pool for free, with nothing ever ending the position, so `sudo_set_params` refuses it.
+    pub fn rates_are_set(&self) -> bool {
+        !self.short_interest_rate.is_zero() && !self.long_interest_rate.is_zero()
+    }
+
+    /// Interest per year for a new tranche on `side`: the side's rate times `exposure_tao`.
+    pub fn interest_for(&self, side: Side, exposure_tao: TaoBalance) -> TaoBalance {
+        TaoBalance::from(self.interest_rate(side).mul_floor(exposure_tao.to_u64()))
     }
 }
 
@@ -592,15 +624,60 @@ mod tests {
     fn interest_is_a_yearly_rate_on_exposure_accrued_per_block() {
         let params = DerivativesParams::defaults();
         let exposure = TaoBalance::from(1_000_000_000_000u64); // 1000 TAO
-        // 25%/year of 1000 TAO is 250 TAO/year. The side does not enter.
-        let per_year = params.interest_for(exposure);
-        assert_eq!(per_year, TaoBalance::from(250_000_000_000u64));
+        // Each side has its own rate: 52%/year of 1000 TAO is 520 TAO/year for a short,
+        // 26%/year is 260 TAO/year for a long.
+        let per_year = params.interest_for(Side::Short, exposure);
+        assert_eq!(per_year, TaoBalance::from(520_000_000_000u64));
+        assert_eq!(
+            params.interest_for(Side::Long, exposure),
+            TaoBalance::from(260_000_000_000u64)
+        );
         assert_eq!(interest_for_blocks(per_year, 0), TaoBalance::ZERO);
         assert_eq!(interest_for_blocks(per_year, BLOCKS_PER_YEAR), per_year);
         // One day is 1/365 of it.
         assert_eq!(
             interest_for_blocks(per_year, 7_200),
-            TaoBalance::from(684_931_506u64)
+            TaoBalance::from(1_424_657_534u64)
+        );
+    }
+
+    #[test]
+    fn defaults_are_the_named_constants_and_a_zero_rate_is_refused() {
+        let params = DerivativesParams::defaults();
+        assert_eq!(
+            params.pool_share,
+            Percent::from_percent(DEFAULT_POOL_SHARE_PERCENT)
+        );
+        assert_eq!(
+            params.interest_rate(Side::Short),
+            Percent::from_percent(DEFAULT_SHORT_INTEREST_RATE_PERCENT)
+        );
+        assert_eq!(
+            params.interest_rate(Side::Long),
+            Percent::from_percent(DEFAULT_LONG_INTEREST_RATE_PERCENT)
+        );
+        assert!(params.rates_are_set());
+        assert!(
+            !DerivativesParams {
+                short_interest_rate: Percent::zero(),
+                ..params
+            }
+            .rates_are_set()
+        );
+        assert!(
+            !DerivativesParams {
+                long_interest_rate: Percent::zero(),
+                ..params
+            }
+            .rates_are_set()
+        );
+        // A zero pool share is the pause, not an error.
+        assert!(
+            DerivativesParams {
+                pool_share: Percent::zero(),
+                ..params
+            }
+            .rates_are_set()
         );
     }
 

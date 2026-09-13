@@ -9,13 +9,14 @@
 //! left of the owner's cushion and proceeds is paid out. Nothing is minted or burned: the pool
 //! only ever gets its own liquidity back.
 //!
-//! Two root-set numbers are the design: the pool lends out at most `pool_share` of itself per
-//! side, at `interest_rate` on exposure, the same for both sides, fixed per tranche when it is
-//! added and accruing per block. Once a week, on its own block, each position's interest is
-//! collected out of its cushion and spent buying alpha from the pool, which is then recycled:
-//! the interest reaches the pool as buy pressure, on either side. A position has no term: it
-//! lives until its owner closes it, or until its cushion can no longer pay and the chain
-//! forfeits it to the pool. Nobody else can touch it.
+//! Three root-set numbers are the design: the pool lends out at most `pool_share` of itself
+//! per side, at a flat yearly rate on exposure that is `short_interest_rate` for shorts and
+//! `long_interest_rate` for longs, fixed per tranche when it is added and accruing per block.
+//! Once a week, on its own block, each position's interest is collected out of its cushion and
+//! spent buying alpha from the pool, which is then recycled: the interest reaches the pool as
+//! buy pressure, on either side. A position has no term: it lives until its owner closes it,
+//! or until its cushion can no longer pay and the chain forfeits it to the pool. Nobody else
+//! can touch it.
 //!
 //! Two rules keep a settlement from being a trade the pool pays for. A position whose pot the
 //! pool's own quote says cannot repay its debt is not swapped at all: everything held for it
@@ -111,6 +112,8 @@ pub mod pallet {
         DerivativesParams::defaults()
     }
 
+    /// The three root-set numbers: `pool_share`, `short_interest_rate`, `long_interest_rate`.
+    /// [`DerivativesParams::defaults`] until root sets them.
     #[pallet::storage]
     pub type Params<T: Config> = StorageValue<_, DerivativesParams, ValueQuery, DefaultParams<T>>;
 
@@ -238,9 +241,8 @@ pub mod pallet {
             /// the other token instead.
             shortfall: Lent,
         },
-        ParamsSet {
-            params: DerivativesParams,
-        },
+        /// Root set the three parameters. Open positions keep the rate they were added at.
+        ParamsSet { params: DerivativesParams },
         /// A dissolving subnet's positions are about to be cash-settled with no swap: shorts
         /// charged at `short`, longs credited at `long`, each `tao / alpha` TAO per alpha and
         /// each the worse for that side of the pool's spot and moving price. Emitted once per
@@ -285,6 +287,9 @@ pub mod pallet {
         PoolCapExceeded,
         /// The pallet has not claimed its hotkey yet; no position can be opened.
         PalletHotkeyUnset,
+        /// `sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero.
+        /// Both must be above zero; a `pool_share` of zero is the pause instead.
+        ZeroInterestRate,
     }
 
     #[pallet::hooks]
@@ -356,12 +361,14 @@ pub mod pallet {
             Self::do_settle(&owner, netuid, Perquintill::one())
         }
 
-        /// Set the two parameters. Root only. A `pool_share` of zero pauses new adds; open
-        /// positions keep the rate they were added with and settle as usual.
+        /// Set the three parameters. Root only. A `pool_share` of zero pauses new adds; open
+        /// positions keep the rate they were added with and settle as usual. Either interest
+        /// rate at zero is refused with `ZeroInterestRate`.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::sudo_set_params())]
         pub fn sudo_set_params(origin: OriginFor<T>, params: DerivativesParams) -> DispatchResult {
             ensure_root(origin)?;
+            ensure!(params.rates_are_set(), Error::<T>::ZeroInterestRate);
             Params::<T>::put(params);
             Self::deposit_event(Event::ParamsSet { params });
             Ok(())

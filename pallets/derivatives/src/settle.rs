@@ -252,11 +252,12 @@ impl<T: Config> Pallet<T> {
         ensure!(footprint <= cap, Error::<T>::PoolCapExceeded);
         Footprint::<T>::insert(netuid, side, footprint);
 
+        // The rate is the side's, read now and fixed for this tranche for as long as it lives.
         Ok(Tranche {
             deposit,
             legs,
             exposure_tao: lifted_tao,
-            interest_per_year: params.interest_for(lifted_tao),
+            interest_per_year: params.interest_for(side, lifted_tao),
         })
     }
 

@@ -76,13 +76,24 @@ fn run_to(block: u64) {
     }
 }
 
-/// Set the global interest. The default 25%/year takes a 1x position four years to starve; tests
-/// about starvation raise it to 100%/year, which takes about a year.
+/// Set the same interest on both sides. The defaults (52%/year on shorts, 26%/year on longs)
+/// take a 1x short about two years to starve; tests about starvation raise both to 100%/year,
+/// which takes a 1x position about a year.
 fn set_interest(rate: Percent) {
+    set_rates(rate, rate);
+}
+
+/// Set the two rates, shorts first.
+fn set_rates(short: Percent, long: Percent) {
     let mut params = Params::<Test>::get();
-    params.interest_rate = rate;
+    params.short_interest_rate = short;
+    params.long_interest_rate = long;
     assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
 }
+
+/// The default rates as fractions of the exposure per year, in hundredths.
+const SHORT_RATE_PERCENT: u64 = DEFAULT_SHORT_INTEREST_RATE_PERCENT as u64;
+const LONG_RATE_PERCENT: u64 = DEFAULT_LONG_INTEREST_RATE_PERCENT as u64;
 
 type Pos = Position<u64>;
 
@@ -474,26 +485,38 @@ fn interest_is_the_rate_on_exposure_and_frozen_at_open() {
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         assert_ok!(add(bob(), Side::Long, DEPOSIT));
 
-        // One rate, both sides: 25%/year of exposure. The short's exposure is its 10 TAO
-        // deposit at 1x; the long's is 15 TAO at 1.5x, so it pays half again as much.
+        // Each side at its own rate on its exposure. The short's exposure is its 10 TAO deposit
+        // at 1x, at 52%/year; the long's is 15 TAO at 1.5x, at 26%/year, so the long pays three
+        // quarters of what the short pays.
         let short = position(&alice(), netuid()).unwrap();
         let long = position(&bob(), netuid()).unwrap();
         assert_eq!(
             short.interest_per_year,
-            params.interest_for(short.exposure_tao)
+            params.interest_for(Side::Short, short.exposure_tao)
         );
-        assert_eq!(u64::from(short.interest_per_year), DEPOSIT / 4);
+        assert_eq!(
+            u64::from(short.interest_per_year),
+            DEPOSIT * SHORT_RATE_PERCENT / 100
+        );
         assert_eq!(
             long.interest_per_year,
-            params.interest_for(long.exposure_tao)
+            params.interest_for(Side::Long, long.exposure_tao)
         );
-        assert_close(u64::from(long.interest_per_year), 3 * DEPOSIT / 8, 1);
+        assert_close(
+            u64::from(long.interest_per_year),
+            DEPOSIT * 3 / 2 * LONG_RATE_PERCENT / 100,
+            1,
+        );
 
-        // Changing the rate after the open does not reprice a running position.
-        set_interest(Percent::from_percent(50));
+        // Changing the rates after the open does not reprice a running position.
+        set_rates(Percent::from_percent(80), Percent::from_percent(40));
         assert_eq!(
             position(&alice(), netuid()).unwrap().interest_per_year,
             short.interest_per_year
+        );
+        assert_eq!(
+            position(&bob(), netuid()).unwrap().interest_per_year,
+            long.interest_per_year
         );
         // Nothing is booked up front: a close in the opening block pays no interest.
         assert_ok!(close(alice()));
@@ -519,7 +542,7 @@ fn short_held_a_day_returns_the_deposit_less_a_day_of_interest() {
         assert_ok!(close(alice()));
 
         let interest = u64::from(interest_for_blocks(pos.interest_per_year, DAY));
-        assert_eq!(interest, DEPOSIT / 4 / 365);
+        assert_eq!(interest, DEPOSIT * SHORT_RATE_PERCENT / 100 / 365);
         let (payout, interest_paid, shortfall) = last_closed_event();
         assert_eq!(interest_paid, interest);
         assert_eq!(shortfall, 0);
@@ -1007,7 +1030,8 @@ fn a_new_position_is_queued_a_week_out_and_collected_on_its_block() {
         let short_week = u64::from(interest_for_blocks(short.interest_per_year, WEEK));
         let long_week = u64::from(interest_for_blocks(long.interest_per_year, WEEK));
         assert!(short_week > 0);
-        assert_close(long_week, short_week * 3 / 2, 2);
+        // The long has half again the exposure at half the rate: three quarters of the short.
+        assert_close(long_week, short_week * 3 / 4, 2);
         let short1 = position(&alice(), netuid()).unwrap();
         let long1 = position(&bob(), netuid()).unwrap();
         assert_eq!(u64::from(short1.cushion), DEPOSIT - short_week);
@@ -1244,12 +1268,12 @@ fn a_position_has_no_term_and_only_its_owner_can_close_it() {
         setup();
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
 
-        // Two years on at the default interest, with no sweep having run, a 1x position owes
+        // A year on at the default short rate, with no sweep having run, a 1x short owes about
         // half its cushion. Bob cannot touch it: `close` only ever settles the caller's own.
-        System::set_block_number(1 + 2 * BLOCKS_PER_YEAR);
+        System::set_block_number(1 + BLOCKS_PER_YEAR);
         let later = position(&alice(), netuid()).unwrap();
-        let owed = u64::from(later.interest_due(1 + 2 * BLOCKS_PER_YEAR));
-        assert_eq!(owed, DEPOSIT / 2);
+        let owed = u64::from(later.interest_due(1 + BLOCKS_PER_YEAR));
+        assert_eq!(owed, DEPOSIT * SHORT_RATE_PERCENT / 100);
         assert_err!(close(bob()), Error::<Test>::NoPosition);
         assert_eq!(position(&alice(), netuid()), Some(later));
 
@@ -1258,7 +1282,7 @@ fn a_position_has_no_term_and_only_its_owner_can_close_it() {
         assert_ok!(add(alice(), Side::Short, DEPOSIT));
         let grown = position(&alice(), netuid()).unwrap();
         assert_eq!(grown.cushion, TaoBalance::from(2 * DEPOSIT));
-        assert_eq!(grown.since, 1 + 2 * BLOCKS_PER_YEAR);
+        assert_eq!(grown.since, 1 + BLOCKS_PER_YEAR);
         assert_eq!(grown.interest_owed, TaoBalance::from(owed));
         assert!(System::events().iter().all(|record| {
             !matches!(
@@ -1634,12 +1658,169 @@ fn set_params_requires_root() {
         let params = Params::<Test>::get();
         assert_eq!(params, DerivativesParams::defaults());
         assert_eq!(params.pool_share, Percent::from_percent(25));
-        assert_eq!(params.interest_rate, Percent::from_percent(25));
+        assert_eq!(params.short_interest_rate, Percent::from_percent(52));
+        assert_eq!(params.long_interest_rate, Percent::from_percent(26));
         assert_err!(
             Derivatives::sudo_set_params(RuntimeOrigin::signed(alice()), params),
             sp_runtime::DispatchError::BadOrigin
         );
         assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), params));
         System::assert_last_event(Event::ParamsSet { params }.into());
+    });
+}
+
+// ── Per-side rates ───────────────────────────────────────────────────────────
+
+#[test]
+fn params_carry_both_rates_and_the_read_returns_what_root_set() {
+    new_test_ext().execute_with(|| {
+        let set = DerivativesParams {
+            pool_share: Percent::from_percent(10),
+            short_interest_rate: Percent::from_percent(70),
+            long_interest_rate: Percent::from_percent(35),
+        };
+        assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), set));
+        let read = Params::<Test>::get();
+        assert_eq!(read, set);
+        assert_eq!(read.pool_share, Percent::from_percent(10));
+        assert_eq!(read.short_interest_rate, Percent::from_percent(70));
+        assert_eq!(read.long_interest_rate, Percent::from_percent(35));
+        assert_eq!(read.interest_rate(Side::Short), read.short_interest_rate);
+        assert_eq!(read.interest_rate(Side::Long), read.long_interest_rate);
+        System::assert_last_event(Event::ParamsSet { params: set }.into());
+    });
+}
+
+#[test]
+fn set_params_refuses_a_zero_rate_on_either_side_but_not_a_zero_share() {
+    new_test_ext().execute_with(|| {
+        let before = Params::<Test>::get();
+        let no_short = DerivativesParams {
+            short_interest_rate: Percent::zero(),
+            ..before
+        };
+        assert_err!(
+            Derivatives::sudo_set_params(RuntimeOrigin::root(), no_short),
+            Error::<Test>::ZeroInterestRate
+        );
+        let no_long = DerivativesParams {
+            long_interest_rate: Percent::zero(),
+            ..before
+        };
+        assert_err!(
+            Derivatives::sudo_set_params(RuntimeOrigin::root(), no_long),
+            Error::<Test>::ZeroInterestRate
+        );
+        let neither = DerivativesParams {
+            short_interest_rate: Percent::zero(),
+            long_interest_rate: Percent::zero(),
+            ..before
+        };
+        assert_err!(
+            Derivatives::sudo_set_params(RuntimeOrigin::root(), neither),
+            Error::<Test>::ZeroInterestRate
+        );
+        // Nothing was written: a refused call leaves the old parameters in place.
+        assert_eq!(Params::<Test>::get(), before);
+
+        // A zero share is the pause and goes through.
+        let paused = DerivativesParams {
+            pool_share: Percent::zero(),
+            ..before
+        };
+        assert_ok!(Derivatives::sudo_set_params(RuntimeOrigin::root(), paused));
+        assert_eq!(Params::<Test>::get(), paused);
+    });
+}
+
+#[test]
+fn a_short_tranche_is_fixed_at_the_short_rate() {
+    new_test_ext().execute_with(|| {
+        setup();
+        // Rates far apart, so a tranche booked at the wrong side's rate would show.
+        set_rates(Percent::from_percent(60), Percent::from_percent(10));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let short = position(&alice(), netuid()).unwrap();
+        // A 1x short's exposure is its deposit, so 60% of 10 TAO: 6 TAO a year.
+        assert_eq!(u64::from(short.exposure_tao), DEPOSIT);
+        assert_eq!(u64::from(short.interest_per_year), DEPOSIT * 60 / 100);
+        assert_eq!(
+            short.interest_per_year,
+            Params::<Test>::get().interest_for(Side::Short, short.exposure_tao)
+        );
+        // A week of it comes off the cushion at the short rate, not the long one.
+        run_to(1 + WEEK);
+        let after = position(&alice(), netuid()).unwrap();
+        assert_eq!(
+            u64::from(after.cushion),
+            DEPOSIT - u64::from(interest_for_blocks((DEPOSIT * 60 / 100).into(), WEEK))
+        );
+    });
+}
+
+#[test]
+fn a_long_tranche_is_fixed_at_the_long_rate() {
+    new_test_ext().execute_with(|| {
+        setup();
+        set_rates(Percent::from_percent(60), Percent::from_percent(10));
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
+        let long = position(&alice(), netuid()).unwrap();
+        // A 1.5x long has 15 TAO of exposure, so 10% of it: 1.5 TAO a year, a quarter of what
+        // the same cushion would pay as a short at 60%.
+        assert_close(u64::from(long.exposure_tao), DEPOSIT * 3 / 2, 1);
+        assert_close(
+            u64::from(long.interest_per_year),
+            DEPOSIT * 3 / 2 * 10 / 100,
+            1,
+        );
+        assert_eq!(
+            long.interest_per_year,
+            Params::<Test>::get().interest_for(Side::Long, long.exposure_tao)
+        );
+        run_to(1 + WEEK);
+        let after = position(&alice(), netuid()).unwrap();
+        assert_eq!(
+            u64::from(after.cushion),
+            DEPOSIT - u64::from(interest_for_blocks(long.interest_per_year, WEEK))
+        );
+    });
+}
+
+#[test]
+fn flipping_sides_fixes_the_new_tranche_at_the_new_sides_rate() {
+    new_test_ext().execute_with(|| {
+        setup();
+        set_rates(Percent::from_percent(60), Percent::from_percent(10));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let short = position(&alice(), netuid()).unwrap();
+        assert_eq!(u64::from(short.interest_per_year), DEPOSIT * 60 / 100);
+
+        // Flip: 30 TAO of long exposure at 1x against 10 TAO of short. The short is settled
+        // and the 20 TAO past the flip point open a long, whose tranche is booked at the long
+        // rate: 10% of 20 TAO, not 60%.
+        assert_ok!(add_at(alice(), Side::Long, 30 * TAO, 100));
+        let long = position(&alice(), netuid()).unwrap();
+        assert_eq!(long.side(), Side::Long);
+        assert_close(u64::from(long.cushion), 20 * TAO, 1);
+        assert_close(u64::from(long.exposure_tao), 20 * TAO, 1);
+        assert_close(u64::from(long.interest_per_year), 20 * TAO * 10 / 100, 1);
+        assert_eq!(
+            long.interest_per_year,
+            Params::<Test>::get().interest_for(Side::Long, long.exposure_tao)
+        );
+        // Nothing of the short's rate carries over: the new position starts from zero.
+        assert_eq!(long.interest_owed, TaoBalance::ZERO);
+
+        // And back again, at the short rate. The 20 TAO long at 1x is closed by 20 TAO of
+        // short exposure; 15 TAO more open a short at 1x, booked at 60%.
+        assert_ok!(add_at(alice(), Side::Short, 35 * TAO, 100));
+        let short = position(&alice(), netuid()).unwrap();
+        assert_eq!(short.side(), Side::Short);
+        assert_close(u64::from(short.cushion), 15 * TAO, 1);
+        assert_close(u64::from(short.interest_per_year), 15 * TAO * 60 / 100, 1);
+        assert_eq!(
+            short.interest_per_year,
+            Params::<Test>::get().interest_for(Side::Short, short.exposure_tao)
+        );
     });
 }
