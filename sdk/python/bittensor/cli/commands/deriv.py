@@ -109,7 +109,7 @@ def add_long(
 
     Profit if alpha's price rises before you settle; the cushion covers the
     loss if it falls. `--amount` is the TAO the tranche is sized by and
-    `--leverage` the multiple of it, up to 2x. With no position, or a long,
+    `--leverage` the multiple of it, up to 1.5x. With no position, or a long,
     `--amount` is deposited as cushion. Against a short it takes that much off
     at the current price instead, and flips to a long if there is more.
     """

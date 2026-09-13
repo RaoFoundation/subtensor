@@ -13,7 +13,7 @@ DESCRIPTIONS: dict[str, str] = {
         "cushion could no longer pay its interest."
     ),
     "LeverageOutOfRange": (
-        "The requested leverage is zero or above the side's maximum: 1x for shorts, 2x for "
+        "The requested leverage is zero or above the side's maximum: 1x for shorts, 1.5x for "
         "longs (`max_short_leverage` / `max_long_leverage` in `deriv params`). Pass a "
         "`--leverage` at or below it."
     ),

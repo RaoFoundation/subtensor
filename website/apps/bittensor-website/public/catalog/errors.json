@@ -2837,7 +2837,7 @@
     },
     "LeverageOutOfRange": {
       "code": "invalid_argument",
-      "description": "The requested leverage is zero or above the side's maximum: 1x for shorts, 2x for longs (`max_short_leverage` / `max_long_leverage` in `deriv params`). Pass a `--leverage` at or below it.",
+      "description": "The requested leverage is zero or above the side's maximum: 1x for shorts, 1.5x for longs (`max_short_leverage` / `max_long_leverage` in `deriv params`). Pass a `--leverage` at or below it.",
       "docs_url": "/docs/errors/chain/LeverageOutOfRange",
       "markdown_url": "/llms.mdx/docs/errors/chain/LeverageOutOfRange/content.md",
       "pallets": [

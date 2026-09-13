@@ -143,7 +143,7 @@ INTENT_SAMPLES: dict[str, dict] = {
     "stake_into_basket": {"hotkey_ss58": BOB_HOT, "amount_tao": 1.0},
     "add_collateral": {"netuid": 1, "amount_alpha": 1.0},
     "set_min_collateral": {"netuid": 1, "min_alpha": 1.0},
-    "add_derivative": {"netuid": 1, "side": "Long", "amount": 1.0, "leverage": 2},
+    "add_derivative": {"netuid": 1, "side": "Long", "amount": 1.0, "leverage": 1.5},
     "close_derivative": {"netuid": 1},
     "create_crowdloan": {
         "deposit_tao": 100,

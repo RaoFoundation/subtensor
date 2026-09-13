@@ -239,7 +239,7 @@ const page = () => {
           <p>
             There are no synthetic tokens and no order book. Every position is built from the
             subnet pool&apos;s own reserves: the chain lifts a slice of the pool sized from your
-            deposit (one times it for a short, two times for a long), trades that slice through
+            deposit (up to one times it for a short, one and a half times for a long), trades that slice through
             the ordinary staking swap, and reverses the trade when you settle. Nothing is minted,
             nothing is burned. The pool lends out at most 25% of itself per side, at a flat
             yearly rate on the slice&apos;s TAO exposure: 52% for a short, 26% for a long, fixed
@@ -347,7 +347,7 @@ const page = () => {
               {`btcli deriv short --netuid 7 --amount 100 -w my_coldkey                # open a short
 btcli deriv short --netuid 7 --amount 50 -w my_coldkey                 # add to it
 btcli deriv long  --netuid 7 --amount 30 -w my_coldkey                 # take 30 τ off it
-btcli deriv long  --netuid 7 --amount 300 --leverage 2 -w my_coldkey   # flip to a long`}
+btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to a long`}
             </pre>
           </div>
 
