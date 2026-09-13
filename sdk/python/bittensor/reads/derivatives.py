@@ -128,7 +128,13 @@ def _position_record(
     category="Prices & swaps",
 )
 async def derivatives_params(view) -> dict:
-    """The derivatives pallet's three root-set parameters, plus its constants.
+    """The derivatives pallet's switch and three root-set parameters, plus its constants.
+
+    `enabled` is the network-wide switch, off at launch until governance turns
+    it on with `Derivatives.sudo_set_derivatives_enabled`. While it is off
+    every add (open, grow, reduce, flip) fails with `DerivativesDisabled`;
+    closing a position, the weekly interest collection, and dissolution
+    settlement keep working, so nobody is ever locked into a position.
 
     `pool_share` is the largest share of a pool's reserve that all open
     positions of one side may borrow together; zero means root has paused new
@@ -149,6 +155,7 @@ async def derivatives_params(view) -> dict:
     raw = await view.query(st.Derivatives.Params)
     raw = raw if isinstance(raw, dict) else {}
     return {
+        "enabled": bool(await view.query(st.Derivatives.DerivativesEnabled)),
         "pool_share": int(raw.get("pool_share") or 0) / _PERCENT,
         "short_interest_rate": int(raw.get("short_interest_rate") or 0) / _PERCENT,
         "long_interest_rate": int(raw.get("long_interest_rate") or 0) / _PERCENT,

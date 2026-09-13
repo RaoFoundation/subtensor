@@ -1666,13 +1666,18 @@ class Derivatives:
 
     @staticmethod
     def add(netuid: 'NetUid', side: 'Side', deposit: 'TaoBalance', leverage_percent: 'u16') -> Call:
-        "Add `side` exposure on `netuid`: `leverage_percent / 100` times `deposit`, measured against the pool's TAO reserve. One call covers open, add, reduce, and flip.  With no position, or one on the same side, `deposit` is taken from the caller's free balance as cushion, and a tranche is lifted from the pool and folded into the position. There is no term: the position runs while its cushion pays the weekly interest.  With a position on the other side, this settles the matching share of it at the current price and pays that share of the cushion, less interest and any loss, to the caller. If the exposure asked for is larger than the position, the whole position is closed and the rest, if it reaches `MinDeposit`, opens on the new side. Only the deposit for that rest is taken from the caller.  The leverage must be above zero and at most the side's maximum (`MaxShortLeverage` or `MaxLongLeverage`)."
+        "Add `side` exposure on `netuid`: `leverage_percent / 100` times `deposit`, measured against the pool's TAO reserve. One call covers open, add, reduce, and flip.  With no position, or one on the same side, `deposit` is taken from the caller's free balance as cushion, and a tranche is lifted from the pool and folded into the position. There is no term: the position runs while its cushion pays the weekly interest.  With a position on the other side, this settles the matching share of it at the current price and pays that share of the cushion, less interest and any loss, to the caller. If the exposure asked for is larger than the position, the whole position is closed and the rest, if it reaches `MinDeposit`, opens on the new side. Only the deposit for that rest is taken from the caller.  The leverage must be above zero and at most the side's maximum (`MaxShortLeverage` or `MaxLongLeverage`).  Refused with `DerivativesDisabled` while [`DerivativesEnabled`] is `false`, whichever of open, add, reduce, or flip it would have been. Use `close` to exit a position while the switch is off."
         return Call('Derivatives', 'add', {'netuid': netuid, 'side': side, 'deposit': deposit, 'leverage_percent': leverage_percent})
 
     @staticmethod
     def close(netuid: 'NetUid') -> Call:
-        "Settle the caller's position on `netuid` in full, at the current price. Only the owner can close a position; the chain forfeits one that can no longer pay its interest. A position the pool's quote says is underwater is not traded: everything held for it goes to the pool in kind and the caller is paid nothing."
+        "Settle the caller's position on `netuid` in full, at the current price. Only the owner can close a position; the chain forfeits one that can no longer pay its interest. A position the pool's quote says is underwater is not traded: everything held for it goes to the pool in kind and the caller is paid nothing.  Works whether or not [`DerivativesEnabled`] is set: the switch stops positions from being opened or grown, never from being closed."
         return Call('Derivatives', 'close', {'netuid': netuid})
+
+    @staticmethod
+    def sudo_set_derivatives_enabled(enabled: 'bool') -> Call:
+        'Turn derivatives on or off network-wide. Root only. Off, every `add` fails with `DerivativesDisabled`; `close` still works, and the weekly interest collection, forfeits, parked-liquidity releases, and dissolution settlement of open positions carry on. Launches off. Distinct from a `pool_share` of zero, which pauses adds but leaves the pallet on.'
+        return Call('Derivatives', 'sudo_set_derivatives_enabled', {'enabled': enabled})
 
     @staticmethod
     def sudo_set_params(params: 'DerivativesParams') -> Call:

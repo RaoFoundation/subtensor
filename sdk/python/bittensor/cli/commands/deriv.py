@@ -206,7 +206,13 @@ def list_positions(
 @app.command("params")
 @with_globals
 def show_params(ctx: typer.Context):
-    """Show the three parameters (pool share, short and long interest rate) and the fixed limits."""
+    """Show the switch, the three parameters, and the fixed limits.
+
+    `enabled` is the network-wide switch: off until governance turns it on.
+    While it is off, `short` and `long` fail with `DerivativesDisabled`;
+    `close` still works. The three parameters are the pool share and the
+    short and long interest rate.
+    """
     app_ctx: AppContext = ctx_of(ctx)
     params = app_ctx.run(lambda client: client.read("derivatives_params"))
     app_ctx.output.detail("derivatives params", params)

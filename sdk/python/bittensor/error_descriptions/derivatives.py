@@ -35,4 +35,11 @@ DESCRIPTIONS: dict[str, str] = {
         "`sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. "
         "Both rates must be above zero; to pause new positions set `pool_share` to zero instead."
     ),
+    "DerivativesDisabled": (
+        "Derivatives are switched off network-wide (`Derivatives.DerivativesEnabled` is false, "
+        "shown as `enabled` in `deriv params`), so nothing can be added: no open, grow, reduce, "
+        "or flip. Governance turns it on with `Derivatives.sudo_set_derivatives_enabled`. "
+        "Existing positions can still be closed with `deriv close`, and the chain keeps "
+        "collecting their interest."
+    ),
 }

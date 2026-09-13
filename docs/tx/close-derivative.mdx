@@ -8,11 +8,12 @@ description: "Close your derivatives position on a subnet and settle it against 
 Only the owner can close. Settlement reverses the opening trade, repays
 the pool plus the interest owed, and pays you what remains. If the
 position is underwater the pool absorbs the shortfall and you get nothing
-back.
+back. Works whether or not the network-wide switch is on: the switch
+gates adds, never exits.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L357-L362) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.close`](/code/pallets/derivatives/src/lib.rs#L384-L389) |
 
 ## Parameters
 
@@ -61,7 +62,7 @@ result = sub.execute_tool("close_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L359`](/code/pallets/derivatives/src/lib.rs#L357-L362):
+`Derivatives.close` — [`pallets/derivatives/src/lib.rs#L386`](/code/pallets/derivatives/src/lib.rs#L384-L389):
 
 ```rust
 #[pallet::call_index(1)]
@@ -72,6 +73,6 @@ pub fn close(origin: OriginFor<T>, netuid: NetUid) -> DispatchResult {
 }
 ```
 
-Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L276).
+Delegates to [`do_settle`](/code/pallets/derivatives/src/settle.rs#L282).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

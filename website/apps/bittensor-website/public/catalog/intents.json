@@ -72,7 +72,7 @@
   {
     "name": "add_derivative",
     "summary": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.",
-    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, and flip. With no position, or one on the\nsame side, `amount` TAO is taken from the coldkey as cushion, the pool\nlends the matching slice (alpha sold for TAO on a short, TAO spent on\nalpha on a long), and the result is folded into the position. With a\nposition on the other side, that much exposure is settled at the current\nprice and its share of the cushion, less interest and loss, is paid back;\nnothing is deposited. Asking for more than the position holds closes it\nand opens the rest on the new side, taking only that rest's cushion.",
+    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, and flip. With no position, or one on the\nsame side, `amount` TAO is taken from the coldkey as cushion, the pool\nlends the matching slice (alpha sold for TAO on a short, TAO spent on\nalpha on a long), and the result is folded into the position. With a\nposition on the other side, that much exposure is settled at the current\nprice and its share of the cushion, less interest and loss, is paid back;\nnothing is deposited. Asking for more than the position holds closes it\nand opens the rest on the new side, taking only that rest's cushion.\n\nRefused with `DerivativesDisabled` while the network-wide switch is off\n(`enabled` in `btcli deriv params`); `ClosePosition` still works then.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -127,9 +127,9 @@
         "pallet": "Derivatives",
         "call": "add",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 342,
-        "end_line": 351,
-        "url": "/code/pallets/derivatives/src/lib.rs#L340-L351",
+        "line": 366,
+        "end_line": 375,
+        "url": "/code/pallets/derivatives/src/lib.rs#L364-L375",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -698,7 +698,7 @@
   {
     "name": "close_derivative",
     "summary": "Close your derivatives position on a subnet and settle it against the pool.",
-    "description": "Close your derivatives position on a subnet and settle it against the pool.\n\nOnly the owner can close. Settlement reverses the opening trade, repays\nthe pool plus the interest owed, and pays you what remains. If the\nposition is underwater the pool absorbs the shortfall and you get nothing\nback.",
+    "description": "Close your derivatives position on a subnet and settle it against the pool.\n\nOnly the owner can close. Settlement reverses the opening trade, repays\nthe pool plus the interest owed, and pays you what remains. If the\nposition is underwater the pool absorbs the shortfall and you get nothing\nback. Works whether or not the network-wide switch is on: the switch\ngates adds, never exits.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -730,9 +730,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 359,
-        "end_line": 362,
-        "url": "/code/pallets/derivatives/src/lib.rs#L357-L362",
+        "line": 386,
+        "end_line": 389,
+        "url": "/code/pallets/derivatives/src/lib.rs#L384-L389",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

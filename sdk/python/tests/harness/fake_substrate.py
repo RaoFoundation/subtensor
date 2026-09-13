@@ -56,6 +56,8 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("SubtensorModule", "SubnetEmissionEnabled"): True,
     ("System", "Account"): {"data": {"free": 0, "reserved": 0, "frozen": 0}},
     ("Timestamp", "Now"): 1_700_000_000_000,
+    # Launch state: the switch is off until governance flips it.
+    ("Derivatives", "DerivativesEnabled"): False,
     # `DerivativesParams::defaults()`: percent points, as the chain stores them.
     ("Derivatives", "Params"): {
         "pool_share": 25,

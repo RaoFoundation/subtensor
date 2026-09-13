@@ -771,8 +771,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 122,
-        "url": "/code/pallets/derivatives/src/lib.rs#L122",
+        "line": 136,
+        "url": "/code/pallets/derivatives/src/lib.rs#L136",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -797,8 +797,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 122,
-        "url": "/code/pallets/derivatives/src/lib.rs#L122",
+        "line": 136,
+        "url": "/code/pallets/derivatives/src/lib.rs#L136",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -823,8 +823,8 @@
         "container": "Derivatives",
         "name": "OpenByNetuid",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 134,
-        "url": "/code/pallets/derivatives/src/lib.rs#L134",
+        "line": 148,
+        "url": "/code/pallets/derivatives/src/lib.rs#L148",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       },
       {
@@ -832,16 +832,16 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 122,
-        "url": "/code/pallets/derivatives/src/lib.rs#L122",
+        "line": 136,
+        "url": "/code/pallets/derivatives/src/lib.rs#L136",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
   {
     "name": "derivatives_params",
-    "summary": "The derivatives pallet's three root-set parameters, plus its constants.",
-    "description": "The derivatives pallet's three root-set parameters, plus its constants.\n\n`pool_share` is the largest share of a pool's reserve that all open\npositions of one side may borrow together; zero means root has paused new\npositions. `short_interest_rate` and `long_interest_rate` are the interest\na short or a long tranche pays, as a fraction of its TAO exposure per year,\nflat, fixed when the tranche is added and accrued per block; once a week,\non the position's own block, the chain takes it from the cushion, buys\nalpha with it, and recycles the alpha. Shorts pay more than longs: the pool\ncarries open-ended exposure to a short that is never closed, while a long\nis the buy pressure the design wants. All three are fractions (`0.52` =\n52%).\n\nThe rest are fixed by the runtime: `max_short_leverage` and\n`max_long_leverage` bound the leverage an owner may choose per side (`1.0`\n= 1x), and `min_deposit_tao` is the smallest deposit one add may put up.",
+    "summary": "The derivatives pallet's switch and three root-set parameters, plus its constants.",
+    "description": "The derivatives pallet's switch and three root-set parameters, plus its constants.\n\n`enabled` is the network-wide switch, off at launch until governance turns\nit on with `Derivatives.sudo_set_derivatives_enabled`. While it is off\nevery add (open, grow, reduce, flip) fails with `DerivativesDisabled`;\nclosing a position, the weekly interest collection, and dissolution\nsettlement keep working, so nobody is ever locked into a position.\n\n`pool_share` is the largest share of a pool's reserve that all open\npositions of one side may borrow together; zero means root has paused new\npositions. `short_interest_rate` and `long_interest_rate` are the interest\na short or a long tranche pays, as a fraction of its TAO exposure per year,\nflat, fixed when the tranche is added and accrued per block; once a week,\non the position's own block, the chain takes it from the cushion, buys\nalpha with it, and recycles the alpha. Shorts pay more than longs: the pool\ncarries open-ended exposure to a short that is never closed, while a long\nis the buy pressure the design wants. All three are fractions (`0.52` =\n52%).\n\nThe rest are fixed by the runtime: `max_short_leverage` and\n`max_long_leverage` bound the leverage an owner may choose per side (`1.0`\n= 1x), and `min_deposit_tao` is the smallest deposit one add may put up.",
     "params": {},
     "param_docs": {},
     "category": "Prices & swaps",
@@ -854,8 +854,17 @@
         "container": "Derivatives",
         "name": "Params",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 118,
-        "url": "/code/pallets/derivatives/src/lib.rs#L118",
+        "line": 123,
+        "url": "/code/pallets/derivatives/src/lib.rs#L123",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Derivatives",
+        "name": "DerivativesEnabled",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 132,
+        "url": "/code/pallets/derivatives/src/lib.rs#L132",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       },
       {

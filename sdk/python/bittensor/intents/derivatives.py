@@ -66,6 +66,9 @@ class AddPosition(Intent):
     price and its share of the cushion, less interest and loss, is paid back;
     nothing is deposited. Asking for more than the position holds closes it
     and opens the rest on the new side, taking only that rest's cushion.
+
+    Refused with `DerivativesDisabled` while the network-wide switch is off
+    (`enabled` in `btcli deriv params`); `ClosePosition` still works then.
     """
 
     op = "add_derivative"
@@ -141,7 +144,8 @@ class ClosePosition(Intent):
     Only the owner can close. Settlement reverses the opening trade, repays
     the pool plus the interest owed, and pays you what remains. If the
     position is underwater the pool absorbs the shortfall and you get nothing
-    back.
+    back. Works whether or not the network-wide switch is on: the switch
+    gates adds, never exits.
     """
 
     op = "close_derivative"

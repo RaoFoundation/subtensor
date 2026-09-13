@@ -88,6 +88,7 @@
     "DepositCannotBeWithdrawn",
     "DepositTooLow",
     "Deprecated",
+    "DerivativesDisabled",
     "DisabledTemporarily",
     "DrandConnectionFailure",
     "Duplicate",

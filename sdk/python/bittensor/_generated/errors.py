@@ -411,4 +411,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 5): ErrorInfo('Derivatives', 'PoolCapExceeded', 'Open positions of this side would exceed `pool_share` of the lent reserve. A `pool_share` of zero means adds are paused.'),
     (33, 6): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
     (33, 7): ErrorInfo('Derivatives', 'ZeroInterestRate', '`sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. Both must be above zero; a `pool_share` of zero is the pause instead.'),
+    (33, 8): ErrorInfo('Derivatives', 'DerivativesDisabled', 'Derivatives are switched off network-wide ([`DerivativesEnabled`] is `false`), so nothing can be added. Open positions can still be closed by their owners.'),
 }

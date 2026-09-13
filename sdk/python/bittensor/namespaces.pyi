@@ -417,7 +417,13 @@ class Prices(_ReadNamespace):
         """
 
     async def derivatives_params(self, *, block: Optional[int] = None) -> dict:
-        """The derivatives pallet's three root-set parameters, plus its constants.
+        """The derivatives pallet's switch and three root-set parameters, plus its constants.
+
+        `enabled` is the network-wide switch, off at launch until governance turns
+        it on with `Derivatives.sudo_set_derivatives_enabled`. While it is off
+        every add (open, grow, reduce, flip) fails with `DerivativesDisabled`;
+        closing a position, the weekly interest collection, and dissolution
+        settlement keep working, so nobody is ever locked into a position.
 
         `pool_share` is the largest share of a pool's reserve that all open
         positions of one side may borrow together; zero means root has paused new

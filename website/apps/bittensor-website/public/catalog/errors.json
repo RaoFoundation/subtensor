@@ -1409,8 +1409,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 279,
-          "url": "/code/pallets/derivatives/src/lib.rs#L279",
+          "line": 296,
+          "url": "/code/pallets/derivatives/src/lib.rs#L296",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -1446,6 +1446,24 @@
           "line": 182,
           "url": "/code/pallets/swap/src/pallet/mod.rs#L182",
           "raw_url": "/code/raw/pallets/swap/src/pallet/mod.rs"
+        }
+      ]
+    },
+    "DerivativesDisabled": {
+      "code": "disabled",
+      "description": "Derivatives are switched off network-wide (`Derivatives.DerivativesEnabled` is false, shown as `enabled` in `deriv params`), so nothing can be added: no open, grow, reduce, or flip. Governance turns it on with `Derivatives.sudo_set_derivatives_enabled`. Existing positions can still be closed with `deriv close`, and the chain keeps collecting their interest.",
+      "docs_url": "/docs/errors/chain/DerivativesDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/DerivativesDisabled/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 312,
+          "url": "/code/pallets/derivatives/src/lib.rs#L312",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -2847,8 +2865,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 282,
-          "url": "/code/pallets/derivatives/src/lib.rs#L282",
+          "line": 299,
+          "url": "/code/pallets/derivatives/src/lib.rs#L299",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3611,8 +3629,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 277,
-          "url": "/code/pallets/derivatives/src/lib.rs#L277",
+          "line": 294,
+          "url": "/code/pallets/derivatives/src/lib.rs#L294",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4215,8 +4233,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 289,
-          "url": "/code/pallets/derivatives/src/lib.rs#L289",
+          "line": 306,
+          "url": "/code/pallets/derivatives/src/lib.rs#L306",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4305,8 +4323,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 287,
-          "url": "/code/pallets/derivatives/src/lib.rs#L287",
+          "line": 304,
+          "url": "/code/pallets/derivatives/src/lib.rs#L304",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5061,8 +5079,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 275,
-          "url": "/code/pallets/derivatives/src/lib.rs#L275",
+          "line": 292,
+          "url": "/code/pallets/derivatives/src/lib.rs#L292",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6016,8 +6034,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 284,
-          "url": "/code/pallets/derivatives/src/lib.rs#L284",
+          "line": 301,
+          "url": "/code/pallets/derivatives/src/lib.rs#L301",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6034,8 +6052,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 292,
-          "url": "/code/pallets/derivatives/src/lib.rs#L292",
+          "line": 309,
+          "url": "/code/pallets/derivatives/src/lib.rs#L309",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
