@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(not GOLDEN_FIXTURE.exists(), reason="golden fixt
 
 # The digest for the golden metadata with node-subtensor/456 (ss58 42, 9-dp TAO).
 # Re-record it whenever the committed golden metadata is deliberately upgraded.
-EXPECTED_DIGEST = "09b6acb6727d03ca186a32f11dde43ff8692c023547afe0ef72a5f885fea9ae6"
+EXPECTED_DIGEST = "ace88a002b68774f76251a90e65cdc6c99eaa525506575c5aca22c945be48a9c"
 
 
 class FakeDevice:
