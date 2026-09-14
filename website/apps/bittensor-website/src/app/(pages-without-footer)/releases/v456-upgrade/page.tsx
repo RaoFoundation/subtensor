@@ -6,13 +6,14 @@ import {Suspense} from 'react';
 import styles from '../v436-upgrade/page.module.css';
 
 export const metadata: Metadata = {
-  title: 'The V456 Upgrade — Longs and Shorts',
+  title: 'The V456 Upgrade — Shorts',
   description:
-    'V456 adds pallet-derivatives: longs and shorts on any subnet’s alpha, borrowed from the ' +
-    'subnet’s own pool. One position per subnet and one call to add to it, take from it, or ' +
-    'flip it; no expiry. No synthetic tokens, nothing minted or burned: the pool lends out at ' +
-    'most 25% of itself, at 52% a year on shorts and 26% on longs, paid to the pool. btcli deriv ' +
-    'short, long, list, and close are the working surface. Launches switched off.',
+    'V456 adds pallet-derivatives and launches shorts: a short on any subnet’s alpha, borrowed ' +
+    'from the subnet’s own pool. One position per subnet and one call to add to it or take from ' +
+    'it; no expiry. No synthetic tokens, nothing minted or burned: the pool lends out at most 25% ' +
+    'of itself, at 52% a year on shorts, paid to the pool. Longs are built, tested, and disabled ' +
+    'at launch behind their own switch. btcli deriv short, list, and close are the working ' +
+    'surface. Launches switched off.',
   alternates: {canonical: '/releases/v456-upgrade'},
 };
 
@@ -65,10 +66,10 @@ const PayoffChart = () => {
       className={styles.graph}
       viewBox='0 0 840 400'
       role='img'
-      aria-label='Value returned for a 100 TAO cushion, plotted against the alpha price move from minus 100 to plus 100 percent. The short line, at 1x, rises as alpha falls and reaches zero near a doubling. The long line, at 1.5x, rises half again as fast as alpha rises and reaches zero near a fall of two thirds. Both cross 100 TAO at no move.'
+      aria-label='Value returned for a 100 TAO cushion, plotted against the alpha price move from minus 100 to plus 100 percent. The short line, at 1x, rises as alpha falls and reaches zero near a doubling, where a close would pay nothing. The long line, at 1.5x, not enabled at launch, rises half again as fast as alpha rises and reaches zero near a fall of two thirds. Both cross 100 TAO at no move.'
     >
       <text {...GRAPH_TEXT} x='420' y='28' textAnchor='middle' fill={MUTED} fontSize={12}>
-        WHAT 100 τ COMES BACK AS · SHORT 1x · LONG 1.5x · CLOSED THE SAME BLOCK
+        WHAT 100 τ COMES BACK AS IF CLOSED · SHORT 1x · LONG 1.5x (NOT ENABLED AT LAUNCH)
       </text>
       <line x1={x0} y1={y0} x2={x0} y2={axis} stroke={INK} strokeWidth='1' />
       <line x1={x0} y1={axis} x2={x0 + w} y2={axis} stroke={INK} strokeWidth='1' />
@@ -109,15 +110,15 @@ const PayoffChart = () => {
         SHORT · 1x
       </text>
       <text {...GRAPH_TEXT} x={xFor(40)} y={yFor(payout('long', 40)) - 10} textAnchor='middle' fill={GOLD} fontSize={11}>
-        LONG · 1.5x
+        LONG · 1.5x · NOT AT LAUNCH
       </text>
       <circle cx={xFor(longGone)} cy={axis} r='3.5' fill={RED} />
       <circle cx={xFor(100)} cy={axis} r='3.5' fill={RED} />
       <text {...GRAPH_TEXT} x={xFor(longGone)} y={axis + 38} textAnchor='middle' fill={RED} fontSize={9}>
-        LONG CUSHION GONE
+        LONG UNDERWATER
       </text>
       <text {...GRAPH_TEXT} x={xFor(100)} y={axis + 38} textAnchor='end' fill={RED} fontSize={9}>
-        SHORT CUSHION GONE
+        SHORT UNDERWATER
       </text>
     </svg>
   );
@@ -205,66 +206,79 @@ const page = () => {
         <section className={styles.title_section}>
           <h1 className={styles.paper_title}>The V456 Upgrade</h1>
           <p className={styles.subtitle} style={{fontSize: '10px'}}>
-            Longs and shorts · September 2026
+            Shorts · September 2026
           </p>
         </section>
 
         <section className={styles.section}>
           <PayoffChart />
           <p className={styles.graph_caption}>
-            Put in 100 τ. A short (ink) pays more as alpha falls; a long (gold) pays more as
-            alpha rises. Both hand back the cushion at no move, less a little slippage. Once the
-            cushion is spent the line stops at zero: settlement pays you nothing, hands whatever
-            is left to the pool, and the pool carries the remaining shortfall. You owe nothing
-            more.
+            Put in 100 τ and close in the same block. A short (ink) pays more as alpha falls; a
+            long (gold, not enabled at launch) pays more as alpha rises. Both hand back the
+            cushion at no move, less a little slippage. Where the line reaches zero the position
+            is underwater: a close there pays you nothing and hands everything to the pool, which
+            carries the remaining shortfall. You owe nothing more, and you do not have to close:
+            an underwater position can be held for as long as its cushion pays the weekly
+            interest.
           </p>
         </section>
 
         <section className={styles.section}>
           <h2 className={styles.subtitle}>Introduction</h2>
           <p>
-            Spec <strong>456</strong> adds <code>pallet-derivatives</code>. Anyone can now take
-            a <strong>long</strong> or a <strong>short</strong> on a subnet&apos;s alpha, backed
-            by a TAO deposit, for as long as it pays its interest. A short profits when alpha falls;
-            a long profits when alpha rises.
+            Spec <strong>456</strong> adds <code>pallet-derivatives</code> and launches{' '}
+            <strong>shorts</strong>. Anyone can now take a short on a subnet&apos;s alpha, backed
+            by a TAO deposit, for as long as it pays its interest. A short profits when alpha
+            falls. The pallet also implements <strong>longs</strong>, which profit when alpha
+            rises: they are designed, tested, and benchmarked, and they are{' '}
+            <strong>disabled at launch</strong> behind their own governance switch, pending a
+            decision on their collateral and leverage. This page describes both; where it
+            describes a long, that part is not enabled at launch.
           </p>
           <p>
             You hold one position per subnet, and you move it with one call. Add on the side you
             hold and it grows. Add on the other side and that much comes off, paid out at
-            today&apos;s price. Add more than you hold and it flips. There is no expiry to watch
+            today&apos;s price. Add more than you hold and it flips (with longs off, a short can
+            be reduced or closed this way but not flipped). There is no expiry to watch
             and nobody can close you out: the chain collects the interest from your cushion
-            once a week, and only an empty cushion ends a position. <code>close</code> settles
-            all of it.
+            once a week, and only a cushion that cannot pay a weekly collection, or the
+            subnet&apos;s dissolution, ends a position you did not close. A price move alone
+            never does. <code>close</code> settles all of it.
           </p>
           <p>
             There are no synthetic tokens and no order book. Every position is built from the
             subnet pool&apos;s own reserves: the chain lifts a slice of the pool sized from your
-            deposit (up to one times it for a short, one and a half times for a long), trades that slice through
-            the ordinary staking swap, and reverses the trade when you settle. Nothing is minted,
-            nothing is burned. The pool lends out at most 25% of itself per side, at a flat
-            yearly rate on the slice&apos;s TAO exposure: 52% for a short, 26% for a long, fixed
-            for each slice when it is added and accrued per block. Those three numbers are the
-            whole design, and root sets all of them.
+            deposit (up to one times it for a short, one and a half times for a long once longs
+            are enabled), trades that slice through the ordinary staking swap, and reverses the
+            trade when you settle. Nothing is minted, nothing is burned. The pool lends out at
+            most 25% of itself per side, at a flat yearly rate on the slice&apos;s TAO exposure:
+            52% for a short, 26% for a long, fixed for each slice when it is added and accrued
+            per block. Those three numbers are the whole design, and root sets all of them; the
+            long rate is inert until longs are enabled.
           </p>
           <p>
             <code>btcli deriv</code> is the working surface: <code>short</code>,{' '}
-            <code>long</code>, <code>list</code>, <code>close</code>, and{' '}
-            <code>params</code>.
+            <code>list</code>, <code>close</code>, and <code>params</code>, with{' '}
+            <code>long</code> waiting on its switch.
             The full walk-through, with an animated slide deck of one position from open to
             close, is in the{' '}
-            <DocLink href='/docs/guides/derivatives'>Longs and shorts</DocLink> guide.
+            <DocLink href='/docs/guides/derivatives'>Shorts (and longs)</DocLink> guide.
           </p>
           <p>
-            <strong>Derivatives launch switched off network-wide.</strong> After the upgrade
-            every <code>add</code> fails with <code>DerivativesDisabled</code> until governance
-            turns <code>DerivativesEnabled</code> on with the root-only{' '}
-            <code>sudo_set_derivatives_enabled</code>. Everything else in this release (the
-            reads, <code>btcli deriv params</code>, which shows the switch as{' '}
-            <code>enabled</code>, and <code>close</code>) is live from the upgrade block. The
-            switch is one-sided by design: it stops positions from being opened or grown,
-            never from being closed, and the weekly interest collection and dissolution
-            settlement of whatever is open carry on. See{' '}
-            <DocLink href='/docs/guides/derivatives#the-switch'>The switch</DocLink> in the
+            <strong>Derivatives launch switched off network-wide, and longs off on top of
+            that.</strong> After the upgrade every <code>add</code> fails with{' '}
+            <code>DerivativesDisabled</code> until governance turns{' '}
+            <code>DerivativesEnabled</code> on with the root-only{' '}
+            <code>sudo_set_derivatives_enabled</code>. A second switch,{' '}
+            <code>LongsEnabled</code>, stays off after that: any <code>add</code> that would
+            leave a long open fails with <code>LongsDisabled</code> until governance turns it on
+            with <code>sudo_set_longs_enabled</code>. Everything else in this release (the
+            reads, <code>btcli deriv params</code>, which shows both switches as{' '}
+            <code>enabled</code> and <code>longs_enabled</code>, and <code>close</code>) is live
+            from the upgrade block. Both switches are one-sided by design: they stop positions
+            from being opened or grown, never from being closed, and the weekly interest
+            collection and dissolution settlement of whatever is open carry on. See{' '}
+            <DocLink href='/docs/guides/derivatives#the-switches'>The switches</DocLink> in the
             guide.
           </p>
         </section>
@@ -289,8 +303,8 @@ const page = () => {
           <div className={styles.step}>
             <p className={styles.step_title}>2 · Trade</p>
             <p>
-              A short sells the 2,000 α straight back into the pool for about 99 τ. A long does
-              the mirror: it spends the 100 τ on about 1,980 α. This is a real swap with real
+              A short sells the 2,000 α straight back into the pool for about 99 τ. A long
+              (once enabled) does the mirror: it spends the 100 τ on about 1,980 α. This is a real swap with real
               slippage, so a short nudges the price down at open and a long nudges it up. The
               other half of the slice waits in escrow. Your position now holds the proceeds and
               owes the pool what it borrowed.
@@ -354,13 +368,15 @@ const page = () => {
               </DocLink>{' '}
               call with the side fixed. Same side: another slice is lifted and folded in. Other side: that share is settled
               at today&apos;s price and paid out. More than you hold: the position closes and
-              the rest opens on the new side. Nothing expires; add whenever you like.
+              the rest opens on the new side. Nothing expires; add whenever you like. With longs
+              off, <code>long</code> can take from a short or close it, but not flip it: an add
+              that would leave a long open fails with <code>LongsDisabled</code>.
             </p>
             <pre className={styles.step_code}>
               {`btcli deriv short --netuid 7 --amount 100 -w my_coldkey                # open a short
 btcli deriv short --netuid 7 --amount 50 -w my_coldkey                 # add to it
 btcli deriv long  --netuid 7 --amount 30 -w my_coldkey                 # take 30 τ off it
-btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to a long`}
+btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to a long (once longs are enabled)`}
             </pre>
           </div>
 
@@ -372,8 +388,9 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
                 <code>derivative-positions</code>
               </DocLink>
               ). Runway is how many days the cushion keeps paying interest at the current rate;
-              at zero the chain forfeits the position to the pool. Equity prices the closing leg
-              on a constant-product curve; the chain&apos;s own quote decides.
+              when a weekly collection finds it cannot pay, the chain forfeits the position to
+              the pool. Equity prices the closing leg on a constant-product curve; the
+              chain&apos;s own quote decides.
             </p>
             <pre className={styles.step_code}>{`btcli deriv list -w my_coldkey`}</pre>
           </div>
@@ -397,10 +414,13 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
           <p>
             <strong>Leverage you choose on each add, under a fixed ceiling: 1x on shorts, 1.5x
             on longs.</strong> At 1x a short&apos;s exposure equals its cushion, so a 20% move
-            in alpha moves a 100 τ short by about 20 τ and a doubling wipes it. At 1.5x a
-            long&apos;s exposure is half again its cushion: a 20% move is worth about 30 τ and
-            a fall of two thirds wipes it. In general a position at leverage L is wiped by a
-            move of 1/L against it. At 1x a long can never cost the pool anything and does
+            in alpha moves a 100 τ short by about 20 τ, and a doubling puts it underwater: a
+            close then pays nothing and the pool keeps the pot, though the owner may keep
+            holding, and the position goes on for as long as the cushion pays the weekly
+            interest. At 1.5x a long&apos;s exposure is half again its cushion: a 20% move is
+            worth about 30 τ and a fall of two thirds puts it underwater. In general a position
+            at leverage L is underwater once the price has moved 1/L against it; no price move
+            ends it. At 1x a long can never cost the pool anything and does
             nothing a spot buy does not, so the ceiling is above it. It is 1.5x, not higher,
             because of one attack: the largest long the cap admits could dump alpha it holds
             outside into its own lifted price and walk away from the debt, and that pays once
@@ -441,7 +461,8 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
           </p>
           <p>
             <strong>No expiry, no liquidation.</strong> A position has no term. It lives until
-            you close it or its cushion runs out. Nothing forces a mark to market on a date, so
+            you close it, until a weekly collection finds a cushion that cannot pay, or until
+            the subnet is dissolved. Nothing forces a mark to market on a date, so
             nothing has to be rolled and no add is ever refused for being late. And nobody else
             can close it: a position that anyone could close once the price moved against it
             would invite a squeeze — pump the price, close the shorts, sell into the buybacks the
@@ -451,7 +472,7 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
             cushion that runs dry ends the position. That is the design: the pool lends out at most{' '}
             <code>pool_share</code> of itself, at <code>short_interest_rate</code> on shorts and{' '}
             <code>long_interest_rate</code> on longs. Root picks those three numbers, and that is
-            all.
+            all. Until longs are enabled the long rate is inert: no slice can be booked at it.
           </p>
           <p>
             <strong>One flat rate per side, collected weekly as buy pressure.</strong> Each add
@@ -475,20 +496,23 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
           <p>
             <strong>Runway and forfeit.</strong> <code>btcli deriv list</code> shows how many
             days your cushion keeps paying at the current rate: about a year and eleven months
-            for a 1x short, two years and seven months for a 1.5x long. When a collection finds a cushion that
+            for a 1x short, two years and seven months for a 1.5x long. Forfeiture has one
+            trigger, and it is not the price: when a weekly collection finds a cushion that
             cannot cover the interest due, the position is starved and forfeited: every TAO and
             every alpha the pallet holds for it goes back to the pool in kind, with no swap. The
             pool gets its slice back plus the cushion; you get nothing; no price moves. A
             collection leaves a position on a dissolving subnet alone; the settlement takes the
             interest instead. To extend the runway, add cushion. A
-            position that is underwater on price can still be held: the pool is not out of
-            pocket while it holds your cushion and the slice, and if the price comes back so
-            does your equity. The interest is what the pool charges for its liquidity, not an
+            position that is underwater on price can still be held, indefinitely, while the
+            cushion pays its weeks: the pool is not out of pocket while it holds your cushion
+            and the slice, and if the price comes back so does your equity. If it does not, a
+            close returns nothing and the pool keeps the pot; that is the whole cost. The
+            interest is what the pool charges for its liquidity, not an
             option premium; what protects the pool from a position that turns dangerous is the
             share cap and the ceilings. Profit comes out of the pool; loss goes into it.
           </p>
           <p>
-            <strong>Longs do not earn emission.</strong> Emission is weighted by each
+            <strong>Longs do not earn emission (not enabled at launch).</strong> Emission is weighted by each
             subnet&apos;s moving price, and a long lifts the spot price for as long as it is
             open. So the price the emission EMA tracks is computed with every open long&apos;s
             alpha counted back into the pool: a long leaves the pool&apos;s TAO where it was and
@@ -541,8 +565,9 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
               nothing was traded and everything went to the pool as it was),{' '}
               <code>Starved</code> (its cushion could not pay a weekly interest collection), or{' '}
               <code>Dissolution</code> (the subnet was removed). A price move against you never
-              ends the position on its own; the pool carries that exposure until you close or the
-              cushion runs dry.
+              ends the position on its own, however far it goes; the pool carries that exposure
+              until you close, a weekly collection finds the cushion cannot pay, or the subnet
+              is dissolved.
             </p>
           </div>
 
@@ -559,9 +584,10 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
           </div>
 
           <div className={styles.step}>
-            <p className={styles.step_title}>Closing a long</p>
+            <p className={styles.step_title}>Closing a long (not enabled at launch)</p>
             <p>
-              The mirror. The pool is asked what the held alpha would sell for; if your cushion
+              The mirror, for a long opened once longs are enabled. The pool is asked what the
+              held alpha would sell for; if your cushion
               plus that is less than the TAO owed plus the interest, the position is underwater,
               nothing is traded, the cushion and the alpha go to the pool as they are and you
               are paid nothing. Otherwise the alpha is sold, the pot repays the TAO owed,
@@ -574,7 +600,9 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
             <p>
               Add on the other side. Less than you hold settles that fraction and pays it out;
               nothing is deposited. Your whole position or more closes all of it, and any deposit
-              past the flip point of at least 0.1 τ opens the other side.
+              past the flip point of at least 0.1 τ opens the other side. While longs are off, a
+              long-side add that would open that other side on a short is refused whole with{' '}
+              <code>LongsDisabled</code>; one that stops at or before zero goes through.
             </p>
           </div>
 
@@ -583,9 +611,10 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
             <p>
               Three root-set numbers: <code>pool_share</code> (25%), the most one side of one
               subnet may borrow; <code>short_interest_rate</code> (52% a year) and{' '}
-              <code>long_interest_rate</code> (26% a year), each charged on a slice&apos;s TAO
-              exposure and fixed when the slice is added. A 100 τ short at 1x owes about 1.0 τ a
-              week; a 100 τ long at 1.5x about 0.75 τ. What you owe grows every block. The chain collects it every 50,400 blocks,
+              <code>long_interest_rate</code> (26% a year, inert until longs are enabled), each
+              charged on a slice&apos;s TAO exposure and fixed when the slice is added. A 100 τ
+              short at 1x owes about 1.0 τ a week; a 100 τ long at 1.5x about 0.75 τ. What you
+              owe grows every block. The chain collects it every 50,400 blocks,
               about 7 days, at the start of a block, up to twenty positions per block, and books
               the next collection a week later. Adding on your own side does not reset that
               clock. The collected TAO buys alpha from the pool and the alpha is recycled, so the
@@ -610,7 +639,7 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
           <p>
             <code>pallet-derivatives</code> is added at index 33 with two user calls —{' '}
             <code>add</code>, which takes a <code>side</code> of short or long, a TAO deposit
-            and a <code>leverage_percent</code>, and <code>close</code> — plus two root-only
+            and a <code>leverage_percent</code>, and <code>close</code> — plus three root-only
             calls. <code>sudo_set_params</code> sets the three parameters:{' '}
             <code>pool_share</code> (25%), <code>short_interest_rate</code> (52%), and{' '}
             <code>long_interest_rate</code> (26%). All three are dials root can turn later; a
@@ -619,7 +648,13 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
             <code>sudo_set_derivatives_enabled</code> flips the network-wide switch{' '}
             <code>DerivativesEnabled</code>, off at launch, and emits{' '}
             <code>DerivativesToggled</code>; while it is off <code>add</code> fails with{' '}
-            <code>DerivativesDisabled</code> and nothing else changes. Three limits
+            <code>DerivativesDisabled</code> and nothing else changes.{' '}
+            <code>sudo_set_longs_enabled</code> flips the long-side switch{' '}
+            <code>LongsEnabled</code>, also off at launch, and emits <code>LongsToggled</code>;
+            while it is off an <code>add</code> that would leave a long open (a long opened,
+            grown, or flipped into from a short) fails with <code>LongsDisabled</code>, checked
+            after the network-wide switch and before the leverage, and every other add, every
+            close, and the chain&apos;s own work on open positions go on unchanged. Three limits
             are runtime constants:{' '}
             <code>MaxShortLeverage</code> 100, <code>MaxLongLeverage</code> 150,{' '}
             <code>MinDeposit</code> 0.1 τ. A position is one record per coldkey and subnet,
@@ -631,7 +666,7 @@ btcli deriv long  --netuid 7 --amount 300 --leverage 1.5 -w my_coldkey # flip to
             stall, and forfeits any whose cushion cannot pay. Its <code>on_idle</code> re-adds
             liquidity parked in <code>Parked</code> once a subnet&apos;s spot price is back
             within 5% of its moving price. Existing positions can always be closed by their
-            owner, whatever the share is set to and whether or not the switch is on.
+            owner, whatever the share is set to and whichever way either switch is set.
           </p>
           <p>
             The subtensor pallet gains a small pool interface for the derivatives pallet:
