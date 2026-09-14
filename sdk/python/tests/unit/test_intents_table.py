@@ -655,6 +655,207 @@ class TestExecuteFlow:
         assert "nested call failed" in result.message
 
     @pytest.mark.asyncio
+    async def test_set_weights_transparently_uses_validate_proxies(
+        self, substrate: FakeSubstrate, wallet, monkeypatch, caplog
+    ):
+        from bittensor.intents.weights import SetWeights
+        from bittensor.keyfiles import Keypair
+
+        encrypted_for = []
+
+        def encrypt(**kwargs):
+            encrypted_for.append(kwargs["hotkey"])
+            return b"encrypted", 123
+
+        monkeypatch.setattr("bittensor.intents.weights._core.get_encrypted_commit_v2", encrypt)
+
+        caplog.set_level("INFO", logger="bittensor.executor")
+        monkeypatch.setenv("WEIGHT_TARGETS", f"{BOB_HOT}, {wallet.hotkey.ss58_address}, {BOB}")
+        client = Client("local", substrate=substrate)
+        substrate.seed("SubtensorModule", "Uids", [1, wallet.hotkey.ss58_address], 0)
+        substrate.seed("SubtensorModule", "Uids", [1, BOB_HOT], 0)
+        substrate.seed("SubtensorModule", "Uids", [1, BOB], 1)
+        substrate.seed_default("SubtensorModule", "CommitRevealWeightsEnabled", True)
+        result = await client.execute(SetWeights(netuid=1, uids=[0], weights=[1.0]), wallet)
+
+        assert result.success
+        assert len(substrate.submissions) == 1
+        assert encrypted_for == [
+            bytes(Keypair(ss58_address=BOB_HOT).public_key),
+            bytes(wallet.hotkey.public_key),
+            bytes(Keypair(ss58_address=BOB).public_key),
+        ]
+        call, signer, _ = substrate.submissions[-1]
+        assert signer == wallet.hotkey.ss58_address
+        assert (call.module, call.function) == ("Utility", "force_batch")
+        first, direct, last = call.params["calls"]
+        assert direct.function == "commit_timelocked_mechanism_weights"
+        proxied = [first, last]
+        assert [child.params["real"] for child in proxied] == [BOB_HOT, BOB]
+        assert all(child.params["force_proxy_type"] == "Validate" for child in proxied)
+        assert all(
+            child.params["call"].function == "commit_timelocked_mechanism_weights"
+            for child in proxied
+        )
+        messages = [record.getMessage() for record in caplog.records]
+        assert any(f"target=1/3 hotkey={BOB_HOT} route=Validate proxy" in msg for msg in messages)
+        assert any(
+            f"target=2/3 hotkey={wallet.hotkey.ss58_address} route=direct" in msg
+            for msg in messages
+        )
+        assert any(f"target=3/3 hotkey={BOB} route=Validate proxy" in msg for msg in messages)
+        assert any("submitted=3 failed=0" in msg for msg in messages)
+
+    def test_client_merges_constructor_and_environment_weight_targets(
+        self, substrate: FakeSubstrate, wallet, monkeypatch
+    ):
+        monkeypatch.setenv("WEIGHT_TARGETS", f"{BOB_HOT},{BOB}")
+
+        client = Client(
+            "local",
+            substrate=substrate,
+            weight_targets=[wallet.hotkey.ss58_address, BOB_HOT],
+        )
+
+        assert client._executor.weight_targets == [
+            wallet.hotkey.ss58_address,
+            BOB_HOT,
+            BOB,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_set_weights_empty_target_list_is_noop(
+        self, substrate: FakeSubstrate, wallet, monkeypatch
+    ):
+        from bittensor.intents.weights import SetWeights
+
+        monkeypatch.setenv("WEIGHT_TARGETS", "")
+        client = Client("local", substrate=substrate)
+        result = await client.execute(SetWeights(netuid=1, uids=[0], weights=[1.0]), wallet)
+
+        assert result.success
+        assert result.message == "No weight targets configured; nothing submitted."
+        assert result.data["weight_targets"] == []
+        assert result.data["weight_results"] == []
+        assert substrate.submissions == []
+
+    @pytest.mark.asyncio
+    async def test_set_weights_force_batch_reports_failure_and_continues(
+        self, substrate: FakeSubstrate, wallet
+    ):
+        from dataclasses import replace
+
+        from bittensor.intents.weights import SetWeights
+        from tests.harness.fake_substrate import success_result
+
+        targets = [BOB_HOT, wallet.hotkey.ss58_address, BOB]
+        client = Client("local", substrate=substrate, weight_targets=targets)
+        substrate.queue_result(
+            replace(
+                success_result(),
+                success=False,
+                message="NotProxy",
+                events=[
+                    {
+                        "event": {
+                            "module_id": "Utility",
+                            "event_id": "ItemFailed",
+                            "attributes": {"error": "NotProxy"},
+                        }
+                    },
+                    {
+                        "event": {
+                            "module_id": "Utility",
+                            "event_id": "ItemCompleted",
+                            "attributes": {},
+                        }
+                    },
+                    {
+                        "event": {
+                            "module_id": "Proxy",
+                            "event_id": "ProxyExecuted",
+                            "attributes": {"result": {"Ok": None}},
+                        }
+                    },
+                    {
+                        "event": {
+                            "module_id": "Utility",
+                            "event_id": "ItemCompleted",
+                            "attributes": {},
+                        }
+                    },
+                    {
+                        "event": {
+                            "module_id": "Utility",
+                            "event_id": "BatchCompletedWithErrors",
+                            "attributes": {},
+                        }
+                    },
+                ],
+            )
+        )
+
+        result = await client.execute(SetWeights(netuid=1, uids=[0], weights=[1.0]), wallet)
+
+        assert result.success
+        assert result.message == "Weight submission completed with 1 target failure(s)."
+        assert result.data["weight_results"] == [
+            {"target": BOB_HOT, "success": False, "error": "NotProxy"},
+            {"target": wallet.hotkey.ss58_address, "success": True},
+            {"target": BOB, "success": True},
+        ]
+        assert len(substrate.submissions) == 1
+
+    @pytest.mark.asyncio
+    async def test_set_weights_preflight_failure_does_not_block_other_targets(
+        self, substrate: FakeSubstrate, wallet, caplog
+    ):
+        from dataclasses import replace
+
+        from bittensor.intents.weights import SetWeights
+        from tests.harness.fake_substrate import success_result
+
+        targets = [BOB_HOT, wallet.hotkey.ss58_address]
+        caplog.set_level("WARNING", logger="bittensor.executor")
+        client = Client("local", substrate=substrate, weight_targets=targets)
+        substrate.seed("SubtensorModule", "Uids", [1, BOB_HOT], None)
+        substrate.seed("SubtensorModule", "Uids", [1, wallet.hotkey.ss58_address], 0)
+        substrate.queue_result(
+            replace(
+                success_result(),
+                events=[
+                    {
+                        "event": {
+                            "module_id": "Utility",
+                            "event_id": "ItemCompleted",
+                            "attributes": {},
+                        }
+                    },
+                    {
+                        "event": {
+                            "module_id": "Utility",
+                            "event_id": "BatchCompleted",
+                            "attributes": {},
+                        }
+                    },
+                ],
+            )
+        )
+
+        result = await client.execute(SetWeights(netuid=1, uids=[0], weights=[1.0]), wallet)
+
+        assert result.success
+        assert [item["success"] for item in result.data["weight_results"]] == [False, True]
+        assert "not registered" in result.data["weight_results"][0]["error"]
+        assert any(
+            f"hotkey={BOB_HOT}" in record.getMessage() and "not registered" in record.getMessage()
+            for record in caplog.records
+        )
+        call, _, _ = substrate.submissions[-1]
+        assert (call.module, call.function) == ("Utility", "force_batch")
+        assert len(call.params["calls"]) == 1
+
+    @pytest.mark.asyncio
     async def test_transient_pool_rejection_is_retried(
         self, client: Client, substrate: FakeSubstrate, wallet
     ):

@@ -748,6 +748,25 @@ fn force_batch_works() {
 }
 
 #[test]
+fn force_batch_handles_successful_weight_refund() {
+    new_test_ext().execute_with(|| {
+        let declared = Weight::from_parts(100, 0);
+        let actual = Weight::from_parts(75, 0);
+        let batch_len = 4;
+        let calls = vec![call_foobar(false, declared, Some(actual)); batch_len];
+        let call = RuntimeCall::Utility(UtilityCall::force_batch { calls });
+        let info = call.get_dispatch_info();
+        let result = call.dispatch(RuntimeOrigin::signed(1));
+
+        assert_ok!(result);
+        assert_eq!(
+            extract_actual_weight(&result, &info),
+            info.call_weight - (declared - actual) * batch_len as u64
+        );
+    });
+}
+
+#[test]
 fn none_origin_does_not_work() {
     new_test_ext().execute_with(|| {
         assert_noop!(

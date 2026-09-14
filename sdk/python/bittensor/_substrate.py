@@ -788,6 +788,8 @@ class RpcSubstrate:
             block_hash=report.block_hash,
             extrinsic_id=extrinsic_id,
             explorer_url=explorer,
+            fee=Balance.from_rao(report.total_fee_amount or 0),
+            events=list(report.triggered_events),
             error=ChainError(text, name),
         )
 
