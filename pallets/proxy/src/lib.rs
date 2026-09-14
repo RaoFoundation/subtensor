@@ -863,7 +863,12 @@ pub mod pallet {
     /// transaction fees for proxy calls made by the delegate.
     /// Existence of an entry means the real account pays; absence means the delegate pays
     /// (default).
+    ///
+    /// The versioned prefix deliberately requires renewed consent after the authorization fix.
+    /// Legacy `RealPaysFee` entries cannot distinguish owner consent from restricted-proxy
+    /// grants, so copying them would preserve unauthorized spending permissions.
     #[pallet::storage]
+    #[pallet::storage_prefix = "RealPaysFeeConsentV1"]
     pub type RealPaysFee<T: Config> = StorageDoubleMap<
         _,
         Twox64Concat,
@@ -1145,6 +1150,14 @@ impl<T: Config> Pallet<T> {
                 // Proxy call cannot remove all proxies or kill pure proxies unless it has full
                 // permissions.
                 Some(Call::remove_proxies { .. }) | Some(Call::kill_pure { .. })
+                    if def.proxy_type != T::ProxyType::default() =>
+                {
+                    false
+                }
+                // Paying future fees is a spending permission, not proxy administration.
+                // A restricted delegate may relinquish sponsorship but cannot grant it,
+                // including through announced calls or nested proxy/utility dispatch.
+                Some(Call::set_real_pays_fee { pays_fee: true, .. })
                     if def.proxy_type != T::ProxyType::default() =>
                 {
                     false

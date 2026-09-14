@@ -206,7 +206,7 @@ impl ConvictionModel {
     }
 
     pub fn roll_forward(&mut self, now: u64, unlock_rate: u64, maturity_rate: u64) {
-        let (rolled_individual_lock, roll_delta) = Self::roll_forward_lock(
+        let mut rolled_individual_lock = Self::roll_forward_lock_without_dust_cleanup(
             self.individual_lock.clone(),
             now,
             unlock_rate,
@@ -214,13 +214,22 @@ impl ConvictionModel {
             self.owner_lock,
             self.perpetual_lock,
         );
+        // Each state advances from its own timestamp. The aggregate may already
+        // include part of this individual's growth, and also contains other
+        // individuals whose clocks must not be advanced by this member's delta.
+        self.roll_forward_aggregate(now, unlock_rate, maturity_rate);
+        if rolled_individual_lock.is_zero() {
+            // Dust removal is an actual reduction, unlike time progression.
+            // Remove only the residual at `now`, never the stale member's mass.
+            self.reduce_aggregate(
+                rolled_individual_lock.locked_mass,
+                rolled_individual_lock.conviction,
+            );
+            rolled_individual_lock.locked_mass = AlphaBalance::ZERO;
+            rolled_individual_lock.conviction = U64F64::saturating_from_num(0);
+        }
         self.individual_lock = rolled_individual_lock;
         self.individual_lock_dirty = true;
-        if !roll_delta.is_zero() {
-            self.apply_roll_delta_to_aggregate(roll_delta, now);
-        } else {
-            self.roll_forward_aggregate(now, unlock_rate, maturity_rate);
-        }
     }
 
     pub fn roll_forward_aggregate(&mut self, now: u64, unlock_rate: u64, maturity_rate: u64) {
@@ -248,25 +257,6 @@ impl ConvictionModel {
     pub fn reduce_aggregate(&mut self, locked_mass: AlphaBalance, conviction: U64F64) {
         let (aggregate, aggregate_dirty) = self.aggregate_mut();
         *aggregate = Self::reduce_lock(aggregate, locked_mass, conviction);
-        *aggregate_dirty = true;
-    }
-
-    fn apply_roll_delta_to_aggregate(&mut self, roll_delta: RollDelta, now: u64) {
-        let (aggregate, aggregate_dirty) = self.aggregate_mut();
-        *aggregate = Self::reduce_lock(
-            aggregate,
-            roll_delta.locked_mass_delta,
-            roll_delta.conviction_decay,
-        );
-        // Conviction matured by the individual lock must be credited to the
-        // aggregate here: bumping last_update below means the aggregate's own
-        // roll-forward will never cover this window, so dropping the growth
-        // (as a saturating decrease-only delta used to) permanently
-        // understates aggregate conviction.
-        aggregate.conviction = aggregate
-            .conviction
-            .saturating_add(roll_delta.conviction_growth);
-        aggregate.last_update = now;
         *aggregate_dirty = true;
     }
 
@@ -433,6 +423,37 @@ impl ConvictionModel {
     ) -> (LockState, RollDelta) {
         let previous_locked_mass = lock.locked_mass;
         let previous_conviction = lock.conviction;
+        let mut rolled = Self::roll_forward_lock_without_dust_cleanup(
+            lock,
+            now,
+            unlock_rate,
+            maturity_rate,
+            owner_lock,
+            perpetual_lock,
+        );
+
+        if rolled.is_zero() {
+            rolled.locked_mass = AlphaBalance::ZERO;
+            rolled.conviction = U64F64::saturating_from_num(0);
+        }
+
+        let roll_delta = RollDelta {
+            locked_mass_delta: previous_locked_mass.saturating_sub(rolled.locked_mass),
+            conviction_decay: previous_conviction.saturating_sub(rolled.conviction),
+            conviction_growth: rolled.conviction.saturating_sub(previous_conviction),
+        };
+
+        (rolled, roll_delta)
+    }
+
+    fn roll_forward_lock_without_dust_cleanup(
+        lock: LockState,
+        now: u64,
+        unlock_rate: u64,
+        maturity_rate: u64,
+        owner_lock: bool,
+        perpetual_lock: bool,
+    ) -> LockState {
         let mut rolled = if now > lock.last_update {
             let dt = now.saturating_sub(lock.last_update);
             let (new_locked_mass, new_conviction) = Self::calculate_decayed_mass_and_conviction(
@@ -457,18 +478,7 @@ impl ConvictionModel {
             rolled.conviction = U64F64::saturating_from_num(u64::from(rolled.locked_mass));
         }
 
-        if rolled.is_zero() {
-            rolled.locked_mass = AlphaBalance::ZERO;
-            rolled.conviction = U64F64::saturating_from_num(0);
-        }
-
-        let roll_delta = RollDelta {
-            locked_mass_delta: previous_locked_mass.saturating_sub(rolled.locked_mass),
-            conviction_decay: previous_conviction.saturating_sub(rolled.conviction),
-            conviction_growth: rolled.conviction.saturating_sub(previous_conviction),
-        };
-
-        (rolled, roll_delta)
+        rolled
     }
 }
 

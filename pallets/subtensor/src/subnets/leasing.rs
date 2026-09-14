@@ -292,6 +292,15 @@ impl<T: Config> Pallet<T> {
                     .ceil()
                     .saturating_to_num::<u64>();
 
+                // The transfer helper silently skips an unfunded debit.
+                ensure!(
+                    Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+                        &lease.hotkey,
+                        &lease.coldkey,
+                        lease.netuid,
+                    ) >= alpha_for_contributor.into(),
+                    Error::<T>::NotEnoughStakeToWithdraw
+                );
                 Self::transfer_stake_within_subnet(
                     &lease.coldkey,
                     &lease.hotkey,
@@ -312,6 +321,14 @@ impl<T: Config> Pallet<T> {
             // Distribute the leftover alpha to the beneficiary
             let beneficiary_cut_alpha =
                 total_contributors_cut_alpha.saturating_sub(alpha_distributed);
+            ensure!(
+                Self::get_stake_for_hotkey_and_coldkey_on_subnet(
+                    &lease.hotkey,
+                    &lease.coldkey,
+                    lease.netuid,
+                ) >= beneficiary_cut_alpha,
+                Error::<T>::NotEnoughStakeToWithdraw
+            );
             Self::transfer_stake_within_subnet(
                 &lease.coldkey,
                 &lease.hotkey,

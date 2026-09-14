@@ -499,6 +499,8 @@ mod pallet_benchmarks {
             seed_miner_collateral_position::<T>(netuid, &extra_hot, &old_coldkey, locked);
         }
 
+        helpers::seed_coldkey_swap_leases::<T>(netuid, &old_coldkey, &new_coldkey);
+
         #[extrinsic_call]
         _(RawOrigin::Signed(old_coldkey), new_coldkey);
     }
@@ -550,6 +552,8 @@ mod pallet_benchmarks {
             Owner::<T>::insert(&extra_hot, &old_coldkey);
             seed_miner_collateral_position::<T>(netuid, &extra_hot, &old_coldkey, locked);
         }
+
+        helpers::seed_coldkey_swap_leases::<T>(netuid, &old_coldkey, &new_coldkey);
 
         #[extrinsic_call]
         _(

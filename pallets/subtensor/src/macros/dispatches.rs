@@ -2063,7 +2063,8 @@ mod dispatches {
         #[pallet::call_index(147)]
         // Declared weight is a cap sized for a 128-slot weight vector over 256 holdings
         // (each slot costs a balance transfer + swap + escrow write; each holding two NAV
-        // sim-swap valuations); the actual weight is computed in `do_stake_into_basket`
+        // sim-swap valuations plus a quantity-coverage lookup); the actual weight is computed
+        // in `do_stake_into_basket`
         // from the real slot and holding counts and refunded post-dispatch, mirroring
         // `claim_root`.
         #[pallet::weight((Pallet::<T>::stake_into_basket_weight(128, 256), DispatchClass::Normal, Pays::Yes))]
