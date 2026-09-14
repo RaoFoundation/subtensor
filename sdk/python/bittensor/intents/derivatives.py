@@ -69,6 +69,10 @@ class AddPosition(Intent):
 
     Refused with `DerivativesDisabled` while the network-wide switch is off
     (`enabled` in `btcli deriv params`); `ClosePosition` still works then.
+    Refused with `LongsDisabled` while the long side is off (`longs_enabled`,
+    off at launch) if the result would be a long: `Long` opens, grows, or
+    flips into one. A `Long` add that only reduces or closes a short goes
+    through, and so does every `Short` add.
     """
 
     op = "add_derivative"

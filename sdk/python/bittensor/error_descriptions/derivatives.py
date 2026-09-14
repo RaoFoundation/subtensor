@@ -42,4 +42,12 @@ DESCRIPTIONS: dict[str, str] = {
         "Existing positions can still be closed with `deriv close`, and the chain keeps "
         "collecting their interest."
     ),
+    "LongsDisabled": (
+        "Longs are switched off (`Derivatives.LongsEnabled` is false, shown as `longs_enabled` "
+        "in `deriv params`): shorts are the launch product, and longs wait on a decision about "
+        "their collateral and leverage. No add may open a long, grow one, or flip a short "
+        "through zero into one. Shorts work as usual with `deriv short`; a `deriv long` that "
+        "only reduces or closes a short goes through; an open long can still be closed with "
+        "`deriv close`. Governance turns longs on with `Derivatives.sudo_set_longs_enabled`."
+    ),
 }

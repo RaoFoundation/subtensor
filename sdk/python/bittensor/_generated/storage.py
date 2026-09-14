@@ -459,6 +459,7 @@ class LimitOrders:
 class Derivatives:
     Params = Item('Derivatives', 'Params', 'DerivativesParams')
     DerivativesEnabled = Item('Derivatives', 'DerivativesEnabled', 'bool')
+    LongsEnabled = Item('Derivatives', 'LongsEnabled', 'bool')
     Positions = Item('Derivatives', 'Positions', 'Position')
     OpenByNetuid = Item('Derivatives', 'OpenByNetuid', '()')
     Due = Item('Derivatives', 'Due', '()')

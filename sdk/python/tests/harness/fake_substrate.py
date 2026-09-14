@@ -58,6 +58,7 @@ DEFAULT_STORAGE: dict[tuple[str, str], Any] = {
     ("Timestamp", "Now"): 1_700_000_000_000,
     # Launch state: the switch is off until governance flips it.
     ("Derivatives", "DerivativesEnabled"): False,
+    ("Derivatives", "LongsEnabled"): False,
     # `DerivativesParams::defaults()`: percent points, as the chain stores them.
     ("Derivatives", "Params"): {
         "pool_share": 25,

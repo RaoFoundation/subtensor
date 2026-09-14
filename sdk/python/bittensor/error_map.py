@@ -467,6 +467,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PalletHotkeyUnset": _C.TOO_EARLY,
     "ZeroInterestRate": _C.INVALID_ARGUMENT,
     "DerivativesDisabled": _C.DISABLED,
+    "LongsDisabled": _C.DISABLED,
 }
 
 # ── Pool-rejection custom codes ──────────────────────────────────────────

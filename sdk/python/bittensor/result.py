@@ -306,6 +306,11 @@ _SUBSTRING_FALLBACK: tuple[tuple[str, ErrorCode], ...] = (
 # Remediation overrides keyed by the exact chain error name; more specific
 # than the per-code defaults above.
 _NAME_HELP_OVERRIDES: dict[str, str] = {
+    "LongsDisabled": (
+        "longs are not enabled at launch (`longs_enabled` in `btcli deriv params` "
+        "is false); open or add to a short with `btcli deriv short` instead, or "
+        "close an open position with `btcli deriv close`"
+    ),
     "SlippageTooHigh": (
         "the price moved past the slippage-protection limit (stake trades are "
         "protected by default with a 5% tolerance); retry, raise the tolerance "

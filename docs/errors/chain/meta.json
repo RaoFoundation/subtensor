@@ -187,6 +187,7 @@
     "LiquidityRestrictions",
     "LockHotkeyMismatch",
     "LockIdOverFlow",
+    "LongsDisabled",
     "MaxAllowedUIdsLessThanCurrentUIds",
     "MaxAllowedUidsGreaterThanDefaultMaxAllowedUids",
     "MaxAllowedUidsLessThanMinAllowedUids",

@@ -16,10 +16,14 @@ and opens the rest on the new side, taking only that rest's cushion.
 
 Refused with `DerivativesDisabled` while the network-wide switch is off
 (`enabled` in `btcli deriv params`); `ClosePosition` still works then.
+Refused with `LongsDisabled` while the long side is off (`longs_enabled`,
+off at launch) if the result would be a long: `Long` opens, grows, or
+flips into one. A `Long` add that only reduces or closes a short goes
+through, and so does every `Short` add.
 
 | Signer | Origin | Pallet | Wraps |
 | --- | --- | --- | --- |
-| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L364-L375) |
+| `coldkey` | signed account (pallet role may apply) | Derivatives | [`Derivatives.add`](/code/pallets/derivatives/src/lib.rs#L387-L398) |
 
 ## Parameters
 
@@ -75,7 +79,7 @@ result = sub.execute_tool("add_derivative", {...}, wallet)
 
 ## On-chain implementation
 
-`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L366`](/code/pallets/derivatives/src/lib.rs#L364-L375):
+`Derivatives.add` — [`pallets/derivatives/src/lib.rs#L389`](/code/pallets/derivatives/src/lib.rs#L387-L398):
 
 ```rust
 #[pallet::call_index(0)]
@@ -92,6 +96,6 @@ pub fn add(
 }
 ```
 
-Delegates to [`do_add`](/code/pallets/derivatives/src/settle.rs#L64).
+Delegates to [`do_add`](/code/pallets/derivatives/src/settle.rs#L67).
 
 Every file is browsable under [/code](/code) exactly as built into the runtime, or as plain text under `/code/raw/<path>` (index: [`/code/index.json`](/code/index.json)).

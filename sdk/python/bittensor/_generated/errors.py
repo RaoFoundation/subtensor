@@ -412,4 +412,5 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (33, 6): ErrorInfo('Derivatives', 'PalletHotkeyUnset', 'The pallet has not claimed its hotkey yet; no position can be opened.'),
     (33, 7): ErrorInfo('Derivatives', 'ZeroInterestRate', '`sudo_set_params` was given a `short_interest_rate` or `long_interest_rate` of zero. Both must be above zero; a `pool_share` of zero is the pause instead.'),
     (33, 8): ErrorInfo('Derivatives', 'DerivativesDisabled', 'Derivatives are switched off network-wide ([`DerivativesEnabled`] is `false`), so nothing can be added. Open positions can still be closed by their owners.'),
+    (33, 9): ErrorInfo('Derivatives', 'LongsDisabled', 'Longs are switched off ([`LongsEnabled`] is `false`), so no `add` may open, grow, or flip into a long. Shorts can still be added, reduced, and closed; an open long can still be closed by its owner.'),
 }

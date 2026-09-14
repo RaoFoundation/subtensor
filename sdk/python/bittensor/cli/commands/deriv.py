@@ -112,6 +112,10 @@ def add_long(
     `--leverage` the multiple of it, up to 1.5x. With no position, or a long,
     `--amount` is deposited as cushion. Against a short it takes that much off
     at the current price instead, and flips to a long if there is more.
+
+    Not enabled at launch: while `longs_enabled` in `deriv params` is off,
+    this fails with `LongsDisabled` whenever it would leave a long open.
+    Reducing or closing a short with it still works.
     """
     _submit_add(ctx_of(ctx), "Long", netuid, amount, leverage)
 
@@ -206,12 +210,14 @@ def list_positions(
 @app.command("params")
 @with_globals
 def show_params(ctx: typer.Context):
-    """Show the switch, the three parameters, and the fixed limits.
+    """Show the two switches, the three parameters, and the fixed limits.
 
     `enabled` is the network-wide switch: off until governance turns it on.
     While it is off, `short` and `long` fail with `DerivativesDisabled`;
-    `close` still works. The three parameters are the pool share and the
-    short and long interest rate.
+    `close` still works. `longs_enabled` is the long-side switch, also off
+    at launch: while it is off, `long` fails with `LongsDisabled` whenever it
+    would leave a long open; `short` and `close` are unaffected. The three
+    parameters are the pool share and the short and long interest rate.
     """
     app_ctx: AppContext = ctx_of(ctx)
     params = app_ctx.run(lambda client: client.read("derivatives_params"))

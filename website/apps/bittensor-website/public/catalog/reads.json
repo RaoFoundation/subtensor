@@ -771,8 +771,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 136,
-        "url": "/code/pallets/derivatives/src/lib.rs#L136",
+        "line": 149,
+        "url": "/code/pallets/derivatives/src/lib.rs#L149",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -797,8 +797,8 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 136,
-        "url": "/code/pallets/derivatives/src/lib.rs#L136",
+        "line": 149,
+        "url": "/code/pallets/derivatives/src/lib.rs#L149",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -823,8 +823,8 @@
         "container": "Derivatives",
         "name": "OpenByNetuid",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 148,
-        "url": "/code/pallets/derivatives/src/lib.rs#L148",
+        "line": 161,
+        "url": "/code/pallets/derivatives/src/lib.rs#L161",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       },
       {
@@ -832,16 +832,16 @@
         "container": "Derivatives",
         "name": "Positions",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 136,
-        "url": "/code/pallets/derivatives/src/lib.rs#L136",
+        "line": 149,
+        "url": "/code/pallets/derivatives/src/lib.rs#L149",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
   },
   {
     "name": "derivatives_params",
-    "summary": "The derivatives pallet's switch and three root-set parameters, plus its constants.",
-    "description": "The derivatives pallet's switch and three root-set parameters, plus its constants.\n\n`enabled` is the network-wide switch, off at launch until governance turns\nit on with `Derivatives.sudo_set_derivatives_enabled`. While it is off\nevery add (open, grow, reduce, flip) fails with `DerivativesDisabled`;\nclosing a position, the weekly interest collection, and dissolution\nsettlement keep working, so nobody is ever locked into a position.\n\n`pool_share` is the largest share of a pool's reserve that all open\npositions of one side may borrow together; zero means root has paused new\npositions. `short_interest_rate` and `long_interest_rate` are the interest\na short or a long tranche pays, as a fraction of its TAO exposure per year,\nflat, fixed when the tranche is added and accrued per block; once a week,\non the position's own block, the chain takes it from the cushion, buys\nalpha with it, and recycles the alpha. Shorts pay more than longs: the pool\ncarries open-ended exposure to a short that is never closed, while a long\nis the buy pressure the design wants. All three are fractions (`0.52` =\n52%).\n\nThe rest are fixed by the runtime: `max_short_leverage` and\n`max_long_leverage` bound the leverage an owner may choose per side (`1.0`\n= 1x), and `min_deposit_tao` is the smallest deposit one add may put up.",
+    "summary": "The derivatives pallet's two switches and three root-set parameters, plus its constants.",
+    "description": "The derivatives pallet's two switches and three root-set parameters, plus its constants.\n\n`enabled` is the network-wide switch, off at launch until governance turns\nit on with `Derivatives.sudo_set_derivatives_enabled`. While it is off\nevery add (open, grow, reduce, flip) fails with `DerivativesDisabled`;\nclosing a position, the weekly interest collection, and dissolution\nsettlement keep working, so nobody is ever locked into a position.\n\n`longs_enabled` is the long-side switch, also off at launch: shorts are\nthe launch product, and longs wait on a decision about their collateral\nand leverage. Governance turns it on with\n`Derivatives.sudo_set_longs_enabled`. While it is off any add that would\nleave a long open (opening one, growing one, or flipping a short through\nzero into one) fails with `LongsDisabled`; shorts, reducing or closing a\nshort with a long-side add, and closing an already open long all work.\n\n`pool_share` is the largest share of a pool's reserve that all open\npositions of one side may borrow together; zero means root has paused new\npositions. `short_interest_rate` and `long_interest_rate` are the interest\na short or a long tranche pays, as a fraction of its TAO exposure per year,\nflat, fixed when the tranche is added and accrued per block; once a week,\non the position's own block, the chain takes it from the cushion, buys\nalpha with it, and recycles the alpha. Shorts pay more than longs: the pool\ncarries open-ended exposure to a short that is never closed, while a long\nis the buy pressure the design wants. All three are fractions (`0.52` =\n52%). `long_interest_rate` is inert until `longs_enabled` is true: no\ntranche can be booked at it before then.\n\nThe rest are fixed by the runtime: `max_short_leverage` and\n`max_long_leverage` bound the leverage an owner may choose per side (`1.0`\n= 1x), and `min_deposit_tao` is the smallest deposit one add may put up.",
     "params": {},
     "param_docs": {},
     "category": "Prices & swaps",
@@ -854,8 +854,8 @@
         "container": "Derivatives",
         "name": "Params",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 123,
-        "url": "/code/pallets/derivatives/src/lib.rs#L123",
+        "line": 125,
+        "url": "/code/pallets/derivatives/src/lib.rs#L125",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       },
       {
@@ -863,8 +863,17 @@
         "container": "Derivatives",
         "name": "DerivativesEnabled",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 132,
-        "url": "/code/pallets/derivatives/src/lib.rs#L132",
+        "line": 134,
+        "url": "/code/pallets/derivatives/src/lib.rs#L134",
+        "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
+      },
+      {
+        "kind": "storage",
+        "container": "Derivatives",
+        "name": "LongsEnabled",
+        "path": "pallets/derivatives/src/lib.rs",
+        "line": 145,
+        "url": "/code/pallets/derivatives/src/lib.rs#L145",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       },
       {

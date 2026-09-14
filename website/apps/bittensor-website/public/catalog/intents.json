@@ -72,7 +72,7 @@
   {
     "name": "add_derivative",
     "summary": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.",
-    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, and flip. With no position, or one on the\nsame side, `amount` TAO is taken from the coldkey as cushion, the pool\nlends the matching slice (alpha sold for TAO on a short, TAO spent on\nalpha on a long), and the result is folded into the position. With a\nposition on the other side, that much exposure is settled at the current\nprice and its share of the cushion, less interest and loss, is paid back;\nnothing is deposited. Asking for more than the position holds closes it\nand opens the rest on the new side, taking only that rest's cushion.\n\nRefused with `DerivativesDisabled` while the network-wide switch is off\n(`enabled` in `btcli deriv params`); `ClosePosition` still works then.",
+    "description": "Add `leverage` times `amount` of `side` exposure to your position on a subnet.\n\nOne call for open, add, reduce, and flip. With no position, or one on the\nsame side, `amount` TAO is taken from the coldkey as cushion, the pool\nlends the matching slice (alpha sold for TAO on a short, TAO spent on\nalpha on a long), and the result is folded into the position. With a\nposition on the other side, that much exposure is settled at the current\nprice and its share of the cushion, less interest and loss, is paid back;\nnothing is deposited. Asking for more than the position holds closes it\nand opens the rest on the new side, taking only that rest's cushion.\n\nRefused with `DerivativesDisabled` while the network-wide switch is off\n(`enabled` in `btcli deriv params`); `ClosePosition` still works then.\nRefused with `LongsDisabled` while the long side is off (`longs_enabled`,\noff at launch) if the result would be a long: `Long` opens, grows, or\nflips into one. A `Long` add that only reduces or closes a short goes\nthrough, and so does every `Short` add.",
     "signer": "coldkey",
     "origin": "signed",
     "verify": null,
@@ -127,9 +127,9 @@
         "pallet": "Derivatives",
         "call": "add",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 366,
-        "end_line": 375,
-        "url": "/code/pallets/derivatives/src/lib.rs#L364-L375",
+        "line": 389,
+        "end_line": 398,
+        "url": "/code/pallets/derivatives/src/lib.rs#L387-L398",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]
@@ -730,9 +730,9 @@
         "pallet": "Derivatives",
         "call": "close",
         "path": "pallets/derivatives/src/lib.rs",
-        "line": 386,
-        "end_line": 389,
-        "url": "/code/pallets/derivatives/src/lib.rs#L384-L389",
+        "line": 409,
+        "end_line": 412,
+        "url": "/code/pallets/derivatives/src/lib.rs#L407-L412",
         "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
       }
     ]

@@ -128,13 +128,21 @@ def _position_record(
     category="Prices & swaps",
 )
 async def derivatives_params(view) -> dict:
-    """The derivatives pallet's switch and three root-set parameters, plus its constants.
+    """The derivatives pallet's two switches and three root-set parameters, plus its constants.
 
     `enabled` is the network-wide switch, off at launch until governance turns
     it on with `Derivatives.sudo_set_derivatives_enabled`. While it is off
     every add (open, grow, reduce, flip) fails with `DerivativesDisabled`;
     closing a position, the weekly interest collection, and dissolution
     settlement keep working, so nobody is ever locked into a position.
+
+    `longs_enabled` is the long-side switch, also off at launch: shorts are
+    the launch product, and longs wait on a decision about their collateral
+    and leverage. Governance turns it on with
+    `Derivatives.sudo_set_longs_enabled`. While it is off any add that would
+    leave a long open (opening one, growing one, or flipping a short through
+    zero into one) fails with `LongsDisabled`; shorts, reducing or closing a
+    short with a long-side add, and closing an already open long all work.
 
     `pool_share` is the largest share of a pool's reserve that all open
     positions of one side may borrow together; zero means root has paused new
@@ -145,7 +153,8 @@ async def derivatives_params(view) -> dict:
     alpha with it, and recycles the alpha. Shorts pay more than longs: the pool
     carries open-ended exposure to a short that is never closed, while a long
     is the buy pressure the design wants. All three are fractions (`0.52` =
-    52%).
+    52%). `long_interest_rate` is inert until `longs_enabled` is true: no
+    tranche can be booked at it before then.
 
     The rest are fixed by the runtime: `max_short_leverage` and
     `max_long_leverage` bound the leverage an owner may choose per side (`1.0`
@@ -156,6 +165,7 @@ async def derivatives_params(view) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     return {
         "enabled": bool(await view.query(st.Derivatives.DerivativesEnabled)),
+        "longs_enabled": bool(await view.query(st.Derivatives.LongsEnabled)),
         "pool_share": int(raw.get("pool_share") or 0) / _PERCENT,
         "short_interest_rate": int(raw.get("short_interest_rate") or 0) / _PERCENT,
         "long_interest_rate": int(raw.get("long_interest_rate") or 0) / _PERCENT,

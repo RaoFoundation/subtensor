@@ -1409,8 +1409,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 296,
-          "url": "/code/pallets/derivatives/src/lib.rs#L296",
+          "line": 313,
+          "url": "/code/pallets/derivatives/src/lib.rs#L313",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -1461,8 +1461,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 312,
-          "url": "/code/pallets/derivatives/src/lib.rs#L312",
+          "line": 329,
+          "url": "/code/pallets/derivatives/src/lib.rs#L329",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -2865,8 +2865,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 299,
-          "url": "/code/pallets/derivatives/src/lib.rs#L299",
+          "line": 316,
+          "url": "/code/pallets/derivatives/src/lib.rs#L316",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -3039,6 +3039,24 @@
           "line": 332,
           "url": "/code/pallets/subtensor/src/macros/errors.rs#L332",
           "raw_url": "/code/raw/pallets/subtensor/src/macros/errors.rs"
+        }
+      ]
+    },
+    "LongsDisabled": {
+      "code": "disabled",
+      "description": "Longs are switched off (`Derivatives.LongsEnabled` is false, shown as `longs_enabled` in `deriv params`): shorts are the launch product, and longs wait on a decision about their collateral and leverage. No add may open a long, grow one, or flip a short through zero into one. Shorts work as usual with `deriv short`; a `deriv long` that only reduces or closes a short goes through; an open long can still be closed with `deriv close`. Governance turns longs on with `Derivatives.sudo_set_longs_enabled`.",
+      "docs_url": "/docs/errors/chain/LongsDisabled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/LongsDisabled/content.md",
+      "pallets": [
+        "Derivatives"
+      ],
+      "sources": [
+        {
+          "pallet": "Derivatives",
+          "path": "pallets/derivatives/src/lib.rs",
+          "line": 333,
+          "url": "/code/pallets/derivatives/src/lib.rs#L333",
+          "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
     },
@@ -3629,8 +3647,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 294,
-          "url": "/code/pallets/derivatives/src/lib.rs#L294",
+          "line": 311,
+          "url": "/code/pallets/derivatives/src/lib.rs#L311",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4233,8 +4251,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 306,
-          "url": "/code/pallets/derivatives/src/lib.rs#L306",
+          "line": 323,
+          "url": "/code/pallets/derivatives/src/lib.rs#L323",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -4323,8 +4341,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 304,
-          "url": "/code/pallets/derivatives/src/lib.rs#L304",
+          "line": 321,
+          "url": "/code/pallets/derivatives/src/lib.rs#L321",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -5079,8 +5097,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 292,
-          "url": "/code/pallets/derivatives/src/lib.rs#L292",
+          "line": 309,
+          "url": "/code/pallets/derivatives/src/lib.rs#L309",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6034,8 +6052,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 301,
-          "url": "/code/pallets/derivatives/src/lib.rs#L301",
+          "line": 318,
+          "url": "/code/pallets/derivatives/src/lib.rs#L318",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
@@ -6052,8 +6070,8 @@
         {
           "pallet": "Derivatives",
           "path": "pallets/derivatives/src/lib.rs",
-          "line": 309,
-          "url": "/code/pallets/derivatives/src/lib.rs#L309",
+          "line": 326,
+          "url": "/code/pallets/derivatives/src/lib.rs#L326",
           "raw_url": "/code/raw/pallets/derivatives/src/lib.rs"
         }
       ]
