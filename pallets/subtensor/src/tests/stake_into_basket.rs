@@ -1,5 +1,6 @@
 //! Beta basket: direct deposits (`stake_into_basket`), ΔNAV minting, and root-slot yield
 //! attribution.
+#![allow(clippy::unwrap_used)]
 
 use crate::tests::claim_root::{
     escrow_alpha, flush_baskets, fund_pool, fund_shares, has_fund, register_on_root, root_stake_of,
@@ -7,13 +8,15 @@ use crate::tests::claim_root::{
 };
 use crate::tests::mock::*;
 use crate::{
-    BasketClaimed, DefaultMinStake, Error, StakingHotkeys, SubnetAlphaIn, SubnetTAO, TotalStake,
+    BasketClaimed, BasketShares, DefaultMinStake, Error, StakingHotkeys, SubnetAlphaIn, SubnetTAO,
+    TotalStake,
 };
 use approx::assert_abs_diff_eq;
 use frame_support::traits::Get;
 use frame_support::{assert_noop, assert_ok};
 use sp_core::U256;
 use subtensor_runtime_common::{AlphaBalance, NetUid, TaoBalance, Token};
+use subtensor_swap_interface::SwapHandler;
 
 /// Economic bound: a value round trip (or entry) may only cost swap fees, so recovered
 /// values must land within this percentage of the input.
@@ -146,10 +149,9 @@ fn test_stake_into_basket_empty_fund_par_mint_equals_nav() {
     });
 }
 
-/// A direct deposit neither dilutes nor gifts existing dividend-accrued holders: their owed
-/// payout and the fund's share price (N/P) are unchanged by someone else buying in, and
-/// remain unchanged after that someone claims back out. `Σ owed == BasketShares` holds
-/// throughout.
+/// In a deep, balanced pool, a direct deposit leaves existing dividend-accrued holders' payout
+/// and the fund's share price (N/P) unchanged. They remain unchanged after the depositor claims
+/// back out, and `Σ owed == BasketShares` holds throughout.
 #[test]
 fn test_stake_into_basket_does_not_dilute_existing_holders() {
     new_test_ext(1).execute_with(|| {
@@ -503,6 +505,208 @@ fn test_stake_into_basket_rejections() {
             alpha_gain,
             deposit / 2,
             epsilon = deposit / 2 * FEE_TOLERANCE_PCT / 100
+        );
+    });
+}
+
+/// Regression: depressing a stale holding, depositing at the lower NAV, claiming, and restoring
+/// the attacker's alpha inventory must not create TAO profit or transfer value from the basket.
+#[test]
+fn test_stake_into_basket_sell_deposit_claim_buyback_cannot_profit() {
+    new_test_ext(1).execute_with(|| {
+        let (_owner, hotkey, netuid) = setup_stake_in_env();
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        let existing_holder = U256::from(2001);
+        let attacker = U256::from(2002);
+        let unit = 1_000_000_000u64;
+
+        // Reviewer reproduction: a 1,000 TAO / 1,000 alpha pool and a basket holding
+        // 1,000 alpha plus 100 TAO cash, with 600 shares outstanding at its 600 TAO NAV.
+        SubnetTAO::<Test>::insert(netuid, TaoBalance::from(1_000 * unit));
+        SubnetAlphaIn::<Test>::insert(netuid, AlphaBalance::from(1_000 * unit));
+        set_root_weights_direct(&hotkey, 0, &[(NetUid::ROOT, u16::MAX)]);
+        add_balance_to_coldkey_account(&existing_holder, TaoBalance::from(200 * unit));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            existing_holder,
+            hotkey,
+            TaoBalance::from(100 * unit),
+        ));
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            netuid,
+            AlphaBalance::from(1_000 * unit),
+        );
+        BasketShares::<Test>::insert(hotkey, 600 * unit);
+        let basket_nav_before =
+            SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        assert_abs_diff_eq!(basket_nav_before, 600 * unit, epsilon = ROUNDING_EPS);
+
+        // The attacker depresses the alpha price, then deposits into the basket at that mark.
+        let alpha_sold = 500 * unit;
+        let sale = SubtensorModule::swap_alpha_for_tao(
+            netuid,
+            AlphaBalance::from(alpha_sold),
+            TaoBalance::ZERO,
+            false,
+        )
+        .unwrap();
+        let sale_proceeds = sale.amount_paid_out.to_u64();
+        let alpha_before_deposit = escrow_alpha(&hotkey, netuid);
+        let deposit = 100 * unit;
+        add_balance_to_coldkey_account(&attacker, TaoBalance::from(2 * deposit));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            attacker,
+            hotkey,
+            deposit.into(),
+        ));
+        let alpha_after_deposit = escrow_alpha(&hotkey, netuid);
+        let alpha_bought_by_deposit = alpha_after_deposit.saturating_sub(alpha_before_deposit);
+
+        // Claim immediately. Quantity-covered minting must prevent the claim from selling more
+        // alpha than the deposit acquired, even though the NAV-priced share count is larger.
+        let root_before_claim = root_stake_of(&hotkey, &attacker);
+        assert_ok!(SubtensorModule::claim_root_with_hotkey(
+            RuntimeOrigin::signed(attacker),
+            hotkey,
+        ));
+        let claim_payout = root_stake_of(&hotkey, &attacker).saturating_sub(root_before_claim);
+        let alpha_redeemed = alpha_after_deposit.saturating_sub(escrow_alpha(&hotkey, netuid));
+        assert!(
+            alpha_redeemed <= alpha_bought_by_deposit,
+            "claim sold {alpha_redeemed} alpha after the deposit bought only {alpha_bought_by_deposit}"
+        );
+
+        // Find and execute the cheapest gross-TAO buy that restores the 500-alpha inventory.
+        let mut low = 1u64;
+        let mut high = 500 * unit;
+        while low < high {
+            let mid = low.saturating_add(high).saturating_div(2);
+            let bought = crate::tests::mock::swap_tao_to_alpha(netuid, mid.into()).0;
+            if bought.to_u64() >= alpha_sold {
+                high = mid;
+            } else {
+                low = mid.saturating_add(1);
+            }
+        }
+        let buyback_cost = low;
+        let bought_back = SubtensorModule::swap_tao_for_alpha(
+            netuid,
+            buyback_cost.into(),
+            <Test as crate::Config>::SwapInterface::max_price(),
+            false,
+        )
+        .unwrap()
+        .amount_paid_out
+        .to_u64();
+        assert!(
+            bought_back >= alpha_sold,
+            "buyback did not restore the attacker's alpha inventory"
+        );
+
+        let attacker_inflow = sale_proceeds.saturating_add(claim_payout);
+        let attacker_outflow = deposit.saturating_add(buyback_cost);
+        assert!(
+            attacker_inflow <= attacker_outflow,
+            "full cycle created TAO profit: inflow={attacker_inflow}, outflow={attacker_outflow}"
+        );
+        let basket_nav_after =
+            SubtensorModule::get_validator_basket_nav_tao(&hotkey).to_u64();
+        assert!(
+            basket_nav_after.saturating_add(ROUNDING_EPS) >= basket_nav_before,
+            "full cycle transferred basket NAV: before={basket_nav_before}, after={basket_nav_after}"
+        );
+    });
+}
+
+/// Regression: a fully drained stale holding cannot simply be omitted from a direct deposit.
+/// With no realizable price there is no fair way to make the depositor buy that exposure, so
+/// the mint must wait for the holding to become priceable again.
+#[test]
+fn test_stake_into_curated_basket_rejects_unpriceable_stale_holding() {
+    new_test_ext(1).execute_with(|| {
+        let (_owner, hotkey, stale_netuid) = setup_stake_in_env();
+        let current_owner = U256::from(3001);
+        let current_hotkey = U256::from(3002);
+        let current_netuid = add_dynamic_network(&current_hotkey, &current_owner);
+        remove_owner_registration_stake(current_netuid);
+        fund_pool(current_netuid);
+
+        set_root_weights_direct(&hotkey, 0, &[(stale_netuid, u16::MAX)]);
+        let alice = U256::from(2001);
+        let seed = 200_000_000u64;
+        add_balance_to_coldkey_account(&alice, TaoBalance::from(2 * seed));
+        assert_ok!(SubtensorModule::do_stake_into_basket(
+            alice,
+            hotkey,
+            seed.into(),
+        ));
+        assert!(escrow_alpha(&hotkey, stale_netuid) > 0);
+
+        // The validator has moved on to another subnet, while the old pool has no TAO left
+        // with which to price or redeem the basket's retained alpha. Simulate rewards under
+        // the new strategy so the basket still has positive NAV elsewhere.
+        set_root_weights_direct(&hotkey, 0, &[(current_netuid, u16::MAX)]);
+        let escrow = SubtensorModule::get_beta_escrow_account_id();
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &hotkey,
+            &escrow,
+            current_netuid,
+            200_000_000_000u64.into(),
+        );
+        let current_before = escrow_alpha(&hotkey, current_netuid);
+        SubnetTAO::<Test>::insert(stale_netuid, TaoBalance::ZERO);
+        assert_eq!(
+            SubtensorModule::realizable_tao_for_alpha(
+                stale_netuid,
+                escrow_alpha(&hotkey, stale_netuid),
+            ),
+            0
+        );
+
+        let bob = U256::from(2002);
+        let deposit = 100_000_000u64;
+        add_balance_to_coldkey_account(&bob, TaoBalance::from(2 * deposit));
+        assert_noop!(
+            SubtensorModule::do_stake_into_basket(bob, hotkey, deposit.into()),
+            Error::<Test>::AmountTooLow
+        );
+        assert_eq!(
+            escrow_alpha(&hotkey, current_netuid),
+            current_before,
+            "rejected mint must not deploy into only the current weights"
+        );
+
+        // A barely priceable holding is also unsafe when its proportional slice rounds to
+        // zero. It must remain part of the deposit or the mint must be rejected.
+        let current_value = SubtensorModule::realizable_tao_for_alpha(
+            current_netuid,
+            escrow_alpha(&hotkey, current_netuid),
+        );
+        let stale_value = [100_000u64, 1_000_000, 10_000_000, 100_000_000]
+            .into_iter()
+            .find_map(|tao_reserve| {
+                SubnetTAO::<Test>::insert(stale_netuid, TaoBalance::from(tao_reserve));
+                let value = SubtensorModule::realizable_tao_for_alpha(
+                    stale_netuid,
+                    escrow_alpha(&hotkey, stale_netuid),
+                );
+                (value > 0
+                    && SubtensorModule::mul_div_u64(
+                        deposit,
+                        value,
+                        value.saturating_add(current_value),
+                    ) == 0)
+                    .then_some(value)
+            })
+            .unwrap_or_default();
+        assert!(
+            stale_value > 0,
+            "test setup must produce a positive quote whose deposit slice is zero"
+        );
+        assert_noop!(
+            SubtensorModule::do_stake_into_basket(bob, hotkey, deposit.into()),
+            Error::<Test>::AmountTooLow
         );
     });
 }

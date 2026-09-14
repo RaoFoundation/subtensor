@@ -3870,7 +3870,8 @@ fn test_root_basket_uid0_excludes_escrow_from_denominator() {
 fn test_become_root_validator_basket_journey() {
     new_test_ext(1).execute_with(|| {
         let subnet_owner_coldkey = U256::from(1001);
-        let validator_coldkey = U256::from(1003);
+        // The validator hotkey is also this subnet's owner hotkey.
+        let validator_coldkey = subnet_owner_coldkey;
         let validator_hotkey = U256::from(1004);
         let staker_coldkey = U256::from(1005);
 

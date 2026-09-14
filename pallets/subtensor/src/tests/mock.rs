@@ -559,7 +559,7 @@ impl ProxyInterface<U256> for FakeProxier {
         lease: &AccountId,
     ) -> DispatchResult {
         PROXIES.with_borrow_mut(|proxies| {
-            proxies.0.retain(|(b, l)| b != beneficiary && l != lease);
+            proxies.0.retain(|(b, l)| b != beneficiary || l != lease);
         });
         Ok(())
     }

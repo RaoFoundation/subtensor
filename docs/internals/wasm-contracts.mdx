@@ -44,35 +44,20 @@ Subtensor provides a custom chain extension that allows smart contracts to inter
 | 10 | `swap_stake_limit` | Swap stake between subnets with price limit | `(AccountId, NetUid, NetUid, AlphaBalance, TaoBalance, bool)` | Error code |
 | 11 | `remove_stake_full_limit` | Fully withdraw stake with optional price limit | `(AccountId, NetUid, Option<TaoBalance>)` | Error code |
 | 12 | `set_coldkey_auto_stake_hotkey` | Configure automatic stake destination | `(NetUid, AccountId)` | Error code |
-| 13 | `add_proxy` | Add a staking proxy for the caller | `(AccountId)` | Error code |
-| 14 | `remove_proxy` | Remove a staking proxy for the caller | `(AccountId)` | Error code |
+| 13 | `add_proxy` | Add a staking proxy for the contract's account | `(AccountId)` | Error code |
+| 14 | `remove_proxy` | Remove a staking proxy for the contract's account | `(AccountId)` | Error code |
 | 15 | `get_alpha_price` | Query the current alpha price for a subnet | `(NetUid)` | `u64` (price × 10⁹) |
 | 16 | `recycle_alpha` | Recycle alpha stake, reducing SubnetAlphaOut (supply reduction) | `(AccountId, NetUid, AlphaBalance)` | `u64` (actual amount recycled) |
 | 17 | `burn_alpha` | Burn alpha stake without reducing SubnetAlphaOut (supply neutral) | `(AccountId, NetUid, AlphaBalance)` | `u64` (actual amount burned) |
 | 18 | `add_stake_recycle` | Atomically add stake then recycle the resulting alpha | `(AccountId, NetUid, TaoBalance)` | `u64` (alpha amount recycled) |
 | 19 | `add_stake_burn` | Atomically add stake then burn the resulting alpha | `(AccountId, NetUid, TaoBalance)` | `u64` (alpha amount burned) |
-| 20 | `caller_add_stake` | Caller-origin variant of `add_stake` (ID 1) | `(AccountId, NetUid, TaoBalance)` | Error code |
-| 21 | `caller_remove_stake` | Caller-origin variant of `remove_stake` (ID 2) | `(AccountId, NetUid, AlphaBalance)` | Error code |
-| 22 | `caller_unstake_all` | Caller-origin variant of `unstake_all` (ID 3) | `(AccountId)` | Error code |
-| 23 | `caller_unstake_all_alpha` | Caller-origin variant of `unstake_all_alpha` (ID 4) | `(AccountId)` | Error code |
-| 24 | `caller_move_stake` | Caller-origin variant of `move_stake` (ID 5) | `(AccountId, AccountId, NetUid, NetUid, AlphaBalance)` | Error code |
-| 25 | `caller_transfer_stake` | Caller-origin variant of `transfer_stake` (ID 6) | `(AccountId, AccountId, NetUid, NetUid, AlphaBalance)` | Error code |
-| 26 | `caller_swap_stake` | Caller-origin variant of `swap_stake` (ID 7) | `(AccountId, NetUid, NetUid, AlphaBalance)` | Error code |
-| 27 | `caller_add_stake_limit` | Caller-origin variant of `add_stake_limit` (ID 8) | `(AccountId, NetUid, TaoBalance, TaoBalance, bool)` | Error code |
-| 28 | `caller_remove_stake_limit` | Caller-origin variant of `remove_stake_limit` (ID 9) | `(AccountId, NetUid, AlphaBalance, TaoBalance, bool)` | Error code |
-| 29 | `caller_swap_stake_limit` | Caller-origin variant of `swap_stake_limit` (ID 10) | `(AccountId, NetUid, NetUid, AlphaBalance, TaoBalance, bool)` | Error code |
-| 30 | `caller_remove_stake_full_limit` | Caller-origin variant of `remove_stake_full_limit` (ID 11) | `(AccountId, NetUid, Option<TaoBalance>)` | Error code |
-| 31 | `caller_set_coldkey_auto_stake_hotkey` | Caller-origin variant of `set_coldkey_auto_stake_hotkey` (ID 12) | `(NetUid, AccountId)` | Error code |
-| 32 | `caller_add_proxy` | Caller-origin variant of `add_proxy` (ID 13) | `(AccountId)` | Error code |
-| 33 | `caller_remove_proxy` | Caller-origin variant of `remove_proxy` (ID 14) | `(AccountId)` | Error code |
 | 34 | `get_subnet_registration_state` | Query whether a subnet exists and which registration generation currently owns the netuid | `(NetUid)` | `SubnetRegistrationState { netuid, exists, registered_subnet_counter }` |
 | 35 | `get_coldkey_lock` | Query the current rolled-forward lock state for a coldkey on a subnet | `(AccountId, NetUid)` | `Option<ColdkeyLock { locked_mass: AlphaBalance, conviction_bits: u128, last_update: u64 }>` |
 | 36 | `get_stake_availability` | Query total, locked, and currently available alpha for a coldkey on a subnet | `(AccountId, NetUid)` | `StakeAvailability { netuid: NetUid, total: AlphaBalance, locked: AlphaBalance, available: AlphaBalance }` |
 | 37 | `move_stake_limit` | Move stake between hotkeys and subnets with a relative price limit | `(AccountId, AccountId, NetUid, NetUid, AlphaBalance, TaoBalance, bool)` | Error code |
-| 38 | `caller_move_stake_limit` | Caller-origin variant of `move_stake_limit` (ID 37) | `(AccountId, AccountId, NetUid, NetUid, AlphaBalance, TaoBalance, bool)` | Error code |
 
-<Callout type="note">
-Functions **1–14** and **37** dispatch with the **contract's own address** as the signed origin. Their caller-origin mirrors (functions **20–33** and **38**) dispatch with the **original transaction signer's** origin instead; parameters and return values are identical to the corresponding base function.
+<Callout type="warning">
+From spec version **456**, `Caller*` IDs **20–33** and **38** are disabled and reserved; calls trap with `DispatchError::BadOrigin` rather than returning a status code. State-changing extensions use the **contract's own account**, never its caller's authority.
 </Callout>
 
 <Callout type="note">

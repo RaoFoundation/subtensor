@@ -2993,13 +2993,14 @@ pub mod pallet {
     /// `(hotkey, escrow, netuid)` across subnets (the root slot is the fund's TAO/cash position),
     /// and its net asset value `N` is the realizable (slippage-aware) TAO value of those
     /// holdings. Stakers' entitlements are denominated in *fund shares*, never in any particular
-    /// subnet's alpha: deposits mint `value_added * P / N` shares, where `value_added` is the
-    /// realizable NAV the deposit actually added (so existing holders are neither diluted nor
-    /// taxed with the deposit's buy slippage), and redemption pays the staker's owed share
-    /// fraction `owed / P` of every holding, sold pro-rata. Direct deposits
-    /// (`stake_into_basket`) mint the same way, credited via the signed [`BasketClaimed`]
-    /// watermark. Because entitlement is decoupled from composition, holdings can be rebalanced
-    /// (validator-directed trading, dissolution conversions) without touching any staker's claim.
+    /// subnet's alpha: dividend deposits mint `value_added * P / N` shares, where `value_added`
+    /// is the realizable NAV the deposit actually added, and redemption pays the staker's owed
+    /// share fraction `owed / P` of every holding, sold pro-rata. Direct `stake_into_basket`
+    /// deposits additionally cap that NAV-priced mint by the fraction of every existing holding
+    /// actually acquired, so their proportional redemption cannot sell more units than they
+    /// bought. Their shares are credited through the signed [`BasketClaimed`] watermark. Because
+    /// entitlement is decoupled from composition, holdings can be rebalanced (validator-directed
+    /// trading, dissolution conversions) without touching any staker's claim.
     #[pallet::storage]
     pub type BasketShares<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery, DefaultZeroU64<T>>;
