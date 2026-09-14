@@ -60,7 +60,10 @@ impl<T: Config> Pallet<T> {
     /// Open, add to, reduce, or flip the caller's position on `netuid`. One storage layer around
     /// the whole call: whichever branch runs, all of it lands or none of it does. The
     /// network-wide switch is checked first: off, nothing is added, not even a reduction, since
-    /// a reduction past the flip point would open the other side. `close` is the exit.
+    /// a reduction past the flip point would open the other side. The long switch comes next,
+    /// on what the call would leave open rather than on the side asked for: a long-side add
+    /// that only reduces or closes a short goes through, one that would leave a long does
+    /// not. `close` is the exit.
     pub(crate) fn do_add(
         owner: T::AccountId,
         netuid: NetUid,
@@ -73,12 +76,24 @@ impl<T: Config> Pallet<T> {
                 DerivativesEnabled::<T>::get(),
                 Error::<T>::DerivativesDisabled
             );
+            let existing = Positions::<T>::get(&owner, netuid);
+            let leaves_a_long = side == Side::Long
+                && match &existing {
+                    Some(short) if short.side() == Side::Short => {
+                        Self::flip_surplus(short, deposit, leverage_percent).is_some()
+                    }
+                    _ => true,
+                };
+            ensure!(
+                !leaves_a_long || LongsEnabled::<T>::get(),
+                Error::<T>::LongsDisabled
+            );
             ensure!(
                 Self::leverage_allowed(side, leverage_percent),
                 Error::<T>::LeverageOutOfRange
             );
             let now = frame_system::Pallet::<T>::block_number();
-            let (position, deposit) = match Positions::<T>::get(&owner, netuid) {
+            let (position, deposit) = match existing {
                 None => (Position::empty(side, now), deposit),
                 Some(position) if position.side() == side => (position, deposit),
                 Some(position) => {
@@ -90,6 +105,36 @@ impl<T: Config> Pallet<T> {
             };
             Self::grow(owner, netuid, position, deposit, leverage_percent)
         })
+    }
+
+    /// Exposure an add asks for: `leverage_percent / 100` times `deposit`.
+    fn asked_exposure(deposit: TaoBalance, leverage_percent: u16) -> u128 {
+        u128::from(deposit.to_u64())
+            .saturating_mul(u128::from(leverage_percent))
+            .checked_div(100)
+            .unwrap_or(0)
+    }
+
+    /// What an opposite-side add would open on the other side once `position` is closed: the
+    /// part of the deposit past the flip point, or `None` if the add stays within the position
+    /// or the part past it is dust below `MinDeposit`. Pure arithmetic on the position as it
+    /// stands, so it can be asked before anything is settled.
+    fn flip_surplus(
+        position: &Position<BlockNumberFor<T>>,
+        deposit: TaoBalance,
+        leverage_percent: u16,
+    ) -> Option<TaoBalance> {
+        let asked = Self::asked_exposure(deposit, leverage_percent);
+        let held = u128::from(position.exposure_tao.to_u64());
+        let rest = asked.checked_sub(held)?;
+        let rest_deposit = rest
+            .saturating_mul(100)
+            .checked_div(u128::from(leverage_percent))
+            .unwrap_or(0)
+            .min(u128::from(u64::MAX)) as u64;
+        let rest_deposit = TaoBalance::from(rest_deposit);
+        // Dust past the flip point is not worth a position.
+        (rest_deposit >= T::MinDeposit::get()).then_some(rest_deposit)
     }
 
     /// Lift a tranche for `deposit` and fold it into `position`, which may be empty.
@@ -146,10 +191,7 @@ impl<T: Config> Pallet<T> {
         deposit: TaoBalance,
         leverage_percent: u16,
     ) -> Result<Option<TaoBalance>, DispatchError> {
-        let asked = u128::from(deposit.to_u64())
-            .saturating_mul(u128::from(leverage_percent))
-            .checked_div(100)
-            .unwrap_or(0);
+        let asked = Self::asked_exposure(deposit, leverage_percent);
         ensure!(asked > 0, Error::<T>::ZeroExposure);
         let held = u128::from(position.exposure_tao.to_u64());
 
@@ -161,18 +203,7 @@ impl<T: Config> Pallet<T> {
         }
 
         Self::do_settle(owner, netuid, Perquintill::one())?;
-        let rest = asked.saturating_sub(held);
-        let rest_deposit = rest
-            .saturating_mul(100)
-            .checked_div(u128::from(leverage_percent))
-            .unwrap_or(0)
-            .min(u128::from(u64::MAX)) as u64;
-        let rest_deposit = TaoBalance::from(rest_deposit);
-        if rest_deposit < T::MinDeposit::get() {
-            // Dust past the flip point is not worth a position.
-            return Ok(None);
-        }
-        Ok(Some(rest_deposit))
+        Ok(Self::flip_surplus(&position, deposit, leverage_percent))
     }
 
     /// Take `deposit` from `owner`, lift `phi` of the pool and swap the borrowed half. The

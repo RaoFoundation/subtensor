@@ -191,6 +191,7 @@ call_filter_group!(
         RuntimeCall::Derivatives(DerivativesCall::close),
         RuntimeCall::Derivatives(DerivativesCall::sudo_set_params),
         RuntimeCall::Derivatives(DerivativesCall::sudo_set_derivatives_enabled),
+        RuntimeCall::Derivatives(DerivativesCall::sudo_set_longs_enabled),
     ]
 );
 

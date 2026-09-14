@@ -1967,3 +1967,197 @@ fn interest_is_still_collected_while_the_switch_is_off() {
         assert_eq!(last_closer(), Closer::Starved);
     });
 }
+
+// ── Long-side switch ─────────────────────────────────────────────────────────
+
+fn set_longs_enabled(enabled: bool) {
+    assert_ok!(Derivatives::sudo_set_longs_enabled(
+        RuntimeOrigin::root(),
+        enabled
+    ));
+}
+
+#[test]
+fn the_long_switch_launches_off_and_only_root_can_flip_it() {
+    let launch = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+    sp_io::TestExternalities::new(launch).execute_with(|| {
+        // The mock turns it on for every other test; the chain itself starts with it off.
+        assert!(!crate::LongsEnabled::<Test>::get());
+    });
+
+    new_test_ext().execute_with(|| {
+        assert_err!(
+            Derivatives::sudo_set_longs_enabled(RuntimeOrigin::signed(alice()), false),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        assert!(crate::LongsEnabled::<Test>::get());
+
+        set_longs_enabled(false);
+        assert!(!crate::LongsEnabled::<Test>::get());
+        System::assert_last_event(Event::LongsToggled { enabled: false }.into());
+
+        set_longs_enabled(true);
+        assert!(crate::LongsEnabled::<Test>::get());
+        System::assert_last_event(Event::LongsToggled { enabled: true }.into());
+    });
+}
+
+#[test]
+fn no_long_can_be_opened_or_grown_while_longs_are_off() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
+        let before = position(&bob(), netuid()).unwrap();
+        let balance_before = balance(&bob());
+        let pool_before = reserves(netuid());
+
+        set_longs_enabled(false);
+        // Opening a long and growing one are both refused, and the long switch is checked
+        // before the leverage: a long at an impossible leverage gets the same answer.
+        assert_err!(
+            add(alice(), Side::Long, DEPOSIT),
+            Error::<Test>::LongsDisabled
+        );
+        assert_err!(
+            add(bob(), Side::Long, DEPOSIT),
+            Error::<Test>::LongsDisabled
+        );
+        assert_err!(
+            add_at(alice(), Side::Long, DEPOSIT, 0),
+            Error::<Test>::LongsDisabled
+        );
+        assert_err!(
+            add_at(alice(), Side::Long, DEPOSIT, 1_000),
+            Error::<Test>::LongsDisabled
+        );
+        assert!(position(&alice(), netuid()).is_none());
+        assert_eq!(position(&bob(), netuid()).as_ref(), Some(&before));
+        assert_eq!(balance(&bob()), balance_before);
+        assert_eq!(reserves(netuid()), pool_before);
+
+        // The network-wide switch still comes first.
+        set_enabled(false);
+        assert_err!(
+            add(alice(), Side::Long, DEPOSIT),
+            Error::<Test>::DerivativesDisabled
+        );
+        set_enabled(true);
+
+        // Back on, the same adds go through.
+        set_longs_enabled(true);
+        assert_ok!(add(alice(), Side::Long, DEPOSIT));
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
+        assert!(position(&bob(), netuid()).unwrap().exposure_tao > before.exposure_tao);
+    });
+}
+
+#[test]
+fn shorts_are_untouched_while_longs_are_off() {
+    new_test_ext().execute_with(|| {
+        setup();
+        set_longs_enabled(false);
+
+        // Open, grow, close, and open again: the short side never sees the long switch.
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let short = position(&alice(), netuid()).unwrap();
+        assert_eq!(short.side(), Side::Short);
+        assert_close(u64::from(short.cushion), 2 * DEPOSIT, 1);
+        assert_ok!(close(alice()));
+        assert!(position(&alice(), netuid()).is_none());
+        assert_ok!(add(bob(), Side::Short, DEPOSIT));
+
+        // The short side's own checks still apply, in their usual order.
+        assert_err!(
+            add_at(alice(), Side::Short, DEPOSIT, 0),
+            Error::<Test>::LeverageOutOfRange
+        );
+    });
+}
+
+#[test]
+fn a_short_can_be_reduced_but_not_flipped_while_longs_are_off() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        let opened = position(&alice(), netuid()).unwrap();
+        set_longs_enabled(false);
+
+        // Long-side adds against the short that stay within it are reductions, and go through:
+        // half the exposure comes off at the current price.
+        let balance_before = balance(&alice());
+        assert_ok!(add_at(alice(), Side::Long, DEPOSIT / 2, 100));
+        let reduced = position(&alice(), netuid()).unwrap();
+        assert_eq!(reduced.side(), Side::Short);
+        assert_close(
+            u64::from(reduced.exposure_tao),
+            u64::from(opened.exposure_tao) / 2,
+            2,
+        );
+        assert!(balance(&alice()) > balance_before);
+
+        // One that would carry on past zero into a long is refused whole: the short is not
+        // touched, nothing is paid out, and the pool is where it was.
+        let balance_before = balance(&alice());
+        let pool_before = reserves(netuid());
+        assert_err!(
+            add_at(alice(), Side::Long, 3 * DEPOSIT, 100),
+            Error::<Test>::LongsDisabled
+        );
+        assert_err!(
+            add(alice(), Side::Long, DEPOSIT),
+            Error::<Test>::LongsDisabled
+        );
+        assert_eq!(position(&alice(), netuid()).as_ref(), Some(&reduced));
+        assert_eq!(balance(&alice()), balance_before);
+        assert_eq!(reserves(netuid()), pool_before);
+
+        // Exactly to zero is a close, not a flip: the short goes and no long is opened.
+        let exposure = u64::from(reduced.exposure_tao);
+        assert_ok!(add_at(alice(), Side::Long, exposure, 100));
+        assert!(position(&alice(), netuid()).is_none());
+        assert_eq!(last_closer(), Closer::Owner);
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Short), 0);
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Long), 0);
+
+        // With longs back on, the same add flips.
+        assert_ok!(add(alice(), Side::Short, DEPOSIT));
+        set_longs_enabled(true);
+        assert_ok!(add_at(alice(), Side::Long, 3 * DEPOSIT, 100));
+        assert_eq!(position(&alice(), netuid()).unwrap().side(), Side::Long);
+    });
+}
+
+#[test]
+fn an_open_long_can_be_closed_and_keeps_paying_interest_while_longs_are_off() {
+    new_test_ext().execute_with(|| {
+        setup();
+        assert_ok!(add(bob(), Side::Long, DEPOSIT));
+        let long = position(&bob(), netuid()).unwrap();
+        set_longs_enabled(false);
+
+        // The chain's work goes on: the weekly collection takes its week from the cushion.
+        run_to(1 + WEEK);
+        let week = u64::from(interest_for_blocks(long.interest_per_year, WEEK));
+        assert!(week > 0);
+        let collected = position(&bob(), netuid()).unwrap();
+        assert_eq!(u64::from(collected.cushion), DEPOSIT - week);
+        assert_eq!(collected.due, 1 + 2 * WEEK);
+
+        // A short-side add against it reduces it, as on any other day.
+        assert_ok!(add_at(bob(), Side::Short, DEPOSIT / 2, 100));
+        let reduced = position(&bob(), netuid()).unwrap();
+        assert_eq!(reduced.side(), Side::Long);
+        assert!(reduced.exposure_tao < collected.exposure_tao);
+
+        // And the owner exits: the trade is reversed, the slice returned, the cushion paid.
+        assert_ok!(close(bob()));
+        assert_eq!(last_closer(), Closer::Owner);
+        assert!(position(&bob(), netuid()).is_none());
+        assert_eq!(Footprint::<Test>::get(netuid(), Side::Long), 0);
+        assert_eq!(balance(&pallet_account()), 0);
+        assert!(crate::Due::<Test>::iter_keys().next().is_none());
+    });
+}

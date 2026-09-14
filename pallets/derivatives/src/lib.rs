@@ -18,10 +18,12 @@
 //! or until its cushion can no longer pay and the chain forfeits it to the pool. Nobody else
 //! can touch it.
 //!
-//! One switch, [`DerivativesEnabled`], gates the whole thing and launches off. It stops
-//! `add`, and only `add`: a position can always be closed by its owner, and the chain keeps
-//! collecting interest from, and settling, whatever is open. Nothing already lent to a
-//! position is ever left in limbo by the switch.
+//! Two switches, both off at launch. [`DerivativesEnabled`] gates the whole thing: it stops
+//! `add`, and only `add`. [`LongsEnabled`] gates the long side of `add` on its own: while it
+//! is off nothing can open, grow, or flip into a long, and shorts are the only positions that
+//! can be added. Neither switch stops a close: a position can always be closed by its owner,
+//! and the chain keeps collecting interest from, and settling, whatever is open. Nothing
+//! already lent to a position is ever left in limbo by a switch.
 //!
 //! Two rules keep a settlement from being a trade the pool pays for. A position whose pot the
 //! pool's own quote says cannot repay its debt is not swapped at all: everything held for it
@@ -130,6 +132,17 @@ pub mod pallet {
     /// releases, and dissolution settlement.
     #[pallet::storage]
     pub type DerivativesEnabled<T: Config> = StorageValue<_, bool, ValueQuery>;
+
+    /// The long-side switch, `false` until root turns it on with
+    /// [`Pallet::sudo_set_longs_enabled`]. Shorts launch; longs are built, tested, and held
+    /// back pending a decision on their collateral and leverage. While it is off any `add`
+    /// whose result would be a long fails with `LongsDisabled`: opening a long, growing one,
+    /// or an add against a short that would flip it through zero. Reducing or closing a short
+    /// with a long-side `add` still works, as does `close` on a long that was opened before
+    /// the switch went off, and the chain's own work on open positions is untouched. Checked
+    /// after [`DerivativesEnabled`], so it only matters once derivatives are on at all.
+    #[pallet::storage]
+    pub type LongsEnabled<T: Config> = StorageValue<_, bool, ValueQuery>;
 
     /// One position per `(owner, netuid)`; its side is the sign of its exposure.
     #[pallet::storage]
@@ -260,6 +273,10 @@ pub mod pallet {
         /// Root turned the network-wide switch on or off. Off refuses every `add`; `close`,
         /// interest collection, and dissolution settlement are unaffected.
         DerivativesToggled { enabled: bool },
+        /// Root turned the long side on or off. Off refuses every `add` that would leave a
+        /// long open; shorts, `close`, interest collection, and dissolution settlement are
+        /// unaffected.
+        LongsToggled { enabled: bool },
         /// A dissolving subnet's positions are about to be cash-settled with no swap: shorts
         /// charged at `short`, longs credited at `long`, each `tao / alpha` TAO per alpha and
         /// each the worse for that side of the pool's spot and moving price. Emitted once per
@@ -310,6 +327,10 @@ pub mod pallet {
         /// Derivatives are switched off network-wide ([`DerivativesEnabled`] is `false`), so
         /// nothing can be added. Open positions can still be closed by their owners.
         DerivativesDisabled,
+        /// Longs are switched off ([`LongsEnabled`] is `false`), so no `add` may open, grow,
+        /// or flip into a long. Shorts can still be added, reduced, and closed; an open long
+        /// can still be closed by its owner.
+        LongsDisabled,
     }
 
     #[pallet::hooks]
@@ -360,7 +381,9 @@ pub mod pallet {
         ///
         /// Refused with `DerivativesDisabled` while [`DerivativesEnabled`] is `false`, whichever
         /// of open, add, reduce, or flip it would have been. Use `close` to exit a position
-        /// while the switch is off.
+        /// while the switch is off. Refused with `LongsDisabled` while [`LongsEnabled`] is
+        /// `false` if the result would be a long: a long opened, grown, or flipped into. A
+        /// long-side `add` that only reduces or closes a short is not a long, and goes through.
         #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::add())]
         pub fn add(
@@ -412,6 +435,21 @@ pub mod pallet {
             ensure_root(origin)?;
             DerivativesEnabled::<T>::put(enabled);
             Self::deposit_event(Event::DerivativesToggled { enabled });
+            Ok(())
+        }
+
+        /// Turn the long side on or off. Root only. Off, every `add` whose result would be a
+        /// long fails with `LongsDisabled`: opening a long, growing one, or flipping a short
+        /// into one. Shorts are unaffected, and so are `close`, the weekly interest
+        /// collection, forfeits, parked-liquidity releases, and dissolution settlement, on
+        /// longs already open as much as on shorts. Launches off: shorts are the launch
+        /// product, and longs wait on a decision about their collateral and leverage.
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::WeightInfo::sudo_set_longs_enabled())]
+        pub fn sudo_set_longs_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
+            ensure_root(origin)?;
+            LongsEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::LongsToggled { enabled });
             Ok(())
         }
     }

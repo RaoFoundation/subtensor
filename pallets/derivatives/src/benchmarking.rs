@@ -26,6 +26,8 @@ fn setup<T: Config>() -> (T::AccountId, NetUid) {
     T::Pool::set_up_pool_for_benchmark(netuid);
     Pallet::<T>::claim_hotkey();
     DerivativesEnabled::<T>::put(true);
+    // `add` measures a flip into a long, so both switches must be on.
+    LongsEnabled::<T>::put(true);
 
     let owner: T::AccountId = frame_benchmarking::account("owner", 0, 0);
     T::Pool::set_up_acc_for_benchmark(&owner, &owner);
@@ -197,6 +199,16 @@ mod benchmarks {
         _(RawOrigin::Root, true);
 
         assert!(DerivativesEnabled::<T>::get());
+    }
+
+    #[benchmark]
+    fn sudo_set_longs_enabled() {
+        LongsEnabled::<T>::put(false);
+
+        #[extrinsic_call]
+        _(RawOrigin::Root, true);
+
+        assert!(LongsEnabled::<T>::get());
     }
 
     impl_benchmark_test_suite!(

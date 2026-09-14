@@ -42,6 +42,7 @@ pub trait WeightInfo {
 	fn release_parked() -> Weight;
 	fn sudo_set_params() -> Weight;
 	fn sudo_set_derivatives_enabled() -> Weight;
+	fn sudo_set_longs_enabled() -> Weight;
 }
 
 /// Weights for `pallet_derivatives` using the Substrate node and recommended hardware.
@@ -317,6 +318,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(3_681_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
+	/// Storage: `Derivatives::LongsEnabled` (r:0 w:1)
+	/// Proof: `Derivatives::LongsEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	fn sudo_set_longs_enabled() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Placeholder pending the reference benchmark run: the same shape as
+		// `sudo_set_derivatives_enabled`, one write of one bool, so its measured
+		// base weight is carried over until the run replaces it.
+		Weight::from_parts(3_681_000, 0)
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
 }
 
 // For backwards compatibility and tests.
@@ -588,6 +601,18 @@ impl WeightInfo for () {
 		// Base weight from the reference run's weight-compare log (run 34763489612);
 		// this benchmark was within the drift threshold, so the patch did not carry
 		// its minimum execution time.
+		Weight::from_parts(3_681_000, 0)
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `Derivatives::LongsEnabled` (r:0 w:1)
+	/// Proof: `Derivatives::LongsEnabled` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	fn sudo_set_longs_enabled() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		// Placeholder pending the reference benchmark run: the same shape as
+		// `sudo_set_derivatives_enabled`, one write of one bool, so its measured
+		// base weight is carried over until the run replaces it.
 		Weight::from_parts(3_681_000, 0)
 			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
