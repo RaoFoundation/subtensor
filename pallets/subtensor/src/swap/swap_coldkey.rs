@@ -150,7 +150,8 @@ impl<T: Config> Pallet<T> {
             // Swap
             let alpha_old =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, old_coldkey, netuid);
-            Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            // Credit the new coldkey with exactly what left the old one.
+            let alpha_moved = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                 &hotkey,
                 old_coldkey,
                 netuid,
@@ -160,7 +161,7 @@ impl<T: Config> Pallet<T> {
                 &hotkey,
                 new_coldkey,
                 netuid,
-                alpha_old,
+                alpha_moved,
             );
             let new_dest_alpha =
                 Self::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, new_coldkey, netuid);

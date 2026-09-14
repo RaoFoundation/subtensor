@@ -417,36 +417,40 @@ where
         }
     }
 
+    /// Value of one member's shares: `floor(V * S / D)`, capped at `V`.
+    ///
+    /// The cap is a correctness invariant, not a workaround. Every member's shares `S` are a
+    /// fraction of the denominator `D`, so no single member can ever own more than the whole
+    /// pool value `V`. Rounding in `SafeFloat` can nevertheless drive stored `S` above `D`
+    /// over many updates. Without the cap that rounding drift turns into a quote above `V`
+    /// that callers would then treat as spendable, letting more alpha leave (or be credited
+    /// elsewhere) than the pool holds. Clamping at `V` keeps the quote backed by real value.
     pub fn get_value(&self, key: &K) -> u64 {
-        let shared_value: SafeFloat =
-            SafeFloat::new(self.state_ops.get_shared_value() as u128, 0).unwrap_or_default();
+        let shared_value: u64 = self.state_ops.get_shared_value();
         let current_share: SafeFloat = self.state_ops.get_share(key);
         let denominator: SafeFloat = self.state_ops.get_denominator();
-        shared_value
-            .mul_div(&current_share, &denominator)
+        Self::try_get_value_from_parts(shared_value, &current_share, &denominator)
             .unwrap_or_default()
-            .into()
     }
 
     pub fn get_value_from_shares(&self, current_share: SafeFloat) -> u64 {
-        let shared_value: SafeFloat =
-            SafeFloat::new(self.state_ops.get_shared_value() as u128, 0).unwrap_or_default();
+        let shared_value: u64 = self.state_ops.get_shared_value();
         let denominator: SafeFloat = self.state_ops.get_denominator();
-        shared_value
-            .mul_div(&current_share, &denominator)
+        Self::try_get_value_from_parts(shared_value, &current_share, &denominator)
             .unwrap_or_default()
-            .into()
     }
 
+    /// See `get_value` for why the result is capped at `shared_value`.
     fn try_get_value_from_parts(
         shared_value: u64,
         current_share: &SafeFloat,
         denominator: &SafeFloat,
     ) -> Option<u64> {
-        let shared_value = SafeFloat::new(shared_value as u128, 0)?;
-        shared_value
+        let shared_value_sf = SafeFloat::new(shared_value as u128, 0)?;
+        shared_value_sf
             .mul_div(current_share, denominator)
             .map(u64::from)
+            .map(|value| value.min(shared_value))
     }
 
     pub fn try_get_value(&self, key: &K) -> Result<u64, ()> {
@@ -672,6 +676,37 @@ mod tests {
         let result2 = share_pool.get_value(&2);
         assert_eq!(result1, 30);
         assert_eq!(result2, 70);
+    }
+
+    // cargo test --package share-pool --lib -- tests::test_get_value_is_capped_at_shared_value --exact
+    #[test]
+    fn test_get_value_is_capped_at_shared_value() {
+        // Divergent state: the member's share S exceeds the denominator D (S/D = 1.5),
+        // so the raw quote floor(V * S / D) = 150 is above the whole pool value V = 100.
+        let mut mock_ops = MockSharePoolDataOperations::new();
+        mock_ops.set_shared_value(100u64);
+        mock_ops.set_denominator(10u64.into());
+        mock_ops.set_share(&1_u16, 15u64.into());
+        mock_ops.set_share(&2_u16, 5u64.into());
+        let pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+
+        assert_eq!(
+            pool.get_value(&1),
+            100,
+            "quote must never exceed pool value"
+        );
+        assert_eq!(pool.try_get_value(&1), Ok(100));
+        assert_eq!(pool.get_value_from_shares(15u64.into()), 100);
+        // A member whose S/D is below 1 is unaffected by the cap.
+        assert_eq!(pool.get_value(&2), 50);
+
+        // Extreme divergence (S/D = 10^21) still quotes exactly V.
+        let mut mock_ops = MockSharePoolDataOperations::new();
+        mock_ops.set_shared_value(1_000_000_000u64);
+        mock_ops.set_denominator(SafeFloat::new(1u128, -21).unwrap());
+        mock_ops.set_share(&1_u16, 1u64.into());
+        let pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+        assert_eq!(pool.get_value(&1), 1_000_000_000);
     }
 
     #[test]

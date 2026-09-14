@@ -1235,11 +1235,14 @@ impl<T: Config> Pallet<T> {
 
         let escrow = Self::get_beta_escrow_account_id();
         for (netuid, alpha) in Self::get_basket_holdings(old_hotkey) {
-            Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            let alpha_moved = Self::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                 old_hotkey, &escrow, netuid, alpha,
             );
             Self::increase_stake_for_hotkey_and_coldkey_on_subnet(
-                new_hotkey, &escrow, netuid, alpha,
+                new_hotkey,
+                &escrow,
+                netuid,
+                alpha_moved,
             );
         }
 
