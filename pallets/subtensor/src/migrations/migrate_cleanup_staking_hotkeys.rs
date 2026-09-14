@@ -6,7 +6,9 @@ use scale_info::prelude::string::String;
 use sp_std::collections::btree_set::BTreeSet;
 use sp_std::vec::Vec;
 
-pub const MIGRATION_NAME: &[u8] = b"migrate_cleanup_staking_hotkeys";
+// Fresh marker reruns the same bounded cleanup after share-pool dust canonicalization. The
+// original `migrate_cleanup_staking_hotkeys` pass may already be marked complete on-chain.
+pub const MIGRATION_NAME: &[u8] = b"migrate_cleanup_staking_hotkeys_v2";
 
 /// Persistent progress for the bounded `StakingHotkeys` cleanup.
 ///
@@ -48,11 +50,10 @@ fn row_load_weight<T: Config>() -> Weight {
 
 /// A conservative keep predicate for one hotkey/coldkey relationship.
 ///
-/// Any stored share row is retained, including a zero-valued legacy row. The storage-bloat
-/// migration runs first and clears zero legacy rows, while treating an unexpected remaining row
-/// as live makes this cleanup fail safe. A basket watermark is also sufficient to retain the
-/// relationship because zero-root-stake claimants still need to be discoverable by claims and
-/// coldkey swaps.
+/// Any stored non-zero share row is retained. The storage-bloat migration runs first and clears
+/// exact-zero Alpha and AlphaV2 rows; treating an unexpected remaining row as live keeps this
+/// cleanup fail safe. A basket watermark is also sufficient to retain the relationship because
+/// zero-root-stake claimants still need to be discoverable by claims and coldkey swaps.
 fn relationship_must_remain<T: Config>(hotkey: &T::AccountId, coldkey: &T::AccountId) -> bool {
     AlphaV2::<T>::iter_prefix((hotkey, coldkey))
         .next()

@@ -438,6 +438,17 @@ where
             .into()
     }
 
+    fn try_get_value_from_parts(
+        shared_value: u64,
+        current_share: &SafeFloat,
+        denominator: &SafeFloat,
+    ) -> Option<u64> {
+        let shared_value = SafeFloat::new(shared_value as u128, 0)?;
+        shared_value
+            .mul_div(current_share, denominator)
+            .map(u64::from)
+    }
+
     pub fn try_get_value(&self, key: &K) -> Result<u64, ()> {
         match self.state_ops.try_get_share(key) {
             Ok(_) => Ok(self.get_value(key)),
@@ -501,8 +512,8 @@ where
             self.state_ops.set_denominator(update_float.clone());
             self.state_ops.set_share(key, update_float);
         } else {
-            let new_denominator;
-            let new_current_share;
+            let mut new_denominator;
+            let mut new_current_share;
 
             let shares_per_update: SafeFloat =
                 self.get_shares_per_update(update, shared_value, &denominator);
@@ -561,6 +572,25 @@ where
                         current_share
                     }
                 };
+            }
+
+            // Withdrawing the integer value reported for a position can leave a positive
+            // fractional share worth less than one rao. If retained, later emissions can make
+            // that supposedly drained position visible again. Canonicalize such withdrawal
+            // dust to zero and remove it from the denominator so the remaining pool shares
+            // continue to sum to the denominator. Never interpret a failed valuation as zero.
+            let updated_shared_value = shared_value.saturating_sub(update.unsigned_abs());
+            if update < 0
+                && !new_current_share.is_zero()
+                && Self::try_get_value_from_parts(
+                    updated_shared_value,
+                    &new_current_share,
+                    &new_denominator,
+                ) == Some(0)
+                && let Some(denominator_without_dust) = new_denominator.sub(&new_current_share)
+            {
+                new_denominator = denominator_without_dust;
+                new_current_share = SafeFloat::zero();
             }
 
             self.state_ops.set_denominator(new_denominator);
@@ -702,6 +732,28 @@ mod tests {
 
         assert_eq!(value1, 10);
         assert_eq!(value2, 10);
+    }
+
+    #[test]
+    fn test_full_integer_withdrawal_clears_sub_rao_share_residue() {
+        let mock_ops = MockSharePoolDataOperations::new();
+        let mut pool = SharePool::<u16, MockSharePoolDataOperations>::new(mock_ops);
+
+        pool.update_value_for_one(&1, 1);
+        pool.update_value_for_one(&2, 2);
+        pool.update_value_for_all(1);
+
+        // Key 1 owns 4/3 rao but can only withdraw the displayed integer rao. Without dust
+        // canonicalization this leaves a positive 1/3-rao share which later revives.
+        assert_eq!(pool.get_value(&1), 1);
+        pool.update_value_for_one(&1, -1);
+
+        assert!(pool.state_ops.get_share(&1).is_zero());
+        assert_eq!(pool.get_value(&2), 3);
+
+        pool.update_value_for_all(10);
+        assert_eq!(pool.get_value(&1), 0, "a drained position must not revive");
+        assert_eq!(pool.get_value(&2), 13);
     }
 
     // cargo test --package share-pool --lib -- tests::test_denom_high_precision --exact --show-output

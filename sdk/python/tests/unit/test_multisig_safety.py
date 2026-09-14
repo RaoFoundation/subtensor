@@ -183,6 +183,18 @@ async def test_multisig_claim_reads_multisig_state_but_checks_member_balance():
     substrate.seed("System", "Account", [multisig_address], {"data": {"free": 10**12}})
     substrate.seed("System", "Account", [ALICE], {"data": {"free": 0}})
     substrate.seed_map("SubtensorModule", "NetworksAdded", [(0, True)])
+    substrate.seed_runtime(
+        "StakeInfoRuntimeApi",
+        "get_stake_info_for_coldkey",
+        [
+            {
+                "hotkey": ALICE_HOT,
+                "coldkey": multisig_address,
+                "netuid": 0,
+                "stake": 1,
+            }
+        ],
+    )
     substrate.seed_runtime("BetaBasketRuntimeApi", "get_root_basket_owed", 1_000_000)
     substrate.seed_runtime(
         "BetaBasketRuntimeApi", "get_root_basket_positions", [(ALICE_HOT, 1, 1_000_000)]

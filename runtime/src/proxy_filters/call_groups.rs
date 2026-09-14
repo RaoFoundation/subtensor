@@ -639,7 +639,7 @@ call_filter_group!(SudoSetCodeCalls, [
 // flattened tuple stays within the `CallFilterMetadata` tuple-impl arity;
 // `call_infos()` recurses regardless.
 // Infrastructure pallets granted wholesale to the broad proxies, excluding
-// `SudoCalls` (which `NonCritical` denies). Shared by the proxy policy in
+// sudo and pallets that can move value indirectly. Shared by the proxy policy in
 // `mod.rs` and by the `WholesalePalletCalls` inventory below so the list lives
 // in one place.
 pub(super) type InfraCommonCalls = (
@@ -654,12 +654,9 @@ pub(super) type InfraCommonCalls = (
     CommitmentsCalls,
     SafeModeCalls,
     EthereumCalls,
-    EvmCalls,
     BaseFeeCalls,
     DrandCalls,
-    CrowdloanCalls,
     SwapCalls,
-    ContractsCalls,
     MevShieldCalls,
     LimitOrdersCalls,
 );
@@ -673,7 +670,13 @@ pub(super) type AllCalls = (
 
 // Pallets every granting proxy grants in full.
 #[cfg(test)]
-type WholesalePalletCalls = (InfraCommonCalls, SudoCalls);
+type WholesalePalletCalls = (
+    InfraCommonCalls,
+    SudoCalls,
+    EvmCalls,
+    CrowdloanCalls,
+    ContractsCalls,
+);
 
 // Balances + pallet-subtensor, split by proxy membership.
 #[cfg(test)]

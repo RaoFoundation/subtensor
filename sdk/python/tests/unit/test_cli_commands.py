@@ -125,6 +125,7 @@ def _seed_tx_preview(substrate: FakeSubstrate) -> None:
         "System", "Account", {"data": {"free": 10**18, "reserved": 0, "frozen": 0}}
     )
     substrate.seed_runtime("SubnetRegistrationRuntimeApi", "get_network_registration_cost", 10**9)
+    substrate.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", [])
     substrate.seed("SubtensorModule", "SubnetLimit", [], 16)
     substrate.seed("SubtensorModule", "DissolveCleanupQueue", [], [])
     substrate.seed("SubtensorModule", "NetworkRegistrationQueue", [], [])

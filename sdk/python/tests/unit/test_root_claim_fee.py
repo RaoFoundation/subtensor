@@ -1,4 +1,4 @@
-"""Reserved/spent root-claim fees follow the 256-unit runtime envelope."""
+"""Reserved/spent root-claim fees follow the fixed runtime claim envelope."""
 
 from __future__ import annotations
 
@@ -19,11 +19,20 @@ async def test_reserved_fallback_is_max_root_claim_work():
         raise RuntimeError("no payment_info")
 
     reserved = await fees._reserved_fee(object(), "5F3sa2TJAW", _boom)
-    assert reserved.rao == fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK
+    assert reserved.rao == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK)
 
 
-def test_spent_scales_against_256_not_network_count():
-    reserved = Balance.from_rao(fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+@pytest.mark.asyncio
+async def test_reserved_fallback_uses_fixed_envelope():
+    async def _boom():
+        raise RuntimeError("no payment_info")
+
+    reserved = await fees._reserved_fee(FakeSubstrate(), "5F3sa2TJAW", _boom)
+    assert reserved.rao == fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK)
+
+
+def test_spent_scales_against_chain_declaration_not_network_count():
+    reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=32, scan_holdings=0),
@@ -33,7 +42,7 @@ def test_spent_scales_against_256_not_network_count():
 
 def test_spent_keeps_non_weight_base_fee():
     base = 12_345
-    reserved = Balance.from_rao(base + fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+    reserved = Balance.from_rao(base + fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=16, scan_holdings=0),
@@ -42,19 +51,18 @@ def test_spent_keeps_non_weight_base_fee():
 
 
 def test_scan_only_uses_scan_ref_time():
-    reserved = Balance.from_rao(fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+    reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=1, redeem_holdings=0, scan_holdings=32),
     )
-    denom = fees._MAX_ROOT_CLAIM_WORK * fees._REDEEM_REF_TIME
-    scan = reserved.rao * 32 * fees._SCAN_REF_TIME // denom
-    walk = reserved.rao * 1 // fees._MAX_ROOT_CLAIM_WORK
+    scan = fees._APPROX_SCAN_FEE_RAO * 32
+    walk = fees._APPROX_REDEEM_FEE_RAO
     assert spent.rao == walk + scan
 
 
 def test_coldkey_wide_empty_baskets_floor_to_hotkey_count():
-    reserved = Balance.from_rao(fees._APPROX_REDEEM_FEE_RAO * fees._MAX_ROOT_CLAIM_WORK)
+    reserved = Balance.from_rao(fees._approx_declared_fee_rao(fees._MAX_ROOT_CLAIM_WORK))
     spent = fees._spent_fee(
         reserved,
         fees.RootClaimWork(hotkeys=100, redeem_holdings=0, scan_holdings=0),
@@ -87,6 +95,11 @@ def _seed_claim_quote(
         "BetaBasketRuntimeApi",
         "get_root_basket_positions",
         [(hotkey, 1, payout) for hotkey, payout in payouts.items() if payout],
+    )
+    substrate.seed_runtime(
+        "StakeInfoRuntimeApi",
+        "get_stake_info_for_coldkey",
+        [{"hotkey": hotkey, "coldkey": ALICE, "netuid": 0, "stake": 1} for hotkey in hotkeys],
     )
     substrate.seed_runtime(
         "BetaBasketRuntimeApi",
@@ -171,7 +184,12 @@ async def test_coldkey_quote_does_not_scan_validator_without_owed_shares():
     assert quote.below_threshold_hotkeys == 1
     assert quote.spent == fees._spent_fee(
         quote.reserved,
-        fees.RootClaimWork(hotkeys=2, redeem_holdings=0, scan_holdings=2),
+        fees.RootClaimWork(
+            hotkeys=2,
+            redeem_holdings=0,
+            scan_holdings=2,
+            selection_scans=2,
+        ),
     )
 
 
@@ -179,8 +197,8 @@ async def test_coldkey_quote_does_not_scan_validator_without_owed_shares():
 @pytest.mark.parametrize(
     ("hotkeys", "holdings", "networks", "reason"),
     [
-        ([f"hotkey-{i}" for i in range(17)], 0, 16, "17 hotkeys × 16 networks"),
-        ([ALICE_HOT], 257, 1, "257 basket holdings"),
+        ([f"hotkey-{i}" for i in range(257)], 0, 16, "257 root hotkeys + 0 basket holdings"),
+        ([ALICE_HOT], 256, 1, "1 root hotkey + 256 basket holdings"),
     ],
 )
 async def test_root_claim_too_heavy_is_a_hard_stop(hotkeys, holdings, networks, reason):
@@ -249,7 +267,7 @@ async def test_shielded_claim_reserves_free_tao_for_inner_and_carrier():
 @pytest.mark.parametrize("payout_failure", [None, RuntimeError("payout unavailable")])
 async def test_admission_hard_stop_survives_unavailable_payout_preview(payout_failure):
     substrate = FakeSubstrate()
-    hotkeys = [f"hotkey-{i}" for i in range(17)]
+    hotkeys = [f"hotkey-{i}" for i in range(257)]
     _seed_claim_quote(
         substrate,
         hotkeys=hotkeys,
@@ -269,7 +287,7 @@ async def test_admission_hard_stop_survives_unavailable_payout_preview(payout_fa
 
     client = Client("local", substrate=substrate)
     plan = await client.plan(ClaimRoot(), dev_wallet())
-    assert any("17 hotkeys × 16 networks" in block for block in plan.violations)
+    assert any("257 root hotkeys + 0 basket holdings" in block for block in plan.violations)
 
     with pytest.raises(PolicyError, match="256-unit admission limit"):
         await client.submit_shielded(ClaimRoot(), dev_wallet())
@@ -334,8 +352,8 @@ async def test_carrier_hard_stop_survives_unavailable_payout_preview():
     ("hotkey_count", "holdings", "networks", "expected_ok"),
     [
         (16, 0, 16, True),
-        (1, 256, 1, True),
-        (1, 257, 1, False),
+        (1, 255, 1, True),
+        (1, 256, 1, False),
     ],
 )
 async def test_admission_limit_is_inclusive_at_256(hotkey_count, holdings, networks, expected_ok):
@@ -356,7 +374,48 @@ async def test_admission_limit_is_inclusive_at_256(hotkey_count, holdings, netwo
 
 
 @pytest.mark.asyncio
-async def test_inactive_network_rows_do_not_count_toward_admission():
+async def test_coldkey_wide_admission_ignores_non_root_hotkeys():
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT, BOB_HOT],
+        payouts={ALICE_HOT: 1_000_000},
+        holdings={ALICE_HOT: 1, BOB_HOT: 256},
+        networks=500,
+    )
+    substrate.seed_runtime(
+        "StakeInfoRuntimeApi",
+        "get_stake_info_for_coldkey",
+        [
+            {"hotkey": ALICE_HOT, "coldkey": ALICE, "netuid": 0, "stake": 1},
+            {"hotkey": BOB_HOT, "coldkey": ALICE, "netuid": 7, "stake": 1},
+        ],
+    )
+
+    plan = await Client("local", substrate=substrate).plan(ClaimRoot(), dev_wallet())
+
+    assert not any("admission limit" in block for block in plan.violations)
+
+
+@pytest.mark.asyncio
+async def test_coldkey_wide_admission_keeps_unstaked_basket_claimant():
+    substrate = FakeSubstrate()
+    _seed_claim_quote(
+        substrate,
+        hotkeys=[ALICE_HOT],
+        payouts={ALICE_HOT: 1_000_000},
+        holdings={ALICE_HOT: 1},
+    )
+    substrate.seed_runtime("StakeInfoRuntimeApi", "get_stake_info_for_coldkey", [])
+    substrate.seed("SubtensorModule", "BasketClaimed", [ALICE_HOT, ALICE], -1)
+
+    admission = await fees.root_claim_admission(substrate, ALICE, hotkeys=None)
+
+    assert admission.hotkeys == (ALICE_HOT,)
+
+
+@pytest.mark.asyncio
+async def test_network_count_does_not_affect_admission():
     substrate = FakeSubstrate()
     hotkeys = [f"hotkey-{i}" for i in range(17)]
     _seed_claim_quote(
@@ -388,6 +447,11 @@ async def test_proxy_claim_reads_dispatch_state_checks_delegate_and_prices_wrapp
     substrate.seed_runtime("BetaBasketRuntimeApi", "get_root_basket_owed", 1_000_000)
     substrate.seed_runtime(
         "BetaBasketRuntimeApi", "get_root_basket_positions", [(BOB_HOT, 1, 1_000_000)]
+    )
+    substrate.seed_runtime(
+        "StakeInfoRuntimeApi",
+        "get_stake_info_for_coldkey",
+        [{"hotkey": BOB_HOT, "coldkey": BOB, "netuid": 0, "stake": 1}],
     )
     substrate.seed_runtime(
         "BetaBasketRuntimeApi",

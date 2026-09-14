@@ -6,7 +6,9 @@ use scale_info::prelude::string::String;
 use sp_io::{hashing::twox_128, storage};
 use sp_std::vec::Vec;
 
-const MIGRATION_NAME: &[u8] = b"migrate_storage_bloat_v2";
+// Fresh marker reruns the bounded GC with the AlphaV2 zero-row target added below. The original
+// v2 pass may already be marked complete on-chain.
+const MIGRATION_NAME: &[u8] = b"migrate_storage_bloat_v3";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CleanupMode {
@@ -90,6 +92,12 @@ const TARGETS: &[CleanupTarget] = &[
         storage: "StakingHotkeys",
         mode: CleanupMode::ClearIfZero,
     },
+    // Appended so an interrupted v2 cursor keeps the same target indices after upgrade.
+    CleanupTarget {
+        pallet: "SubtensorModule",
+        storage: "AlphaV2",
+        mode: CleanupMode::ClearIfZero,
+    },
 ];
 
 /// Persistent progress for the bounded storage cleanup.
@@ -108,6 +116,14 @@ pub struct StorageBloatCleanupProgress {
 #[storage_alias]
 pub type StorageBloatCleanupMigration<T: Config> =
     StorageValue<Pallet<T>, StorageBloatCleanupProgress, OptionQuery>;
+
+/// Returns true only after the current storage-bloat sweep has completed successfully.
+///
+/// Dependants must use this marker instead of cursor absence: a missing cursor can also mean
+/// that the migration was never scheduled or that its progress state was removed unexpectedly.
+pub fn storage_bloat_cleanup_complete<T: Config>() -> bool {
+    HasMigrationRun::<T>::get(MIGRATION_NAME)
+}
 
 fn storage_prefix(pallet: &str, item: &str) -> Vec<u8> {
     [twox_128(pallet.as_bytes()), twox_128(item.as_bytes())].concat()
