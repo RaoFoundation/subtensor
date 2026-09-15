@@ -5312,3 +5312,48 @@ fn test_childkey_prune_resumes_across_idle_passes() {
         }
     });
 }
+
+// Pruning a parent's outgoing relations leaves its incoming parents untouched: the hotkeys
+// that list it as their child keep those edges, and its own `ParentKeys` row is unchanged.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_prune_leaves_incoming_parents_untouched --exact
+#[test]
+fn test_childkey_prune_leaves_incoming_parents_untouched() {
+    new_test_ext(1).execute_with(|| {
+        const TAO: u64 = 1_000_000_000;
+        let f = childkey_threshold_fixture();
+        let uppers = [U256::from(3_001), U256::from(3_002), U256::from(3_003)];
+        for (i, upper) in uppers.iter().enumerate() {
+            register_ok_neuron(f.netuid, *upper, f.coldkey, 10 + i as u64);
+            SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+                upper,
+                &f.coldkey,
+                f.netuid,
+                AlphaBalance::from(2_000 * TAO),
+            );
+            mock_set_children(&f.coldkey, upper, f.netuid, &[(u64::MAX, f.parent)]);
+        }
+        mock_set_children(&f.coldkey, &f.parent, f.netuid, &[(u64::MAX, f.child)]);
+        assert_eq!(SubtensorModule::get_parents(&f.parent, f.netuid).len(), 3);
+
+        assert_ok!(SubtensorModule::unstake_all(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent
+        ));
+        // `mock_set_children` zeroes the threshold to schedule; restore it for the check.
+        StakeThreshold::<Test>::put(1_000 * TAO);
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        run_block_idle();
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+
+        assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
+        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+        for upper in &uppers {
+            assert_eq!(
+                SubtensorModule::get_children(upper, f.netuid),
+                vec![(u64::MAX, f.parent)],
+                "incoming parent edges must survive the prune"
+            );
+        }
+        assert_eq!(SubtensorModule::get_parents(&f.parent, f.netuid).len(), 3);
+    });
+}

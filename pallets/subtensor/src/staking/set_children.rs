@@ -659,7 +659,8 @@ impl<T: Config> Pallet<T> {
     /// Worst-case weight of one pass over a queued parent: the all-subnet valuation, an
     /// owner-exemption read per relation subnet, and for each of the up to
     /// `MAX_CHILDKEY_PRUNE_RELATIONS` pruned subnets the pending removal plus the pivot and
-    /// per-child (`MAX_CHILDREN`) relation updates done by `persist_child_parent_relations`.
+    /// per-child (`MAX_CHILDREN`) reverse-edge updates done by
+    /// `remove_outgoing_child_relations`.
     fn childkey_threshold_check_weight() -> Weight {
         let subnets = Self::get_all_subnet_netuids().len() as u64;
         // Valuation: alpha + price reads per subnet; exemption/relation scan: two reads per
@@ -726,9 +727,31 @@ impl<T: Config> Pallet<T> {
         let finished = prunable.len() <= batch;
         for netuid in prunable.into_iter().take(batch) {
             PendingChildKeys::<T>::remove(netuid, hotkey);
-            Self::persist_pending_chidren_ok(netuid, hotkey, &Vec::new());
+            Self::remove_outgoing_child_relations(hotkey, netuid);
         }
         finished
+    }
+
+    /// Remove every child relation `parent` holds on `netuid`: the parent's `ChildKeys` row
+    /// and the parent's entry in each child's `ParentKeys`. Touches only those outgoing edges
+    /// (at most `MAX_CHILDREN`) and never the parent's own incoming parents, so its cost is
+    /// bounded independently of how many hotkeys parent this one.
+    fn remove_outgoing_child_relations(parent: &T::AccountId, netuid: NetUid) {
+        let children = ChildKeys::<T>::take(parent, netuid);
+        for (_, child) in children.iter() {
+            let mut parents = ParentKeys::<T>::get(child, netuid);
+            PCRelations::<T>::remove_edge(&mut parents, parent);
+            Self::set_parentkeys(child.clone(), netuid, parents);
+        }
+        if !children.is_empty() {
+            log::trace!(
+                "PrunedChildren( netuid:{:?}, hotkey:{:?}, children:{:?} )",
+                netuid,
+                parent,
+                children
+            );
+            Self::deposit_event(Event::SetChildren(parent.clone(), netuid, Vec::new()));
+        }
     }
 
     // If child-parent consistency is broken, fail setting new children silently
