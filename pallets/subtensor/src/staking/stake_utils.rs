@@ -1713,18 +1713,21 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
             TotalHotkeyShares::<T>::remove(&self.hotkey, self.netuid);
         }
 
+        // Both denominator transitions start a new epoch, so every share row written
+        // before the transition reads as absent. Closing retires the leftovers at once (a
+        // dividend can give a closed pool value again before anyone re-opens it); opening
+        // also retires rows left by pools that were drained before epochs existed. Rows
+        // cannot be enumerated per pool, so they are retired lazily instead of deleted.
+        if previous.is_zero() != update.is_zero() {
+            AlphaSharePoolEpoch::<T>::mutate(&self.hotkey, self.netuid, |epoch| {
+                *epoch = epoch.saturating_add(1);
+            });
+        }
+
         if !update.is_zero() {
             TotalHotkeySharesV2::<T>::insert(&self.hotkey, self.netuid, update);
         } else {
             TotalHotkeySharesV2::<T>::remove(&self.hotkey, self.netuid);
-            if !previous.is_zero() {
-                // The pool is closed. Move to a new epoch so every share row written so far
-                // reads as absent; rows cannot be enumerated per pool, so they are retired
-                // lazily instead of deleted.
-                AlphaSharePoolEpoch::<T>::mutate(&self.hotkey, self.netuid, |epoch| {
-                    *epoch = epoch.saturating_add(1);
-                });
-            }
         }
     }
 }

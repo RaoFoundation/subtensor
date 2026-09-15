@@ -135,13 +135,13 @@ fn test_settle_stakes_skips_shares_retired_by_pool_close() {
         assert!(!TotalHotkeySharesV2::<Test>::contains_key(hotkey, netuid));
         assert!(
             !AlphaV2::<Test>::get((hotkey, retired, netuid)).is_zero(),
-            "retired raw row still exists"
+            "leftover raw row still exists"
         );
         assert!(SubtensorModule::alpha_share_is_retired(
             &hotkey, &retired, netuid
         ));
 
-        // A new depositor re-opens the pool.
+        // A new depositor re-opens the pool (another epoch); the row stays retired.
         add_balance_to_coldkey_account(&depositor, stake * 2.into());
         assert_ok!(SubtensorModule::stake_into_subnet(
             &hotkey,
@@ -153,6 +153,9 @@ fn test_settle_stakes_skips_shares_retired_by_pool_close() {
         ));
         assert!(!SubtensorModule::alpha_share_is_retired(
             &hotkey, &depositor, netuid
+        ));
+        assert!(SubtensorModule::alpha_share_is_retired(
+            &hotkey, &retired, netuid
         ));
 
         // Back the pot counter with real TAO so settlement can pay out.
