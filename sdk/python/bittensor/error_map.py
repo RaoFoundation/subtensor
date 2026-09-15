@@ -380,6 +380,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "MaxContributionReached": _C.LIMIT_EXCEEDED,
     "MaximumContributionTooLow": _C.INVALID_ARGUMENT,
     "MinimumContributionTooHigh": _C.INVALID_ARGUMENT,
+    "FundsNotSettled": _C.POLICY_VIOLATION,
     # ── Swap ────────────────────────────────────────────────────────────
     "FeeRateTooHigh": _C.INVALID_ARGUMENT,
     "InsufficientInputAmount": _C.INVALID_ARGUMENT,
@@ -458,6 +459,7 @@ NAME_TO_CODE: dict[str, ErrorCode] = {
     "PartialFillNotSupportedForLinkedAmount": _C.INVALID_ARGUMENT,
     "PartialFillNotSupportedForProvider": _C.INVALID_ARGUMENT,
     "LinkedOutputNotPrunable": _C.INVALID_ARGUMENT,
+    "OrderSignerFrozen": _C.DISABLED,
     # ── Derivatives ─────────────────────────────────────────────────────
     "SubnetNotDynamic": _C.SUBTOKEN_DISABLED,
     "NoPosition": _C.NOT_FOUND,

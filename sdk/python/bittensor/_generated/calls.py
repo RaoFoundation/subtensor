@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 456
+Spec version: 458
 """
 from typing import Any, NamedTuple
 
@@ -1471,7 +1471,7 @@ class Crowdloan:
 
     @staticmethod
     def finalize(crowdloan_id: 'Any') -> Call:
-        'Finalize crowdloan that has reached the cap.  The call will either transfer the raised amount to the configured target address or dispatch the configured call using the creator origin. The stored crowdloan must contain exactly one of target address or call; if both or neither are set, finalization fails before transfer or dispatch.  When dispatching a call, the CurrentCrowdloanId will be set to the crowdloan id being finalized so the dispatched call can access it temporarily by accessing the `CurrentCrowdloanId` storage item.  The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.  Parameters: - `crowdloan_id`: The id of the crowdloan to finalize.'
+        'Finalize crowdloan that has reached the cap.  The call will either transfer the raised amount to the configured target address or dispatch the configured call using the creator origin. The stored crowdloan must contain exactly one of target address or call; if both or neither are set, finalization fails before transfer or dispatch.  When dispatching a call, the CurrentCrowdloanId will be set to the crowdloan id being finalized so the dispatched call can access it temporarily by accessing the `CurrentCrowdloanId` storage item. The call must spend the full raised amount from the funds account; otherwise finalization and any partial effects are rolled back.  The dispatch origin for this call must be _Signed_ and must be the creator of the crowdloan.  Parameters: - `crowdloan_id`: The id of the crowdloan to finalize.'
         return Call('Crowdloan', 'finalize', {'crowdloan_id': crowdloan_id})
 
     @staticmethod

@@ -1,7 +1,7 @@
 """Generated from runtime metadata by codegen. DO NOT EDIT BY HAND.
 
 Regenerate with: python -m codegen <ws-endpoint>
-Spec version: 456
+Spec version: 458
 """
 from dataclasses import dataclass
 
@@ -322,6 +322,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (27, 24): ErrorInfo('Crowdloan', 'MaxContributionReached', 'The contributor has already reached the maximum contribution.'),
     (27, 25): ErrorInfo('Crowdloan', 'MaximumContributionTooLow', 'The maximum contribution is too low.'),
     (27, 26): ErrorInfo('Crowdloan', 'MinimumContributionTooHigh', 'The minimum contribution is too high.'),
+    (27, 27): ErrorInfo('Crowdloan', 'FundsNotSettled', 'The finalization call did not spend the full amount raised.'),
     (28, 0): ErrorInfo('Swap', 'FeeRateTooHigh', 'The fee rate is too high'),
     (28, 1): ErrorInfo('Swap', 'InsufficientInputAmount', 'The provided amount is insufficient for the swap.'),
     (28, 2): ErrorInfo('Swap', 'InsufficientLiquidity', 'The provided liquidity is insufficient for the operation.'),
@@ -403,6 +404,7 @@ ERRORS: dict[tuple[int, int], ErrorInfo] = {
     (32, 24): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForLinkedAmount', 'Partial fill submitted against a linked (consuming) order.'),
     (32, 25): ErrorInfo('LimitOrders', 'PartialFillNotSupportedForProvider', 'Partial fill submitted against a provider (`has_linked_order`).'),
     (32, 26): ErrorInfo('LimitOrders', 'LinkedOutputNotPrunable', '`prune_linked_output` called by a non-signer on an unexpired record.'),
+    (32, 27): ErrorInfo('LimitOrders', 'OrderSignerFrozen', 'The order owner is temporarily prohibited from moving funds.'),
     (33, 0): ErrorInfo('Derivatives', 'SubnetNotDynamic', 'The subnet does not exist, is not AMM-priced, or has its subtoken disabled.'),
     (33, 1): ErrorInfo('Derivatives', 'NoPosition', 'No such position.'),
     (33, 2): ErrorInfo('Derivatives', 'DepositTooLow', 'The deposit is below `MinDeposit`.'),

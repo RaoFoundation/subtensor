@@ -1827,6 +1827,24 @@
         }
       ]
     },
+    "FundsNotSettled": {
+      "code": "policy_violation",
+      "description": "`finalize` dispatched the crowdloan's stored call, but it did not spend the full amount raised: the funds account still holds raised TAO afterwards (a batched call may have returned Ok after a child failed). Nothing was committed. Check the stored call with `Crowdloan.Crowdloans` and correct it before finalizing again.",
+      "docs_url": "/docs/errors/chain/FundsNotSettled",
+      "markdown_url": "/llms.mdx/docs/errors/chain/FundsNotSettled/content.md",
+      "pallets": [
+        "Crowdloan"
+      ],
+      "sources": [
+        {
+          "pallet": "Crowdloan",
+          "path": "pallets/crowdloan/src/lib.rs",
+          "line": 295,
+          "url": "/code/pallets/crowdloan/src/lib.rs#L295",
+          "raw_url": "/code/raw/pallets/crowdloan/src/lib.rs"
+        }
+      ]
+    },
     "GasLimitTooHigh": {
       "code": "invalid_argument",
       "description": "The transaction's `gas_limit` exceeds the block gas limit configured for the EVM. Compare the `gas_limit` argument against the chain's block gas limit and lower it.",
@@ -4137,6 +4155,24 @@
           "path": "pallets/limit-orders/src/lib.rs",
           "line": 427,
           "url": "/code/pallets/limit-orders/src/lib.rs#L427",
+          "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
+        }
+      ]
+    },
+    "OrderSignerFrozen": {
+      "code": "disabled",
+      "description": "The order's signer (the coldkey whose assets the order moves) has a pending coldkey swap announcement or an open swap dispute, so its funds cannot move until that is resolved. Check with `btcli wallet swap-check`; the order can be executed once the announcement is cleared or the swap completes.",
+      "docs_url": "/docs/errors/chain/OrderSignerFrozen",
+      "markdown_url": "/llms.mdx/docs/errors/chain/OrderSignerFrozen/content.md",
+      "pallets": [
+        "LimitOrders"
+      ],
+      "sources": [
+        {
+          "pallet": "LimitOrders",
+          "path": "pallets/limit-orders/src/lib.rs",
+          "line": 470,
+          "url": "/code/pallets/limit-orders/src/lib.rs#L470",
           "raw_url": "/code/raw/pallets/limit-orders/src/lib.rs"
         }
       ]

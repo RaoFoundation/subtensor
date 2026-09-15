@@ -130,4 +130,10 @@ DESCRIPTIONS: dict[str, str] = {
         "inconsistent state. Inspect the `Crowdloans` and `Contributions` entries for the "
         "`crowdloan_id`."
     ),
+    "FundsNotSettled": (
+        "`finalize` dispatched the crowdloan's stored call, but it did not spend the full "
+        "amount raised: the funds account still holds raised TAO afterwards (a batched call "
+        "may have returned Ok after a child failed). Nothing was committed. Check the stored "
+        "call with `Crowdloan.Crowdloans` and correct it before finalizing again."
+    ),
 }

@@ -128,4 +128,10 @@ DESCRIPTIONS: dict[str, str] = {
         "`prune_linked_output` was called by someone other than the record's signer before "
         "`expires_at`. The signer may prune at any time; anyone may prune only after expiry."
     ),
+    "OrderSignerFrozen": (
+        "The order's signer (the coldkey whose assets the order moves) has a pending coldkey "
+        "swap announcement or an open swap dispute, so its funds cannot move until that is "
+        "resolved. Check with `btcli wallet swap-check`; the order can be executed once the "
+        "announcement is cleared or the swap completes."
+    ),
 }
