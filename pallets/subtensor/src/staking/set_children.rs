@@ -619,8 +619,13 @@ impl<T: Config> Pallet<T> {
                         || Self::hotkey_meets_childkey_threshold(&hotkey, netuid)
                     {
                         Self::persist_pending_chidren_ok(netuid, &hotkey, &children);
-                        // A qualifying parent whose schedule just went live is not suspended.
-                        if !children.is_empty() {
+                        // A parent whose stake meets the threshold is not suspended. The
+                        // owner exemption is local to the owned subnet and must not lift the
+                        // global flag, so only the stake test clears it here.
+                        if !children.is_empty()
+                            && Self::get_total_stake_for_hotkey(&hotkey)
+                                >= StakeThreshold::<T>::get().into()
+                        {
                             ChildkeyThresholdSuspended::<T>::remove(&hotkey);
                         }
                     } else {

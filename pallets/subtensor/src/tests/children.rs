@@ -5449,3 +5449,61 @@ fn test_childkey_threshold_processor_respects_small_budget() {
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
     });
 }
+
+// A suspended parent that owns a subnet may still schedule children there, but that
+// maturation must not lift the global suspension: relations elsewhere stay inert until the
+// parent's total stake meets the threshold.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_owner_subnet_maturation_does_not_lift_global_suspension --exact
+#[test]
+fn test_owner_subnet_maturation_does_not_lift_global_suspension() {
+    new_test_ext(1).execute_with(|| {
+        const TAO: u64 = 1_000_000_000;
+        let coldkey = U256::from(1_000);
+        let parent = U256::from(2_000);
+        let child = U256::from(2_002);
+        StakeThreshold::<Test>::put(1_000 * TAO);
+
+        let owned = add_dynamic_network(&parent, &coldkey);
+        let other_owner_coldkey = U256::from(9_100);
+        let other_owner_hotkey = U256::from(9_200);
+        let other = add_dynamic_network(&other_owner_hotkey, &other_owner_coldkey);
+        register_ok_neuron(other, child, coldkey, 1);
+
+        // Qualify, set a relation on the other subnet, then fall below the threshold.
+        SubtensorModule::increase_stake_for_hotkey_and_coldkey_on_subnet(
+            &parent,
+            &coldkey,
+            other,
+            AlphaBalance::from(2_000 * TAO),
+        );
+        mock_set_children(&coldkey, &parent, other, &[(u64::MAX, child)]);
+        SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
+            &parent,
+            &coldkey,
+            other,
+            AlphaBalance::from(2_000 * TAO),
+        );
+        StakeThreshold::<Test>::put(u64::MAX / 2);
+        SubtensorModule::queue_childkey_threshold_check(&parent);
+        run_block_idle();
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(parent));
+        assert_eq!(SubtensorModule::get_children(&parent, other), vec![]);
+
+        // Owner-exempt schedule on the owned subnet matures fine...
+        assert_ok!(SubtensorModule::do_schedule_children(
+            RuntimeOrigin::signed(coldkey),
+            parent,
+            owned,
+            vec![(u64::MAX, child)],
+        ));
+        wait_and_set_pending_children(owned);
+        assert_eq!(
+            SubtensorModule::get_children(&parent, owned),
+            vec![(u64::MAX, child)]
+        );
+        // ...but the global suspension stays and the other subnet's relation stays inert.
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(parent));
+        assert_eq!(SubtensorModule::get_children(&parent, other), vec![]);
+        assert_eq!(SubtensorModule::get_parents(&child, other), vec![]);
+    });
+}
