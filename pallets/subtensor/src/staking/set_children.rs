@@ -158,8 +158,8 @@ impl<T: Config> PCRelations<T> {
 
 /// Upper bound on child-relation subnets pruned per queued threshold check pass.
 const MAX_CHILDKEY_PRUNE_RELATIONS: u64 = 8;
-/// Maximum children a parent may register on one subnet (see `do_schedule_children`).
-const MAX_CHILDREN: u64 = 5;
+/// Encoded size of one `(u64, AccountId)` relation entry, for proof-size metering.
+const RELATION_ENTRY_BYTES: u64 = 40;
 
 impl<T: Config> Pallet<T> {
     /// Set childkeys vector making sure there are no empty vectors in the state
@@ -656,28 +656,33 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Worst-case weight of one pass over a queued parent: the all-subnet valuation, an
-    /// owner-exemption read per relation subnet, and for each of the up to
-    /// `MAX_CHILDKEY_PRUNE_RELATIONS` pruned subnets the pending removal plus the pivot and
-    /// per-child (`MAX_CHILDREN`) reverse-edge updates done by
-    /// `remove_outgoing_child_relations`.
-    fn childkey_threshold_check_weight() -> Weight {
+    /// Fixed part of one pass over a queued parent: the all-subnet valuation plus the
+    /// owner-exemption/relation scan. The per-edge work is metered as it happens, because a
+    /// child's `ParentKeys` vector has no enforced length bound.
+    fn childkey_threshold_check_admission_weight() -> Weight {
         // O(1) subnet count; never enumerate the network map just to size the budget.
         let subnets = u64::from(TotalNetworks::<T>::get());
         // Valuation: netuid list plus alpha and price reads per subnet; exemption/relation
-        // scan: two reads per subnet the hotkey could be a parent on.
-        let scan = T::DbWeight::get().reads(subnets.saturating_mul(6).saturating_add(5));
-        // Per pruned subnet: pending removal, pivot read/write, one read/write per child.
-        let per_subnet = T::DbWeight::get().reads_writes(
-            MAX_CHILDREN.saturating_add(2),
-            MAX_CHILDREN.saturating_add(2),
-        );
-        scan.saturating_add(per_subnet.saturating_mul(MAX_CHILDKEY_PRUNE_RELATIONS))
+        // scan: two reads per subnet the hotkey could be a parent on; queue removal.
+        T::DbWeight::get()
+            .reads(subnets.saturating_mul(6).saturating_add(5))
             .saturating_add(T::DbWeight::get().writes(1))
     }
 
+    /// Weight of reading and rewriting one relation vector of `entries` `(u64, AccountId)`
+    /// items: one storage read/write plus the vector's proof size.
+    fn relation_vector_weight(entries: usize) -> Weight {
+        let bytes = (entries as u64)
+            .saturating_add(1)
+            .saturating_mul(RELATION_ENTRY_BYTES);
+        T::DbWeight::get()
+            .reads_writes(1, 1)
+            .saturating_add(Weight::from_parts(0, bytes))
+    }
+
     /// Drain the threshold-check queue within `limit`. A parent stays queued until every
-    /// non-exempt relation it no longer qualifies for has been pruned. Returns the weight used.
+    /// non-exempt relation it no longer qualifies for has been pruned; a pass that runs out of
+    /// budget mid-way leaves consistent state and resumes later. Returns the weight used.
     pub fn process_childkey_threshold_checks(limit: Weight) -> Weight {
         // Queue head read plus the subnet-count read used to size one item.
         let overhead = T::DbWeight::get().reads(2);
@@ -689,15 +694,21 @@ impl<T: Config> Pallet<T> {
             return used;
         }
         used = overhead;
-        let per_item = Self::childkey_threshold_check_weight();
+        let admission = Self::childkey_threshold_check_admission_weight();
         let mut finished: Vec<T::AccountId> = Vec::new();
         for hotkey in ChildkeyThresholdChecks::<T>::iter_keys() {
-            if !used.saturating_add(per_item).all_lte(limit) {
+            if !used.saturating_add(admission).all_lte(limit) {
                 break;
             }
-            used.saturating_accrue(per_item);
-            if Self::prune_childkeys_below_threshold(&hotkey) {
+            used.saturating_accrue(admission);
+            let (done, edge_weight) =
+                Self::prune_childkeys_below_threshold_within(&hotkey, limit.saturating_sub(used));
+            used.saturating_accrue(edge_weight);
+            if done {
                 finished.push(hotkey);
+            } else {
+                // Out of budget: later parents would not fit either.
+                break;
             }
         }
         for hotkey in finished {
@@ -709,12 +720,20 @@ impl<T: Config> Pallet<T> {
     /// Drop `hotkey`'s live child relations (and any pending ones on the same subnets)
     /// wherever it no longer meets the childkey stake threshold. Subnet owner hotkeys keep
     /// theirs. A parent that falls below the threshold therefore cannot keep routing stake to
-    /// its children; it must re-qualify and schedule them again.
-    ///
-    /// Prunes at most `MAX_CHILDKEY_PRUNE_RELATIONS` non-exempt subnets per call. Returns
-    /// `true` when nothing prunable remains (the hotkey qualifies, or every remaining relation
-    /// is exempt or was pruned), `false` when another pass is needed.
+    /// its children; it must re-qualify and schedule them again. Unmetered convenience
+    /// wrapper; the idle processor uses the metered form.
     pub fn prune_childkeys_below_threshold(hotkey: &T::AccountId) -> bool {
+        Self::prune_childkeys_below_threshold_within(hotkey, Weight::MAX).0
+    }
+
+    /// Metered pruning pass. Handles at most `MAX_CHILDKEY_PRUNE_RELATIONS` non-exempt
+    /// subnets and, within them, only the reverse edges whose measured cost fits in `budget`.
+    /// Returns `(finished, weight_used)`: `finished` is `true` when nothing prunable remains
+    /// (the hotkey qualifies, or every remaining relation is exempt or was pruned).
+    fn prune_childkeys_below_threshold_within(
+        hotkey: &T::AccountId,
+        budget: Weight,
+    ) -> (bool, Weight) {
         let batch = MAX_CHILDKEY_PRUNE_RELATIONS as usize;
         // Exempt (owner) relations are skipped without consuming the batch, so a parent that
         // owns subnets still makes progress on its other relations.
@@ -725,39 +744,70 @@ impl<T: Config> Pallet<T> {
             .take(batch.saturating_add(1))
             .collect();
         if prunable.is_empty() {
-            return true;
+            return (true, Weight::zero());
         }
         if Self::get_total_stake_for_hotkey(hotkey) >= StakeThreshold::<T>::get().into() {
-            return true;
+            return (true, Weight::zero());
         }
-        let finished = prunable.len() <= batch;
+        let mut used = Weight::zero();
+        let mut finished = prunable.len() <= batch;
         for netuid in prunable.into_iter().take(batch) {
+            let (subnet_done, subnet_weight) =
+                Self::remove_outgoing_child_relations(hotkey, netuid, budget.saturating_sub(used));
+            used.saturating_accrue(subnet_weight);
+            if !subnet_done {
+                finished = false;
+                break;
+            }
             PendingChildKeys::<T>::remove(netuid, hotkey);
-            Self::remove_outgoing_child_relations(hotkey, netuid);
+            used.saturating_accrue(T::DbWeight::get().writes(1));
         }
-        finished
+        (finished, used)
     }
 
-    /// Remove every child relation `parent` holds on `netuid`: the parent's `ChildKeys` row
-    /// and the parent's entry in each child's `ParentKeys`. Touches only those outgoing edges
-    /// (at most `MAX_CHILDREN`) and never the parent's own incoming parents, so its cost is
-    /// bounded independently of how many hotkeys parent this one.
-    fn remove_outgoing_child_relations(parent: &T::AccountId, netuid: NetUid) {
-        let children = ChildKeys::<T>::take(parent, netuid);
-        for (_, child) in children.iter() {
-            let mut parents = ParentKeys::<T>::get(child, netuid);
+    /// Remove `parent`'s child relations on `netuid` one reverse edge at a time, each admitted
+    /// only if its measured cost (the child's whole `ParentKeys` vector) fits in `budget`.
+    /// Touches only the parent's outgoing edges (at most five) and never the
+    /// parent's own incoming parents. Returns `(finished, weight_used)`; when unfinished the
+    /// parent's `ChildKeys` row holds exactly the edges still to remove.
+    fn remove_outgoing_child_relations(
+        parent: &T::AccountId,
+        netuid: NetUid,
+        budget: Weight,
+    ) -> (bool, Weight) {
+        let mut children = ChildKeys::<T>::get(parent, netuid);
+        let mut used = Self::relation_vector_weight(children.len());
+        if !used.all_lte(budget) {
+            return (false, Weight::zero());
+        }
+        let mut removed: Vec<(u64, T::AccountId)> = Vec::new();
+        while let Some((proportion, child)) = children.last().cloned() {
+            let parents = ParentKeys::<T>::get(&child, netuid);
+            let edge_weight = Self::relation_vector_weight(parents.len());
+            if !used.saturating_add(edge_weight).all_lte(budget) {
+                break;
+            }
+            used.saturating_accrue(edge_weight);
+            let mut parents = parents;
             PCRelations::<T>::remove_edge(&mut parents, parent);
             Self::set_parentkeys(child.clone(), netuid, parents);
+            children.pop();
+            removed.push((proportion, child));
         }
-        if !children.is_empty() {
+        let finished = children.is_empty();
+        Self::set_childkeys(parent.clone(), netuid, children);
+        if !removed.is_empty() {
             log::trace!(
                 "PrunedChildren( netuid:{:?}, hotkey:{:?}, children:{:?} )",
                 netuid,
                 parent,
-                children
+                removed
             );
+        }
+        if finished {
             Self::deposit_event(Event::SetChildren(parent.clone(), netuid, Vec::new()));
         }
+        (finished, used)
     }
 
     // If child-parent consistency is broken, fail setting new children silently
