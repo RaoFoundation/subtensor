@@ -1491,11 +1491,18 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// MAP ( parent ) --> () | Parents with live child relations whose stake just left them.
+    /// MAP ( parent ) --> () | Parents with live child relations whose stake just changed.
     /// Drained in `on_idle`, where each parent's total stake is re-checked against
-    /// `StakeThreshold` and its relations pruned if it no longer qualifies.
+    /// `StakeThreshold` and `ChildkeyThresholdSuspended` is set or cleared.
     #[pallet::storage]
     pub type ChildkeyThresholdChecks<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
+
+    /// MAP ( parent ) --> () | Parents whose total stake is below `StakeThreshold`. Their child
+    /// relations stay stored but are inert (hidden from `get_children` / `get_parents`)
+    /// except on subnets they own, until they qualify again.
+    #[pallet::storage]
+    pub type ChildkeyThresholdSuspended<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, (), OptionQuery>;
 
     /// DMAP ( netuid, parent ) --> (Vec<(proportion,child)>, cool_down_block)

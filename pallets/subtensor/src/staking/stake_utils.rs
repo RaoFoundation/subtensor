@@ -1048,6 +1048,11 @@ impl<T: Config> Pallet<T> {
             Self::maybe_add_coldkey_index(coldkey);
         }
 
+        // A suspended parent may qualify again: queue the metered re-check (one read).
+        if ChildkeyThresholdSuspended::<T>::contains_key(hotkey) {
+            ChildkeyThresholdChecks::<T>::insert(hotkey, ());
+        }
+
         // Deposit and log the staking event.
         Self::deposit_event(Event::StakeAdded(
             coldkey.clone(),

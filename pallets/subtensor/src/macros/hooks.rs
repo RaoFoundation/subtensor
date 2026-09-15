@@ -259,8 +259,8 @@ mod hooks {
                 weight.saturating_accrue(Self::process_network_registration_queue());
             }
 
-            // Parents whose stake just left them: re-check the childkey threshold and prune
-            // relations here, metered, instead of inside the stake extrinsics.
+            // Parents whose stake just changed: re-check the childkey threshold here, metered,
+            // instead of inside the stake extrinsics, and suspend or resume their relations.
             if weight.all_lt(limit) {
                 weight.saturating_accrue(Self::process_childkey_threshold_checks(
                     limit.saturating_sub(weight),

@@ -4980,8 +4980,8 @@ fn childkey_threshold_fixture() -> ChildkeyThresholdFixture {
 }
 
 // The parent qualifies at scheduling, then moves its whole stake to another hotkey during
-// the cooldown (the P -> Q move-and-cash-out). The pending relation is dropped when the
-// stake leaves, and even a pending entry that survives is refused at maturation.
+// the cooldown (the P -> Q move-and-cash-out). The pending entry is refused at maturation and
+// re-staking below the threshold does not arm the child.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_pending_children_do_not_mature_after_parent_moves_stake_away --exact
 #[test]
 fn test_pending_children_do_not_mature_after_parent_moves_stake_away() {
@@ -5024,6 +5024,7 @@ fn test_pending_children_do_not_mature_after_parent_moves_stake_away() {
         wait_and_set_pending_children(f.netuid);
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+        assert!(ChildKeys::<Test>::get(f.parent, f.netuid).is_empty());
         assert!(!PendingChildKeys::<Test>::contains_key(f.netuid, f.parent));
 
         // Re-staking below the threshold does not arm the child either.
@@ -5037,7 +5038,7 @@ fn test_pending_children_do_not_mature_after_parent_moves_stake_away() {
     });
 }
 
-// `unstake_all` during the cooldown drops the pending relation, so nothing matures.
+// `unstake_all` during the cooldown: nothing matures.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_unstake_all_drops_pending_children --exact
 #[test]
 fn test_unstake_all_drops_pending_children() {
@@ -5065,12 +5066,15 @@ fn test_unstake_all_drops_pending_children() {
     });
 }
 
-// A live relation is pruned when the parent unstakes below the threshold; the subnet owner
-// hotkey keeps its children regardless of stake.
-// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_live_children_pruned_when_parent_falls_below_threshold --exact
+// A live relation is suspended when the parent unstakes below the threshold: the stored rows
+// stay, but `get_children` / `get_parents` (what stake inheritance reads) hide the edge, and
+// the parent's inherited stake no longer flows to the child. The subnet owner hotkey keeps
+// its children regardless of stake. Re-staking above the threshold resumes the edge.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_live_children_suspended_when_parent_falls_below_threshold --exact
 #[test]
-fn test_live_children_pruned_when_parent_falls_below_threshold() {
+fn test_live_children_suspended_when_parent_falls_below_threshold() {
     new_test_ext(1).execute_with(|| {
+        const TAO: u64 = 1_000_000_000;
         let f = childkey_threshold_fixture();
         assert_ok!(SubtensorModule::do_schedule_children(
             RuntimeOrigin::signed(f.coldkey),
@@ -5083,6 +5087,11 @@ fn test_live_children_pruned_when_parent_falls_below_threshold() {
             SubtensorModule::get_children(&f.parent, f.netuid),
             vec![(u64::MAX, f.child)]
         );
+        assert!(
+            SubtensorModule::get_inherited_for_hotkey_on_subnet(&f.child, f.netuid)
+                > AlphaBalance::ZERO,
+            "child inherits while the parent qualifies"
+        );
 
         // A partial unstake that keeps the parent above the threshold changes nothing.
         assert_ok!(SubtensorModule::remove_stake(
@@ -5091,12 +5100,16 @@ fn test_live_children_pruned_when_parent_falls_below_threshold() {
             f.netuid,
             AlphaBalance::from(10_000_000_000_u64),
         ));
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        run_block_idle();
+        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert!(!ChildkeyThresholdSuspended::<Test>::contains_key(f.parent));
         assert_eq!(
             SubtensorModule::get_children(&f.parent, f.netuid),
             vec![(u64::MAX, f.child)]
         );
 
-        // Unstaking the rest drops the parent below the threshold and prunes the edge.
+        // Unstaking the rest drops the parent below the threshold and suspends the edge.
         let remaining = SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
             &f.parent, &f.coldkey, f.netuid,
         );
@@ -5114,10 +5127,58 @@ fn test_live_children_pruned_when_parent_falls_below_threshold() {
         assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
         run_block_idle();
         assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(f.parent));
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+        // Rows are untouched; only their effect is paused.
+        assert_eq!(
+            ChildKeys::<Test>::get(f.parent, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+        assert_eq!(
+            ParentKeys::<Test>::get(f.child, f.netuid),
+            vec![(u64::MAX, f.parent)]
+        );
 
-        // The subnet owner hotkey is exempt from the threshold.
+        // Below-threshold stake added to the parent stays with the parent, not the child.
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            TaoBalance::from(10 * TAO),
+        ));
+        run_block_idle();
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(f.parent));
+        assert_eq!(
+            SubtensorModule::get_inherited_for_hotkey_on_subnet(&f.child, f.netuid),
+            SubtensorModule::get_stake_for_hotkey_on_subnet(&f.child, f.netuid)
+        );
+        assert_eq!(
+            SubtensorModule::get_inherited_for_hotkey_on_subnet(&f.parent, f.netuid),
+            SubtensorModule::get_stake_for_hotkey_on_subnet(&f.parent, f.netuid)
+        );
+
+        // Re-qualifying resumes the relation without a new schedule.
+        add_balance_to_coldkey_account(&f.coldkey, TaoBalance::from(1_300 * TAO));
+        assert_ok!(SubtensorModule::add_stake(
+            RuntimeOrigin::signed(f.coldkey),
+            f.parent,
+            f.netuid,
+            TaoBalance::from(1_200 * TAO),
+        ));
+        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        run_block_idle();
+        assert!(!ChildkeyThresholdSuspended::<Test>::contains_key(f.parent));
+        assert_eq!(
+            SubtensorModule::get_children(&f.parent, f.netuid),
+            vec![(u64::MAX, f.child)]
+        );
+        assert_eq!(
+            SubtensorModule::get_parents(&f.child, f.netuid),
+            vec![(u64::MAX, f.parent)]
+        );
+
+        // The subnet owner hotkey is exempt from the threshold on its own subnet.
         let owner_hotkey = SubnetOwnerHotkey::<Test>::get(f.netuid);
         let owner_coldkey = SubnetOwner::<Test>::get(f.netuid);
         assert_ok!(SubtensorModule::do_schedule_children(
@@ -5127,11 +5188,10 @@ fn test_live_children_pruned_when_parent_falls_below_threshold() {
             vec![(u64::MAX, f.child)],
         ));
         wait_and_set_pending_children(f.netuid);
-        assert_eq!(
-            SubtensorModule::get_children(&owner_hotkey, f.netuid),
-            vec![(u64::MAX, f.child)]
-        );
-        SubtensorModule::prune_childkeys_below_threshold(&owner_hotkey);
+        SubtensorModule::recheck_childkey_threshold(&owner_hotkey);
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(
+            owner_hotkey
+        ));
         assert_eq!(
             SubtensorModule::get_children(&owner_hotkey, f.netuid),
             vec![(u64::MAX, f.child)]
@@ -5140,7 +5200,7 @@ fn test_live_children_pruned_when_parent_falls_below_threshold() {
 }
 
 // `swap_hotkey_v2(keep_stake = true)` re-keys the relations onto a hotkey that holds no
-// stake; those relations are pruned (live) or refused at maturation (pending).
+// stake; those relations are suspended (live) or refused at maturation (pending).
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_keep_stake_hotkey_swap_does_not_carry_children_to_unstaked_hotkey --exact
 #[test]
 fn test_keep_stake_hotkey_swap_does_not_carry_children_to_unstaked_hotkey() {
@@ -5179,6 +5239,7 @@ fn test_keep_stake_hotkey_swap_does_not_carry_children_to_unstaked_hotkey() {
         );
         assert!(ChildkeyThresholdChecks::<Test>::contains_key(new_hotkey));
         run_block_idle();
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(new_hotkey));
         assert_eq!(SubtensorModule::get_children(&new_hotkey, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
         assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
@@ -5190,7 +5251,7 @@ fn test_keep_stake_hotkey_swap_does_not_carry_children_to_unstaked_hotkey() {
 }
 
 // A hotkey without child relations is never queued, and a queued parent that still
-// qualifies is dropped from the queue without losing its relations.
+// qualifies is dequeued without being suspended.
 // SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_threshold_queue_only_holds_parents --exact
 #[test]
 fn test_childkey_threshold_queue_only_holds_parents() {
@@ -5223,6 +5284,7 @@ fn test_childkey_threshold_queue_only_holds_parents() {
         assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
         run_block_idle();
         assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert!(!ChildkeyThresholdSuspended::<Test>::contains_key(f.parent));
         assert_eq!(
             SubtensorModule::get_children(&f.parent, f.netuid),
             vec![(u64::MAX, f.child)]
@@ -5230,12 +5292,11 @@ fn test_childkey_threshold_queue_only_holds_parents() {
     });
 }
 
-// A parent with relations on more than one batch of subnets (and an owner-exempt relation
-// in the mix) is pruned across successive idle passes and stays queued until finished;
-// the owner-exempt relation survives.
-// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_prune_resumes_across_idle_passes --exact
+// Suspension is a per-hotkey flag: one idle pass covers all of a parent's subnets at once,
+// costs nothing per relation, and its subnet-owner relations stay live.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_suspension_covers_all_subnets_except_owned --exact
 #[test]
-fn test_childkey_prune_resumes_across_idle_passes() {
+fn test_childkey_suspension_covers_all_subnets_except_owned() {
     new_test_ext(1).execute_with(|| {
         const TAO: u64 = 1_000_000_000;
         let coldkey = U256::from(1_000);
@@ -5259,13 +5320,7 @@ fn test_childkey_prune_resumes_across_idle_passes() {
                 AlphaBalance::from(1_000 * TAO),
             );
             mock_set_children(&coldkey, &parent, *netuid, &[(u64::MAX, child)]);
-            assert_eq!(
-                SubtensorModule::get_children(&parent, *netuid),
-                vec![(u64::MAX, child)]
-            );
         }
-
-        // Stake leaves everywhere; the extrinsic path only queues the parent.
         for netuid in &netuids {
             SubtensorModule::decrease_stake_for_hotkey_and_coldkey_on_subnet(
                 &parent,
@@ -5277,33 +5332,25 @@ fn test_childkey_prune_resumes_across_idle_passes() {
         // The owner registration keeps a little stake on the owned subnet; raise the bar so
         // the parent is unambiguously below it.
         StakeThreshold::<Test>::put(u64::MAX / 2);
-        assert!(
-            SubtensorModule::get_total_stake_for_hotkey(&parent).to_u64()
-                < StakeThreshold::<Test>::get()
-        );
         SubtensorModule::queue_childkey_threshold_check(&parent);
-        assert!(ChildkeyThresholdChecks::<Test>::contains_key(parent));
 
-        // First pass prunes one batch and keeps the parent queued.
-        run_block_idle();
-        let live_after_first = netuids
-            .iter()
-            .filter(|netuid| !SubtensorModule::get_children(&parent, **netuid).is_empty())
-            .count();
-        assert_eq!(
-            live_after_first, 3,
-            "8 of 10 non-exempt relations pruned, owner kept"
-        );
-        assert!(ChildkeyThresholdChecks::<Test>::contains_key(parent));
-
-        // Second pass finishes and dequeues; only the owner-exempt relation remains.
         run_block_idle();
         assert!(!ChildkeyThresholdChecks::<Test>::contains_key(parent));
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(parent));
         for netuid in &netuids {
+            assert_eq!(
+                ChildKeys::<Test>::get(parent, *netuid),
+                vec![(u64::MAX, child)],
+                "rows are never rewritten"
+            );
             if *netuid == owned {
                 assert_eq!(
                     SubtensorModule::get_children(&parent, *netuid),
                     vec![(u64::MAX, child)]
+                );
+                assert_eq!(
+                    SubtensorModule::get_parents(&child, *netuid),
+                    vec![(u64::MAX, parent)]
                 );
             } else {
                 assert_eq!(SubtensorModule::get_children(&parent, *netuid), vec![]);
@@ -5313,11 +5360,11 @@ fn test_childkey_prune_resumes_across_idle_passes() {
     });
 }
 
-// Pruning a parent's outgoing relations leaves its incoming parents untouched: the hotkeys
-// that list it as their child keep those edges, and its own `ParentKeys` row is unchanged.
-// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_prune_leaves_incoming_parents_untouched --exact
+// A suspended parent does not affect other parents of the same child: their edges remain
+// visible and its own incoming parents are untouched.
+// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_suspension_leaves_other_parents_untouched --exact
 #[test]
-fn test_childkey_prune_leaves_incoming_parents_untouched() {
+fn test_childkey_suspension_leaves_other_parents_untouched() {
     new_test_ext(1).execute_with(|| {
         const TAO: u64 = 1_000_000_000;
         let f = childkey_threshold_fixture();
@@ -5330,10 +5377,17 @@ fn test_childkey_prune_leaves_incoming_parents_untouched() {
                 f.netuid,
                 AlphaBalance::from(2_000 * TAO),
             );
-            mock_set_children(&f.coldkey, upper, f.netuid, &[(u64::MAX, f.parent)]);
+            // Uppers parent both the parent and the child directly.
+            mock_set_children(
+                &f.coldkey,
+                upper,
+                f.netuid,
+                &[(u64::MAX / 2, f.parent), (u64::MAX / 2, f.child)],
+            );
         }
         mock_set_children(&f.coldkey, &f.parent, f.netuid, &[(u64::MAX, f.child)]);
         assert_eq!(SubtensorModule::get_parents(&f.parent, f.netuid).len(), 3);
+        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid).len(), 4);
 
         assert_ok!(SubtensorModule::unstake_all(
             RuntimeOrigin::signed(f.coldkey),
@@ -5341,17 +5395,19 @@ fn test_childkey_prune_leaves_incoming_parents_untouched() {
         ));
         // `mock_set_children` zeroes the threshold to schedule; restore it for the check.
         StakeThreshold::<Test>::put(1_000 * TAO);
-        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
         run_block_idle();
-        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(f.parent));
 
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
-        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
+        // The child keeps its three other parents; only the suspended edge is hidden.
+        let child_parents = SubtensorModule::get_parents(&f.child, f.netuid);
+        assert_eq!(child_parents.len(), 3);
+        assert!(child_parents.iter().all(|(_, who)| *who != f.parent));
         for upper in &uppers {
             assert_eq!(
                 SubtensorModule::get_children(upper, f.netuid),
-                vec![(u64::MAX, f.parent)],
-                "incoming parent edges must survive the prune"
+                vec![(u64::MAX / 2, f.parent), (u64::MAX / 2, f.child)],
+                "other parents' edges are unaffected"
             );
         }
         assert_eq!(SubtensorModule::get_parents(&f.parent, f.netuid).len(), 3);
@@ -5374,6 +5430,7 @@ fn test_childkey_threshold_processor_respects_small_budget() {
         let used = SubtensorModule::process_childkey_threshold_checks(tiny);
         assert!(used.all_lte(tiny), "must not exceed the offered budget");
         assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert!(!ChildkeyThresholdSuspended::<Test>::contains_key(f.parent));
         assert_eq!(
             SubtensorModule::get_children(&f.parent, f.netuid),
             vec![(u64::MAX, f.child)]
@@ -5388,74 +5445,7 @@ fn test_childkey_threshold_processor_respects_small_budget() {
         // A full budget finishes the job.
         run_block_idle();
         assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
+        assert!(ChildkeyThresholdSuspended::<Test>::contains_key(f.parent));
         assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
-    });
-}
-
-// Each reverse edge is admitted only after reserving the cost of a cap-sized `ParentKeys`
-// row. With a budget for exactly one edge the prune stops after it, leaves the other edge in
-// place and the parent queued; the next pass finishes. Interrupted state stays consistent.
-// A legacy row longer than the cap is left intact (and the parent dequeued) instead of being
-// rewritten beyond the reservation.
-// SKIP_WASM_BUILD=1 cargo test --package pallet-subtensor --lib -- tests::children::test_childkey_prune_reserves_capped_reverse_edge_cost --exact
-#[test]
-fn test_childkey_prune_reserves_capped_reverse_edge_cost() {
-    new_test_ext(1).execute_with(|| {
-        let f = childkey_threshold_fixture();
-        let child_b = U256::from(2_003);
-        register_ok_neuron(f.netuid, child_b, f.coldkey, 2);
-        mock_set_children(
-            &f.coldkey,
-            &f.parent,
-            f.netuid,
-            &[(u64::MAX / 2, f.child), (u64::MAX / 2, child_b)],
-        );
-        StakeThreshold::<Test>::put(u64::MAX / 2);
-        SubtensorModule::queue_childkey_threshold_check(&f.parent);
-
-        let db = <Test as frame_system::Config>::DbWeight::get();
-        let subnets = u64::from(TotalNetworks::<Test>::get());
-        let admission = db.reads(subnets * 6 + 5).saturating_add(db.writes(1));
-        let row = |entries: u64| db.reads_writes(1, 1) + Weight::from_parts(0, (entries + 1) * 40);
-        // Budget: bookkeeping + admission + the parent's own row + one cap-sized edge.
-        let budget = db.reads(2) + admission + row(5) + row(512);
-        let used = SubtensorModule::process_childkey_threshold_checks(budget);
-        assert!(used.all_lte(budget), "must not exceed the offered budget");
-
-        // Exactly one edge (the last in the row, child_b) was removed; the parent is queued.
-        assert_eq!(SubtensorModule::get_parents(&child_b, f.netuid), vec![]);
-        assert_eq!(
-            SubtensorModule::get_children(&f.parent, f.netuid),
-            vec![(u64::MAX / 2, f.child)]
-        );
-        assert_eq!(
-            SubtensorModule::get_parents(&f.child, f.netuid),
-            vec![(u64::MAX / 2, f.parent)]
-        );
-        assert!(ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
-
-        // A full pass finishes.
-        run_block_idle();
-        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
-        assert_eq!(SubtensorModule::get_children(&f.parent, f.netuid), vec![]);
-        assert_eq!(SubtensorModule::get_parents(&f.child, f.netuid), vec![]);
-
-        // Oversized legacy row: the edge is kept and the parent still leaves the queue.
-        TransactionType::SetChildren.set_last_block_on_subnet::<Test>(&f.parent, f.netuid, 0);
-        mock_set_children(&f.coldkey, &f.parent, f.netuid, &[(u64::MAX, f.child)]);
-        let mut crowd: Vec<(u64, U256)> = (0..600u64)
-            .map(|i| (1_000, U256::from(50_000 + i)))
-            .collect();
-        crowd.push((u64::MAX, f.parent));
-        ParentKeys::<Test>::insert(f.child, f.netuid, crowd);
-        StakeThreshold::<Test>::put(u64::MAX / 2);
-        SubtensorModule::queue_childkey_threshold_check(&f.parent);
-        run_block_idle();
-        assert!(!ChildkeyThresholdChecks::<Test>::contains_key(f.parent));
-        assert_eq!(
-            SubtensorModule::get_children(&f.parent, f.netuid),
-            vec![(u64::MAX, f.child)]
-        );
-        assert_eq!(ParentKeys::<Test>::get(f.child, f.netuid).len(), 601);
     });
 }
