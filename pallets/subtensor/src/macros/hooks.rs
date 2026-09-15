@@ -228,9 +228,10 @@ mod hooks {
                 // Schedule stale StakingHotkeys relationship cleanup. It runs after storage GC
                 // and uses only otherwise-unused on_idle weight; normal operations stay enabled.
                 .saturating_add(migrations::migrate_cleanup_staking_hotkeys::kickoff_staking_hotkeys_cleanup::<T>());
-            // The beta-baseline seed (`migrate_stamp_beta_baselines`) runs from the
-            // runtime `Migrations` tuple instead of this hook, so try-runtime validates
-            // its pre/post-upgrade invariants against real network state.
+            // The beta-baseline seed (`migrate_stamp_beta_baselines`) and the root pot
+            // reconciliation (`migrate_fix_root_pot_shortfall`) run from the runtime
+            // `Migrations` tuple instead of this hook, so try-runtime validates their
+            // pre/post-upgrade invariants against real network state.
             weight
         }
 
@@ -256,6 +257,14 @@ mod hooks {
 
             if weight.all_lt(limit) {
                 weight.saturating_accrue(Self::process_network_registration_queue());
+            }
+
+            // Parents whose stake just changed: re-check the childkey threshold here, metered,
+            // instead of inside the stake extrinsics, and suspend or resume their relations.
+            if weight.all_lt(limit) {
+                weight.saturating_accrue(Self::process_childkey_threshold_checks(
+                    limit.saturating_sub(weight),
+                ));
             }
 
             // Continue the multi-block beta-basket seed migration until HasMigrationRun is set.

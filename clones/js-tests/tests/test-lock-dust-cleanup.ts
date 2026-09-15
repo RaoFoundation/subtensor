@@ -167,9 +167,17 @@ async function runTwoColdkeyDustAggregateScenario() {
     ONE_ALPHA + DUST_AGGREGATE_LOCK_AMOUNT,
     "DecayingHotkeyLock aggregate after both locks"
   );
+  const coldkey2LockAfterLocks = await requireLock(
+    testColdkey2.address,
+    netuid,
+    lockHotkey,
+    "coldkey2 dust lock after locks"
+  );
+  assert.equal(coldkey2LockAfterLocks.lockedMass, DUST_AGGREGATE_LOCK_AMOUNT, "coldkey2 dust lock after locks");
   await assertLockingColdkeysContains(netuid, lockHotkey, testColdkey1.address, "after coldkey1 lockStake");
   await assertLockingColdkeysContains(netuid, lockHotkey, testColdkey2.address, "after coldkey2 lockStake");
   console.log("two-coldkey aggregate after locks:", formatLock(aggregateAfterLocks));
+  console.log("two-coldkey coldkey2 lock after locks:", formatLock(coldkey2LockAfterLocks));
 
   await setLockRates(DUST_SCENARIO_DECAY_RATE, DUST_SCENARIO_DECAY_RATE, "set two-coldkey dust scenario rates");
   console.log("two-coldkey dust wait blocks:", DUST_SCENARIO_WAIT_BLOCKS.toString());
@@ -192,10 +200,18 @@ async function runTwoColdkeyDustAggregateScenario() {
     coldkey1LockAfterUnstake.lockedMass >= 999_000_000n && coldkey1LockAfterUnstake.lockedMass < ONE_ALPHA,
     `expected coldkey1 lock to decay to 999??????, got ${coldkey1LockAfterUnstake.lockedMass}`
   );
-  assert.equal(
+  // coldkey1's roll-forward advances its own row and the aggregate to the same block, so the
+  // aggregate is coldkey1's decayed alpha plus coldkey2's 100 dust decayed over the same window.
+  // Each member is truncated separately, so allow the truncation rounding.
+  assertWithinRounding(
     aggregateAfterColdkey1.lockedMass,
-    coldkey1LockAfterUnstake.lockedMass + DUST_AGGREGATE_LOCK_AMOUNT,
-    "DecayingHotkeyLock aggregate after coldkey1 roll-forward should be decayed 1 alpha plus 100 dust"
+    coldkey1LockAfterUnstake.lockedMass +
+      decayedLockedMass(
+        DUST_AGGREGATE_LOCK_AMOUNT,
+        blocksBetween(coldkey2LockAfterLocks.lastUpdate, aggregateAfterColdkey1.lastUpdate),
+        DUST_SCENARIO_DECAY_RATE
+      ),
+    "DecayingHotkeyLock aggregate after coldkey1 roll-forward should be decayed 1 alpha plus decayed 100 dust"
   );
   console.log("coldkey1 lock after unstake:", formatLock(coldkey1LockAfterUnstake));
   console.log("aggregate after coldkey1 unstake:", formatLock(aggregateAfterColdkey1));
@@ -219,19 +235,70 @@ async function runTwoColdkeyDustAggregateScenario() {
     aggregateAfterColdkey2.lockedMass >= 999_000_000n && aggregateAfterColdkey2.lockedMass < ONE_ALPHA,
     `expected aggregate to remain 999?????? after dust cleanup, got ${aggregateAfterColdkey2.lockedMass}`
   );
+  // Only coldkey2's roll-forward ran here. Every lock state advances from its own timestamp
+  // (see LockAccounting::roll_forward): the aggregate is now rolled to coldkey2's unstake
+  // block, while coldkey1's row is untouched and still sits at coldkey1's unstake block.
+  // Compare both at the aggregate's block, not the raw stored masses.
   assert.equal(
-    aggregateAfterColdkey2.lockedMass,
     coldkey1LockAfterColdkey2.lockedMass,
-    "DecayingHotkeyLock aggregate after coldkey2 roll-forward should match coldkey1 without 100 dust"
+    coldkey1LockAfterUnstake.lockedMass,
+    "coldkey1's own lock row must not be touched by coldkey2's roll-forward"
   );
-  assert.equal(
-    aggregateAfterColdkey1.lockedMass - aggregateAfterColdkey2.lockedMass,
+  assert.ok(
+    aggregateAfterColdkey2.lastUpdate >= aggregateAfterColdkey1.lastUpdate,
+    "aggregate last_update must advance with coldkey2's roll-forward"
+  );
+  const coldkey1DecayedToAggregateBlock = decayedLockedMass(
+    coldkey1LockAfterColdkey2.lockedMass,
+    blocksBetween(coldkey1LockAfterColdkey2.lastUpdate, aggregateAfterColdkey2.lastUpdate),
+    DUST_SCENARIO_DECAY_RATE
+  );
+  assertWithinRounding(
+    aggregateAfterColdkey2.lockedMass,
+    coldkey1DecayedToAggregateBlock,
+    "DecayingHotkeyLock aggregate after coldkey2 dust cleanup should equal coldkey1's lock decayed to the same block"
+  );
+  // Dust removal subtracts coldkey2's residual as decayed to the cleanup block; the rest of
+  // the aggregate's drop is plain time decay of coldkey1's mass.
+  const aggregateBeforeCleanupDecayed = decayedLockedMass(
+    aggregateAfterColdkey1.lockedMass,
+    blocksBetween(aggregateAfterColdkey1.lastUpdate, aggregateAfterColdkey2.lastUpdate),
+    DUST_SCENARIO_DECAY_RATE
+  );
+  const dustRemoved = aggregateBeforeCleanupDecayed - aggregateAfterColdkey2.lockedMass;
+  const expectedDustResidual = decayedLockedMass(
     DUST_AGGREGATE_LOCK_AMOUNT,
-    "coldkey2 cleanup should remove exactly 100 aggregate dust"
+    blocksBetween(coldkey2LockAfterLocks.lastUpdate, aggregateAfterColdkey2.lastUpdate),
+    DUST_SCENARIO_DECAY_RATE
   );
+  assert.ok(
+    expectedDustResidual < LOCK_STATE_ZERO_THRESHOLD,
+    `coldkey2's residual ${expectedDustResidual} must be below the dust threshold for cleanup to trigger`
+  );
+  assertWithinRounding(dustRemoved, expectedDustResidual, "coldkey2 cleanup should remove exactly its decayed dust residual");
   console.log("coldkey1 lock after coldkey2 cleanup:", formatLock(coldkey1LockAfterColdkey2));
   console.log("aggregate after coldkey2 cleanup:", formatLock(aggregateAfterColdkey2));
-  console.log("two-coldkey DecayingHotkeyLock dust cleanup removed 100 aggregate dust: ok");
+  console.log("coldkey1 decayed to aggregate block:", coldkey1DecayedToAggregateBlock.toString());
+  console.log("two-coldkey DecayingHotkeyLock dust removed:", dustRemoved.toString(), `(residual ${expectedDustResidual})`);
+  console.log("two-coldkey DecayingHotkeyLock dust cleanup removed coldkey2's dust residual: ok");
+}
+
+// Members are decayed and truncated independently before being summed into the aggregate,
+// and the runtime uses fixed-point exp while this file uses f64, so the two sides of an
+// aggregate comparison can differ by a rao or two on a 1-alpha lock.
+const ROUNDING_TOLERANCE = 2n;
+
+function assertWithinRounding(actual, expected, label) {
+  const difference = actual > expected ? actual - expected : expected - actual;
+  assert.ok(
+    difference <= ROUNDING_TOLERANCE,
+    `${label}: expected ${expected} ± ${ROUNDING_TOLERANCE}, got ${actual} (difference ${difference})`
+  );
+}
+
+function blocksBetween(from, to) {
+  assert.ok(to >= from, `block order: from=${from} to=${to}`);
+  return Number(to - from);
 }
 
 main().catch(async (error) => {

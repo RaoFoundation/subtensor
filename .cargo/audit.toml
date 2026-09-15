@@ -1,0 +1,13 @@
+# Accepted advisories that cannot be fixed without a major polkadot-sdk bump.
+# The CI ignore list in .github/workflows/cargo-audit.yml covers the older
+# entries; cargo-audit merges both lists. Revisit everything here when the
+# SDK fork moves to a newer wasmtime.
+[advisories]
+ignore = [
+    # RUSTSEC-2026-0269 (added 2026-09-15): wasmtime 8.0.1 WASI filesystem
+    # sandbox escape via trailing slashes. wasmtime 8.0.1 is pinned by the
+    # polkadot-sdk fork's sc-executor-wasmtime / sp-wasm-interface; the fix
+    # is wasmtime >=24.0.13. The node never exposes a WASI filesystem to the
+    # runtime, so the advisory is not reachable here.
+    "RUSTSEC-2026-0269",
+]
