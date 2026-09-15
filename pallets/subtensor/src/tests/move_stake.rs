@@ -1,9 +1,13 @@
 #![allow(clippy::unwrap_used)]
 
 use approx::assert_abs_diff_eq;
+use frame_support::dispatch::{GetDispatchInfo, Pays};
 use frame_support::{assert_err, assert_noop, assert_ok};
+use frame_system::{CheckNonce, RawOrigin};
 use sp_core::{Get, U256};
 use sp_runtime::PerU16;
+use sp_runtime::traits::{DispatchTransaction, Dispatchable};
+use sp_runtime::transaction_validity::InvalidTransaction;
 use substrate_fixed::types::{U64F64, U96F32};
 use subtensor_runtime_common::TaoBalance;
 use subtensor_swap_interface::SwapHandler;
@@ -2542,5 +2546,114 @@ fn test_transfer_stake_doesnt_limit_destination_coldkey() {
             netuid2,
             alpha
         ),);
+    });
+}
+
+/// Moves alpha to `receiver` from a funded coldkey so `receiver` holds alpha and has never
+/// held TAO (no `System::Account` row).
+fn endow_alpha_only(funder: U256, receiver: U256, hotkey: U256, netuid: NetUid, tao: u64) {
+    let _ = SubtensorModule::create_account_if_non_existent(&funder, &hotkey);
+    add_balance_to_coldkey_account(&funder, (tao + 1_000_000_000).into());
+    SubtensorModule::stake_into_subnet(
+        &hotkey,
+        &funder,
+        netuid,
+        tao.into(),
+        <Test as Config>::SwapInterface::max_price(),
+        false,
+    )
+    .unwrap();
+    let alpha =
+        SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &funder, netuid);
+    assert_ok!(SubtensorModule::do_transfer_stake(
+        RuntimeOrigin::signed(funder),
+        receiver,
+        hotkey,
+        netuid,
+        netuid,
+        alpha
+    ));
+}
+
+fn system_account_state(who: &U256) -> (bool, u64, u32, u32) {
+    let exists = frame_system::Account::<Test>::contains_key(who);
+    let account = frame_system::Account::<Test>::get(who);
+    (exists, account.nonce, account.providers, account.sufficients)
+}
+
+// A TAO-less coldkey that transfers stake across subnets to another coldkey must not have
+// its own system account created and reaped by the dispatch: the nonce written by the
+// nonce extension before dispatch has to survive, so the same signed call replays as Stale.
+#[test]
+fn test_cross_subnet_transfer_stake_keeps_signer_account_and_nonce() {
+    new_test_ext(1).execute_with(|| {
+        let subnet_owner_coldkey = U256::from(1001);
+        let subnet_owner_hotkey = U256::from(1002);
+        let netuid_a = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+        let netuid_b = add_dynamic_network(&subnet_owner_hotkey, &subnet_owner_coldkey);
+
+        let funder = U256::from(1);
+        let signer = U256::from(2);
+        let destination = U256::from(3);
+        let hotkey = U256::from(4);
+
+        endow_alpha_only(
+            funder,
+            signer,
+            hotkey,
+            netuid_a,
+            40 * DefaultMinStake::<Test>::get().to_u64(),
+        );
+        let _ = SubtensorModule::create_account_if_non_existent(&destination, &hotkey);
+
+        let signer_alpha_before =
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &signer, netuid_a);
+        assert!(!signer_alpha_before.is_zero());
+        assert_eq!(Balances::free_balance(signer), TaoBalance::ZERO);
+        assert_eq!(system_account_state(&signer), (false, 0, 0, 0));
+
+        let chunk: AlphaBalance = (signer_alpha_before.to_u64() / 4).into();
+        let call = RuntimeCall::SubtensorModule(SubtensorCall::transfer_stake {
+            destination_coldkey: destination,
+            hotkey,
+            origin_netuid: netuid_a,
+            destination_netuid: netuid_b,
+            alpha_amount: chunk,
+        });
+
+        // The nonce extension admits a reference-less signer for a call whose fee it does
+        // not have to cover in TAO, and writes the bumped nonce before dispatch.
+        let mut info = call.get_dispatch_info();
+        info.pays_fee = Pays::No;
+        assert_ok!(
+            CheckNonce::<Test>::from(0)
+                .validate_and_prepare(RawOrigin::Signed(signer).into(), &call, &info, 0, 0)
+                .map(|_| ())
+        );
+        assert_eq!(system_account_state(&signer), (true, 1, 0, 0));
+
+        assert_ok!(call.clone().dispatch(RawOrigin::Signed(signer).into()));
+
+        // The signer never received TAO, so nothing could remove its account.
+        assert_eq!(system_account_state(&signer), (true, 1, 0, 0));
+        assert_eq!(Balances::free_balance(signer), TaoBalance::ZERO);
+        assert!(
+            !SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(
+                &hotkey,
+                &destination,
+                netuid_b
+            )
+            .is_zero()
+        );
+
+        // Replaying the identical signed call is rejected as stale.
+        let replay = CheckNonce::<Test>::from(0)
+            .validate_and_prepare(RawOrigin::Signed(signer).into(), &call, &info, 0, 0)
+            .map(|_| ());
+        assert_eq!(replay, Err(InvalidTransaction::Stale.into()));
+        assert_eq!(
+            SubtensorModule::get_stake_for_hotkey_and_coldkey_on_subnet(&hotkey, &signer, netuid_a),
+            signer_alpha_before.saturating_sub(chunk)
+        );
     });
 }
