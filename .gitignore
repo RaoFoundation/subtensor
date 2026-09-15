@@ -18,7 +18,9 @@
 .DS_Store
 
 # The cache for docker container dependency
-.cargo
+.cargo/*
+# cargo-audit advisory config is tracked
+!.cargo/audit.toml
 
 # The cache for chain data in container
 .local
