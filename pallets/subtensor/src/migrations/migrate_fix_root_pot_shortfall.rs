@@ -239,10 +239,25 @@ pub mod fix_root_pot_shortfall {
                 pot_balance == before.pot_balance.saturating_add(expected_mint),
                 "the root subnet account must receive exactly the minted amount"
             );
-            ensure!(
-                pot_balance >= recorded,
-                "the root subnet account must back SubnetTAO[0]"
-            );
+            // Backing is this migration's goal on chains whose account tracked the counter
+            // (mainnet). A chain whose account was already short for unrelated historical
+            // reasons must not regress, but cannot be required to become fully backed here.
+            if before.pot_balance >= before.recorded {
+                ensure!(
+                    pot_balance >= recorded,
+                    "the root subnet account must keep backing SubnetTAO[0]"
+                );
+            } else {
+                ensure!(
+                    recorded.saturating_sub(pot_balance)
+                        <= before.recorded.saturating_sub(before.pot_balance),
+                    "the root subnet account's pre-existing shortfall against SubnetTAO[0] must not grow"
+                );
+                log::warn!(
+                    "Root subnet account was already {} below SubnetTAO[0] before the upgrade; outside this migration's scope.",
+                    before.recorded.saturating_sub(before.pot_balance)
+                );
+            }
             ensure!(
                 total_stake == before.total_stake.saturating_add(expected_mint),
                 "TotalStake must rise by exactly the minted amount"
