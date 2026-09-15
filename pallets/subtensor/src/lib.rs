@@ -75,6 +75,10 @@ pub const MAX_ROOT_CLAIM_THRESHOLD: u64 = 10_000_000;
 /// `claim_root_scan` (`Linear<1, N>`). Both claim paths reserve this many units
 /// and refund unused weight after dispatch.
 pub const MAX_ROOT_CLAIM_WORK: u32 = 256;
+/// Longest `StakingHotkeys` list a third party may leave behind on a coldkey through
+/// stake transfers. Half the root-claim admission budget, so a coldkey with up to as many
+/// hotkeys of its own still passes the coldkey-wide `claim_root` gate.
+pub const MAX_THIRD_PARTY_STAKING_HOTKEYS: u32 = MAX_ROOT_CLAIM_WORK / 2;
 
 /// Minimum number of positive destination weights required by `set_root_weights`. Softened
 /// to the number of available destinations when fewer networks exist than this floor.

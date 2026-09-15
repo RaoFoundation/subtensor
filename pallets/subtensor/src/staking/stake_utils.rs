@@ -1527,6 +1527,20 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // A transfer to another coldkey appends `destination_hotkey` to that coldkey's
+        // `StakingHotkeys` without its consent. Every stake exit of the destination walks
+        // that list, and the coldkey-wide root claim refuses lists above its admission
+        // budget, so third parties may only grow it up to a fixed bound. The coldkey's own
+        // staking is not limited.
+        if origin_coldkey != destination_coldkey {
+            let staking_hotkeys = StakingHotkeys::<T>::get(destination_coldkey);
+            ensure!(
+                staking_hotkeys.contains(destination_hotkey)
+                    || staking_hotkeys.len() < crate::MAX_THIRD_PARTY_STAKING_HOTKEYS as usize,
+                Error::<T>::TooManyStakingHotkeys
+            );
+        }
+
         // Enforce lock invariant: if the is cross-subnet move, the remaining amount must
         // cover the lock.
         if origin_netuid != destination_netuid {
