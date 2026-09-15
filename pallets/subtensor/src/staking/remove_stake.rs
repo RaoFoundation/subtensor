@@ -613,8 +613,10 @@ impl<T: Config> Pallet<T> {
             }
 
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                if weight_meter.can_consume(r) {
-                    weight_meter.consume(r);
+                // Row read plus the pool/row epoch reads of the retirement check.
+                let inner_reads = r.saturating_mul(3_u64);
+                if weight_meter.can_consume(inner_reads) {
+                    weight_meter.consume(inner_reads);
                 } else {
                     exhausted = true;
                 }
@@ -708,7 +710,9 @@ impl<T: Config> Pallet<T> {
             // Drain the whole hotkey prefix once started. Weight is accounted when it
             // still fits; overshoot is allowed so the cursor can advance past this hotkey.
             for (cold, this_netuid, share_u64f64) in Self::alpha_iter_single_prefix(&hot) {
-                let inner_reads = r.saturating_mul(2_u64);
+                // Row read, pool valuation read, and the pool/row epoch reads of the
+                // retirement check.
+                let inner_reads = r.saturating_mul(4_u64);
                 if weight_meter.can_consume(inner_reads) {
                     weight_meter.consume(inner_reads);
                 } else {
@@ -892,7 +896,10 @@ impl<T: Config> Pallet<T> {
                 coldkeys.push(cold.clone());
             }
 
-            let weight_for_all_remove = w.saturating_mul(coldkeys.len() as u64);
+            // Alpha, AlphaV2 and AlphaShareEpoch removals per coldkey.
+            let weight_for_all_remove = w
+                .saturating_mul(3_u64)
+                .saturating_mul(coldkeys.len() as u64);
             if weight_meter.can_consume(weight_for_all_remove) {
                 weight_meter.consume(weight_for_all_remove);
             } else {

@@ -1201,8 +1201,9 @@ impl<T: Config> Pallet<T> {
         coldkey: &T::AccountId,
         netuid: NetUid,
     ) -> bool {
-        AlphaShareEpoch::<T>::get((hotkey, coldkey, netuid))
-            != AlphaSharePoolEpoch::<T>::get(hotkey, netuid)
+        let pool_epoch = AlphaSharePoolEpoch::<T>::get(hotkey, netuid);
+        // A pool that has never been closed has no stamped rows; skip the row read.
+        pool_epoch != 0 && AlphaShareEpoch::<T>::get((hotkey, coldkey, netuid)) != pool_epoch
     }
 
     /// Validate add_stake user input
@@ -1682,19 +1683,20 @@ impl<T: Config> SharePoolDataOperations<AlphaShareKey<T>>
             Alpha::<T>::remove((&self.hotkey, key, self.netuid));
         }
 
+        let pool_epoch = AlphaSharePoolEpoch::<T>::get(&self.hotkey, self.netuid);
         if !share.is_zero() {
             AlphaV2::<T>::insert((&self.hotkey, key, self.netuid), share);
             // Stamp the row with the pool's epoch so it stays readable until the pool is
-            // next closed. Epoch 0 is the default and needs no row.
-            let pool_epoch = AlphaSharePoolEpoch::<T>::get(&self.hotkey, self.netuid);
-            if pool_epoch == 0 {
-                AlphaShareEpoch::<T>::remove((&self.hotkey, key, self.netuid));
-            } else {
+            // next closed. Epoch 0 is the default: a never-closed pool has no stamped rows,
+            // so nothing needs writing.
+            if pool_epoch != 0 {
                 AlphaShareEpoch::<T>::insert((&self.hotkey, key, self.netuid), pool_epoch);
             }
         } else {
             AlphaV2::<T>::remove((&self.hotkey, key, self.netuid));
-            AlphaShareEpoch::<T>::remove((&self.hotkey, key, self.netuid));
+            if pool_epoch != 0 {
+                AlphaShareEpoch::<T>::remove((&self.hotkey, key, self.netuid));
+            }
         }
     }
 

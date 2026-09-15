@@ -1704,6 +1704,9 @@ fn test_migrate_fix_root_pot_shortfall() {
     use crate::migrations::migrate_fix_root_pot_shortfall::{
         MIGRATION_NAME, migrate_fix_root_pot_shortfall,
     };
+    use crate::migrations::migrate_total_alpha_staked::{
+        TotalAlphaStakedMigration, TotalAlphaStakedProgress,
+    };
 
     new_test_ext(1).execute_with(|| {
         const TAO: u64 = 1_000_000_000;
@@ -1798,6 +1801,24 @@ fn test_migrate_fix_root_pot_shortfall() {
         let total_stake_before = TotalStake::<Test>::get().to_u64();
         let alpha_out_before = SubnetAlphaOut::<Test>::get(NetUid::ROOT);
         assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+
+        // The migration reads the live O(1) aggregate, which tracks the per-hotkey map.
+        assert_eq!(
+            TotalAlphaStaked::<Test>::get(NetUid::ROOT).to_u64(),
+            root_holdings()
+        );
+
+        // While the aggregate backfill is still running the migration defers: nothing is
+        // minted and the marker stays unset so it retries at the next upgrade.
+        TotalAlphaStakedMigration::<Test>::put(TotalAlphaStakedProgress { cursor: Vec::new() });
+        migrate_fix_root_pot_shortfall::<Test>();
+        assert!(!HasMigrationRun::<Test>::get(MIGRATION_NAME.to_vec()));
+        assert_eq!(TotalIssuance::<Test>::get().to_u64(), total_issuance_before);
+        assert_eq!(
+            SubtensorModule::get_coldkey_balance(&root_pot).to_u64(),
+            stake_b - gap
+        );
+        TotalAlphaStakedMigration::<Test>::kill();
 
         let weight = migrate_fix_root_pot_shortfall::<Test>();
         assert!(!weight.is_zero());

@@ -1,3 +1,4 @@
+use super::migrate_total_alpha_staked;
 use super::*;
 use alloc::string::String;
 use frame_support::traits::Imbalance;
@@ -15,6 +16,11 @@ pub(crate) const MIGRATION_NAME: &[u8] = b"migrate_fix_root_pot_shortfall";
 /// `sum(TotalHotkeyAlpha[·, 0]) - SubnetTAO[0]`, mints it into the root subnet account and
 /// raises `SubnetTAO[0]` and `TotalStake` by the same amount. Minting (rather than only
 /// bumping counters) is required because the account itself is physically short.
+///
+/// The sum is read from `TotalAlphaStaked[0]`, the O(1) aggregate that every
+/// `TotalHotkeyAlpha` write keeps in step, so the upgrade block does no map walk. If that
+/// aggregate's backfill has not finished the migration leaves its marker unset and retries
+/// at the next upgrade instead of scanning.
 ///
 /// Idempotent: guarded by `HasMigrationRun`, and a re-run would find a zero gap anyway.
 pub fn migrate_fix_root_pot_shortfall<T: Config>() -> Weight {
@@ -34,39 +40,63 @@ pub fn migrate_fix_root_pot_shortfall<T: Config>() -> Weight {
         String::from_utf8_lossy(&migration_name)
     );
 
-    // Exact root holdings: every hotkey's alpha on netuid 0 (root alpha is TAO 1:1).
-    let mut holdings = TaoBalance::ZERO;
-    let mut rows_read: u64 = 0;
-    for (_, netuid, alpha) in TotalHotkeyAlpha::<T>::iter() {
-        rows_read = rows_read.saturating_add(1);
-        if netuid.is_root() {
-            holdings = holdings.saturating_add(alpha.to_u64().into());
-        }
+    weight = weight.saturating_add(T::DbWeight::get().reads(1));
+    if migrate_total_alpha_staked::in_progress::<T>() {
+        log::error!(
+            "Migration '{}' deferred: TotalAlphaStaked backfill still in progress, root holdings are not yet aggregated.",
+            String::from_utf8_lossy(&migration_name)
+        );
+        return weight;
     }
+
+    // Exact root holdings: sum of every hotkey's alpha on netuid 0 (root alpha is TAO 1:1),
+    // maintained live in TotalAlphaStaked.
+    let holdings: TaoBalance = TotalAlphaStaked::<T>::get(NetUid::ROOT).to_u64().into();
     let recorded = SubnetTAO::<T>::get(NetUid::ROOT);
-    weight = weight.saturating_add(T::DbWeight::get().reads(rows_read.saturating_add(1)));
+    weight = weight.saturating_add(T::DbWeight::get().reads(2));
 
     let gap = holdings.saturating_sub(recorded);
-    log::info!(
-        "Root holdings = {holdings}, SubnetTAO[0] = {recorded}, shortfall = {gap} ({rows_read} TotalHotkeyAlpha rows scanned)"
-    );
+    log::info!("Root holdings = {holdings}, SubnetTAO[0] = {recorded}, shortfall = {gap}");
 
     if gap.is_zero() {
         log::info!("Root pot is not short; nothing to top up.");
     } else if let Some(root_pot) = Pallet::<T>::get_subnet_account_id(NetUid::ROOT) {
+        let issuance_before = TotalIssuance::<T>::get();
         let credit = Pallet::<T>::mint_tao(gap);
         let minted = credit.peek();
         match Pallet::<T>::spend_tao(&root_pot, credit, minted) {
             Ok(_) => {
                 SubnetTAO::<T>::mutate(NetUid::ROOT, |tao| *tao = tao.saturating_add(minted));
                 TotalStake::<T>::mutate(|total| *total = total.saturating_add(minted));
-                weight = weight.saturating_add(T::DbWeight::get().reads_writes(3, 4));
+                weight = weight.saturating_add(T::DbWeight::get().reads_writes(4, 4));
                 log::info!(
                     "Minted {minted} into the root pot; SubnetTAO[0] and TotalStake raised by the same amount."
                 );
                 if minted < gap {
                     log::warn!(
                         "Issuance cap allowed only {minted} of the {gap} shortfall to be minted."
+                    );
+                }
+
+                // Post-conditions: counter matches holdings, the account backs the counter,
+                // and issuance moved by exactly what was minted.
+                let counter_after = SubnetTAO::<T>::get(NetUid::ROOT);
+                let pot_after = Pallet::<T>::get_coldkey_balance(&root_pot);
+                let issuance_after = TotalIssuance::<T>::get();
+                weight = weight.saturating_add(T::DbWeight::get().reads(3));
+                if counter_after != holdings {
+                    log::error!(
+                        "Root pot reconciliation left SubnetTAO[0] = {counter_after} but holdings = {holdings}"
+                    );
+                }
+                if pot_after < counter_after {
+                    log::error!(
+                        "Root pot account {pot_after} still below SubnetTAO[0] = {counter_after} after top-up"
+                    );
+                }
+                if issuance_after != issuance_before.saturating_add(minted) {
+                    log::error!(
+                        "TotalIssuance moved from {issuance_before} to {issuance_after}, expected +{minted}"
                     );
                 }
             }
